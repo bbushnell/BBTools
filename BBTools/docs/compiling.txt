@@ -1,0 +1,6 @@
+To install BBTools, unzip it (typically with the command "tar -xzf BBMap_38.20.tar.gz") and it will run as long as Java is installed.
+
+BBTools has 4 components:
+1) Java code.  This is the bulk of the code and all that is strictly necessary.  It is already compiled for Java 6+ and does not need recompiling.  Most BBTools can run in Java 6, and all of them can run in Java 7 or higher.  No components will work with Java versions below 6.
+2) Bash shellscripts.  These are present to make it easier to invoke the Java code (by automatically detecting and setting memory limits, for example).  If you are not using Bash and Linux, then the shellscripts probably won't work, but you can still invoke the Java code from the command line.  Shellscripts are interpreted and do not require compiling.  They should work in Windows 10 now, in addition to Linux and MacOS.
+3) C code.  This was developed by Jonathan Rood to accelerate BBMap, BBMerge, and Dedupe, but is currently disabled.

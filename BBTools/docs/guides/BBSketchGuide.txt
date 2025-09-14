@@ -1,0 +1,273 @@
+BBSketch Guide
+Written by Brian Bushnell
+Last updated February 9, 2017
+
+
+Quick Start
+
+The most typical way to use BBSketch is to download and unzip the BBMap package, and then run SendSketch on your data:
+
+sendsketch.sh in=assembly.fasta
+or
+sendsketch.sh in=reads.fq.gz reads=400k
+
+
+
+Overview
+
+BBMap’s Sketch tools use a technique called MinHash to rapidly compare large sequences.  The result is similar to BLAST – a list of hits from a query sequence to various reference sequences, sorted by similarity – but the mechanisms are very different.  Sketch is designed to be extremely fast (potentially thousands of times faster than BLAST) while having a very low disk and memory footprint, but gives more approximate results and does not produce alignments.  The sensitivity is typically lower compared to alignment when seeking remote homology, though default parameters are adequate to identify the species of a raw PacBio library (~85% identity to reference), and detect homology between full bacterial genomes with 76% identity.  The Sketch tools support both nucleotide and amino acid sequences.
+
+
+Theory
+
+Sketch creation works like this:
+
+1) Gather all length-K kmers in a sequence.
+2) Apply a hash function to them.
+3) Keep the N smallest hash codes and call this set a "sketch".
+
+A hash code is a number generated from a sequence using a hash function.  For example, consider the genome ACGTTA.  This could be broken into 3 overlapping tetramers: ACGT, CGTT, GTTA.  A hash function might transform ACGT -> 27, CGTT -> 97, and GTTA -> 42.  In this case, if you were generating a sketch of fixed size 2, the two lowest (27 and 42) would be kept, and the other discarded.  In practice, a kmer length of 31 is typically used, genomes tend to contain millions of kmers, and sketches use a fixed size of typically 10,000.
+
+Once a reference database such as RefSeq is converted to sketches, unknown query sequence such as a bacterial assembly can be compared to it by converting the sequence into a sketch, and comparing that sketch to all reference sketches.  The result is the kmer identity, or the approximate fraction of 31-mers the query shares with each reference sequence.  This strongly correlates with sequence identity, and thus can be used as an approximation for relatedness.
+
+For two sequences A and B with size N and M, comparing them using alignment traditionally requires O(N*M) operations.  However, the sketches of A and B each have fixed size S (where S<<N and S<<M).  Sketch comparison is time linear to sketch size – comparing the sketches of A and B requires only O(S) operations.  Since S is a constant, unaffected by input size, this can be simplified to O(1).   Furthermore, when comparing a query sketch to a huge set of reference sketches, it is not necessary to directly compare it to all of them – only those with which it shares kmers, which can be rapidly calculated by indexing the sketches.  This allows reducing the reference sketch set  to only the subset of reference sketches related to the query in O(S*R) operations, where S is sketch size and R is the number of related sketches (which share a kmer with the query).  Again, since S is a constant, this is simplified to O(R); and in practice, R is small so the time needed to look up each kmer (a memory random access) dominates the time needed to iterate through all elements containing that kmer (memory sequential access), so this reference sketch set reduction takes an expected O(1) time.  The actual comparison to the members of the reduced set is still O(R).
+
+In essence, this means that whether you have a database of 3k organisms of size 300kbp each and a 30kbp query, or 2m organisms of size 200Mbp each and a 2Gbp query, the expected amount of time needed to compare the query to the database is only affected by the number of organisms related to the query.  So if the tiny database had more organisms related to the query than the huge database, the huge database would be faster than the tiny database.  A corollary is that adding unrelated sequences to the reference does not affect query time.
+
+
+Installation
+
+Download and unzip the BBMap package from https://sourceforge.net/projects/bbmap/
+Depends on Java 1.7 or higher.  The shellscripts require bash, but are just for convenience.
+
+
+Usage
+
+The Sketch tools consist of 4 programs – SketchMaker, CompareSketch, SendSketch, and TaxServer, accessed through their respective shellscripts sketch.sh, comparesketch.sh, sendsketch.sh, and taxserver.sh.  It is possible to sketch and compare two random fasta files with the command “comparesketch.sh in=x.fa ref=y.fa”, but in general, usage would follow this pattern:
+First, sketch a reference database, either creating one sketch per sequence:
+
+   sketch.sh in=refseq.fa.gz out=refseq#.sketch files=31 mode=sequence
+
+Or one sketch per taxid (aggregated at some level, like subspecies):
+
+   sketch.sh in=refseq.fa.gz out=refseq#.sketch files=31 mode=taxa tree=tree.taxtree.gz gi=gitable.int1d.gz taxlevel=subspecies
+   
+See /pipelines/fetchNt.sh and /pipelines/fetchRefSeq.sh to see how this is done for nt on Genepool.  On other systems you have to use file paths (rather than auto) for tree, gi, and accession (see /pipelines/fetchTaxonomy.sh for how to make local copies).
+This will create thousands of reference sketches, packed into 31 files.  Making multiple files is optional but allows faster loading.  tree.taxtree.gz and gitable.int1d.gz are created using NCBI’s taxdump files; please see TaxonomyGuide.txt for details, or the “Taxonomy Files” section below.  They are necessary to group sequences by taxid by parsing the sequence headers (in taxa mode), but are not necessary when sketching in per-sequence mode.  When parsing headers for taxonomy, Sketch tools currently support NCBI’s naming format or Silva’s naming format.  Accession numbers are also supported.
+Once the reference has been sketched, you can compare things to it using CompareSketch:
+
+   comparesketch.sh in=assembly.fa refseq*.sketch
+
+This will list the reference sketches that best match the assembly.  Alternatively, the query can be processed on a per-sequence basis, giving lists of top hits for each contig:
+
+   comparesketch.sh in=assembly.fa refseq*.sketch mode=sequence
+
+Each of these will load all the reference sketches and compare the query sketch(s) to them.  It's also possible to do all-to-all comparisons like this:
+
+   comparesketch.sh alltoall refseq*.sketch
+
+With a large reference set and only a single query, the time will be dominated by loading the reference.  To circumvent this, it is possible to maintain the reference set in memory in a server, accessible via http queries: 
+
+   taxserver.sh port=1234 tree.taxtree.gz gi=gitable.int1d.gz refseq*sketch 1>log.o 2>&1 &
+
+This loads the RefSeq sketches into memory, and listens on port 1234.  To query them, you would use SendSketch:
+
+   sendsketch.sh in=assembly.fa address=http://localhost:1234/sketch
+
+There are persistent instances of TaxServer running at JGI at these addresses:
+
+   https://nt-sketch.jgi-psf.org/sketch
+   https://refseq-sketch.jgi-psf.org/sketch
+   https://ribo-sketch.jgi-psf.org/sketch
+
+Rather than specifying the full address, they can be accessed using the flags "nt", "refseq", or "ribo"/"silva" (the default is nt).  Those flags will automatically load the proper blacklist.  For example:
+
+   sendsketch.sh in=assembly.fa
+   sendsketch.sh in=assembly.fa refseq
+   sendsketch.sh in=assembly.fa silva
+
+  
+Setting up Servers
+
+You can run your own local Sketch servers.  Please see /pipelines/fetchTaxonomy.sh, /pipelines/fetchNt.sh, and /pipelines/startNtServer.sh for examples of how this is done at JGI for the nt dataset.  The only important thing to note, as mentioned in the header of fetchNt.sh, is that you need to add the flag "taxpath=X" all the BBTools commands in fetchNt.sh and startNtServer.sh, where X is the path to wherevery you downloaded the taxonomy information with fetchTaxonomy.sh.
+   
+
+Assemblies and Reads
+
+BBSketch works best with assembled genomes or transcriptomes, because the quality is generally better than reads, making some metrics like genome size and completeness more accurate.  But BBSketch works fine for identifying the primary organisms from reads as well.  This includes Illumina, PacBio, Ion Torrent, and Nanopore.  With an assembly, running SendSketch on the full assembly with no other parameters is typically best.  But with raw reads usually contain more coverage than is needed, which slow and pollutes the sketch with error kmers.  Therefore, with Illumina or Ion Torrent I suggest settings like:
+
+   sendsketch.sh in=reads.fq reads=1m samplerate=0.5 minkeycount=2
+
+This samples 50% the first 1 million reads (or pairs) to use for kmers, which is plenty for bacteria and is very fast (more reads may be desired for larger organisms or metagenomes).  "minkeycount=2" discards keys (hashed kmers) that have been seen fewer than 2 times, indicating they are lightly errors, which increases both sensitivity and specificity for sketches of limited size, when you are interested in the primary organism.  If you are interested in low-level contaminants that flag should not be used (minkeycount=1 is the default).
+For long, high error-rate reads such as PacBio and Nanopore, it may be useful to use greater coverage and a longer sketch size, and possibly remove the min key count.  e.g.:
+
+   sendsketch.sh in=PacBio.fq reads=100k size=200k
+
+It's fast enough to allow experimentation for best results; the main parameters to adjust when dealing with raw reads are "reads", "samplerate", "size", and "minkeycount".
+
+
+Blacklists and Whitelists
+
+Some kmers that are low-complexity (such as poly-A) or highly conserved (such as the parts of ribosomes used for primers) are uninformative for sequence comparison.  Using those in sketches will inflate the apparent relatedness of different organisms, leading to spurious hits.  They can be ignored by creating a blacklist - a sketch of kmers that will not be used in other sketches.  The blacklist is needed both for query and reference sketches, so if a blacklist will be used, all programs need to use it - sketch.sh, comparesketch.sh, taxserver.sh, sendsketch.sh.  Since the JGI taxonomy servers use blacklists, these are also distributed with BBTools (e.g. /resources/blacklist_nt_species_1000.sketch).  Alternatively, in whitelist mode, the only query kmers that are sketched are those present in at least one reference sketch.  This is useful for specific comparisons like a whole genome versus Silva (a ribosomal database), in which the majority of query kmers are irrelevant since they are not ribosomal.  Both blacklists and whitelists impact the estimated genome size (number of unique kmers in the genome), making appear smaller than normal.  For example, in whitelist mode with ribosomal data, the estimated genome size would not be very useful, as it would only be calculated from kmers that appear in variable regions of ribosomes, but is based on math assuming that it is derived from all genomic kmers.
+You can make blacklists like this (again, the flag "taxpath=X" will need to be added for taxonomy support):
+
+   sketchblacklist.sh in=sorted.fa.gz prepasses=1 tree=auto taxa taxlevel=species ow out=blacklist_nt_species_1000.sketch mincount=1000
+
+That will make a sketch of all kmers that occur in at least 1000 different species in the file "sorted.fa.gz", which has already had its sequences prefixed with TaxID's as demonstrated in fetchNt.sh.  Subsequently you can use it like this:
+
+   sketch.sh in=sorted.fa.gz out=taxa#.sketch mode=taxa tree=auto accession=null gi=null files=31 ow unpigz minsize=300 prefilter autosize blacklist=blacklist_nt_species_1000.sketch
+
+and then, for comparison:
+
+   comparesketch.sh in=query.fa taxa*.sketch blacklist=blacklist_nt_species_1000.sketch
+
+Generally, you do not need to specify a blacklist with SendSketch.  "sendsketch.sh in=file.fa nt" will automatically use the nt blacklist.  The Silva server is running in both blacklist and whitelist mode.  But, whitelist mode can only be used when queries are run locally (on NERSC) with the "local" flag, because the reference sketches must be available when sketching the query.  Remote users may still send queries to the Silva server, but they will be in blacklist mode; for that purpose, I suggest making the query sketch much larger than normal (e.g. "size=100k") so that some ribosomal kmers will be present in the sketch by chance, and adding "minkeycount=2" to reduce the number of error kmers if using raw reads.
+
+   
+Multi-Kmer Support
+
+BBSketch supports 1 or 2 kmer lengths.  For dual kmer lengths, the shorter has to be a multiple of 4; e.g. k=31,24 or k=20,26.  This is possible with no loss of speed in comparison, and minimal loss (~20%) for sketching.  When comparing two random sequences with a specific average nucleotide identity (ANI), the probability of a kmer being shared is ANI^k.  So shorter kmers are more sensitive for finding homology between more distantly related organisms.  However, longer kmers have better specificity.  Dual kmers are designed to allow the sensitivity of the shorter kmer while retaining most of the specificity of the longer kmer.
+When using SendSketch and a remote server, both SendSketch and the remote server need the same kmer length or pair of kmer lengths.  This is order-insensitive - "k=31,24" is equivalent to "k=24,31" but not to "k=24" or "k=31".  Technically, you can compare k=31 query sketches against k=31,24 reference sketches and produce useful results (just half the expected number of hits), but this usage is disallowed.
+
+
+Colors
+
+Records are colored by taxonomy if available, at the family level, by default (this can be changed with e.g. "colorlevel=phylum").  The colors assigned to a taxa are random and there are only 11 available so some will match even if the taxa differ.  Colors display fine in most consoles but will cause some strange symbols to appear in some text editors.  To disable colors, add the flag colors=f.
+Because adjacent records with the same taxonomy will share a color, outliers are more visually obvious.  However, a solid block of a single color does not necessarily mean everything in the block has the same taxonomy (at the colorlevel), since there are a limited number of colors.  To prevent confusion, if two adjacent records have the same color, but different taxonomy at the colorlevel, the bottom record will be underlined.  Therefore, underlined records indicate they just happen to share a color with the record above but are taxonomically distinct.
+
+
+Sketch Size
+
+By default, sketches are generated with autosize enabled.  This yields variable sketch sizes (in kmers) based on genome size - around 120 for ribosomal sketches, 10000 for bacteria, and 40000 for vertebrates.
+You can use "size=10k", for example, to disable autosize and force all sketches to be exactly 10k (10000) long.  Alternately, you can use "autosizefactor=2" (or whatever factor you choose) to make all sketches twice as big as they would normally be based on autosize.  
+Doubling reference sketch size will double memory requirements, probably approximately double query time, and increase sensitivity, particularly for short sequences (like when assigning taxonomy to individual contigs).  Reference and query sketches can be different lengths without causing any problems for ANI or completeness calculations.  But in order to increase sensitivity, it's best to match reference and query settings; for example, if you are comparing a query bacterial genome to a reference set of bacterial sketches, you will roughly double sensitivity if sketch.sh is run with "autosizefactor=2" for the references and comparesketch.sh is run with "autosizefactor=2" for the query.  But if you just use "autosizefactor=2" for the query but not the reference, or the reverse, sensitivity will not be increased.
+Sketch size is also impacted by the maxgenomefraction flag.  The default, 0.01, means that no matter what you set "size" or "autosizefactor" at, the sketch length will be at most 1% of the length of the sequence (so, a 1460bp ribosomal sequence will yield at most a sketch of length 14; this is not long enough, so Silva was sketched with "maxgenomefraction=0.1").
+Also, no sketches will be generated for sequences/genomes smaller than minsize (default 100).  This is the total length of all the sequence going into a sketch, so if you are using 1 million reads of 50bp each in single-sketch mode, the relevant size here would be 50000000 (which is above the default cutoff), not 50.  Very short sequences do not work very well with sketching; for example, at default settings, a bacterial genome will only be represented by roughly 1 kmer every 300 bp.  A human-size genome would only be represented by 1 kmer every 100kbp or so.  Thus, with the default minimum of only displaying organisms with at least 3 kmer hits, and default sketch autosize, you would expect to not see any results for bacterial sequences shorter than around 900bp or human sequences shorter than around 300kbp.  Ribosomal sketches against a ribo index are OK (if you use mgf=0.1), though, because the ribosomal reference sketches have a high kmer density.
+
+(TODO: subsketch.sh)
+
+Depth
+
+BBSketch can store per-kmer depth in sketches, indicating how many times that kmer was seen in the sequence.  For a reference fasta, that would mean the number of times the kmer occurs in the genome; for reads, that's the number of times it was observed in the reads, which can be used to estimate the coverage of a genome.  Adding the "depth" or "depth2" flag when processing reads will cause kmers to be counted and the counts stored in the sketch, and cause the resulting columns to be printed in the results.
+For example, using 10k mutated E.coli reads pairs, "sendsketch.sh in=10k.fq depth depth2" would send a sketch that contains query counts.  The query kmers (8233 of them) in this case had an average count of 1.282, reported as "AvgCount" in the query result header, along with a "Depth" of 0.502.  The difference is that 0.502 is derived from a formula fitted to the actual kmer depth of a genome as a function of the observed kmer count, on the assumption that reads are randomly distributed, from simulation.  When AvgCount is high (above 10) these numbers are almost identical because the genome is mostly covered, but as coverage drops, AvgCount asymptotically approaches 1 as actual Depth approaches 0 (since observed kmers allways occur at least once).  They are only equal when all genomic kmers are observed.
+The intersection of the query sketch with the top hit reference sketch yield 10 shared kmers and report 0.362 as Depth and 0.362 also as Depth2.  "Depth", in this case, is derived from the the counts only of those 10 kmers shared with that reference sketch, rather than all 8233 query sketches.  The average count of those kmers is 1.200 (not shown, but it can be displayed with the flag "actualdepth=f"), but 0.362 is displayed as a result of the correction formula from observed to actual depth.  Depth2 is "Repeat-compensated depth", in which the Depth of 0.362 is divided by the average count of the shared reference kmers.  In this case, all 10 occured exactly once in the reference so Depth equals Depth2.  But if, say, those had been ribosomal kmers that each occured 7x in the genome, Depth2 would be divided by 7 for an estimated average genome kmer depth of 0.052.  Depth2 can only be calculated if kmer counts were tracked during both reference sketch generation AND query sketch generation.
+Depth calculations make certain assumptions.  For instance, Depth2 assumes that the reference genome is complete and present as a single copy.  Translating AvgCount to Depth assumes reads are randomly distributed.  Implicit in this is that duplicates occur as expected at random; so amplification, optical duplicates, and overlapping read pairs - each of which present the same physical nucleotides more than once - will ruin the calculation by making high-copy kmers more common.  Overlapping paired reads can be addressed by merging (see below).
+
+
+Merging and Minprob
+
+BBMerge is integrated into BBSketch for use with paired reads.  Adding the flag "merge" will run BBMerge on each read pair, using the merged single read if they overlap sufficiently, or the individual reads if not.  This has several advantages - one, it substantially improves quality, improving sensitivity, specificity, and the ANI estimate; two, it eliminates adapter sequence; and three, it combines redundant sequence.  This allows a kmer present in the overlapping part of a read pair to be counted as 1 observation rather than 2 observations, which improves the depth estimation.
+Minprob can also be useful with noisy data, to prevent sketching low-quality kmers that probably contain errors.  The default minprob=0.0001 is extremely low to prevent raw Nanopore and PacBio data from being 100% discarded.  For Illumina, a higher value of minprob=0.2 can substantially improve the ANI estimate from raw reads.
+
+
+Entropy
+
+Entropy is a measure of the information content of sequence.  Low-entropy sequence is more likely to randomly match, while high-entropy sequence is more specific; for example, ACACACACACACACAC is much more common than nonrepetitive kmers of similar length, particularly in Eukaryotes.  So, if you sketch Octopus reads and find that 0.1% of them also hit Rat, Drosophila, and Danio, that does not mean the octopus ate a bunch of other lab animals prior to being sequenced.  Rather, the shared kmers are low-entropy and uninformative.
+BBSketch has a default entropy filter value of 0.66 on a 0-1 scale, in which homopolymonomers (AAAAAA...AAAA) get a 0 and 31-mers in which all substrings of length 3 are unique get a 1.  Kmers with entropy content below the cutoff are not used in sketching.  This removes perhaps 95% of these uninformative sequences observed as shared between octopus, vertebrates, insects, and other unrelated clades, but not all.  You can eliminate virtually all of them with a stricter "minentropy=0.8" if desired.  However, dropping below 0.66 with SendSketch does not do much because the JGI server reference sketches were already generated with "minentropy=0.66".  Entropy still has an effect on the apparent genome size, though.
+
+
+Security
+
+BBSketch offers no security guarantees, and it is not recommend that you send confidential data to a 3rd-party server.  If you want to use BBSketch on confidential data I recommend you use CompareSketch or set up a local server rather than sending queries to JGI.  That said, SendSketch does not transmit any sequence data; it only transmits sketches, from which it is generally impossible to recover the complete original input data (you can invert the hashes of individual kmers matching a reference if you have the correct reference, though).  To my knowledge, sketches transmitted to the JGI servers are not retained or stored, and they are generally useless without metadata indicating what they are supposed to be.
+
+
+Examples
+
+This is an example of using SendSketch to sketch a mutated fraction of the Meiothermus silvanus genome and send it to JGI’s nt sketch server.  The server compares it to nt, and reports the top hits.
+
+   sendsketch.sh in=Msilvanus_99_half.fa
+
+Loaded 1 sketches in    0.245 seconds.
+
+Results for Msilvanus_99_half.fa:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+71.05%	36.65%	98.90%	51.58%	0.02%	3719	10146	526227	3505922	3729165	Meiothermus silvanus DSM 9946
+75.00%	0.07%	99.08%	100.00%	46.03%	6	8094	167876	1439	1443	bacterium S119
+75.00%	0.07%	99.08%	100.00%	46.03%	6	8094	873128	1364	1380	Meiothermus sp. Pnk-1
+71.43%	0.06%	98.92%	100.00%	46.05%	5	8094	454175	1319	1333	Meiothermus sp. P266
+0.89%	0.53%	85.86%	21.55%	63.77%	51	9684	504728	3030337	6198707	Meiothermus ruber DSM 1279
+0.80%	0.07%	85.59%	100.00%	46.03%	6	8094	1402530	165119	601773	Pseudomonas aeruginosa BWHPSA038
+0.56%	0.07%	84.58%	100.00%	46.03%	6	8094	1448601	245689	1346938	Mycobacterium tuberculosis TKK_04_0149
+
+Total Time:     0.646 seconds.
+
+In this case, the top hits are Meiothermus silvanus DSM 9946 and a few Meiothermus ribosomal sequences.
+
+
+Meaning of Columns
+
+KID:      Kmer IDentity, equal to matches/length; this is the fraction of shared kmers.
+WKID:     Weighted Kmer IDentity, which is the kmer identity compensating for differences in size.  So, comparing human chr1 to the full human genome would yield 100% WKID but approximately 10% KID.
+Depth:    Estimated genomic kmer coverage depth based on the average number of occurences of kmers in query sketch for those kmers matching the reference sketch.
+Depth2:   Depth compensated for repeat kmers in the reference genome.
+Volume:   Sum of query counts of shared kmers, equal to the number of total (rather than unique) reference kmers that occured in the query sequence, divided by 1000 (for formatting).
+Matches:  The number of shared kmers between query and ref.
+Unique:   The number of shared kmers between query and ref, and no other ref.
+noHit:    Number of kmers that did not hit any reference sequence.  Though constant for a query, it will be reported differently for different references based on the relative size of the reference and query (if the reference is bigger than the query, it will report all of them).
+Length:   The number of kmers compared.  This is usually the length of either the query or the ref sketch; comparison stops when the end of either sketch is reached, regardless of how long the other sketch is.
+TaxID:    NCBI taxonomic id, when available.
+gSize:    Estimate of genomic size (number of unique kmers in the genome).  This is based on the smallest hash value in the list.  This is affected by blacklists or whitelists, entropy, and by using an assembly versus raw reads.
+gKmers:   Total number of kmers for that reference sequence.  This can be much higher than gSize.
+gSeqs:    Number of sequences used in the sketch.
+TaxName:  NCBI's name for that taxID.  If there is no taxID, the sequence name will be used.
+
+ANI:      Average Nucleotide Identity, derived from WKID and kmer length.
+Complt:   Genome completeness (percent of the reference represented in the query).  Derived from WKID and KID.
+Contam:   Contamination (percent of the query that does not match this reference, but matches some other reference).
+uContam:  Contaminant kmer hits that hit exactly one reference sketch.
+Score:    Not printed by default; this is used to determine the sort order and can be enabled with "printscore".
+
+
+Accuracy of ANI, Complt, and Contam
+
+These three numbers are interdependent; each is based on assumptions about the other two (generally, that ANI=100%, complt=100%, and contam=0%).  The metrics are robust to one of these assumptions being violated (such as low identity but 100% completeness and zero contamination) but when multiple assumptions are violated (such as a contaminated, incomplete assembly with low identity to the reference) then they diverge from the truth.
+
+To demonstrate this effect, these are the results for comparing an E.coli genome under various conditions. Ecoli_100 is the full E.coli genome.  Ecoli_99 is the full genome mutated to 99% identity.  Ecoli_99_half is half of Ecoli_99.  Ecoli_99_half_Msilvanus_99_half is a combination of Ecoli_99_half and Msilvanus_99_half, representing a contaminated incomplete 99% identity genome.  Ecoli_90_half_Msilvanus_90_half is the same but at 90% identity.
+
+
+Results for Ecoli_100:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+100.00%	100.00%	100.00%	100.00%	0.00%	11061	11061	511145	4525857	4639645	Escherichia coli str. K-12 substr. MG1655
+
+No assumtions are violated so the answer is correct.
+
+
+Results for Ecoli_99:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+73.11%	72.98%	98.99%	98.33%	1.84%	8075	11065	511145	4525857	4639645	Escherichia coli str. K-12 substr. MG1655
+
+At 99%, 1 assumption is violated.  ANI is still correct, but complt and contam are off slightly (particularly because it's E.coli; mutant kmers are likely to randomly match some other copy of E.coli in the database, because it contains thousands of strains).  
+
+
+A more typical case is this:
+
+Results for Msilvanus_99.fa:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+73.48%	71.41%	99.01%	100.00%	0.09%	7276	10189	526227	3505299	3721579	Meiothermus silvanus DSM 9946
+
+Here, ANI, complt, and contam are all very accurate because mutant Msilvanus kmers are unlikely to match other references, since the database does not contain thousands of strains of Msilvanus.
+
+
+Results for Ecoli_99_half:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+72.49%	36.87%	98.97%	49.56%	2.56%	4048	10979	1245474	4430463	4558633	Escherichia coli ER2796
+
+Here we have 2 assumptions violated, but the results are still fairly good, aside from the incorrectly high contamination which is now caused both by the huge number of sequenced E.coli strains, and the fact that it's hitting a different strain (ER2796 instead of K-12).
+
+
+Results for Ecoli_99_half_Msilvanus_99_half:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+40.30%	36.87%	97.11%	61.40%	32.89%	4048	10979	1245474	4430463	4558633	Escherichia coli ER2796
+36.56%	31.59%	96.81%	67.58%	41.60%	3369	10664	526227	3505299	3721579	Meiothermus silvanus DSM 9946
+
+Now we have violated 3 assumptions.  The contam numbers are too low (should be around 50%), the ANI is too low (should be 99%), and the complt is too high (should be 50%).  But they are still reasonably close to the truth.
+
+
+Results for Ecoli_90_half_Msilvanus_90_half:
+WKID	KID	ANI	complt	contam	matches	length	taxID	gSize	gKmers	taxName
+2.35%	2.19%	88.61%	90.93%	2.35%	242	11055	562	4520688	4599672	Escherichia coli
+2.20%	1.83%	88.41%	100.00%	2.84%	197	10741	526227	3505299	3721579	Meiothermus silvanus DSM 9946
+
+Now in addition to violating 3 assumptions, the identity is particularly low, so there is more divergence from the truth.  ANI should be 90%, and it's very close, but complt should be 50% and contam should be around 50%; both are completely incorrect.
+
+In summary, the estimates are very useful, but should be used with an understanding of these limitations.  They can be disabled with the flags "printani=f" and so forth.

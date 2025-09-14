@@ -1,0 +1,16 @@
+#Histograms, for BBMap
+bhist.txt
+qhist=qhist.txt
+aqhist=aqhist.txt
+qahist=qahist.txt
+bqhist=bqhist.txt
+qchist=qchist.txt
+lhist=lhist.txt
+ihist=ihist.txt
+ehist=ehist.txt
+indelhist=indelhist.txt
+mhist=mhist.txt
+gchist=gchist.txt
+gcbins=auto
+idhist=idhist.txt
+idbins=auto

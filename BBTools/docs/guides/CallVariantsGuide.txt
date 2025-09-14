@@ -1,0 +1,133 @@
+CallVariants Guide
+Written by Brian Bushnell
+Last updated March 22, 2017
+
+
+CallVariants is a high-speed, multithreaded variant caller that can input sam or bam files, and output VCF files.  It is capable of indel realignment, multi-sample variant-calling, and processing samples with arbitrary ploidy.
+
+CallVariants was originally developed for use with CalcTrueQuality and BBDuk for mapping-based quality-score recalibration and error-rate analysis in the presence of heterozygous mutations.  As such, CalcTrueQuality can call (and ignore) variants automatically using CallVariants, and BBDuk can accept VCF files and ignore known variants when calculating error statistics.  But now that it is fully-featured variant caller it has been released as a standalone tool.
+ 
+CallVariants' parameters are described in its shellscript (callvariants.sh).  This file provides feature descriptions and usage examples of various common tasks.
+
+
+*Notes*
+
+
+Input files:
+
+CallVariants requires at least one mapped sam or bam file, and may accept multiple in a comma-delimited list, or as a text file argument to the "list=" flag.  The files may be sorted or unsorted, and may be compressed with gzip or bzip2.  These files should, ideally, have cigar strings in sam 1.4+ format (with = and X in cigar strings instead of M).  However, older cigar strings (with just M) are acceptable as long as the reads have MD tags.  Because CallVariants does not require sorted input, it is possible to stream input directly from a mapping program.
+
+In the default mode, all input files will be considered together as a single sample.  With the "multisample" flag, each input file will be considered as a different sample.  Thus, each input file should have a different name, as the file name becomes the sample name, unless the "sample" flag is used to set sample names.
+
+A reference file is also required.  This is essential for maximal accuracy, to determine the locations of contig ends (which affects strand bias) and homopolymers (which affect error rate).
+
+
+Output files:
+
+CallVariants can output in vcf format with the flag "vcf=file.vcf" or "out=file.vcf".  It can also output native format with the flag "out=file.txt" (note the .txt instead of .vcf extension).  With multisample=f (the default), there will only be one column in the vcf file for all inputs; with multisample=t, there will be one column per input file, showing the depth, score, allele fraction, and whether or not that variant passed the filters for that particular sample.  Additionally, one vcf file will be created per sample containing only that sample's filter-passing variants.
+
+
+Ploidy:
+
+CallVariants supports arbitrary ploidy.  Because it was developed in an institute that mainly deals with haploid organisms, the default ploidy is 1.  Allele fractions lower than those expected for the ploidy (for example, anything below 0.5 for a diploid, or 0.25 for a tetraploid) will incur a score penalty; therefore, when calling variants on non-haploid organisms, it is crucial to set the ploidy!  Ploidy is not a required flag, but I may make it one if I receive feedback that it would be helpful.
+
+
+Mapping and Realignment:
+
+BBMap is the recommended mapping program for CallVariants, but output from any aligner is acceptable.  Reads can be realigned with the "realign" flag.  This is slower, but is highly recommended if the input is from any mapping tool other than BBMap; output from BBMap should not be realigned.
+
+
+Quality score recalibration:
+
+Quality score recalibration is optional, but recommended for maximal accuracy.  An optimal process is described in the usage examples section.
+
+
+Sequencing platform:
+
+The variant quality assignment of CallVariants is currently calibrated for Illumina data, specifically from the NextSeq and HiSeq 2500 platforms.  Any Illumina platform should be fairly similar.  CallVariants will work with any sequencing platform, though (other than Solid colorspace).  PacBio- and Nanopore-specific scoring modes are planned, but currently, those may require manual adjustment of the variant filter settings (particularly minquality, minqualitymax, minscore, and the usequality flag).
+
+
+Filtering and Scoring:
+
+For each variant, statistics are tracked to determine the likelihood that it is real versus error.  These statistics are:
+
+Base quality
+Mapping quality
+Coverage depth
+Allele fraction
+Read identity to reference
+Rate of properly-paired reads
+Distance of variant from read ends
+Strand bias
+Distance of variant from contig ends
+Local homopolymer length
+
+Most of these act as a component of the overall score as well as being usable as a standalone filter.  For example, at default settings, a variant with an allele fraction of 0.05 would get a lower overall score than a variant will allele fraction 0.15.  This means it would be more likely to be filtered on the basis of score.  However, it would already fail based on allele fraction alone, because by default minallelefraction=0.10.
+
+For many, it is possible to disable the impact of the metric on scoring.  For example, with a strand-specific protocol, you should set "minstrandratio=0 usebias=f" to negate the impact of strand bias on scoring or filtering.  You can clear all cutoffs at once with the "clearfilters" flag, and subsequent flags can be used to set them.  For example, "clearfilters minreads=5" would set all of the filters to 0, then set minreads to 5, so all variants that occur at least 5 times would be reported.
+
+
+Pairing:
+
+CallVariants uses pairing rates to help determine variant quality.  This is based on the overall pairing rate observed in the sam file.  However, if single-ended reads are used (or the data has an overall pairing rate of under 50%), the contribution of the variant's pairing rate to its score is negated, and the minpairingrate flag is ignored, so these should not normally need to be adjusted to deal with single-ended data.
+
+
+Memory:
+
+CallVariants will attempt to autodetect the available physical memory and use roughly 85% of it, unless this is overridden with the -Xmx flag.  It needs 5 bytes per reference base to store reference and coverage information, plus a couple hundred bytes per variant (including the ones that will fail filters).  This can become large for large references, or high coverage with a high error rate.  If memory runs out due to large numbers of variants, use the "prefilter" flag.  This will take twice as long, but all variants occurring fewer than "minreads" times (default 2) will be ignored, greatly reducing memory consumption.  In multisample mode, the memory usage should not increase substantially with the number of samples, unless filters are set very loosely.  Realignment takes ~50MB additional memory per thread.
+
+
+Threads, speed, and efficiency:
+
+CallVariants is multithreaded and will use all available processors, unless you manually specify the number of threads to use with the "threads=" flag.  In practice, it is unlikely to scale beyond 8 cores (being rate-limited by reading the input file), unless the "realign" flag is used, in which case all allowed CPUs will be fully saturated.
+
+CallVariants is very fast - the speed is generally limited by reading the input files.  This means that uncompressed sam files, or gzipped sam files with pigz installed, are faster than bam files, because bam files are relatively slow to decompress (at least, prior to samtools 1.4).  Also, unmapped reads and secondary/supplementary alignments are not used, so a file with those reads removed will be faster.  For example, if 99% of your reads are unmapped or 99% of your alignments are secondary, CallVariants would go up to 100x faster when given a file with only the primary alignments of mapped reads, because the input file would be much smaller.  BBMap will produce a file with only mapped reads (and their mates) by using the "outm" flag, and by default it does not produce secondary alignments.
+
+
+*Usage Examples*
+
+Note that in these examples, the ploidy is specific to the organism in question and should be set accordingly.
+
+
+Single-sample variant calling:
+callvariants.sh in=mapped.sam out=vars.vcf ref=ecoli.fa ploidy=1
+callvariants.sh in=lane1.sam,lane2.sam,lane3.sam out=vars.vcf ref=human.fa ploidy=2
+
+Single-sample streaming:
+bbmap.sh in=reads.fq out=stdout.sam ref=ecoli.fa ploidy=1 | callvariants.sh in=stdin.sam out=vars.vcf ref=ecoli.fa
+
+Multi-sample variant-calling:
+callvariants.sh in=sample1.sam,sample2.sam,sample3.sam out=vars.vcf ref=ecoli.fa multisample ploidy=1
+
+Low-frequency variant calling:
+callvariants.sh in=mapped.sam out=vars.vcf ref=human.fa maf=0.02 rarity=0.02 ploidy=2
+
+Raw PacBio variant-calling:
+callvariants.sh in=mapped.sam out=vars.vcf ref=human.fa ploidy=2 minquality=0 minqualitymax=0 minscore=10 usequality=f
+
+Quality score recalibration (be sure to trim adapters first):
+bbmap.sh ref=ref.fa in=reads.fq out=mapped.sam
+callvariants.sh in=mapped.sam out=initial.vcf ref=ref.fa ploidy=1
+calctruequality.sh in=mapped.sam
+bbduk.sh in=mapped.sam out=recal.sam recalibrate
+callvariants.sh in= recal.sam out=final.vcf ref=ref.fa ploidy=1
+
+Restricting the memory and thread usage:
+callvariants.sh in=mapped.sam out=vars.vcf ref=ref.fa ploidy=1 -Xmx10g threads=4 prefilter
+
+This command will use 10 GB RAM (plus some overhead depending on your version of Java) and 4 worker threads (plus some additional threads for I/O and garbage collection).  It will also use the "prefilter" flag to reduce memory demand by not storing variants that only occur once, at the cost of speed.
+
+Calling medium-length insertions with paired reads:
+bbmap.sh ref=ref.fa
+filterbytile.sh in=clumped1.fq.gz out=filtered_by_tile.fq.gz indump=dump.flowcell ud=1.5 qd=1.75 ed=1.75 ua=.8 qa=.9 ea=.9 pigz=32 unpigz zl=8
+bbduk.sh in=filtered_by_tile.fq.gz out=trimmed.fq.gz ordered maxns=0 ktrim=r k=23 mink=11 hdist=1 tbo tpe minlen=85 ref=adapters.fa pigz=32 unpigz zl=8
+clumpify.sh in=trimmed.fq.gz out=eccc.fq.gz passes=4 ecc unpair repair groups=1 pigz=32 unpigz zl=8
+tadpole.sh in=eccc.fq.gz out=ecct.fq.gz ecc ordered pigz=32 unpigz zl=8
+tadpole.sh in=ecct.fq.gz out=extended.fq.gz ordered mode=extend el=20 er=20 k=62 pigz=32 unpigz zl=8
+bbmerge-auto.sh in=extended.fq.gz out=merged.fq.gz outu=unmerged.fq.gz rem k=81 extend2=120 zl=8 ordered pigz=32 unpigz zl=8
+bbmap.sh in=merged.fq.gz out=merged.sam.gz slow bs=bsm.sh pigz=16 unpigz zl=8
+callvariants.sh in=merged.sam.gz out=vars.txt vcf=vars.vcf.gz ref=ref.fa ow ploidy=2 rarity=0.1 ow bgzip
+
+This pipeline thoroughly error-corrects the reads, then extends the reads and merges pairs.  Only successfully merged pairs are used for variant-calling, which reduces bias against longer insertions.  This methodology has been successfully used to identify insertions >200bp long from 2x100bp reads; without extension, only insertions less than half of read length will be discovered.
+
+

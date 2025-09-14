@@ -1,0 +1,33 @@
+These instructions are for JGI internal use.
+
+If a taxonomy server or Sketch server dies:
+
+Look at /global/projectb/sandbox/gaag/bbtools/server/start*Server.sh, which includes:
+
+startTaxServer.sh
+startRefseqServer.sh
+startProteinServer.sh
+startNtServer.sh
+startSilvaServer.sh
+
+Each file indicates where to run the script.  So, for example, startTaxServer.sh says: #Run this on gpweb25
+ssh to the indicated machine, change directory to /global/projectb/sandbox/gaag/bbtools/server/, and run startTaxServer.sh.
+It does not matter which user you are logged in as.  But if you run into permission problems, make a copy of the script somewhere else and run it there.
+
+To update taxonomy, go to /global/projectb/sandbox/gaag/bbtools/tax
+1) Create a new directory
+2) Copy the old shellscripts from "latest"
+3) Execute the shellscripts
+4) Point the "latest" symlink to the new directory after execution finishes
+5) Restart the taxonomy server
+
+For example:
+cd /global/projectb/sandbox/gaag/bbtools/tax/
+mkdir feb13_2019
+cp latest/*.sh feb13_2019
+cd feb13_2019
+sh fetchOuter.sh 1>fetch.o 2>&1 &
+#(wait until it finishes; it will create a file called "finished" when complete)
+cd ..
+ln -sfn feb13_2019 latest
+#(restart the taxonomy server)

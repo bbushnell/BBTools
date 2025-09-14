@@ -1,0 +1,87 @@
+Note: Unless otherwise mentioned, adapter sequences in this directory should be trimmed to the right.  For BBDuk, that means using the flag "ktrim=r".
+
+contents.txt
+This file.
+
+remote_files.txt
+A list of remote files that are too big to package with BBTools, but are available for download from my google drive.
+
+adapters.fa
+All adapters in one file, provided for convenience.
+
+adapters_no_transposase.fa.gz
+This should be used instead of adapters.fa when trimming Nextera Long-Mate Pair libraries.
+
+sequencing_artifacts.fa.gz
+Artificial contaminants filtered by JGI.
+
+truseq.fa.gz
+Illumina Truseq DNA adapters.
+
+truseq_rna.fa.gz
+Illumina Truseq RNA adapters.
+
+nextera.fa.gz
+Illumina Nextera adapter sequences.
+
+nextera_LMP_adapter.fa.gz
+Illumina Nextera long-mate-pair adapters.
+
+nextera_LMP_linker.fa.gz
+Illumina Nextera sequence that joins the circularized DNA in LMP libraries.  This should be handled specially, e.g. with SplitNexteraLMP.
+
+phix174_ill.ref.fa.gz
+Illumina PhiX spike-in reference genome, for filtering with BBDuk or mapping for quality metrics.
+
+phix_adapters.fa.gz
+A set of adapters found on a PhiX library; may be subject to change.
+
+sample1.fq.gz
+sample2.fq.gz
+Sample read pairs for testing whether the programs are working.  These are from PhiX.
+
+primes.txt.gz
+A prime selection of numbers.  These are used for hash functions.
+
+mtst.fa
+Some spike-ins used at JGI for metatranscriptomes.
+
+kapatags.L40.fa
+Some spike-in sequences intended for use in detecting cross-contamination.
+
+blacklist_nt_merged.sketch
+A blacklist of uninformative keys from nt, used by SendSketch.
+
+blacklist_silva_merged.sketch
+A blacklist of uninformative keys from Silva, used by SendSketch.
+
+blacklist_refseq_merged.sketch
+A blacklist of uninformative keys from RefSeq, used by SendSketch.
+
+blacklist_img_species_300.sketch
+A blacklist of uninformative keys from IMG, used by CompareSketch at JGI (there is no current IMG server).
+
+small.fa
+A subset of sequencing_artifacts.fa.gz shorter than 31bp.  This is used for an optional 2nd filtering pass with a shorter kmer because k=31 will not detect these artifacts.
+
+lambda.fa.gz
+Sequence of a lambda phage commonly used as a spike-in or for testing sequencing machines.
+
+pjET1.2.fa
+A cloning vector that is sometimes present as a contaminant sequence.
+
+polyA.fa.gz
+31 A's in a row.  Potentially useful for filtering RNA-seq data, though note that BBDuk now has a "trimpolya" flag.
+
+favicon.ico
+For the taxonomy server.
+
+16S_consensus_sequence.fa
+These files contain consensus sequences of various conserved RNAs (rRNAs and tRNAs) from different clades.
+
+model.pgm
+Prokaryotic gene model, used by CallGenes and BBSketch in protein mode.
+
+PacBioAdapter.fa
+A sequence found at read tips in some PacBio low input libraries.
+

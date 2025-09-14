@@ -1,0 +1,32 @@
+#Quality recalibration parameters for CalcTrueQuality and BBDuk
+recalpasses=2
+observationcutoff_p1=100
+observationcutoff_p2=200
+recalqmax=41
+recalqmin=2
+
+#first pass matrices
+loadq102_p1=f
+loadqbp_p1=t
+loadq10_p1=f
+loadq12_p1=f
+loadqb12_p1=f
+loadqb012_p1=f
+loadqb123_p1=t
+loadqb234_p1=f
+loadq12b12_p1=f
+loadqp_p1=f
+loadq_p1=f
+
+#second pass matrices
+loadq102_p2=f
+loadqbp_p2=t
+loadq10_p2=f
+loadq12_p2=f
+loadqb12_p2=f
+loadqb012_p2=f
+loadqb123_p2=f
+loadqb234_p2=f
+loadq12b12_p2=f
+loadqp_p2=f
+loadq_p2=f

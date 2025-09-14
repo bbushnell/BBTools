@@ -1,0 +1,17 @@
+image: python:2.7.14
+
+pipelines:
+  default:
+    - step:
+        caches:
+          - pip
+        script: 
+            - pipe: atlassian/slack-notify:0.3.2
+              variables:
+                WEBHOOK_URL: $slack_webhook
+                MESSAGE: ':skull_and_crossbones: BBTools bitbucket commit -- Branch:$BITBUCKET_BRANCH -- Commit id:$BITBUCKET_COMMIT -- Tag:$BITBUCKET_TAG'
+            - pipe: atlassian/ssh-run:0.2.2
+              variables:
+                SSH_USER: 'brycef'
+                SERVER: 'cori.nersc.gov'
+                COMMAND: 'bash ~/jgi-bbtools-test.sh'                

@@ -1,0 +1,102 @@
+BBMerge Guide
+Written by Brian Bushnell
+Last updated June 2, 2016
+
+BBMerge is designed to merge two overlapping paired reads into a single read.  For example, a 2x150bp read pair with an insert size of 270bp would result in a single 270bp read.  This is useful in amplicon studies, as clustering and consensus are far easier with single reads than paired reads, and also in assembly, where longer reads allow the use of longer kmers (for kmer-based assemblers) or fewer comparisons (for overlap-based assemblers).  And in either case, the quality of the overlapping bases is improved.  BBMerge is also capable of error-correcting the overlapping portion of reads without merging them, as well as merging nonoverlapping reads, if enough coverage is available.  BBMerge is the fastest and by far the most accurate overlap-based read merger currently in existence.
+
+BBMerge's parameters are described in its shellscript (bbmerge.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Memory and Kmer Operations:
+
+BBMerge has 2 shellscripts, bbmerge.sh and bbmerge-auto.sh.  They are equivalent except for memory usage; so if you override memory autodetection with the -Xmx flag, they are equivalent.  bbmerge.sh is designed for overlap-based merging only, and uses a fixed 1GB of RAM (though it can function with much less than that).  bbmerge-auto.sh attempts to grab all available physical memory.  It is designed for kmer-based operations using Tadpole, which include both merging overlapping and non-overlapping reads, kmer-based error-correction, and kmer-based filtering.  If you use an option such as extend, extend2, ecct, kfilter, rem, or rsem, then BBMerge will automatically store kmers.  This will use much more time and memory but potentially have various advantages like increased accuracy and increased merge rate of longer-insert pairs.  Kmer-based operations should only be used with shotgun (randomly-fragmented) libraries, never with amplicon libraries (such as 16S).  They require sufficient coverage; 5x is typically enough, but more is better.
+
+
+Output streams:
+
+BBMerge supports "out" (aka "outm" or "outmerged") and "outu" ("outunmerged").  Reads that are merged, or mergeable, go to out, and the rest go to outu.  There is a "join" flag (default true) that controls whether mergeable reads get merged.  If it is set to false, mergeable reads will be written interleaved to out.  All output streams are optional.
+
+
+Threads and speed:
+
+BBMerge is multithreaded and scales linearly with the number of processor cores, so it's best to let it automatically use all of them.  You can restrict the number of worker threads with the "t" flag if you are working on a shared node.  To achieve the maximal speed on a system with many (20+) cores, BBMerge should be fed two files (using in1 and in2) rather than a single interleaved file.
+
+
+JNI acceleration:
+
+BBMerge has an optional C component (written by Jonathan Rood) which will accelerate merging by approximately 20%.  This can be activated with the "jni" flag, but it must first be compiled.  For details on compiling it, see /bbmap/jni/README.txt
+
+
+Strictness:
+
+BBMerge has a lot of settings controlling merging stringency, such as maxratio, ratiomargin, entropy, efilter, etc.  Advanced users should feel free to tune these as needed.  But it's a lot simpler to use the predefined strictness levels which adjust the specific settings according to the results of extensive benchmarking.  To use a predefined strictness level, simply add a flag like "loose" (you don't need to add one for "default").  The predefined strictness levels, from strictest to loosest:
+xstrict, ustrict, vstrict, strict, default, loose, vloose, uloose, xloose
+Stricter settings have lower merge rates and fewer false positives; looser settings have higher merge rates and more false positives.  Loose settings are generally not necessary except with low-quality data (which often happens in low-diversity amplicon sequencing using long reads).  A false-positive means a read pair that merged with the wrong overlap length - these can cause problems in assembly or clustering (leading to spurious clusters).  However, at any level of strictness, BBMerge has by far the lowest false-positive rate of any read merger, in my testing.
+
+
+Trimming:
+
+Adapter-trimming reads is fine and is recommended prior to running BBMerge, particularly if kmers will be used.  Quality-trimming is usually not recommended, unless the library has major quality issues at the right end of reads resulting in a low merge rate, in which case only weak trimming (such as qtrim=r trimq=8) should be used.
+
+
+When not to use:
+
+If you run BBMerge, and under, say, 15% of the reads merge, even at very loose stringency, it's probably a waste of time to merge - you'll just make the workflow more complicated, and possibly get a lot of false-positives.  Also, don't try to merge single-ended libraries or long-mate-pair libraries that are not in an "innie" orientation.  Generally you should not be merging LMP libraries at all except for special analysis purposes, such as determining what fraction of your LMP library is actually short-insert fragments.
+
+
+*Usage Examples*
+
+
+Basic merging:
+bbmerge.sh in=reads.fq out=merged.fq outu=unmerged.fq ihist=ihist.txt
+
+This will merge the reads by overlap.  If no best overlap is found, the pair will go to outu; otherwise, the reads will be merged and sent to out.  After finishing, an insert size histogram will be written to ihist.txt.  This can be produced even if "out" or "outu" are not specified.
+
+
+Overlap-based error-correction:
+bbmerge.sh in=reads.fq out=corrected.fq ecco mix
+
+This will correct reads that overlap, rather than merging them.  Where the two reads agree, the quality score will be increased; where they disagree, the score will be reduced, and the base call will be changed to the base with the higher quality.  If the bases differ and the scores are equal, the base will be replaced with N.
+
+
+Merging of nonoverlapping reads using kmers:
+bbmerge-auto.sh in=reads.fq out=merged.fq outu=unmerged.fq ihist=ihist.txt ecct extend2=20 iterations=5
+
+This will attempt to merge each pair by overlap.  If unsuccessful, both reads will be error-corrected using Tadpole, and then merging will be tried again.  If still unsuccessful, both reads will be extended by 20bp, then merging will be attempted again.  This will repeat up to 5 times, or until neither of the reads can be extended any more due to a branch or dead-end in the kmer graph.  If the reads are not merged, all of the changes are undone and the original pair will be sent to outu.  "extend2=20 iterations=5" will extend each read by up to 100bp, which increases the maximum insert sizes that can be merged by 200bp.  So, for example, a 2x150bp library can normally only merge inserts up to around 290bp; this would extend that capability to 490bp, and the middle would be filled in with assembled bases.
+
+
+Using kmers to reduce false positives:
+bbmerge-auto.sh in=reads.fq out=merged.fq outu=unmerged.fq rem extend2=50 k=62
+or
+bbmerge-auto.sh in=reads.fq out=merged.fq outu=unmerged.fq rsem extend2=50 k=62
+
+This is similar to the above section on merging nonoverlapping reads, but the goal is to perform conservative merges, particularly in repetitive areas.  "rem" or "requireextensionmatch" will try to merge the raw reads, then try to extend them, then merge them again.  If the two merges give the same result, then the reads will be merged.  If they give different results, the reads will only be merged if the raw reads gave no solution but the extended reads gave a solution indicating the raw reads don't overlap, or if the raw reads DID have a solution and no extension was possible.  "rsem" is more strict, in that if the raw reads did not give a solution, extension will not be attempted.  In practice rsem has a lower false-positive merge rate than rem, but rem allows non-overlapping merges.
+
+
+Discovering adapter sequences:
+bbmerge.sh in=reads.fq outa=adapters.fa
+
+This will report the consensus adapter sequences of pairs with insert size shorter than read length.  The adapter sequences can then be used for trimming with BBDuk or fed back into BBMerge to improve merging accuracy.
+
+
+Using adapter sequences to improve merging accuracy:
+bbmerge.sh in=reads.fq out=merged.fq adapter1=GATCGGAAGAGCACACGTCTGAACTCCAGTC adapter2=GATCGGAAGAGCACACGTCTGAACTCCAGTC
+or
+bbmerge.sh in=reads.fq out=merged.fq adapters=adapters.fa
+
+The argument for adapter1=, adapter2=, or adapters= can be a literal sequence, a fasta file, or a comma-delimited list of sequences and/or fasta files.  The adapter sequences will only be used to ensure that reads that overlap with an implied insert size of less than read length actually contain adapter sequence at the expected location.  This is optional but can substantially increase accuracy, so it is highly recommended if you know the adapter sequence.  Do not use this option if the left end of reads have been trimmed in any way.  Trimming the right end is fine; e.g., ktrim=r or qtrim=r in BBDuk.  However, it is generally not recommended to do any quality-trimming prior to merging.
+
+
+Allowing perfect overlaps only:
+bbmerge.sh in=reads.fq out=merged.fq pfilter=1
+
+"pfilter" bans merges in which the probability of the resulting mismatches falls below a specified value, based on the quality values of the bases that don't match.  "pfilter=1" is the strictest possible setting, which bans merges in which there are any mismatches in the overlap region.
+
+
+Recommended command for optimal accuracy:
+bbmerge-auto.sh in=reads.fq out=merged.fq adapter1=<something> adapter2=<something> rem k=62 extend2=50 ecct
+
+If you have sufficient depth for kmer-based extension and error-correction (and are using a shotgun fragment library), and you know the adapter sequences, this command will maximize the correct merges and minimize the incorrect merges, in my testing.  You can also add a strictness modifier (such as "loose" or "vstrict") as desired.  I typically use vstrict when preparing reads for assembly and loose when calculating an insert size distribution.

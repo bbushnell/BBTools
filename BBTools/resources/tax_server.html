@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>JGI BBTools Taxonomy Server</title>
+      
+<script src="https://genome.jgi.doe.gov/portal/pages/angular/js/libs/jquery-1.9.1.js"></script>
+<style>
+@import url("googleApisFonts.css");
+
+@charset "utf-8";
+
+/*style for logo and top navigation*/
+/*1. Default css by W3C */
+html, address,
+blockquote,
+body, dd, div,
+dl, dt, fieldset, form,
+frame, frameset,
+h1, h2, h3, h4,
+h5, h6, noframes,
+ol, p, ul, center,
+dir, hr, menu, pre   { display: block; /* vertical-align: bottom; */}
+html            { height: 100%;}
+li              { display: list-item}
+head            { display: none }
+table           { display: table }
+tr              { display: table-row}
+thead           { display: table-header-group }
+tbody           { display: table-row-group }
+tfoot           { display: table-footer-group }
+col             { display: table-column }
+colgroup        { display: table-column-group }
+td, th          { display: table-cell}
+caption         { display: table-caption }
+th              { font-weight: bolder; text-align: center }
+caption         { text-align: center }
+body            { margin: 8px }
+h1              { font-size: 1.5em; margin: .67em 0 }
+h2              { font-size: 1.2em; margin: .75em 0 }
+h3              { font-size: 1.1em; margin: .83em 0 }
+h4              { font-size: 1em; margin: .83em 0 }
+h4, p,
+blockquote, ul,
+fieldset, form,
+ol, dl, dir,
+menu            { margin: 10px 0}
+h5              { font-size: .83em; margin: 1.5em 0 }
+h6              { font-size: .75em; margin: 1.67em 0 }
+h1, h2, h3, h4,
+h5, h6, b,
+strong          { font-weight: bolder !important }
+blockquote      { margin-left: 40px; margin-right: 40px }
+i, cite, em,
+var, address, .note    { font-style: italic}
+pre, tt, code,
+kbd, samp       { font-family: monospace }
+pre             { white-space: pre }
+button, textarea,
+input, select   { display: inline-block; /* vertical-align: top; */ padding-left: 3px; /* border: 1px solid #999; */ }
+    input#search_query { width: 100px;}
+big             { font-size: 1.17em }
+small, sub, sup { font-size: .83em }
+sub             { vertical-align: sub }
+sup             { vertical-align: super }
+table           { border-spacing: 0; }
+thead, tbody,
+tfoot           { vertical-align: middle }
+td, th, tr      { vertical-align: inherit}
+s, strike, del  { text-decoration: line-through }
+hr              { border: 1px inset }
+ol, ul, dir,
+menu, dd        { margin-left: 10px }
+ol              { list-style-type: decimal }
+ol ul, ul ol,
+ul ul, ol ol    { margin-top: 0; margin-bottom: 0 }
+u, ins          { text-decoration: underline }
+br:before       { content: "\A"; white-space: normal}
+.center          { text-align: center}
+:focus          { outline:  1px dotted #666 }
+
+@media print {
+  h1            { page-break-before: always }
+  h1, h2, h3,
+  h4, h5, h6    { page-break-after: avoid }
+  ul, ol, dl    { page-break-before: avoid }
+}
+/*default css ends */
+
+html {
+        font-size: 100%;
+        width: 100%;
+}
+
+body {
+        font-family: Arial, Helvetica, Sans-serif;
+        font-size: 90%;
+        margin: 0;
+        padding:0;
+        height:100%;
+        color:#000000;
+        background-color:#fff;
+        display: inline-block;
+        width: 100%;
+        line-height: 1.5em;
+
+}
+#jgi-header {
+        margin:0;
+        padding:0;
+        min-height:70px;
+        }
+#jgi-logo {
+        float:left;
+        }
+.jgi-nav {
+        display:block;
+        overflow:hidden;
+        }
+.jgi-nav ul {
+        margin-top: 10px;
+        margin-left:50px;
+        padding:0;
+        }
+.jgi-nav ul li {
+        display:inline-block;
+        list-style-type:none;
+        font-family: "Karla", Helvetica, arial, sans-serif;
+        text-transform:uppercase;
+        font-size:13px;
+        text-decoration:underline;
+        padding-left:10px;
+        list-style-position:inside;
+        }
+.jgi-nav ul li a {
+        color:#5a5a5a;
+        }
+.jgi-nav ul li a:hover {
+        color: #fdba4d;
+        }
+#skipto {
+        display: none;
+}
+#skipto li {
+        background: #b1fffc;
+}
+
+/* ----end for logo style and top navigation*/
+ /* style for the main subnavigation: search, BLAST, Browse etc.*/
+.menu_holder{
+        width:100%;
+        background-color:#808bc1;
+        border-top: 1px solid #5551a0;
+        border-bottom: 1px solid #5551a0;
+        /*height:1.72em;*/
+        position:relative;
+        min-width:980px;
+        clear:both;
+        box-sizing: content-box
+
+}
+.menu_group {
+        /*position:relative;*/
+        font-size:90%;
+        font-weight:bold;
+        text-transform: capitalize;
+        color: #281262;
+        margin: 0;
+        padding: 0;
+}
+        .menu_group ul {
+                list-style-image:none;
+            list-style-position:outside;
+                list-style-type:none;
+                margin:0px;
+                padding:0px;
+                position:relative;
+        }
+                .menu_group ul li {
+                        display:block;
+                        float:left;
+                        margin:0 1px 0 0;
+                        border: none;
+                        padding:0px;
+                }
+                .menu_group ul li .disabled {
+                        color:#999;
+                        margin-bottom: 1px;
+                        cursor: default;
+                }
+                        .menu_group ul li a {
+                                background-image: none;
+                                background-color: #808bc1;
+                                display:block;
+                                color:#ffffff;
+                                text-decoration:none;
+                                padding: 0.36em 1.2em 0.28em 1.2em;
+                                white-space:nowrap;
+                                line-height:1.38em;
+                        }
+                                .menu_group ul li a:hover{
+                                        color:#fff;
+                                        background: #5d67cb;
+                                }
+                                .menu_group ul li a:focus{
+                                        color:#fff;
+                                        background:#82afce;
+                                }
+                                .menu_group ul li a.selected {
+                                        color:#000;
+                                        background-color:#d9dee3;
+                                }
+/* end of style for the main subnavigation: search, BLAST, Browse etc.*/
+
+/*body styles*/
+.clear{
+        clear:both;
+        width: 0;
+        padding: 0;
+        margin: 0;
+        height:0;
+        line-height: 0;
+        font-size: 0;
+}
+.container_block p {
+        margin: 1em;
+}
+
+.float_right {
+        display:block;
+        float:right;
+        top:0;
+        }
+
+.float_left {
+        display:block;
+        float:left;
+        top:0;
+        }
+.none_display {
+        display: none;
+}
+.container_block {
+        padding:1%;
+
+}
+ /*--------*/
+#content-flex{
+        display:-webkit-box;  /* old Safari */
+        display: -webkit-flex; /* Safari */
+        display: flex;
+/*      -webkit-justify-content: flex-start;*/
+        -webkit-align-items: stretch;
+        align-items: stretch;
+        -webkit-align-content: stretch;
+        align-content: stretch;
+        height: 100%;
+ }
+.flex_left {
+        -webkit-box-flex:1; /* old Safari */
+        -webkit-box-ordinal-group:1;  /* old Safari */
+        box-sizing: border-box;
+        margin: 0 0 1% 1.0%;
+        width: 48.00%;
+        display: -webkit-flex; /* Safari */
+        display: flex;
+        -webkit-flex-direction: column; /* Safari */
+        flex-direction: column;
+        -webkit-align-items: stretch; /* Safari */
+        align-items:         stretch;
+        -webkit-align-content: space-around; /* Safari */
+        align-content: space-around;
+        flex-wrap: nowrap;
+        min-height: 20em;
+        position:relative;
+        flex:1;
+        -webkit-flex: 1;
+  
+}
+.flex_right{
+        -webkit-align-items: stretch; /* Safari */
+        align-items:         stretch;
+        -webkit-box-flex:1;  /* old Safari */
+        -webkit-box-ordinal-group:2;  /* old Safari */
+        display: -webkit-flex; /* Safari */
+        display: flex;
+        -webkit-flex-direction: column; /* Safari */
+        flex-direction: column;
+        -webkit-align-content: space-between; /* Safari */
+        align-content: space-between;
+        box-sizing: border-box;
+        margin: 0 1% 1% 1.0%;
+        width: 47.98%;
+
+}
+.border_block {
+          -webkit-flex-grow: 1; /* Safari */
+          flex-grow:1;
+          border: 1px solid #8585ca;
+}
+
+                .border_block .header{
+                        font-family: "Oswald", Helvetica, sans-serif;
+                    font-size: 1.4rem;
+                    line-height: 29px;
+                    line-height: 2.9rem;
+                    color: #678ca7;
+                    font-weight: 400;
+                        background-size: 35px 36px;
+                        padding:0 1em 0 1em
+                }
+                        h1.header{
+                        font-family: "Oswald", Helvetica, sans-serif;
+                        color:#361884;
+        }
+                        h2.header{
+                    color: #333;
+        }
+
+
+/*---------*/
+/*end of body styles*/
+
+/* Footer styles*/
+.divider {
+        top:0;
+        background-color:#7aafd3;
+        border:0px;
+        font-size:0px;
+        height:2px;
+        line-height:0px;
+        margin:0px;
+        padding:0px;
+        clear:both;
+
+}
+        .divider-tall {
+                height:10px;
+        }
+#footer {
+        background-color: #e9e9e9;
+        background-image:none;
+        background-repeat:no-repeat;
+        /*height:50px;*/
+        margin-top:0pt;
+        padding:4px 0 0 0;
+        color: #5a5a5a;
+    font-family: "Karla",Helvetica,arial,sans-serif;
+}
+#footer ul {
+        padding: 10px;
+        margin: 0;
+}
+#footer ul li {
+        list-style-type:none;
+        list-style-position:inside;
+        margin: 0px
+        }
+#footer ul li a {
+        color:#666666;
+        }
+#footer ul li a:hover {
+        color: #fdba4d;
+        }
+
+.version{
+        font-size:0.85em;
+        color: #999999;
+}
+        #doelogo img{
+                margin: 10px;
+        }
+#updated {
+        margin-left:100px;
+}
+/* end of footer styles*/
+/*end table formating style*/
+@media screen 
+        and (max-width: 480px) 
+{
+ body {
+        font-size: 100%;
+}
+#content-flex{
+        clear:both;
+        display: -webkit-flex; /* Safari */
+        display: flex;
+        -webkit-flex-direction: column; /* Safari */
+        flex-direction: column;
+  }
+.flex_left {
+        margin: 0;
+        width: 100%;
+        -webkit-order:2;
+        order:1;
+        }
+.flex_right{
+        margin:0;
+        width: 100%;
+        -webkit-order:3;
+        order:2;
+}
+.header {
+        padding: 0 10px;
+}
+#footer ul {
+        padding: 0;
+}        
+     #jgi-logo, .jgi-nav, #skipto, #footer ul, .menu_holder, .menu_group,.menu_group ul {
+            clear: both;
+            margin: 0;
+            width: 100%;
+            min-width:200px;
+    }
+    .menu_group ul li {
+        float:none;
+    }
+    #jgi-logo {
+            overflow: hidden;
+    }
+            #jgi-header ul, #jgi-header .jgi-nav li, #footer li {
+            font-size: 1em;
+            margin: 0;
+            display: block;
+            margin-bottom: 3px;
+            background: #e9e9e9;
+            }
+            .jgi-nav li:hover,  #footer li:hover {
+            background: #e9e9e9;
+            }
+                .jgi-nav a,  #footer li a {
+            display: block;
+            padding: 7px 7px 7px 20px;
+            font-size: 1em;
+            margin-left:10px;
+            text-decoration: none;
+}
+                .jgi-nav ul li ,.jgi-nav ul li a, .jgi-nav ul li a:hover {
+            text-decoration: none;
+}
+
+}
+</style>
+</head>
+
+<body>
+<a name="top" />
+<!-- header -->
+<!--end of header-->
+<!--middle part-->
+
+<header id="jgi-header">
+    <div id="jgi-logo">
+            <a target="_parent" href="" title="DOE Joint Genome Institute - BBTools Taxonomy Server">
+                    <img width="480" height="70" src="https://genome.jgi.doe.gov/portal/images/logo-JGI-BBTools.png" alt="BBTools Taxonomy Server Logo" />
+            </a>
+    </div>
+    <nav class="jgi-nav">
+            <ul>
+                    <li id="skipto"><a href="#skipnav" accesskey="S">Skip To Main Content</a></li>
+                    <li><a href="http://jgi.doe.gov" target="_blank">JGI Home</a></li>
+                  
+            </ul>
+    </nav>
+</header>
+                <div class="wrapper">
+                        <div class="menu_holder">
+                                <div class="menu_group">
+                                <ul>
+                                        <li id="skipto"><a href="#skipnav" accesskey="S">Skip To Main Content</a></li>
+                                        <li><a href="http://jgi.doe.gov" target="_parent" class="selected">Home</a></li>
+                                        <li><a href="#" onClick="$('#tax_server').show();$('#stats').hide();return false;">Find Taxonomy Info</a></li>
+                                        <li><a href="https://bbmap.org" target="_blank">Other BBTools</a></li>
+                                        <li><a href="https://jgi.doe.gov/contact-us/" target="_blank">Contact Us</a></li>
+                                        <li><a href="#" onClick="$('#stats').show();$('#tax_server').hide();return false;" target="_parent">Statistics</a></li>
+
+                                </ul>
+                                </div>
+                                <div class="clear"></div>
+                        </div>
+                                <div class="clear"></div>
+
+
+        
+                                <div class="no_frame">
+        <div id='tax_server'>
+                                <div class="container_block">
+                                        <a name="skipnav"></a>
+                                        <h1 class="header">Welcome to the BBTools Taxonomy Server!</h1>
+        This service provides taxonomy information from NCBI taxID numbers, gi numbers, organism names, and accessions. <br/>Vertical bars (|) may cause problems on the command line and can be replaced by tilde (~).
+                                        </p>
+                                        <ul>
+                                                <li>/name/homo_sapiens will give taxonomy information for an organism name. (Names are case-insensitive and underscores are equivalent to spaces.)
+                                                </li>
+                                                <li>/id/9606 will give taxonomy information for an NCBI taxID.</li>
+                                                <li>/gi/1234 will give taxonomy information from an NCBI gi number.</li>
+                                                <li>/accession/NZ_AAAA01000057.1 will give taxonomy information from an accession.</li>
+                                                <li>/header/ will accept an NCBI sequence header such as gi|7|emb|X51700.1| Bos taurus</li>
+                                                <li>/silvaheader/ will accept a Silva sequence header such as KC415233.1.1497 Bacteria;Spirochaetae;Spirochaetes</li>
+                                                <li>/img/ will accept an IMG id such as 2724679250</li>
+                                        </ul>
+                                        <h2 class="header">Benefits of using the BBTools Taxonomy Server</h2>
+                        <ul class="other_names">
+                                <li>Identifies all intermediate stages of taxonomy tree such as order, phylum, tribe, etc.</li>
+                                <li>Provides the information in json format</li>
+                                <li>Fast processing</li>
+                                <li>Allows queries in bulk with lists instead of single query</li>
+                        </ul>
+                                </div>
+                                        <!--2 sections content -->
+                                        <div style="" id="content-flex">
+                                                <div class="flex_left">
+                                                        <div class="border_block">
+                                                                <div class="header">Examples of Basic Usage</div>
+                                                                <div class="content">
+                                                                        <div class="container_block">
+                                                                                <p> 
+                                                                                All addresses below are assumed to be prefixed by https://taxonomy.jgi.doe.gov, e.g. /name/homo_sapiens implies a full URL of:
+                                                                                        <ul>
+                                                                                                <li>https://taxonomy.jgi.doe.gov/name/homo_sapiens</li>
+                                                                                        </ul>
+                                                                                </p>
+                                                                                <p>
+                                                                                        For a simplified taxonomic tree, add "simple".
+                                                                                        This will ignore unranked or uncommon levels like tribe and parvorder, and only display the following levels: SUBSPECIES, SPECIES, GENUS, FAMILY, ORDER, CLASS, PHYLUM, KINGDOM, SUPERKINGDOM, DOMAIN
+                                                                                        For example:
+                                                <ul class="other_names">
+                                                        <li>/simple/id/1234</li>
+                                                        </ul>
+                                                                                         </p>
+                                                                                <p>To print taxonomy from the command line in Linux, use curl:
+                                                                                        <ul>
+                                                                                                <li>curl https://taxonomy.jgi.doe.gov/id/9606</li>
+                                                                                        </ul></p>
+                                                                                <p>
+Queries longer than around 8kB can be sent via POST: curl https://taxonomy.jgi.doe.gov/POST...where the data sent is, for example: 
+                                                                        <ul><li>name/e.coli,h.sapiens,c.lupus</li></ul>
+                                                                        </p>
+                                                                        </div>
+                                                </div>
+                                                </div>
+                                        </div>
+                                 <div class="flex_right">
+                                                        <div class="border_block">
+                                                                <div class="header">Examples of Advanced Usage</div>
+                                                                <div class="content">
+                                                                        <div class="container_block">
+ 
+                                                                                <p>Comma-delimited lists are accepted for bulk queries, such as tax/gi/1234,7000,42
+For plaintext (non-Json) results, add the term /pt/ or /sc/.
+pt will give just the taxID, while sc will give the whole lineage, semicolon-delimited. For example:
+    <ul class="other_names">
+            <li>/pt/name/homo_sapiens</li>
+            <li>/sc/gi/1234</li>
+            </ul>
+
+</p>
+    <p>Additional supported display options are children, numchildren, range, simple, path, size, and ancestor.
+The order is not important but they need to come before the query term.  For example:
+                                                <ul class="other_names">
+                                                        <li>/children/numchildren/range/gi/1234</li>
+                                                        </ul>
+</p>
+    <p>To find the common ancestor of multiple organisms, add /ancestor/. For example:
+    <ul class="other_names">
+            <li>/id/ancestor/1234,5678,42</li>
+            <li>/name/ancestor/homo_sapiens,canis_lupus,bos_taurus</li>
+    </ul>
+
+</p>
+                                                </div>
+                                                </div>
+                                 </div>
+                            </div>
+                                        <!--end of three sections content -->
+                                <div class="clear"></div>                               
+                                </div><!-- end of div that is shown only when search is not executed -->
+                                <div class="clear"></div>
+                </div>
+            </div> <!-- end of info -->
+                <div id='stats' style='margin:5px;display:none'>
+                <pre>
+STATISTICSSTRING
+
+</pre>
+                </div>
+                
+                <div class="clear"></div>
+<!-- end of middle part-->
+
+<!-- footer -->
+        <div id="footer">
+                <ul class="float_left">
+                        <li><a target="_parent" href="https://jgi.doe.gov/contact-us/" class="textlink feedback">Contact Us</a></li>
+                        <li><a target="_parent"
+                                href="http://www.jgi.doe.gov/whoweare/disclaimer.html"
+                                class="textlink">Disclaimer</a></li>
+                </ul>
+                <ul class="float_left">
+                        <!--<li><a target="_parent" href=""
+                                class="textlink">Cite Us</a></li>
+                        <li><a target="_parent" href=""
+                                class="textlink">Credits</a></li>-->
+                </ul>
+                 
+                <ul class="float_left">
+                        <li><a target="_parent" class="textlink"
+                                href="http://www.jgi.doe.gov/whoweare/accessibility.html">Accessibility/Section 508</a></li>
+                </ul>
+                <div class="float_right">
+                        <span id="doelogo"><a href="http://science.energy.gov/"
+                                target="_parent"><img src="https://genome.jgi.doe.gov/portal/images/DOE_logo.png" width="232"
+                                        height="39" alt="DOE logo" border="0" /></a></span>
+                </div>
+                <div class="clear"></div>
+                <ul>
+                        <li>&#169;&#160;1997-2019 The Regents of the University of California.</li>
+                </ul>
+        </div>
+<!--end of footer-->
+</body>
+</html>

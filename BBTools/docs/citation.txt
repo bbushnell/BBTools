@@ -1,0 +1,7 @@
+Citation:
+
+All tools in the BBTools package are free to use.  If you use BBTools in work leading to a publication, please cite it!
+BBMerge has been published in PloS One:  http://journals.plos.org/plosone/article?id=10.1371/journal.pone.0185056
+
+Please cite any of the unpublished tools using the Sourceforge website, something like this:
+BBTools - Bushnell B. - sourceforge.net/projects/bbmap/

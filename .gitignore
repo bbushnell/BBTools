@@ -1,0 +1,10 @@
+# Ignore everything in root directory
+/*
+
+# But don't ignore these specific files/directories
+!.gitignore
+!README.md
+!BBTools/
+
+# Make sure everything inside BBTools is included
+!BBTools/**

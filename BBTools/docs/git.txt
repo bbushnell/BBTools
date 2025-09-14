@@ -1,0 +1,15 @@
+This is an example of updating the repository with nonconflicting changes.
+
+First, ensure the correct branch is active: git checkout dev
+Ensure everything looks correct: git status
+Update: git pull origin dev
+Add the new files: git add .
+Commit changes: git commit -m 'changes go here'
+Push: git push origin dev
+Checkout master: git checkout master
+Merge changes: git merge dev
+Ensure everything looks correct: git status
+Tag the new version: git tag -a v38.21 -m 'Version 38.21'
+Push the changes: git push origin master --tags
+Switch back to dev: git checkout dev
+Compiled code (.class files, etc) are ignored in this repo; when Jenkins sees the push, it will recompile everything, using the Eclipse JDK, which produces faster bytecode than Oracle’s.

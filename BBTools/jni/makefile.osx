@@ -1,0 +1,16 @@
+CC=gcc
+INCS=-I"$(JAVA_HOME)/include" -I"$(JAVA_HOME)/include/darwin"
+CFLAGS=-O3 -Wall -std=c99 -fPIC
+LDFLAGS=-O3 -Wall -std=c99 -fPIC -dynamiclib
+OBJ=BandedAlignerJNI.o MultiStateAligner11tsJNI.o BBMergeOverlapper.o IceCreamAlignerJNI.o
+
+%.o: %.c
+	$(CC) $(CFLAGS) $(INCS) -c -o $@ $<
+
+libbbtoolsjni.dylib: $(OBJ)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+.PHONY: clean
+
+clean:
+	rm -f *.o *~ core libbbtoolsjni.dylib

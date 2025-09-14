@@ -1,0 +1,40 @@
+Preprocessing Guide
+Written by Brian Bushnell
+Last updated March 4, 2019
+
+Prior to doing anything with raw reads - mapping, clustering, assembly, etc - it is usually prudent to do certain preprocessing steps.  And these steps are best done in a specific order, which I have detailed below, along with the suggest tool.  Note that many of them (like quality-trimming) are optional, so if you do them, do them in this order; but you don't have to do them.  Others, like adapter-trimming, are not optional and should always be done.
+
+These steps replicate the QA protocol implemented at JGI for Illumina reads.  "rqcfilter.sh" implements them as a pipeline, but it is less flexible than running the steps individually.
+
+
+0) Format conversion, if necessary.  The simplest format for the subsequent steps is gzipped fastq, with the reads interleaved in a single file if they are paired, but that's not required.  However, H5 and SRA formats are not supported, and unaligned bam should be converted to fastq first.  Tool: Reformat, Samtools, SRA Toolkit, etc.
+
+1) Adapter-trimming.  Always recommended.  Tool: BBDuk.
+1b) If chastity-filtering and barcode-filtering were not already done, they can be done here.
+1c) If reads have an extra base at the end (like 2x151bp reads versus 2x150bp), it should be trimmed here with the "ftm=5" flag.  That will occur before adapter-trimming.
+
+2) Contaminant filtering for synthetic molecules and spike-ins such as PhiX.  Always recommended.  Tool: BBDuk.
+2b) Quality-trimming and/or quality-filtering.  Optional; only recommended if you have very low-quality data or are doing something very sensitive to low-quality data, like calling very rare variants.
+
+3) Nextera LMP library splitting.  Mandatory when processing Nextera long-mate-pair libraries (NOT normal paired Nextera libraries).  Tool: SplitNexteraLMP (splitnextera.sh).
+
+4) Human contaminant removal.  Optional; only for non-vertebrate studies.  Should be done by mapping.  JGI also removes cat, dog, and mouse sequences, and we use masked version of the references to avoid false positives.  Tool: BBMap.
+
+5) Quality recalibration.  Optional; mainly for when quality scores are very inaccurate, or binned, as in the NextSeq or HiSeq3000+ platforms.  Tool: BBMap plus BBDuk.
+5b) This step requires mapping, which requires an assembly.  If no assembly exists, one can be generated rapidly with Tadpole.
+
+6) Deduplication.  Optional; mainly for exome-capture.  This is not actually part of RQCFilter because JGI does not typically do exon-capture.  Tool: Either Dedupe or DedupeByMapping can be used if you have sufficient memory.  If not, there are 3rd-party deduplication tools based on sorting that do not need much memory.
+
+7) Normalization or subsampling.  Optional; mainly for assembly of data with high or uneven coverage.  Tool: BBNorm for normalization, Reformat for subsampling.
+
+8) Error correction.  Optional; requires adequate coverage.  Tool: Tadpole, or BBCMS if Tadpole runs out of memory.
+NOTE: 7 and 8 can be done in either order.  If memory is not a limiting factor, error correction should be done first.  BBCMS does not run out of memory, but is more accurate with more memory.
+
+9) Paired-read merging.  Optional; mainly for assembly, clustering, or insert-size calculation.  Tool: BBMerge.
+9b) RQCFilter runs BBMerge on all paired libraries for insert-size calculation, and uses the "cardinality" flag to simultaneously calculate the approximate number of unique kmers in the dataset, which can help estimate memory needs for assembly.
+
+10) Kmer depth distribution.  Optional; mainly for assembly and contamination detection.  Tool: BBNorm (khist.sh).
+
+11) BLAST or similar search against wide-taxonomy database such as RefSeq Microbial or nt.  This can be done on an assembly of the reads, or a handful of reads.  Optional; just for checking for contamination before proceeding.  Mainly useful on isolates of a known organism such as human or fruitfly.  Tool: BLAST, LAST, etc.
+
+At this point the data is ready to use!

@@ -1,0 +1,43 @@
+CalcUniqueness Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+CalcUniqueness is designed to plot the fraction of unique reads produced by a sequencing run, as a function of the number of reads sequence.  In other words, the output is similar to a rarefaction curve.  It can help determine library complexity and whether additional sequencing might be useful.  The way it determines whether a read has already been seen is probabilistic, by storing kmers from fixed locations (e.g., the first kmer in the read); if a kmer has already been seen, it is assumed that the read has already been seen.  It also tracks pair uniqueness, using a hashcode generated from one kmer in read 1 and another in read 2.
+
+
+*Notes*
+
+
+Memory:
+
+CalcUniqueness grabs all available memory, even though normally it doesn't really need it.  It needs approximately 50 bytes per unique read.
+
+
+Legacy Aspects:
+
+CalcUniqueness was designed to replace an existing, inefficient pipeline.  And it was designed to provide output matching that old pipeline, which I did not design.  As a result, some of the features do not make a lot of sense, such as using K=20 (which is too short) and the "random kmer" columns (which are of questionable utility; I ignore them).
+
+
+Data Quality:
+
+Kmer matches must be exact.  As a result, low quality data will give artificially high uniqueness estimates.  For the same reason, this program cannot be used on raw PacBio data.  Interestingly, you can see where on the flowcell the sequencing machine has quality issues by looking at the graphs from this program; they show up as spikes.
+
+
+Histogram Output:
+
+There are 3 columns for single reads, 6 columns for paired:
+count        number of reads or pairs processed
+r1_first     percent unique 1st kmer of read 1
+r1_rand      percent unique random kmer of read 1
+r2_first     percent unique 1st kmer of read 2
+r2_rand      percent unique random kmer of read 2
+pair         percent unique concatenated kmer from read 1 and 2
+
+One line is printed every X reads (default is 25000) showing the percent of reads that were unique in the last interval.  "cumulative=t" will still print once per interval, but will print the number of reads that were unique overall (which is generally a higher number, and not useful in most cases).
+
+
+*Usage Examples*
+
+
+To generate a uniqueness plot:
+bbcountunique.sh in=reads out=histogram.txt

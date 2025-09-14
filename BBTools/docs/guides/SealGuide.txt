@@ -1,0 +1,97 @@
+Seal Guide
+Written by Brian Bushnell
+Last updated December 15, 2015
+
+Seal stands for "Sequence Expression AnaLyzer".  Seal can be thought of as BBDuk's sibling; the two programs are very similar.  So, this guide will focus on the differences; for more details on basics, please see the BBDuk guide.  BBDuk associates one kmer with one number (for example, a kmer with the reference it came from).  Thus if two references share a kmer, BBDuk will associate it with the first one only; reads containing that kmer will be considered as matching the first reference, but not the second.
+Seal can associate a kmer with an unlimited number of numbers.  So it is better in cases where different references may share sequence - related organisms, for example, or adapters that differ only by the barcode... or different isoforms of a gene, which share one or more exons.  The uses of Seal are slightly different - it does not do kmer-trimming or kmer-masking.  It does kmer-filtering, kmer-binning, and hit stats counting.  Unlike BBDuk, Seal does not provide emulated support for K>31; K=1 to K=31 are strict limits.  Thus, Seal is really designed to rapidly count sequence expression/abundance, or bin sequences, in an alignment-free fashion, based on which reference sequences share the most kmers with the query.
+Seal also supports some taxonomic classification operations, though that aspect is still in progress.
+
+Seal's parameters are described in its shellscript (seal.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Memory:
+
+Seal uses a similar amount of memory as BBDuk (20 bytes) for unique kmers.  Additional copies of kmers cost more to store.  So, 2 copies of the E.coli genome would require the same amount of memory as 1 copy, with BBDuk; for Seal, it would require somewhat more memory - a lump sum of perhaps 32 extra bytes for each nonunique kmer, plus 4 bytes per extra copy.
+
+
+Ambig Modes:
+
+Like BBMap, Seal has "ambig modes" for detailing how to handle ambiguously-mapping reads (meaning reads that match more than one reference).  The modes:
+first:  Use the first best-matching reference sequence.
+toss:   Consider unmapped.
+random: Select one best-matching reference sequence randomly.
+all:    Use all best-matching reference sequences.
+Default is "random", meaning every matching read will get assigned to exactly one reference; if it matches more than one, it will be assigned to one at random, chosen from all best-matching references.  For example, if a read shares 2 kmers with reference A, 2 with reference B, and 1 with reference C, it will choose between A and B since they are equally good and both better than C.  With ambig=first, ambig=toss, and ambig=random, the sum of the number of reads assigned to various references and the unassigned reads will equal the number of input reads.  With ambig=all, that number will be greater than the number of input reads, if some reads were ambiguously mapped.
+
+
+Clearzone:
+
+The clearzone is the maximum number of kmer matches separating the best-matching reference from the worst-matching reference.  The default is zero, meaning if the best-matching reference has even 1 kmer hit more than the second-best-matching reference, it will still be considered unambiguous.  For a concrete example, say a read R shares 10 kmers with ref A, 8 kmers with B, 3 kmers with C, and 0 kmers with D.  At clearzone=0, this read unambiguously matches A.  At clearzone=2, it ambiguously matches A and B.  At clearzone=7, it ambiguously matches A, B, and C.  At clearzone=9999, it still only matches A, B, and C, not D, because it doesn't share any kmers with D.  Therefore, if you want the collection of things that a read shares any kmers with, just set clearzone to some large number greater than read length (or the sum of read lengths, for pairs).
+
+
+Match Modes:
+
+Seal has 3 modes for determining how to count reference kmer matches, with the default being "all":
+all:    Attempt to match all kmers in each read.
+first:  Quit after the first matching kmer.
+unique: Quit after the first uniquely matching kmer.
+"All" is of course the slowest; all kmers are counted, then the references are ordered by the number of shared kmers.  "First" is the fastest; as soon as a kmer is matched, counting will stop.  The read can still map ambiguously if that first kmer was present in multiple references.  "Unique" is in-between; counting will continue until a kmer is encountered that only occurs in exactly one reference (meaning that, errors aside, the read clearly came from that reference).  The speed of "unique" mode will be close to "first" if most kmers are unique, and closer to "all" if most kmers are nonunique.
+
+
+Refnames and Fuse:
+
+By default, references are tracked on a per-sequence basis.  That means that one ref file containing 10 sequences would be equivalent to 10 ref files, each containing one sequence; when printing stats, either would yield 10 lines, for example.  If you have 2 bacterial assemblies (let's call them A and B) each with 300 contigs, and you just want to see the proportion of reads that best match A versus B, this is really annoying since your stats file will have 300 lines in it (whereas BBSplit would produce 2 lines, one per reference file).  There are two ways to circumvent this:
+1) Run fuse.sh on each ref file to concatenate all the sequences into a single sequence.  This is (currently) the best approach, as duplicate kmers within a genome will only be stored once.  But, it does not work for sequences more than 2Gbp long.
+or
+2) Set "refnames=t".  This will report results on a per-reference-file basis rather than a per-sequence basis, though kmers are (currently) still stored on a per-sequence basis.  Also, binning will create only 1 output file per reference file.
+
+
+Splitting and output streams:
+
+Like BBSplit, Seal can split input into multiple output streams, creating one output file per reference, containing all the reads that best match that reference (depending to the ambig mode, etc).  Unlike BBSplit, Seal does this by kmer-matching rather than alignment, so it is generally faster but uses more memory.  Also, the syntax is different; and furthermore, by default, one output file is created per reference sequence (rather than per reference file, in BBSplit).  Binning can be handled on a per-reference-sequence basis or per-reference-file basis.  Output file name generation is automatic from reference names using "%" substitution; e.g. "pattern=%.fq" might expand to "contig1.fq" and "contig2.fq", for a 2-contig assembly.
+Seal also supports "out" and "outm", which have the same definitions as BBDuk; "out" gets everything NOT MATCHING the references, and "outm" gets everything MATCHING the references.
+
+
+Stats reporting:
+
+Seal has 3 stats outputs - stats, refstats, and rpkm.  Stats reports the number and fraction of reads and bases mapping to each ref sequence.  RPKM reports fold coverage, RPKM, raw counts, and FPKM of reads and bases mapping to each ref sequence.  Refstats is supposed to be like stats but on a per-reference-file basis, but it currently prints the rpkm output on a per-reference-file basis instead.
+
+
+Summarizing stats:
+
+There is a tool called summarizeseal.sh that summarizes multiple sets of seal "stats=" summary files.  It's designed for use in cross-contamination analysis, but could be useful in other areas.
+
+
+Paired reads:
+
+Seal can assign reads together, by summing kmer counts of individuals, or independently, using the "kpt" (keeppairstogether) flag, default true.
+
+
+Seal versus BBSplit:
+
+Seal and BBSplit both bin reads into multiple files, or generate statistics, based on which reference they match best.  So, which should you use?
+Seal is generally much faster, but uses roughly 3x as much memory (around 20 bytes/base as opposed to BBSplit's 6 bytes/base), though both BBSplit and Seal can be run in lower-memory modes (3 bytes/base for BBSplit, and arbitrarily low for Seal) with a reduction in sensitivity.  BBSplit typically has higher sensitivity and specificity.  Seal, however, can handle reads (query sequences) of unlimited length, while BBSplit is capped at 6000bp maximum (default 600bp).  Also, BBSplit slows down as reads get longer, while Seal does not.  So, to determine which genome an assembly best matches, Seal or BBSplit could be used...  but Seal is more straightforward, as BBSplit would require the input to be shredded first.
+
+
+*Usage Examples*
+
+
+To analyze and quantify expression or abundance:
+seal.sh in=reads.fq ref=transcripts.fa stats=sealstats.txt rpkm=sealrpkm.txt ambig=random
+
+
+To summarize statistics of multiple Seal runs on different files:
+summarizeseal.sh sealstats*.txt out=summary.txt
+
+
+To split reads into files by best organism match:
+seal.sh in=reads.fq ref=bacterial_genomes.fa pattern=out_%.fq outu=unmapped.fq ambig=all
+
+
+To display taxonomic information from a dataset:
+seal.sh in=reads.fq ref=organisms.fasta minlevel=phylum maxlevel=phylum tax=tax_results.txt tree=tree.taxtree.gz gi=gitable.int1d.gz
+
+This will list the number of reads hitting various taxonomic groups, at the phylum level.  The reference sequences must be annotated with NCBI identifiers (gi numbers or NCBI taxonomy ID numbers).  See the TaxonomyGuide for more details.

@@ -1,0 +1,165 @@
+BBTools Table Of Contents
+==================
+
+
+DESCRIPTION
+===========
+
+BBTools is a robust suite of fast tools for bioinformatics analysis.  It is written in Java and usable on any operating system.
+
+BBTools is developed at the Department of Energy's Joint Genome Institute and is distributed open-source, free for unlimited use by anyone.  For more details see license.txt.
+
+Additional documentation is in the bbmap/docs folder.
+
+
+INSTALLATION
+============
+
+Extract the contents of BBMap_(version).tar.gz with
+$ tar -xzvf BBMap_(version).tar.gz
+This extracts everything to a new directory named bbmap in the current directory.
+For ease of use, add the shellscripts to your path, e.g.
+$ export PATH=$PATH:/path/to/bbmap/
+
+Requires Java 7 Runtime Environment or later (8+ is preferred).  BBTools is developed and tested with Oracle's JDK 8, and in some cases memory allocation is slightly different under OpenJDK.  BBTools can also benefit from samtools, sambamba, pigz, pbzip2, lbzip2, bzip2, and bgzip, though none are required.  Specifically, .bam files can only be read or written if samtools or sambamba is in the path; .bz2 files require pbzip2, lbzip2, or bzip2; block-gzipping (often used for vcf files) requires bgzip in the path; and compression and decompression of .gz files is much faster with pigz in the path.
+
+Check that BBTools is working with:
+
+$ bbversion.sh
+(returns version)
+
+Test stats.sh on the PhiX reference included in the bbmap/resources folder:
+$ stats.sh in=bbmap/resources/phix174_ill.ref.fa.gz 
+ 
+
+A       C       G       T       N       IUPAC   Other   GC      GC_stdev
+0.2399  0.2144  0.2326  0.3130  0.0000  0.0000  0.0000  0.4471  0.0000
+
+
+Main genome scaffold total:             1
+Main genome contig total:               1
+Main genome scaffold sequence total:    0.005 MB
+Main genome contig sequence total:      0.005 MB        0.000% gap
+Main genome scaffold N/L50:             1/5.386 KB
+Main genome contig N/L50:               1/5.386 KB
+Main genome scaffold N/L90:             1/5.386 KB
+Main genome contig N/L90:               1/5.386 KB
+Max scaffold length:                    5.386 KB
+Max contig length:                      5.386 KB
+Number of scaffolds > 50 KB:            0
+% main genome in scaffolds > 50 KB:     0.00%
+
+
+Minimum         Number          Number          Total           Total           Scaffold
+Scaffold        of              of              Scaffold        Contig          Contig  
+Length          Scaffolds       Contigs         Length          Length          Coverage
++--------        --------------  --------------  --------------  --------------  --------
+    All                      1               1           5,386           5,386   100.00%
+   5 KB                      1               1           5,386           5,386   100.00%
+
+
+
+BBTOOLS SCRIPTS
+===============
+
+Bash shell script wrappers are provided to make tools easier to run in Linux, though they are not strictly necessary.  For example, the command:
+reformat.sh in=x.fastq out=x.fasta
+...could be executed on any operating system without using the script, like this:
+java -Xmx1g -ea -cp /path/to/bbmap/current/ jgi.ReformatReads in=x.fastq out=y.fasta
+
+This is a list of the shell scripts contained in BBTools with a brief description.  Scripts not on this list are not intended to be used for analysis.
+
+A detailed description and parameters for each tool are available by running the shell script with no parameters.
+
+(e.g. $ bbcms.sh)
+
++-------------------------+----------------------------------------------------------------------------------+------------------------------------------------------------------------+
+| Script                  | Purpose                                                                          | Comment                                                                |
++-------------------------+----------------------------------------------------------------------------------+------------------------------------------------------------------------+
+| bbcms.sh                | Performs error correction using a Count-Min Sketch                               | Intended for metagenome assembly assembly                              |
+| bbcountunique.sh        | Counts unique kmers in reads                                                     |                                                                        |
+| bbduk.sh                | Trims, filters or masks reads using kmers                                        |                                                                        |
+| bbmap.sh                | Splice-aware aligner for short reads                                             |                                                                        |
+| bbmapskimmer.sh         | BBMap version designed for high levels of multimapping                           |                                                                        |
+| bbmask.sh               | Masks references based on various things, such as sequence complexity            |                                                                        |
+| bbmerge.sh              | Merges overlapping paired reads                                                  |                                                                        |
+| bbmerge-auto.sh         | Same as bbmerge, but tries to allocate all memory on the node                    | Use this version for kmer operations like extend                       |
+| bbnorm.sh               | Normalizes reads based on coverage                                               | Mainly for use prior to single-cell assembly                           |
+| bbsplit.sh              | BBMap version that maps to multiple references simultaneously                    | Intended for decontamination; similar to Seal                          |
+| bbversion.sh            | Prints the version of BBTools                                                    |                                                                        |
+| bbwrap.sh               | Wraps BBMap to process many files using same reference                           | Saves time by loading the index only once                              |
+| calctruequality.sh      | Allows recalibration of quality scores from mapped reads                         | This generates the correction matrix; BBDuk does the recalibration     |
+| callgenes.sh            | Fast prokaryotic gene caller                                                     | Integrated into BBSketch                                               |
+| callvariants.sh         | Fast variant caller                                                              |                                                                        |
+| callvariants2.sh        | Same as callvariants.sh with the "multisample" flag                              |                                                                        |
+| clumpify.sh             | Shrinks compressed fastq files, and can remove duplicate reads                   | Also supports error correction                                         |
+| comparesketch.sh        | Compares sketches locally, without using a sketch server                         |                                                                        |
+| crossblock.sh           | Alias for decontaminate.sh                                                       |                                                                        |
+| cutgff.sh               | Cuts out features defined by gff file                                            | E.g, generates one fasta entry per gene from a gff and an assembly     |
+| cutprimers.sh           | Cuts out subregions of ribosomes                                                 | Mainly for 16S analysis                                                |
+| decontaminate.sh        | Pool-level decontamination for single-cell MDA-amplified genomes                 |                                                                        |
+| dedupe.sh               | Removes duplicate and fully-contained sequences                                  | Can also be used to cluster 16S sequences                              |
+| dedupe2.sh              | Version of dedupe that supports more hash keys for greater sensitivity           |                                                                        |
+| dedupebymapping.sh      | Deduplicates reads based on mapping coordinates                                  |                                                                        |
+| demuxbyname.sh          | Demultiplexes based on sequences headers                                         |                                                                        |
+| filterbyname.sh         | Filters based on sequence headers                                                |                                                                        |
+| filterbytaxa.sh         | Filters sequences based on taxonomic classification                              | Used with NCBI datasets                                                |
+| filterbytile.sh         | Removes reads that are in low quality areas on flowcell                          |                                                                        |
+| filterqc.sh             | Part of JGI's fastq filtering pipeline                                           |                                                                        |
+| filtersam.sh            | Filters sam files to remove reads with multiple unsupported mismatches           | Designed for NovaSeq                                                   |
+| gitable.sh              | Used to process NCBI taxonomy data                                               |                                                                        |
+| khist.sh                | Alias for bbnorm.sh with flags for making a kmer frequency histogram             |                                                                        |
+| kmercountexact.sh       | Counts kmers and produces a histogram                                            | Uses more memory than BBNorm but allows exact counts                   |
+| kmercountmulti.sh       | Cardinality estimation over multiple kmer lengths                                | Uses LogLog; does not produce a histogram                              |
+| mapPacBio.sh            | BBMap version designed for PacBio or Nanopore reads                              | Reads longer than 5kbp get broken into 5kbp shreds                     |
+| mergesketch.sh          | Allows multiple sketches to be combined                                          |                                                                        |
+| msa.sh                  | Alignment tool                                                                   | Used with cutprimers.sh to cut subsections out of 16s                  |
+| mutate.sh               | Generates synthetic genomes by randomly mutating the input                       |                                                                        |
+| muxbyname.sh            | Multiplex multiple files, renaming sequences based on input file name            | Opposite of demuxbyname.sh                                             |
+| partition.sh            | Splits a sequence file into multiple files                                       |                                                                        |
+| pileup.sh               | Calculates coverage from sam files                                               |                                                                        |
+| plotflowcell.sh         | Produces statistics about flowcell positions                                     |                                                                        |
+| processhi-c.sh          | Custom trimming for hi-C reads                                                   | In development                                                         |
+| randomreads.sh          | Generates synthetic data from real genome reference                              | Highly customizable                                                    |
+| readqc.sh               | Short read quality report                                                        | Alternative to fastqc                                                  |
+| reformat.sh             | Converts sequence files to another format                                        | Has many additional options, includes subsampling                      |
+| rename.sh               | Renames sequences in various ways, such as adding a prefix                       |                                                                        |
+| repair.sh               | Fixes broken pairing in fastq files                                              |                                                                        |
+| representative.sh       | Makes a smaller subset of a reference dataset by eliminating redundancy          | Designed for use with BBSketch output                                  |
+| rqcfilter2.sh           | Filtering pipeline used at JGI                                                   | portal.nersc.gov/dna/microbial/assembly/bushnell/RQCFilterData.tar     |
+| seal.sh                 | Counts kmer matches between query and reference sequences                        |                                                                        |
+| sendsketch.sh           | Fast taxonomic classifier using webservers at JGI                                |                                                                        |
+| shred.sh                | Breaks sequences into shorter, fixed-length pieces                               |                                                                        |
+| shuffle.sh              | Randomly reorders input file                                                     | Crashes if input doesn't fit in memory                                 |
+| shuffle2.sh             | Randomly reorders input file                                                     | Supports larger files, but output might be less random                 |
+| sketch.sh               | Makes reference sketches on a per-TaxID basis                                    |                                                                        |
+| sketchblacklist.sh      | Makes sketch blacklists of common kmers                                          |                                                                        |
+| sortbyname.sh           | Sorts sequences by name, length, quality, taxa, and other things                 |                                                                        |
+| summarizequast.sh       | Generates box plots for multiple quast reports                                   |                                                                        |
+| tadpipe.sh              | Preprocessing and assembly pipeline using tadpole                                |                                                                        |
+| tadpole.sh              | Fast short read assembler                                                        |                                                                        |
+| tadwrapper.sh           | Runs Tadpole with multiple kmer lengths to select the best assembly              |                                                                        |
+| taxserver.sh            | Starts taxonomy and sketch servers                                               |                                                                        |
+| testformat.sh           | Determines if file is fasta, fastq, interleaved, etc. by reading first few lines |                                                                        |
+| testformat2.sh          | Generates extensive statistics by reading the full file                          |                                                                        |
+| translate6frames.sh     | Translates nucleotide sequence into amino acid sequence in all frames            |                                                                        |
+| vcf2gff.sh              | Converts vcf format to gff format                                                |                                                                        |
++-------------------------+----------------------------------------------------------------------------------+------------------------------------------------------------------------+
+
+
+
+AUTHORS
+=======
+
+ * Brian Bushnell (bbushnell@lbl.gov)
+ * Bryce Foster (brycefoster@lbl.gov)
+ * Jon Rood
+ * Shijie Yao (syao@lbl.gov)
+
+
+Citation
+========
+
+Please see bbmap/docs/citation.txt for information about citation.
+
+

@@ -1,0 +1,18 @@
+A_Sample Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+A_Sample and A_SampleMT are sample BBTools that do some kind of manipulation on reads.  They are designed for rapid creation of custom high-performance tools, following BBTools best practices and taking advantage of its existing infrastructure such as read input streams.  A_Sample is singlethreaded, and A_SampleMT is multithreaded.  Neither currently does anything to the reads (they act as a "null transform"); but there is an empty function, "processReadPair", into which new code can be placed to modify or filter Read objects.
+
+
+*Notes*
+
+
+Java Code:
+
+These programs are not for end-users, only developers.  The general idea is that you make a copy of A_Sample or A_SampleMT, rename it, and change processReadPair function.  Usually, you will need to add any additional fields at the bottom and additional parsing terms at the top.  Be sure that a new parse keyword you add does not conflict with one already in the Parser class.  
+
+
+Shellscript:
+
+After the java code is done, copy a_sample_mt.sh and rename that, too.  Then modify the shellscript's usage function at the top, the execution function at the bottom (where the java command is called, e.g. "java $EA $z -cp $CP jgi.A_SampleMT $@"), and the default amounts of memory (default of variable "z" and the line with "freeRam").

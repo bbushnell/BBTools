@@ -1,0 +1,142 @@
+Dedupe Guide
+Written by Brian Bushnell
+Last updated November 20, 2015
+
+Dedupe was written to eliminate duplicate contigs in assemblies, and later expanded to find all contained and overlapping sequences in a dataset, allowing a specified number of substitutions or edit distance.  It is now also capable of clustering sequences based on similarity, and printing dot-formatted all-to-all overlap graphs.
+Kmer-based assemblers do not typically create redundant contigs when working correctly, though an exception can be made in the case of transcriptome assemblers.  However, overlap-based assemblers may create duplicate sequences, and merged kmer-based assemblies (such as 5 assemblies of the same reads with different kmer lengths) will usually contain massive redundancy.  Also, public databases such as nt and RefSeq often have hundreds of thousands of duplicate sequences due to poor curation.  Dedupe is primarily designed to handle these situations.  While there are other tools designed for this purpose, none are even remotely as fast or comprehensive as Dedupe.
+
+
+*Notes*
+
+
+Memory:
+
+Dedupe stores all unique sequences in memory.  The cost is around 500 bytes per unique sequence, plus the sequences themselves (1 byte per base).  It is possible to run Dedupe in subset mode to deduplicate datasets that do not fit in memory, but that will not be covered in this guide.
+
+
+Threads and Scaling:
+
+Dedupe is fully multithreaded, and scales near-linearly with the number of cores.  Finding exact duplicates is so fast that it typically becomes bottlenecked by the file input streams, which max out at around 500 Mbp/s each.  When deduplicating multiple references, using "in=a.fasta,b.fasta,c.fasta" allows each to be read in a different stream, increasing the maximal throughput compared to first concatenating all references into a single file.
+
+
+Phases:
+
+Dedupe has 6 phases, most of which are optional and depend on the processing mode.  They are always executed (or skipped) in the same order.
+1) Exact Matches.
+During this required phase, sequences are loaded into memory, and exact duplicates (including reverse-complements) are detected and discarded.  Hashtables are filled with sequence hash codes of sequences.  If containments or overlaps will be examined in later stages, kmers from the ends of sequences will also be added to hash tables.  After this phase, the input files will not be used again.
+2) Absorb Containments.
+If "absorbcontainments" is enabled (default), every read X is scanned for kmers; each kmer is looked up in a hashtable.  If the kmer occurs in some other read Y, then Y is aligned with X to see if X contains Y (meaning Y is equal in length or shorter than X, and the number of substitutions or edits is at most the values specified with the "s" and "e" flags).  If so, Y is discarded.
+3) Find Overlaps.
+If "findoverlaps" is enabled (non-default), overlaps will be sought using the same process as containment-absorbtion, but X will not need to contain Y; they must simply have an overlap of at least minoverlap (default 200).  Neither is absorbed, and nor are they merged; the overlap is simply recorded.
+4) Make Clusters.
+If "cluster" is enabled (non-default), clusters will be created by searching the overlap graph.  Each cluster is the set of all reads reachable via transitive overlaps.  For example, if X overlaps Y, and Y overlaps Z, then X, Y, and Z will form a cluster, even if X does not overlap Z.  That means if there is even a single edge between 2 clusters, they will become one cluster.
+5) Process Clusters.
+If "processclusters" is enabled (non-default), the clusters will be postprocessed to simplify them.  This involves various graph simplification operations (which can be individually toggled) like removing redundant edges and (when possible) flipping some of the sequences so that they are all in the same orientation.
+6) Output
+Finally, all of the output files are generated.
+
+
+Read Deduplication:
+
+Dedupe can be used for deduplicating read sets, and supports paired reads as well (in which case it requires a pair to be the duplicate of another pair).  However, due to memory usage, it is not particularly efficient in this role, considering the volume of data that can be generated on modern sequencing platforms.  Dedupe can easily handle a 10M read MiSeq run, but a HighSeq lane with 300M reads might take hundreds of GB of RAM.  In those cases, deduplication methods based on sorting would be more efficient (for example, mapping and deduplicating based on mapping position).  Dedupe does not perform those operations.
+Also, the current implementation of Dedupe is strictly limited to 2 billion unique sequences regardless of how much memory is available.
+
+
+Pair Limitations:
+
+Dedupe supports paired reads, but it was not really designed for them.  When processing paired reads, some parts of Dedupe are restricted to a single thread due to a complication that causes non-deterministic output.  As such, processing paired reads is slower than unpaired reads.  Also, pair support is limited to exact matches and overlaps, not containments.
+
+
+JNI acceleration:
+
+Dedupe has an optional C component (written by Jonathan Rood) which will accelerate overlap and containment detection by a lot (at least double).  However, it only has an effect if an edit distance is allowed.  This can be activated with the "jni" flag, but it must first be compiled.  For details on compiling it, see /bbmap/jni/README.txt.  When clustering amplicons and allowing an edit distance, the "jni" and "pto" flags are highly recommended as they will dramatically increase speed.
+
+
+Dedupe versus Dedupe2:
+
+Dedupe and Dedupe2 are identical except that Dedupe2 allows an unlimited number of affixes (kmer prefixes and suffixes used for seeding overlap detection).  This is only useful when searching for overlaps with a relatively low identity, since kmers are required to have exact matches.  More affixes use more memory and slow things down, so don't go overboard.  You can call dedupe.sh or dedupe2.sh; internally, either Dedupe or Dedupe2 will get used depending on how many affixes were requested with the "nam" ("numaffixmaps") flag.  The fact that 2 shellscripts are present is a legacy.
+
+
+*Usage Examples*
+
+
+Exact duplicate removal only:
+dedupe.sh in=X.fa out=Z.fa ac=f
+
+The "ac=f" flag disables containment removal.
+
+
+Exact duplicate and contained sequence removal:
+dedupe.sh in=X.fa out=Y.fa
+
+
+Finding duplicate sequences:
+dedupe.sh in=X.fa out=Y.fa outd=duplicates.fa
+
+All removed sequences will end up in "duplicates.fa".
+
+
+Deduplication of multiple files:
+dedupe.sh in=X1.fa,X2.fa,X3.fa out=Y.fa
+
+
+Deduplication allowing mismatches:
+dedupe.sh in=X.fa out=Y.fa s=5 e=2
+
+This will allow up to 5 substitutions, or 2 edits.  What does this mean?  Well, 5 substitutions is OK.  2 insertions or 2 deletions is OK.  2 insertions and 3 substitutions is OK.  But, 5 insertions is not OK, because the edit distance specifies the bandwith of the banded aligner, and more than 2 insertions or deletions would go out of bounds.  "s=5" alone would allow 5 substitutions and zero indels, while "e=2" alone would allow up to 2 of any mutations (2 subs, 1 sub 1 insertion, etc).
+
+
+Deduplication with a minimum identity:
+dedupe.sh in=X.fa out=Y.fa minidentity=99
+
+This will consider two sequences to be duplicates if their identity is at least 99%.  Indels are not allowed unless you specifically set the "e" flag.  So, "minidentity=99" would consider 2 1000bp sequences to be duplicates if they had up to 1000*1% = 10 substitutions.  "minidentity=99 e=5" would consider 2 1000bp sequences to be duplicates if they had up to 10 mutations, but only up to 5 of them could be indels.  "minidentity=99 e=20" would consider 2 1000bp sequences to be duplicates if they had up to 20 mutations, all of which could be indels.  Why not 10?  Because it uses the max of the number of edits set by "e" and the number set by identity.
+
+
+Clustering by overlap:
+dedupe.sh in=X.fq pattern=cluster%.fq ac=f am=f s=1 mo=200 c pc csf=stats.txt outbest=best.fq fo c mcs=3 cc dot=graph.dot
+
+This will find overlaps (fo) using a min overlap length (mo) of 200 and allowing 1 substitution (s).  Then, reads will be clustered (c), and clusters of at least size 3 (mcs) will be written to individual files: cluster1.fq, cluster2.fq, etc.  Also, the single best representative of each cluster (based on length and quality scores) will be written to outbest.fq (this makes more sense for amplicon clustering than assembly).  A graph representing the overlaps will be written to graph.dot, which can be visualized with graphviz.
+
+
+Clustering full-length PacBio 16s reads of insert:
+reformat.sh in=reads_of_insert.fastq out=filtered.fq minlen=1420 maxlen=1640 maq=20 qin=33
+then:
+dedupe.sh in=filtered.fq csf=stats_e26.txt outbest=best_e26.fq qin=33 usejni=t am=f ac=f fo c rnc=f mcs=3 k=27 mo=1420 ow cc pto nam=4 e=26 pattern=cluster_%.fq dot=graph.dot
+
+This first filters out low-quality data and probable chimeras (based on length) using Reformat.  Then, clustering is done allowing up to 26 edits (this was chosen to allow roughly 99% accurate 1540bp amplicons to overlap; it should be adjusted depending on the accuracy and length of the data).  A minimum overlap length is set to 1420bp.  "nam=4 k=27" means 4 nonoverlapping 27-mers are used as seeds from each end of the sequences.
+
+
+*Proteins / Amino Acids*
+
+Dedupe supports amino acid space via the 'amino' flag.  This also changes the default kmer length to 10.
+In amino acid mode, all flags related to canonicity and reverse-complementation are disabled, and nam (numaffixmaps) is currently limited to 2 per tip (2 suffix and 2 prefix kmers per sequence as seeds for overlap detection).
+
+
+*Set Operations*
+
+It is possible to do arbitrary set operations (intersection, union, subtraction) with Dedupe, though it's not trivial.  They are made possible by the "uniqueonly" flag, which discards all copies of sequences that have duplicates, rather than retaining exactly one.  Note that similar operations are possible on kmer sets rather than sequence sets using kcompress.sh.
+
+
+Set creation:
+dedupe.sh in=X.fa out=X2.fa ac=f
+dedupe.sh in=Y.fa out=Y2.fa ac=f
+
+This is a necessary first step to ensure that X2 and Y2 are sets, meaning they have no duplicates.
+
+
+Set union:
+dedupe.sh in=X.fa,Y.fa out=union.fa ac=f
+
+
+Set subtraction:
+dedupe.sh in=X2.fa,union.fa out=Y2_minus_X2.fa uniqueonly ac=f
+
+
+Set symmetric difference:
+dedupe.sh in=X2.fa,Y2.fa out=symmetric_difference.fa uniqueonly ac=f
+
+
+Set intersection:
+dedupe.sh in=X2.fa,symmetric_difference.fa out=intersection.fa uniqueonly ac=f
+
+

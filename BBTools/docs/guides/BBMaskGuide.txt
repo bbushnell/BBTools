@@ -1,0 +1,45 @@
+BBMask Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+
+BBMask is designed for masking sequence, primarily to prevent false-positive matches in highly-conserved or low-complexity regions of genomes.  It was designed as a replacement for tools like Dust which are incredibly slow and do not work well for that purpose.  It does three types of masking, all optional:
+1) Low-entropy (complexity)
+2) Tandem-repeated kmers
+3) Sam-file coverage
+
+
+*Notes*
+
+
+Entropy:
+
+Entropy is calculated using Shannon Entropy of kmers in a window, and varies from 0 (mask nothing) to 1 (mask everything).  It's a little hard to figure out exactly what threshold you should set, but for reference, the default of 0.7 masks only 107 bases in the E.coli genome and about 0.7% of the human genome.  0.9 masks about 8kbp of E.coli and 7% of the human genome.
+
+
+Memory:
+
+BBMask loads all sequences into memory to allow multiple masking operations.  For that reason, it requires about 1 byte per base (for fasta).
+
+
+Human, Cat, Dog, and Mouse removal:
+
+Masked references of various vertebrate organisms were prepared using BBMask.  These are used by JGI to remove contaminant reads from libraries with zero false-positives.  To produce them, BBMask was used, with default settings.  Additionally, all of Mycocosm and Phytozome were shredded into 80bp overlapping pieces and mapped to the genomes; the resulting sam files were used for masking.  Some organisms such as Maize were not used due to a high level of human contamination; this was ascertained by manually looking for long regions in the mapped fungal and plant genomes that had mapped to human at very high identity (typically 100% over a few hundred bp).  These were BLASTed; if they hit other primates but not other plants or fungus, they were determined to be human contamination in the other organism's reference, and thus NOT masked.  If they hit other related plants and fungi but no animals other than human, they were determined to be plant/fungal contamination in the human reference, and masked.  Due to the relatively high level of apparent contamination in nonprimary human reference sequences (such as unplaced and alternate contigs), none of these are used.  It is also possible to mask ribosomal sequences as well, since they are highly conserved.  This was done in the case of human, using Silva.
+A handful of animals were also used for masking, including zebra danio (the only vertebrate used).  The goal here was to bottleneck homologous regions.  This is a highly simplified explanation, but my justification is this:  If a gene in human is shared, largely unchanged, with a fungus, that means it had to go through fish, since fish are evolutionarily between humans and fungi.  Therefore, masking human with fish should remove any sequences that are shared largely unchanged between humans and fungi.  It's a safe operation since the goal here is to achieve zero false positive read removals.
+
+
+*Usage Examples*
+
+
+To mask using just entropy:
+bbmask.sh in=ref.fa out=masked.fa entropy=0.7
+
+
+To mask sequences in genome A similar to those in genome B, plus low-entropy sequences:
+shred.sh in=B.fa out=shredded.fa length=80 minlength=70 overlap=40
+bbmap.sh ref=A.fa in=shredded.fa outm=mapped.sam minid=0.85 maxindel=2
+bbmask.sh in=A.fa out=masked.fa entropy=0.7 sam=mapped.sam
+
+
+To filter low-entropy sequences rather than masking them:
+See the BBDuk Guide.

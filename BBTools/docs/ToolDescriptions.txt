@@ -1,0 +1,520 @@
+Concise descriptions of BBTools.
+For complete documentation of a specific tool, please see its shellscript, and its guide if available.
+
+
+
+Note on threads:
+
+Virtually all BBTools are multithreaded.  If a description indicates that a tool is singlethreaded, that generally means there is only 1 worker thread.  File input and output are usually in separate threads, so a "singlethreaded" program like ReformatReads may be observed using over 250% of the resources of a single core (in other words, 2.5 threads on average, with 1 input file and 1 output file).  Programs listed as multithreaded, on the other hand, will automatically use all available threads (meaning the number of logical processors) unless restricted.  Most multithreaded tools scale near-linearly with the number of cores up to at least 32.
+
+Note on memory:
+
+The memory usage classification of "low" or "high" is based on assumptions; with the exception of AssemblyStats (which uses a fixed amount of memory), the actual amount of memory needed varies based on the parameters and input files.  While all programs can be forced to use a specific amount of memory with the -Xmx flag, the tools classified as low memory will try to grab only a small amount of memory by default when run via the shellscript, while the ones listed as high memory will try to grab all available memory.
+
+
+Alignment and Coverage-Related
+
+Name:  align2.BBMap
+Shellscript:  bbmap.sh, removehuman.sh, removehuman2.sh, mapnt.sh
+Description:  Fast and accurate splice-aware read aligner for DNA and RNA.  Finds optimal global alignments.  Maximum read length is 600bp.
+Notes:  Multithreaded, high memory.  Memory usage depends on the size of the reference; roughly 6 bytes per base, or 3 bytes per base with the flag "usemodulo".
+Additional Shellscripts:  removehuman.sh calls BBMap with a prebuilt index and parameters designed to remove human contamination with zero false-positives; removehuman2.sh is designed to minimize false-negatives at the expense of allowing some false-positives.  mapnt.sh calls BBMap with a prebuilt index and parameters designed to allow mapping to nt while running on a 120GB node.  All of these are designed exclusively for Genepool and will not function elsewhere, so should not be distributed outside LBL.
+
+Name:  align2.BBMapPacBio
+Shellscript:  mapPacBio.sh
+Description:  Version of BBMap for long reads up to 6kbp.  Designed for PacBio and Nanopore reads; uses alignment penalties weighted for PacBio's error model.
+Notes:  Multithreaded, high memory.  Memory usage depends on the size of the reference and number of threads.
+
+Name:  align2.BBMapPacBioSkimmer
+Shellscript:  bbmapskimmer.sh
+Description:  Version of BBMap for mapping reads to all sites above a certain score threshold, rather than finding the single best mapping location.  Uses alignment penalties weighted for PacBio's error model, as it was originally created to map Illumina reads to PacBio reads for error-correction.
+Notes:  Multithreaded, high memory.  Memory usage depends on the size of the reference and number of threads.
+
+Name:  align2.BBSplit
+Shellscript:  bbsplit.sh
+Description:  Uses BBMap to map to multiple references simultaneously, and output one file per reference, containing all the reads that match it better than the other references.  Used for metagenomic binning, distinguishing between closely-related organisms, and contamination removal.
+Notes:  See BBMap.
+
+Name:  align2.BBWrap
+Shellscript:  bbwrap.sh
+Description:  Allows multiple runs of BBMap on different input files without reloading the reference.  Useful when the reference is very large.
+Notes:  See BBMap.
+
+Name:  jgi.CoveragePileup
+Shellscript:  pileup.sh
+Description:  Calculates coverage information from an unsorted or sorted sam or bam file.  Outputs per-scaffold coverage, per-base coverage, binned coverage, normalized coverage, per-ORF coverage (using PRODIGAL's format), coverage histograms, stranded coverage, physical coverage, FPKMs, and various others.
+Notes:  Singlethreaded, high memory.  TODO: Would not be overly difficult to make a multithreaded version using A_SampleMT, but would require locks or queues.
+
+Name:  driver.SummarizeCoverage
+Shellscript:  summarizescafstats.sh
+Description:  Summarizes the scafstats output of BBMap for evaluation of cross-contamination.  The intended use is to map multiple libraries or assemblies, of different multiplexed organisms, to a concatenated reference containing one fused scaffold per organism.  This will convert all of the resulting stats files (one per library) to a single text file, with multiple columns, indicating how much of the input hit the primary versus nonprimary scaffolds.  See also BBMap, Pileup, SummarizeSealStats.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.FilterByCoverage
+Shellscript:  filterbycoverage.sh.
+Description:  Filters an assembly by contig coverage, to remove contigs below a coverage cutoff, or with fewer than some percent of their bases covered.  Uses coverage stats produced by BBMap or Pileup.
+Notes:  Singlethreaded, low memory.
+
+Name:  driver.MergeCoverageOTU
+Shellscript:  mergeOTUs.sh
+Description:  Merges coverage stats lines (from Pileup) for the same OTU, according to some custom naming scheme.  See also CoveragePileup.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.SamToEst
+Shellscript:  bbest.sh
+Description:  Calculates EST (expressed sequence tags) capture by an assembly from a sam file.  Designed to use BBMap output generated with these flags: k=13 maxindel=100000 customtag ordered
+Notes:  Singlethreaded, low memory.
+
+Name:  assemble.Postfilter
+Shellscript:  postfilter.sh
+Description:  Maps reads, then filters an assembly by contig coverage.  Intended to reduce misassembly rate of SPAdes by removing suspicious contigs.  See also BBMap and FilterByCoverage.
+Notes:  Multithreaded, high memory.
+
+
+Kmer Matching
+
+Name:  jgi.BBDukF
+Shellscript:  bbduk.sh
+Description:  Multipurpose tool for read preprocessing, which does adapter-trimming, quality-trimming, contaminant filtering, entropy filtering, sequence masking, quality score recalibration, format conversion, histogram generation, barcode filtering, gc filtering, kmer cardinality estimation, and many similar tasks.
+Notes:  Multithreaded, high memory.  Memory usage depends on the size of the reference (roughly 20 bytes per kmer) and whether hdist or edist are set (they multiply memory consumption by a large factor); if no reference is loaded, little memory is needed.
+
+Name:  jgi.BBDuk2
+Shellscript:  bbduk2.sh
+Description:  Version of BBDuk that can do multiple kmer-based operations at once - left-trim, right-trim, filter, and mask.
+Notes:  See BBDuk.
+
+Name:  jgi.Seal
+Shellscript:  seal.sh
+Description:  Performs high-speed alignment-free sequence quantification or binning, by counting the number of long kmers that match between a read and a set of reference sequences.  Designed for RNA-seq versus a transcriptome, metagenomic binning and abundance analysis, quantifying contamination, and similar.  Very similar to BBDuk except that Seal associates each kmer with multiple reference sequences instead of just one, so it is superior in situations where multiple reference sequences may share a kmer.  Unlike BBSplit, this supports unlimited read length.  Can generate per-scaffold coverage, FPKMs when mapping to a transcriptome, and so forth.  Also supports taxonomic classification.
+Notes:  Multithreaded, high memory.  Memory usage depends on the size of the reference (roughly 30 bytes per kmer) and whether hdist or edist are set (they multiply memory consumption by a large factor).
+
+Name:  driver.SummarizeSealStats
+Shellscript:  summarizeseal.sh
+Description:  Summarizes the stats output of Seal for evaluation of cross-contamination.  The intended use is to map multiple libraries or assemblies, of different multiplexed organisms, to a concatenated reference containing one fused scaffold per organism.  This will convert all of the resulting stats files (one per library) to a single text file, with multiple columns, indicating how much of the input hit the primary versus nonprimary scaffolds. Also allows filtering of certain libraries to mask some classes of contamination.  Because Seal supports arbitrarily-long sequences, this is a better choice than BBMap for evaluating assemblies.  See also Seal, SummarizeCoverage.
+Notes:  Singlethreaded, low memory.
+
+
+Kmer Counting
+
+Name:  jgi.LogLog
+Shellscript:  loglog.sh
+Description:  Estimates the number of unique kmers within a dataset to within ~10%.
+Notes:  Multithreaded, low memory.  This can also be done with other programs such as BBDuk by adding the loglog flag.
+
+Name:  jgi.KmerCountExact
+Shellscript:  kmercountexact.sh
+Description:  Counts kmers in sequence data.  Capable of outputting the kmers and their counts as fasta or 2-column tsv, as well as a frequency histogram.  No kmer length limits.
+Notes:  Multithreaded, high memory.
+
+Name:  jgi.KmerNormalize (generally referred to as BBNorm)
+Shellscript:  bbnorm.sh, ecc.sh, khist.sh
+Description:  Uses a lossy data structure (count-min sketch) to perform kmer-based normalization, error-correction, and/or depth-binning on reads.
+Notes:  Multithreaded, high memory.  BBNorm will never run out of memory; rather, as the amount of data increases, the accuracy decreases.  Therefore you should always use all available memory for best accuracy.  The error correction by Tadpole is superior, but Tadpole can run out of memory with large datasets.
+Additional Shellscripts:  KmerNormalize is called by 3 different shellscripts, which differ only in their default parameters (which can be overridden).  bbnorm.sh does 2-pass normalization only; ecc.sh does error-correction only; and khist.sh only makes a kmer histogram, without ignoring the low-quality kmers (as is done by ecc and bbnorm).  But, if add the flag "ecc" to bbnorm.sh and it will do error-correction also, and so forth - with the same parameters they are all identical.
+
+Name:  jgi.CalcUniqueness
+Shellscript:  bbcountunique.sh
+Description:  Generates a kmer uniqueness histogram, binned by file position.  Designed to analyze library complexity, and determine how much sequencing is needed before reaching saturation.  Outputs both single-read uniqueness and pair uniqueness.
+Notes:  Singlethreaded, high memory (around 100 bytes per read pair).
+
+Name:  jgi.SmallKmerFrequency
+Shellscript:  commonkmers.sh
+Description:  Prints the most common kmers in a sequence, their counts, and the sequence header.  K is limited to 15.
+Notes:  Singlethreaded, low memory.  Memory is proportional to 4^k, and is trivial for short kmers under 10.
+
+Name:  jgi.KmerCoverage
+Shellscript:  kmercoverage.sh
+Description:  Annotates reads with their kmer depth.
+Notes:  Deprecated.  Multithreaded, high memory.
+
+Name:  jgi.CallPeaks
+Shellscript:  callpeaks.sh
+Description:  Calls peaks from a kmer frequency histogram, such as that from BBNorm or KmerCountExact.  Also estimates genome size and other statistics.
+Notes:  Singlethreaded, low memory.  Normally called automatically by programs that make the histogram.  The peak-calling logic is not very sophisticated and could be improved.
+
+
+Assembly
+
+Name:  assemble.Tadpole
+Shellscript:  tadpole.sh
+Description:  Very fast kmer-based assembler, designed for haploid organisms.  Performs well on single cells, viruses, organelles, and in other situations with small genomes and potentially uneven or very high coverage.  Also has modes for read error-correction and extension, instead of assembly; Tadpole's error-correction is superior to BBNorm's.  No upper limit on kmer length.  See also KmerCountExact, KmerCompressor, LogLog, BBMerge, KmerNormalize.
+Notes:  Multithreaded, high memory.  Memory consumption is a strict function of the number of unique input kmers.
+
+Name:  assemble.TadpoleWrapper
+Shellscript:  tadwrapper.sh
+Description:  Generates multiple assemblies with Tadpole to estimate the optimal kmer length.
+Notes:  Multithreaded, high memory.
+
+Name:  assemble.KmerCompressor
+Shellscript:  kcompress.sh
+Description:  Generates a minimal fasta file containing each kmer from the input sequence exactly once.  Optionally allows the inclusion only of kmers within a certain depth range.  Arbitrary kmer set operations are possible via multiple passes.  Very similar to an assembler.
+Notes:  Multithreaded, high memory.  Contains a singlethreaded phase.
+
+Name:  jgi.AssemblyStats2
+Shellscript:  stats.sh
+Description:  Generates basic assembly statistics such as scaffold count, N50, L50, GC content, gap percent, etc.  Also generates per-scaffold length and base content statistics, and can estimate BBMap's memory requirements for an assembly.  See also StatsWrapper.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.AssemblyStatsWrapper
+Shellscript:  statswrapper.sh
+Description:  Generates stats on multiple assemblies, allowing tab-delimited columns with one assembly per row, and only one header.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.CountGC
+Shellscript:  countgc.sh
+Description:  Counts GC content of reads or scaffolds.
+Notes:  Deprecated; superceded by AssemblyStats.
+
+Name:  jgi.FungalRelease
+Shellscript:  fungalrelease.sh
+Description:  Reformats a fungal assembly for release.  Also creates contig and agp files.
+Notes:  Singlethreaded, low memory.
+
+
+Taxonomy
+
+Name:  tax.FilterByTaxa
+Shellscript:  filterbytaxa.sh
+Description:  Filters sequences according to their taxonomy, as determined by the sequence name.  Sequences should be labeled with a gi number, NCBI taxID, or species name.  Relies on NCBI taxdump processed using taxtree.sh and gitable.sh.
+Notes:  Singlethreaded, low memory.
+
+Name:  tax.RenameGiToNcbi
+Shellscript:  gi2taxid.sh
+Description:  Renames sequences with gi numbers to NCBI taxa IDs.  This allows taxonomy processing without a gi number lookup.
+Notes:  Singlethreaded, high memory.  TODO: Can be made low memory if slightly altered to accept gitable.int1d files.
+
+Name:  tax.GiToNcbi
+Shellscript:  gitable.sh
+Description:  Condenses gi_taxid_nucl.dmp from NCBI taxdmp to gitable.int1d, a more efficient representation, used by other tools for translating gi numbers to taxID's.  See also TaxTree.
+Notes:  Singlethreaded, high memory.
+
+Name:  tax.SortByTaxa
+Shellscript:  sortbytaxa.sh
+Description:  Sorts sequences into taxonomic order by some depth-first traversal of the Tree of Life as defined by NCBI taxdump.  Sequences must be labelled with taxonomic identifiers.
+Notes:  Singlethreaded, high memory.
+
+Name:  tax.SplitByTaxa
+Shellscript:  splitbytaxa.sh
+Description:  Splits sequences according to their taxonomy, as determined by the sequence name.  Sequences should be labeled with a gi number, NCBI taxID, or species name.
+Notes:  Multithreaded, high memory.  If the number of threads is restricted and the sequences are fairly short, regardless of the total number, this may be run using low memory.
+
+Name:  tax.PrintTaxonomy
+Shellscript:  taxonomy.sh
+Description:  Prints the full taxonomy of a given taxonomic identifier (such as homo_sapiens).
+Notes:  Singlethreaded, low memory.
+
+Name:  tax.TaxTree
+Shellscript:  taxtree.sh
+Description:  Creates tree.taxtree from names.dmp and nodes.dmp, which are in NCBI tax dump.  The taxtree file is needed for programs that can deal with taxonomy, like Seal and SortByTaxa.
+Notes:  Singlethreaded, high memory.
+
+Name:  driver.ReduceSilva
+Shellscript:  reducesilva.sh
+Description:  Reduces Silva entries down to one entry per specified taxonomic level.  Designed to increase the efficiency of operations like mapping, in which having thousands of substrains represented are not helpful.
+Notes:  Singlethreaded, low memory.
+
+
+Cross-Contamination
+
+Name:  jgi.SynthMDA
+Shellscript:  synthmda.sh
+Description:  Generates synthetic reads following an MDA-amplified single cell's coverage distribution.  Designed for single-cell assembly and analysis optimization.  See also CrossContaminate, RandomReads.
+Notes:  Singlethreaded, medium memory (needs around 4GB).
+
+Name:  jgi.CrossContaminate
+Shellscript:  crosscontaminate.sh
+Description:  Generates synthetic cross-contaminated files from clean files.  Intended for use with synthetic reads generated by SynthMDA or RandomReads.  Designed to evaluate the effects of cross-contamination on assembly, and the efficacy of decontamination methods.
+Notes:  Singlethreaded, high memory.
+
+Name:  jgi.DecontaminateByNormalization
+Shellscript:  decontaminate.sh, crossblock.sh
+Description:  Removes contaminant contigs from assemblies of multiplexed libraries via normalization and mapping.
+Notes:  Multithreaded, high memory.  Mostly a wrapper for other programs like BBMap, BBNorm, and FilterByCoverage.
+
+
+Deduplication and Clustering
+
+Name:  jgi.Dedupe
+Shellscript:  dedupe.sh
+Description: Accepts one or more files containing sets of sequences (reads or scaffolds).  Removes duplicate sequences, which may be specified to be exact matches, fully contained subsequences, or subsequence within some edit distance.  Can also find overlapping sequences and group them into clusters based on transitive reachability; for example, clustering full-length 16S PacBio reads by species.
+Notes:  Multithreaded, high memory.  This program has a jni mode which increases speed dramatically if an edit distance is used.
+
+Name:  jgi.Dedupe2
+Shellscript:  dedupe2.sh
+Description:  Allows more kmer seeds than Dedupe.  This will be automatically called by Dedupe if needed.
+Notes:  See Dedupe.
+
+Name:  jgi.DedupeByMapping
+Shellscript:  dedupebymapping.sh
+Description:  Removes duplicate reads or read pairs from a sam/bam file based on mapping coordinates.  The sam file does not need to be sorted.
+Notes:  Singlethreaded, high memory.
+
+Name:  clump.Clumpify
+Shellscript:  clumpify.sh
+Description:  Rearranges unsorted reads into small clumps of reads, such that each clump shares a kmer, and thus probably overlaps.  Can also create consensus sequence from these clumps.
+Notes:  Multithreaded, low or high memory.  Memory consumption may be made arbitrarily small by using a user-specified number of temp files for bucket-sorting.  By default, it will try to grab all available memory.
+
+
+Read Merging
+
+Name:  jgi.BBMerge
+Shellscript:  bbmerge.sh, bbmerge-auto.sh
+Description:  Merges paired reads into single reads by overlap detection.  With sufficient coverage, can also merge nonoverlapping reads by kmer extension.
+Notes:  Multithreaded, low memory.  If kmers are used (for extension or error-correction), it will need much more memory, and the shellscript bbmerge-auto.sh should be used, which tries to acquire all available RAM.  This program has a jni mode which increases speed by around 20%.
+
+Name:  jgi.MateReadsMT
+Shellscript:  bbmergegapped.sh
+Description:  Uses gapped kmers to merge nonoverlapping reads.
+Notes:  Deprecated; superceded by BBMerge.
+
+
+Synthetic Read Generation and Benchmarking
+
+Name:  align2.RandomReads3
+Shellscript:  randomreads.sh
+Description:   Generates random synthetic reads from a reference genome, annotated with their genomic origin.  Allows precise customization of things like insert size and synthetic mutation type, sizes, and rates.  Read names are parsed by various other BBTools to grade accuracy.
+Notes:  Singlethreaded, high memory.
+
+Name:  jgi.FakeReads
+Shellscript:  bbfakereads.sh
+Description:  Generates fake read pairs from ends of contigs or single reads.  Intended for use in generating a fake LMP library for scaffolding, using additional information like another assembly, or very long reads (like PacBio).  This can also be accomplished with RandomReads.
+Notes:  Singlethreaded, low memory.  
+
+Name:  align2.GradeSamFile
+Shellscript:  gradesam.sh
+Description:  Grades the accuracy of an aligner (such as BBMap) by parsing the output.  The reads must be single-ended and annotated as though generated by RandomReads.
+Notes:  Singlethreaded, low memory.
+
+Name:  align2.MakeRocCurve
+Shellscript:  samtoroc.sh
+Description:  Creates an ROC plot (technically, true-positive versus false-positive) from a sam or bam file of mapped reads.  The reads should be single-ended with headers generated by RandomReads.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.AddAdapters
+Shellscript:  addadapters.sh
+Description:  Randomly adds adapters to a file, or grades a trimmed file. The input is a set of reads, paired or unpaired. The output is those same reads with adapter sequence replacing some of the bases in some reads. For paired reads, adapters are located in the same position in read1 and read2. This is designed for benchmarking adapter-trimming software (such as BBDuk), and evaluating methodology.  Adapters can alternately be added by RandomReads, in which case insert size is used to determine where the adapters go.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.GradeMergedReads
+Shellscript:  grademerge.sh
+Description:  Grades the accuracy of a read-merging program (such as BBMerge) by parsing the output.  The reads must be annotated by their insert size.  This can be done by generating them with RandomReads and renaming with RenameReads
+Notes:  Singlethreaded, low memory.
+
+Name:  align2.PrintTime
+Shellscript:  printtime.sh
+Description:  Prints time elapsed since last called on the same file.
+Notes:  Singlethreaded, low memory.
+
+
+16S, Primers, and Amplicons
+
+Name:  jgi.FindPrimers
+Shellscript:  msa.sh
+Description:  Aligns a query sequence to reference sequences.  Outputs the best matching position per reference sequence.  If there are multiple queries, only the best-matching query will be used.  Designed to find primer binding sites in a sequence that may contain indels, such as a PacBio read, using a MultiStateAligner.
+Notes:  Singlethreaded, high memory.  TODO: Could easily be made multithreaded using A_SampleMT.
+
+Name:  jgi.CutPrimers
+Shellscript:  cutprimers.sh
+Description:  Cuts out sequences corresponding to primers identified in sam files.  Used in conjunction with FindPrimers (msa.sh).
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.IdentityMatrix
+Shellscript:  idmatrix.sh
+Description:  Generates an identity matrix via all-to-all alignment of sequences in a file.  Intended for 16S or other amplicon analysis.  See also CorrelateIdentity.
+Notes:  Multithreaded, high-memory.  Time complexity is O(N^2) with the number of reads.
+
+Name:  driver.CorrelateIdentity
+Shellscript:  matrixtocolumns.sh
+Description:  Transforms two matched identity matrices into 2-column format, one row per entry, one column per matrix.  Designed for comparing different 16S subregions.  See also IdentityMatrix, FindPrimers.
+Notes:  Singlethreaded, high memory.  The actual amount of memory just depends on the matrix sizes.
+
+
+Barcodes
+
+Name:  jgi.CountBarcodes
+Shellscript:  countbarcodes.sh
+Description:  Counts the number of reads with each barcode.  Assumes read names have the barcode at the end.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.CorrelateBarcodes
+Shellscript:  filterbarcodes.sh
+Description:  Filters barcodes by quality, and generates quality histograms.  See also MergeBarcodes.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.MergeBarcodes
+Shellscript:  mergebarcodes.sh
+Description:  Concatenates barcodes and barcode quality onto read names.  Designed to analyze the effects of barcode quality on library misassignment.  See also CorrelateBarcodes.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.RemoveBadBarcodes
+Shellscript:  removebadbarcodes.sh
+Description:  Removes reads with improper barcodes - either with no barcode, or a barcode containing a degenerate base.
+Notes:  Singlethreaded, low memory.  Mostly a test case for extending BBTool_ST.
+
+
+Filtering and Demultiplexing
+
+Name:  jgi.DemuxByName
+Shellscript:  demuxbyname.sh
+Description:  Demultiplexes reads into multiple files based on their name, by matching a suffix or prefix.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.FilterBySequence
+Shellscript:  filterbysequence.sh
+Description:  Filters reads by exact sequence match.  Allows case-sensitive or insensitive matches, and reverse-complement matches or only forward matches.
+Notes:   Multithreaded, high memory.
+
+Name:  driver.FilterReadsByName
+Shellscript:  filterbyname.sh
+Description:  Filters reads by name.  Allows substring matching, though that is much slower.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.FilterReadsWithSubs
+Shellscript:  filtersubs.sh
+Description:  Filters a sam file to select only reads with substitution errors for bases with quality scores in a certain interval.  Used for manually examining specific reads that may contain incorrectly calibrated quality scores.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.GetReads
+Shellscript:  getreads.sh
+Description:  Fetches the reads with specified numeric IDs (unrelated to their names).  The first read (or pair) in a file has ID 0, the second read (or pair) has ID 1, etc.
+Notes:  Singlethreaded, low memory.
+
+Name:  driver.EstherFilter
+Shellscript:  estherfilter.sh
+Description:  BLASTs queries against reference, and filters out hits with scores less than 'cutoff'.
+Notes:  All the work is done by blastall, which dictates the performance characteristics.
+
+
+JGI-Exclusive Preprocessing Wrappers
+
+Name:  jgi.BBQC
+Shellscript:  bbqc.sh
+Description:  Wrapper for various read preprocessing operations.
+Notes:  Deprecated; superceded by RQCFilter.  Designed exclusively for Genepool and will not function elsewhere, so should not be distributed outside LBL.
+
+Name:  jgi.RQCFilter
+Shellscript:  rqcfilter.sh
+Description:  Acts as a wrapper/pipeline for read preprocessing.  Performs quality-trimming, artifact removal, linker-trimming, adapter trimming, spike-in removal, vertebrate contaminant removal, microbial contaminant removal, and generates various histogram and statistics files used by RQC.
+Notes:  Multithreaded, high memory.  Currently requires 39500m RAM and thus can run on a 40G node, but it's recommended to submit it exclusive, as all stages are fully multithreaded.  Designed exclusively for Genepool and will not function elsewhere, so should not be distributed outside LBL.
+
+
+Shredding and Sorting
+
+Name:  jgi.Shred
+Shellscript:  shred.sh
+Description:  Shreds long sequences into shorter sequences, with overlap length and variable-length options.  See also Fuse.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.FuseSequence
+Shellscript:  fuse.sh
+Description:  Fuses sequences together, padding junctions with Ns.  Does not support total length greater than 2 billion.  Designed for use with Seal or BBDuk to make kmer tracking for a given genome more efficient.  See also Shred.
+Notes:  Singlethreaded, high memory.
+
+Name:  jgi.Shuffle
+Shellscript:  shuffle.sh
+Description:  Reorders reads randomly, keeping pairs together.  Also supports some sorting operations, like alphabetically by name or by sequence.
+Notes:  Singlethreaded, high memory.  All operations are in-memory.
+
+
+Non-Sequence-Related
+
+Name:  Calcmem - Shellscript Only
+Shellscript:  calcmem.sh
+Description:  Calculates available memory for other shellscripts.  Designed for Genepool but works fine on many Linux configurations.
+Notes:  If java is being killed for allocating too much memory, this is the script to fix.
+
+Name:  fileIO.TextFile
+Shellscript:  textfile.sh
+Description:  Displays contents of a text file, optionally between a start and stop line.  Useful mainly in Windows where there are few command-line utilities.
+Notes:  Singlethreaded, low memory.
+
+Name:  driver.CountSharedLines
+Shellscript:  countsharedlines.sh
+Description:  Counts the number of lines shared between sets of files.  One output file will be printed for each input file.  For example, an output file for a file in the 'in1' set will contain one line per file in the 'in2' set, indicating how many lines are shared.  This is not designed for sequence data, but more for things like sequence names or organism names.  See filterlines.sh for actually filtering shared lines in a more normal fashion.
+Notes:  Singlethreaded, low memory.
+
+Name:  driver.FilterLines
+Shellscript:  filterlines.sh
+Description:  Filters lines by exact match or substring.  This is not designed for sequence data, but for things like sequence names or organism names.
+Notes:  Singlethreaded, low memory.
+
+
+Other Tools
+
+Name:  jgi.A_SampleMT
+Shellscript:  a_sample_mt.sh
+Description:  Does nothing.  Serves as a template for easily making new BBTools by dropping in code.
+Notes:  Multithreaded, high memory.  Be sure to modify the shellscript line "    freeRam 4000m 84" as needed.  The first is the amount of memory used if available memory cannot be calculated, the second is the percentage of free memory to use if it can be calculated.
+
+Name:  jgi.BBMask
+Shellscript:  bbmask.sh
+Description:  Masks sequences of low-complexity, or containing repeat kmers, or covered by mapped reads.  Used to make masked versions of human, cat, dog, and mouse genomes; these are used for filtering vertebrate contamination from fungal/plant/microbial data without risk of false-positive removals.
+Notes:  Multithreaded, high memory.  Uses around 2 bytes per reference base.
+
+Name:  jgi.CalcTrueQuality
+Shellscript:  calctruequality.sh
+Description:  Generates matrices used for quality-score recalibration.  Requires one or more mapped sam files as input.  The actual recalibration is done with another program such as BBDuk.
+Notes:  Multithreaded, low memory.
+
+Name:  jgi.MakeChimeras
+Shellscript:  makechimeras.sh
+Description:  Makes chimeric sequences by randomly fusing together nonchimeric sequences.  Designed for analyzing chimera removal effectiveness.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.PhylipToFasta
+Shellscript:  phylip2fasta.sh
+Description:  Transforms interleaved phylip to fasta.
+Notes:  Singlethreaded, high memory.
+
+Name:  jgi.MakeLengthHistogram
+Shellscript:  readlength.sh
+Description:  Makes a length histogram of sequences.
+Notes:  Singlethreaded, low memory.  Can also be accomplished with Reformat or BBDuk, but with less flexibility.
+
+Name:  jgi.ReformatReads
+Shellscript:  reformat.sh
+Description:  Reformats sequence data into another format, such as interleaved ASCII-33 fastq to twin-file ASCII-64.  Also supports a huge collection of simple optional operations, like trimming, filtering, reverse-complementing, modifying read names, and modifying read sequence.
+Notes:  Singlethreaded, low memory.
+
+Name:  pacbio.RemoveAdapters2
+Shellscript:  removesmartbell.sh
+Description:  Detects or removes SmartBell adapters from PacBio reads, by aligning the adapter using a customized version of the MultiStateAligner.
+Notes:  Multithreaded, low memory.
+
+Name:  jgi.RenameReads
+Shellscript:  rename.sh
+Description:  Renames reads according to some specified prefix.  Can also rename by insert size or mapping location.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.SplitPairsAndSingles
+Shellscript:  repair.sh, bbsplitpairs.sh
+Description:  Separates paired reads into files of pairs and singletons by removing reads that are shorter than a min length, or have no mate.  Can also reorder arbitrarily-ordered reads in files where the pairing order was desynchronized.  See also Reformat's vint flag.
+Notes:  Singlethreaded, low or high memory.  All operations are low-memory except reordering arbitrarily disordered files, which is optional.
+
+Name:  jgi.SplitNexteraLMP
+Shellscript:  splitnextera.sh
+Description:  Trims and splits Nextera LMP libraries into subsets based on linker orientation: LMP, fragment, unknown, and singleton.
+Notes:  Singlethreaded, low memory.  TODO: Should be reimplemented using A_SampleMT.
+
+Name:  jgi.SplitSamFile
+Shellscript:  splitsam.sh
+Description:  Splits a sam file into three files: Plus-mapped reads, Minus-mapped reads, and Unmapped.
+Notes:  Singlethreaded, low memory.
+
+Name:  fileIO.FileFormat
+Shellscript:  testformat.sh
+Description:  Tests the format of a sequence-containing file.  Determines format (fasta, fastq, etc), quality encoding, compression type, interleaving, and read length.  All BBTools use this to determine how to process a file.
+Notes:  Singlethreaded, low memory.
+
+Name:  jgi.TranslateSixFrames
+Shellscript:  translate6frames.sh
+Description:  Translates nucleotide sequences to all 6 amino acid frames, or amino acids to a canonical nucleotide representation.
+Notes:  Singlethreaded, low memory.
+
+
+Template
+
+Name:  
+Shellscript:  
+Description:  
+Notes:

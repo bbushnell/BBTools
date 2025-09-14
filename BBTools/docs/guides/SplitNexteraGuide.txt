@@ -1,0 +1,22 @@
+SplitNextera Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+SplitNextera splits Nextera LMP libraries into subsets based on linker orientation.  It is designed strictly for Nextera LMP (long-mate-pair) reads, not for normal libraries using a Nextera kit.  Nextera LMP libraries must be split prior to further processing; they are not usable raw.  Adapter-trimming should still be done on Nextera LMP libraries prior to splitting.
+
+
+*Usage Examples*
+
+
+Processing a Nextera LMP library:
+bbduk.sh in=reads.fq out=trimmed.fq ref=adapters.fa ktrim=r k=23 mink=11 hdist=1 tpe tbo
+splitnextera.sh in=trimmed.fq out=lmp.fq outf=fragments.fq outu=unknown.fq outs=singletons.fq mask
+
+This will produce 4 output files - long-mate pairs, fragments (short pairs), singletons, and unknown.  The unknown are typically long-mate pairs, but the linker was not found so they might be short pairs.  The "mask" flag tells the program to look for the junction.  It's possible to alternately look for the junction with BBDuk, instead (see below).
+
+
+Processing a Nextera LMP library, but finding the junctions with BBDuk:
+bbduk.sh in=reads.fq out=trimmed.fq ref=adapters.fa ktrim=r k=23 mink=11 hdist=1 tpe tbo
+bbduk.sh in=trimmed.fq out=stdout.fq ktmask=J k=19 hdist=1 mink=11 hdist2=0 literal=CTGTCTCTTATACACATCTAGATGTGTATAAGAGACAG | splitnextera.sh in=stdin.fq out=lmp.fq outf=fragments.fq outu=unknown.fq outs=singletons.fq
+
+This is somewhat faster but will yield the same output.

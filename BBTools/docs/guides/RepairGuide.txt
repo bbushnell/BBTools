@@ -1,0 +1,29 @@
+Repair Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+Repair (or re-pair) is designed to fix files of paired reads that became disordered.  With paired reads in 2 files, the first read in file 1 must be the mate of the first read in file 2, etc.  For paired reads in a single interleaved file, the second read is the mate of the first read, and the 4th read is the mate of the 3rd read, etc.  Using old, non-pair-aware software like Fastx Toolkit is the primary cause of corrupting these files to break the pairing order; when that happens, it's best to go back to the raw reads, and process them correctly with a different tool like BBDuk.  But if you need to fix a file that had its reads disordered, and you don't have the original reads, you can use Repair.  It operates by parsing the read names, which must be either in normal Illumina format (identical prefix followed by 1: and 2:, or by /1 and /2), or must be completely identical for both reads in a pair (sam format).
+
+
+*Notes*
+
+
+Memory:
+
+Repair has two shellscripts, repair.sh and bbsplitpairs.sh.  Both call jgi.SplitPairsAndSingles, but bbsplitpairs.sh requests a small amount of memory by default and repair.sh requests all available memory by default.  Repairing (repair flag) arbitrarily disordered files will take a lot of memory - potentially, all reads need to be stored in memory.  However, fixing a file that was interleaved but processed as unpaired (fint flag) only needs a small amount of memory.  "Repair" can also be used to fix broken interleaving, of course, it just uses more memory; but "fint" cannot be used to fix an arbitrarily disordered file (that you might get when processing two paired files independently).
+
+
+*Usage Examples*
+
+
+Repairing an arbitrarily disordered file:
+repair.sh in=broken.fq out=fixed.fq outs=singletons.fq repair
+
+
+Repairing disordered dual files:
+repair.sh in1=broken1.fq in2=broken2 out1=fixed1.fq out2=fixed2.fq outs=singletons.fq repair
+
+
+Fixing broken interleaving:
+bbsplitpairs.sh in=broken.fq out=fixed.fq outs=singletons.fq fint
+
