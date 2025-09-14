@@ -1,0 +1,189 @@
+BBMap Guide
+Written by Brian Bushnell
+Last updated December 23, 2015
+
+
+BBMap is a splice-aware global aligner for DNA and RNA sequencing reads.  It can align reads from all major platforms - Illumina, 454, Sanger, Ion Torrent, Pac Bio, and Nanopore.  BBMap is fast and extremely accurate, particularly with highly mutated genomes or reads with long indels, even whole-gene deletions over 100kbp long.  It has no upper limit to genome size or number of contigs, and has been successfully used for mapping to an 85 gigabase soil metagenome with over 200 million contigs.  Additionally, the indexing phase is very fast compared to other aligners.
+BBMap has a large array of options, described in its shellscript.  It can output many different statistics files, such as an empirical read quality histogram, insert-size distribution, and genome coverage, with or without generating a sam file.  As a result, it is useful in quality control of libraries and sequencing runs, or evaluating new sequencing platforms.  The derivative program BBSplit is also useful in binning or refining metagenomic reads.
+
+
+*Notes*
+
+
+Algorithm:
+
+This guide will not describe BBMap's algorithm, other than to say it uses a multi-kmer-seed-and-extend approach, analogous to growing polycrystalline silicon.  For those interested, there is a paper describing many of the technical details here: http://bib.irb.hr/datoteka/773708.Josip_Maric_diplomski.pdf
+
+
+Memory:
+
+BBMap normally uses roughly 6 bytes per reference base.  It also has a low-memory mode (triggered by the flag "usemodulo") that will use approximately 3 bytes per base, with a slight reduction in sensitivity.  Some additional memory is needed per thread for alignment matrices; this is relatively small in normal mode, but bigger in PacBio mode due to the longer reads.  Also, the amount of memory needed for the index increases with kmer length.  The memory needed for a specific kmer length by running stats.sh on the reference with the kmer length; e.g., "stats.sh in=contigs.fa k=13".
+
+
+Indexing and Disk Use:
+
+BBMap must index a reference before mapping to it, which is relatively fast.  By default, it will write this index to disk so that it can be loaded more quickly next time, but this can be suppressed with the "nodisk" flag.  The index is written to the location /ref/.  In other words, if you run BBMap from the location /bob/work/, then the directory /bob/work/ref/ will be created and an index written to it; if there is already an index at that location which matches the reference you are using, the existing index will be loaded.  If it does not match, a new index will be written.  For example, if you do these steps in order:
+1) "bbmap.sh in=reads.fq" will look for an index in /ref/, not find anything, and so will quit without mapping.
+2) "bbmap.sh in=reads.fq ref=A.fa nodisk" will generate an index in memory and write nothing to disk.
+3) "bbmap.sh in=reads.fq ref=A.fa" will generate an index and write it to /ref/.
+4) "bbmap.sh in=reads.fq" will look for an index in /ref/, and load it.
+5) "bbmap.sh in=reads.fq ref=A.fa" will look in ref, see that A is already indexed, and load the existing index.
+6) "bbmap.sh in=reads.fq ref=B.fa" will overwrite the index in A with a new index for B.
+7) "bbmap.sh in=reads.fq ref=C.fa build=2" will write a new index for C in the /ref/ folder.  At this point there will be an index for be (stored as build 1) and an index for C (stored as build 2).
+8) "bbmap.sh in=reads.fq ref=D.fa path=/another/location/" will write an index for D into /another/location/ref/.
+
+Specifying a path or build number when "nodisk" is in the command will have no effect.  Do not attempt to have multiple processes write an index to the same location at the same time, or you will get a corrupt index that needs to be deleted and regenerated.  If you need to map many files to a single reference, build the index once (e.g. "bbmap.sh ref=a.fa"), then wait for it to finish.  Then, you can map all the read files simultaneously if you want (without a ref= flag).  Alternately, you can launch as many as you want with the nodisk flag and you will never get a corrupt index.
+
+
+Performance, Threads, and Sensitivity:
+
+BBMap is multithreaded for both indexing and mapping.  It will use all available threads unless capped with the "t=" flag, but it scales near-linearly with processor cores so there is rarely a good reason to restrict it unless operating on a shared system.
+After indexing, there are two stages of processing for each read, mapping (finding candidate locations via kmer matching) and alignment (scoring how well the read matches each candidate location).  Normally, BBMap spends most of its time in the alignment (rather than mapping) phase.  You can speed up alignment by using the "fast" flag, reducing maxindel, and adjusting sensitivity flags like "minratio/minid" and "bandwidth"; you can speed up mapping by increasing minhits and kmer length.  Speeding up mapping also speeds up alignment, because fewer candidate sites need to be examined.
+Generally, any flag that increases speed reduces sensitivity, and vice-versa.
+
+
+Maxindel Flag:
+
+"maxindel" determines the maximum length of insertions and deletions that will be sought.  It is a soft limit - it is possible to find indels much longer than maxindel, they just won't explicitly be searched for.  Maxindel has more impact on insertions than deletions, because deletions (relative to the reference) can be found that are much longer than read length, but it is impossible to find an insertion longer than read length from mapping a single read.  Typically, insertions can be found up to roughly 40% of read length, depending on sensitivity settings.
+The default for maxindel is 16000.  This is fine for many purposes, but if you want to map RNA-seq reads to a genome in an organism with long introns (such as human), you should set it to a higher value like 200000 (maxindel=200k).  The same is true if you are looking for severe mutations like knocked-out genes.  To increase speed, or to avoid spurious long indels caused by chimeric sequences (MDA, for example), you can reduce it to a lower value like 80.  But unless you use the flag "strictmaxindel", which explicitly bans indels longer than maxindel, they may still be found.
+
+
+Post-filtering:
+
+There are various optional flags such as idfilter and subfilter that ban alignments failing those filters.  For example, if "subfilter=2" then any alignment with more than 2 substitutions will be eliminated.  These are called "post-filtering" for a reason - they occur after all mapping and alignment is complete.  So if, hypothetically, a read has a best mapping score at a site with 1 deletion, and the second-best has 8 substitutions, and you set "delfilter=0".  
+
+
+File Formats:
+
+BBMap requires read input to be fasta or fastq, compressed or raw.  Paired reads can be in two files or interleaved in a single file.  It cannot process both paired and unpaired reads in the same run (except by using BBWrap).  The indexing phase requires fasta format only (compressed is OK).
+Output formats are fasta, fastq, sam, or bam (if samtools is installed).  The alignment information will be lost if reads are output as fasta or fastq, though that's still useful for filtering operations.
+All other output (statistics, histograms, coverage, etc) are tab-delimited text, with one or more header rows (starting with #) and the rest data.
+
+
+Output Streams:
+
+BBMap's primary output stream is "out", e.g. "out=mapped.sam".  All reads go to out.  It also supports "outu" and "outm", which are streams only for unmapped or mapped reads, respectively.  Pairs are always kept together; if one read is mapped and the other is unmapped, both will go to outm.
+
+
+Paired Reads:
+
+BBMap supports paired reads.  When mapped as pairs, reads in the normal "innie" fragment orientation (left read mapped to plus strand, right read mapped to minus strand), with a pair distance within some margin of the average, will be considered properly paired and the mapping score will be increased.  If one read maps and the other does not map nearby, a "rescue" operation is performed to look for a good mapping location by brute force.  However, some library types (mainly long-mate-pair libraries) do not have reads in the "innie" orientation.  In those cases, it's best to set the flag "requirecorrectstrand=f" (rcs=f) in order to get correct pairing statistics.  That simply drops the innie orientation requirement for pairing.
+For information on the syntax of using paired reads, please see UsageGuide.txt.
+
+
+Coverage Output:
+
+BBMap generates coverage information by internally using Pileup.  So, the results are the same as generating a sam file with BBMap and feeding it to pileup.sh, if the parameters are the same.  However, Pileup supports a wider variety of parameters, so there may be cases where it is preferable.
+
+
+Sam Format and Cigar Strings:
+
+The cigar string is a required field in a Sam file, which tells you how the read aligned to the reference.  Unfortunately, early versions used the symbol "M" to designate a base matching or mismatching the reference, which has caused many problems.  That was fixed several years ago in the Sam 1.4 specification, which allows "X" for substitutions and "=" for matches; it still allows "M" for either one.  BBMap supports the modern sam specification and by default will output cigar strings with X and =, and only use the M symbol when aligning degenerate bases (e.g. a C in the read and an N in the reference may be a match or a mismatch; it's undefined).  Unfortunately, some old or unmaintained pieces of software do not correctly support this.  In those cases, you can map with BBMap using the "sam=1.3" flag to output legacy files.  If you need to convert an already mapped sam file to legacy format, you can do that with Reformat's "sam=1.3" flag, which just changes X and = to M.
+
+
+Global versus Local Alignment:
+
+BBMap is a global aligner.  That means it looks for the highest-scoring alignment taking into account all bases in a sequence.  A local aligner would look for the best-scoring local alignment, meaning an alignment where the ends are possibly clipped off.  So, if there were two possible alignment locations for a 100bp read, one with 3 mismatches scattered through a read, and one with 5 mismatches all in the last 10bp of a read, BBMap would place the read at the location with 3 mismatches, while a local aligner would probably place it at the location with 5 mismatches, but clip the end so that the result would be a clipped 90bp sequence with zero mismatches.  Which of these is better depends on the experiment, but global alignments are essential in order to detect long indels.
+BBMap has a "local" flag, which will convert its global alignments into local alignments.  That does not make it a local aligner - it still looks for the best global alignment.  If the local flag is enabled, then the alignment will be clipped if that yields a higher score.  So, BBMap will create local alignments, but it will not guarantee that it finds the optimal local alignment - rather, it will produce local alignments from the optimal global alignments.
+
+
+Minratio and Minid:
+
+Internally, BBMap uses a custom affine-transform matrix to generate alignment scores.  Whether a read is considered "mapped" depends on whether the ratio between its best actual score and the maximum possible score (meaning 100% of bases match the reference) is at least minratio.  The score for a base matching the reference is +100 points; for a single mismatch, -127 points.  These numbers were determined empirically through extensive testing.  A second consecutive mismatch only gets a -51 point penalty, and the exact penalties continue to change with the length of a mutation event, and type - sub versus insertion versus deletion.  Therefore, whether BBMap considers a score "high enough" is not based on a specific percent identity, but on its internal evolutionary probability model.
+However, this is very confusing to users.  So while you can directly set "minratio", you can alternatively set "minid", which then adjusts minratio to the level that approximately matches.  For example, if you set "minid=0.9", BBMap will print "Set MINIMUM_ALIGNMENT_SCORE_RATIO to 0.816".  So, "minid=0.9" is equivalent to "minratio=0.816".  How is that decided?  It calculates the score ratio you would get at 90% identity, if all the differences from the reference were caused by noncontiguous substitutions.
+BBMap will ignore candidate sites if it can prove they cannot get close to the minratio, and when doing an alignment, the amount of the alignment matrix that is filled in depends on the minratio - if it's high, less work is done.  So, setting either of these higher will increase speed at the expense of sensitivity.
+
+
+Perfectmode and Semiperfectmode:
+
+BBMap can run fastest in "perfectmode", meaning reads must match the reference perfectly - no substitutions or indels.  There is a second, similar mode, called "semiperfectmode".  This is almost as fast, and also requires all bases to match the reference, but allows read bases to map to reference Ns, or for reads to go off the end of contigs.
+
+
+Read Length and BBMap Versions:
+
+Normal BBMap supports reads up to 700bp.  There is a variant BBMapPacBio (called by the shellscript mapPacBio.sh) which supports reads up to 6kbp.  bbmapskimmer.sh also supports reads up to 6kbp.  Reads longer than the max read length can be automatically shredded and renamed by adding the flag maxlen, e.g. "maxlen=500".  This will shred long reads into 500bp pieces, map them independently, and add a "_1", "_2", etc to the original name.
+The PacBio versions have a different error weight profile designed for long reads with a high error rate, dominated by short indels.  It can process Illumina data but the globally optimal alignments will occasionally differ between the two versions.  It is also the recommended version for Nanopore data.
+Skimmer is designed to find all alignments above a certain threshold, as opposed to the normal versions, which attempt to find the single best alignment, and some alignments that are almost as good (like the second and third best), to quantify whether the best alignment is ambiguous.  Skimmer, however, was intended for mapping Illumina reads to PacBio reads for error-correction; in that case, you expect each read to have many correct alignments, with very different alignment scores.
+
+
+BBSplit:
+
+BBSplit internally uses BBMap to map reads to multiple genomes at once, and determine which genome they match best.  This is different than with ordinary mapping.  If a genome (say, human) contains an exact repeat somewhere, reads mapping to it will be mapped ambiguously.  But if you want to determine whether reads are mouse or human, it does not matter whether they map ambiguously within human, only whether they are ambiguous between human and mouse.  BBSplit tracks this additional ambiguity information and decides how to use it based on the "ambig2" flag.  The normal use of BBSplit is like Seal, either quantifying how many reads go to each reference, or splitting the reads into multiple output files, one per reference.  BBSplit can only be run using references indexed with BBSplit, as they contain additional information regarding which sequences came from which reference file.
+
+
+BBWrap:
+
+BBWrap is a simple wrapper that allows BBMap to be run multiple times without reloading the index each time.  So, it can save some compute resources (particularly with a small number of reads and large reference), and is also handy for things like mapping paired and unpaired reads to the same reference, then outputting them in the same file.
+
+
+*Usage Examples*
+
+
+To build an index:
+bbmap.sh ref=contigs.fa
+
+
+To map to an index in the present directory:
+bbmap.sh in=reads.fq out=mapped.sam
+
+
+To index and map at the same time:
+bbmap.sh in=reads.fq out=mapped.sam ref=ref.fa
+
+
+To build an index in-memory without writing to disk:
+bbmap.sh in=reads.fq out=mapped.sam ref=ref.fa nodisk
+
+
+To split input into mapped and unmapped, in fastq format:
+bbmap.sh in=reads.fq outm=mapped.fq outu=unmapped.fq
+
+
+To calculate coverage:
+bbmap.sh in=reads.fq covstats=constats.txt covhist=covhist.txt basecov=basecov.txt bincov=bincov.txt
+
+That will generate per-scaffold coverage statistics, a histogram of coverage depth, and the precise coverage for every genomic base, as well as binned coverage which is easier to plot.
+
+
+To output a bam file (if samtools is installed):
+bbmap.sh in=reads.fq out=mapped.bam
+
+
+To generate a sorted, indexed bam file:
+bbmap.sh in=reads.fq out=mapped.sam bamscript=bs.sh; sh bs.sh
+
+
+To map vertebrate RNA-seq reads to a genome:
+bbmap.sh in=reads.fq out=mapped.sam maxindel=200k ambig=random intronlen=20 xstag=us
+
+
+To map faster:
+bbmap.sh in=reads.fq out=mapped.sam fast
+
+
+To map with high sensitivity:
+bbmap.sh in=reads.fq out=mapped.sam slow k=12
+
+
+To map with super-high sensitivity (useful for very-low-quality data, or remote homologies):
+mapPacBio.sh in=reads.fq out=mapped.sam vslow k=8 maxindel=200 minratio=0.1
+
+
+To map in low-memory mode:
+bbmap.sh ref=ref.fa usemodulo
+bbmap.sh in=reads.fq out=mapped.san usemodulo
+
+Note that the "usemodulo" flag must be present both when generating the reference and when mapping.
+
+
+To map quickly with very high precision and lower sensitivity, as when removing contaminant reads specific to a genome without risking false-positives:
+bbmap.sh minratio=0.9 maxindel=3 bwr=0.16 bw=12 fast minhits=2 qtrim=r trimq=10 untrim idtag printunmappedcount kfilter=25 maxsites=1 k=14
+
+
+To generate histograms and statistics:
+bbmap.sh in=reads.fq bhist=bhist.txt qhist=qhist.txt aqhist=aqhist.txt lhist=lhist.txt ihist=ihist.txt ehist=ehist.txt qahist=qahist.txt indelhist=indelhist.txt mhist=mhist.txt gchist=gchist.txt idhist=idhist.txt scafstats=scafstats.txt 
+
+
+Known Incompatibilities:
+Some programs are incompatible with the current sam specification, particularly cigar strings containing "=" and "X" symbols.  Those programs require the flag "sam=1.3" to be used during mapping to force old-style cigar strings with the M symbol.  Also, some programs trim everything from sequence names after the first whitespace (so for example "Homo sapiens chr 1" would become "Homo").  In this case, the "trd" flag (trimreaddescriptions) is needed.
+Known programs with these issues are FeatureCounts and FreeBayes.  But if other programs have very weird behavior such as detecting 0 mapped reads or no coverage, those flags ("trd" and "sam=1.3") are worth trying.

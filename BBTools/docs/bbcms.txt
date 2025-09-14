@@ -1,0 +1,73 @@
+BBCMS Guide
+Written by Brian Bushnell
+Last updated August 10, 2020
+
+BBCMS is a kmer-based error-correction program for short reads, designed for very large, high-complexity datasets.  It uses the same error-correction algorithm as BBCMS, and as with BBCMS, also allows depth-based filtering to discard low-depth reads which will not be helpful in assembly.  The primary difference is that BBCMS stores kmers explicitly in memory, such that its memory requirements scale linearly with the input complexity, and thus, it will run out of memory with large metagenomic datasets.  BBCMS uses a Count-Min Sketch (relative of a Bloom Filter) to store kmers approximately, in a fixed amount of memory, and thus never runs out of memory and crashes due to too many unique kmers.
+
+While BBCMS maintains exact kmer counts, BBCMS counts can be overestimates, where the accuracy is increased with the ratio of (allotted memory)/(unique kmers).  As the accuracy of counts is reduced, the number of errors corrected also decreases, such that in an extreme case such as processing 1 trillion unique kmers with only 1 GB RAM, the Count-Min Sketch will become completely full and the program won't do anything (but at least it won't crash).  BBCMS will perform identically to BBCMS at the asmyptotic border of very low complexity and very high memory, and it will never outperform BBCMS.  Therefore, BBCMS should be used for datasets small enough to fit into memory easily; for large, complex datasets that are anticipated to exceed available memory using BBCMS, BBCMS should be used, giving it the maximum possible memory for optimal accuracy.  This also means that BBCMS should not be run on shared nodes or with pipes or in parallel with other programs since it should always be given all possible memory on the machine, for best results.  Also, two runs with different amounts of memory will give slightly different results; the program is deterministic, but only reproducible if given a specific number of cells to allocate in memory.
+
+Like Tadpole, BBCMS reads the complete input file twice - once to generate the kmer counts, and then a second time to process the reads based on those counts.  Therefore, it cannot accept streaming from stdin.  It can stream to stdout but that is not recommended as whatever runs downstream will use memory, yet for the first half of BBCMS's execution, will simply be idle.
+
+BBCMS's parameters are described in its shellscript (bbcms.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Memory, bits, and hashes:
+
+BBCMS will, by default, attempt to claim all available memory.  The amount of memory used per kmer depends on the number of hashes and bits specified per cell.
+
+hashes:    Kmers are not stored.  Their counts are stored in a hash table that allows collisions.  To provide robustness against collisions (which would inflate the counts), each kmer is hashed to multiple different locations, and when the kmer is observed, each of these counters is incremented.  When reading, the lowest value of those locations is used.  The more hashes, the more locations will be used by each kmer.  This increases memory usage, but also increases the chance that at least one of these locations will not collide with some other kmer. Therefore, when memory is sufficient (and thus the table is not overly full), more hashes yield better accuracy; but when the table is mostly full, more hashes make it even more full and thus decrease the accuracy.  The default is 3.
+
+bits:      Number of bits used per counter.  Counts can be accurate only up to 2^bits; so, if all you want to do is discard reads with kmer counts below 2, 2 bits is fine (allows counts of 0-3).  For error correction, at least 4 bits (allowing counts of 0-15) are recommended; this is usually fine for a low-depth metagenome though it would prevent error-correction in very high-depth areas.  The default is 2 bits for filtering and 4 bits for error-correction.  For reference, BBCMS uses 32 bits.
+
+minprob:   Kmers with a probability of being correct lower than this, based on their quality scores, will be ignored.  This can dramatically decrease the number of kmers stored in high-coverage datasets where most of the unique kmers are erroneous, but has less benefit to low-coverage datasets.  Special attention should be paid in the cases of datasets with quality scores that are known to be incorrect (for example, if all quality scores are arbitrarily assigned 0, as in the case of PacBio data) as this can lead to all kmers being ignored.  If the quality scores are known to be incorrect this should be set to 0.
+
+The amount of memory used per unique kmer is (hashes * bits), but since the table will perform best at a relatively low load (ideally, under 50% of cells used), for error correction, this needs roughly 4*3*2=24 bits or 3 bytes per unique kmer to perform near-optimally.  Because the kmers are not stored, this is not affected by kmer length.  Near and above that level the accuracy will gradually decline, though if error-correction in one pass corrects a sufficient number of errors (or removes a sufficient number of low-depth reads), there will be fewer unique kmers for a subsequent pass, making it increasingly accurate.  If multiple passes are performed using this strategy it is advisable to use a different "seed" each time, which changes the hash functions, so that the kmers which collide are different each time.
+
+
+Processing modes and output streams:
+
+The default mode is error-correction (which can be disabled with the flag "ecc=f").  This scans reads for low-depth kmers adjacent to high-depth kmers, and searches for a single nucleotide change that will turn the low-depth kmer into a high-depth kmer, on the presumption that the anomaly was caused by sequencing error.  Depth-filtering (discarding low-depth reads) can be applied alternatively or additionally, via the "mincount" or "tossjunk" flags.  Specifically, "mincount=X" will discard reads containing kmers seen fewer than X times.
+
+The input streams are in, in2, ref, and extra.  Normally - if the input is a single file of single-ended or interleaved reads - only "in" is needed; the data will be read from there twice (once for counting, once for processing).  If the input is paired reads in twin files, in2 should also be specified (never, ever correct read1 and read2 independently); however, paired reads are preferred as interleaved in a single file to make command lines simpler; these will still be correctly processed as paired.  If you wish to correct a specific file using some other files as additional sources of kmers (typically other libraries for the same organism - e.g. correcting a long-mate-pair library with a fragment library), then the file to be corrected should be set as "in" while the other files are set as "extra".  If the input file should NOT be used as a source of kmer counts (as when correcting an assembly with some reads) then the additional files should be set to "ref" instead of "extra".
+
+The output streams are out and outb (outbad) as well as the optional out2 and outb2 for paired reads in twin files.
+
+
+Threads:
+
+BBCMS is fully multithreaded, both for kmer-counting and for the processing phase (filtering or error-correction).  You should allow it to use all available processors.
+
+
+Kmer Length:
+
+BBCMS supports unlimited kmer length, but it does not support all kmer lengths.  Specifically, it supports every value of K from 1-31, every multiple of 2 from 32-62 (meaning 32, 34, 36, etc), every multiple of 3 from 63-93, and so forth.  K=31 is the default and is fine for filtering; typically, about 1/4th to 1/3rd of read length works best for correction.  Longer kmers have little performance impact, and are more specific, but they have lower coverage, and kmer lengths over 1/2 read length cannot fully correct a read anymore.
+
+
+*Usage Examples*
+
+
+Error correction:
+bbcms.sh in=reads.fq out=ecc.fq bits=4 hashes=3 k=40 merge
+
+This corrects the reads and outputs corrected reads, using a kmer length of 40 with 4-bit counters (0-15) and 3 hashes per kmer.  The merge flag causes reads to be error-corrected first via overlap (if the reads are paired and overlapping) prior to counting kmers, which usually decreases the amount of memory needed.  Reads are corrected bidirectionally - from left to right, and from right to left - and the corrections are accepted only if the corrections in both directions agree.  Otherwise, the read is left unchanged.  The read is also left unchanged if the number of detected errors is substantially higher than the number of expected errors based on the read length and quality scores.
+
+
+Filtering:
+bbcms.sh in=reads.fq out=filtered.fq mincount=3
+
+This will assemble the reads into contigs.  Each contig will consist of unique kmers, so contigs will not overlap by more than K-1 bases.  Contigs end when there is a branch or dead-end in the kmer graph.  The specific triggers for detecting a branch or dead-end are controlled by the flags mincountextend, branchmult1, branchmult2, and branchlower.  Contigs will only be assembled starting with kmers with depth at least mincountseed, and contigs shorter than mincontig or with average coverage lower than mincoverage will be discarded.
+
+
+Error marking:
+bbcms.sh in=reads.fq out=ecc.fq mode=correct k=50 ecc=f mbb=2
+
+This will not correct bases, but simply mark bases that appear to be errors by replacing them with N.  A base is considered a probable error (in this mode) if it is fully covered by kmers with depth below the value (in this case, 2).  Mbb and ecc can be used together.
+
+
+Read Extension:
+bbcms.sh in=reads.fq out=extended.fq mode=extend k=93 el=50 er=50
+
+This will extend reads by up to 50bp to the left and 50bp to the right.  Extension will stop prematurely if a branch or dead-end is encountered.  Read extension and error-correction may be done at the same time, but that's not always ideal, as they may have different optimal values of K.  Error-correction should use kmers shorter than 1/2 read length at the longest; otherwise, the middle of the read can't get corrected.

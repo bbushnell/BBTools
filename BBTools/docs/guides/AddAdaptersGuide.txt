@@ -1,0 +1,23 @@
+AddAdapters Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+AddAdapters is designed for grading the performance of adapter-trimming tools.  It can add adapters to reads, and annotate the reads with their correct post-trimming length; and it can be run on trimmed reads, to calculate the rates of correct and incorrect trimming.  However, it does not understand insert size, so for adding adapters to paired reads, it's better to use RandomReads.  As such, this is deprecated for paired reads.
+
+
+*Usage Examples*
+
+
+To add adapters to reads:
+addadapters.sh in=a.fq out=b.fq adapters=adapters.fa
+
+
+To grade trimmed reads:
+addadapters.sh in=trimmed.fq grade
+
+
+To use RandomReads instead, to add adapters in the correct location according to insert size:
+randomreads.sh ref=ref.fa out=reads.fq len=150 paired reads=100k mininsert=50 maxinsert=350 fragadapter1=ACTG fragadapter2=ACTG
+rename.sh in=reads.fq out=renamed.fq renamebytrim interleaved
+
+The result of this will still be named correctly for grading by addadapters.  "ACTG" would normally be a much longer adapter sequence.

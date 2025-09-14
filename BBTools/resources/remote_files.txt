@@ -1,0 +1,36 @@
+These files are too big to include with BBMap, but are available for download individually at http://portal.nersc.gov/dna/microbial/assembly/bushnell/
+This is the public access for internal location /global/dna/projectdirs/microbial/assembly/www/bushnell/
+
+
+BBSketch sketches of Refseq, encoded using k=31,24
+refseq_sketch.tar.gz
+
+Common ribosomal kmers from Silva 132.  Primarily for use in metatranscriptome ribosomal filtering with BBDuk.
+Created using bbmap/pipelines/makeRiboKmers.sh
+riboKmers.fa.gz
+
+Taxonomic tree, updated regularly.
+Created using bbmap/pipelines/fetchTaxonomy.sh
+tree.taxtree.gz
+
+Masked version of mouse reference, for removing mouse contaminant reads.
+mouse_masked.fa.gz
+
+Masked version of cat reference, for removing cat contaminant reads.
+cat_masked.fa.gz
+
+Masked version of dog reference, for removing dog contaminant reads.
+dog_masked.fa.gz
+
+Masked version of human reference, for removing human contaminant reads.
+hg19_masked.fa.gz
+
+Masked version of common bacterial contaminants, for removing bacterial contamination from eukaryotes.
+fusedEPmasked2.fa.gz
+
+Masked version of common bacterial contaminants, for removing bacterial contamination from bacteria. (This is the same organisms as above, but more heavily masked for sequence shared with with other non-contaminant bacteria)
+fusedERPBBmasked2.fa.gz
+
+16S sequences, one per TaxID (when available), taken from Silva, NCBI annotations, and BBTools CallGenes annotations.
+Only contains sequences at least 1300bp with at most 10 Ns.
+16S_merged_with_silva_maxns10_minlen1300_taxsorted.fa.gz

@@ -1,0 +1,16 @@
+CC=gcc
+INCS=-I"$(JAVA_HOME)/include" -I"$(JAVA_HOME)/include/linux"
+CFLAGS=-O3 -Wall -std=c99 -fPIC
+LDFLAGS=-O3 -Wall -std=c99 -fPIC -shared
+OBJ=BandedAlignerJNI.o MultiStateAligner11tsJNI.o BBMergeOverlapper.o IceCreamAlignerJNI.o
+
+%.o: %.c
+	$(CC) $(CFLAGS) $(INCS) -c -o $@ $<
+
+libbbtoolsjni.so: $(OBJ)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+.PHONY: clean
+
+clean:
+	rm -f *.o *~ core libbbtoolsjni.so

@@ -1,0 +1,3 @@
+For the Illumina-specific nucleotide sequences included in the resources directory, e.g. truseq.fa and nextera.fa:
+
+Oligonucleotide sequences © 2007-2013 Illumina, Inc. All rights reserved.

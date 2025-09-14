@@ -1,0 +1,40 @@
+Clumpify Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+Clumpify is a tool designed to rapidly group overlapping reads into clumps.  This can be used as a way to increase file compression, accelerate overlap-based assembly, or accelerate applications such as mapping or that are cache-sensitive.  Clumpify can also generate consensus sequence from these clusters, though this is currently rudimentary.  The clusters are not guaranteed to be overlapping; rather, they are guaranteed to share a kmer, meaning they are likely to overlap.  It is designed for accurate data, meaning Illumina, Ion Torrent, or error-corrected PacBio; it will not work well with high error rate data.  Even for Illumina data, quality-trimming or error-correction may be prudent.
+
+
+*Notes*
+
+
+Paired reads:
+
+Clumpify supports paired reads, in which case it will clump based on read 1 only.  However, it's much more effective to treat reads as unpaired.  For example, merge the reads with BBMerge, then concatenate the merged reads with the unmerged pairs, and clump them all together as unpaired.
+
+
+Memory, Disk, and Phases:
+
+Clumpify stores all sequences in memory while clumping.  But it is also capable of operating in two phases, KmerSplit and KmerSort.  KmerSplit will break the data up into an arbitrary number of temporary files which can then be sorted independently, and subsequently merged.  As a result, Clumpify does not have a strict bound on how much memory it needs or how many sequences it can process, since the user can specify however many groups are desired to make the files arbitrarily small.  This also means that the sort operation is O(N*log(N/groups)) rather than O(N*log(N)), and as groups is arbitrary, the result is O(N).  If groups is set to 1, then the split phase will be skipped, and no temp files will be written, so despite the worse theoretical complexity that will typically be faster.
+
+
+Compression:
+
+Gzip compression is more efficient when similar sequences are nearby, as they can be replaced by pointers to prior copies of that sequence.  So, a clumpified file will compress smaller than a randomly-ordered file.  Linebreaks, headers, and quality values take up the majority of the space in a compressed clumpified file.  The most efficient way to compress a sequence file, then, is to store it in fasta format with unlimited line-wrap length and replace the headers with short strings; these can be done with reformat.sh and rename.sh, if the quality values and headers are not important.  Also, setting ziplevel to the max (zl=9) increases compression.
+
+
+*Usage Examples*
+
+
+To clumpify reads:
+clumpify.sh in=reads.fq.gz out=clumped.fq.gz groups=16
+
+This will use 16 temp files during clumpification.
+
+
+To maximally compress sequence data:
+rename.sh in=reads.fq out=renamed.fq prefix=x
+bbmerge.sh in=renamed.fq out=merged.fq mix
+clumpify.sh in=reads.fq.gz out=clumped.fa.gz zl=9 pigz fastawrap=100000
+
+This will strip off the names, merge the reads when possible, and then clumpify everything.  The output will be fasta-formatted to remove the quality values and have one read per line (unless the reads are over 100kbp long).  If quality values need to be saved, then output as "clumped.fq.gz" instead.

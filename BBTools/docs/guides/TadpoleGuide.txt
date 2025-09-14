@@ -1,0 +1,66 @@
+Tadpole Guide
+Written by Brian Bushnell
+Last updated December 11, 2015
+
+Tadpole is a kmer-based assembler, with additional capabilities of error-correcting and extending reads.  It does not do any complicated graph analysis or scaffolding, and therefore, is not particularly good for diploid organisms.  However, compared to most other assemblers, it is incredibly fast, has a very low misassembly rate, and is very adept at handling extremely irregular or superhigh coverage distributions.  It does not have any annoying side-effects of generating temp files and directories.  Also, it can selectively assemble a coverage 'band' from a dataset (for example, just areas with a depth between 1000x and 1500x).  These features make it a good choice for microbial single-cell data, viruses, organelles, and preliminary assemblies for use in binning, quality recalibration, insert-size estimation, and so forth.  Tadpole has no upper limit on kmer length.
+
+Tadpole's parameters are described in its shellscript (tadpole.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Memory:
+
+Tadpole will, by default, attempt to claim all available memory.  It uses approximately 20 bytes per unique kmer for k=1-31, 30 bytes per kmer for k=32-62, and so forth in increments of 31.  However, with most datasets, the bulk of the kmers (and thus memory) are unwanted error kmers rather than genomic kmers.  It is possible to save memory by making Tadpole ignore low-quality kmers using the "minprob" flag (this ignores kmers that, based on their quality scores, have less than a specified probability of being error-free).  Alternatively, bloom filters can be used to screen low-depth kmers efficiently using the "prefilter" flag.  Also, memory will be used somewhat more efficiently if the "prealloc" flag is applied, which makes Tadpole allocate all physical memory immediately rather than growing as needed.  If Tadpole runs out of memory on a dataset despite using these options, you may consider using BBNorm to normalize or error-correct the data first.  Both of those will reduce the number of unique kmers in the dataset.
+
+
+Processing modes and output streams:
+
+The default mode is contig-building; reads are processed, kmers are counted, then contigs are made from kmers and written to a file.  The alternate mode is error correction / extension, which can be entered with the flag "mode=correct" or "mode=extend"; either of those modes supports both error-correction and extension (making the reads longer by assembling at their ends).  In contig mode, the reads will be processed once, and the contigs will be written to "out".  In correct or extend mode, the reads will be processed twice (once to count kmers, and once to modify the reads), and will be written to "out".
+
+
+Threads:
+
+Tadpole is fully multithreaded, both for kmer-counting and for the output phase (contig-building, error-correction, or extension).  You should allow it to use all available processors except when operating on a shared node, in which case you may need to cap the number of threads with the "t" flag.
+
+
+Kmer Length:
+
+Tadpole supports unlimited kmer length, but it does not support all kmer lengths.  Specifically, it supports every value of K from 1-31, every multiple of 2 from 32-62 (meaning 32, 34, 36, etc), every multiple of 3 from 63-93, and so forth.  There is a wrapper script, tadwrapper.sh, that will assemble a range of different kmer lengths to determine which is best.  Typically, about 2/3rds of read length is a good value for K for assembly.  For error-correction, about 1/3rd of read length is better.  In order to assemble with longer kmers, it is possible to error-correct and extend reads with short kmers (such as 31-mers), then use the longer extended (and potentially merged) reads to assemble with a longer kmer.  Longer kmers are better able to resolve repetitive features in genomes, and thus tend to yield more continuous assemblies.  The tradeoff is that longer kmers have lower coverage.
+
+
+Shave and Rinse:
+
+These flags examine the graph immediately after kmer-counting is finished, to remove kmers that cause error-induced branches.  Specifically, "shave" removes kmers along dead-end paths with very low depth that branch off from a higher-depth path, and "rinse" removes kmers along very-low-depth bubbles that start and end at branches off a higher-depth path.  Both are optional and can be applied to any processing mode.  They do not currently seem to make a significant difference.
+
+
+Continuity and fragmentation:
+
+Tadpole is designed to be conservative and avoid misassemblies in repetitive regions.  As a result, the assemblies may sometimes be more fragmented than necessary.  With sufficient coverage and read length, fragmentation can often be reduced by choosing a longer kmer.  Alternately, reducing the value of branchmult1 and branchmult2 (to, say, "bm1=8 bm2=2") can often increase the continuity of an assembly, though that does come with an increased risk of misassemblies.
+
+
+*Usage Examples*
+
+Assembly:
+tadpole.sh in=reads.fq out=contigs.fa k=93
+
+This will assemble the reads into contigs.  Each contig will consist of unique kmers, so contigs will not overlap by more than K-1 bases.  Contigs end when there is a branch or dead-end in the kmer graph.  The specific triggers for detecting a branch or dead-end are controlled by the flags mincountextend, branchmult1, branchmult2, and branchlower.  Contigs will only be assembled starting with kmers with depth at least mincountseed, and contigs shorter than mincontig or with average coverage lower than mincoverage will be discarded.
+
+
+Error correction:
+tadpole.sh in=reads.fq out=ecc.fq mode=correct k=50
+
+This corrects the reads and outputs corrected reads.  Correction is handled by two algorithms, "pincer" and "tail".  Pincer corrects errors bidirectionally, using kmers on the left and right; therefore, it can only work on bases in the middle of the read, at least K away from either end.  Tail is not as robust, but is able to work on the ends of the read.  So, it's best to leave them both enabled, in which case the middle bases are corrected with pincer, and the end bases are corrected with tail.
+
+
+Error marking:
+tadpole.sh in=reads.fq out=ecc.fq mode=correct k=50 ecc=f mbb=2
+
+This will not correct bases, but simply mark bases that appear to be errors by replacing them with N.  A base is considered a probable error (in this mode) if it is fully covered by kmers with depth below the value (in this case, 2).  Mbb and ecc can be used together.
+
+
+Read Extension:
+tadpole.sh in=reads.fq out=extended.fq mode=extend k=93 el=50 er=50
+
+This will extend reads by up to 50bp to the left and 50bp to the right.  Extension will stop prematurely if a branch or dead-end is encountered.  Read extension and error-correction may be done at the same time, but that's not always ideal, as they may have different optimal values of K.  Error-correction should use kmers shorter than 1/2 read length at the longest; otherwise, the middle of the read can't get corrected.

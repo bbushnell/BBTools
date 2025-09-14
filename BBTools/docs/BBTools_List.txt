@@ -1,0 +1,366 @@
+BBTools Suite - Comprehensive Tool Reference
+Read Quality Control & Preprocessing
+
+bbduk.sh:
+The Swiss Army knife of read processing. Performs adapter trimming, quality filtering, contaminant removal, and kmer-based filtering in a single pass. Uses reference kmers to identify and remove/trim unwanted sequences with adjustable stringency. Features comprehensive quality control options including base quality trimming, entropy filtering, length filtering, pattern matching, and paired-read handling. Can generate quality histograms and statistics about contaminant sources.
+
+bbmerge.sh:
+Merges paired reads based on sequence overlap detection. Can error-correct in the overlapping region and, with sufficient coverage, merge non-overlapping reads via kmer extension. Features neural network mode for increased accuracy, multiple stringency settings for different error rates, and ability to extend reads using Tadpole's assembly algorithm. bbmerge-auto.sh wrapper automatically allocates maximum memory for kmer-based extension.
+
+bbnorm.sh:
+Normalizes read depth based on kmer counts. Reduces coverage disparities for more uniform representation, improving assembly and reducing computational requirements. Can also error-correct reads, bin reads by kmer depth, generate kmer histograms, and perform digital normalization to a target coverage. Particularly useful for metagenomes and datasets with uneven coverage.
+
+clumpify.sh:
+Groups similar reads together to place similar sequences near each other, dramatically improving compression and enabling better error correction. Features include optical duplicate removal (especially for Illumina data), exact/inexact deduplication options, and tile-based duplicate detection. Acts as an excellent preprocessing step that can significantly reduce storage requirements.
+
+filterbytile.sh:
+Identifies and filters problematic flowcell regions based on quality metrics. Calculates quality scores and kmer uniqueness within micro-tiles, then selectively removes reads from underperforming areas. Uses PhiX (if present) to calibrate error rates from kmer uniqueness. Particularly effective when processing entire sequencing lanes together.
+
+bbcms.sh:
+Error-corrects reads using a count-min sketch (Bloom filter variant) with fixed memory. Designed for large datasets where memory limitations prevent using Tadpole. Accuracy decreases with increasing dataset complexity, but remains useful for very large datasets beyond what other correctors can handle.
+
+filterqc.sh:
+Fastq filtering pipeline combining multiple QC steps for comprehensive quality control, integrating multiple BBTools components in a streamlined workflow.
+
+filtersubs.sh:
+Specialized filter that selects reads with substitution errors in specific quality score ranges, useful for error-rate modeling.
+
+filterbarcodes.sh:
+Filters reads by barcode quality while generating quality histograms, enabling selective analysis of well-demultiplexed reads.
+
+adjusthomopolymers.sh:
+Specialized tool that expands or contracts homopolymers in sequences, useful for calibrating error models for platforms with homopolymer issues.
+
+bbcountunique.sh:
+Generates kmer uniqueness histograms binned by file position, useful for identifying regions with high error rates or repetitive content.
+
+countduplicates.sh:
+Probabilistically counts duplicate sequences with minimal memory usage, allowing rapid assessment of read duplication levels.
+
+khist.sh:
+Generates comprehensive histograms of kmer counts for input reads or assemblies. Acts as a frontend to BBNorm's kmer frequency analysis, providing detailed visualization of sequence complexity and error patterns.
+
+kmercoverage.sh:
+Annotates reads with their kmer depth statistics. Though deprecated, it provides useful information about local coverage patterns within reads for QC assessment.
+
+polyfilter.sh:
+Sophisticated filter that removes reads with suspicious homopolymers that may represent sequencing artifacts. Uses multiple criteria including depth analysis, entropy, and homopolymer patterns to identify problematic reads, especially in platforms prone to homopolymer errors.
+
+rqcfilter2.sh:
+Comprehensive read QC pipeline performing quality-trimming, adapter removal, synthetic/host/contaminant filtering, and error correction. Integrates multiple BBTools components with optimized parameters for removing human, microbial, and other common contaminants while preserving data quality.
+
+removehuman.sh/removehuman2.sh:
+Specialized filters that remove human-derived reads with different levels of stringency. The first version is more conservative (95% identity threshold) while the second is more aggressive (88% identity) with an unmasked reference for more thorough human removal.
+
+removecatdogmousehuman.sh:
+Comprehensive filter removing reads from multiple mammalian contaminant sources (cat, dog, mouse, human) with high specificity, designed for samples that may contain various mammalian DNA.
+
+removemicrobes.sh:
+Removes reads mapping to common microbial contaminants, with several stringency levels for different applications (bacteria-focused, eukaryote-focused, etc.).
+
+removesmartbell.sh:
+Specialized tool for PacBio data that identifies and removes PacBio Smart Bell adapter sequences from reads, either by splitting or masking.
+
+testformat.sh/testformat2.sh:
+Diagnostic tools that analyze sequence files to determine format, quality encoding, compression, interleaving status, and read characteristics. The second version provides more detailed analysis of file content including error rates, quality distributions, and GC content.
+
+reformatpb.sh:
+PacBio-specific reformatting tool with ZMW awareness for handling unique PacBio features like subreads, CCS reads, and read quality assessment.
+Sequence Mapping & Alignment
+
+bbmap.sh:
+Fast, accurate splice-aware read aligner supporting global or local alignment. Handles paired/single reads from various technologies with automatic quality control options. Produces SAM/BAM output with detailed mapping statistics, coverage information, and optional sorting/indexing. Particularly strong with detecting indels and mapping across splice junctions for RNA-seq data.
+
+bbsplit.sh:
+Maps reads to multiple references simultaneously, assigning reads to their best-matching reference. Features various handling modes for ambiguous mappings. Excellent for separating host/contaminant reads, binning metagenomic data, or sorting mixed samples into component organisms. Can output to separate files based on reference matches.
+
+bloomfilter.sh:
+Uses memory-efficient Bloom filters to quickly identify reads potentially sharing kmers with references. Divides reads into those guaranteed not to match and those that might match. Excellent pre-filter before more intensive operations, allowing processing of very large datasets with limited memory.
+
+alltoall.sh:
+Performs all-against-all sequence alignment producing identity matrices, useful for determining sequence similarity relationships in complex datasets.
+
+microalign.sh:
+Specialized aligner for mapping reads to small, single-contig references like PhiX. Optimized for speed with small references, with many of the same outputs as BBMap.
+
+quantumaligner.sh:
+Advanced aligner that implements a novel alignment algorithm with visualization capabilities for reference-query alignment. Provides detailed exploration of the alignment space.
+
+wavefrontaligner.sh:
+Research-oriented aligner implementing the wavefront algorithm for sequence alignment, designed for visualization and educational purposes.
+
+msa.sh:
+Aligns query sequences to reference sequences using the MultiStateAligner, reporting the best matching position per reference sequence.
+
+testaligners.sh:
+Benchmarking tool that tests various alignment approaches, allowing comparison between different alignment algorithms and parameters.
+
+bandedaligner.sh, crosscutaligner.sh, driftingaligner.sh, glocalaligner.sh:
+Specialized aligners each optimized for different alignment scenarios and algorithms. They provide detailed alignment information and some offer visualization capabilities for troubleshooting complex alignments.
+
+bbrealign.sh:
+Realigns already mapped reads to improve variant calling accuracy, especially around indels.
+Assembly, Genome Analysis & Annotation
+
+tadpole.sh:
+De novo assembler using a De Bruijn graph approach. Can perform assembly, error correction, or read extension with high efficiency. Memory-efficient with relatively short kmers and includes capabilities for bubble popping and branch resolution. Particularly effective for smaller genomes and targeted assemblies.
+
+tadpipe.sh:
+Wraps TadpoleWrapper with preprocessing steps to enable optimal assemblies with long kmers. Automatically applies different kmer lengths and optimizations for improved contiguity and accuracy.
+
+bbmask.sh:
+Masks low-complexity sequences, repetitive kmers, or regions covered by mapped reads. Can identify problematic regions using entropy calculations or kmer frequency analysis. Options include conversion to lowercase, replacement with Ns, or custom characters. Essential for preparing assemblies for downstream analysis.
+
+consensus.sh:
+Generates consensus sequences using aligned reads against a reference. Used for assembly polishing, creating representative sequences, or error-correcting long reads. Implements graph-based approach for determining optimal base at each position, with configurable thresholds for accepting variants.
+
+filterbycoverage.sh:
+Filters assembly contigs based on coverage statistics to remove contaminants and misassemblies. Uses coverage data from BBMap or Pileup to identify suspiciously low/high coverage regions.
+
+lilypad.sh:
+Generates scaffolds from contigs using mapped paired reads, designed specifically for standard Illumina libraries. Uses read pairing information to determine contig adjacency and orientation.
+
+trimcontigs.sh:
+Trims contigs to remove sequence unsupported by read alignment based on coverage information. Can also break contigs at coverage gaps and retain only well-supported regions.
+
+quickbin.sh:
+Sophisticated metagenomic binning tool that clusters contigs using coverage patterns across multiple samples and composition-based features (kmer frequencies). Employs neural networks for determining contig relationships and can estimate completeness and contamination of resulting bins.
+
+callgenes.sh:
+Predicts genes in prokaryotic genomes, including rRNAs and tRNAs, generating comprehensive annotation files.
+
+findrepeats.sh:
+Identifies repetitive regions in genomes based on kmer frequencies.
+
+fixgaps.sh:
+Uses read pair information to correct scaffold gap lengths in assemblies.
+
+gradebins.sh:
+Evaluates metagenome bins for completeness and contamination. Calculates quality metrics to identify high-quality genome assemblies from metagenomic data.
+
+fungalrelease.sh:
+Reformats fungal assemblies for release, creating contig and AGP files according to standard requirements.
+Variant Analysis
+
+callvariants.sh:
+Calls variants from SAM/BAM input with support for single-sample and multi-sample modes. Generates VCF output with detailed quality metrics and filtering options. Features include realignment capability, strand bias detection, and filters based on quality, depth, and allele frequency. Particularly strong for microbial genomes.
+
+filtervcf.sh:
+Filters VCF files by position, quality metrics, or variant attributes, allowing selection of specific variant types.
+
+comparevcf.sh:
+Performs set operations (union, intersection, subtraction) between VCF files for comparing variant calls.
+
+filtersam.sh:
+Removes reads with variations unsupported by other reads, improving consensus accuracy.
+
+applyvariants.sh:
+Creates a modified reference by applying variants from a VCF file, useful for generating strain-specific references.
+Sketching & Rapid Sequence Comparison
+
+sketch.sh:
+Creates MinHash sketches from FASTA files for rapid sequence comparison. Supports taxonomic annotation and various sketch sizes and parameters. Sketches are compact representations that enable extremely fast approximate comparisons.
+
+sendsketch.sh:
+Compares query sketches to reference sketches hosted on remote servers for rapid taxonomic identification. Supports multiple reference databases including RefSeq, NT, and Silva for comprehensive classification.
+
+comparesketch.sh:
+Performs all-vs-all comparison of sketch files to determine genetic similarity and relationships between sequences.
+
+sketchblacklist.sh/sketchblacklist2.sh:
+Creates blacklist sketches from common kmers that appear across many taxa/sequences, improving specificity in subsequent sketch comparisons.
+
+mergesketch.sh:
+Combines multiple sketches into a single sketch file, preserving representativeness while enabling unified queries.
+
+subsketch.sh:
+Resizes existing sketches to smaller fixed lengths while maintaining their representative qualities and taxonomic information.
+Taxonomy & Classification
+
+taxonomy.sh:
+Retrieves and displays full taxonomic lineage for sequences by GI number, TaxID, or scientific name, providing comprehensive taxonomic context.
+
+taxserver.sh:
+Runs a server for taxonomic lookups and classification, supporting remote queries and high-throughput taxonomic assignment.
+
+quickclade.sh:
+Rapidly assigns taxonomy to sequences by comparing kmer frequency patterns to reference profiles. Uses composition-based metrics rather than alignment for extremely fast classification, particularly effective for binning metagenomic assemblies.
+
+splitbytaxa.sh:
+Separates sequences by taxonomic classification, creating separate files for different taxonomic units.
+
+taxtree.sh:
+Creates taxonomic tree files from NCBI taxonomy dumps, essential for tools like SendSketch and taxonomy.sh.
+
+taxsize.sh:
+Calculates sequence quantity per taxonomic node, useful for understanding database composition.
+
+filterbytaxa.sh:
+Filters sequences according to their taxonomy as determined by sequence identifiers. Can include/exclude specific taxa or taxonomic levels.
+
+gi2taxid.sh:
+Renames sequences to indicate their NCBI taxonomic IDs by processing headers in NCBI or Silva format. Prepares sequences for taxonomic analysis and organizes sequence collections by taxonomy.
+Coverage Analysis
+
+pileup.sh:
+Calculates per-scaffold or per-base coverage information from unsorted SAM/BAM files. Provides comprehensive statistics on coverage depth, distribution, and GC correlation. Can track strand-specific coverage, physical coverage, and generate various histograms and reports.
+
+pileup2.sh:
+Multi-file version of pileup.sh that processes multiple alignments concurrently for faster analysis of large datasets or multiple samples.
+
+summarizecoverage.sh:
+Aggregates and summarizes coverage data from multiple pileup runs, providing comparative metrics across samples.
+Sequence Manipulation & Generation
+
+translate6frames.sh:
+Translates DNA sequences to all six reading frames, or converts amino acids to nucleotides. Useful for gene finding and protein analysis in raw sequences.
+
+reformat.sh:
+Multi-purpose tool for converting between formats (FASTA, FASTQ, SAM), changing quality encoding, interleaving adjustment, quality filtering, and many other sequence manipulations. Extremely versatile for sequence file handling.
+
+shred.sh:
+Fragments sequences into shorter, potentially overlapping pieces with controllable length distribution. Useful for simulating short-read data or testing assembly algorithms.
+
+randomreads.sh:
+Generates synthetic reads with customizable error profiles from reference genomes. Highly configurable for error rates, types, insert sizes, and quality profiles, suitable for benchmarking tools under controlled conditions.
+
+randomreadsmg.sh:
+Creates simulated metagenomic datasets with controlled abundance profiles, assigning different coverage levels to different genomes for realistic community simulations.
+
+mutate.sh:
+Produces mutated versions of genomes with specified rates of substitutions, insertions, and deletions. Useful for evaluating variant callers and testing analysis pipelines.
+
+randomgenome.sh:
+Generates a random, repeat-free genome of specified size and GC content for testing purposes.
+
+makepolymers.sh:
+Creates polymer sequences with controllable repeat characteristics, useful for testing alignment algorithms on low-complexity regions.
+
+makecontaminatedgenomes.sh:
+Generates synthetic contaminated partial genomes from clean genomes for tool validation.
+
+makechimeras.sh:
+Creates chimeric sequences from non-chimeric reads, designed for testing chimera detection methods.
+K-mer Analysis & Operations
+
+kmercountexact.sh:
+Precisely counts unique k-mers in a dataset, creating frequency histograms and genome size estimates. Supports arbitrary k-mer lengths and can output all k-mers with their counts, enabling detailed analysis of sequence composition.
+
+kmercountmulti.sh:
+Estimates unique k-mer cardinality across multiple k-mer lengths simultaneously, producing comparative histograms to analyze sequence complexity at different resolutions.
+
+kmerfilterset.sh:
+Generates a minimal set of k-mers such that every input sequence contains at least one k-mer from the set, useful for designing capture probes or minimal signature sets.
+
+kmerlimit.sh/kmerlimit2.sh:
+Controls dataset size by stopping read output when a unique k-mer limit is reached. The second version uses two passes for working with reads in any order, useful for subsampling large datasets.
+
+kmerposition.sh:
+Analyzes positional distribution of reference k-mers in reads, useful for understanding biases in coverage or library preparation.
+
+kmutate.sh:
+Generates k-mer spectrums with specified mutations from a reference, useful for barcode design and analysis or for creating comprehensive variant libraries.
+
+loglog.sh:
+Memory-efficient tool that estimates cardinality of unique k-mers using the LogLog algorithm, providing rapid genome size estimates with minimal resource requirements.
+Sequence Management & File Operations
+
+repair.sh:
+Restores proper read pairing for files with disorganized or lost mate pairs by matching read names and reorganizing files. Essential for handling datasets where pairing information has been corrupted.
+
+rename.sh:
+Flexible tool for renaming sequences with various naming schemes and formatting options, including numerical suffixes, metadata addition, and header trimming.
+
+shuffle.sh/shuffle2.sh:
+Randomizes read order while maintaining pair relationships. The second version supports temporary files for large datasets that exceed memory capacity.
+
+sortbyname.sh:
+Multi-key sorter for reads based on name, length, quality, position, taxonomy or other attributes, with disk-based sorting for large datasets.
+
+partition.sh:
+Splits sequence files into multiple evenly-sized files, optionally optimizing for even base pair distribution or keeping PacBio subreads together.
+
+demuxbyname.sh/muxbyname.sh:
+Tools that separate reads into multiple files based on name patterns or combine reads from multiple files with name annotations, respectively.
+
+dedupe.sh:
+Removes duplicate or highly similar sequences based on exact matches or sequences within specified similarity thresholds. Can cluster sequences, find overlaps, and handle both nucleotide and protein data.
+
+fuse.sh:
+Combines multiple sequences into one long sequence with configurable N-padding between original sequences, useful for creating artificial chromosomes.
+
+repair.sh:
+Repairs paired reads that have become disorganized or had some mates eliminated, restoring proper pairing relationships.
+
+replaceheaders.sh:
+Replaces read names with names from another file, maintaining sequence content while updating metadata.
+
+splitnextera.sh:
+Processes Nextera long mate pair libraries, sorting reads into appropriate categories (LMP, fragment, unknown) based on junction orientation.
+
+tagandmerge.sh:
+Tool for adding barcode tags to read headers from filenames and merging multiple input files, useful for demultiplexing validation.
+Statistics & Reporting
+
+stats.sh:
+Comprehensive assembly statistics tool calculating scaffold counts, N50, L50, GC content, gap percentage, and many other metrics for evaluating assembly quality.
+
+stats3.sh:
+Advanced statistics tool supporting multiple file comparisons for comparative genomic analysis.
+
+statswrapper.sh:
+Wrapper that runs stats.sh across multiple assemblies for consolidated reporting and comparison.
+
+summarizeseal.sh:
+Analyzes Seal outputs for cross-contamination evaluation in multiplexed samples.
+
+summarizescafstats.sh:
+Examines BBMap scafstats output for contamination assessment and coverage analysis.
+
+summarizequast.sh:
+Processes multiple Quast reports for comparative box plots and consolidated quality metrics.
+
+summarizesketch.sh:
+Aggregates BBSketch results for comprehensive taxonomic profiling across multiple samples.
+
+readlength.sh:
+Generates detailed length distribution histograms for input reads, useful for quality assessment.
+
+plotgc.sh:
+Prints sequence GC content at regular intervals along a genome, useful for visualizing compositional biases.
+
+plothist.sh:
+Creates histograms from coverage or quality data for visualization.
+Specialized Tools
+
+novademux.sh:
+Sophisticated demultiplexing tool for sequencer reads using statistical analysis to ensure optimal yield and minimal crosstalk in the presence of errors. Particularly effective with dual-index Illumina data.
+
+processhi-c.sh:
+Specialized tool for Hi-C data that identifies and trims junctions in mapped reads, facilitating proper analysis of chromatin interactions.
+
+netfilter.sh/scoresequence.sh:
+Tools that use neural networks to score and filter sequences based on learned patterns, enabling complex classification tasks.
+
+train.sh:
+Trains neural networks for sequence classification or scoring, with extensive customization options for network architecture and training parameters.
+
+tetramerfreq.sh:
+Analyzes tetramer frequency patterns in sliding windows across genomes, useful for detecting compositional biases or foreign DNA.
+
+tiledump.sh:
+Processes and analyzes flowcell tile quality data from Illumina runs to identify problematic regions.
+
+seqtovec.sh:
+Converts sequences to vector representations for machine learning applications.
+
+bbcrisprfinder.sh:
+Identifies CRISPR arrays within sequences, optimized for both short reads and complete genomes.
+
+icecreamfinder.sh:
+Identifies "triangle reads" containing inverted repeats in PacBio data that can interfere with assembly.
+
+calctruequality.sh:
+Recalibrates quality scores based on observed error rates in mapped reads.
+
+This comprehensive suite provides a complete toolkit spanning the entire bioinformatics workflow from raw read processing to assembly, annotation, and comparative genomics. The tools are designed to be memory-efficient, scalable, and optimized for modern sequencing technologies, making them valuable for both routine analysis and specialized research applications.

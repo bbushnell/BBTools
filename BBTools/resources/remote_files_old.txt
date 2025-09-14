@@ -1,0 +1,20 @@
+Masked version of human HG19 reference, for removing human contaminant reads:
+https://drive.google.com/open?id=0B3llHR93L14wd0pSSnFULUlhcUk
+
+Masked version of mouse reference, for removing mouse contaminant reads:
+https://drive.google.com/open?id=0B3llHR93L14wYmJYNm9EbkhMVHM
+
+Masked version of cat reference, for removing cat contaminant reads:
+https://drive.google.com/open?id=0B3llHR93L14wOXJhWXRlZjBpVUU
+
+Masked version of dog reference, for removing dog contaminant reads:
+https://drive.google.com/open?id=0B3llHR93L14wTHdWRG55c2hPUXM
+
+Ribosomal kmers, for ribosomal (16S/18S/etc) read removal via BBDuk:
+https://drive.google.com/open?id=0B3llHR93L14wS2NqRXpXakhFaEk
+
+Masked version of common bacterial contaminants, for removing bacterial contamination from eukaryotes:
+https://drive.google.com/open?id=0B3llHR93L14wZ1N6akxrSW16Z0U
+
+Masked version of common bacterial contaminants, for removing bacterial contamination from bacteria: (This is the same organisms as above, but more heavily masked wuith other non-contaminant bacteria) to 
+https://drive.google.com/open?id=0B3llHR93L14wNkxnSk0wOUZubk0

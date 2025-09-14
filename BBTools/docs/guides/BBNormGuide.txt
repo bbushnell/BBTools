@@ -1,0 +1,112 @@
+BBNorm Guide
+Written by Brian Bushnell
+Last updated December 16, 2015
+
+BBNorm is designed to normalize coverage by down-sampling reads over high-depth areas of a genome, to result in a flat coverage distribution.  This process can dramatically accelerate assembly and render intractable datasets tractable, and often improve assembly quality.  It can also do depth-binning, kmer frequency histogram generation, error-correction, error-marking, and genome-size estimation.  BBNorm has 4 particularly notable features:
+1) It stores kmers in a probabilistic data structure called a count-min sketch.  This means it will never run out of memory, or swap to disk, on any dataset.  Rather, as the number of unique kmers increases, accuracy gradually declines.
+2) It has numerous features such as multipass normalization, which reduce the average error rate in the normalized output; whereas standard normalization enriches for reads containing errors. 
+3) It is extremely fast and easy-to-use compared to other normalization programs.
+4) It supports unlimited kmer lengths.
+
+
+*Notes*
+
+
+Data Structures:
+
+A Count-Min Sketch (CMS) is also called a "counting Bloom filter".  It is a type of hash table that only stores values, not keys, and ignores collisions.  To prevent the negative effects of collisions, values are stored in multiple locations, in the hopes that at least one of them won't collide with anything else; when reading kmer counts, all locations are read, and the lowest value is used.
+BBNorm can use CMSs with 1, 2, 4, 8, 16, or 32 bits per cell.  The more bits, the higher the maximum count (up to 2^bits-1), but the fewer cells are available; for example, 1GB RAM will accommodate 4 billion 2-bit cells, with counts up to 3, or 500 million 16-bit cells, with counts up to 65535.  If your data has expected coverage of 200x, there is little reason to use 32-bit cells.
+Also, the number of locations used for storing a kmer's count (the number of "hashes") can be specified, from 1 to infinity (default 3).  More hashes are more accurate (until the table becomes too full), but slower.  To determine the optimal number of hashes, please read about Bloom filters.
+
+
+Memory and Capacity:
+
+BBNorm should be run using all available memory (which is what the shellscript will try to do by default).  The more memory available, the more accurate.  It is possible to process an arbitrarily large dataset with even a tiny amount of memory.  However, that will result in a warning message like this:
+
+"Made hash table:        hashes = 1       mem = 581.26 MB        cells = 152.38M         used = 93.540%
+Warning:  This table is extremely full, which may reduce accuracy.  Ideal load is under 60% used.
+For better accuracy, use the 'prefilter' flag; run on a node with more memory; quality-trim or error-correct reads; or increase the values of the minprob flag to reduce spurious kmers.  In practice you should still get good normalization results even with loads over 90%, but the histogram and statistics will be off."
+
+Please don't ignore this message!  The memory can be used more efficiently by specifying "prefilter", which stores low-count kmers in smaller cells (2-bit, by default) and high-count kmers in bigger cells (32-bit, by default).  Prefilter is by default false, as it makes things slower, but should always be enabled when maximal accuracy is desired or if the tables become too full (say, over 50% or so for normalization; lower for error-correction).  You can also reduce the size of the primary cells with e.g. "bits=16", or perform a first pass with only a 2-bit or 4-bit filter in which very-low-depth reads are removed, to reduce the total number of unique kmers.  It's also possible to adjust the "minprob=X" flag, which ignores kmers with a probability of being error-free (based on quality scores) of below X.  Normalization is very robust against the table being too full, but other operations, such as error-correction and histogram generation, are less robust.
+
+
+Shellscripts:
+
+BBNorm (whose java file name is jgi.KmerNormalize) has 3 shellscripts - bbnorm.sh, ecc.sh, and khist.sh.  They all call KmerNormalize and just use different default parameters.  It is possible to make kmer frequency histograms while doing error-correction and normalization at the same time with a single command from any of these shellscripts; they are only for convenience.
+
+
+Dumping Kmers, Exact Counts, and Error Correction:
+
+BBNorm cannot dump kmers and their counts because it only stores counts, not kmers.  For this purpose, please use KmerCountExact instead, which explicitly tracks both kmers and their exact counts.  Also, KmerCountExact can report the exact kmer frequency histogram.  However, KmerCountExact cannot handle unlimited input data in finite memory like BBNorm can.
+Tadpole uses the same exact data structures as KmerCountExact, and as a result, error-correction by Tadpole is generally better than error-correction by BBNorm.  Therefore, while BBNorm supports error-correction, it is recommended that Tadpole be used when there is sufficient memory.
+
+
+When Not To Use BBNorm:
+
+For normalization, BBNorm is mainly intended for use in assembly, and with short reads.  Normalization is often useful if you have too much data (for example, 600x average coverage when you only want 100x) or uneven coverage (amplified single-cell, RNA-seq, viruses, metagenomes, etc).  It is not useful if you have smooth coverage and approximately the right amount of data, or too little data.  BBNorm cannot inflate low coverage (bring 15x coverage up to 100x), only reduce it.  Never normalize read data prior to a quantitative analysis (like ChIP-seq, RNA-seq for expression profiling, etc); if you assemble normalized data, and want to use mapping to determine coverage, map the non-normalized reads.  Also, do not normalize data prior to mapping for variant discovery; it will cause bias.  If you need to reduce data volume in any of these scenarios, use subsampling rather than normalization.  Do not attempt to normalize high-error-rate data from platforms such as PacBio or Nanopore; it is designed for relatively-low-error-rate, short, fixed-length reads such as Illumina and Ion Torrent.
+Also, error-correction is not advisable when you are looking for rare variants.  It should generally be fine with relatively high-depth coverage of heterozygous mutations in a diploid (where you expect a 50/50 allele split), but with low-depth coverage (like 5x), or very lopsided distributions (like a 1/100 allele split), it may correct the minority allele into the majority allele, so should be used with caution.
+
+
+Temp Files and Piping:
+
+BBNorm needs to read input files multiple times (twice per pass), which means it is unable to accept piped input.  In multipass mode, it also needs to generate temp files.  The location of temp files can be specified with the "tmpdir" flag; it defaults to the environment variable $TMPDIR, which on Genepool points to local disk when available.  Temp files will be cleaned up once BBNorm finishes.
+
+
+Threads:
+
+BBNorm is fully multithreaded both when counting kmers and when doing other operations such as normalization.  The counting is lock-free, using atomic counters.  As a result, it will default to using all available hardware threads; this can be adjusted with the "t" flag.
+
+
+*Usage Examples*
+
+
+Estimating Memory Requirements:
+loglog.sh in=reads.fq
+
+This will estimate the number of unique kmers in a dataset, which will dictate how much memory is needed by kmer-counting programs such as BBNorm.  It does so very quickly while using virtually no memory, so it is recommended prior to running BBNorm (or any kmer-counting tool) if you need to know how much memory is needed.  For BBNorm, if LogLog reports 1 billion kmers (for example), then using 16-bit cells and 3 hashes, you would need roughly  3hashes*16bits/kmer/8bits/byte*1000000000kmers/0.5load=12 GB to achieve a table under 50% full.
+Estimating the memory requirement is not really necessary, though.
+
+
+To normalize read coverage:
+bbnorm.sh in=reads.fq out=normalized.fq target=100 min=5
+
+This will run 2-pass normalization to produce an output file of reads with an average depth of 100x.  Reads with an apparant depth of under 5x will be presumed to be errors and discarded.
+
+
+To error-correct reads:
+ecc.sh in=reads.fq out=corrected.fq
+or equivalently
+bbnorm.sh in=reads.fq out=corrected.fq ecc=t keepall passes=1 bits=16 prefilter
+
+This will do error correction without discarding any reads.  "bits=16 prefilter" are not really necessary but will typically make the correction more accurate by storing kmers more efficiently.
+
+
+To generate a kmer-frequency histogram:
+khist.sh in=reads.fq khist=khist.txt peaks=peaks.txt
+or equivalently
+bbnorm.sh in=reads.fq khist=khist.txt peaks=peaks.txt passes=1 prefilter minprob=0 minqual=0 mindepth=0
+
+The histogram shows the number of unique kmers at a given depth.  For example, a point at "Depth=10, UniqueKmers=248028" indicates that there are 248028 kmers that each occur 10 times in the input data.  This should be plotted on a log-log scale.  The peaks file contains the locations of peaks in the histogram, as well as estimates of genome size and ploidy.  These estimates will only be accurate for randomly-sheared isolate genomic DNA with little contamination, and a ploidy of at most 4 (with 1 or 2 being more accurate).  If there are no obvious peaks in the kmer histogram, the results of the peaks file will not be useful.
+The additional arguments to bbnorm.sh (minprob=0 minqual=0 mindepth=0) are there to prevent low-depth kmers from being discarded.
+
+
+To normalize and error-correct reads, creating before and after kmer histograms:
+bbnorm.sh in=reads.fq out=normalized.fq target=100 min=5 prefilter ecc khist=khist_before.txt khistout=khist_after.txt
+
+
+To make a high-pass or low-pass filter:
+bbnorm.sh in=reads.fq out=highpass.fq outt=lowpass.fq passes=1 target=999999999 min=10
+
+This will pass only reads with a depth of at least 10 to "out", and low-depth reads under 10 to "outt" (outtoss).
+
+
+To split by depth into 3 bins:
+bbnorm.sh in=reads.fq outlow=low.fq outmid=mid.fq outhigh=high.fq passes=1 lowbindepth=10 highbindepth=80
+
+This will put reads with coverage under 10x in low.fq; at least 80x in high.fq; and all others in mid.fq.  Specifically, for pairs, if one read is below the low cutoff and the other is above the high cutoff, both go into mid.
+
+
+Using additional files for kmer counts:
+bbnorm.sh in=reads.fq out=corrected.fq passes=1 ecc extra=genome.fa,more_reads.fq
+
+This will error-correct reads.fq using additional kmer count information from genome.fa and more_reads.fq.  It can also be applied to other operations like normalization.  The arguments to "extra" will be used only for kmer frequency data, but will not be part of the output.

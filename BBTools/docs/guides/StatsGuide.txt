@@ -1,0 +1,33 @@
+Stats Guide
+Written by Brian Bushnell
+Last updated December 22, 2015
+
+Stats is designed to generate basic assembly statistics such as scaffold count, N50, L50, GC content, gap percent, etc.  It can also generate per-sequence GC-content information.  The reason for the existence of stats is to replace prior tools that had similar function, but could not scale to large metagenomes; Stats is capable of processing an assembly of practically unbounded size, with sequences of practically unbounded length.  And it does this rapidly, in a small amount of memory.  Stats can also estimate the memory requirements of BBMap for a given assembly and kmer length.
+
+
+*Notes*
+
+
+Memory:
+
+Stats uses 120MB of RAM regardless of the assembly size.
+
+
+Threads:
+
+Stats is singlethreaded; it does not do garbage-collection or even use independent threads for I/O streams, unlike other BBTools.
+
+
+*Usage Examples*
+
+
+To get stats on an assembly:
+stats.sh in=contigs.fa
+
+
+To compare multiple assemblies:
+statswrapper.sh in=a.fa,b.fa,c.fa format=6
+
+
+To print GC and length information per sequence:
+stats.sh in=contigs.fa gc=gc.txt gcformat=4

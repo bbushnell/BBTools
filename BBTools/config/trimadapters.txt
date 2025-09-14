@@ -1,0 +1,5 @@
+k=23
+mink=11
+hdist=1
+tbo
+tpe

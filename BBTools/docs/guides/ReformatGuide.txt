@@ -1,0 +1,140 @@
+Reformat Guide
+Written by Brian Bushnell
+Last updated December 14, 2015
+
+Reformat is designed for generic streaming read-processing tasks that have low memory or computational demands, such as format conversion, subsampling, and various filtering operations.  Some of its functionality (like quality-trimming, length-filtering, histogram generation) is shared with BBDuk, in which case BBDuk will be faster; but much of it (like converting degenerate bases to N) is unique to Reformat.  Because of its lower resource consumption, Reformat is often preferable to BBDuk when piping data to or from a high-resource program.  This guide will ignore most of the functionality shared with BBDuk.
+
+Reformat's parameters are described in its shellscript (reformat.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Memory:
+
+Reformat needs only a trivial amount of memory for processing short reads, regardless of how many there are.  The only situation it would need more memory is when processing very long sequences, such as the human genome, since by default Reformat buffers several hundred sequences in memory at a time; with the human genome, that would be the whole thing (over 3GB).  In that situation you can reduce the number of buffered reads with the flags "readbufferlength=1 readbuffers=1", and/or increase the amount of memory used with the -Xmx flag (see UsageGuide for details).
+
+
+Threads:
+
+Reformat only uses a single worker thread, but can use multiple I/O threads and potentially even more compression threads if pigz is installed.  The "t" flag will not impact the number of worker threads, but it can be used to cap the number of compression and I/O threads used.  However, even with "t=1", Reformat will generally use over 2 CPU cores on average since the I/O is in separate threads.
+
+
+Output streams:
+
+Reformat has 2 standard output streams, "out" and "outs".  Normal reads passing any filters being used go to "out"; "outs" only captures singleton reads that pass a filter but whose mate fails the filter.
+
+
+Formats supported:
+
+Please see readme_filtypes.txt.
+
+
+Related tools:
+
+Reformat shares a lot of functionality with BBDuk, which is typically faster but more resource-intensive.  However, there is also similar functionality (low-resource, streaming operations) in some tools that seems like it would be in Reformat, but isn't:
+rename.sh does various renaming operations;
+repair.sh/bbsplitpairs.sh does reordering of paired reads that have lost synchronization;
+readlength.sh has more advanced length histogram control options;
+filterbyname.sh for name-based filtering;
+fuse.sh and split.sh for shredding and concatenating sequence;
+phylip2fasta for phylip reformatting;
+translate6frames for AminoAcid<->Nucleotide conversion.
+
+
+*Usage Examples*
+
+To reformat fastq to fasta:
+reformat.sh in=reads.fastq out=reads.fasta
+
+This command is analogous for any file format conversion.  For example, "reformat.sh in=reads.fa.gz out=reads.sam" will convert gzipped fasta reads to uncompressed sam.  They won't be mapped, of course.  If you wish to convert sam to fastq, it is recommended that you add the "primaryonly" flag to avoid getting duplicates of reads.
+
+
+To run reformat in a loop, and automatically rename files appropriately:
+reformat.sh in=read#.fq out=%.fa
+
+This will convert read1.fq and read2.fq (expanded from the # symbol) to read1.fa and read2.fa (expanded from the % symbol).
+
+
+To change quality encoding:
+reformat.sh in=reads.fq out=reads.fq qin=33 qout=64
+
+This will covert ASCII-33 qualities (Sanger, modern Illumina, and all other platforms) to ASCII-64 (obsolete Illumina).
+
+
+To convert between fastq and fasta+qual:
+reformat.sh in=reads.fq out=reads.fa qfout=reads.qual
+or
+reformat.sh in=reads.fa qfin=reads.qual out=reads.fq
+
+
+To interleave or deinterleave paired reads:
+reformat.sh in=reads.fq out1=read1.fq out2=read2.fq
+or
+reformat.sh in1=read1.fq in2=read2.fq out=reads.fq
+or to be concise,
+reformat.sh in=read#.fq out=reads.fq
+
+
+To change fasta word-wrap limits:
+reformat.sh in=reads.fa out=wrapped.fa fastawrap=70
+
+
+To verify that reads appear to be correctly paired, based on their names:
+reformat.sh in=reads.fq vint
+or (for reads in 2 files)
+reformat.sh in=read#.fq vpair
+
+If it is acceptable for reads to have identical names, rather than the usual /1 and /2 or 1: and 2: at the end, add the flag "allowidenticalnames".
+
+
+To discard reads that have mismatching lengths of bases and qualities:
+reformat.sh in=reads.fq out=fixed.fq tossbrokenreads
+
+Note that this should be used with caution as it normally means the input file is corrupt.
+
+
+To add a "/1" and "/2" to the names of paired reads that don't have them:
+reformat.sh in=reads.fq out=renamed.fq addslash int
+
+
+To change whitespace in read names to underscores:
+reformat.sh in=reads.fq out=renamed.fq underscore
+
+Or, to trim read names after the first whitespace:
+reformat.sh in=reads.fq out=renamed.fq trd
+
+BBTools by default always use the full name of a sequence.  However, some other programs ignore everything after the first whitespace, so these options are often useful for compatibility with them.
+
+
+To reverse-complement reads:
+reformat.sh in=reads.fq out=out.fq rcomp
+or, for just read2:
+reformat.sh in=reads.fq out=out.fq rcompmate
+
+
+To change lowercase letters to uppercase:
+reformat.sh in=reads.fq out=out.fq tuc
+
+
+To perform arbitrary remaping of input bases:
+reformat.sh in=reads.fq out=out.fq remap=aZGP
+
+The map consists of a series of pairs, in this case "aZ" and "GP".  This will change "a" to "Z" and "G" to "P", and ignore all other characters.
+
+
+To convert degenerate bases (IUPAC characters) to Ns:
+reformat.sh in=reads.fq out=out.fq iupacton
+
+
+To ensure all sequences in a file have unique names:
+reformat.sh in=reads.fq out=out.fq uniquenames
+
+If a name is duplicated, the additional copies will have "_<number>" appended to them to ensure all names are unique.  Note that unlike most other functions, this is NOT streaming and requires storing all names in memory.  As a result, it can use a substantial amount of memory.
+
+
+To cap quality scores into a certain range:
+reformat.sh in=reads.fq out=out.fq mincalledquality=2 maxcalledquality=41
+
+This is useful for preventing abnormal quality scores (such as in error-corrected PacBio reads) that can break some programs.
+

@@ -1,0 +1,5 @@
+#Filter PacBio 16s Reads of Insert with reformat.sh before clustering
+minlen=1420
+maxlen=1640
+maq=20
+qin=33

@@ -1,0 +1,197 @@
+BBDuk Guide
+Written by Brian Bushnell
+Last updated December 14, 2015
+
+"Duk" stands for Decontamination Using Kmers. BBDuk was developed to combine most common data-quality-related trimming, filtering, and masking operations into a single high-performance tool.  It is capable of quality-trimming and filtering, adapter-trimming, contaminant-filtering via kmer matching, sequence masking, GC-filtering, length filtering, entropy-filtering, format conversion, histogram generation, subsampling, quality-score recalibration, kmer cardinality estimation, and various other operations in a single pass.  Specifically, any combination of operations is possible in a single pass, with the exception of kmer-based operations (kmer trimming, kmer masking, or kmer filtering); at most 1 kmer-based operation can be done in a single pass.  BBDuk2 allows multiple kmer-based operations in a single pass, and is otherwise equivalent to BBDuk.
+
+BBDuk's parameters are described in its shellscript (bbduk.sh).  This file provides usage examples of various common tasks.
+
+
+*Notes*
+
+
+Paired reads:
+
+Paired reads interleaved in a single file will be autodetected based on their names; this can be overridden with the "interleaved" flag.  The commands in this document assume either single-ended reads or paired reads in a single file.  BBDuk also supports input or output of paired reads in dual files using the in1, in2, out1, and out2 flags, for example:
+
+bbduk.sh in1=read1.fq in2=read2.fq out1=clean1.fq out2=clean2.fq
+
+When dealing with paired reads in 2 files they should always be processed together, not one at a time.  Pairs are always kept together - either both reads are kept, or both are discarded.
+
+
+Kmer-processing modes:
+
+If a reference is specified, BBDuk will operate on kmers in one of 4 modes: right-trimming, left-trimming, masking, or filtering.  The default is filtering - any read matching a reference kmer will be discarded.  In order to kmer-trim, the flag "ktrim=r" or "ktrim=l" must be used.  In ktrim=r mode, once a reference kmer is matched in a read, that kmer and all the bases to the right will be trimmed, leaving only the bases to the left; this is the normal mode for adapter trimming.  For ktrim=l, trimming will be done to the left instead.  "kmask=N" will, rather than trimming, convert all bases covered by reference kmers to N (or some other symbol).  BBDuk2 can operate in all 4 modes at once.
+
+
+Memory:
+
+BBDuk's shellscript will try to autodetect the available memory and use about half of it.  You can override this with with the -Xmx flag, e.g. "bbduk.sh -Xmx1g in=reads.fq".  That command will force it to use 1 GB.  Most operations such as adapter-trimming and quality-trimming need only a tiny amount of memory.  Only processing large references, or using a high value of "hdist" or "edist", actually need a lot of memory.  The only factor determining how much memory BBDuk needs is the number of reference kmers stored, which is linearly proportional to the size of the reference.  So, if you are not going to be using a reference, or only a small reference, you can add the flag -Xmx1g.  If you will using a large reference, modify that flag to be around 85% of the machine's physical memory - for example, -Xmx27g on a 32GB machine.  The actual maximum you can use depends on the operating system's configuration.
+
+
+Kmers, hdist, qhdist, and edist:
+
+A 4.6Mbp genome like E.coli contains around 4.6 million unique kmers.  If a hamming distance is used, such as hdist=1, then the number of kmers stored will be multiplied by 1+(3*k)^hdist.  So, for E.coli with K=31 and hdist=0, there are 4554207 kmers stored, using around 140MB, taking about 0.5 seconds; with hdist=1, there are 427998710 kmers stored (94 times as many), using 15GB, and taking 104 seconds.  Edit distance creates even more kmers, at 1+(8*k)^edist.  BBDuk needs around 20 bytes per kmer; it is possible to store them more efficiently by adding the flag "prealloc".  But, if you need to use a hamming distance and the machine simply does not have enough memory, you can use "qhdist" instead, which mutates the read (query) kmers instead of the reference kmers.  This makes the read processing much slower, but does not use additional memory.
+
+
+Mink:
+
+When you set K=25, BBDuk will store all 25-mers in the reference, and try to match them against 25-mers in the queries (reads).  However, for adapter-trimming, this may not be desirable - for example, if the last 12bp of a read are adapter sequence, it will not match a reference 25-mer, because it is too short.  "mink=8" will additionally look for shorter kmers with lengths 24 to 8 (in this case).  For the query, these kmers will only come from the end of the read - for example, with "ktrim=r", they will only be taken from the right end.  So all 25-mers will be used from the read, plus a single 24-mer of the last 24 bases, a single 23-mer, etc. down to a single 8-mer, the last 8 bases.  The reference short kmers will also come only from the ends of reference sequences, but they will come from both ends (so a single reference sequence would yield two 8-mers, the leftmost one and the rightmost one.  Mink works for kmer-trimming and kmer-masking, but not for kmer-filtering.
+
+
+Hdist2, edist2, and qhdist2
+
+Because they are shorter, the appropriate hamming distance may differ for short kmers generated with the mink flag.  For primary kmers, K=25 has a very high high specificity; a given 25-mer has a 1/1125899906842624 chance of matching random sequence (meaning you will never see this happen).  Even with hdist=3, the chance is increased to ~1/18130433280 (still very low).  However, k=8 only has a 1/65536 chance at hdist=0, becoming a 1/36 chance at hdist=3, which would yield too many false positives for most uses.  For that reason, with a small value of mink, it is useful to independently control the hamming/edit distance.  hdist2, edist2, and qhdist2 are analagous to hdist, edist, and qhdist, but are only applied to kmers shorter than the normal kmer length.
+If hdist is set and hdist2 is not set, hdist will control the hamming distance for all kmers, short and long.  If both are set, then hdist will control the hamming distance for full-length kmers, and hdist2 will control it for short kmers; and etc.
+
+
+Kmer length:
+
+BBDuk supports kmers of length 1-31.  The longer a kmer, the high the specificity; except in certain highly-conserved areas (such as ribosomes), or in very low-complexity areas (like ATATATAT...), it is very unlikely for two unrelated organisms to share a 31-mer.  Note that it is impossible to do kmer matching for reference sequences that are shorter than K.  When kmer filtering, you can specify a kmer length greater than 31 (such as k=40) for even higher specificity.  For k=40, BBDuk will consider a read to match the reference if there are 10 consecutive 31-mer matches.  This is not exactly the same as actually matching 40-mers, but is very similar.
+
+
+Kmer skipping:
+
+To reduce memory or increase speed, it is possible to ignore some reference or query kmers.  This can be done with the rskip, qskip, or speed flags (do not use more than one at a time).  rskip=4, for example, will only store every 4th reference kmer, saving memory.  qskip=4 will only look up every 4th query kmer, increasing speed.  The speed flag is a bit different.  speed=X, where X runs from 0 to 15, will ignore X/16 of the kmers in both the read and reference, and the same ones will be ignored in each case.  So, it reduces memory and increases speed.  The highest setting, speed=15, will ignore 15/16.  Any of these will reduce sensitivity, but often it is a useful tradeoff for being able to fit the dataset in memory.  Be cautious about combining these flags with flags that change the number of required kmer hits for a match.
+
+
+Number of kmer hits:
+
+By default, a read is considered to match the reference if they share a single kmer.  This can be changed with the flag "mkh" (minkmerhits), or overridden with "mkf" (minkmerfraction) or "mcf" (mincoveredfraction).  For example, "mkh=2" would require 2 kmer hits to consider a read as matching; "mkf=0.5" would require 50% of the kmers to match; and "mcf=0.5" would require 50% of the bases to be covered by reference kmers.  "mcf" is probably more stable than "mkf", because a single error can knock out a lot of kmers, but it will only knock out 1 base.  So, with a 100bp read that should match the reference, and a single error right in the middle, 99% of the bases would be covered by kmers matching the reference.  But, the read has 100-31+1=70 kmers; of those, 31 have an error, so they won't match the reference.  Thus, only 39/70 or 56% of the kmers match the reference.
+
+
+Maskmiddle and rcomp:
+
+By default, BBDuk has maskmiddle and rcomp set to true.  Maskmiddle ignores the middle base of a kmer, which increases sensitivity.  Rcomp looks for kmers and their reverse-complements, rather than just forward kmers.  However, sometime this confuses people when BBDuk reports that a sequence matches some reference, but using some tool like "Grep", they can't find any shared kmers.  This is usually caused by maskmiddle and/or rcomp.  So if you only want exact matches, disable maskmiddle ("mm=f" flag); and if you only want to match forward kmers, disable rcomp ("rcomp=f" flag).  Specifically, "rcomp=f" will store all the forward kmers in the reference, in their forward orientation, and it will only consider kmers to match if that also occurs in the forward orientation in a read.
+
+
+Seal and kmers in multiple references:
+
+BBDuk associates each kmer with a single number.  Specifically, if a kmer appears in the first reference sequence, that kmer is associated with the number 1; kmers from a second reference sequence will be associated with the number 2, etc.  If two reference sequences contain the same kmer, the kmer will only be associated with the first reference.  Therefore, when reporting statistics about how many reads matched which reference sequence, these statistics may not be correct in situations where two reference sequences contain identical sequence.  For example, with 2 different E.coli strains, the vast majority of reads would probably be reported as matching the first E.coli strain rather than the second, since they share so many kmers.  In this kind of situation, if accurate statistics tracking is important, it is better to use Seal instead of BBDuk.  Seal can associate each kmer with arbitrarily many different references.
+
+
+Threads:
+
+BBDuk operates in 2 phases.  Phase 1 is loading the reference kmers (if you specified a reference).  This uses a fixed number of threads, currently 7, which cannot be changed (except by editing the "WAYS=7" line in BBDuk's source code and recompiling).  With a small reference such as adapter sequences or a bacterial genome, this phase will take under a second.  The second phase will autodetect and use all available processors, unless restricted with the "t" flag; for example, t=1 will restrict it to a single worker thread.  BBDuk scales very well, so unless you are on a shared node, it's best to just let it use all threads.  When multiple threads are used, reads will not come out in the same order the went in, unless the "ordered" flag is used.
+
+
+Output streams:
+
+BBDuk has 3 standard output streams, "out", "outm", and "outs".  None are required; any or all may be used.  "out" (aka "outu" or "outunmatched") will get all the reads that pass all filtering criteria.  That means that after any trimming operations, reads must be at least as long as minlen; and if kmer-filtering is being performed, the read must not match any reference kmer; if a minimum average quality is specified, the read's average quality must be at least that high; etc.  Reads failing any filter criteria (such as matching a reference kmer) will go to "outm" ("outmatch").  So, every read will go either "out" or "outm".  By default, if either read in a pair fails, both will go to "outm"; this can be inverted with the "rieb" flag (remove if either bad).  "rieb=f" will make paired reads go to "outm" only if BOTH fail filter criteria.  If you want to retain singleton reads the pass filter when their mate failed, use "outs" (outsingle).  For example:
+
+bbduk.sh in=pairs.fq out=pass_pairs.fq outm=fail_pairs.fq outs=pass_singletons.fq ref=contam.fasta
+
+In this case, pairs in which neither read matches the reference will go to pass_pairs.fq.  Pairs in which either read or both match the reference will go to fail_pairs.fq.  And if one read matches the reference but the other one does not, the read not matching the reference will go to pass_singletons.fq (in addition to fail_pairs.fq).
+
+
+Preprocessing steps and order:
+
+To preprocess raw sequence data with BBDuk, I recommend a specific order; please see PreprocessingGuide for details, or /pipelines/variantPipeline.sh and assemblyPipeline.sh for examples.
+
+
+BBDuk internal order of operations:
+
+BBDuk supports all operations in a single pass, other than the mutually-exclusive kmer-based operation (kfilter, kmask, ktrim=r, ktrim=l).  After every trimming phase the length is checked and the reads are discarded as soon as they drop below min length, ignoring subsequent stages.
+This order of operations seems optimal for most situations.  However, if you need a different order of operations, you can do so via multiple passes.
+
+0) histograms and cardinality estimation are done on raw reads
+1) header filtering (chastity, location, barcode, etc)
+2) quality recalibration
+3) GC filter
+4) ftl/ftr/ftm
+5) ktrim/kmask/kfilter
+6) trim by overlap
+7) poly-A trim
+8) entropy mask
+9) qtrim and trim soft-clipping
+10) maq and maxNs
+11) entropy filter
+
+
+*Usage Examples*
+
+Adapter trimming:
+bbduk.sh in=reads.fq out=clean.fq ref=adapters.fa ktrim=r k=23 mink=11 hdist=1 tpe tbo
+
+(if your data is very low quality, you may wish to use more sensitive settings of hdist=2 k=21)
+
+...where "ktrim=r" is for right-trimming (3' adapters), and "ktrim=l" is for left-trimming (5' adapters). "k" specifies the kmer size to use (must be at most the length of the adapters) while "mink" allows it to use shorter kmers at the ends of the read (for example, k=11 for the last 11 bases). "hdist" means "hamming distance"; this allows one mismatch. Instead of "ref=file" you can alternately (or additionally) say "literal=ACTGGT,TTTGGTG" for those two literal strings. The BBTools package currently includes Illumina Truseq and Nextera adapters sequences in /bbmap/resources/adapters.fa. You can specify whether or not BBDuk looks for the reverse-complement of the reference sequences as well as the forward sequence with the flag "rcomp=t" or "rcomp=f"; by default it looks for both. You can also restrict kmer operations such as adapter-trimming to only read 1 or read 2 with the "skipr1" or "skipr2" flags, or restrict them to the leftmost or rightmost X bases of a read with the restrictleft or restrictright flags. For normal paired-end fragment libraries, I recommend adding the flags "tbo", which specifies to also trim adapters based on pair overlap detection using BBMerge (which does not require known adapter sequences), and "tpe", which specifies to trim both reads to the same length (in the event that an adapter kmer was only detected in one of them).
+
+
+Quality trimming:
+bbduk.sh in=reads.fq out=clean.fq qtrim=r trimq=10
+
+This will quality-trim to Q10 using the Phred algorithm, which is more accurate than naive trimming. "qtrim=r" means it will trim the right side only; you can alternatively set "qtrim=l" for left or "qtrim=rl" for both.  If quality trimming is enabled, it happens after all kmer-based operations.
+
+
+Force-Trimming:
+bbduk.sh in=reads.fq out=clean.fq ftl=10 ftr=139
+
+This will trim the leftmost 10 bases (ftl=10) and also trim the right end after to position 139 (zero-based).  The resulting read would be 130bp long.  For example, a 150bp read would have the first 10 bases trimmed (bases 0-9, keeping 10+) and the last 10 bases trimmed (bases 140-149, keeping 139 and lower).
+
+
+Force-Trim Modulo:
+bbduk.sh in=reads.fq out=clean.fq ftm=5
+
+The right end so that the read's length is equal to zero modulo 5 (ftm=5).  The reason for this is that with Illumina sequencing, normal runs are usually a multiple of 5 in length (50bp, 75bp, 100bp, etc), but sometimes they are generated with an extra base (51bp, 76bp, 151bp, etc).  This last base is very inaccurate and has badly calibrated quality as well, so it's best to trim it before doing anything else.  But you don't want to simply always trim the last base, because sometimes the last base will already be clipped by Illumina's software.  "ftm=5" will, for example, convert a 151bp read to 150bp, but leave a 150bp read alone.
+
+
+Quality filtering:
+bbduk.sh in=reads.fq out=clean.fq maq=10
+
+This will discard reads with average quality below 10.  If quality-trimming is enabled, the average quality will be calculated on the trimmed read.
+
+
+Kmer filtering:
+bbduk.sh in=reads.fq out=unmatched.fq outm=matched.fq ref=phix.fa k=31 hdist=1 stats=stats.txt
+
+This will remove all reads that have a 31-mer match to PhiX (a common Illumina spikein, which is included in /bbmap/resources/), allowing one mismatch. The "outm" stream will catch reads that matched a reference kmers. This allows you to split a set of reads based on the presence of something. "stats" will produce a report of which contaminant sequences were seen, and how many reads had them.
+
+
+Kmer masking:
+bbduk.sh in=ecoli.fa out=ecoli_masked.fa ref=salmonella.fa k=25 kmask=N
+
+This will mask all 25-mers in E.coli that are also shared by Salmonella, by converting them to N. You can change them to some other letter instead, like X.  Alternatively, kmask=lc will convert the masked bases to lowercase.
+
+
+Entropy filtering:
+bbduk.sh in=reads.fq out=filtered.fq entropy=0.5 entropywindow=50 entropyk=5
+
+This will filter out reads that have an average entropy of under 0.5.  This is a measure of read complexity and varies from 0 to 1.  A homopolymer such as AAAAAAAAAAAAAA would have entropy of zero; completely random sequence would have entropy approaching 1.
+
+
+Quality recalibration:
+bbduk.sh in=reads.fq out=recalibrated.fq recalibrate sam=mapped.sam
+
+This will recalibrate quality scores to be more accurate, using the mapping information from the sam file provided.  If matrix files have already been generated from a mapped sam or bam file of the reads using CalcTrueQuality, then the sam flag should not be used.  The sam file must have cigar strings with = and X symbols for match and mismatch, like BBMap produces, rather than M for match or mismatch.  The sam file does not need to contain the same reads as the input - it just has to be mapped reads from the same sequencing run and lane.  So, for example, if you spike in E.coli reads and some unknown organism, you can map the E.coli reads to the E.coli reference and recalibrate all the reads with the mapped E.coli, since you don't have a reference for the unknown organism.  Alternately, you can assemble the reads with something like Tadpole and map against that.  For accurate recalibration, it's best to map against a haploid genome, or an inbred diploid with a low (<1/4000) het rate.
+
+
+Histogram generation:
+bbduk.sh in=reads.fq bhist=bhist.txt qhist=qhist.txt gchist=gchist.txt aqhist=aqhist.txt lhist=lhist.txt gcbins=auto
+
+This will generate histograms of various aspects of the reads - base frequency, quality scores, gc content, average quality, and length.  BBMap can generate even more histograms by using mapping information (such as quality accuracy and indel length); BBDuk can also generate these histograms if it is fed a sam file in which the cigar strings use = and X to denote match and mismatch.
+
+
+Barcode and chastity filtering:
+bbduk.sh in=reads.fq out=filtered.fq barcodes=ACGTT,GGCCG barcodefilter chastityfilter
+
+This will remove reads that fail Illumina chastity filtering, or have barcodes that do not exactly match the list provided.  The ability to process these depends on Illumina's header format, which can change between software versions and platforms.
+
+
+Cardinality estimation:
+bbduk.sh in=reads.fq loglog loglogk=31
+
+This will generate an accurate estimation of the number of unique kmers in the dataset using the LogLog algorithm, requiring very little memory.  There is no upper bound for this kmer length.  Note that "k=" and "loglogk=" are completely unrelated.
+
+
+Matching degenerate sequences such as primers:
+bbduk.sh in=reads.fq out=matching.fq literal=ACGTTNNNNNGTC copyundefined k=13 mm=f
+
+This will clone the reference sequences to represent every possibility for the degenerate bases (Ns and other non-ACGT IUPAC symbols).  For example, this would create ACGTTAAAAAGTC, ACGTTAAAACGTC, ACGTTAAAAGGTC, and so forth (all 1024 possibilities).  If you are interested in seaching for new life by mining shotgun metagenomic reads for 16s sequences that do not quite match your primers...   this (and hdist) might be a good place to start!  But it's also useful for adapters with barcodes.
+
+
+Length filtering:
+bbduk.sh in=reads.fq out=clean.fq qtrim=r trimq=10 minlen=100
+
+This will discard reads shorter than 100bp after trimming to Q10.  Alternatively, using "mlf=50" (minlengthfraction=50) would discard reads under 50% of their original length after trimming.  Either of these flags apply to any trim operation, whether force-trim (ftr, ftl, ftm), quality-trimming (qtrim), or kmer-trimming (ktrim).  "mlf" compares the final length after all trim operations to the initial length before any trim operations.
+

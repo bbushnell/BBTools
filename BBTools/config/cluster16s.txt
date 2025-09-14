@@ -1,0 +1,19 @@
+#This is for clustering PacBio 16s reads of insert with Dedupe
+csf=stats_e26.txt
+outbest=best_e26.fq
+qin=33
+usejni=t
+am=f
+ac=f
+fo
+c
+rnc=f
+mcs=3
+k=27
+mo=1420
+ow
+unpigz
+cc
+pto
+nam=4
+e=26

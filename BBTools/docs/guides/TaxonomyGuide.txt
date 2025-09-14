@@ -1,0 +1,159 @@
+Taxonomy Guide
+Written by Brian Bushnell
+Last updated July 29, 2019
+
+
+BBTools contains a taxonomy package designed for processing taxonomy information, using taxonomy files from NCBI.
+The related tools allow you to rename, sort, filter or bin annotated sequences by taxonomy, use Seal to classify read abundance at a specific taxonomic level, annotate Sketch files with taxonomic information, and so forth.
+Some of this functionality (like translating accessions to TaxIDs) is replicated by the taxonomy server at https://taxonomy.jgi.doe.gov so that it is no longer necessary to download accessions locally, but the taxonomic tree is still required for many operations.
+
+
+*Notes*
+
+
+Acquiring taxonomy data:
+
+There is now a shell script, bbmap/pipelines/fetchTaxonomy.sh, which automates fethching and formatting taxonomy information from NCBI.
+The simple procedure is to run fetchtaxonomy.sh in some directory (say, /usr/tax/) and subsequently add the flag "taxpath=/usr/tax/" to programs that need taxonomy data such as gi2taxid.sh.
+If fetchtaxonomy.sh completes successfully with no error messages, producing files like "tree.taxtree.gz", you can skip the rest of this "Acquiring taxonomy data" section.
+
+The taxonomy files must be downloaded from NCBI.  The are currently available here:
+ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdmp.zip
+This includes organism names, TaxIDs, taxonomic levels, and the taxonomic tree, which indicates parent/child relationships between nodes, with one node per TaxID.  It is necessary for any BBTool using taxonomy.
+
+Accession number information is at:
+ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/*.gz
+This is only necessary for converting accession or gi numbers to TaxIDs (such as gi2taxid.sh for renaming, or anything that attempts to parse raw NCBI RefSeq/nt headers for taxonomy).
+
+In Linux, it is most convenient to fetch them like this:
+wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdmp.zip
+wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/*.gz
+
+Before further use, these must be processed (as in pipelines/fetchtaxonomy.sh).  taxdmp.zip needs to be unzipped first.  For more details see the Usage Examples section.
+
+
+Acquiring sequence data:
+
+NCBI frequently rearranges its ftp site, but currently, you can get assembled sequence data here:
+ftp://ftp.ncbi.nlm.nih.gov/genomes/
+And specifically, ftp://ftp.ncbi.nlm.nih.gov/genomes/archive/old_refseq/Bacteria/all.fna.tar.gz contains all of the RefSeq bacterial data.  The current version should be available here: ftp://ftp.ncbi.nlm.nih.gov/refseq/release/bacteria/*.fna*, though that's inconvenient as it's in many files.  There are also other clades in ftp://ftp.ncbi.nlm.nih.gov/refseq/release/
+
+
+Sequence naming conventions:
+
+The only requirement of sequence data is that each header uses one of the following formats:
+
+1) It starts with an NCBI taxonomic identifier, in this format (where "123" is the TaxID):
+tid|123|other stuff
+This is my preferred format since you don't have to look things up in huge tables, so it's the fastest and uses the least memory.
+
+2) It starts with a gi number, in this format (where "123" is the gi number):
+gi|123|other stuff
+This is the old naming convention used by NCBI data.
+
+3) It starts with an accession, in this format (where "AC1234.1" is the accession, followed by a space):
+AC1234.1 other stuff
+This is the current naming convention used by NCBI data.
+
+4) It is a proper Genus_species pair, with whitespace optionally replaced by underscores, like this:
+Homo_sapiens
+This is not recommended because there could be a name collision, but in general, it should be fine.  It is not strictly necessary to replace whitespace with underscores, but that is often convenient.  For taxa above the species level, just a single taxonomic name is fine, such as "Gammaproteobacteria".  Sequence names are case-insensitive.
+The tool will try to use best effort, so usually things like just the species name, or "family genus species" will work too, but it is unpredictable due to odd naming conventions for some organisms.
+
+5) Silva data should have a mysterious string (like GCVF01000431.1.2369) that is ignored, followed by a space, then semicolon-delimited taxonomic information.  It only works in Silva mode.
+GCVF01000431.1.2369 Bacteria;Proteobacteria;Gammaproteobacteria;Oceanospirillales;Alcanivoraceae;Alcanivorax;Thalassiosira rotula
+
+6) IMG data should start with an IMG number followed by a space (this can be accomplished with renameimg.sh):
+2547132486 EuzAGGAGA464_NODE_7_len_49232_cov_91_7699_ID_1693950.7 464_Euzebyaceae_AGG_AGA : EuzAGGAGA464_NODE_7_len_49232_cov_91_7699_ID_1693950.7
+or
+img|2547132486| other stuff
+or
+tid|123|img|2547132486| other stuff
+
+
+Specifying processed taxonomy files:
+
+Most taxonomy-aware tools (Seal, FilterByTaxa, BBSketch, etc) require the path to the tree and/or gitable and/or accessions and/or IMG translation tables to be specified in the command line.  The default locations of processed taxonomy files are hard-coded in TaxTree.DefaultTreeFile and DefaultTableFile, currently (at NERSC, JGI's compute facility) at /global/projectb/sandbox/gaag/bbtools/tax/current.  So, on Genepool, you can use the flag "tree=auto" instead of the full path, and the default will be used.
+For non-NERSC users the full path can be used for each file (e.g. "tree=/usr/tax/tree.taxtree.gz"), or auto can be used by changing the taxpath (e.g. "tree=auto accession=auto taxpath=/usr/tax/").
+Some tools default to "auto"; this can be changed.  For example, if a tool is automatically trying to load accessions (which use a ton of RAM and take several minutes) and you don't want it to, set "accession=null".
+
+
+Renaming and Sorting
+
+The first goal in many cases is to change data from one of the random supported formats into format 1 so that sequences are clearly identified by their TaxID.  After downloading and formatting taxonomy files, this can be done with gi2taxid.sh.
+For example, nt can be renamed like this (where "/path/to/taxonomy" is wherever you ran fetchTaxonomy.sh):
+
+gi2taxid.sh -Xmx63g in=nt.fa.gz out=renamed.fa.gz tree=auto accession=auto table=auto ow shrinknames taxpath=/path/to/taxonomy
+
+Sorting is optional and puts related organisms nearby; this can be useful for conserving memory in some cases (like when making sketches).
+
+
+Memory and Threads:
+
+Since NCBI's move to accessions, some Taxonomy-related tools use many threads and a lot of memory.  Loading the tax tree, git tables, and accessions will use over 40GB RAM and take up to 10 minutes.  However, if all sequences are annotated with the tax ID as in format 1 (above), only the tax tree needs to be loaded, which takes a couple seconds and a few hundred MB of RAM.
+
+
+*Usage Examples*
+
+
+Creating a TaxTree file:
+taxtree.sh names.dmp nodes.dmp tree.taxtree.gz
+
+names.dmp and nodes.dmp come from unzipping taxdmp.zip (see "Acquiring taxonomy data").  The TaxTree file is needed by every tool processing taxonomy.  Note that this command's flags are order-sensitive.
+
+
+Creating a GiTable file:
+gitable.sh shrunk.dead_nucl.accession2taxid.gz,shrunk.dead_prot.accession2taxid.gz,shrunk.dead_wgs.accession2taxid.gz,shrunk.nucl_gb.accession2taxid.gz,shrunk.nucl_wgs.accession2taxid.gz,shrunk.pdb.accession2taxid.gz,shrunk.prot.accession2taxid.gz gitable.int1d.gz
+
+gi_taxid_nucl.dmp.gz and gi_taxid_prot.dmp.gz come from NCBI (see "Acquiring taxonomy data").  The GiTable is needed by tools processing taxonomy, but only if sequences are named with gi numbers (e.g. gi|123|stuff).  Note that this command's flags are order-sensitive.
+
+
+Renaming gi or accession numbers to NCBI Tax ID numbers:
+gi2taxid.sh in=bacteria.fa out=renamed.fa tree=auto table=auto accession=auto taxpath=/path/to/taxonomy
+
+This is an optional step, but will rename sequences such as "gi|123|stuff" to "tid|456|gi|123|stuff", or "NZ123.4 stuff" to "tid|456|NZ123.4 stuff".
+Replacing the gi number/Accession with a TaxID means in subsequent steps the gitable/accessions are no longer needed, which is much more efficient.  That means "table=auto accession=auto" can be omitted subsequently.
+Note that this step can be done using the taxonomy server (https://taxonomy.jgi.doe.gov) without downloading any taxonomy files, like this:
+gi2taxid.sh in=bacteria.fa out=renamed.fa server
+
+
+Filtering sequences by taxonomy, according to sequence names:
+filterbytaxa.sh in=bacteria.fa out=filtered.fa names=Escherichia_coli level=phylum include=t tree=auto table=auto accession=auto taxpath=/path/to/taxonomy
+
+This will create a file, "filtered.fa", containing all the sequences in the same phylum as E.coli.  It is also possible to use numeric taxonomic IDs with the "ids" flag, or create a file containing everything except E.coli's phylum using the "include=f" flag.  Gitable/accessions are not needed if the sequences are named with TaxIDs, but the tree is always needed.
+
+
+Binning sequences by taxonomy, according to sequence names:
+splitbytaxa.sh in=bacteria.fa out=%.fa level=phylum tree=auto table=auto accession=auto taxpath=/path/to/taxonomy
+
+This will split the file into many output files, such as Deinococcus-Thermus.fa and Bacteroidetes.fa.  For taxonomic binning based on sequence content rather than names, see Seal.  Gitable is not needed unless the sequences are named with gi numbers.
+
+
+Printing the ancestry of a taxa:
+taxonomy.sh homo_sapiens meiothermus_ruber 123 gi_123 tree=auto table=auto taxpath=/path/to/taxonomy
+
+This will print the complete taxonomy of Homo sapiens, Meiothermus ruber, and the organism has a sequence with an NCBI identifier of 123 (Pirellula), and the organism with a gi number of 123 (Bos taurus).  Note that an underscore was used instead of the vertical line (gi_123) because vertical line is a reserved symbol for piping, so it's annoying to use on the command line.  Also note that "123" or "ncbi_123" indicate a taxonomy number, while "gi_123" indicates a gi number.  Gitable is not needed unless you enter gi numbers.
+It's recommended that this kind of operation use the taxonomy server as it's much faster; e.g.:
+https://taxonomy.jgi.doe.gov/name/homo_sapiens,meiothermus_ruber
+https://taxonomy.jgi.doe.gov/id/123
+https://taxonomy.jgi.doe.gov/gi/123
+https://taxonomy.jgi.doe.gov/accession/NZ_AAAA01000057.1
+
+
+Running TaxServer:
+
+This is currently a public HTTP service from JGI at https://taxonomy.jgi.doe.gov.  But to run a private server:
+
+taxserver.sh -Xmx45g tree=tree.taxtree.gz gi=gitable.int1d.gz accession=prot.accession2taxid.gz,nucl_wgs.accession2taxid.gz port=1234 1>log.txt 2>&1 &
+
+That will run a background process waiting for http requests on port 1234 (you can pick whatever port you want).  On your computer you could view it like this:
+
+http://localhost:1234/
+
+That would give usage information.  Queries are of the form:
+
+http://localhost:1234/accession/T02634.1
+http://localhost:1234/gi/1234
+http://localhost:1234/name/homo_sapiens
+
+If you only need gi number and name lookups, the default 9 GB is plenty of RAM.  But for accession lookups, over 31GB is required.  You can include as few or as many accession2taxid tables as desired; fewer take less memory, and NCBI has around 9 of them currently.

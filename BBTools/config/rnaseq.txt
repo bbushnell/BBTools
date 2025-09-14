@@ -1,0 +1,4 @@
+#Vertebrate RNA-seq settings for BBMap
+maxindel=200000
+intronlen=10
+xs=us
