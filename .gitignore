@@ -3,6 +3,7 @@
 
 # But don't ignore these specific files/directories
 !.gitignore
+!.gitattributes
 !README.md
 !BBTools/
 
