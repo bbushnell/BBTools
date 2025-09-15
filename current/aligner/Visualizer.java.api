@@ -1,0 +1,70 @@
+// Visualizer.java API Documentation  
+// Generated: September 9, 2025
+// Purpose: Creates ASCII representations of alignment exploration patterns and score distributions
+
+CLASS: Visualizer
+PACKAGE: aligner
+AUTHOR: Brian Bushnell
+DATE: April 2024
+
+DESCRIPTION:
+- Generates ASCII representations of alignment matrices
+- Shows how Bridge Building Aligner (BBA) explores dynamic programming matrix
+- Highlights explored cells, their scores, and optimal alignment paths
+- Outputs text files for visualization of alignment process
+
+CONSTRUCTOR:
+Visualizer(String fname, int pBits, int cBits)
+- Creates new visualization output for alignment matrices
+- Parameters:
+  * fname: Output filename for the visualization
+  * pBits: Number of bits used for position information in score encoding
+  * cBits: Number of bits used for deletion information in score encoding
+
+CORE METHODS:
+1. print(IntList active, int length, int maxPos)
+   - Generates simple visualization line marking explored cells
+   - Parameters:
+     * active: List of positions that were actively explored
+     * length: Length of current row
+     * maxPos: Position with highest score in this row (-1 if none)
+   - Output: ASCII line with '@' for explored cells, '*' for best path
+
+2. print(long[] scores, int bandStart, int bandEnd, int rLen)
+   - Visualizer for banded aligners with score information
+   - Parameters:
+     * scores: Array of scores for current row
+     * bandStart: Min scored position for this row
+     * bandEnd: Max scored position for this row  
+     * rLen: Reference sequence length
+   - Output: ASCII representation with score-based characters
+
+3. print(int[] scores, int bandStart, int bandEnd, int rLen)
+   - Wrapper for int array scores (converts to long[] internally)
+   
+4. print(byte[] scores, int bandStart, int bandEnd, int rLen)
+   - Wrapper for byte array scores (converts to long[] internally)
+
+5. shutdown()
+   - Properly terminates the output file
+   - Should be called when visualization is complete
+   - Calls bsw.poisonAndWait() to close ByteStreamWriter
+
+INTERNAL FIELDS:
+- positionBits: Number of bits for position encoding
+- countBits: Number of bits for deletion encoding  
+- scoreShift: Combined shift value (positionBits + countBits)
+- bsw: ByteStreamWriter for output file writing
+
+VISUALIZATION FORMAT:
+- Uses spaces for unexplored regions
+- Uses '@' for explored cells
+- Uses '*' for optimal path
+- Score-based characters for detailed visualization
+- Each row represents one position in the query sequence
+
+WEB INTEGRATION NOTES:
+- Primary use: Debugging and analysis of alignment algorithms
+- Input: Alignment exploration data (scores, positions, paths)
+- Output: Text-based ASCII visualization files
+- For web visualization: Text output could be converted to HTML/graphics

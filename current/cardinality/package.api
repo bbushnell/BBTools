@@ -1,0 +1,641 @@
+#version 1
+#package cardinality
+#generated 2025-09-06T20:35:37
+
+<class BBLog>
+*@author Brian Bushnell
+*@date Feb 20, 2020
+public final class BBLog
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final long[] maxArray
+
+*Atomic version of maxArray.
+private final AtomicLongArray maxArrayA
+
+*Counts associated with values in the buckets.
+private final int[] counts
+
+
+#Methods
+*Create a LogLog with default parameters
+BBLog()
+
+*Create a LogLog with parsed parameters
+BBLog(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+BBLog(int buckets_, int k_, long seed, float minProb_)
+
+@Override public final long cardinality()
+
+@Override public int[] getCounts()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(BBLog log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+</class BBLog>
+<class BBLog_simple>
+*@author Brian Bushnell
+*@date Feb 20, 2020
+public final class BBLog_simple
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final long[] maxArray
+
+*Counts associated with values in the buckets.
+private final int[] counts
+
+
+#Methods
+*Create a LogLog with default parameters
+BBLog_simple()
+
+*Create a LogLog with parsed parameters
+BBLog_simple(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+BBLog_simple(int buckets_, int k_, long seed, float minProb_)
+
+@Override public final long cardinality()
+
+@Override public int[] getCounts()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(BBLog_simple log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+</class BBLog_simple>
+<class CardinalityTracker>
+*Abstract superclass for cardinality-tracking structures like LogLog.
+*@author Brian Bushnell
+*@date Feb 20, 2020
+public abstract class CardinalityTracker
+
+#Fields
+*Kmer length
+public final int k
+
+*Ignore kmers under this probability of correctness
+public final float minProb
+
+*Number of buckets for tracking.
+*Must be a power of 2.
+*Larger is slower and uses more memory, but more accurate.
+public final int buckets
+
+*Mask for lower bits of hashcode to yield bucket; bucketMask==buckets-1.
+final int bucketMask
+
+*Reusable kmer for hashing.
+private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>()
+
+*The hash function will yield a different mapping for each mask here.
+private final long hashXor
+
+static final int numTables=4
+
+static final int numTablesMask=numTables - 1
+
+*Bits hashed per cycle; no longer needed
+private static final int bits=8
+
+private static final int steps=(63 + bits) / bits
+
+*Converts quality score to probability of correctness
+public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT,128)
+
+*Inverse of PROB_CORRECT
+public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE,128)
+
+*Atomic mode allows less memory when multithreaded, but lower peak concurrency due to contention.
+public static final boolean atomic=false
+
+*Track number of times the value in each bucket was seen.
+public static boolean trackCounts=false
+
+*Ignores kmers such that x%SKIPMOD!=0, to skip expensive hash and store functions
+static final long SKIPMOD=1
+
+*Records the last cardinality tracked, for use in static contexts (RQCFilter)
+public static long lastCardinality=-1
+
+*These determine how to combine multiple buckets to yield a value.
+*Mean is best even though mwa is pretty close. Median is much worse.
+public static boolean USE_MEAN=true
+
+public static boolean USE_MEDIAN=false
+
+public static boolean USE_MWA=false
+
+public static boolean USE_HMEAN=false
+
+public static boolean USE_GMEAN=false
+
+
+#Methods
+*Factory method; creates a tracker using default settings.
+*Subclass is determined by static Parser.loglogType field.
+public static CardinalityTracker makeTracker()
+
+*Factory method; creates a tracker using parsed settings.
+*Subclass is determined by static Parser.loglogType field.
+public static CardinalityTracker makeTracker(Parser p)
+
+*Factory method; creates a tracker using specified settings.
+*Subclass is determined by static Parser.loglogType field.
+public static CardinalityTracker makeTracker(int buckets_, int k_, long seed, float minProb_)
+
+*Create a tracker with parsed parameters.
+public CardinalityTracker(Parser p)
+
+*Create a tracker with specified parameters.
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+public CardinalityTracker(int buckets_, int k_, long seed, float minProb_)
+
+*Return the lowest power of 2 that is >= target.
+*Provided because buckets must currently be a power of 2.
+public static final int powerOf2AtLeast(int target)
+
+*Deprecated; use LogLogWrapper
+public static final void main(String[] args)
+
+*Old table-based hash function.
+*Slower than the new function.
+public final long hash(long value0, long[][] table)
+
+*Hash and add a number to this tracker
+public final void add(long number)
+
+*Hash and track the Read
+public final void hash(Read r)
+
+*Hash and track the sequence
+public final void hash(byte[] bases, byte[] quals)
+
+*Hash and track the sequence using short kmers 0<k<32
+public final void hashSmall(byte[] bases, byte[] quals)
+
+*Hash and track the sequence using long kmers >31
+public final void hashBig(byte[] bases, byte[] quals)
+
+*Make a table of random bitmasks for hashing.
+*Superceded by new hash method.
+private static final long[][] makeCodes(int length, int bits, long seed)
+
+public final float compensationFactorBuckets()
+
+*Multiplier to compensate for overestimating genome size
+*when the number of buckets is too small,
+*as a function of log2(buckets)
+*@param logBuckets
+*@return Multiplier for final estimate
+public final float compensationFactorLogBuckets(int logBuckets)
+
+public SuperLongList toFrequency()
+
+*Print a kmer frequency histogram.
+*@param path File to which to print
+*@param overwrite
+*@param append
+*@param supersample Adjust counts for the effect of subsampling
+public void printKhist(String path, boolean overwrite, boolean append, boolean supersample, int decimals)
+
+*Sum of counts array, if present
+public final long countSum()
+
+*Calculate cardinality estimate from this tracker
+public long cardinality()
+
+*Counts array, if present.
+*Should be overridden for classes that track counts.
+public int[] getCounts()
+
+*Add another tracker to this one
+public void add(CardinalityTracker log)
+
+*Generate a 64-bit hashcode from a number, and add it to this tracker
+public void hashAndStore(long number)
+
+*TODO: Deprecate?
+*Designed to compensate for overestimate with small numbers of buckets.
+*Appears to be handled by using the harmonic mean in the case of multiple trials.
+public float[] compensationFactorLogBucketsArray()
+
+*For long kmer mode
+protected Kmer getLocalKmer()
+
+</class CardinalityTracker>
+<class LogLog>
+*@author Brian Bushnell
+*@date Sep 30, 2015
+public final class LogLog
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final int[] maxArray
+
+*Atomic version of maxArray.
+private final AtomicIntegerArray maxArrayA
+
+private static final float[] compensationFactorLogBucketsArray={0.053699781f,0.49556874f,0.742263622f,0.861204899f,0.926038294f,0.967001269f,0.982949748f,0.992495155f,0.996185775f,0.998077246f}
+
+
+#Methods
+*Create a LogLog with default parameters
+LogLog()
+
+*Create a LogLog with parsed parameters
+LogLog(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+LogLog(int buckets_, int k_, long seed, float minProb_)
+
+private long restore(int score)
+
+@Override public final long cardinality()
+
+public final long cardinalityH()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(LogLog log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+</class LogLog>
+<class LogLog16>
+*@author Brian Bushnell
+*@date Mar 6, 2020
+public final class LogLog16
+
+#Fields
+private final char[] maxArray
+
+private static final int wordlen=64
+
+*Precision or mantissa bits.
+*This should not be changed. As long as it is >10 the result will be accurate.
+*At low values like 2 the cardinality estimate becomes too high due to a loss of precision,
+*and would need a fixed multiplier.
+private static int mantissabits=10
+
+private static int mask=(1 << mantissabits) - 1
+
+
+#Methods
+*Create a LogLog with default parameters
+LogLog16()
+
+*Create a LogLog with parsed parameters
+LogLog16(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+LogLog16(int buckets_, int k_, long seed, float minProb_)
+
+private long restore(int score)
+
+@Override public final long cardinality()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(LogLog16 log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+public static void setMantissaBits(int x)
+
+</class LogLog16>
+<class LogLog2>
+*@author Brian Bushnell
+*@date Feb 20, 2020
+public final class LogLog2
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final int[] maxArray
+
+*Atomic version of maxArray.
+private final AtomicIntegerArray maxArrayA
+
+private static final int wordlen=64
+
+*Precision or mantissa bits.
+*This should not be changed. As long as it is >10 the result will be accurate.
+*At low values like 2 the cardinality estimate becomes too high due to a loss of precision,
+*and would need a fixed multiplier.
+private static int mantissabits=20
+
+private static int mask=(1 << mantissabits) - 1
+
+
+#Methods
+*Create a LogLog with default parameters
+LogLog2()
+
+*Create a LogLog with parsed parameters
+LogLog2(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+LogLog2(int buckets_, int k_, long seed, float minProb_)
+
+@Override public final long cardinality()
+
+public final long cardinalityH()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(LogLog2 log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+public static void setMantissaBits(int x)
+
+</class LogLog2>
+<class LogLog8>
+*@author Brian Bushnell
+*@date Mar 6, 2020
+public final class LogLog8
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final byte[] maxArray
+
+
+#Methods
+*Create a LogLog with default parameters
+LogLog8()
+
+*Create a LogLog with parsed parameters
+LogLog8(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+LogLog8(int buckets_, int k_, long seed, float minProb_)
+
+*Restores floating point to integer
+private long restore(int score)
+
+@Override public final long cardinality()
+
+@Override public final void add(CardinalityTracker log)
+
+public void add(LogLog8 log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+</class LogLog8>
+<class LogLog8_simple>
+*@author Brian Bushnell
+*@date Mar 10, 2020
+public final class LogLog8_simple
+
+#Fields
+*Maintains state. These are the actual buckets.
+private final byte[] maxArray
+
+
+#Methods
+*Create a LogLog with default parameters
+LogLog8_simple()
+
+*Create a LogLog with parsed parameters
+LogLog8_simple(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+LogLog8_simple(int buckets_, int k_, long seed, float minProb_)
+
+*Restores floating point to integer.
+*This subclass has no mantissa so only the exponent is restored.
+private long restore(int value)
+
+@Override public final long cardinality()
+
+@Override public final void add(CardinalityTracker log)
+
+*@See add(CardinalityTracker)
+public void add(LogLog8_simple log)
+
+@Override public void hashAndStore(long number)
+
+@Override public final float[] compensationFactorLogBucketsArray()
+
+</class LogLog8_simple>
+<class LogLogWrapper>
+class LogLogWrapper
+
+#Fields
+private int buckets=2048
+
+private int k=31
+
+private long seed=-1
+
+private long seed2=-1
+
+private float minProb=0
+
+private long countSum=0
+
+private String[] in1=null
+
+private String[] in2=null
+
+private String out=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+protected long kmersProcessed=0
+
+private long maxReads=-1
+
+boolean overwrite=true
+
+boolean append=false
+
+boolean errorState=false
+
+private int trials=1
+
+private boolean synth=false
+
+private final FileFormat[] ffin1
+
+private final FileFormat[] ffin2
+
+final int threads
+
+private static final int prime=32452843
+
+private static PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public static final void main(String[] args)
+
+public LogLogWrapper(String[] args)
+
+long process()
+
+private static Read makeRead(int len, Random randy, Read r)
+
+</class LogLogWrapper>
+<class LogLog_old>
+*@author Brian Bushnell
+*@date Sep 30, 2015
+public class LogLog_old
+
+#Fields
+public final int k
+
+public final int numTables=4
+
+public final int numTablesMask=numTables - 1
+
+public final int bits
+
+public final float minProb
+
+public final int steps
+
+private final long[][][] tables
+
+public final AtomicIntegerArray maxArrayA
+
+public final int[] maxArray
+
+public final int buckets
+
+public final int bucketMask
+
+private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>()
+
+public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT,128)
+
+public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE,128)
+
+private static PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public static final boolean atomic=true
+
+private static final long SKIPMOD=3
+
+public static long lastCardinality=-1
+
+
+#Methods
+*Create a LogLog with default parameters
+public LogLog_old()
+
+*Create a LogLog with parsed parameters
+public LogLog_old(Parser p)
+
+*Create a LogLog with specified parameters
+*@param buckets_ Number of buckets (counters)
+*@param bits_ Bits hashed per cycle
+*@param k_ Kmer length
+*@param seed Random number generator seed; -1 for a random seed
+*@param minProb_ Ignore kmers with under this probability of being correct
+public LogLog_old(int buckets_, int bits_, int k_, long seed, float minProb_)
+
+public static void main(String[] args)
+
+public final long cardinality()
+
+public final long cardinality(double mult)
+
+public final long cardinalityH()
+
+public long hash(long value0, long[][] table)
+
+public void add(long number)
+
+public void hash(Read r)
+
+public void hash(byte[] bases, byte[] quals)
+
+public void hashSmall(byte[] bases, byte[] quals)
+
+public void hashBig(byte[] bases, byte[] quals)
+
+public void add(LogLog_old log)
+
+public void hash(long number)
+
+private static long[][] makeCodes(int length, int bits, long seed)
+
+protected Kmer getLocalKmer()
+
+</class LogLog_old>
+<class MultiLogLog>
+public class MultiLogLog
+
+#Fields
+public final int[] kArray
+
+public final CardinalityTracker[] counters
+
+
+#Methods
+public MultiLogLog(Parser p)
+
+public MultiLogLog(int buckets, long seed, float minProb, IntList klist0)
+
+public void hash(Read r)
+
+</class MultiLogLog>

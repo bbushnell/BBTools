@@ -1,0 +1,1442 @@
+#version 1
+#package ukmer
+#generated 2025-09-06T20:39:34
+
+<class AbstractKmerTableU>
+*@author Brian Bushnell
+*@date Oct 23, 2013
+public abstract class AbstractKmerTableU
+
+#Fields
+public static boolean FASTA_DUMP=true
+
+public static boolean NUMERIC_DUMP=false
+
+public static final boolean verbose=false
+
+public static final boolean TESTMODE=false
+
+public static final int UNKNOWN=0
+
+public static final int ARRAY1D=1
+
+public static final int FOREST1D=2
+
+public static final int NODE1D=4
+
+public static final int ARRAY2D=5
+
+public static final int FOREST2D=6
+
+public static final int NODE2D=8
+
+public static final int ARRAYH=9
+
+public static final int NOT_PRESENT=-1
+
+public static final int HASH_COLLISION=-2
+
+public static final int NO_OWNER=-1
+
+private static final String killMessage=new String("\nThis program ran out of memory.  Try increasing the -Xmx flag and setting prealloc.")
+
+
+#Methods
+*Returns count
+public int increment(Kmer kmer)
+
+*Returns number of entries created
+public int incrementAndReturnNumCreated(Kmer kmer)
+
+public int set(Kmer kmer, int value)
+
+public int set(Kmer kmer, int[] vals)
+
+*Returns number of kmers added
+public int setIfNotPresent(Kmer kmer, int value)
+
+*Fetch the value associated with a kmer.
+*@param kmer
+*@return A value. -1 means the kmer was not present.
+public int getValue(Kmer kmer)
+
+*Fetch the values associated with a kmer.
+*@param kmer
+*@param singleton A blank array of length 1.
+*@return An array filled with values. Values of -1 are invalid.
+public int[] getValues(Kmer kmer, int[] singleton)
+
+public boolean contains(Kmer kmer)
+
+public static final int compare(long[] key1, long[] key2)
+
+public static final boolean equals(long[] key1, long[] key2)
+
+public int getValue(long[] key, long xor)
+
+public final boolean contains(Kmer kmer, int v)
+
+public final boolean contains(Kmer kmer, int[] vals)
+
+public void rebalance()
+
+public long size()
+
+public int arrayLength()
+
+public boolean canRebalance()
+
+public boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount)
+
+public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+public boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+public void fillHistogram(long[] ca, int max)
+
+public void fillHistogram(SuperLongList sll)
+
+public void countGC(long[] gcCounts, int max)
+
+public static final int gc(long kmer)
+
+Object get(Kmer kmer)
+
+Object get(long[] key)
+
+void resize()
+
+boolean canResize()
+
+*Removes entries with a value of zero or less.
+*Rehashes the remainder.
+*@return Number removed.
+long regenerate(int limit)
+
+final void lock()
+
+final void unlock()
+
+final boolean tryLock()
+
+Lock getLock()
+
+static final AtomicIntegerArray allocAtomicInt(int len)
+
+static final long[] allocLong1D(int len)
+
+static final long[][] allocLong2D(int mult, int len)
+
+static final int[] allocInt1D(int len)
+
+static final int[][] allocInt2D(int len)
+
+static final KmerNodeU[] allocKmerNodeArray(int len)
+
+*Set the thread owning this kmer. Return the new owner.
+*Will only change the owner if newOwner is greater than current owner.
+public int setOwner(Kmer kmer, int newOwner)
+
+*Reset owner to -1 if this is the current owner.
+public boolean clearOwner(Kmer kmer, int owner)
+
+*Return the thread ID owning this kmer, or -1.
+public int getOwner(Kmer kmer)
+
+*Create data structures needed for ownership representation
+public void initializeOwnership()
+
+*Eliminate ownership data structures or set them to -1.
+public void clearOwnership()
+
+public static final StringBuilder toText(Kmer kmer)
+
+public static final StringBuilder toText(long[] array, int k)
+
+static final StringBuilder toText(long[] array, int count, int k)
+
+static final ByteBuilder toBytes(long[] array, int count, int k)
+
+static final StringBuilder toText(long[] array, int[] values, int k)
+
+static final ByteBuilder toBytes(long[] array, int[] values, int k)
+
+static final StringBuilder toText(long[] array, int count, int k, StringBuilder sb)
+
+static final StringBuilder toText(long[] array, int[] values, int k, StringBuilder sb)
+
+private static final void append(long kmer, int k, StringBuilder sb)
+
+public static final ByteBuilder toBytes(long[] array, long count, int k, ByteBuilder sb)
+
+public static final ByteBuilder toBytes(long[] array, int[] values, int k, ByteBuilder sb)
+
+private static final void append(long kmer, int k, ByteBuilder sb)
+
+static void appendKmerText(long[] array, int count, int k, ByteBuilder bb)
+
+*For buffered tables.
+long flush()
+
+*This allocates the data structures in multiple threads. Unfortunately, it does not lead to any speedup, at least for ARRAY type.
+*@param ways
+*@param tableType
+*@param schedule
+*@return Preallocated tables.
+public static final AbstractKmerTableU[] preallocate(int ways, int tableType, int[] schedule, int k, int kbig)
+
+public WalkerU walk()
+
+</class AbstractKmerTableU>
+<class DumpThreadU>
+*@author Brian Bushnell
+*@date Nov 16, 2015
+public class DumpThreadU
+
+#Fields
+final int k
+
+final int mincount
+
+final int maxcount
+
+final AtomicInteger nextTable
+
+final AtomicLong remaining
+
+final AbstractKmerTableU[] tables
+
+final ByteStreamWriter bsw
+
+boolean success=false
+
+
+#Methods
+public static boolean dump(int k, int mincount, int maxcount, AbstractKmerTableU[] tables, ByteStreamWriter bsw, AtomicLong remaining)
+
+public DumpThreadU(int k_, int mincount_, int maxcount_, AtomicInteger nextTable_, AbstractKmerTableU[] tables_, ByteStreamWriter bsw_, AtomicLong remaining_)
+
+@Override public void run()
+
+</class DumpThreadU>
+<class HashArrayU>
+*Stores kmers in a long[] and values in an int[][], with a victim cache.
+*@author Brian Bushnell
+*@date Nov 7, 2014
+public abstract class HashArrayU
+
+#Fields
+AtomicIntegerArray owners
+
+long[][] arrays
+
+int prime
+
+long size=0
+
+long sizeLimit
+
+final HashForestU victims
+
+final boolean autoResize
+
+final int k
+
+final int kbig
+
+final int mult
+
+public final boolean TWOD
+
+private final Lock lock=new ReentrantLock()
+
+protected final int[] schedule
+
+private int schedulePos=0
+
+static final int victimRatio=16
+
+static final int extra=60
+
+static final int maxPrime=Primes.primeAtMost(Integer.MAX_VALUE - extra - 20)
+
+static final float resizeMult=2f
+
+static final float minLoadFactor=0.58f
+
+static final float maxLoadFactor=0.88f
+
+static final float maxLoadFactorFinal=0.95f
+
+static final float minLoadMult=1 / minLoadFactor
+
+static final float maxLoadMult=1 / maxLoadFactor
+
+
+#Methods
+HashArrayU(int[] schedule_, int k_, int kbig_, boolean twod_)
+
+public final int kmerToCell(Kmer kmer)
+
+@Override public final int set(Kmer kmer, int[] v)
+
+public final void setKmer(long[] key, int cell)
+
+@Override public final int set(Kmer kmer, int v)
+
+@Override public final int setIfNotPresent(Kmer kmer, int value)
+
+@Override public final int getValue(Kmer kmer)
+
+public final int getValue(Kmer kmer, int startCell)
+
+public final int getCount(Kmer kmer)
+
+@Override public int getValue(long[] key, long xor)
+
+protected final long[] fillKey(int cell, long[] temp)
+
+public final Kmer fillKmer(int cell, Kmer kmer)
+
+public final Kmer fillKmer(int cell, Kmer kmer, long[][] matrix)
+
+protected final long[] fillKey(int cell, long[] temp, long[][] matrix)
+
+@Override public final int[] getValues(Kmer kmer, int[] singleton)
+
+@Override public final boolean contains(Kmer kmer)
+
+@Override public final void initializeOwnership()
+
+@Override public final void clearOwnership()
+
+@Override public final int setOwner(Kmer kmer, int newOwner)
+
+public final int setOwner(Kmer kmer, int newOwner, int cell)
+
+@Override public final boolean clearOwner(Kmer kmer, int owner)
+
+public final boolean clearOwner(Kmer kmer, int owner, int cell)
+
+@Override public final int getOwner(Kmer kmer)
+
+public final int getCellOwner(int cell)
+
+protected void insertValue(long[] kmer, int v, int cell)
+
+protected void insertValue(long[] kmer, int[] vals, int cell)
+
+protected int readCellValue(int cell)
+
+protected int[] readCellValues(int cell, int[] singleton)
+
+@Override final Object get(long[] kmer)
+
+final int findKmer(Kmer kmer)
+
+final int findKmer(Kmer kmer, int startCell)
+
+final int findKmer(long[] key, int startCell)
+
+final int findKmerOrEmpty(Kmer kmer)
+
+final boolean matches(long[] key, int cell)
+
+@Override final boolean canResize()
+
+@Override public final long size()
+
+@Override public final int arrayLength()
+
+@Override protected void resize()
+
+protected long[] cellToArray(int cell)
+
+@Override public final boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount)
+
+@Override public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public final boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public final void fillHistogram(long[] ca, int max)
+
+@Override public void fillHistogram(SuperLongList sll)
+
+@Override public final void countGC(long[] gcCounts, int max)
+
+public HashForestU victims()
+
+public AtomicIntegerArray owners()
+
+protected int nextScheduleSize()
+
+protected boolean atMaxSize()
+
+@Override final Lock getLock()
+
+</class HashArrayU>
+<class HashArrayU1D>
+*Stores kmers in a long[] and counts in an int[], with a victim cache.
+*@author Brian Bushnell
+*@date Oct 25, 2013
+public final class HashArrayU1D
+
+#Fields
+private int[] values
+
+private static final int NOT_XPRESENT=0
+
+
+#Methods
+public HashArrayU1D(int[] schedule_, int k_, int kbig_)
+
+@Override public final int increment(Kmer kmer)
+
+@Override public final int incrementAndReturnNumCreated(Kmer kmer)
+
+@Override public final void fillHistogram(SuperLongList sll)
+
+@Override public final int readCellValue(int cell)
+
+@Override protected final int[] readCellValues(int cell, int[] singleton)
+
+@Override protected final void insertValue(long[] kmer, int v, int cell)
+
+@Override protected final void insertValue(long[] kmer, int[] vals, int cell)
+
+@Override protected long[] cellToArray(int cell)
+
+@Override public final boolean canRebalance()
+
+@Override protected void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Override public long regenerate(int limit)
+
+public WalkerU1D walk()
+
+public int[] values()
+
+</class HashArrayU1D>
+<class HashArrayU1D.WalkerU1D>
+*Allows iteration through a hash map.
+*Concurrent modification is not recommended.
+public class HashArrayU1D.WalkerU1D
+
+#Fields
+*Hash map over which this is walking
+private HashArrayU1D ha
+
+*Victim list of the hash map
+private ArrayList<KmerNodeU> victims
+
+private final Kmer kmer
+
+private int value
+
+*Potential next kmer cell; may point to an empty cell
+private int i=0
+
+*Next victim in list
+private int i2=0
+
+
+#Methods
+WalkerU1D()
+
+*Fills this object with the next key and value.
+*@return True if successful.
+public boolean next()
+
+public Kmer kmer()
+
+public int value()
+
+</class HashArrayU1D.WalkerU1D>
+<class HashArrayU2D>
+*Stores kmers in a long[] and values in an int[][], with a victim cache.
+*@author Brian Bushnell
+*@date Nov 7, 2014
+public final class HashArrayU2D
+
+#Fields
+private int[][] values
+
+
+#Methods
+public HashArrayU2D(int[] schedule_, int k_, int kbig_)
+
+@Deprecated @Override public int increment(Kmer kmer)
+
+@Deprecated @Override public int incrementAndReturnNumCreated(Kmer kmer)
+
+@Override protected final int readCellValue(int cell)
+
+@Override protected final int[] readCellValues(int cell, int[] singleton)
+
+*Returns number of values added
+@Override protected final void insertValue(long[] kmer, int v, int cell)
+
+*Returns number of values added
+@Override protected final void insertValue(long[] kmer, int[] vals, int cell)
+
+@Override public final boolean canRebalance()
+
+@Override protected void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Deprecated @Override public long regenerate(int limit)
+
+</class HashArrayU2D>
+<class HashArrayUHybrid>
+*Stores kmers in a long[] and counts in an int[], with a victim cache.
+*@author Brian Bushnell
+*@date Oct 25, 2013
+public final class HashArrayUHybrid
+
+#Fields
+private int[] values
+
+private IntList2 setList
+
+
+#Methods
+public HashArrayUHybrid(int[] schedule_, int k_, int kbig_)
+
+@Override public final int increment(Kmer kmer)
+
+@Override public final int incrementAndReturnNumCreated(Kmer kmer)
+
+@Override protected final int readCellValue(int cell)
+
+@Override protected final int[] readCellValues(int cell, int[] singleton)
+
+@Override protected final void insertValue(long[] kmer, int[] vals, int cell)
+
+@Override protected final void insertValue(long[] kmer, int v, int cell)
+
+private final int insertIntoList(int v, int loc)
+
+@Override public final boolean canRebalance()
+
+@Override protected void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Deprecated @Override public long regenerate(int limit)
+
+</class HashArrayUHybrid>
+<class HashBufferU>
+*@author Brian Bushnell
+*@date Nov 22, 2013
+public class HashBufferU
+
+#Fields
+private final AbstractKmerTableU[] tables
+
+private final int buflen
+
+private final int buflen2
+
+private final int halflen2
+
+private final int mult
+
+private final int ways
+
+private final KmerBufferU[] buffers
+
+private final Kmer kmer
+
+private static final int SIZEMASK=15
+
+
+#Methods
+public HashBufferU(AbstractKmerTableU[] tables_, int buflen_, int kbig_, boolean initValues)
+
+@Override public int incrementAndReturnNumCreated(Kmer kmer)
+
+@Override public final long flush()
+
+@Override public int set(Kmer kmer, int value)
+
+@Override public int set(Kmer kmer, int[] vals)
+
+@Override public int setIfNotPresent(Kmer kmer, int value)
+
+@Override public int getValue(Kmer kmer)
+
+@Override public int getValue(long[] key, long xor)
+
+@Override public int[] getValues(Kmer kmer, int[] singleton)
+
+@Override public boolean contains(Kmer kmer)
+
+public final int getWay(Kmer kmer)
+
+@Override public final void initializeOwnership()
+
+@Override public final void clearOwnership()
+
+@Override public final int setOwner(Kmer kmer, int newOwner)
+
+@Override public final boolean clearOwner(Kmer kmer, int owner)
+
+@Override public final int getOwner(Kmer kmer)
+
+@Override Object get(Kmer kmer)
+
+@Override Object get(long[] kmer)
+
+private int dumpBuffer(int way, boolean force)
+
+private int dumpBuffer_inner(int way)
+
+@Override final boolean canResize()
+
+@Override public final boolean canRebalance()
+
+@Deprecated @Override public long size()
+
+@Deprecated @Override public int arrayLength()
+
+@Deprecated @Override void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Override public long regenerate(int limit)
+
+@Override public boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount)
+
+@Override public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override @Deprecated public boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override @Deprecated public void fillHistogram(long[] ca, int max)
+
+@Override @Deprecated public void fillHistogram(SuperLongList sll)
+
+@Override public void countGC(long[] gcCounts, int max)
+
+@Override public int increment(Kmer kmer)
+
+</class HashBufferU>
+<class HashForestU>
+*@author Brian Bushnell
+*@date Oct 23, 2013
+public final class HashForestU
+
+#Fields
+KmerNodeU[] array
+
+int prime
+
+long size=0
+
+long sizeLimit
+
+final int k
+
+final long coreMask
+
+final boolean autoResize
+
+final boolean TWOD
+
+private final Lock lock=new ReentrantLock()
+
+static final int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE)
+
+static final float resizeMult=2.5f
+
+static final float minLoadFactor=0.75f
+
+static final float maxLoadFactor=2.5f
+
+static final float minLoadMult=1 / minLoadFactor
+
+static final float maxLoadMult=1 / maxLoadFactor
+
+
+#Methods
+public HashForestU(int initialSize, int k_, boolean autoResize_, boolean twod_)
+
+private KmerNodeU makeNode(Kmer kmer, int val)
+
+private KmerNodeU makeNode(Kmer kmer, int[] vals)
+
+private KmerNodeU makeNode(long[] kmer, int val)
+
+private KmerNodeU makeNode(long[] kmer, int[] vals)
+
+public KmerNodeU findParent(Kmer kmer, int cell)
+
+public KmerNodeU findParent(long[] kmer, int cell)
+
+@Override public int increment(Kmer kmer)
+
+@Override public int incrementAndReturnNumCreated(Kmer kmer)
+
+@Override public int set(Kmer kmer, int value)
+
+@Override public int set(Kmer kmer, int[] vals)
+
+@Override public int setIfNotPresent(Kmer kmer, int value)
+
+@Override public final int getValue(Kmer kmer)
+
+@Override public int getValue(long[] key, long xor)
+
+@Override Object get(long[] key)
+
+@Override public int[] getValues(Kmer kmer, int[] singleton)
+
+@Override public boolean contains(Kmer kmer)
+
+@Override public final void initializeOwnership()
+
+@Override public final void clearOwnership()
+
+@Override public final int setOwner(Kmer kmer, int newOwner)
+
+@Override public final boolean clearOwner(Kmer kmer, int owner)
+
+@Override public final int getOwner(Kmer kmer)
+
+@Override final KmerNodeU get(Kmer kmer)
+
+public final KmerNodeU getNode(int cell)
+
+boolean insert(KmerNodeU n)
+
+@Override boolean canResize()
+
+@Override public boolean canRebalance()
+
+@Override public long size()
+
+@Override public int arrayLength()
+
+@Override void resize()
+
+@Override public void rebalance()
+
+public void clear()
+
+@Override long regenerate(int limit)
+
+@Override public boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount)
+
+@Override public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public void fillHistogram(long[] ca, int max)
+
+@Override public void fillHistogram(SuperLongList sll)
+
+@Override public void countGC(long[] gcCounts, int max)
+
+@Override public Iterator<KmerNodeU> iterator()
+
+public ArrayList<KmerNodeU> toList()
+
+public KmerNodeU[] array()
+
+@Override final Lock getLock()
+
+</class HashForestU>
+<class HistogramMakerU>
+public final class HistogramMakerU
+
+#Methods
+public static long[] fillHistogram(AbstractKmerTableU[] tables, int histMax)
+
+private static long[] fillHistogram_ST(AbstractKmerTableU[] tables, int histMax)
+
+private static long[] fillHistogram_MT(AbstractKmerTableU[] tables, int histMax)
+
+</class HistogramMakerU>
+<class Kmer>
+*@author Brian Bushnell
+*@date Jul 9, 2015
+public class Kmer
+
+#Fields
+static boolean rcomp=true
+
+private long lastXor=-1
+
+private long incarnation=0
+
+private long lastIncarnation=-1
+
+private boolean corePalindrome=false
+
+private long[] key=null
+
+private long[] array1
+
+private long[] array2
+
+public final int kbig
+
+public final int k
+
+final int mult
+
+final int maxindex
+
+private final int shift
+
+private final int shift2
+
+private final long mask
+
+private final long coreMask
+
+public int len=0
+
+public static boolean MASK_CORE=false
+
+private static final long mask63=Long.MAX_VALUE
+
+private static final boolean TESTMODE=false
+
+private static final boolean verbose=false
+
+
+#Methods
+public Kmer(Kmer o)
+
+public Kmer(int kbig_)
+
+@Override public Kmer clone()
+
+public Kmer(int k_, int mult_)
+
+public static final long toCoreMask(int k)
+
+public static int getMult(int kbig)
+
+public static int getKbig(int kbig)
+
+private static int getMult0(int kbig)
+
+public static int getK(int kbig)
+
+public Kmer setFrom(Kmer o)
+
+public Kmer setFrom(long[] array)
+
+public void clear()
+
+public void clearFast()
+
+public boolean verify(boolean update)
+
+private boolean verify()
+
+public byte addRight(byte b)
+
+public byte addRight(char b)
+
+public byte addLeft(byte b)
+
+public long addRightNumeric(long x)
+
+public long addLeftNumeric(long x)
+
+public void fillArray2()
+
+@Override public String toString()
+
+public boolean equals(Kmer x)
+
+public boolean sameOrientation(Kmer x)
+
+public int compareTo(Kmer x)
+
+public int compareTo(long[] key2)
+
+public static int compare(long[] key1, long[] key2)
+
+public static boolean equals(long[] key1, long[] key2)
+
+public long[] array1()
+
+public long[] array2()
+
+*WARNING!
+*Do not confuse this with xor()!
+public long[] key()
+
+public boolean corePalindrome()
+
+private void setKey0()
+
+private void setKey0safe()
+
+public static long xor(long[] key, long coreMask)
+
+*WARNING!
+*Do not confuse this with key()!
+public long xor()
+
+*@param divisor
+*@return This kmer's xor modulo the divisor
+public int mod(int divisor)
+
+public void rcomp()
+
+private void update()
+
+private long xor0()
+
+public String arraysToString()
+
+public final int gc()
+
+public final int len()
+
+</class Kmer>
+<class KmerBufferU>
+*@author Brian Bushnell
+*@date Jul 9, 2015
+public class KmerBufferU
+
+#Fields
+private final int mult
+
+private final int k
+
+final LongList kmers
+
+final IntList values
+
+
+#Methods
+public KmerBufferU(int buflen, int kbig, boolean initValues)
+
+public int add(Kmer kmer)
+
+public void add(Kmer kmer, int value)
+
+public void add(long[] kmer)
+
+public void add(long[] kmer, int value)
+
+public void clear()
+
+final int size()
+
+@Override public String toString()
+
+</class KmerBufferU>
+<class KmerNodeU>
+*@author Brian Bushnell
+*@date Oct 22, 2013
+public abstract class KmerNodeU
+
+#Fields
+final long[] pivot
+
+int owner=-1
+
+KmerNodeU left
+
+KmerNodeU right
+
+
+#Methods
+protected KmerNodeU(long[] pivot_)
+
+public KmerNodeU makeNode(long[] pivot_, int value_)
+
+public KmerNodeU makeNode(long[] pivot_, int[] values_)
+
+@Override public final int increment(Kmer kmer)
+
+public final int increment(long[] kmer)
+
+@Override public final int incrementAndReturnNumCreated(Kmer kmer)
+
+public final int incrementAndReturnNumCreated(long[] kmer)
+
+*Returns number of nodes added
+public final int set(long[] kmer, int value)
+
+*Returns number of nodes added
+public final int setIfNotPresent(long[] kmer, int value)
+
+public final int getValue(long[] kmer)
+
+public final int[] getValues(long[] kmer, int[] singleton)
+
+public final boolean contains(long[] kmer)
+
+public KmerNodeU left()
+
+public KmerNodeU right()
+
+public long[] pivot()
+
+public int owner()
+
+public Kmer fillKmer(Kmer x)
+
+public int count()
+
+protected int value()
+
+protected int[] values(int[] singleton)
+
+*Returns new value
+public int set(int value_)
+
+protected int set(int[] values_)
+
+@Override final KmerNodeU get(long[] kmer)
+
+final KmerNodeU getNodeOrParent(long[] kmer)
+
+final boolean insert(KmerNodeU n)
+
+final void traversePrefix(ArrayList<KmerNodeU> list)
+
+final void traverseInfix(ArrayList<KmerNodeU> list)
+
+@Override public final long size()
+
+final KmerNodeU rebalance(ArrayList<KmerNodeU> list)
+
+private static final KmerNodeU rebalance(ArrayList<KmerNodeU> list, int a, int b)
+
+@Override public long regenerate(int limit)
+
+@Override public final boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount)
+
+protected StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount)
+
+protected ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount)
+
+@Override public final void fillHistogram(long[] ca, int max)
+
+@Override public final void fillHistogram(SuperLongList sll)
+
+@Override public final void countGC(long[] gcCounts, int max)
+
+@Override public String toString()
+
+boolean TWOD()
+
+int numValues()
+
+@Override public final void initializeOwnership()
+
+@Override public final void clearOwnership()
+
+public final int setOwner(long[] kmer, int newOwner)
+
+public final boolean clearOwner(long[] kmer, int owner)
+
+public final int getOwner(long[] kmer)
+
+int set(long[] kmer, int[] vals)
+
+@Override public int set(Kmer kmer, int value)
+
+@Override public int set(Kmer kmer, int[] vals)
+
+@Override public int setIfNotPresent(Kmer kmer, int value)
+
+@Override public int getValue(Kmer kmer)
+
+@Override public int[] getValues(Kmer kmer, int[] singleton)
+
+@Override public boolean contains(Kmer kmer)
+
+@Override public int getValue(long[] key, long xor)
+
+@Override public int setOwner(Kmer kmer, int newOwner)
+
+@Override public boolean clearOwner(Kmer kmer, int owner)
+
+@Override public int getOwner(Kmer kmer)
+
+</class KmerNodeU>
+<class KmerNodeU1D>
+*@author Brian Bushnell
+*@date Oct 22, 2013
+public class KmerNodeU1D
+
+#Fields
+int value
+
+
+#Methods
+public KmerNodeU1D(long[] pivot_)
+
+public KmerNodeU1D(long[] pivot_, int value_)
+
+@Override public final KmerNodeU makeNode(long[] pivot_, int value_)
+
+@Override public final KmerNodeU makeNode(long[] pivot_, int[] values_)
+
+@Override public final int set(long[] kmer, int[] vals)
+
+@Override public int value()
+
+@Override protected int[] values(int[] singleton)
+
+@Override public int set(int value_)
+
+@Override protected int set(int[] values_)
+
+@Override int numValues()
+
+@Override boolean canResize()
+
+@Override public boolean canRebalance()
+
+@Deprecated @Override public int arrayLength()
+
+@Deprecated @Override void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Override public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public final boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount)
+
+@Override protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount)
+
+@Override final boolean TWOD()
+
+</class KmerNodeU1D>
+<class KmerNodeU2D>
+*Allows multiple values per kmer.
+*@author Brian Bushnell
+*@date Nov 7, 2014
+public class KmerNodeU2D
+
+#Fields
+int[] values
+
+
+#Methods
+public KmerNodeU2D(long[] pivot_)
+
+public KmerNodeU2D(long[] pivot_, int value_)
+
+public KmerNodeU2D(long[] pivot_, int[] vals_)
+
+@Override public final KmerNodeU makeNode(long[] pivot_, int value_)
+
+@Override public final KmerNodeU makeNode(long[] pivot_, int[] values_)
+
+*Returns number of nodes added
+@Override public int set(long[] kmer, int vals)
+
+@Override protected int value()
+
+@Override protected int[] values(int[] singleton)
+
+@Override public int set(int value_)
+
+@Override protected int set(int[] values_)
+
+@Override int numValues()
+
+*Returns number of values added
+private int insertValue(int v)
+
+*Returns number of values added
+private int insertValue(int[] vals)
+
+@Override boolean canResize()
+
+@Override public boolean canRebalance()
+
+@Deprecated @Override public int arrayLength()
+
+@Deprecated @Override void resize()
+
+@Deprecated @Override public void rebalance()
+
+@Override public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override public final boolean dumpKmersAsBytes_MT(ByteStreamWriter bsw, ByteBuilder bb, int k, int mincount, int maxcount, AtomicLong remaining)
+
+@Override protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount)
+
+@Override protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount)
+
+@Override final boolean TWOD()
+
+</class KmerNodeU2D>
+<class KmerTableSetU>
+*Loads and holds kmers for Tadpole2/KmerCountExact
+*@author Brian Bushnell
+*@date Jun 22, 2015
+public class KmerTableSetU
+
+#Fields
+*Hold kmers. A kmer X such that X%WAYS=Y will be stored in tables[Y]
+private AbstractKmerTableU[] tables
+
+public long filterMemoryOverride=0
+
+private final int bytesPerKmer
+
+private final long usableMemory
+
+private final long filterMemory0
+
+private final long filterMemory1
+
+private final long tableMemory
+
+private final long estimatedKmerCapacity
+
+*Number of tables (and threads, during loading)
+private final boolean prealloc
+
+*Number of tables (and threads, during loading)
+public final int ways
+
+*Total kmer length
+public final int kbig
+
+*Normal kmer length
+public final int k
+
+*kbig-1; used in some expressions
+public final int kbig2
+
+*Number of little kmers in a big kmer
+public final int mult
+
+*Look for reverse-complements as well as forward kmers. Default: true
+private final boolean rcomp
+
+*Quality-trim the left side
+public final boolean qtrimLeft
+
+*Quality-trim the right side
+public final boolean qtrimRight
+
+*Trim bases at this quality or below. Default: 4
+public final float trimq
+
+*Error rate for trimming (derived from trimq)
+private final float trimE
+
+*Throw away reads below this average quality after trimming. Default: 0
+public final float minAvgQuality
+
+*If positive, calculate average quality from the first X bases only. Default: 0
+public final int minAvgQualityBases
+
+*Ignore kmers with probability of correctness less than this
+public final float minProb
+
+*Correct via overlap
+private final boolean ecco
+
+*Attempt to merge via overlap prior to counting kmers
+private final boolean merge
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+private KmerTableSetU(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerTableSetU(String[] args, int extraBytesPerKmer_)
+
+@Override public void clear()
+
+@Override protected void allocateTables()
+
+*Load reads into tables, using multiple LoadThread.
+@Override public long loadKmers(String fname1, String fname2)
+
+public int regenerateCounts(byte[] bases, IntList counts, int ca, Kmer kmer)
+
+@Override public int regenerateCounts(byte[] bases, IntList counts, Kmer kmer, BitSet changed)
+
+@Override public int fillSpecificCounts(byte[] bases, IntList counts, BitSet positions, Kmer kmer)
+
+@Override public long regenerate(int limit)
+
+public HashArrayU1D getTable(Kmer kmer)
+
+@Override public HashArrayU1D getTable(int tnum)
+
+@Override public long[] fillHistogram(int histMax)
+
+@Override public void countGC(long[] gcCounts, int max)
+
+@Override public void initializeOwnership()
+
+@Override public void clearOwnership()
+
+public Kmer rightmostKmer(ByteBuilder bb, Kmer kmer)
+
+public Kmer rightmostKmer(byte[] bases, int blen, Kmer kmer)
+
+public Kmer leftmostKmer(ByteBuilder bb, Kmer kmer)
+
+public Kmer leftmostKmer(byte[] bases, int blen, Kmer kmer)
+
+public boolean doubleClaim(ByteBuilder bb, int id, Kmer kmer)
+
+*Ensures there can be only one owner.
+public boolean doubleClaim(byte[] bases, int blength, int id, Kmer kmer)
+
+public boolean claim(ByteBuilder bb, int id, boolean exitEarly, Kmer kmer)
+
+public float calcCoverage(byte[] bases, int blen, Kmer kmer)
+
+public float calcCoverage(Contig contig, Kmer kmer)
+
+public boolean claim(byte[] bases, int blen, int id, boolean exitEarly, Kmer kmer)
+
+public boolean claim(Kmer kmer, int id)
+
+public void release(ByteBuilder bb, int id, Kmer kmer)
+
+public void release(byte[] bases, int blen, int id, Kmer kmer)
+
+public boolean release(Kmer kmer, int id)
+
+public int findOwner(ByteBuilder bb, int id, Kmer kmer)
+
+public int findOwner(byte[] bases, int blen, int id, Kmer kmer)
+
+public int findOwner(Kmer kmer)
+
+public int getCount(Kmer kmer)
+
+public int getOwner(Kmer kmer)
+
+public int fillRightCounts(Kmer kmer, int[] counts)
+
+public int fillLeftCounts(Kmer kmer, int[] counts)
+
+public int fillRightCounts_fast(Kmer kmer, int[] counts)
+
+public int fillRightCounts_safe(Kmer kmer, int[] counts)
+
+public int fillLeftCounts_fast(Kmer kmer, int[] counts)
+
+public int fillLeftCounts_safe(Kmer kmer, int[] counts)
+
+@Override public boolean dumpKmersAsBytes(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining)
+
+@Override public boolean dumpKmersAsBytes_MT(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining)
+
+private final StringBuilder toText(long[] kmer)
+
+@Override public int kbig()
+
+@Override public long filterMemory(int pass)
+
+@Override public boolean ecco()
+
+@Override public boolean qtrimLeft()
+
+@Override public boolean qtrimRight()
+
+@Override public float minAvgQuality()
+
+@Override public long tableMemory()
+
+@Override public long estimatedKmerCapacity()
+
+@Override public int ways()
+
+@Override public boolean rcomp()
+
+public final int kmerToWay(Kmer kmer)
+
+public AbstractKmerTableU[] tables()
+
+public WalkerU walk()
+
+</class KmerTableSetU>
+<class KmerTableSetU.WalkerKSTU>
+public class KmerTableSetU.WalkerKSTU
+
+#Fields
+private WalkerU w=null
+
+*current table number
+private int tnum=0
+
+
+#Methods
+WalkerKSTU()
+
+*Fills this object with the next key and value.
+*@return True if successful.
+public boolean next()
+
+public Kmer kmer()
+
+public int value()
+
+</class KmerTableSetU.WalkerKSTU>
+<class OwnershipThread>
+public class OwnershipThread
+
+#Fields
+private final AbstractKmerTableU[] tables
+
+private final AtomicInteger next
+
+private final int mode
+
+public static final int INITIALIZE=0
+
+public static final int CLEAR=1
+
+
+#Methods
+public static void clear(AbstractKmerTableU[] tables)
+
+public static void initialize(AbstractKmerTableU[] tables)
+
+private static void process(AbstractKmerTableU[] tables, int mode)
+
+public OwnershipThread(AbstractKmerTableU[] tables_, int mode_, AtomicInteger next_)
+
+@Override public void run()
+
+</class OwnershipThread>
+<class WalkerU>
+public abstract class WalkerU
+
+#Methods
+*Allows iteration through a hash map.
+*Concurrent modification is not recommended.
+public boolean next()
+
+*Current object kmer (key) for ukmer package
+public Kmer kmer()
+
+*Current value
+public int value()
+
+</class WalkerU>

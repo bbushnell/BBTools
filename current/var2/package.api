@@ -1,0 +1,4661 @@
+#version 1
+#package var2
+#generated 2025-09-06T20:39:50
+
+<class AnalyzeVars>
+*Utility class for analyzing and manipulating variants in reads.
+*Contains static methods for variant detection, modification, and filtering.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date December 2024
+public class AnalyzeVars
+
+#Methods
+*Fixes variants in a read by changing match string characters to indicate known variants.
+*Changes 'S' to 'V' for substitutions, 'I' to 'i' for insertions, 'D' to 'd' for deletions.
+*@param r Read to modify
+*@param varMap Map of known variants
+*@param scafMap Scaffold mapping information
+*@return Number of variants fixed
+public static int fixVars(Read r, VarMap varMap, ScafMap scafMap)
+
+*Reverses the effects of fixVars by changing variant indicators back to standard match characters.
+*Changes 'V' to 'S', 'i' to 'I', 'd' to 'D'.
+*@param r Read to modify
+public static void unfixVars(Read r)
+
+*Fixes variants in a read by changing match string characters to indicate known variants.
+*Changes 'S' to 'V' for substitutions, 'I' to 'i' for insertions, 'D' to 'd' for deletions.
+*@param r Read to modify
+*@param sl SamLine of Read to modify
+*@param varMap Map of known variants
+*@param scafMap Scaffold mapping information
+*@return Number of variants fixed
+public static int fixVars(Read r, SamLine sl, VarMap varMap, ScafMap scafMap)
+
+*Finds unique substitution variants in a read that meet specified criteria.
+*Filters based on coverage, allele depth, allele fraction, and distance from read ends.
+*@param r Read to analyze
+*@param sl SamLine for the read
+*@param varMap Map of known variants
+*@param scafMap Scaffold mapping information
+*@param maxVarDepth Maximum allowed variant depth
+*@param maxAlleleFraction Maximum allowed allele fraction
+*@param minCov Minimum coverage requirement
+*@param minEDist Minimum distance from read ends
+*@return List of unique substitution variants, or null if none found
+public static ArrayList<Var> findUniqueSubs(Read r, SamLine sl, VarMap varMap, ScafMap scafMap, int maxVarDepth, float maxAlleleFraction, int minCov, int minEDist)
+
+*Finds unique variants (substitutions, insertions, deletions) in a read that meet specified criteria.
+*More comprehensive than findUniqueSubs, handles all variant types.
+*@param r Read to analyze
+*@param sl SamLine for the read
+*@param varMap Map of known variants
+*@param scafMap Scaffold mapping information
+*@param maxVarDepth Maximum allowed variant depth
+*@param maxAlleleFraction Maximum allowed allele fraction
+*@param minCov Minimum coverage requirement
+*@param minEDist Minimum distance from read ends
+*@return List of unique variants, or null if none found
+public static ArrayList<Var> findUniqueVars(Read r, SamLine sl, VarMap varMap, ScafMap scafMap, int maxVarDepth, float maxAlleleFraction, int minCov, int minEDist)
+
+*Loads variants from VCF files and marks them as forced variants.
+*Processes comma-separated list of VCF file paths, loading all variants
+*and adding them to the provided VarMap with forced status set to true.
+*@param fnames Comma-separated list of VCF file paths to load
+*@param scafMap Scaffold mapping information for variant positioning
+*@param varMap Existing VarMap to add loaded variants to
+*@param outstream PrintStream for progress and timing output
+*@return The modified VarMap with added forced variants
+public static VarMap loadForcedVCF(String fnames, ScafMap scafMap, VarMap varMap, PrintStream outstream)
+
+</class AnalyzeVars>
+<class ApplyVariants>
+*Applies variants
+*@author Brian Bushnell
+*@date August 27, 2019
+public class ApplyVariants
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Variant input file
+private String inVcf
+
+*Per-base coverage depth file (optional)
+private String inDepth
+
+*Primary output file path
+private String out1=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*If positive, change regions below this depth to N
+private int minDepth=0
+
+private byte noCovSymbol='N'
+
+HashMap<String,ArrayList<Var>> varMap
+
+HashMap<String,CoverageArray> depthMap
+
+*Name of output sequences, if different from input
+String sampleName=null
+
+*Add numbers as a suffix to the name of each contig, if they will be renamed
+boolean addContigNumbers=true
+
+*Use samplename as prefix, rather than replacing the existing name.
+boolean usePrefix=false
+
+*Delimits modified names.
+char delimiter='_'
+
+*Ignore non-multiple-of-3 indels
+private boolean noFrameshifts=false
+
+*Ignore indels longer than this
+private int maxIndel=Integer.MAX_VALUE
+
+*Ignore indels
+private boolean noIndels=false
+
+private ByteBuilder nameBuilder=new ByteBuilder()
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private long applied=0
+
+*Primary input file
+private final FileFormat ffin1
+
+*Variant input file
+private final FileFormat ffvcf
+
+*Coverage input file
+private final FileFormat ffdepth
+
+*Primary output file
+private final FileFormat ffout1
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*This flag has no effect on singlethreaded programs
+private final boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public ApplyVariants(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Replace # with 1 and 2 in headers
+private void doPoundReplacement()
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Make sure interleaving agrees with number of input and output files
+private void adjustInterleaving()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private ConcurrentReadInputStream makeCris()
+
+private ConcurrentReadOutputStream makeCros()
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+*Process a list of Reads.
+*@param ln The list.
+*@param cris Read Input Stream
+*@param ros Read Output Stream for reads that will be retained
+void processList(ListNum<Read> ln, ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+@SuppressWarnings private void applyDepth(Read r)
+
+private void applyDepth(Read r, CoverageArray ca)
+
+private void filterIndels(Read r)
+
+private void filterIndels(Read r, CoverageArray ca)
+
+*Process a single read.
+*@param r Read 1
+Read processRead(Read r)
+
+private String rename(String old, long number)
+
+</class ApplyVariants>
+<class CallVariants>
+*Calls variants from one or more SAM or BAM files using multithreaded processing.
+*Supports prefiltering, realignment, quality trimming, and comprehensive variant analysis.
+*Outputs results in VAR, VCF, and GFF formats with detailed statistics and histograms.
+*Key features:
+*- Multithreaded variant calling with configurable thread pools
+*- Optional prefiltering using Bloom filter-like structures for performance
+*- Read realignment and quality-based trimming
+*- Comprehensive variant statistics and filtering
+*- Support for forced variants from input VCF files
+*- Multiple output formats (VAR, VCF, GFF)
+*@author Brian Bushnell
+*@contributor Isla
+*@date November 4, 2016
+public class CallVariants
+
+#Fields
+*List of input SAM/BAM file paths
+private ArrayList<String> in=new ArrayList<String>()
+
+*Primary output file path for variant data
+private String out=null
+
+*VCF format output file path
+private String vcf=null
+
+*VCF input file path for forced variants
+private String vcfin=null
+
+*GFF format output file path
+private String gffout=null
+
+*GFF input file path (unused)
+private String gffin=null
+
+*Output file for variant score histogram
+private String scoreHistFile=null
+
+*Output file for zygosity/ploidy histogram
+private String zygosityHistFile=null
+
+*Output file for base quality histogram
+private String qualityHistFile=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Reference FASTA file path
+private String ref=null
+
+*Flag indicating whether reference has been loaded
+private boolean loadedRef=false
+
+*Enable quality trimming from left end of reads
+private boolean qtrimLeft=false
+
+*Enable quality trimming from right end of reads
+private boolean qtrimRight=true
+
+*Quality threshold for trimming (Phred scale)
+private float trimq=10
+
+*Quality threshold converted to error probability
+private final float trimE
+
+*Total number of reads processed
+protected long readsProcessed=0
+
+*Total number of bases in processed reads
+protected long basesProcessed=0
+
+*Total number of trimmed, mapped bases processed
+protected long trimmedBasesProcessed=0
+
+*Number of reads discarded by filters
+protected long readsDiscarded=0
+
+*Number of reads that were paired in sequencing
+protected long pairedInSequencingReadsProcessed=0
+
+*Number of properly paired reads processed
+protected long properlyPairedReadsProcessed=0
+
+*Number of variants filtered out by prefilter
+protected long varsPrefiltered=0
+
+*Total number of variants encountered during processing
+protected long varsProcessed=0
+
+*Sum of all base quality scores from trimmed, mapped bases
+protected long totalQualitySum=0
+
+*Sum of all mapping quality scores
+protected long totalMapqSum=0
+
+*Number of realignment attempts made
+protected long realignmentsAttempted
+
+*Number of realignments that improved alignment score
+protected long realignmentsImproved
+
+*Number of successful realignment operations
+protected long realignmentsSucceeded
+
+*Number of realigned reads that were kept
+protected long realignmentsRetained
+
+*Maximum reads to process (-1 for unlimited)
+private long maxReads=-1
+
+*Scaffold mapping for reference sequences
+public ScafMap scafMap
+
+*Container for all discovered variants
+public VarMap varMap
+
+*Whether to calculate coverage statistics
+public boolean calcCoverage=true
+
+*Expected ploidy level for variant calling
+public int ploidy=-1
+
+*Number of bases to trim from read ends near scaffold boundaries
+public int border=5
+
+*Enable read realignment for improved variant detection
+public boolean realign=false
+
+*Remove soft clipping during realignment
+public boolean unclip=false
+
+*Enable Bloom filter prefiltering to reduce memory usage
+public boolean prefilter=false
+
+*Sample name for output files
+public String sampleName=null
+
+*Enable analysis of nearby variant clusters for artifact detection
+public boolean countNearbyVars=true
+
+*Master neural network model (copied to each thread)
+private CellNet net0=null
+
+*Whether to use neural network for variant filtering
+private boolean useNet=false
+
+*Score threshold for neural network filtering
+private float netCutoff=0.5f
+
+*List of input file format objects
+private final ArrayList<FileFormat> ffin=new ArrayList<FileFormat>()
+
+*Output file format object
+private final FileFormat ffout
+
+*Variant filtering parameters and methods
+public final VarFilter varFilter=new VarFilter()
+
+*SAM/BAM filtering parameters and methods
+public final SamFilter samFilter=new SamFilter()
+
+*Histogram arrays for variant scores by type [type][score]
+public final long[][] scoreArray=new long[8][200]
+
+*Histogram array for ploidy/zygosity distribution
+public final long[] ploidyArray
+
+*Histogram arrays for average base quality by type [type][quality]
+public final long[][] avgQualityArray=new long[8][100]
+
+*Histogram array for maximum base quality distribution
+public final long[] maxQualityArray=new long[100]
+
+*Allele and reference depth arrays [depth_type][variant_type]
+public final long[][] ADArray=new long[2][7]
+
+*Allele frequency totals by variant type
+public final double[] AFArray=new double[7]
+
+*Maximum size for thread-local variant maps before dumping
+private static int vmtSizeLimit=10000
+
+*Whether to call variants at N bases in reference
+static boolean callNs=false
+
+*Whether to trim whitespace from read names and comments
+static boolean trimWhitespace=true
+
+*Whether to attempt fixing of indel variants in reads
+public static boolean fixIndels=true
+
+*Enable high-performance SAM streaming
+static boolean useStreamer=true
+
+*Enable multi-file streaming for large datasets
+static boolean useStreamerMF=true
+
+*Number of threads for streaming operations
+static int streamerThreads=SamStreamer.DEFAULT_THREADS
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages during processing
+public static boolean verbose=false
+
+*True if an error was encountered during processing
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*Automatically delegates to CallVariants2 if multisample mode is detected.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Parses command line arguments to detect multisample mode.
+*Used to determine whether to delegate to CallVariants2.
+*@param args Command line arguments
+*@return True if multisample mode is requested
+private static boolean preparseMulti(String[] args)
+
+*Constructor that parses command line arguments and initializes all parameters.
+*Sets up input/output files, filtering parameters, threading options, and validation.
+*@param args Command line arguments containing file paths and processing options
+public CallVariants(String[] args)
+
+*Loads the reference genome file if not already loaded.
+*Creates a ScafMap object containing all reference scaffolds with their sequences,
+*lengths, and metadata. Configures the realigner to use the loaded scaffold mapping
+*for alignment score calculations during read realignment.
+*This method is idempotent - safe to call multiple times without side effects.
+*Uses ScafMap.loadReference() which handles FASTA parsing and scaffold indexing.
+private void loadReference()
+
+*Loads reference file or SAM headers to create scaffold map.
+*Implements a two-tier approach for scaffold discovery:
+*1. Primary: Load from reference FASTA file using FastaReadInputStream
+*2. Fallback: Extract scaffold information from SAM/BAM headers using ScafMap.loadSamHeader()
+*The FASTA approach provides full sequence data for realignment and variant validation,
+*while the SAM header approach only provides scaffold names and lengths for basic mapping.
+*@param t2 Timer for tracking load time and performance measurement
+private void loadScafMap(Timer t2)
+
+*Creates and populates a prefilter to reduce memory usage for low-frequency variants.
+*Implements a two-pass algorithm using KCountArray7MTA (Bloom filter-like counter array):
+*Pass 1: Count variant occurrences using probabilistic counters with configurable bit width
+*Pass 2: Only process variants that exceed minReads threshold in main processing
+*Algorithm details:
+*1. Calculates optimal counter bit width: cbits = 2^n where 2^cbits >= minReads
+*2. Allocates ~1/8th of available memory for counter array (1 bit per byte)
+*3. Creates KCountArray7MTA with calculated parameters and 2 hash functions
+*4. Chooses single-file vs multi-file processing based on thread count and dataset size
+*5. Adds forced variants from input VCF to ensure they pass filtering
+*Memory efficiency: Reduces main VarMap memory usage by filtering out low-confidence variants
+*before full processing, critical for large-scale variant calling on limited-memory systems.
+*@param minReads Minimum number of reads required to pass prefilter
+*@param vm Existing VarMap containing forced variants (may be null)
+*@return Populated KCountArray7MTA prefilter, or null if insufficient memory
+private KCountArray7MTA prefilter(int minReads, VarMap vm)
+
+*Performs prefiltering using single-file processing mode.
+*Processes each input file sequentially using multithreaded read processing.
+*Creates either SamReadStreamer or ConcurrentReadInputStream based on useStreamer setting,
+*then spawns worker threads that extract variants and increment counters in the KCountArray7MTA.
+*This mode is used for smaller datasets or when memory/threading constraints prevent
+*multi-file processing. Each file is processed completely before moving to the next.
+*@param kca The prefilter counter array to populate with variant counts
+private void prefilter_SF(KCountArray7MTA kca)
+
+*Performs prefiltering using multi-file processing mode.
+*Processes multiple input files simultaneously using SamStreamerMF for maximum I/O parallelism.
+*Worker threads pull reads from all files concurrently, improving throughput for large datasets
+*with multiple input files by reducing I/O bottlenecks.
+*This mode is optimal for high-throughput variant calling with many input files,
+*sufficient threads (>4), and adequate memory. Provides better resource utilization
+*than sequential file processing.
+*@param kca The prefilter counter array to populate with variant counts
+private void prefilter_MF(KCountArray7MTA kca)
+
+*Main processing method that orchestrates the complete variant calling pipeline.
+*Loads reference data, creates variant maps, processes input files, and generates output.
+*@param t Timer for overall execution timing
+*@return VarMap containing all discovered and filtered variants
+public VarMap process(Timer t)
+
+*Creates and populates a prefilter to reduce memory usage for low-frequency variants.
+*Uses a Bloom filter-like structure (KCountArray7MTA) to track variants that appear
+*fewer than minReads times, allowing them to be filtered out early to save memory.
+*@param minReads Minimum number of reads required to pass prefilter
+*@param vm Existing VarMap containing forced variants (may be null)
+*@return Populated KCountArray7MTA prefilter, or null if insufficient memory
+private long[] makeVarMap(Timer t2)
+
+*Prints comprehensive timing and results summary to output stream.
+*Includes variant type breakdown, statistics, and performance metrics.
+*@param types Array of variant counts by type from processVariants()
+*@param t Main timer for overall execution time
+private void printResults(long[] types, Timer t)
+
+*Processes input using single-file mode with multithreaded read processing.
+*Creates input streams and spawns worker threads for variant detection.
+*@param ff Input file format to process
+*@param kca Prefilter for memory efficiency (may be null)
+void processInput_SF(FileFormat ff, KCountArray7MTA kca)
+
+*Processes input using multi-file mode for high-throughput datasets.
+*Uses SamStreamerMF to simultaneously read from multiple files, maximizing I/O parallelism
+*and reducing processing time for large multi-file datasets.
+*This mode is optimal when:
+*- Multiple input files are available
+*- Sufficient threads are available (>4)
+*- I/O bandwidth is the limiting factor
+*Worker threads pull reads from all files concurrently, improving resource utilization
+*compared to sequential file processing.
+*@param ff Array of input file formats to process simultaneously
+*@param kca Prefilter for memory efficiency (may be null)
+void processInput_MF(FileFormat[] ff, KCountArray7MTA kca)
+
+*Processes all variants in the variant map using multithreaded scoring and filtering.
+*Delegates to VarMap.processVariantsMT() which applies statistical filters,
+*neural network scoring (if enabled), and generates histogram data for output.
+*@return Array of variant counts by type after filtering
+private long[] processVariants()
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, SamReadStreamer ss, SamStreamerMF ssmf, KCountArray7MTA kca)
+
+*Dumps thread-local variants to the main variant map in a thread-safe manner.
+*Transfers all variants from the thread's local HashMap to the global VarMap,
+*merging duplicate variants and clearing the local map for continued processing.
+*@param mapT Thread-local variant map to dump
+*@return Number of variants added to the main map
+private int dumpVars(HashMap<Var,Var> mapT)
+
+</class CallVariants>
+<class CallVariants2>
+*Calls variants from one or more sam or bam files.
+*@author Brian Bushnell
+*@date December 18, 2016
+public class CallVariants2
+
+#Fields
+*Primary input file path
+private ArrayList<String> in=new ArrayList<String>()
+
+*VCF output file path
+private String vcf=null
+
+*VCF input file path for forced variants
+private String vcfin=null
+
+*Individual vcf files
+private String vcf0="individual_%.vcf.gz"
+
+*Output file path for variant quality score histogram, or null if disabled
+private String scoreHistFile=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Reference genome FASTA file path
+private String ref=null
+
+*Flag indicating whether reference genome has been loaded
+private boolean loadedRef=false
+
+*Whether to perform quality trimming on read left ends
+private boolean qtrimLeft=false
+
+*Whether to perform quality trimming on read right ends
+private boolean qtrimRight=true
+
+*Quality threshold for trimming low-quality bases
+private float trimq=10
+
+*Trimming error rate threshold calculated from trimq
+private final float trimE
+
+*Scaffold mapping structure containing reference genome and coverage data
+public ScafMap scafMap=new ScafMap()
+
+*Input forced variants loaded from VCF files for first pass processing
+public VarMap forcedVars1=null
+
+public VarMap forcedVars2=null
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Expected ploidy level for variant calling, -1 means unset
+public int ploidy=-1
+
+*Border region size to trim from read ends for quality control
+public int border=5
+
+*Whether to attempt read realignment for improved variant calling accuracy
+public boolean realign=false
+
+*Whether to unclip soft-clipped regions during realignment
+public boolean unclip=false
+
+*Whether to use k-mer prefiltering to reduce memory usage
+public boolean prefilter=false
+
+*Whether to count nearby variants for filtering artifact-dense regions.
+*Helps identify junk variants from artifacts, misassemblies, or structural variants
+*which typically create dense clusters of adjacent false positive SNPs.
+*Additional filtering parameters are configured in VarFilter.
+public boolean countNearbyVars=true
+
+*Master neural network model (copied to each thread)
+private CellNet net0=null
+
+*Whether to use neural network for variant filtering
+private boolean useNet=false
+
+*Score threshold for neural network filtering
+private float netCutoff=0.5f
+
+*Primary input file
+private final ArrayList<FileFormat> ffin=new ArrayList<FileFormat>()
+
+*Sample names
+private final ArrayList<String> sampleNames=new ArrayList<String>()
+
+*Variant filtering configuration for quality and statistical thresholds
+public final VarFilter varFilter=new VarFilter()
+
+*SAM/BAM filtering configuration for read quality and mapping criteria
+public final SamFilter samFilter=new SamFilter()
+
+*2D histogram array for variant quality score distribution analysis
+public final long[][] scoreArray=new long[8][200]
+
+*Array for tracking ploidy-specific variant count statistics
+public final long[] ploidyArray
+
+*2D histogram for average base quality distribution by variant type
+public final long[][] avgQualityArray=new long[8][100]
+
+*Histogram for maximum base quality distribution analysis
+public final long[] maxQualityArray=new long[100]
+
+*2D array for allelic depth statistics [ref/alt][depth_bins]
+public final long[][] ADArray=new long[2][7]
+
+*Array for allele frequency distribution statistics
+public final double[] AFArray=new double[7]
+
+*Maximum size limit for thread-local variant maps before dumping to main collection
+private static int vmtSizeLimit=10000
+
+*Whether to call variants at N positions in the reference sequence
+static boolean callNs=false
+
+*Whether to trim whitespace from read names and comments
+static boolean trimWhitespace=true
+
+*Whether to use SamReadStreamer for high-throughput read processing
+static boolean useStreamer=true
+
+*Number of threads to use for SamReadStreamer processing
+static int streamerThreads=SamStreamer.DEFAULT_THREADS
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorStateOverall=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+
+#Methods
+*Main entry point for multi-sample variant calling from command line.
+*Initializes timing, creates CallVariants2 instance, executes processing pipeline,
+*and handles proper cleanup of output streams.
+*@param args Command line arguments including input files, reference genome,
+*sample specifications, filtering parameters, and output destinations
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public CallVariants2(String[] args)
+
+*Loads forced variants from one or more VCF files for multi-sample analysis.
+*These variants will be included in the output regardless of quality filters,
+*useful for validating known variants or ensuring consistency across analyses.
+*@param fnames Comma-separated list of VCF file paths containing forced variants
+*@return VarMap containing all loaded forced variants, or null if no files specified
+private VarMap loadForcedVCF(String fnames)
+
+*Validates and normalizes sample names to ensure uniqueness across the cohort.
+*Automatically generates sample names from input file paths if not explicitly provided.
+*Handles duplicate names by appending copy numbers for disambiguation.
+*This method ensures:
+*- Each sample has a unique identifier for VCF output
+*- Sample count matches input file count
+*- Automatic name generation from file paths when needed
+*- Collision resolution for duplicate base names
+private void fixSampleNames()
+
+*Loads reference genome and initializes scaffold mapping for multi-sample analysis.
+*Sets up realigner configuration if realignment is enabled. This method is
+*idempotent and can be called multiple times safely.
+private void loadReference()
+
+*Create read streams and process all data
+public void process(Timer t)
+
+*Fixes read alignment by adjusting bases to match known variants.
+*Delegates to AnalyzeVars for actual implementation.
+*@param r Read to fix
+*@param varMap Map of known variants for fixing
+*@param scafMap Scaffold reference for alignment context
+*@return Number of positions fixed
+public static int fixVars(Read r, VarMap varMap, ScafMap scafMap)
+
+*Removes variant fixes from a read, restoring original alignment.
+*Delegates to AnalyzeVars for actual implementation.
+*@param r Read to restore to unfixed state
+public static void unfixVars(Read r)
+
+*Fixes read alignment using explicit SamLine alignment data.
+*Delegates to AnalyzeVars for actual implementation.
+*@param r Read to fix
+*@param sl SamLine alignment information
+*@param varMap Map of known variants for fixing
+*@param scafMap Scaffold reference for alignment context
+*@return Number of positions fixed
+public static int fixVars(Read r, SamLine sl, VarMap varMap, ScafMap scafMap)
+
+</class CallVariants2>
+<class CallVariants2.Sample>
+*Represents a single sample within a multi-sample variant calling analysis.
+*Encapsulates all sample-specific data including file format, variant maps, statistics,
+*and processing state. Handles independent variant discovery and quality assessment
+*for each sample while contributing to population-level analysis.
+class CallVariants2.Sample
+
+#Fields
+*Input file format configuration for SAM/BAM reading
+final FileFormat ff
+
+*Unique sample identifier for output and statistical reporting
+final String name
+
+*Individual VCF output file path for this sample, or null if disabled
+final String vcfName
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of trimmed, mapped bases processed
+protected long trimmedBasesProcessed=0
+
+*Number of reads discarded
+protected long readsDiscarded=0
+
+*Number of paired reads processed by this thread, whether or not they mapped as pairs
+protected long pairedInSequencingReadsProcessed=0
+
+*Number of properly paired reads processed
+protected long properlyPairedReadsProcessed=0
+
+*Number of vars ignored via prefilter
+protected long varsPrefiltered=0
+
+*Number of vars processed
+protected long varsProcessed=0
+
+*Sum of trimmed, mapped base qualities
+protected long totalQualitySum=0
+
+*Sum of mapqs
+protected long totalMapqSum=0
+
+*Number of read realignment attempts by this sample
+protected long realignmentsAttempted=0
+
+*Number of realignments that improved alignment quality
+protected long realignmentsImproved=0
+
+*Number of realignment attempts that completed successfully
+protected long realignmentsSucceeded=0
+
+*Number of improved realignments that were retained in final output
+protected long realignmentsRetained=0
+
+*Sample-specific variant map containing discovered variants with quality metrics
+public VarMap varMap
+
+*Flag indicating whether this sample encountered processing errors
+boolean errorState=false
+
+
+#Methods
+*Constructs a new Sample instance with specified input file and sample name.
+*Initializes file format configuration and optional per-sample VCF output path.
+*@param ff_ FileFormat configuration for input SAM/BAM file
+*@param sname_ Unique sample identifier for VCF output and statistics
+public Sample(FileFormat ff_, String sname_)
+
+*First-pass processing to identify variants that pass initial filtering criteria.
+*Performs variant discovery with optional prefiltering for memory efficiency.
+*Creates per-sample variant map and contributes passing variants to the global variant pool.
+*Uses k-mer prefiltering to reduce memory usage for large cohorts when enabled.
+*@param forcedVarsIn Pre-loaded forced variants from input VCF files to include regardless of filters
+*@param forcedVarsOut Global variant collection to receive variants discovered in this sample
+*@return Number of new variants added to the global collection from this sample
+public long process1(VarMap forcedVarsIn, VarMap forcedVarsOut)
+
+public long process2(VarMap forcedVars)
+
+*Creates k-mer prefilter to reduce memory usage for large-scale variant calling.
+*Builds counting Bloom filter from first pass through reads to identify high-confidence k-mers.
+*Uses available memory to size the prefilter optimally for the dataset.
+*Variants supported by fewer than minReads k-mers are filtered out to reduce noise.
+*@param minReads Minimum k-mer count threshold for variant consideration
+*@return KCountArray7MTA prefilter structure, or null if insufficient memory
+private KCountArray7MTA prefilter(int minReads)
+
+*Creates read input streams and processes all aligned reads for variant discovery.
+*Handles both standard ConcurrentReadInputStream and high-throughput SamReadStreamer.
+*Distributes read processing across multiple threads for optimal performance.
+*Optionally calculates scaffold coverage statistics during processing.
+*@param ff FileFormat specifying input SAM/BAM file configuration
+*@param kca Optional k-mer counting array for prefiltering low-confidence variants
+*@param forcedVarsIn Pre-loaded forced variants to include regardless of quality
+*@param calcCoverage Whether to calculate and store per-scaffold coverage statistics
+void processInput(FileFormat ff, KCountArray7MTA kca, VarMap forcedVarsIn, boolean calcCoverage)
+
+*Processes discovered variants using multithreaded quality assessment and filtering.
+*Applies statistical filters, neural network scoring, and population genetics metrics.
+*Calculates variant type distributions and removes low-quality variants.
+*@return Array containing counts of different variant types [SUB, DEL, INS, etc.]
+private long[] processVariants()
+
+*Spawns multiple processing threads for parallel read analysis and variant discovery.
+*Creates worker threads that process reads independently and accumulate results.
+*Handles both CRIS and SamReadStreamer input modes for optimal throughput.
+*Coordinates thread completion and aggregates per-thread statistics.
+*@param cris ConcurrentReadInputStream for standard read processing, or null if using streamer
+*@param ss SamReadStreamer for high-throughput processing, or null if using CRIS
+*@param kca K-mer counting array for prefiltering, or null to disable prefiltering
+*@param forced Forced variants to include regardless of quality filters
+*@param calcCoverage Whether threads should calculate scaffold coverage statistics
+private void spawnThreads(ConcurrentReadInputStream cris, SamReadStreamer ss, KCountArray7MTA kca, VarMap forced, boolean calcCoverage)
+
+*Transfers accumulated variants from thread-local map to sample-level variant map.
+*Used to manage memory usage by periodically flushing thread buffers.
+*Ensures thread-safe addition of variants to the main collection.
+*@param mapT Thread-local variant map to dump and clear
+*@return Number of variants transferred to the main variant map
+private int dumpVars(HashMap<Var,Var> mapT)
+
+*Legacy method stub for variant fixing - not implemented in Sample context.
+*Use static fixVars methods in AnalyzeVars class instead.
+*@param r Read to process for variant fixing
+*@param sl SamLine containing alignment information
+*@return Always fails with assertion error
+public int fixVars(Read r, SamLine sl)
+
+*Resets all sample processing statistics and clears variant map for reprocessing.
+*Used between processing passes to prepare sample for next analysis phase.
+*Maintains consistent state for multi-pass processing workflows.
+private void clear()
+
+</class CallVariants2.Sample>
+<class CompareVCF>
+*@author Brian Bushnell
+*@date January 14, 2017
+public class CompareVCF
+
+#Fields
+private long linesProcessed=0
+
+private long headerLinesProcessed=0
+
+private long variantLinesProcessed=0
+
+private long headerLinesOut=0
+
+private long variantLinesOut=0
+
+private long bytesProcessed=0
+
+private long maxLines=Long.MAX_VALUE
+
+public ArrayList<byte[]> header=null
+
+public ArrayList<String> samples=new ArrayList<String>()
+
+private String in1=null
+
+private String out1=null
+
+private String ref=null
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+public final int mode
+
+public boolean addSamples=true
+
+private boolean outputVar=false
+
+boolean splitAlleles=false
+
+boolean splitSubs=false
+
+boolean splitComplex=false
+
+double minScore=-99999
+
+public static int DIFFERENCE=0
+
+public static int UNION=1
+
+public static int INTERSECTION=2
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public CompareVCF(String[] args)
+
+public HashSet<VCFLine> getSet(FileFormat ff, HashSet<VCFLine> set)
+
+public HashSet<VCFLine> union()
+
+public HashSet<VCFLine> intersection()
+
+public HashSet<VCFLine> difference()
+
+ArrayList<VCFLine> toList()
+
+void process(Timer t)
+
+</class CompareVCF>
+<class CVOutputWriter>
+*Utility class for writing CallVariants output files.
+*Contains static methods for generating various output formats.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 2025
+public class CVOutputWriter
+
+#Methods
+*Writes output files (Var, VCF, GFF) based on provided parameters.
+*@param varMap Variant map containing all variants
+*@param varFilter Variant filtering parameters
+*@param ffout FileFormat for var file output
+*@param vcf VCF output file path
+*@param gffout GFF output file path
+*@param readsProcessed Total reads processed (minus discarded)
+*@param pairedInSequencingReadsProcessed Paired reads processed
+*@param properlyPairedReadsProcessed Properly paired reads processed
+*@param trimmedBasesProcessed Total trimmed bases processed
+*@param ref Reference file path
+*@param trimWhitespace Whether to trim whitespace in output
+*@param sampleName Sample name for output files
+public static void writeOutput(VarMap varMap, VarFilter varFilter, FileFormat ffout, String vcf, String gffout, long readsProcessed, long pairedInSequencingReadsProcessed, long properlyPairedReadsProcessed, long trimmedBasesProcessed, String ref, boolean trimWhitespace, String sampleName)
+
+*Writes histogram files for score, zygosity, and quality distributions.
+*@param scoreHistFile Score histogram output file path
+*@param zygosityHistFile Zygosity histogram output file path
+*@param qualityHistFile Quality histogram output file path
+*@param scoreArray Score distribution array
+*@param ploidyArray Ploidy distribution array
+*@param avgQualityArray Average quality distribution array
+*@param maxQualityArray Maximum quality distribution array
+public static void writeHistograms(String scoreHistFile, String zygosityHistFile, String qualityHistFile, long[][] scoreArray, long[] ploidyArray, long[][] avgQualityArray, long[] maxQualityArray)
+
+*Writes score histogram to specified file.
+*@param fname Output file name
+*@param array Score histogram array
+*@return True if successful
+static boolean writeScoreHist(String fname, long[] array)
+
+*Writes zygosity histogram to specified file.
+*@param fname Output file name
+*@param array Zygosity histogram array
+*@return True if successful
+static boolean writeZygosityHist(String fname, long[] array)
+
+*Writes quality histogram to specified file.
+*@param fname Output file name
+*@param avgQualArray Average quality histogram array
+*@param maxQualArray Maximum quality histogram array
+*@return True if successful
+static boolean writeQualityHist(String fname, long[] avgQualArray, long[] maxQualArray)
+
+</class CVOutputWriter>
+<class FeatureVectorMaker>
+*Converts Var objects into feature vectors for neural network analysis.
+*Implements a factory pattern supporting three different neural network models
+*developed by summer interns, each with specialized feature extraction algorithms.
+*Feature extraction modes:
+*- ELBA: Quality score prediction using 32-dimensional vectors with quality metrics,
+*strand bias analysis, and context normalization against dataset statistics
+*- LAWRENCE: Genotype calling using 8-dimensional min-max scaled vectors with
+*revised allele fractions, mapping qualities, and strand bias scoring
+*- DONOVAN: Template framework for additional model development (16-dimensional placeholder)
+*The feature vectors are designed for specific neural network architectures trained
+*on variant calling datasets, with each intern optimizing for their particular task.
+*@author Brian Bushnell
+*@author Isla
+*@date July 21, 2025
+public class FeatureVectorMaker
+
+#Fields
+*Feature extraction modes for different neural network models trained by summer interns
+public static final int ELBA=0
+
+*Feature extraction modes for different neural network models trained by summer interns
+public static final int LAWRENCE=1
+
+*Feature extraction modes for different neural network models trained by summer interns
+public static final int DONOVAN=2
+
+*Current active feature extraction mode, defaults to ELBA's quality prediction model
+private static int MODE=ELBA
+
+*String representations of modes for command-line parsing and configuration
+private static final String[] MODE_NAMES={"ELBA","LAWRENCE","DONOVAN"}
+
+
+#Methods
+*Convert a variant to a feature vector using the currently selected extraction method.
+*Implements factory pattern routing to intern-specific feature extraction algorithms.
+*Each algorithm produces vectors of different dimensionality and scaling appropriate
+*for their trained neural network architectures.
+*@param v Variant to convert with coverage, quality, and mapping statistics
+*@param pairingRate Dataset-wide proper pairing rate for normalization context
+*@param totalQualityAvg Average base quality across entire sequencing dataset
+*@param totalMapqAvg Average mapping quality across entire sequencing dataset
+*@param readLengthAvg Average read length for the sequencing technology used
+*@param ploidy Expected sample ploidy (1 for haploid, 2 for diploid organisms)
+*@param map Scaffold mapping for calculating positional features and end distances
+*@return Float array feature vector ready for neural network input layer
+public static float[] toVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+*Generate Elba's 32-dimensional feature vector optimized for quality score prediction.
+*Implements quality analysis combining raw statistics, averages, and normalization
+*against dataset-wide metrics. Features include variant properties, quality metrics
+*(both raw and averaged), strand bias analysis, pairing statistics, and contextual
+*normalization ratios.
+*Algorithm combines absolute quality metrics with relative measures normalized
+*against dataset averages to provide context-aware features for neural network training.
+*@param v Variant with accumulated quality and coverage statistics
+*@param pairingRate Dataset proper pairing rate for normalization
+*@param totalQualityAvg Dataset average base quality for relative scaling
+*@param totalMapqAvg Dataset average mapping quality for relative scaling
+*@param readLengthAvg Technology-specific average read length
+*@param ploidy Expected sample ploidy for genotype context
+*@param map Scaffold mapping for positional feature calculation
+*@return 32-element float array with normalized quality prediction features
+private static float[] makeElbaVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+*Generate Lawrence's 8-dimensional feature vector optimized for genotype calling.
+*Implements min-max scaling algorithm with pre-trained bounds derived from training data.
+*Features focus on revised allele fractions, quality metrics, and strand bias scoring
+*specifically tuned for distinguishing true variants from sequencing artifacts.
+*The algorithm applies min-max normalization: (value - min) / (max - min)
+*with bounds clipped to [0,1] to handle values outside the training range.
+*Feature bounds were empirically derived from variant calling training datasets.
+*@param v Variant with quality and mapping statistics
+*@param pairingRate Dataset proper pairing rate (unused in current implementation)
+*@param totalQualityAvg Dataset average base quality (unused in current implementation)
+*@param totalMapqAvg Dataset average mapping quality (unused in current implementation)
+*@param readLengthAvg Average read length for revised allele fraction calculation
+*@param ploidy Sample ploidy (unused in current implementation)
+*@param map Scaffold mapping for strand bias end distance calculation
+*@return 8-element float array with min-max scaled genotype calling features
+private static float[] makeLawrenceVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+*Generate Donovan's 16-dimensional feature vector template for future model development.
+*Currently implements basic variant features as a foundation for custom neural network
+*architecture development. This method serves as a starting framework that can be
+*extended with domain-specific features as requirements become defined.
+*Template includes fundamental variant properties (allele count, coverage, frequency,
+*and type) with remaining vector slots reserved for custom feature engineering.
+*@param v Variant with basic statistics for feature extraction
+*@param pairingRate Dataset proper pairing rate (reserved for future use)
+*@param totalQualityAvg Dataset average base quality (reserved for future use)
+*@param totalMapqAvg Dataset average mapping quality (reserved for future use)
+*@param readLengthAvg Average read length (reserved for future use)
+*@param ploidy Sample ploidy (reserved for future use)
+*@param map Scaffold mapping (reserved for future use)
+*@return 16-element float array with basic features and reserved slots for expansion
+private static float[] makeDonovanVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+*Set the active feature extraction mode for all subsequent toVector() calls.
+*Changes the global MODE variable to route to the specified intern's algorithm.
+*@param mode Feature extraction mode constant (ELBA=0, LAWRENCE=1, DONOVAN=2)
+public static void setMode(int mode)
+
+*Set the active feature extraction mode from string representation.
+*Parses case-insensitive mode names and converts to internal mode constants.
+*@param modeStr Mode name string ("ELBA", "LAWRENCE", "DONOVAN", case-insensitive)
+*@throws RuntimeException if modeStr does not match any known mode name
+public static void setMode(String modeStr)
+
+*Get the currently active feature extraction mode constant.
+*@return Current mode constant (ELBA=0, LAWRENCE=1, DONOVAN=2)
+public static int getMode()
+
+*Get the expected feature vector length for the currently active mode.
+*Each intern's neural network architecture requires different input dimensions.
+*@return Expected vector length (ELBA=32, LAWRENCE=8, DONOVAN=16)
+public static int getVectorLength()
+
+*Get the string representation of the currently active mode.
+*@return Current mode name ("ELBA", "LAWRENCE", or "DONOVAN")
+public static String getModeName()
+
+</class FeatureVectorMaker>
+<class FilterSam>
+*Removes lines with unsupported variations from a sam file.
+*@author Brian Bushnell
+*@date January 25, 2018
+public class FilterSam
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Optional reference
+private String ref=null
+
+*Good output file path
+private String outGood=null
+
+*Bad output file path
+private String outBad=null
+
+*VCF file path
+private String varFile=null
+
+*Variant file path
+private String vcfFile=null
+
+private VarMap varMap=null
+
+private ScafMap scafMap=null
+
+*Maximum allowed substitutions in a read
+private int maxSubs=-1
+
+*Maximum allowed variations in a read
+private int maxVars=-1
+
+*Maximum allowed unsupported substitutions in a read
+private int maxBadVars=1
+
+*Maximum variant depth for a variant to be considered unsupported
+private int maxBadAlleleDepth=2
+
+*Maximum allele fraction for variants considered unsupported
+private float maxBadAlleleFraction=0.01f
+
+*Minimum read depth for a variant to be considered unsupported
+private int minBadReadDepth=2
+
+*Ignore vars within this distance of the ends
+private int minEDist=5
+
+private int ploidy=1
+
+private boolean prefilter=false
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of mapped reads processed by this thread
+protected long mappedReadsProcessed=0
+
+*Number of mapped bases processed by this thread
+protected long mappedBasesProcessed=0
+
+*Number of mapped reads retained by this thread
+protected long mappedReadsRetained=0
+
+*Number of mapped bases retained by this thread
+protected long mappedBasesRetained=0
+
+*Number of good reads processed
+protected long readsOut=0
+
+*Number of good bases processed
+protected long basesOut=0
+
+protected double bqSumGood=0
+
+protected double bqSumBad=0
+
+protected long varSumGood=0
+
+protected long varSumBad=0
+
+protected long mapqSumGood=0
+
+protected long mapqSumBad=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+static boolean useStreamer=true
+
+static int streamerThreads=3
+
+*Primary input file
+private final FileFormat ffin1
+
+*Primary output file
+private final FileFormat ffoutGood
+
+*Secondary output file
+private final FileFormat ffoutBad
+
+private final boolean subsOnly
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order
+private boolean ordered=true
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public FilterSam(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+private static String pad(long s, int len)
+
+private static String pad(String s, int len)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, SamStreamer ss, ConcurrentReadOutputStream ros, ConcurrentReadOutputStream rosb)
+
+</class FilterSam>
+<class FilterVCF>
+*Filters VCF files based on variant quality, type, position, and statistical criteria.
+*Provides comprehensive filtering capabilities for post-processing variant calls,
+*with support for both single-threaded and multithreaded operation.
+*Key features:
+*- Statistical filtering using VarFilter criteria (coverage, quality, strand bias, etc.)
+*- Position-based filtering using SamFilter criteria (coordinates, contigs)
+*- Variant type filtering (enable/disable SNPs, indels, junctions)
+*- Allele splitting for multi-allelic variants
+*- Quality score histograms for analysis
+*- Header preservation and metadata extraction
+*@author Brian Bushnell
+*@contributor Isla
+*@date January 14, 2017
+public class FilterVCF
+
+#Fields
+*Number of lines processed from input
+private long linesProcessed=0
+
+*Number of header lines processed
+private long headerLinesProcessed=0
+
+*Number of variant lines processed
+private long variantLinesProcessed=0
+
+*Number of header lines written to output
+private long headerLinesOut=0
+
+*Number of variant lines written to output
+private long variantLinesOut=0
+
+*Number of bytes processed from input
+private long bytesProcessed=0
+
+*Histogram of variant quality scores for distribution analysis
+private long[] scoreHist=new long[1000]
+
+*Maximum number of lines to process (for testing/debugging)
+private long maxLines=Long.MAX_VALUE
+
+*VCF header lines
+public ArrayList<byte[]> header=new ArrayList<byte[]>()
+
+*Sample names extracted from VCF header
+public ArrayList<String> samples=new ArrayList<String>()
+
+*Filter for SAM/alignment-based criteria
+SamFilter samFilter=new SamFilter()
+
+*Filter for variant-specific criteria
+VarFilter varFilter=new VarFilter()
+
+*Master neural network model (copied to each thread)
+private CellNet net0=null
+
+*Whether to use neural network for variant filtering
+private boolean useNet=false
+
+*Score threshold for neural network filtering
+private float netCutoff=0.5f
+
+*Minimum quality score threshold for simple filtering
+double minScore=0
+
+*Sample ploidy for variant evaluation
+public int ploidy=1
+
+*Proper pair rate from sequencing run
+public float properPairRate=0
+
+*Average total quality from dataset
+public float totalQualityAvg=30
+
+*Average mapping quality from dataset
+public float totalMapqAvg=30
+
+*Average read length from sequencing run
+public float readLengthAvg=150
+
+*Number of processing threads (limited to 8 maximum)
+final int threads
+
+*Whether to use multithreaded processing
+public boolean multithreaded=false
+
+*Job ID offset for ordered output
+private long jobIDOffset=0
+
+*Whether to split multi-allelic variants into separate lines
+boolean splitAlleles=false
+
+*Whether to split complex substitutions
+boolean splitSubs=false
+
+*Whether to split complex variants
+boolean splitComplex=false
+
+*Whether to count nearby variants for filtering (TODO: implement counting)
+boolean countNearby=false
+
+*Primary input VCF filename
+private String in1=null
+
+*Primary output VCF filename
+private String out1=null
+
+*Reference genome filename for variant validation
+private String ref=null
+
+*Score histogram output filename
+private String scoreHistFile=null
+
+*Input file format
+private final FileFormat ffin1
+
+*Output file format
+private final FileFormat ffout1
+
+*Scaffold mapping for coordinate resolution
+public final ScafMap scafMap=new ScafMap()
+
+*Poison pill for ending thread processing
+static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null,-1)
+
+*Output stream for messages
+private PrintStream outstream=System.err
+
+*Verbose output flag
+public static boolean verbose=false
+
+*Error state flag
+public boolean errorState=false
+
+*Overwrite output files flag
+private boolean overwrite=true
+
+*Append to output files flag
+private boolean append=false
+
+
+#Methods
+*Constructor that parses command-line arguments and initializes filtering parameters.
+*Sets up both variant-specific filtering (VarFilter) and position-specific filtering (SamFilter).
+*@param args Command line arguments array
+public FilterVCF(String[] args)
+
+*Loads scaffold information from VCF contig header lines into the ScafMap.
+*Processes ##contig= lines to build coordinate reference system.
+public void loadHeaderInScafMap()
+
+*Converts stored header lines to a formatted string.
+*@return Complete VCF header as string
+public String headerToString()
+
+*Spawns worker threads for multithreaded VCF processing.
+*Each thread processes batches of VCF lines independently.
+*@param bf Input ByteFile
+*@param bsw Output ByteStreamWriter
+*@return List of spawned ProcessThread objects
+private ArrayList<ProcessThread> spawnThreads(ByteFile bf, ByteStreamWriter bsw)
+
+*Waits for all worker threads to complete and aggregates statistics.
+*@param alpt List of ProcessThread objects to wait for
+private void waitForFinish(ArrayList<ProcessThread> alpt)
+
+*Processes VCF header section and extracts metadata.
+*Handles scaffold definitions, sample names, and statistical metadata
+*from the VCF header lines.
+*@param bf Input ByteFile
+*@param bsw Output ByteStreamWriter (may be null)
+private void processVcfHeader(ByteFile bf, ByteStreamWriter bsw)
+
+*Single-threaded VCF variant processing.
+*Processes each variant line sequentially, applying all filtering criteria
+*and optionally splitting multi-allelic variants.
+*@param bf Input ByteFile
+*@param bsw Output ByteStreamWriter (may be null)
+private void processVcfVarsST(ByteFile bf, ByteStreamWriter bsw)
+
+*Multithreaded VCF variant processing.
+*Spawns worker threads to process variants in parallel for better performance.
+*@param bf Input ByteFile
+*@param bsw Output ByteStreamWriter
+private void processVcfVarsMT(ByteFile bf, ByteStreamWriter bsw)
+
+*Core filtering method that processes an entire VCF file.
+*Handles header processing, scaffold map initialization, and variant filtering
+*using either single-threaded or multithreaded approach.
+*@param ff Input file format
+*@param bsw Output ByteStreamWriter
+public void filter(FileFormat ff, ByteStreamWriter bsw)
+
+*Main processing method that coordinates the entire filtering workflow.
+*@param t Timer for performance measurement
+void process(Timer t)
+
+</class FilterVCF>
+<class MergeSamples>
+*Merges VCF files from multiple samples into a unified variant call set.
+*Creates a complete variant list where every position that has a variant
+*in ANY input sample is represented in the output, with sample-specific
+*information preserved.
+*This is particularly useful for multi-sample variant calling workflows where
+*you want to ensure that interesting variants from any individual sample are
+*evaluated across all samples, even if they weren't initially called in every sample.
+*The merging process:
+*1. Synchronously reads corresponding lines from all input VCF files
+*2. Aggregates statistical evidence across samples for each position
+*3. Preserves individual sample genotype information
+*4. Combines header metadata appropriately
+*@author Brian Bushnell
+*@contributor Isla
+*@date December 18, 2016
+public class MergeSamples
+
+#Fields
+*Poison pill sentinel for terminating thread processing loops
+final ListNum<VCFLine[]> POISON_LIST=new ListNum<VCFLine[]>(null,-1)
+
+*Thread-safe queue for distributing variant row batches to worker threads
+private final ArrayBlockingQueue<ListNum<VCFLine[]>> inq
+
+*Number of worker threads for parallel processing (matches CPU count)
+private final int threads
+
+*Total read count accumulated from all input samples (legacy field)
+long readsSum
+
+*Total read pair count accumulated from all input samples (legacy field)
+long pairsSum
+
+*Chromosome ploidy level for variant calling (typically 1 for haploid, 2 for diploid)
+int ploidy=1
+
+*Aggregate proper pair rate calculated as properlyPairedReads/max(1,reads)
+double properPairRate
+
+*Mean base quality score averaged across all input samples
+double totalQualityAvg
+
+*Mean mapping quality score averaged across all input samples
+double mapqAvg
+
+*Mean sequencing read length averaged across all input samples
+double readLengthAvg
+
+*Cumulative read count aggregated from all sample headers
+long reads
+
+*Cumulative paired read count aggregated from all sample headers
+long pairedReads
+
+*Cumulative properly paired read count aggregated from all sample headers
+long properlyPairedReads
+
+*Variant filtering criteria (currently unused but passed to Var.toVCF())
+VarFilter filter
+
+*Scaffold name mapping for coordinate system resolution
+ScafMap map
+
+*Flag to trim whitespace from scaffold names during processing
+boolean trimWhitespace=true
+
+*Primary input VCF filename (first sample, used for validation)
+private String in1=null
+
+*Primary merged output VCF filename (null writes to stdout)
+private String out1=null
+
+*Optional output filename for variants that fail filtering criteria
+private String outInvalid=null
+
+*Quality score histogram tracking distribution of final merged variant scores (0-199)
+long[] scoreArray=new long[200]
+
+*Total VCF lines processed across all input files (unused in current implementation)
+private long linesProcessed=0
+
+*Count of valid variant lines processed (unused in current implementation)
+private long linesValid=0
+
+*Total bytes read from input files (unused in current implementation)
+private long bytesProcessed=0
+
+*Maximum number of lines to process before stopping (Long.MAX_VALUE = unlimited)
+private long maxLines=Long.MAX_VALUE
+
+*Master neural network model for variant quality scoring (loaded once, shared across threads)
+private CellNet net0=null
+
+*Flag enabling neural network-based variant quality scoring
+private boolean useNet=false
+
+*Probability threshold for neural network variant classification (0.0-1.0)
+private float netCutoff=0.5f
+
+*PrintStream for diagnostic and progress messages (System.err by default)
+private PrintStream outstream=System.err
+
+*Global flag controlling detailed progress and debug output
+public static boolean verbose=false
+
+*Flag indicating whether processing encountered critical errors
+public boolean errorState=false
+
+*Flag allowing overwrite of existing output files
+private boolean overwrite=true
+
+*Flag enabling append mode for output files (vs overwrite)
+private boolean append=false
+
+
+#Methods
+*Command-line entry point for VCF file merging operations.
+*Parses arguments, configures the merger, and manages I/O streams.
+*The main processing is currently commented out (line 58).
+*@param args Command line arguments including input files, output paths, and neural network parameters
+public static void main(String[] args)
+
+*Default constructor for programmatic instantiation.
+*Initializes threading infrastructure using system-detected thread count.
+*Creates blocking queue with capacity threads+1 to allow producer to stay ahead.
+public MergeSamples()
+
+*Primary constructor that processes command-line arguments and configures the merger.
+*Handles file I/O setup, threading configuration, neural network loading,
+*and parameter validation. Sets up compressed I/O with PIGZ support.
+*@param args Command line arguments including input/output files, neural network settings, and processing options
+*@throws RuntimeException if required input files are missing or output files cannot be created
+public MergeSamples(String[] args)
+
+*High-level interface for merging VCF files from Sample objects (CallVariants2 integration).
+*Extracts sample names and VCF paths from Sample objects and delegates to mergeFiles().
+*This method serves as the primary entry point for multi-sample variant calling workflows
+*where samples are represented as structured objects rather than simple file paths.
+*@param list ArrayList of Sample objects, each containing sample name and VCF file path
+*@param scafMap ScafMap for scaffold name resolution and coordinate validation
+*@param outVcf Output merged VCF filename (may be null for stdout)
+*@param scoreHistFile Optional filename for quality score histogram output (may be null)
+public void mergeSamples(ArrayList<Sample> list, ScafMap scafMap, String outVcf, String scoreHistFile)
+
+*Core merging implementation that synchronously processes multiple VCF files.
+*Algorithm requirements and assumptions:
+*- All input VCF files must contain identical genomic positions in identical order
+*- Files are typically generated by CallVariants2 using the same reference genome
+*- Each file represents variant calls for a different sample at the same loci
+*- Uses subprocess mode only for ≤4 input files to avoid resource exhaustion
+*@param list ArrayList of StringPair objects containing (sample_name, vcf_filename) mappings
+*@param outVcf Output merged VCF filename (null writes to stdout)
+*@param scoreHistFile Optional quality score histogram filename (null disables histogram)
+public void mergeFiles(ArrayList<StringPair> list, String outVcf, String scoreHistFile)
+
+*Single-threaded merging implementation (legacy/debugging).
+*Processes variant rows sequentially without parallelization.
+*Sequential control flow makes debugging easier, but performance is limited
+*by single-threaded processing and frequent buffer flushing at 32KB threshold.
+*@param outVcf Output merged VCF filename (null writes to stdout)
+*@param bfa Array of ByteFile objects representing input VCF files in sample order
+private void mergeST(String outVcf, ByteFile[] bfa)
+
+*Multithreaded merging implementation using producer-consumer architecture.
+*Main thread reads and batches input rows while worker threads perform merging.
+*Processes header lines synchronously first, then dispatches data batches of 200 rows
+*to worker threads. Uses ArrayBlockingQueue for thread coordination and maintains
+*output ordering via ByteStreamWriter's internal sequencing.
+*@param outVcf Output merged VCF filename (null disables file output)
+*@param bfa Array of ByteFile objects representing synchronized input VCF files
+private void mergeMT(String outVcf, ByteFile[] bfa)
+
+*Synchronously reads corresponding lines from all input VCF files.
+*Critical synchronization method that ensures positional alignment across samples.
+*Returns null if any file reaches EOF (assumes all files have identical length).
+*Header lines (starting with '#') are processed separately and trigger header merging.
+*Data lines are converted to VCFLine objects with position validation.
+*@param bfa Array of ByteFile objects for synchronized reading
+*@param bb ByteBuilder for accumulating merged header content
+*@return Array of VCFLine objects (one per sample), or null if EOF reached
+*@throws AssertionError if variant positions don't match across files
+VCFLine[] processRow(ByteFile[] bfa, ByteBuilder bb)
+
+*Intelligently merges header metadata from multiple VCF files.
+*Merging strategy by header type:
+*- Statistical fields (reads, pairs, quality averages): Sum across samples then average
+*- Format definitions: Copy from first file (assumed identical across samples)
+*- Sample columns (#CHROM line): Concatenate sample names from all files
+*- Ploidy/rate calculations: Aggregate then recalculate derived values
+*@param lines Array of header line bytes (one corresponding line from each input file)
+*@param bb ByteBuilder for accumulating merged header output
+void processHeader(byte[][] lines, ByteBuilder bb)
+
+*Merges variant calls from multiple samples at identical genomic positions.
+*Multi-phase merging algorithm:
+*1. Converts each VCFLine to Var objects for statistical arithmetic
+*2. Accumulates read counts, base qualities, mapping qualities across samples
+*3. Combines coverage depth information using addCoverage()
+*4. Generates merged VCF line with neural network scoring if enabled
+*5. Preserves per-sample genotype columns in final output
+*6. Uses max individual quality score if better than merged score
+*7. Updates quality score histogram for downstream analysis
+*@param row Array of VCFLine objects representing same genomic position across all samples
+*@return Single merged VCFLine with combined statistical evidence and preserved sample data
+VCFLine merge(VCFLine[] row)
+
+*Blocking queue retrieval for consumer threads.
+*Repeatedly attempts to take a batch from the processing queue,
+*handling InterruptedException by continuing the wait loop.
+*@return ListNum containing batch of variant rows to process
+final ListNum<VCFLine[]> takeList()
+
+*Blocking queue insertion for producer thread.
+*Repeatedly attempts to add a batch to the processing queue,
+*handling InterruptedException by retrying until successful.
+*@param list ListNum containing batch of variant rows to queue for processing
+final void putList(ListNum<VCFLine[]> list)
+
+*Creates and starts worker threads for parallel variant merging.
+*Each thread processes batches independently and outputs via ByteStreamWriter
+*for ordered result assembly. Thread count matches system CPU availability.
+*@param bsw ByteStreamWriter for coordinated output ordering (may be null)
+*@return ArrayList of started MergeThread instances
+private ArrayList<MergeThread> spawnThreads(ByteStreamWriter bsw)
+
+*Blocks until all worker threads reach TERMINATED state.
+*Uses Thread.join() with InterruptedException handling to ensure
+*all processing completes before method returns.
+*@param alpt ArrayList of MergeThread instances to wait for completion
+private void waitForFinish(ArrayList<MergeThread> alpt)
+
+</class MergeSamples>
+<class Realign>
+*Realigns samlines to a reference.
+*@author Brian Bushnell
+*@date April 26, 2017
+public class Realign
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*A fasta file.
+private String ref=null
+
+*Primary output file path
+private String out1=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private boolean loadedRef=false
+
+private boolean qtrimLeft=false
+
+private boolean qtrimRight=true
+
+private float trimq=10
+
+private final float trimE
+
+*Number of trimmed, mapped bases processed
+protected long trimmedBasesProcessed=0
+
+*Number of reads discarded
+protected long readsDiscarded=0
+
+*Number of paired reads processed by this thread, whether or not they mapped as pairs
+protected long pairedInSequencingReadsProcessed=0
+
+*Number of properly paired reads processed
+protected long properlyPairedReadsProcessed=0
+
+*Number of bases trimmed
+protected long basesTrimmed=0
+
+protected long realignmentsAttempted
+
+protected long realignmentsImproved
+
+protected long realignmentsSucceeded
+
+protected long realignmentsRetained
+
+public final ScafMap scafMap=new ScafMap()
+
+public int border=0
+
+public boolean unclip=false
+
+public final SamFilter samFilter=new SamFilter()
+
+*Primary input file
+private final FileFormat ffin1
+
+*Primary output file
+private final FileFormat ffout1
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order
+private boolean ordered=true
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public Realign(String[] args)
+
+private void loadReference()
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+</class Realign>
+<class Realigner>
+*Realigns reads using Multiple Sequence Alignment (MSA) to improve alignments
+*from non-affine-gap aligners. Particularly useful for reads with indels longer
+*than 1bp that were poorly aligned by simpler alignment algorithms.
+*Performs glocal alignment with padding around the original alignment region
+*and only retains realignments that improve the alignment score.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class Realigner
+
+#Fields
+*Number of realignment attempts
+long realignmentsAttempted=0
+
+*Number of successful MSA alignments
+long realignmentsSucceeded=0
+
+*Number of realignments actually retained
+long realignmentsRetained=0
+
+*Number of realignments that improved scores
+long realignmentsImproved=0
+
+*Maximum rows for MSA matrix
+private int maxrows=602
+
+*Maximum columns for MSA matrix
+private int columns=2000
+
+*Padding bases around alignment region
+private int padding=100
+
+*MSA algorithm type
+private String msaType
+
+*MSA instance for performing alignments
+private MSA msa
+
+*Default maximum rows for MSA matrix
+public static int defaultMaxrows=603
+
+*Default maximum columns for MSA matrix
+public static int defaultColumns=2000
+
+*Default padding around alignment region
+public static int defaultPadding=200
+
+*Default MSA algorithm type
+public static String defaultMsaType="MultiStateAligner11ts"
+
+*Scaffold map for reference sequence lookup (initialized by CallVariants)
+public static ScafMap map=null
+
+
+#Methods
+*Creates a Realigner with default parameters.
+public Realigner()
+
+*Creates a Realigner with specified MSA parameters.
+*@param maxrows_ Maximum number of rows for MSA matrix
+*@param columns_ Maximum number of columns for MSA matrix
+*@param padding_ Padding bases to add around alignment region
+*@param msaType_ MSA algorithm type string
+public Realigner(int maxrows_, int columns_, int padding_, String msaType_)
+
+*Attempts to realign a read using scaffold lookup from the static map.
+*@param r Read to realign
+*@param sl Corresponding SAM line
+*@param unclip Whether to attempt unclipping of terminal indels
+*@return true if realignment was successful and improved the alignment
+public boolean realign(Read r, SamLine sl, boolean unclip)
+
+*Attempts to realign a read using the provided scaffold.
+*@param r Read to realign
+*@param sl Corresponding SAM line
+*@param scaf Scaffold containing reference sequence
+*@param unclip Whether to attempt unclipping of terminal indels
+*@return true if realignment was successful and improved the alignment
+public boolean realign(Read r, SamLine sl, Scaffold scaf, boolean unclip)
+
+*Core realignment method. Evaluates whether a read needs realignment based on
+*alignment quality indicators, then performs MSA-based realignment if beneficial.
+*Only realigns reads with sufficient numbers of mismatches, clips, or indels.
+*Retains realignments only if they improve the alignment score.
+*@param r Read to realign
+*@param sl Corresponding SAM line (will be modified if realignment succeeds)
+*@param ref Reference sequence bytes
+*@param unclip Whether to attempt unclipping of terminal indels
+*@return true if realignment was successful and improved the alignment
+public boolean realign(Read r, SamLine sl, byte[] ref, boolean unclip)
+
+*Creates a padded reference sequence segment for MSA alignment.
+*Extends the reference region with padding bases, using 'N' for out-of-bounds positions.
+*@param bases Full reference sequence
+*@param start Original alignment start position
+*@param stop Original alignment stop position
+*@param padding Number of bases to pad on each side
+*@return Padded reference segment
+private static byte[] makeRbases(byte[] bases, int start, int stop, int padding)
+
+*Returns the MSA object used for alignment.
+*@return MSA instance
+public MSA msa()
+
+</class Realigner>
+<class SamFilter>
+*Filters SAM/BAM alignments, VCF variants, and other genomic data based on
+*configurable criteria including mapping quality, position ranges, alignment
+*identity, and SAM flags. Supports both inclusive and exclusive filtering modes.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class SamFilter
+
+#Fields
+*Minimum position for coordinate filtering
+public int minPos=Integer.MIN_VALUE
+
+*Maximum position for coordinate filtering
+public int maxPos=Integer.MAX_VALUE
+
+*Minimum mapping quality threshold
+public int minMapq=Integer.MIN_VALUE
+
+*Maximum mapping quality threshold
+public int maxMapq=Integer.MAX_VALUE
+
+*Minimum alignment identity (0.0-1.0)
+public float minId=Integer.MIN_VALUE
+
+*Maximum alignment identity (0.0-1.0)
+public float maxId=Integer.MAX_VALUE
+
+*Whether to include unmapped reads
+public boolean includeUnmapped=true
+
+*Whether to include mapped reads
+public boolean includeMapped=true
+
+*Whether to include supplementary alignments
+public boolean includeSupplimentary=true
+
+*Whether to include reads that failed quality checks
+public boolean includeQfail=false
+
+*Whether to include duplicate reads
+public boolean includeDuplicate=true
+
+*Whether to include non-primary (secondary) alignments
+public boolean includeNonPrimary=false
+
+*Whether to include zero-length alignments
+public boolean includeLengthZero=false
+
+*Set of allowed contig names (null means all allowed)
+public HashSet<String> contigs=null
+
+*Whether to invert all filter results
+public boolean invert=false
+
+
+#Methods
+*Parses command-line arguments to configure filter parameters.
+*@param arg Original argument string
+*@param a Argument key (lowercase)
+*@param b Argument value
+*@return true if argument was recognized and parsed
+public boolean parse(String arg, String a, String b)
+
+*Adds contig names to the filter whitelist. Handles comma-separated lists
+*and automatically adds common name variants (underscore/space conversion).
+*@param s Contig name or comma-separated list of names
+void addContig(String s)
+
+*Tests whether a SAM line passes all filter criteria.
+*@param sl SAM line to test
+*@return true if line passes filters (accounting for invert flag)
+public boolean passesFilter(SamLine sl)
+
+*Internal filter logic for SAM lines. Tests all configured criteria
+*including position, mapping quality, SAM flags, and alignment identity.
+*@param sl SAM line to test
+*@return true if line matches filter criteria (before inversion)
+boolean matchesFilter(SamLine sl)
+
+*Tests whether a VCF line passes position and contig filters.
+*@param vl VCF line to test
+*@return true if line passes filters (accounting for invert flag)
+public boolean passesFilter(VCFLine vl)
+
+*Internal filter logic for VCF lines. Only position and contig
+*filters are applicable to VCF data.
+*@param vl VCF line to test
+*@return true if line matches filter criteria (before inversion)
+boolean matchesFilter(VCFLine vl)
+
+*Tests whether a Var object passes position and contig filters.
+*@param v Var object to test
+*@param map ScafMap for contig name resolution
+*@return true if variant passes filters (accounting for invert flag)
+public boolean passesFilter(Var v, ScafMap map)
+
+*Internal filter logic for Var objects. Only position and contig
+*filters are applicable to variant data.
+*@param v Var object to test
+*@param map ScafMap for contig name resolution
+*@return true if variant matches filter criteria (before inversion)
+boolean matchesFilter(Var v, ScafMap map)
+
+*Tests whether a contig name passes the contig filter.
+*@param name Contig name to test
+*@return true if name passes filter (accounting for invert flag)
+public boolean passesFilter(String name)
+
+*Internal filter logic for contig names.
+*@param name Contig name to test
+*@return true if name matches filter criteria (before inversion)
+boolean matchesFilter(String name)
+
+*Resets mapping quality filters to default (no filtering).
+public void clear()
+
+*Configures samtools filtering flags based on current filter settings.
+*Sets ReadWrite.SAMTOOLS_IGNORE_FLAG to exclude unwanted alignment types.
+public void setSamtoolsFilter()
+
+</class SamFilter>
+<class Scaffold>
+*Represents a single scaffold (chromosome/contig) in a reference genome.
+*Handles coverage tracking, sequence storage, and variant-related calculations.
+*Supports optional strand-specific coverage tracking and lazy initialization
+*of coverage arrays for memory efficiency.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class Scaffold
+
+#Fields
+*Scaffold name (chromosome/contig identifier)
+public final String name
+
+*Numeric scaffold identifier
+public final int number
+
+*Length of scaffold in base pairs
+public final int length
+
+*Primary coverage array for tracking read depth
+private CoverageArray ca
+
+*Minus-strand coverage array (only used when strand tracking enabled)
+private CoverageArray caMinus
+
+*Reference sequence bases (may be null if not loaded)
+public byte[] bases
+
+*Initialization status flag
+private boolean initialized
+
+*Whether to use CoverageArray3 implementation
+private static boolean useCA3=false
+
+*Whether to use CoverageArray3A implementation
+private static boolean useCA3A=true
+
+*Whether to track strand-specific coverage
+private static boolean trackStrand=false
+
+
+#Methods
+*Constructs a Scaffold by parsing a SAM header line.
+*Expects SAM format: @SQ SN:scaffold_0 LN:1785514 AS:build 9
+*@param line SAM header line as byte array
+*@param scafnum Scaffold number to assign
+public Scaffold(byte[] line, int scafnum)
+
+*Constructs a Scaffold with explicit parameters.
+*@param name_ Scaffold name
+*@param scafnum_ Scaffold number
+*@param len_ Scaffold length in bases
+public Scaffold(String name_, int scafnum_, int len_)
+
+*Adds coverage information from a SAM alignment line.
+*Extracts alignment coordinates and updates coverage arrays.
+*@param sl SAM line containing alignment information
+public void add(SamLine sl)
+
+*Increments coverage for a specified range, with optional strand tracking.
+*Uses lazy initialization to create coverage arrays only when needed.
+*Thread-safe through synchronized initialization block.
+*@param from Start position (inclusive)
+*@param to End position (exclusive)
+*@param strand Strand information (+ or -)
+public void increment(int from, int to, int strand)
+
+*Legacy synchronized version of increment method.
+*Less efficient than current implementation but provided for compatibility.
+*@param from Start position (inclusive)
+*@param to End position (exclusive)
+*@param strand Strand information (+ or -)
+public void incrementOld(int from, int to, int strand)
+
+*Extracts reference sequence covered by a SAM alignment.
+*@param sl SAM line defining the region
+*@return Reference sequence as String
+public String getSequence(SamLine sl)
+
+*Extracts reference sequence for a specified coordinate range.
+*@param start Start position (inclusive)
+*@param stop Stop position (inclusive)
+*@return Reference sequence as String
+public String getSequence(int start, int stop)
+
+*Calculates total coverage at a variant position.
+*@param v Var object defining the position
+*@return Average coverage across the variant region
+public int calcCoverage(Var v)
+
+*Calculates minus-strand coverage at a variant position.
+*Only available when strand tracking is enabled.
+*@param v Var object defining the position
+*@return Average minus-strand coverage across the variant region
+public int minusCoverage(Var v)
+
+*Calculates coverage for a variant using the specified coverage array.
+*Handles different variant types with appropriate coverage calculation strategies.
+*@param v Var object defining the position and type
+*@param ca Coverage array to query
+*@return Average coverage appropriate for the variant type
+public int calcCoverage(Var v, CoverageArray ca)
+
+*Returns SAM header representation of this scaffold.
+*@return SAM @SQ header line as String
+@Override public String toString()
+
+*Clears coverage arrays to free memory.
+*Thread-safe operation.
+public void clearCoverage()
+
+*Returns whether coverage arrays have been initialized
+private boolean initialized()
+
+*Sets whether to use CoverageArray3 implementation.
+*@param b true to use CoverageArray3, false for CoverageArray2
+public static void setCA3(boolean b)
+
+*Sets whether to use CoverageArray3A implementation.
+*@param b true to use CoverageArray3A
+public static void setCA3A(boolean b)
+
+*Enables or disables strand-specific coverage tracking.
+*@param b true to track strand-specific coverage
+public static void setTrackStrand(boolean b)
+
+*Returns whether strand-specific coverage tracking is enabled.
+*@return true if tracking strand-specific coverage
+public static boolean trackStrand()
+
+</class Scaffold>
+<class ScafMap>
+*Maps scaffold (chromosome/contig) names to Scaffold objects and provides
+*efficient lookup by name or numeric ID. Supports loading scaffold information
+*from SAM headers, VCF headers, or FASTA reference files.
+*Maintains both primary and alternative name mappings to handle whitespace
+*variations in scaffold names across different file formats.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class ScafMap
+
+#Fields
+*Ordered list of scaffolds (indexed by scaffold number)
+final ArrayList<Scaffold> list=new ArrayList<Scaffold>()
+
+*Primary name-to-scaffold mapping
+final HashMap<String,Scaffold> map=new HashMap<String,Scaffold>()
+
+*Alternative name-to-scaffold mapping (for whitespace variants)
+private final HashMap<String,Scaffold> alt=new HashMap<String,Scaffold>()
+
+*Global default ScafMap instance
+private static ScafMap defaultScafMap=null
+
+*Filename associated with default ScafMap
+private static String defaultScafMapFile=null
+
+*Whether to create alternative mappings for whitespace-trimmed names
+public static boolean TRIM_WHITESPACE_ALSO=true
+
+*Serialization ID
+private static final long serialVersionUID=1L
+
+
+#Methods
+*Creates an empty ScafMap
+public ScafMap()
+
+*Loads scaffold information from SAM file header
+*@param fname SAM filename
+*@return ScafMap populated with scaffold information
+public static ScafMap loadSamHeader(String fname)
+
+*Loads scaffold information from SAM file header
+*@param ff SAM FileFormat object
+*@return ScafMap populated with scaffold information
+public static ScafMap loadSamHeader(FileFormat ff)
+
+*Loads scaffold information from SAM file header into existing ScafMap
+*@param fname SAM filename
+*@param scafMap Existing ScafMap to add to (null to create new)
+*@return ScafMap populated with scaffold information
+public static ScafMap loadSamHeader(String fname, ScafMap scafMap)
+
+*Loads scaffold information from SAM file header into existing ScafMap
+*@param ff SAM FileFormat object
+*@param scafMap Existing ScafMap to add to (null to create new)
+*@return ScafMap populated with scaffold information
+public static ScafMap loadSamHeader(FileFormat ff, ScafMap scafMap)
+
+*Loads scaffold information from VCF file header
+*@param fname VCF filename
+*@return ScafMap populated with scaffold information
+public static ScafMap loadVcfHeader(String fname)
+
+*Loads scaffold information from VCF file header
+*@param ff VCF FileFormat object
+*@return ScafMap populated with scaffold information
+public static ScafMap loadVcfHeader(FileFormat ff)
+
+*Loads scaffold information from VCF file header into existing ScafMap
+*@param fname VCF filename
+*@param scafMap Existing ScafMap to add to (null to create new)
+*@return ScafMap populated with scaffold information
+public static ScafMap loadVcfHeader(String fname, ScafMap scafMap)
+
+*Loads scaffold information from VCF file header into existing ScafMap
+*@param ff VCF FileFormat object
+*@param scafMap Existing ScafMap to add to (null to create new)
+*@return ScafMap populated with scaffold information
+public static ScafMap loadVcfHeader(FileFormat ff, ScafMap scafMap)
+
+*Loads scaffold information from FASTA reference file
+*@param fname FASTA filename
+*@param makeDefault Whether to set as the default ScafMap
+*@return ScafMap populated with scaffold information
+public static ScafMap loadReference(String fname, boolean makeDefault)
+
+*Loads scaffold information from FASTA reference file
+*@param ff FASTA FileFormat object
+*@param makeDefault Whether to set as the default ScafMap
+*@return ScafMap populated with scaffold information
+public static ScafMap loadReference(FileFormat ff, boolean makeDefault)
+
+*Loads scaffold information from FASTA reference file with filtering
+*@param fname FASTA filename
+*@param scafMap Existing ScafMap to add to (null to create new)
+*@param samFilter Filter for scaffold names (null for no filtering)
+*@param makeDefault Whether to set as the default ScafMap
+*@return ScafMap populated with scaffold information
+public static ScafMap loadReference(String fname, ScafMap scafMap, SamFilter samFilter, boolean makeDefault)
+
+*Loads scaffold information from FASTA reference file with filtering
+*@param ff FASTA FileFormat object
+*@param map Existing ScafMap to add to (null to create new)
+*@param samFilter Filter for scaffold names (null for no filtering)
+*@param makeDefault Whether to set as the default ScafMap
+*@return ScafMap populated with scaffold information
+public static ScafMap loadReference(FileFormat ff, ScafMap map, SamFilter samFilter, boolean makeDefault)
+
+*Returns the default ScafMap instance
+*@return Default ScafMap or null if not set
+public static ScafMap defaultScafMap()
+
+*Sets the default ScafMap instance for global access
+*@param map ScafMap to set as default
+*@param fname Filename associated with this ScafMap
+public static void setDefaultScafMap(ScafMap map, String fname)
+
+*Removes all scaffolds from this ScafMap
+public void clear()
+
+*Returns the number of scaffolds in this ScafMap
+*@return Scaffold count
+public int size()
+
+*Returns set of primary scaffold names
+*@return Set of scaffold names
+public Set<String> keySet()
+
+*Returns set of alternative scaffold names
+*@return Set of alternative names
+public Set<String> altKeySet()
+
+*Adds a scaffold from a Read object, storing sequence data
+*@param r Read containing scaffold name and sequence
+*@return Added or existing Scaffold object
+public Scaffold addScaffold(Read r)
+
+*Adds a scaffold from SAM header line (@SQ format)
+*@param line SAM header line
+*@return Added or existing Scaffold object
+public Scaffold add(byte[] line)
+
+*Adds a scaffold from VCF contig header line (##contig=)
+*@param line VCF contig header line
+*@return Added or existing Scaffold object
+public Scaffold addFromVcf(byte[] line)
+
+*Adds a scaffold with specified name and length
+*@param s Scaffold name
+*@param len Scaffold length
+*@return Added or existing Scaffold object
+public Scaffold add(String s, int len)
+
+*Internal method to add a scaffold and update all lookup structures
+*@param scaf Scaffold to add
+*@return The added scaffold
+private Scaffold add(Scaffold scaf)
+
+*Adds coverage information from a SAM alignment
+*@param sl SAM line containing alignment information
+public void addCoverage(SamLine sl)
+
+*Gets scaffold number by name
+*@param s Scaffold name
+*@return Scaffold number or -1 if not found
+public int getNumber(String s)
+
+*Gets scaffold name by number
+*@param number Scaffold number
+*@return Scaffold name or null if invalid number
+public String getName(int number)
+
+*Gets scaffold length by number
+*@param number Scaffold number
+*@return Scaffold length or 0 if invalid number
+public int getLength(int number)
+
+*Gets scaffold by numeric ID
+*@param number Scaffold number
+*@return Scaffold object or null if invalid number
+public Scaffold getScaffold(int number)
+
+*Gets scaffold by name with intelligent whitespace handling
+*@param s Scaffold name (may contain whitespace variations)
+*@return Scaffold object
+public Scaffold getScaffold(String s)
+
+*Gets scaffold from SAM line reference name
+*@param sl SAM line
+*@return Scaffold object
+public Scaffold getScaffold(SamLine sl)
+
+*Gets coverage at a variant position
+*@param v Variant object
+*@return Coverage value
+public int getCoverage(Var v)
+
+*Calculates total length of all scaffolds
+*@return Sum of all scaffold lengths
+public long lengthSum()
+
+*Clears coverage information from all scaffolds
+public void clearCoverage()
+
+*Returns string representation of all scaffolds
+*@return Formatted scaffold information
+@Override public String toString()
+
+</class ScafMap>
+<class SoftClipper>
+*Performs soft-clipping operations on sequence alignments by identifying
+*poorly aligned terminal regions and converting them to clipped sequences.
+*Uses a scoring system to determine optimal clipping boundaries.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class SoftClipper
+
+#Methods
+*Applies soft clipping to a match string by identifying poorly aligned regions
+*at the ends and converting them to clipped bases. Uses dynamic scoring to
+*find the optimal alignment region and clips everything outside it.
+*@param match Original match string representing alignment operations
+*@param minClipLength Minimum number of bases required to perform clipping
+*@param allowMutation Whether to modify the original match array or create a copy
+*@param oldStart Original start position of the alignment
+*@param oldStop Original stop position of the alignment
+*@param startStopRvec Return vector for adjusted start/stop positions [start, stop]
+*@return Modified match string with soft clipping applied, or original if no clipping needed
+public static byte[] softClipMatch(byte[] match, int minClipLength, boolean allowMutation, int oldStart, int oldStop, int[] startStopRvec)
+
+</class SoftClipper>
+<class Var>
+*Represents a single genomic variant with associated quality metrics and statistics.
+*Stores variant position, type, allele information, and comprehensive read-level data
+*for variant calling quality assessment and filtering.
+*Core variant calling class that accumulates evidence from multiple reads,
+*calculates statistical scores for variant confidence, and outputs results
+*in standard formats (VAR, VCF). Handles all major variant types including
+*substitutions, insertions, deletions, and junction variants.
+*Key features:
+*- Multi-threaded variant accumulation from read alignments
+*- Sophisticated statistical scoring algorithms for quality assessment
+*- Bias detection (strand bias, read bias, positional bias)
+*- Homopolymer and repeat region analysis
+*- Support for multiple output formats with comprehensive metadata
+*@author Brian Bushnell
+*@contributor Isla
+*@date November 4, 2016
+public class Var
+
+#Fields
+private static final long serialVersionUID=3328626403863586829L
+
+*Scaffold/chromosome number for this variant
+public final int scafnum
+
+*Start position of variant (0-based, inclusive)
+public final int start
+
+*Stop position of variant (0-based, exclusive)
+public final int stop
+
+*Alternative allele sequence
+public final byte[] allele
+
+*Pre-computed hash code for efficient storage and comparison
+public final int hashcode
+
+*Variant type constant (SUB, INS, DEL, etc.)
+public final int type
+
+*Total coverage depth at this position (-1 = not calculated)
+int coverage=-1
+
+*Coverage on minus strand (-1 = not calculated)
+int minusCoverage=-1
+
+*Count of Read 1 supporting reads on plus strand
+int r1plus
+
+*Count of Read 1 supporting reads on minus strand
+int r1minus
+
+*Count of Read 2 supporting reads on plus strand
+int r2plus
+
+*Count of Read 2 supporting reads on minus strand
+int r2minus
+
+*Count of properly paired supporting reads
+int properPairCount
+
+*Sum of mapping qualities from supporting reads
+long mapQSum
+
+*Maximum mapping quality among supporting reads
+public int mapQMax
+
+*Sum of base qualities from supporting reads
+long baseQSum
+
+*Maximum base quality among supporting reads
+public int baseQMax
+
+*Sum of distances from read ends for supporting reads
+long endDistSum
+
+*Maximum distance from read ends among supporting reads
+public int endDistMax
+
+*Sum of alignment identity scores from supporting reads
+long idSum
+
+*Maximum alignment identity among supporting reads
+int idMax
+
+*Sum of read lengths from supporting reads
+long lengthSum
+
+*Count of nearby variants within scanning distance (-1 = not calculated)
+int nearbyVarCount=-1
+
+*Revised allele fraction accounting for technical biases (-1 = not calculated)
+double revisedAlleleFraction=-1
+
+*Whether this variant was forced from input VCF file
+private boolean forced=false
+
+*Whether this variant has been flagged for special attention
+boolean flagged=false
+
+*Enable calling of insertion variants
+public static boolean CALL_INS=true
+
+*Enable calling of deletion variants
+public static boolean CALL_DEL=true
+
+*Enable calling of substitution variants
+public static boolean CALL_SUB=true
+
+*Enable calling of no-call variants (all N bases)
+public static boolean CALL_NOCALL=false
+
+*Enable calling of junction variants from clipped reads
+public static boolean CALL_JUNCTION=false
+
+*Include extended statistics in text output
+public static boolean extendedText=true
+
+*Use dot genotype for variants that fail filters
+public static boolean noPassDotGenotype=false
+
+*Enable homopolymer context scoring
+public static boolean useHomopolymer=true
+
+*Enable alignment identity scoring
+public static boolean useIdentity=true
+
+*Enable proper pairing rate scoring
+public static boolean usePairing=true
+
+*Enable strand/read bias scoring
+public static boolean useBias=true
+
+*Enable distance from read ends scoring
+public static boolean useEdist=true
+
+*Enable scanning for nearby N bases (contig ends)
+public static boolean doNscan=true
+
+*Penalty factor for low coverage variants
+public static double lowCoveragePenalty=0.8
+
+*Maximum distance to scan for contig ends
+public static int nScan=600
+
+*Minimum distance from contig ends before applying bias penalties
+public static int minEndDistForBias=200
+
+*Minimum number of variant copies required for calling
+public static int MIN_VAR_COPIES=0
+
+*Convert allele sequences to uppercase in output
+public static final boolean UPPER_CASE_ALLELES=true
+
+*Verify that variants don't match reference (debugging)
+private static final boolean TEST_REF_VARIANTS=false
+
+*Semicolon character for VCF INFO field separation
+private static final byte colon=';'
+
+*Tab character for field separation
+private static final byte tab='\t'
+
+*Human-readable names for variant types
+public static final String[] typeArray=new String[]{"INS","NOCALL","SUB","DEL","LJUNCT","RJUNCT","BJUNCT","MULTI","COMPLEX"}
+
+*Insertion variant type constant
+public static final int INS=0
+
+*No-call variant type (length-neutral, reference N)
+public static final int NOCALL=1
+
+*Substitution variant type (length-neutral)
+public static final int SUB=2
+
+*Deletion variant type
+public static final int DEL=3
+
+*Left-junction variant (left side clipped, right side normal)
+public static final int LJUNCT=4
+
+*Right-junction variant (right side clipped, left side normal)
+public static final int RJUNCT=5
+
+*Bidirectional junction (both sides clipped)
+public static final int BJUNCT=6
+
+*Multiallelic variant (dominates all other types)
+public static final int MULTI=7
+
+*Complex variant type
+public static final int COMPLEX=8
+
+*Total number of variant types
+public static final int VAR_TYPES=COMPLEX + 1
+
+*Maps type initial letters to type constants for parsing
+static final byte[] typeInitialArray=new byte[128]
+
+*Pre-allocated empty allele array for deletions
+static final byte[] AL_0=new byte[0]
+
+*Pre-allocated single A allele
+static final byte[] AL_A=new byte[]{(byte)'A'}
+
+*Pre-allocated single C allele
+static final byte[] AL_C=new byte[]{(byte)'C'}
+
+*Pre-allocated single G allele
+static final byte[] AL_G=new byte[]{(byte)'G'}
+
+*Pre-allocated single T allele
+static final byte[] AL_T=new byte[]{(byte)'T'}
+
+*Pre-allocated single N allele
+static final byte[] AL_N=new byte[]{(byte)'N'}
+
+*Maps ASCII codes to pre-allocated allele arrays
+static final byte[][] AL_MAP=makeMap()
+
+*Random codes for hash function
+static final int[] codes=makeCodes()
+
+*Number of bits for variant type in hash keys
+private static final int typeBits=2
+
+*Number of bits for allele hash in hash keys
+private static final int alleleBits=6
+
+*Number of bits for scaffold number in hash keys
+private static final int scafBits=16
+
+*Number of bits for length in hash keys
+private static final int lenBits=8
+
+*Bit shift for allele hash in hash keys
+private static final int alleleShift=typeBits
+
+*Bit shift for scaffold number in hash keys
+private static final int scafShift=alleleShift + alleleBits
+
+*Bit shift for length in hash keys
+private static final int lenShift=scafShift + scafBits
+
+*Bit shift for start position in hash keys
+private static final int startShift=lenShift + lenBits
+
+*Version string for VAR format output
+public static final String varFormat="1.3"
+
+
+#Methods
+*Main method for testing and loading variant files.
+*Supports both VAR and VCF format input files for validation and analysis.
+*@param args Command line arguments: [0] = input file path, [1+] = optional parameters
+public static void main(String[] args)
+
+@Override public Var clone()
+
+*Creates variant from basic parameters using allele as integer ASCII code.
+*Convenience constructor that converts single-character alleles from ASCII codes
+*to byte arrays using the pre-allocated AL_MAP lookup table. Used primarily
+*for single-base substitutions where the allele is known as a character code.
+*@param scafnum_ Scaffold/chromosome number (0-based indexing)
+*@param start_ Start position in reference coordinates (0-based, inclusive)
+*@param stop_ Stop position in reference coordinates (0-based, exclusive)
+*@param allele_ Single-character allele as ASCII integer code
+*@param type_ Variant type constant (SUB, INS, DEL, etc.)
+public Var(int scafnum_, int start_, int stop_, int allele_, int type_)
+
+*Copy constructor - creates new variant with identical properties.
+*@param v Source variant to copy
+public Var(Var v)
+
+*Primary constructor for creating variants.
+*Validates coordinates and allele data, computes hash code for efficient storage.
+*@param scafnum_ Scaffold/chromosome number
+*@param start_ Start position (0-based, inclusive)
+*@param stop_ Stop position (0-based, exclusive)
+*@param allele_ Allele sequence as byte array
+*@param type_ Variant type (SUB, INS, DEL, etc.)
+public Var(int scafnum_, int start_, int stop_, byte[] allele_, int type_)
+
+*Constructs variant by parsing delimited text line from VAR format file.
+*Parses all 24+ fields including position, type, counts, and quality statistics.
+*Used for loading existing variant data from disk storage.
+*@param line Byte array containing tab-delimited variant data
+*@param delimiter Field separator character (typically tab)
+public Var(byte[] line, byte delimiter)
+
+*Resets all accumulated statistics to initial state while preserving variant identity.
+*Clears read counts, quality metrics, and flags but maintains position and allele data.
+*Used when reprocessing variants or clearing cached statistics.
+*@return This Var object for method chaining
+public Var clear()
+
+*Adds coverage data from another variant (used in multi-sample processing).
+*Only merges coverage statistics, not read-level data or quality metrics.
+*Variants must be equivalent (same position and allele).
+*@param b Source variant to merge coverage from
+public void addCoverage(Var b)
+
+*Merges complete statistical data from another equivalent variant.
+*Combines read counts, quality metrics, and positional statistics.
+*Used when consolidating variants from multiple processing threads.
+*@param b Source variant with data to merge
+public void add(Var b)
+
+*Adds evidence from a single read supporting this variant.
+*Calculates read-specific statistics and updates accumulated metrics.
+*@param r Read containing this variant
+public void add(Read r)
+
+*Adds evidence from a read with pre-calculated variant boundaries.
+*Updates strand counts, quality metrics, and positional statistics.
+*Core method for accumulating variant evidence from aligned reads.
+*@param r Read supporting this variant
+*@param bstart Start position of variant within read bases
+*@param bstop Stop position of variant within read bases
+public void add(Read r, int bstart, int bstop)
+
+*Converts reads to variant list using scaffold mapping for coordinate resolution.
+*Convenience wrapper that resolves scaffold name to number.
+*@param r Read to analyze for variants
+*@param sl SAM alignment line
+*@param callNs Whether to call variants at N positions
+*@param scafMap Scaffold mapping for name resolution
+*@return List of variants found in the read, or null if none
+public static ArrayList<Var> toVars(Read r, SamLine sl, boolean callNs, ScafMap scafMap)
+
+*Extracts all variants from a read alignment.
+*Processes match string to identify substitutions, insertions, deletions, and junctions.
+*Handles read orientation and creates appropriate Var objects for each variant type.
+*@param r Read with alignment information
+*@param sl SAM line with mapping details
+*@param callNs Whether to report variants at N positions in reference
+*@param scafnum Scaffold number for variant coordinates
+*@return List of Var objects representing all variants in the read
+public static ArrayList<Var> toVars(Read r, SamLine sl, boolean callNs, int scafnum)
+
+*Extracts substitutions, insertions, and deletions from read alignment.
+*Parses match string character by character to identify variant positions.
+*Creates Var objects for each variant with appropriate coordinates and alleles.
+*@param r Read with variant information
+*@param sl SAM alignment line
+*@param callNs Whether to call variants at N positions
+*@param scafnum Scaffold number for coordinates
+*@return List of substitution and indel variants
+private static ArrayList<Var> toSubsAndIndels(Read r, SamLine sl, boolean callNs, int scafnum)
+
+*Calculates the starting position of this variant within the read bases.
+*Parses match string to find where the variant begins in the read sequence.
+*@param r Read containing the variant
+*@param sl SAM line with alignment information
+*@return Starting base position of variant in read (0-based)
+public int calcBstart(Read r, SamLine sl)
+
+*Calculates the ending position of this variant within the read bases.
+*@param bstart Starting position of variant in read
+*@param r Read containing the variant
+*@return Ending base position of variant in read (exclusive)
+public int calcBstop(int bstart, Read r)
+
+*Calculates distance from variant to nearest read end.
+*Used for detecting variants near read ends which may be less reliable.
+*@param bstart Starting position of variant in read
+*@param bstop Ending position of variant in read
+*@param r Read containing the variant
+*@return Distance to nearest read end
+public int calcEndDist(int bstart, int bstop, Read r)
+
+*Debug method for converting byte array to readable string.
+*@param array Byte array to convert
+*@return Comma-separated string of byte values
+String toString(byte[] array)
+
+*Calculates average base quality for this variant position.
+*Handles strand orientation and special cases for deletions.
+*@param bstart0 Starting base position (forward orientation)
+*@param bstop0 Ending base position (forward orientation)
+*@param r Read with quality information
+*@param sl SAM line with strand information
+*@return Average base quality score for the variant
+public int calcBaseQ(int bstart0, int bstop0, Read r, SamLine sl)
+
+*Calculates reference sequence length affected by this variant.
+*@return Number of reference bases spanned (stop - start)
+public int reflen()
+
+*Calculates read sequence length of this variant's allele.
+*@return Length of alternative allele sequence
+int readlen()
+
+*Gets the variant type constant for this variant.
+*@return Type constant (SUB, INS, DEL, etc.)
+public int type()
+
+*Legacy method for calculating variant type from coordinates and allele.
+*Used for validation and backward compatibility.
+*@return Calculated variant type
+int type_old()
+
+*Determines variant type from start/stop coordinates and allele.
+*@param start Variant start position
+*@param stop Variant stop position
+*@param allele Alternative allele sequence
+*@return Variant type constant
+static int typeStartStop(int start, int stop, byte[] allele)
+
+*Determines variant type from read length, reference length, and allele content.
+*Core typing logic used by multiple variant type calculation methods.
+*@param readlen Length of alternative allele
+*@param reflen Length of reference sequence affected
+*@param allele Alternative allele sequence
+*@return Variant type constant (INS, DEL, SUB, or NOCALL)
+static int typeReadlenReflen(int readlen, int reflen, byte[] allele)
+
+*Gets human-readable string representation of variant type.
+*@return Type name (e.g., "SUB", "INS", "DEL")
+String typeString()
+
+*Tests equality with another object (must be a Var).
+*Uses optimized comparison with hash code pre-check for performance.
+*@param b Object to compare against
+*@return True if objects represent the same variant
+@Override public boolean equals(Object b)
+
+*Tests equality with another Var object.
+*Two variants are equal if they have the same position, type, and allele.
+*Uses hash code comparison for fast inequality detection.
+*@param b Var to compare against
+*@return True if variants are equivalent
+public boolean equals(Var b)
+
+*Returns hash code for this variant.
+*Used for efficient storage in hash-based collections.
+*@return Pre-computed hash code value
+@Override public int hashCode()
+
+*Generates unique key for this variant for use in bloom filters and hash maps.
+*Combines type, allele hash, length, and position into compact 64-bit key.
+*Uses bit shifting to pack multiple fields efficiently.
+*@return 64-bit key with high bit cleared (always positive)
+public long toKey()
+
+*Compares this variant to another for sorting.
+*Primary sort: scaffold number
+*Secondary sort: adjusted start position (deletions sort slightly earlier)
+*Tertiary sort: variant type
+*Quaternary sort: stop position
+*Final sort: allele sequence
+*@param v Variant to compare against
+*@return Negative, zero, or positive for less than, equal, or greater than
+@Override public int compareTo(Var v)
+
+*Compares two byte arrays lexicographically.
+*Used for allele comparison in variant sorting.
+*@param a First byte array
+*@param b Second byte array
+*@return Comparison result (negative/zero/positive)
+public int compare(byte[] a, byte[] b)
+
+*Returns string representation of this variant.
+*Uses quick formatting with default parameters for debugging.
+*@return Formatted variant string
+@Override public String toString()
+
+*Generates formatted text representation with default parameters.
+*Quick version for debugging and logging purposes.
+*@param bb ByteBuilder to append formatted text to
+*@return ByteBuilder with formatted variant data
+public ByteBuilder toTextQuick(ByteBuilder bb)
+
+*Generates comprehensive formatted text representation in VAR format.
+*Includes all statistical data, quality metrics, and calculated scores.
+*@param bb ByteBuilder to append formatted output
+*@param properPairRate Overall proper pair rate for dataset
+*@param totalQualityAvg Average base quality across dataset
+*@param totalMapqAvg Average mapping quality across dataset
+*@param readLengthAvg Average read length across dataset
+*@param rarity Minimum variant frequency threshold
+*@param ploidy Expected ploidy level
+*@param map Scaffold mapping for reference information
+*@return ByteBuilder with complete formatted variant data
+public ByteBuilder toText(ByteBuilder bb, double properPairRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, double rarity, int ploidy, ScafMap map, CellNet net)
+
+*Generates VCF format output for this variant with comprehensive INFO fields.
+*Includes all statistical data, quality metrics, and sample-specific information.
+*Handles coordinate conversion, allele normalization, and proper VCF formatting.
+*@param bb ByteBuilder to append VCF line to
+*@param properPairRate Dataset proper pair rate for scoring
+*@param totalQualityAvg Dataset average base quality
+*@param mapqAvg Dataset average mapping quality
+*@param readLengthAvg Dataset average read length
+*@param ploidy Expected organism ploidy level
+*@param map Scaffold mapping for reference sequence access
+*@param filter Variant filter for pass/fail determination
+*@param trimWhitespace Whether to trim scaffold names
+*@return ByteBuilder with complete VCF line
+public ByteBuilder toVCF(ByteBuilder bb, double properPairRate, double totalQualityAvg, double mapqAvg, double readLengthAvg, int ploidy, ScafMap map, VarFilter filter, CellNet net, boolean trimWhitespace)
+
+*Calculates number of variant copies based on allele frequency and ploidy.
+*Uses allele frequency thresholds to determine heterozygous vs homozygous calls.
+*Ensures minimum variant copy requirements are met.
+*@param ploidy Expected organism ploidy level
+*@return Number of variant copies (0 to ploidy)
+public int calcCopies(int ploidy)
+
+*Generates VCF genotype string based on variant copies and filter status.
+*Uses allele frequency and ploidy to determine genotype call.
+*Can output dot genotype for failed variants if configured.
+*@param ploidy Expected organism ploidy level
+*@param pass Whether variant passed quality filters
+*@return VCF genotype string (e.g., "0/1", "1/1", "./.")
+private String genotype(int ploidy, boolean pass)
+
+*Computes hash code for this variant based on position and allele.
+*Uses position rotation and allele hash combination for good distribution.
+*@return Hash code value for this variant
+private int hash()
+
+*Computes hash code for byte array using position-dependent mixing.
+*Provides good hash distribution for allele sequences of varying lengths.
+*@param a Byte array to hash (typically allele sequence)
+*@return Hash code for the byte array
+public static final int hash(byte[] a)
+
+*Calculates or retrieves coverage at this variant position.
+*Uses cached value if available, otherwise queries scaffold coverage data.
+*Also calculates strand-specific coverage if strand tracking is enabled.
+*@param map Scaffold mapping containing coverage information
+*@return Total coverage depth at this position
+public int calcCoverage(ScafMap map)
+
+*Calculates Phred-scaled quality score for this variant.
+*Converts internal scoring (0.0-1.0) to standard Phred scale for output.
+*@param properPairRate Overall proper pair rate for dataset
+*@param totalQualityAvg Average base quality across all reads
+*@param totalMapqAvg Average mapping quality across all reads
+*@param readLengthAvg Average read length across dataset
+*@param rarity Minimum variant frequency threshold
+*@param ploidy Expected organism ploidy level
+*@param map Scaffold mapping for reference sequence access
+*@param net Optional CellNet for prediction
+*@return Phred-scaled quality score (higher = more confident)
+public double phredScore(double properPairRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, double rarity, int ploidy, ScafMap map, CellNet net)
+
+*Calculates composite variant quality score from multiple evidence types.
+*Combines coverage, quality, bias, positional, and sequence context scores.
+*Uses geometric mean (power 0.2) to balance different evidence types.
+*@param properPairRate Dataset-wide proper pair rate for normalization
+*@param totalQualityAvg Dataset-wide average base quality
+*@param totalMapqAvg Dataset-wide average mapping quality
+*@param readLengthAvg Dataset-wide average read length
+*@param rarity Minimum expected variant frequency
+*@param ploidy Expected number of chromosome copies
+*@param map Scaffold map for sequence context analysis
+*@param net Optional CellNet for prediction
+*@return Composite quality score (0.0 to 1.0, higher = better)
+public double score(double properPairRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, double rarity, int ploidy, ScafMap map, CellNet net)
+
+*Scores variant based on distance from read ends.
+*Variants near read ends are less reliable due to sequencing quality decline.
+*Uses read length and position to calculate confidence penalty.
+*@return Score from 0.05 to 1.0 (higher = farther from ends)
+public double edistScore()
+
+*Scores variant based on alignment identity of supporting reads.
+*Higher identity reads provide more reliable variant evidence.
+*Adjusts for the variant's own contribution to identity calculation.
+*@return Score from 0.75 to 1.0 (higher = better alignment identity)
+public double identityScore()
+
+*Combines base quality and mapping quality scores.
+*Both quality types contribute to variant reliability assessment.
+*@param totalBaseqAvg Dataset average base quality for normalization
+*@param totalMapqAvg Dataset average mapping quality for normalization
+*@return Combined quality score (product of individual scores)
+public double qualityScore(double totalBaseqAvg, double totalMapqAvg)
+
+*Scores variant based on base quality of supporting reads.
+*Compares variant's base quality against dataset average.
+*Includes correction for recalibrated quality scores.
+*@param totalBaseqAvg Dataset-wide average base quality
+*@return Base quality score (0.0 to 1.0)
+public double baseQualityScore(double totalBaseqAvg)
+
+*Scores variant based on distance from read ends.
+*Variants near read ends are less reliable due to sequencing quality decline.
+*Uses read length and position to calculate confidence penalty.
+*@return Score from 0.05 to 1.0 (higher = farther from ends)
+public double mapQualityScore(double totalMapqAvg)
+
+*Scores variant based on proper pairing rate of supporting reads.
+*Compares variant's pairing rate against dataset baseline.
+*Applies positional correction for variants near contig ends.
+*@param properPairRate Dataset-wide proper pair rate
+*@param scafEndDist Distance from nearest contig end
+*@return Pairing score (0.1 to 1.0)
+public double pairedScore(double properPairRate, int scafEndDist)
+
+*Adjusts scores based on distance from contig ends.
+*Variants near contig ends may have artifacts due to assembly issues.
+*Provides score bonus for variants in problematic regions.
+*@param x Original score to modify
+*@param scafEndDist Distance from nearest contig end
+*@return Modified score (may be increased near contig ends)
+public double modifyByEndDist(double x, int scafEndDist)
+
+*Scores variant based on coverage depth and allele fraction.
+*Considers expected ploidy and minimum variant frequency thresholds.
+*Includes adjustment for insertion length effects on coverage.
+*@param ploidy Expected organism ploidy level
+*@param rarity Minimum expected variant frequency
+*@param readLengthAvg Average read length for insertion adjustments
+*@return Coverage adequacy score (0.0 to 1.0)
+public double coverageScore(int ploidy, double rarity, double readLengthAvg)
+
+*Revises allele fraction for insertions by adjusting nearby substitutions.
+*Insertions can create false substitutions when reads span the insertion boundary.
+*This method reduces allele fractions of nearby substitutions that may be artifacts.
+*Only applies to insertion variants with sufficient length and valid positions.
+*@param readLengthAvg Average read length for calculating adjustment factors
+*@param scaffold Reference scaffold containing this insertion
+*@param map VarMap containing other variants that may need adjustment
+public void reviseAlleleFraction(double readLengthAvg, Scaffold scaffold, VarMap map)
+
+*Gets revised allele fraction, calculating it if not already computed.
+*For insertions, adjusts for read length bias where long insertions
+*extending beyond read boundaries appear at artificially low frequencies.
+*@param af Original allele fraction
+*@param readLengthAvg Average read length for insertion length adjustment
+*@return Revised allele fraction accounting for technical biases
+public double revisedAlleleFraction(double af, double readLengthAvg)
+
+*Adjusts allele fraction for insertion length bias.
+*Long insertions near read ends won't be fully captured, causing
+*systematic underestimation of insertion allele frequency.
+*@param ratio Original allele fraction
+*@param rlen0 Average read length from dataset
+*@return Adjusted allele fraction accounting for insertion length bias
+public double adjustForInsertionLength(double ratio, double rlen0)
+
+*Calculates homopolymer penalty score for this variant.
+*Homopolymer regions are prone to sequencing errors, especially indels.
+*Longer homopolymer runs receive progressively lower confidence scores.
+*@param map Scaffold mapping for reference sequence access
+*@return Homopolymer score (1.0 = no homopolymer, lower = longer homopolymer)
+public double homopolymerScore(ScafMap map)
+
+*Counts homopolymer run length around this variant position.
+*Different calculation methods for substitutions, insertions, and deletions.
+*Used to assess likelihood of sequencing errors in repetitive sequence.
+*@param map Scaffold mapping for reference sequence access
+*@return Length of homopolymer run (0 = no homopolymer)
+public int homopolymerCount(ScafMap map)
+
+*Calculates combined bias score from strand and read biases.
+*Uses geometric mean (square root of product) to balance both bias types.
+*@param properPairRate Dataset proper pair rate for read bias calculation
+*@param scafEndDist Distance from contig ends for positional adjustment
+*@return Combined bias score (0.0 to 1.0, higher = less biased)
+public double biasScore(double properPairRate, int scafEndDist)
+
+*Calculates strand bias score using statistical significance testing.
+*Tests whether plus/minus strand distribution is significantly skewed.
+*Includes special handling for high-coverage variants with mild bias.
+*@param scafEndDist Distance from contig ends for positional correction
+*@return Strand bias score (0.0 to 1.0, higher = less biased)
+public double strandBiasScore(int scafEndDist)
+
+*Calculates read bias score (Read 1 vs Read 2 distribution).
+*Tests whether variant appears preferentially in one read of pair.
+*Includes relaxed scoring for high-coverage variants.
+*@param properPairRate Dataset proper pair rate (affects scoring)
+*@return Read bias score (0.0 to 1.0, higher = less biased)
+public double readBiasScore(double properPairRate)
+
+*Returns count of supporting reads on plus strand
+public int allelePlusCount()
+
+*Returns count of supporting reads on minus strand
+public int alleleMinusCount()
+
+*Returns count of supporting reads from Read 1
+public int r1AlleleCount()
+
+*Returns count of supporting reads from Read 2
+public int r2AlleleCount()
+
+*Returns total count of reads supporting this variant
+public int alleleCount()
+
+*Calculates allele fraction (variant reads / total coverage).
+*Uses maximum of variant count and total coverage for robustness.
+*@return Allele fraction (0.0 to 1.0)
+public double alleleFraction()
+
+*Calculates strand ratio balance (minority strand / majority strand).
+*Perfect balance returns 1.0, complete bias approaches 0.0.
+*@return Strand balance ratio (0.0 to 1.0)
+public double strandRatio()
+
+*Returns average base quality of supporting reads
+public double baseQAvg()
+
+*Returns average mapping quality of supporting reads
+public double mapQAvg()
+
+*Returns average distance from read ends
+public double edistAvg()
+
+*Returns average alignment identity of supporting reads
+public double identityAvg()
+
+*Returns average length of supporting reads
+public double lengthAvg()
+
+*Returns fraction of supporting reads that are properly paired
+public double properPairRate()
+
+*Sets coverage values for this variant position.
+*@param coverage_ Total depth of coverage
+*@param minusCoverage_ Coverage on minus strand
+public void setCoverage(int coverage_, int minusCoverage_)
+
+*Returns total coverage at this position.
+*@return Coverage depth (must be calculated first)
+public int coverage()
+
+*Checks if coverage has been calculated for this variant.
+*@return True if coverage data is available
+public boolean hasCoverage()
+
+*Calculates distance from nearest contig end.
+*Variants near contig ends may be less reliable due to assembly issues.
+*Scans for runs of N bases to identify true contig boundaries.
+*@param map Scaffold mapping for sequence access
+*@return Distance to nearest contig end (in bases)
+public int contigEndDist(ScafMap map)
+
+*Calculates distance to nearest contig end on the left side.
+*Searches for runs of 10+ N bases indicating contig boundaries.
+*@param bases Reference sequence
+*@param maxDist Maximum distance to search
+*@return Distance to left contig end
+public int leftContigEndDist(byte[] bases, int maxDist)
+
+*Calculates distance to nearest contig end on the right side.
+*Searches for runs of 10+ N bases indicating contig boundaries.
+*@param bases Reference sequence
+*@param maxDist Maximum distance to search
+*@return Distance to right contig end
+public int rightContigEndDist(byte[] bases, int maxDist)
+
+*Gets scaffold name using default scaffold mapping.
+*@return Scaffold/chromosome name
+public String scafName()
+
+*Gets scaffold name using specified mapping.
+*@param map Scaffold mapping to use
+*@return Scaffold/chromosome name
+public String scafName(ScafMap map)
+
+*Sets forced variant status (from input VCF)
+public Var setForced(boolean b)
+
+*Returns whether this variant was forced from input
+public boolean forced()
+
+*Sets flagged status for this variant
+public Var setFlagged(boolean b)
+
+*Returns whether this variant has been flagged
+public boolean flagged()
+
+*Returns true if this is an insertion
+public final boolean ins()
+
+*Returns true if this is a deletion
+public final boolean del()
+
+*Returns true if this is an insertion or deletion
+public final boolean indel()
+
+*Returns true if this is a substitution
+public final boolean sub()
+
+*Returns true if this is a complex variant
+public final boolean complex()
+
+*Returns true if this variant causes a frameshift.
+*Frameshifts occur when indel length is not divisible by 3.
+public final boolean frameshift()
+
+*Generates array of random integers for hash function.
+*Uses fixed seed for reproducible hash codes across runs.
+*@return Array of 256 random integers for hash mixing
+static final int[] makeCodes()
+
+*Creates mapping from ASCII codes to pre-allocated allele arrays.
+*Avoids repeated allocation of single-base allele sequences.
+*Maps both uppercase and lowercase bases to same arrays.
+*@return Mapping array where AL_MAP[ascii_code] = allele_array
+static final byte[][] makeMap()
+
+</class Var>
+<class VarFilter>
+*Comprehensive filtering system for genetic variants based on multiple quality metrics.
+*This is the core decision-making class that determines which variants are genuine
+*versus sequencing artifacts or low-confidence calls.
+*Implements a multi-tier filtering approach:
+*1. Fast preliminary filters (read depth, max quality scores)
+*2. Comprehensive statistical analysis (pairing rates, strand bias, coverage)
+*3. Complex scoring algorithms (phred scores, allele fractions)
+*4. Proximity-based filtering (nearby variant detection)
+*The passesFilter() method is the primary integration point where all statistical
+*evidence is evaluated. This is also the natural insertion point for machine learning
+*models that could supplement or replace traditional statistical filters.
+*@author Brian Bushnell
+*@contributor Isla
+public class VarFilter
+
+#Fields
+*Minimum number of reads supporting the variant allele
+public int minAlleleDepth=2
+
+*Maximum number of reads supporting the variant allele
+public int maxAlleleDepth=Integer.MAX_VALUE
+
+*Minimum total coverage at the variant position
+public int minCov=-1
+
+*Maximum total coverage at the variant position
+public int maxCov=Integer.MAX_VALUE
+
+*Minimum base quality score observed among supporting reads
+public int minMaxQuality=15
+
+*Minimum end distance (position within read) observed among supporting reads
+public int minMaxEdist=20
+
+*Minimum mapping quality observed among supporting reads
+public int minMaxMapq=0
+
+*Minimum alignment identity observed among supporting reads
+public double minMaxIdentity=0
+
+*Minimum proper pairing rate among supporting reads
+public double minPairingRate=0.1
+
+*Minimum strand ratio (balance between + and - strands)
+public double minStrandRatio=0.1
+
+*Minimum composite phred score for the variant
+public double minScore=20
+
+*Maximum composite phred score for the variant
+public double maxScore=Integer.MAX_VALUE
+
+*Minimum average base quality among supporting reads
+public double minAvgQuality=12
+
+*Maximum average base quality among supporting reads
+public double maxAvgQuality=Integer.MAX_VALUE
+
+*Minimum average end distance among supporting reads
+public double minAvgEdist=10
+
+*Minimum average mapping quality among supporting reads
+public double minAvgMapq=0
+
+*Maximum average mapping quality among supporting reads
+public double maxAvgMapq=Integer.MAX_VALUE
+
+*Minimum allele fraction (variant frequency in the sample)
+public double minAlleleFraction=0.1
+
+*Maximum allele fraction (variant frequency in the sample)
+public double maxAlleleFraction=Integer.MAX_VALUE
+
+*Minimum average alignment identity among supporting reads
+public double minIdentity=0
+
+*Maximum average alignment identity among supporting reads
+public double maxIdentity=Integer.MAX_VALUE
+
+*Expected rarity of variants in the population (affects scoring)
+public double rarity=1
+
+*Maximum number of nearby variants allowed before flagging/failing
+public int maxNearbyCount=1
+
+*Distance threshold for considering variants "nearby"
+public int nearbyDist=20
+
+*Minimum gap between variants to avoid proximity penalties
+public int nearbyGap=2
+
+*Whether to flag variants with too many nearby variants
+public boolean flagNearby=false
+
+*Whether to fail/reject variants with too many nearby variants
+public boolean failNearby=false
+
+*Whether to penalize scores of variants with nearby variants
+public boolean penalizeNearby=false
+
+*Whether to count nearby variants (enables proximity-based filtering)
+public boolean countNearbyVars=true
+
+
+#Methods
+*Parses command-line arguments to configure filtering parameters.
+*Handles a comprehensive set of filtering options with intelligent defaults
+*and automatic unit conversion (e.g., percentages to fractions).
+*@param a Argument key (lowercase)
+*@param b Argument value
+*@param arg Original argument string
+*@return true if argument was recognized and parsed
+public boolean parse(String a, String b, String arg)
+
+*Resets all filtering parameters to permissive defaults.
+*Useful for starting with a clean slate or disabling all filters.
+public void clear()
+
+*Copies all filtering parameters from another VarFilter.
+*Useful for creating filtered copies or applying consistent parameters.
+*@param filter Source VarFilter to copy parameters from
+public void setFrom(VarFilter filter)
+
+*Fast preliminary filtering using only simple numeric thresholds.
+*This method provides rapid screening of variants before more expensive
+*statistical calculations. Used for initial filtering in high-throughput scenarios.
+*Checks basic quality metrics that don't require division or complex calculations:
+*- Read depth (allele count)
+*- Maximum base quality observed
+*- Maximum end distance (position within reads)
+*- Maximum mapping quality
+*@param v Variant to evaluate
+*@return true if variant passes preliminary filters
+public boolean passesFast(Var v)
+
+*Comprehensive variant filtering using all available statistical evidence.
+*This is the core filtering method that integrates multiple lines of evidence
+*to determine variant quality. The method implements a layered filtering approach:
+*1. DEPTH FILTERS: Checks read count and coverage depth
+*2. QUALITY FILTERS: Evaluates base quality, mapping quality, alignment identity
+*3. PROXIMITY FILTERS: Considers nearby variant density (potential sequencing errors)
+*4. STATISTICAL FILTERS: Analyzes pairing rates, strand bias, average qualities
+*5. ALLELE FRACTION FILTERS: Evaluates variant frequency in the population
+*6. INTEGRATED SCORING: Uses phred-scaled composite scores
+*The method uses several optimization strategies:
+*- Early returns for forced variants (user-specified high-confidence calls)
+*- Fast rejection based on simple thresholds before expensive calculations
+*- Multiplication-based comparisons instead of division (count*threshold > sum)
+*- Conditional evaluation of expensive metrics only when thresholds are set
+*NEURAL NETWORK INTEGRATION POINT:
+*This method represents the natural insertion point for machine learning models.
+*A neural network could either:
+*1. Replace this entire method with learned decision boundaries
+*2. Supplement the statistical filters with additional evidence
+*3. Provide a final confidence score alongside traditional filtering
+*The method already calculates all the statistical features that would be
+*useful for ML training: coverage, quality scores, strand bias, proximity metrics, etc.
+*@param v Variant to evaluate
+*@param pairingRate Overall proper pairing rate from sequencing run
+*@param totalQualityAvg Average base quality from the entire dataset
+*@param totalMapqAvg Average mapping quality from the entire dataset
+*@param readLengthAvg Average read length from the sequencing run
+*@param ploidy Sample ploidy (typically 1 or 2)
+*@param map Scaffold mapping for coordinate-based calculations
+*@param considerNearby Whether to apply proximity-based filtering
+*@return true if variant passes all filtering criteria
+public boolean passesFilter(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map, CellNet net, boolean considerNearby)
+
+*Returns a formatted string representation of all filter parameters.
+*Useful for logging, debugging, and reproducibility documentation.
+*@param pairingRate Overall pairing rate for context
+*@param ploidy Sample ploidy for context
+*@return Formatted parameter summary
+public String toString(double pairingRate, int ploidy)
+
+</class VarFilter>
+<class VarHelper>
+*Utility class providing helper methods for variant processing and output formatting.
+*Contains static methods for generating file headers, calculating scores, analyzing homopolymers,
+*and processing junction variants. Extracted from Var class for better code organization.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 2025
+public class VarHelper
+
+#Methods
+*Generates comprehensive header for VAR format output files.
+*Includes metadata about sequencing run, processing parameters, and column definitions.
+*@param properPairRate Fraction of reads that mapped as proper pairs
+*@param totalQualityAvg Average base quality across all processed bases
+*@param mapqAvg Average mapping quality across all reads
+*@param rarity Minimum variant frequency threshold
+*@param minAlleleFraction Minimum allele fraction for variant calling
+*@param ploidy Expected ploidy level for organism
+*@param reads Total number of reads processed
+*@param pairs Number of paired reads in sequencing
+*@param properPairs Number of properly paired reads
+*@param bases Total number of bases processed
+*@param ref Reference genome file path
+*@return Complete VAR format header string
+public static String toVarHeader(double properPairRate, double totalQualityAvg, double mapqAvg, double rarity, double minAlleleFraction, int ploidy, long reads, long pairs, long properPairs, long bases, String ref)
+
+*Generates basic column header for simplified VAR output.
+*@return Basic VAR format header without metadata
+public static String toBasicHeader()
+
+*Generates comprehensive VCF format header with metadata and field definitions.
+*Includes all INFO and FORMAT field descriptions required by VCF specification.
+*@param properPairRate Fraction of properly paired reads
+*@param totalQualityAvg Average base quality score
+*@param mapqAvg Average mapping quality score
+*@param rarity Minimum variant frequency threshold
+*@param minAlleleFraction Minimum allele fraction for calling
+*@param ploidy Expected organism ploidy
+*@param reads Total reads processed
+*@param pairs Total paired reads
+*@param properPairs Total properly paired reads
+*@param bases Total bases processed
+*@param ref Reference genome file path
+*@param map Scaffold mapping information
+*@param sampleName Sample identifier for output
+*@param trimWhitespace Whether to trim scaffold names
+*@return Complete VCF format header
+public static String toVcfHeader(double properPairRate, double totalQualityAvg, double mapqAvg, double rarity, double minAlleleFraction, int ploidy, long reads, long pairs, long properPairs, long bases, String ref, ScafMap map, String sampleName, boolean trimWhitespace)
+
+*Converts variant quality score to Phred scale.
+*Applies scaling factors to convert internal scoring to standard Phred format.
+*@param score Internal variant quality score (0.0 to 1.0)
+*@return Phred-scaled quality score
+public static double toPhredScore(double score)
+
+*Counts homopolymer length around a substitution position.
+*Examines up to 4 bases in each direction for runs of identical bases.
+*@param bases Reference sequence
+*@param pos Position of substitution
+*@param base Base being substituted
+*@return Length of homopolymer run (0-8)
+public static int homopolymerCountSub(byte[] bases, int pos, byte base)
+
+*Counts homopolymer length extending leftward from position.
+*@param bases Sequence data
+*@param pos Starting position
+*@param base Base to count
+*@return Count of consecutive matching bases leftward
+public static int homopolymerCountLeft(byte[] bases, int pos, byte base)
+
+*Counts homopolymer length extending rightward from position.
+*@param bases Sequence data
+*@param pos Starting position
+*@param base Base to count
+*@return Count of consecutive matching bases rightward
+public static int homopolymerCountRight(byte[] bases, int pos, byte base)
+
+*Counts left-clipped bases from match string (handles both short and long format).
+*@param match Match string from read alignment
+*@return Number of left-clipped bases
+private static int countLeftClip(byte[] match)
+
+*Counts right-clipped bases from match string (handles both short and long format).
+*@param match Match string from read alignment
+*@return Number of right-clipped bases
+private static int countRightClip(byte[] match)
+
+*Counts left clipping in long match format (e.g., "CCCCCCMMMM").
+*@param longmatch Long format match string
+*@return Number of left-clipped bases
+private static int countLeftClipLong(byte[] longmatch)
+
+*Counts right clipping in long match format.
+*@param longmatch Long format match string
+*@return Number of right-clipped bases
+private static int countRightClipLong(byte[] longmatch)
+
+*Identifies junction variants from clipped alignments.
+*Detects left and right junction points where reads are clipped, indicating
+*potential structural variations or assembly breaks.
+*@param r Read with alignment information
+*@param sl SAM line with mapping details
+*@param scafnum Scaffold number for variant coordinates
+*@param containsVars Whether read contains other variants
+*@param minClip Minimum clipping length to consider junction
+*@return List of junction variants, or null if none found
+static ArrayList<Var> toJunctions(Read r, SamLine sl, int scafnum, boolean containsVars, int minClip)
+
+</class VarHelper>
+<class VarKey>
+*Simplified key representation of genetic variants for efficient hashing and comparison.
+*Provides a lightweight alternative to full Var objects when only basic variant
+*identification is needed, without storing complete allele sequences.
+*Note: This class is not currently thought to be used in the active codebase.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class VarKey
+
+#Fields
+*Scaffold number (chromosome identifier)
+int scafNum
+
+*Start position of the variant on the scaffold
+int start
+
+*Length of the variant (reference length for DEL, allele length for INS)
+int length
+
+*Type of variant (SUB, INS, DEL, etc.)
+int type
+
+*First nucleotide of allele as integer (0 for deletions)
+int allele
+
+
+#Methods
+*Creates a VarKey from a full Var object.
+*Extracts essential identifying information while discarding detailed statistics.
+*@param v Source Var object to convert
+*@return VarKey representing the same variant
+public static VarKey toVarKey(Var v)
+
+*Constructs a VarKey with the specified variant parameters.
+*@param scafNum_ Scaffold number (chromosome identifier)
+*@param start_ Start position on the scaffold
+*@param length_ Length of the variant (reference length for DEL, allele length for INS)
+*@param type_ Variant type (SUB, INS, DEL, etc.)
+*@param allele_ First nucleotide of allele (0 for deletions)
+public VarKey(int scafNum_, int start_, int length_, int type_, int allele_)
+
+*Computes hash code for efficient storage in hash-based collections.
+*Uses bit rotation to distribute hash values across all fields.
+*@return Hash code for this VarKey
+@Override public int hashCode()
+
+*Tests equality with another object.
+*@param b Object to compare with
+*@return true if objects represent the same variant
+@Override public boolean equals(Object b)
+
+*Tests equality with another VarKey.
+*Two VarKeys are equal if all identifying fields match.
+*@param b VarKey to compare with
+*@return true if both VarKeys represent the same variant
+public boolean equals(VarKey b)
+
+*Compares this VarKey with another for sorting purposes.
+*Orders by scaffold, then position, then length, then type, then allele.
+*@param b VarKey to compare with
+*@return Negative, zero, or positive integer for less-than, equal, or greater-than
+@Override public int compareTo(VarKey b)
+
+</class VarKey>
+<class VarMap>
+*Thread-safe container for managing large collections of genomic variants.
+*Uses sharded ConcurrentHashMap architecture for optimal concurrent performance
+*with minimal lock contention. Provides efficient storage, retrieval, and
+*processing of variants across multiple threads.
+*Key features:
+*- Sharded storage using position-based hashing for load distribution
+*- Multithreaded variant processing with statistical accumulation
+*- Custom iterator for seamless traversal across all shards
+*- Nearby variant analysis for artifact detection
+*- Comprehensive filtering and quality assessment pipeline
+*@author Brian Bushnell
+*@author Isla
+*@date December 2024
+public class VarMap
+
+#Fields
+*Expected organism ploidy level for variant calling
+public int ploidy=-1
+
+*Fraction of reads that mapped as proper pairs
+public double properPairRate=-1
+
+*Fraction of reads that were paired in sequencing
+public double pairedInSequencingRate=-1
+
+*Average base quality across all processed reads
+public double totalQualityAvg=-1
+
+*Average mapping quality across all processed reads
+public double totalMapqAvg=-1
+
+*Average read length across all processed reads
+public double readLengthAvg=-1
+
+*Scaffold mapping for coordinate resolution and reference access
+public final ScafMap scafMap
+
+*Array of concurrent hash maps for sharded variant storage
+final ConcurrentHashMap<Var,Var>[] maps
+
+*Serialization version identifier
+private static final long serialVersionUID=1L
+
+*Number of hash map shards (must be power of 2 for efficient masking)
+private static final int WAYS=8
+
+*Bit mask for shard selection (WAYS-1)
+public static final int MASK=WAYS - 1
+
+
+#Methods
+*Creates VarMap with scaffold mapping but default processing parameters.
+*@param scafMap_ Scaffold mapping for variant coordinate resolution
+VarMap(ScafMap scafMap_)
+
+*Creates VarMap with full initialization of processing parameters.
+*Initializes sharded storage with WAYS concurrent hash maps for optimal performance.
+*@param scafMap_ Scaffold mapping for coordinate resolution
+*@param ploidy_ Expected organism ploidy level
+*@param pairingRate_ Proper pair rate for dataset normalization
+*@param totalQualityAvg_ Average base quality across dataset
+*@param mapqAvg_ Average mapping quality across dataset
+*@param readLengthAvg_ Average read length for bias corrections
+@SuppressWarnings VarMap(ScafMap scafMap_, int ploidy_, double pairingRate_, double totalQualityAvg_, double mapqAvg_, double readLengthAvg_)
+
+*Counts nearby variants using default filter parameters.
+*Convenience wrapper for nearby variant analysis.
+*@param varFilter Filter containing nearby variant parameters
+*@return Number of variants exceeding nearby variant thresholds
+public int countNearbyVars(VarFilter varFilter)
+
+*Analyzes clustering of variants to detect potential artifacts.
+*Scans for variants within specified distance and gap thresholds
+*to identify regions with suspiciously high variant density.
+*@param varFilter Filter for quality assessment during scanning
+*@param maxCount0 Maximum allowed nearby variants
+*@param maxDist Maximum distance to scan for nearby variants
+*@param maxGap Maximum gap between consecutive variants in cluster
+*@param flag Whether to mark variants exceeding thresholds
+*@return Number of variants exceeding nearby count threshold
+public int countNearbyVars(VarFilter varFilter, int maxCount0, int maxDist, int maxGap, boolean flag)
+
+*Tests if a variant passes quality filters independently.
+*Used during nearby variant analysis to determine which variants count toward clustering.
+*Only determines whether the nearby variants pass.
+*@param v Variant to test
+*@param varFilter Quality filter to apply
+*@return True if variant passes quality thresholds
+private boolean passesSolo(Var v, VarFilter varFilter)
+
+*Counts nearby variants for a specific variant position.
+*Scans left and right from target position to identify clustering.
+*Only counts variants that pass quality filters.
+*@param varFilter Quality filter for determining which variants to count
+*@param array Sorted array of all variants
+*@param vloc0 Index of target variant in array
+*@param maxCount Maximum nearby variants before flagging
+*@param maxDist Maximum distance to scan from target
+*@param maxGap Maximum gap between consecutive variants
+*@param flag Whether to flag variants exceeding threshold
+*@return Number of nearby variants found
+public int countNearbyVars(VarFilter varFilter, Var[] array, int vloc0, int maxCount, int maxDist, int maxGap, boolean flag)
+
+*Tests if VarMap contains a specific variant.
+*@param v Variant to search for
+*@return True if variant is present
+public boolean containsKey(Var v)
+
+*Retrieves variant from appropriate shard.
+*Uses position-based hashing to determine correct map.
+*@param v Variant key to search for
+*@return Stored variant or null if not found
+Var get(Var v)
+
+*Returns total number of variants across all shards.
+*@return Total variant count
+public long size()
+
+*Alternative size calculation using iterator (slow).
+*Used for debugging and validation only.
+*@return Total variant count via iteration
+public long size2()
+
+*Adds variant to appropriate shard with thread safety.
+*Merges with existing variant if already present.
+*@param v Variant to add
+*@return 1 if new variant added, 0 if merged with existing
+private int add(Var v)
+
+*Adds variant without synchronization (for single-threaded use).
+*@param v Variant to add
+*@return 1 if new variant added, 0 if merged
+int addUnsynchronized(Var v)
+
+*Removes variant without synchronization.
+*@param v Variant to remove
+*@return 1 if variant was present and removed, 0 otherwise
+int removeUnsynchronized(Var v)
+
+*Efficiently merges thread-local variant collections into main storage.
+*Groups variants by shard for batch processing with minimal locking.
+*@param mapT Thread-local variant map to merge
+*@return Number of new variants added
+int dumpVars(HashMap<Var,Var> mapT)
+
+*Single-threaded variant processing for debugging and validation.
+*@param filter Quality filter to apply
+*@param net CellNet for prediction
+*@param scoreArray Score histogram arrays to populate
+*@param ploidyArray Ploidy distribution array
+*@param avgQualityArray Average quality histograms
+*@param maxQualityArray Maximum quality histogram
+*@param ADArray Allele depth arrays
+*@param AFArray Allele frequency arrays
+*@return Array of variant counts by type
+public long[] processVariantsST(VarFilter filter, CellNet net, long[][] scoreArray, long[] ploidyArray, long[][] avgQualityArray, long[] maxQualityArray, long[][] ADArray, double[] AFArray)
+
+*Multithreaded variant processing with statistical accumulation.
+*Processes all shards in parallel for optimal performance.
+*@param filter Quality filter for variant assessment
+*@param net CellNet for prediction
+*@param scoreArray Score histogram collection
+*@param ploidyArray Ploidy distribution tracking
+*@param avgQualityArray Quality histogram collection
+*@param maxQualityArray Maximum quality distribution
+*@param ADArray Allele depth statistics
+*@param AFArray Allele frequency statistics
+*@return Variant type counts across all processed variants
+public long[] processVariantsMT(VarFilter filter, CellNet net, long[][] scoreArray, long[] ploidyArray, long[][] avgQualityArray, long[] maxQualityArray, long[][] ADArray, double[] AFArray)
+
+*Internal multithreaded processing implementation.
+*Creates one processing thread per shard for parallel execution.
+*@param filter Quality filter to apply
+*@param net CellNet for prediction
+*@param scoreArray Optional score histogram arrays
+*@param ploidyArray Optional ploidy distribution array
+*@param avgQualityArray Optional quality histogram arrays
+*@param maxQualityArray Optional maximum quality histogram
+*@param ADArray Optional allele depth arrays
+*@param AFArray Optional allele frequency arrays
+*@param processInsertions Whether to process insertion bias corrections
+*@return Accumulated variant type counts
+private long[] processVariantsMT_inner(VarFilter filter, CellNet net, long[][] scoreArray, long[] ploidyArray, long[][] avgQualityArray, long[] maxQualityArray, long[][] ADArray, double[] AFArray, boolean processInsertions)
+
+*Core variant processing logic for filtering and statistics collection.
+*Handles both insertion bias correction and comprehensive quality assessment.
+*@param map Single shard to process
+*@param filter Quality filter for variant assessment
+*@param scoreArray Optional score histogram collection
+*@param ploidyArray Optional ploidy distribution tracking
+*@param avgQualityArray Optional quality histogram collection
+*@param maxQualityArray Optional maximum quality tracking
+*@param ADArray Optional allele depth collection
+*@param AFArray Optional allele frequency collection
+*@param processInsertions Whether to handle insertion bias corrections
+*@param considerNearby Whether to consider nearby variant counts in filtering
+*@return Variant type counts for processed variants
+private long[] processVariants(Map<Var,Var> map, VarFilter filter, CellNet net, long[][] scoreArray, long[] ploidyArray, long[][] avgQualityArray, long[] maxQualityArray, long[][] ADArray, double[] AFArray, boolean processInsertions, boolean considerNearby)
+
+*Adds shared variants from another map (used in multi-sample processing).
+*@param map Target shard to modify
+*@param sharedMap Source of shared variants
+*@return Variant type counts for added variants
+private long[] addSharedVariants(Map<Var,Var> map, Map<Var,Var> sharedMap)
+
+*Creates sorted array of all variants for positional analysis.
+*@param sort Whether to sort array by genomic position
+*@return Array containing all variants
+public Var[] toArray(boolean sort)
+
+*Validates internal data structure consistency (slow debugging method).
+*Checks that all key-value pairs are properly mapped and no variants
+*appear in multiple shards.
+*@param quiet Whether to suppress detailed output
+*@return True if all validation checks pass
+private boolean mappedToSelf(boolean quiet)
+
+*Calculates coverage for all variants and returns type distribution.
+*@param scafMap Scaffold mapping for coverage calculation
+*@return Array of variant counts by type
+public long[] calcCoverage(ScafMap scafMap)
+
+*Counts variants by type without additional processing.
+*@return Array of variant counts by type
+public long[] countTypes()
+
+*Clears all variants and resets processing parameters.
+*Reinitializes all shards for fresh usage.
+public void clear()
+
+*Creates string representation of all variants.
+*@return Formatted string containing all variant data
+@Override public String toString()
+
+*Creates iterator for traversing all variants across shards.
+*@return Custom iterator that handles sharded storage
+@Override public VarMapIterator iterator()
+
+</class VarMap>
+<class VarProb>
+*Statistical probability calculations for variant calling quality assessment.
+*Provides binomial probability analysis to evaluate the likelihood of observed
+*variant patterns occurring by chance, helping distinguish real variants from
+*sequencing artifacts or random noise.
+*Uses precomputed probability matrices for efficient calculation of binomial
+*event probabilities with bias adjustments for real-world sequencing data.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 25, 2025
+public class VarProb
+
+#Fields
+*Maximum n value for precomputed probability matrices
+static final int PROBLEN=100
+
+*Precomputed factorial values: factorial[n] = n!
+private static final double[] factorial=makeFactorialArray(PROBLEN + 1)
+
+*Precomputed binomial coefficients: binomial[n][k] = C(n,k)
+private static final double[][] binomial=makeBinomialMatrix(PROBLEN + 1)
+
+*Precomputed cumulative probabilities: prob[n][k] = P(X ≤ k) for binomial(n,0.5)
+static final double[][] prob=makeProbMatrix(PROBLEN + 1)
+
+
+#Methods
+*Calculates adjusted probability of a binomial event being at least this lopsided.
+*Accounts for expected sequencing bias and provides realistic probability estimates
+*for variant calling decisions. Used to assess whether observed allele ratios
+*are likely due to chance or represent genuine biological variation.
+*@param a Count of first outcome (e.g., reference alleles)
+*@param b Count of second outcome (e.g., alternative alleles)
+*@return Probability that this outcome or more extreme could occur by chance
+public static double eventProb(int a, int b)
+
+*Creates factorial lookup table for combinatorial calculations.
+*Precomputes n! for values 0 to len-1 to avoid repeated calculation.
+*@param len Maximum factorial to compute
+*@return Array where factorial[n] = n!
+private static double[] makeFactorialArray(int len)
+
+*Creates binomial coefficient matrix for "n choose k" calculations.
+*Precomputes combinations for efficient probability calculation.
+*Only stores values for k <= n/2 due to symmetry: C(n,k) = C(n,n-k)
+*@param len Maximum n value to compute
+*@return Matrix where binomial[n][k] = C(n,k) = n!/(k!(n-k)!)
+private static double[][] makeBinomialMatrix(int len)
+
+*Calculates binomial coefficients for large values using iterative approach.
+*Used when values exceed precomputed matrix bounds.
+*Carefully manages numerical precision to avoid overflow.
+*@param n Total items
+*@param k Items to choose
+*@return Binomial coefficient C(n,k)
+private static double bigBinomial(int n, int k)
+
+*Creates cumulative probability matrix for binomial events.
+*Calculates probability of observing k or fewer minority outcomes in n trials,
+*accounting for the decreasing probability as n increases (multiplying by 0.5^n).
+*@param len Maximum n value to compute
+*@return Matrix where prob[n][k] = P(X <= k) for binomial(n, 0.5)
+private static double[][] makeProbMatrix(int len)
+
+</class VarProb>
+<class VCFFile>
+*Loads and parses VCF (Variant Call Format) files into memory.
+*Handles VCF headers, sample names, and variant lines with support for
+*complex variant splitting and scaffold mapping generation.
+*Used primarily for VCF file comparison and processing operations
+*rather than direct variant calling.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+*@date January 14, 2017
+public class VCFFile
+
+#Fields
+*Number of lines processed
+private long linesProcessed=0
+
+*Number of bytes processed
+private long bytesProcessed=0
+
+*Maximum lines to process (for testing/debugging)
+private long maxLines=Long.MAX_VALUE
+
+*VCF header lines
+public ArrayList<byte[]> header=new ArrayList<byte[]>()
+
+*Sample names extracted from VCF header
+public ArrayList<String> sampleNames=new ArrayList<String>()
+
+*Map of VCF variant lines (preserves order, allows fast lookup)
+public LinkedHashMap<VCFLine,VCFLine> map=new LinkedHashMap<VCFLine,VCFLine>()
+
+*Input filename
+private String in1=null
+
+*Input file format
+private final FileFormat ffin1
+
+*VCF column header prefix for identification
+public static final String CHROM_POS="#CHROM\tPOS\t"
+
+*Output stream for messages
+private static PrintStream outstream=System.err
+
+*Verbose output flag
+public static boolean verbose=false
+
+*Error state flag
+public boolean errorState=false
+
+
+#Methods
+*Main method for standalone VCF file processing.
+*Supports command-line parsing and file loading with timing statistics.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructs a VCFFile from a filename string.
+*@param s Input VCF filename
+public VCFFile(String s)
+
+*Constructs a VCFFile from a FileFormat object.
+*@param ff FileFormat specifying the input file
+public VCFFile(FileFormat ff)
+
+*Loads VCF data from the input file. Parses header lines to extract
+*scaffold information and sample names, then loads variant lines into
+*a LinkedHashMap for preservation of order and fast lookup.
+void load()
+
+*Prints timing and statistics information about the loaded VCF file.
+*@param t Timer object containing elapsed time information
+void printTime(Timer t)
+
+*Returns all VCF lines as a list, with optional splitting of complex variants.
+*@param simplify Whether to split multi-allelic and complex variants into simple variants
+*@return List of VCFLine objects
+public ArrayList<VCFLine> lines(boolean simplify)
+
+*Creates a ScafMap from VCF contig header lines.
+*Parses ##contig= lines to build scaffold mapping.
+*@param sm Existing ScafMap to add to (null to create new one)
+*@return ScafMap containing scaffold information from VCF header
+public ScafMap toScafMap(ScafMap sm)
+
+*Converts VCF header to a formatted string.
+*@return Complete VCF header as string with newlines
+public String headerToString()
+
+*Returns number of lines processed during loading
+*@return Lines processed count
+public long linesProcessed()
+
+*Returns number of bytes processed during loading
+*@return Bytes processed count
+public long bytesProcessed()
+
+</class VCFFile>
+<class VCFLine>
+public class VCFLine
+
+#Fields
+public final String scaf
+
+public int pos
+
+public byte[] id
+
+public byte[] ref
+
+public int reflen
+
+public byte[] alt
+
+public double qual
+
+public byte[] filter
+
+public byte[] info
+
+public byte[] format
+
+public int hashcode
+
+public int type
+
+public ArrayList<byte[]> samples=new ArrayList<byte[]>()
+
+public static HashMap<String,byte[]> cache=new HashMap<String,byte[]>(99997)
+
+static boolean AUTOCACHE=false
+
+static boolean TRIM_TO_CANONICAL=true
+
+static boolean SORT=true
+
+static boolean CONDENSE=true
+
+static boolean SPLIT_INFO=true
+
+private static final byte[] NOCALL=cache("NOCALL")
+
+private static final byte[] SUB=cache("SUB")
+
+private static final byte[] DEL=cache("DEL")
+
+private static final byte[] INS=cache("INS")
+
+private static final byte[] LJUNCT=cache("LJUNCT")
+
+private static final byte[] RJUNCT=cache("RJUNCT")
+
+private static final byte[] BJUNCT=cache("BJUNCT")
+
+private static final byte[] MULTI=cache("MULTI")
+
+private static final byte[] COMPLEX=cache("COMPLEX")
+
+private static final byte[] DOT=cache(".")
+
+private static final byte[] PASS=cache("PASS")
+
+private static final byte[] FAIL=cache("FAIL")
+
+private static final byte[] FORMAT=cache("GT:DP:AD:AF:SC:PF")
+
+
+#Methods
+public VCFLine(String scaf_, int pos_, byte[] id_, byte[] ref_, byte[] alt_, double qual_, byte[] filter_, byte[] info_, byte[] format_, int type_, ArrayList<byte[]> samples_)
+
+public VCFLine(byte[] line)
+
+public Var toVar()
+
+public static Var makeVar(byte[] info, byte[] alt)
+
+public ArrayList<VCFLine> split(boolean splitAlleles, boolean splitComplex, boolean splitSubs)
+
+*Split into one line per allele
+private ArrayList<VCFLine> splitAlleles()
+
+*Splits multi-base substitutions into SNPs.
+*Discards resultant ref "SNPs"
+private ArrayList<VCFLine> splitSubs()
+
+*Splits non-length-neutral lines into sub+del or sub+ins.
+*Discards resultant ref "SUBs"
+*Since alignment information is no longer present, this will do a bad job usually,
+*unless alignment is performed.
+*It's OK for easy things like a 1bp substitution plus a single deletion or insertion.
+private ArrayList<VCFLine> splitComplex()
+
+*Attempts to split comma-delimited info fields by allele
+*This will not always be correct as some info fields are supposed to contain commas
+private byte[] splitInfo(String[] splitInfo, int alleleNum, int alleles)
+
+*Assumes list is sorted; removes duplicates
+private static int condense(ArrayList<VCFLine> list)
+
+@Override public VCFLine clone()
+
+*Trim matching affixes for a canonical representation
+private int trimToCanonical()
+
+private int trimPrefix()
+
+private int trimSuffix()
+
+private byte[] prefix(byte[] array, int len)
+
+private byte[] suffix(byte[] array, int len)
+
+@Override public boolean equals(Object b)
+
+public boolean equals(VCFLine b)
+
+private int hash()
+
+@Override public int hashCode()
+
+public long toKey()
+
+@Override public int compareTo(VCFLine v)
+
+public int compare(byte[] a, byte[] b)
+
+@Override public String toString()
+
+public ByteBuilder toText(ByteBuilder bb)
+
+public int reflen()
+
+public int readlen()
+
+public int type_old()
+
+public int type()
+
+public boolean isRef()
+
+public boolean isJunction()
+
+public boolean isIndel()
+
+public boolean isSub()
+
+public boolean isDel()
+
+public boolean isIns()
+
+public boolean isNocall()
+
+public boolean isMulti()
+
+public boolean isComplex()
+
+public boolean isSimple()
+
+void cache()
+
+static byte[] cache(byte[] line)
+
+static byte[] cache(String s)
+
+*0-based
+public int start()
+
+*0-based
+public int stop()
+
+private void recalc()
+
+</class VCFLine>
+<class VcfLoader>
+*Multithreaded loader for VCF and VAR format files.
+*Uses producer-consumer pattern with one thread reading lines and
+*multiple worker threads parsing variants to maximize I/O and CPU efficiency.
+*Supports both custom VAR format and standard VCF format with optional
+*coverage and extended information parsing.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+public class VcfLoader
+
+#Fields
+*Primary input filename
+final String fname
+
+*Input file format
+final FileFormat ffin
+
+*Queue for passing line batches between threads
+final ArrayBlockingQueue<ListNum<byte[]>> inq
+
+*Number of parser threads to spawn
+final int threads
+
+*Header lines from input file
+ArrayList<byte[]> header=new ArrayList<byte[]>()
+
+*Print status messages to this output stream
+protected PrintStream outstream=System.err
+
+*Scaffold mapping for coordinate resolution
+final ScafMap scafMap
+
+*Container for loaded variants
+final VarMap varMap
+
+*true for VCF format, false for VAR format
+final boolean vcfMode
+
+*Error state flag
+boolean errorState=false
+
+*Poison pill to signal end of processing
+static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null,-1)
+
+*Batch size for line processing
+static final int LIST_SIZE=200
+
+*Default number of threads
+public static int DEFAULT_THREADS=3
+
+*Verbose output flag
+static boolean verbose=false
+
+
+#Methods
+*Creates a VcfLoader for the specified file and format.
+*@param fname_ Input filename
+*@param scafMap_ Scaffold mapping for variant coordinate resolution
+*@param vcfMode_ true for VCF format, false for VAR format
+public VcfLoader(String fname_, ScafMap scafMap_, boolean vcfMode_)
+
+*Loads variants from a file, auto-detecting format.
+*@param ff Input file format
+*@param scafMap Scaffold mapping for coordinate resolution
+*@param loadCoverage Whether to parse coverage information from VCF
+*@param extendedInfo Whether to parse extended statistical fields
+*@return VarMap containing loaded variants
+public static VarMap loadFile(FileFormat ff, ScafMap scafMap, boolean loadCoverage, boolean extendedInfo)
+
+*Loads variants from a VAR format file.
+*@param fname Input filename
+*@param scafMap Scaffold mapping for coordinate resolution
+*@return VarMap containing loaded variants
+public static VarMap loadVarFile(String fname, ScafMap scafMap)
+
+*Loads variants from a VCF format file.
+*@param fname Input filename
+*@param scafMap Scaffold mapping for coordinate resolution
+*@param loadCoverage Whether to parse coverage information
+*@param extendedInfo Whether to parse extended statistical fields
+*@return VarMap containing loaded variants
+public static VarMap loadVcfFile(String fname, ScafMap scafMap, boolean loadCoverage, boolean extendedInfo)
+
+*Spawns producer and consumer threads for parallel file processing.
+*Creates one reader thread (tid=0) and multiple parser threads.
+*@param loadCoverage Whether to parse coverage information
+*@param extendedInfo Whether to parse extended statistical fields
+*@return List of spawned ProcessThread objects
+private ArrayList<ProcessThread> spawnThreads(boolean loadCoverage, boolean extendedInfo)
+
+*Waits for all processing threads to complete and aggregates results.
+*@param alpt List of ProcessThread objects to wait for
+private void waitForFinish(ArrayList<ProcessThread> alpt)
+
+*Parses a single line from VAR format file.
+*Handles both data lines (variants) and header lines (metadata).
+*@param line Raw line bytes
+*@return Parsed Var object or null for header lines
+private Var loadVarLine(byte[] line)
+
+*Parses a single line from VCF format file.
+*Handles both data lines (variants) and header lines (metadata).
+*@param line Raw line bytes
+*@param loadCoverage Whether to parse coverage information
+*@param loadExtended Whether to parse extended statistical fields
+*@return Parsed Var object or null for header lines
+private Var loadVcfLine(byte[] line, boolean loadCoverage, boolean loadExtended)
+
+</class VcfLoader>
+<class VcfToVar>
+*Utility class for parsing VCF format data into Var objects.
+*Handles complex VCF parsing including coordinate conversion, allele normalization,
+*and extraction of statistical information from INFO fields.
+*Supports both basic and extended parsing modes:
+*- Basic: Creates Var with position and allele data only
+*- Extended: Includes full statistical data (coverage, quality, bias metrics)
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 25, 2025
+public class VcfToVar
+
+#Fields
+*Tab character for field separation
+private static final byte tab='\t'
+
+*Semicolon character for INFO field separation
+private static final byte colon=';'
+
+
+#Methods
+*Creates variant from VCF format line with full parsing of INFO fields.
+*Handles complex VCF parsing including allele normalization for indels,
+*coordinate conversion, and optional parsing of coverage/extended statistics.
+*@param line VCF format line as byte array
+*@param scafMap Scaffold mapping for chromosome name resolution
+*@param parseCoverage Whether to parse coverage statistics from INFO field
+*@param parseExtended Whether to parse extended statistical fields
+*@return New Var object with data from VCF line
+public static Var fromVCF(byte[] line, ScafMap scafMap, boolean parseCoverage, boolean parseExtended)
+
+*Parses integer value from VCF INFO field with specified key.
+*Searches for key=value pattern and extracts integer, with bounds checking.
+*@param line VCF line data
+*@param query Search key (e.g., "DP=")
+*@param start Starting position for search
+*@return Parsed integer value, or -1 if not found
+private static int parseVcfIntDelimited(byte[] line, String query, int start)
+
+*Parses long integer value from VCF INFO field with specified key.
+*Handles negative values and validates numeric parsing.
+*@param line VCF line data
+*@param query Search key (e.g., "MQS=")
+*@param start Starting position for search
+*@return Parsed long value, or -1 if not found
+private static long parseVcfLongDelimited(byte[] line, String query, int start)
+
+*Parses double/float value from VCF INFO field with specified key.
+*Extracts decimal number from key=value pattern in INFO section.
+*@param line VCF line data
+*@param query Search key (e.g., "AF=")
+*@param start Starting position for search
+*@return Parsed double value, or -1.0 if not found
+private static double parseVcfDoubleDelimited(byte[] line, String query, int start)
+
+</class VcfToVar>
+<class VcfWriter>
+*Multithreaded writer for variant data in VCF, VAR, or GFF formats.
+*Uses producer-consumer pattern with multiple threads formatting variants
+*while a single ByteStreamWriter handles ordered output to maintain
+*proper file structure.
+*Supports comprehensive filtering, statistical metadata inclusion,
+*and format-specific optimizations for each output type.
+*@author Brian Bushnell
+*@contributor Isla
+public class VcfWriter
+
+#Fields
+*Array of variants to write
+final Var[] array
+
+*Sample ploidy for output formatting
+final int ploidy
+
+*Proper pair rate for statistical calculations
+final double properPairRate
+
+*Sequencing pair rate
+final double pairedInSequencingRate
+
+*Average total quality score
+final double totalQualityAvg
+
+*Average mapping quality
+final double totalMapqAvg
+
+*Average read length
+final double readLengthAvg
+
+*Scaffold mapping for coordinate resolution
+final ScafMap scafMap
+
+*Source variant map
+final VarMap varMap
+
+*Filtering criteria
+final VarFilter filter
+
+*Whether to trim whitespace from scaffold names
+final boolean trimWhitespace
+
+*Sample name for VCF header
+final String sampleName
+
+*Total reads processed
+final long reads
+
+*Total paired reads
+final long pairs
+
+*Total properly paired reads
+final long properPairs
+
+*Total bases processed
+final long bases
+
+*Reference file path
+final String ref
+
+*Number of worker threads
+final int threads
+
+*Error state flag
+boolean errorState=false
+
+*Output format constants
+public static final int VARMODE=0
+
+*Output format constants
+public static final int VCFMODE=1
+
+*Output format constants
+public static final int GFFMODE=2
+
+*Poison pill for ending processing
+private static final ListNum<Var> POISON_VARS=new ListNum<Var>(null,-1)
+
+*Verbose output flag
+private static boolean verbose=false
+
+*Batch size for variant processing
+private static final int LIST_SIZE=200
+
+*ByteBuilder shrink threshold
+private static final int SHRINK_SIZE=1000 * LIST_SIZE
+
+*Print status messages to this output stream
+protected static PrintStream outstream=System.err
+
+
+#Methods
+*Creates a VcfWriter with all necessary data and parameters.
+*@param varMap_ Source VarMap containing variants to write
+*@param filter_ Filtering criteria for variant selection
+*@param reads_ Total number of reads processed
+*@param pairs_ Number of paired reads
+*@param properPairs_ Number of properly paired reads
+*@param bases_ Total number of bases processed
+*@param ref_ Reference file path for header metadata
+*@param trimWhitespace_ Whether to trim whitespace from scaffold names
+*@param sampleName_ Sample name for VCF header
+public VcfWriter(VarMap varMap_, VarFilter filter_, long reads_, long pairs_, long properPairs_, long bases_, String ref_, boolean trimWhitespace_, String sampleName_)
+
+*Writes variants to VCF format file.
+*@param fname Output filename
+*@param varMap Source VarMap containing variants
+*@param filter Filtering criteria
+*@param trimWhitespace Whether to trim scaffold name whitespace
+*@param reads Total reads processed
+*@param pairs Paired reads count
+*@param properPairs Properly paired reads count
+*@param bases Total bases processed
+*@param ref Reference file path
+*@param sampleName Sample name for header
+*@return Error state (true if errors occurred)
+public static boolean writeVcf(String fname, VarMap varMap, VarFilter filter, boolean trimWhitespace, long reads, long pairs, long properPairs, long bases, String ref, String sampleName)
+
+*Writes variants to VAR format file.
+*@param fname Output filename
+*@param varMap Source VarMap containing variants
+*@param filter Filtering criteria
+*@param trimWhitespace Whether to trim scaffold name whitespace
+*@param reads Total reads processed
+*@param pairs Paired reads count
+*@param properPairs Properly paired reads count
+*@param bases Total bases processed
+*@param ref Reference file path
+*@param sampleName Sample name for header
+*@return Error state (true if errors occurred)
+public static boolean writeVar(String fname, VarMap varMap, VarFilter filter, boolean trimWhitespace, long reads, long pairs, long properPairs, long bases, String ref, String sampleName)
+
+*Writes variants to GFF format file.
+*@param fname Output filename
+*@param varMap Source VarMap containing variants
+*@param filter Filtering criteria
+*@param trimWhitespace Whether to trim scaffold name whitespace
+*@param reads Total reads processed
+*@param pairs Paired reads count
+*@param properPairs Properly paired reads count
+*@param bases Total bases processed
+*@param ref Reference file path
+*@param sampleName Sample name for header
+*@return Error state (true if errors occurred)
+public static boolean writeGff(String fname, VarMap varMap, VarFilter filter, boolean trimWhitespace, long reads, long pairs, long properPairs, long bases, String ref, String sampleName)
+
+*Writes variants to VCF format file
+*@param fname Output filename
+public void writeVcfFile(String fname)
+
+*Writes variants to VAR format file
+*@param fname Output filename
+public void writeVarFile(String fname)
+
+*Writes variants to GFF format file
+*@param fname Output filename
+public void writeGffFile(String fname)
+
+*Writes variants to VCF format using FileFormat
+*@param ff Output file format
+public void writeVcfFile(FileFormat ff)
+
+*Writes variants to VAR format using FileFormat
+*@param ff Output file format
+public void writeVarFile(FileFormat ff)
+
+*Writes variants to GFF format using FileFormat
+*@param ff Output file format
+public void writeGffFile(FileFormat ff)
+
+*Core file writing method using multithreaded processing.
+*Coordinates header writing, thread management, and output ordering.
+*@param ff Output file format
+*@param mode Output format mode (VCF, VAR, or GFF)
+private void writeFile(FileFormat ff, int mode)
+
+*Writes format-appropriate header to output stream.
+*@param bsw ByteStreamWriter for output
+*@param mode Output format mode
+private void writeHeader(ByteStreamWriter bsw, int mode)
+
+*Spawns worker threads for variant formatting.
+*Each thread formats variants from the queue into the appropriate output format.
+*@param bsw ByteStreamWriter for ordered output
+*@param inq Input queue for variant batches
+*@param mode Output format mode
+*@return List of spawned ProcessThread objects
+private ArrayList<ProcessThread> spawnThreads(ByteStreamWriter bsw, ArrayBlockingQueue<ListNum<Var>> inq, int mode)
+
+*Waits for all processing threads to complete.
+*@param alpt List of ProcessThread objects to wait for
+private void waitForFinish(ArrayList<ProcessThread> alpt)
+
+*Creates batches of variants and queues them for processing.
+*Distributes variants among worker threads while maintaining order.
+*@param inq Queue for variant batches
+void makeLists(ArrayBlockingQueue<ListNum<Var>> inq)
+
+*Adds a batch of variants to the processing queue.
+*@param list Batch of variants to queue
+*@param inq Target queue
+final void putVars(ListNum<Var> list, ArrayBlockingQueue<ListNum<Var>> inq)
+
+</class VcfWriter>
+<class VectorDonovan>
+public class VectorDonovan
+
+#Fields
+*Cached transformer instances for performance
+private static final QuantileTransformer TOTAL_DEPTH_TRANSFORMER=QuantileTransformer.forTotalDepth()
+
+private static final QuantileTransformer END_DISTANCE_TRANSFORMER=QuantileTransformer.forEndDistanceAverage()
+
+*Percentile parameters from training data {p0, p99}
+private static final double[][] PERCENTILES={{2.000000,3127.000000},{2.000000,481.000000},{0.050000,1.000000},{0.000000,20.000000},{1.000000,42.982500},{1.000000,43.000000},{5.000000,41.000000},{5.000000,39.000000},{144.000000,992.000000},{144.000000,992.000000},{5.000000,73.000000},{5.000000,63.833300},{3.000000,138.000000},{0.000000,1.000000},{0.000000,125.000000},{0.000000,116.000000}}
+
+
+#Methods
+*Donovan's feature vector for quality score prediction and true/false classification.
+*Uses 16 features with normalization pipeline including quantile transformations.
+*@param v Variant to convert
+*@param pairingRate Overall proper pairing rate (unused in Donovan's model)
+*@param totalQualityAvg Average base quality from dataset (unused in Donovan's model)
+*@param totalMapqAvg Average mapping quality from dataset (unused in Donovan's model)
+*@param readLengthAvg Average read length
+*@param ploidy Sample ploidy (unused in Donovan's model)
+*@param map Scaffold mapping (unused in Donovan's model)
+*@return 16-element normalized feature vector for Donovan's neural network
+public static float[] makeDonovanVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+*Extracts the 16 raw features for Donovan's model.
+private static double[] extractDonovanRawFeatures(Var v, double readLengthAvg, ScafMap scafMap)
+
+*Applies Donovan's complete normalization pipeline.
+*Replicates the Python normalization sequence used in training.
+private static double[] normalizeDonovanFeatures(double[] features)
+
+</class VectorDonovan>
+<class VectorDonovan.QuantileTransformer>
+*Java implementation of sklearn's QuantileTransformer with uniform output distribution.
+*Replicates the exact transformation used in Python for neural network feature preprocessing.
+public static class VectorDonovan.QuantileTransformer
+
+#Fields
+private final double[] quantiles
+
+private final String featureName
+
+
+#Methods
+private QuantileTransformer(double[] quantiles, String featureName)
+
+*Constructor for Total_Depth transformer
+public static QuantileTransformer forTotalDepth()
+
+*Constructor for End_Distance_Average transformer
+public static QuantileTransformer forEndDistanceAverage()
+
+*Loads quantile values from a text file
+private static double[] loadQuantiles(String filename)
+
+*Transforms input value using quantile mapping to uniform distribution [0,1]
+public double transform(double value)
+
+*Binary search to find the largest quantile index where quantiles[index] <= value
+private int findQuantileIndex(double value)
+
+</class VectorDonovan.QuantileTransformer>
+<class VectorElba>
+public class VectorElba
+
+#Methods
+*Elba's feature vector for quality score prediction.
+*Focus on quality metrics and statistical measures.
+*@param v Variant to convert
+*@param pairingRate Overall proper pairing rate
+*@param totalQualityAvg Average base quality from dataset
+*@param totalMapqAvg Average mapping quality from dataset
+*@param readLengthAvg Average read length
+*@param ploidy Sample ploidy
+*@param map Scaffold mapping
+*@return Feature vector for Elba's quality prediction model
+public static float[] makeElbaVector(Var v, double pairingRate, double totalQualityAvg, double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map)
+
+private static float elbaTransformRightSkewed(float value)
+
+private static float elbaTransformLeftSkewed(float value)
+
+private static float elbaNormalize(float value, float min_val, float max_val)
+
+private static float elbaScaleQualNew(float qual)
+
+private static int elbaEncodeTyp(int varType)
+
+private static int elbaCalculateLen(Var v)
+
+</class VectorElba>

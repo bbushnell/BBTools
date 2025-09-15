@@ -1,0 +1,4243 @@
+#version 1
+#package structures
+#generated 2025-09-06T20:38:54
+
+<class AbstractBitSet>
+public abstract class AbstractBitSet
+
+#Methods
+public static AbstractBitSet make(int elements, int bitsPerElement)
+
+public final void increment(int x)
+
+public void increment(int x, int incr)
+
+public int getCount(int x)
+
+*Clears the input BitSet
+public final void add(AbstractBitSet bs)
+
+*Clears the input BitSet
+public final void add(RawBitSet bs)
+
+*Clears the input BitSet
+public final void add(MultiBitSet bs)
+
+public final void setToMax(AbstractBitSet bs)
+
+public void setToMax(RawBitSet bs)
+
+public void setToMax(MultiBitSet bs)
+
+public void addToCell(int cell, int mask)
+
+public void setToMax(int cell, int mask)
+
+public void clear()
+
+public void setCapacity(long capacity, int extra)
+
+public long cardinality()
+
+public long capacity()
+
+public int length()
+
+public int bits()
+
+@Override public final String toString()
+
+</class AbstractBitSet>
+<class AbstractIntHashMap>
+*@author Brian Bushnell
+*@date June 8, 2017
+public abstract class AbstractIntHashMap
+
+#Fields
+static final int MASK=Integer.MAX_VALUE
+
+static final int MINMASK=Integer.MIN_VALUE
+
+static final int extra=10
+
+
+#Methods
+public static final void test(AbstractIntHashMap set)
+
+public void clear()
+
+public final boolean contains(int key)
+
+public final boolean containsKey(int key)
+
+public int get(int key)
+
+*Set key to value.
+*@param key
+*@param value
+*@return Old value.
+public int put(int key, int value)
+
+*Set key to value.
+*@param key
+*@param value
+*@return Old value.
+public int set(int key, int value)
+
+*Increment key's value by 1.
+*@param key
+*@return New value.
+public int increment(int key)
+
+*Increment key's value.
+*@param key
+*@param incr
+*@return New value.
+public int increment(int key, int incr)
+
+public final void incrementAll(AbstractIntHashMap map)
+
+*Remove this key.
+*@param key
+*@return true if the key was removed, false if it was not present.
+public boolean remove(int key)
+
+public final int cardinality()
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public final String toString()
+
+public final String toStringSetView()
+
+public final String toStringListView()
+
+public final int[] toKeyArray()
+
+public final IntHashMapBinary toCountHistogram()
+
+public final boolean verify()
+
+int findCell(int key)
+
+public int[] toArray()
+
+public int[] keys()
+
+public int[] values()
+
+public int invalid()
+
+</class AbstractIntHashMap>
+<class AtomicBitSet>
+public class AtomicBitSet
+
+#Fields
+private long maxCapacity=0
+
+private long capacity=0
+
+private int maxLength=0
+
+private int length=0
+
+private AtomicIntegerArray array
+
+
+#Methods
+public AtomicBitSet(long capacity_)
+
+public AtomicBitSet(long capacity_, int extra)
+
+@Override public void addToCell(int cell, int mask)
+
+@Override public void setToMax(int cell, int mask)
+
+@Override public void increment(int x, int amt)
+
+@Override public int getCount(int x)
+
+@Override public void clear()
+
+@Override public long cardinality()
+
+@Override public void setCapacity(long capacity_, int extra)
+
+@Override public long capacity()
+
+@Override public int length()
+
+@Override public final int bits()
+
+public AtomicIntegerArray array()
+
+</class AtomicBitSet>
+<class AtomicStringNum>
+public class AtomicStringNum
+
+#Fields
+public final String s
+
+public AtomicLong n
+
+
+#Methods
+public AtomicStringNum(String s_, long n_)
+
+public long increment()
+
+public long increment(long x)
+
+public void add(AtomicStringNum sn)
+
+@Override public int compareTo(AtomicStringNum o)
+
+@Override public String toString()
+
+@Override public int hashCode()
+
+@Override public boolean equals(Object other)
+
+public boolean equals(AtomicStringNum other)
+
+</class AtomicStringNum>
+<class ByteBuilder>
+*@author Brian Bushnell
+*@date Oct 8, 2013
+public final class ByteBuilder
+
+#Fields
+private static final long serialVersionUID=-4786450129730831665L
+
+*something
+public byte[] array
+
+*something else
+public int length=0
+
+private final byte[] numbuffer=KillSwitch.allocByte1D(40)
+
+public static final byte[] numbers=new byte[]{'0','1','2','3','4','5','6','7','8','9'}
+
+public static final byte[] nullBytes="null".getBytes()
+
+public static final byte[] fbool="false".getBytes()
+
+public static final byte[] tbool="true".getBytes()
+
+public static final byte[] ones100
+
+public static final byte[] tens100
+
+public static final double[] decimalMult
+
+public static final double[] decimalInvMult
+
+public static final long[] longMult
+
+public static final String[] decimalFormat
+
+public static final int MAXLEN=Integer.MAX_VALUE - 20
+
+
+#Methods
+public ByteBuilder()
+
+public ByteBuilder(int initial)
+
+public ByteBuilder(Object o)
+
+public ByteBuilder(byte[] array_)
+
+public ByteBuilder(ByteBuilder bb)
+
+@Override public CharSequence subSequence(int start, int end)
+
+public int indexOf(char c)
+
+public int lastIndexOf(char c)
+
+public int count(char c)
+
+public int indexOf(byte c)
+
+public int lastIndexOf(byte c)
+
+public int count(byte c)
+
+public ByteBuilder appendSlow(float x)
+
+public ByteBuilder appendSlow(double x)
+
+public ByteBuilder appendSlow(float x, int decimals)
+
+public ByteBuilder appendSlow(double x, int decimals)
+
+public ByteBuilder append(boolean x)
+
+public ByteBuilder append(char a, char b)
+
+public ByteBuilder append(byte a, byte b)
+
+public ByteBuilder append(char a, char b, char c)
+
+public ByteBuilder append(byte a, byte b, byte c)
+
+public ByteBuilder append(char a, char b, char c, char d)
+
+public ByteBuilder append(byte a, byte b, byte c, byte d)
+
+public ByteBuilder append(char x, int y)
+
+public ByteBuilder append(char x, long y)
+
+public ByteBuilder append(char x)
+
+public ByteBuilder append(byte x)
+
+public ByteBuilder appendKmer(Kmer kmer)
+
+public ByteBuilder appendKmer(long[] kmer, int k)
+
+*@param kmer
+*@param k
+public ByteBuilder appendKmer(long kmer, int k)
+
+public ByteBuilder appendTerm(LineParser lp, int term)
+
+public ByteBuilder appendln(int x)
+
+public ByteBuilder append(int x)
+
+public ByteBuilder append(long x)
+
+public ByteBuilder append(double x0, int decimals0)
+
+public ByteBuilder append(double x0, int decimals0, boolean concise)
+
+public ByteBuilder append(String x)
+
+public ByteBuilder append(String x, int from, int toExclusive)
+
+public ByteBuilder append(StringBuilder x)
+
+public ByteBuilder append(CharSequence x)
+
+public ByteBuilder appendln(CharSequence x)
+
+public ByteBuilder append(byte[] x)
+
+public ByteBuilder appendt(String x)
+
+public ByteBuilder appendt(int x)
+
+public ByteBuilder appendt(long x)
+
+public ByteBuilder appendt(byte[] x)
+
+public ByteBuilder appendt(float x, int decimals)
+
+public ByteBuilder appendt(double x, int decimals)
+
+public ByteBuilder appendln(byte[] x)
+
+public ByteBuilder appendQuality(byte[] x)
+
+public ByteBuilder appendQualityDif(byte[] x)
+
+public ByteBuilder append(long[] array, char delimiter)
+
+public ByteBuilder appendA48(long[] array, char delimiter, byte[] temp)
+
+public ByteBuilder appendA48(long value, byte[] temp)
+
+public ByteBuilder append(int[] array, char delimiter)
+
+public ByteBuilder append(float[] array, char delimiter, int decimals)
+
+public ByteBuilder append(ByteBuilder bb)
+
+public ByteBuilder appendln(ByteBuilder x)
+
+public ByteBuilder append(byte[] x, int len)
+
+public ByteBuilder append(byte[] x, int start, int len)
+
+public ByteBuilder append(char[] x)
+
+public ByteBuilder appendln(char[] x)
+
+*Append a newline.
+*@return This ByteBuilder.
+public ByteBuilder nl()
+
+*Append a tab.
+*@return This ByteBuilder.
+public ByteBuilder tab()
+
+*Append a space.
+*@return This ByteBuilder.
+public ByteBuilder space()
+
+*Append an underscore.
+*@return This ByteBuilder.
+public ByteBuilder under()
+
+*Append a dash (hyphen).
+*@return This ByteBuilder.
+public ByteBuilder dash()
+
+*Append a period.
+*@return This ByteBuilder.
+public ByteBuilder dot()
+
+*Append a comma.
+*@return This ByteBuilder.
+public ByteBuilder comma()
+
+*Append a colon.
+*@return This ByteBuilder.
+public ByteBuilder colon()
+
+*Append a colon.
+*@return This ByteBuilder.
+public ByteBuilder equals()
+
+*Append a semicolon.
+*@return This ByteBuilder.
+public ByteBuilder semi()
+
+*Append a plus.
+*@return This ByteBuilder.
+public ByteBuilder plus()
+
+*Append a percent.
+*@return This ByteBuilder.
+public ByteBuilder percent()
+
+public byte get(int i)
+
+public void set(int i, byte b)
+
+public void set(int i, char b)
+
+@Override public char charAt(int i)
+
+public boolean endsWith(char c)
+
+public boolean startsWith(String s)
+
+*@param left Amount to trim from the left
+*@param right Amount to trim from the right
+public void trimByAmount(int left, int right)
+
+@Override public final String toString()
+
+public final byte[] toBytes()
+
+public final byte[] toBytes(int from, int to)
+
+public final byte[] expelAndShift(int len, int overlap)
+
+public void shrinkTo(int maxLen)
+
+private final boolean isRoom(int x)
+
+private final void expand()
+
+public ByteBuilder insert(int pos, byte c)
+
+private final void expand(int extra)
+
+public ByteBuilder reverse()
+
+public ByteBuilder reverseInPlace()
+
+public ByteBuilder reverseInPlace(int from, int toExclusive)
+
+public ByteBuilder complementInPlace()
+
+public ByteBuilder reverseComplementInPlace()
+
+public final void ensureExtra(int extra)
+
+public boolean isEmpty()
+
+@Override public int length()
+
+public ByteBuilder clear()
+
+public ByteBuilder trimLast(int x)
+
+public ByteBuilder setLength(int x)
+
+</class ByteBuilder>
+<class CoverageArray>
+public abstract class CoverageArray
+
+#Fields
+private static final long serialVersionUID=-7175422489330746676L
+
+public int maxIndex=-1
+
+public int minIndex=Integer.MAX_VALUE
+
+private final int length
+
+private int underWindowAverage=-1
+
+private int median=-1
+
+private int covered=-1
+
+private long sum=-1
+
+private double stdev=-1
+
+private double devSum=-1
+
+*Optional
+public int chromosome
+
+private static boolean OVERFLOWED=false
+
+
+#Methods
+public static final CoverageArray read(String fname)
+
+public static final Class<? extends CoverageArray> getType(boolean atomic, boolean bits32)
+
+public CoverageArray(int chrom, int len)
+
+*@param loc
+*@param amt
+public void increment(int loc, int amt)
+
+*@param loc
+public void increment(int loc)
+
+public final void incrementRange(int min, int max)
+
+public void incrementRange(int min, int max, int amt)
+
+public void incrementRangeSynchronized(int min, int max, int amt)
+
+public void incrementRanges(IntList ranges, int amt)
+
+public void set(int loc, int val)
+
+public int get(int loc)
+
+public void resize(int newlen)
+
+public final double[][] toGraph(int blocksize, int min, int max)
+
+public static final void print(double[][] data)
+
+public static CoverageArray makeArray(int num, int size, Class<? extends CoverageArray> c)
+
+public static HashMap<String,CoverageArray> loadDepth(FileFormat ffdepth, Class<? extends CoverageArray> c)
+
+public final int basesUnderAverageCoverage(double avg, int window)
+
+public final long sum()
+
+public final int covered(int minDepth)
+
+public final long calcSumAndCovered(int minDepth)
+
+public final double standardDeviation()
+
+public final double devSum(double globalMean)
+
+public final int median()
+
+public Object toArray()
+
+@Override public String toString()
+
+static final long min(long x, long y)
+
+static final long max(long x, long y)
+
+static final int min(int x, int y)
+
+static final int max(int x, int y)
+
+public int length()
+
+public int arrayLength()
+
+public void setUnderWindowAverage(int x)
+
+public void setMedian(int x)
+
+public void setCovered(int x)
+
+public void setSum(long x)
+
+public void setStdev(double x)
+
+public void setDevSum(double x)
+
+</class CoverageArray>
+<class CoverageArray2>
+public class CoverageArray2
+
+#Fields
+private static final long serialVersionUID=8242586595591123194L
+
+public char[] array
+
+private static boolean OVERFLOWED=false
+
+
+#Methods
+public static void main(String[] args)
+
+public static void runSpeedTest(String[] args)
+
+public CoverageArray2(int chrom, int len)
+
+*@param loc
+*@param amt
+@Override public void increment(int loc, int amt)
+
+*@param loc
+@Override public void increment(int loc)
+
+@Override public void incrementRangeSynchronized(int min, int max, int amt)
+
+@Override public void incrementRange(int min, int max, int amt)
+
+@Override public void set(int loc, int val)
+
+@Override public int get(int loc)
+
+@Override public void resize(int newlen)
+
+@Override public String toString()
+
+@Override public char[] toArray()
+
+@Override public int arrayLength()
+
+</class CoverageArray2>
+<class CoverageArray2A>
+*Atomic version
+*@author Brian Bushnell
+*@date Sep 20, 2014
+public class CoverageArray2A
+
+#Fields
+private static final long serialVersionUID=98483952072098494L
+
+public final AtomicIntegerArray array
+
+private static boolean OVERFLOWED=false
+
+private static final int lowerMask=0x0000FFFF
+
+private static final int upperMask=0xFFFF0000
+
+
+#Methods
+public static void main(String[] args)
+
+public CoverageArray2A(int chrom, int len)
+
+private static final int intIdx(int idx)
+
+*@param loc
+@Override public void increment(int loc)
+
+@Override public void increment(int loc, int amt)
+
+private boolean incrementLower(int intIdx, int amt)
+
+private boolean incrementUpper(int intIdx, int amt)
+
+@Override public void incrementRangeSynchronized(int min, int max, int amt)
+
+public void incrementRangeSlow(int min, int max, int amt)
+
+@Override public void incrementRange(int min, int max, int amt)
+
+@Override public void set(int loc, int val0)
+
+private boolean setLower(int intIdx, int amt)
+
+private boolean setUpper(int intIdx, int amt)
+
+@Override public int get(int loc)
+
+@Override public void resize(int newlen)
+
+@Override public String toString()
+
+@Override public char[] toArray()
+
+@Override public int arrayLength()
+
+</class CoverageArray2A>
+<class CoverageArray3>
+public class CoverageArray3
+
+#Fields
+private static final long serialVersionUID=-4216985130070239610L
+
+public int[] array
+
+private static boolean OVERFLOWED=false
+
+
+#Methods
+public CoverageArray3(int chrom, int len)
+
+*@param loc
+*@param amt
+public void increment(int loc, long amt)
+
+*@param loc
+@Override public void increment(int loc)
+
+@Override public void increment(int loc, int amt)
+
+@Override public void incrementRange(int min, int max, int amt)
+
+public void incrementRange(int min, int max, long amt)
+
+@Override public void set(int loc, int val)
+
+public void set(int loc, long val)
+
+@Override public int get(int loc)
+
+@Override public void resize(int newlen)
+
+@Override public String toString()
+
+@Override public int[] toArray()
+
+@Override public int arrayLength()
+
+</class CoverageArray3>
+<class CoverageArray3A>
+*Atomic version
+*@author Brian Bushnell
+*@date Sep 20, 2014
+public class CoverageArray3A
+
+#Fields
+private static final long serialVersionUID=98483952072098494L
+
+public final AtomicIntegerArray array
+
+private static boolean OVERFLOWED=false
+
+
+#Methods
+public static void main(String[] args)
+
+public CoverageArray3A(int chrom, int len)
+
+*@param loc
+@Override public void increment(int loc)
+
+@Override public void increment(int loc, int amt)
+
+@Override public void incrementRangeSynchronized(int min, int max, int amt)
+
+@Override public void incrementRange(int min, int max, int amt)
+
+@Override public void set(int loc, int val)
+
+@Override public int get(int loc)
+
+@Override public void resize(int newlen)
+
+@Override public String toString()
+
+@Override public int[] toArray()
+
+@Override public int arrayLength()
+
+</class CoverageArray3A>
+<class CRange>
+*A numeric range, assuming 0-based, base-centered numbering,
+*including a contig number.
+public class CRange
+
+#Fields
+*Left point, inclusive
+public int a
+
+*Right point, inclusive
+public int b
+
+*Contig or sequence number
+public final long c
+
+public Object obj
+
+
+#Methods
+public CRange(long c_, int a_, int b_)
+
+public CRange(long c_, int a_, int b_, Object o_)
+
+public boolean includes(int p)
+
+public boolean intersects(int p1, int p2)
+
+public boolean adjacent(int p1, int p2)
+
+public boolean touches(int p1, int p2)
+
+public boolean includes(int p1, int p2)
+
+public boolean intersects(CRange r)
+
+public boolean touches(CRange r)
+
+public boolean includes(CRange r)
+
+public int length()
+
+public CRange merge(CRange r)
+
+public void absorb(CRange r)
+
+@Override public int hashCode()
+
+@Override public boolean equals(Object r)
+
+public boolean equals(CRange r)
+
+@Override public int compareTo(CRange r)
+
+@Override public String toString()
+
+public static int mergeList(ArrayList<CRange> ranges, boolean sort)
+
+public static boolean include(int a1, int b1, int a2, int b2)
+
+public static boolean overlap(int a1, int b1, int a2, int b2)
+
+public static boolean touch(int a1, int b1, int a2, int b2)
+
+public static boolean adjacent(int a1, int b1, int a2, int b2)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class CRange>
+<class Crispr>
+public class Crispr
+
+#Fields
+public Range a
+
+public Range b
+
+public Palindrome pa
+
+public Palindrome pb
+
+public float scoreA
+
+public float scoreB
+
+public int matches=0
+
+public int mismatches=0
+
+public int trimmedConsensus=0
+
+public int extendedConsensus=0
+
+
+#Methods
+public Crispr()
+
+public Crispr(int a1, int b1, int a2, int b2)
+
+public int gap()
+
+public boolean containsInGap(Range r)
+
+public String toString()
+
+public String toString(byte[] bases)
+
+public ByteBuilder appendTo(ByteBuilder bb)
+
+public ByteBuilder appendTo(ByteBuilder bb, int len, byte[] bases)
+
+public void set(int a1, int b1, int a2, int b2)
+
+public int edgeDist(int length)
+
+public boolean spans(int length)
+
+public int minLength()
+
+public int maxLength()
+
+public int lengthDif()
+
+public void fixBounds(int length)
+
+public float maxScore()
+
+public boolean sameLength()
+
+public boolean internal(int seqLen)
+
+public boolean touchesEdge(int seqLen)
+
+public boolean touchesBothEnds(int seqLen)
+
+@Override public int compareTo(Crispr o)
+
+</class Crispr>
+<class DoubleList>
+public final class DoubleList
+
+#Fields
+public double[] array
+
+public int size=0
+
+
+#Methods
+public DoubleList()
+
+public DoubleList(int initial)
+
+public DoubleList copy()
+
+public void clear()
+
+public final void set(int loc, double value)
+
+public final void setLast(double value)
+
+public final void increment(int loc, double value)
+
+public final void increment(int loc)
+
+public final void incrementBy(DoubleList b)
+
+public final void incrementBy(double[] b)
+
+public final void append(DoubleList b)
+
+public final void append(double[] b)
+
+public void subtractFrom(double value)
+
+public final double get(int loc)
+
+public double lastElement()
+
+public final void add(double x)
+
+public boolean containsDuplicates()
+
+public void addAll(DoubleList counts)
+
+public boolean contains(double x)
+
+public final void setSize(int size2)
+
+private final void resize(long size2)
+
+public final double stdev()
+
+public final double sumLong()
+
+public final double sum()
+
+public final double mean()
+
+*Assumes list is sorted
+public final double median()
+
+*Assumes list is sorted
+public final double mode()
+
+public double percentile(double fraction)
+
+public int percentileIndex(double fraction)
+
+public final void shrink()
+
+public final void shrinkToUnique()
+
+public final void condense()
+
+public double[] toArray()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+*Assumes this is sorted.
+*Reduces the list to a set of unique values;
+*stores their counts in a second list.
+public void getUniqueCounts(DoubleList counts)
+
+public void sort()
+
+public void reverse()
+
+public boolean sorted()
+
+public int size()
+
+public boolean isEmpty()
+
+public int capacity()
+
+public int freeSpace()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class DoubleList>
+<interface Feature>
+public interface Feature
+
+#Methods
+public int start()
+
+public int stop()
+
+public int strand()
+
+public String seqid()
+
+public String name()
+
+</interface Feature>
+<class FloatList>
+public final class FloatList
+
+#Fields
+public float[] array
+
+public int size=0
+
+
+#Methods
+public FloatList()
+
+public FloatList(int initial)
+
+public FloatList copy()
+
+public void clear()
+
+public final void set(int loc, float value)
+
+public final void setLast(float value)
+
+public final void increment(int loc, float value)
+
+public final void increment(int loc)
+
+public final void incrementBy(FloatList b)
+
+public final void incrementBy(float[] b)
+
+public final void append(FloatList b)
+
+public final void append(float[] b)
+
+public void subtractFrom(float value)
+
+public final float get(int loc)
+
+public float lastElement()
+
+public final void add(float x)
+
+public boolean containsDuplicates()
+
+public void addAll(FloatList counts)
+
+public boolean contains(float x)
+
+public final void setSize(int size2)
+
+private final void resize(long size2)
+
+public int maxIdx()
+
+public float max()
+
+public final float stdev()
+
+public final double sumLong()
+
+public final double sum()
+
+public final double mean()
+
+*Assumes list is sorted
+public final double median()
+
+*Assumes list is sorted
+public final float mode()
+
+public float percentile(double fraction)
+
+public int percentileIndex(double fraction)
+
+public final FloatList shrink()
+
+public final void shrinkToUnique()
+
+public final void condense()
+
+public float[] toArray()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+*Assumes this is sorted.
+*Reduces the list to a set of unique values;
+*stores their counts in a second list.
+public void getUniqueCounts(FloatList counts)
+
+public void sort()
+
+public void reverse()
+
+public boolean sorted()
+
+public int size()
+
+public boolean isEmpty()
+
+public int capacity()
+
+public int freeSpace()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+private static final float max(float x, float y)
+
+</class FloatList>
+<class Heap>
+public final class Heap
+
+#Fields
+private final T[] array
+
+private final int CAPACITY
+
+private final boolean rollover
+
+private int size=0
+
+
+#Methods
+@SuppressWarnings public Heap(int maxSize, boolean rollover_)
+
+public boolean add(T t)
+
+public int addAndReturnLocation(T t)
+
+public T peek()
+
+public T poll()
+
+*Returns the new location
+public int jiggle(T t, int loc)
+
+*Returns the new location
+public int jiggleDown(T t, int loc)
+
+*Returns the new location
+public int jiggleUp(T t, int loc)
+
+*Returns the new location
+private int percDown(int loc)
+
+*Returns the new location
+private int percUp(int loc)
+
+public boolean isEmpty()
+
+public boolean hasRoom()
+
+public void clear()
+
+public int size()
+
+public static int tier(int x)
+
+public boolean testForDuplicates()
+
+public ArrayList<T> toList()
+
+@Override public Iterator<T> iterator()
+
+</class Heap>
+<class HeapLoc>
+*A heap that tracks element location
+public final class HeapLoc
+
+#Fields
+private final T[] array
+
+public final int CAPACITY
+
+public final boolean rollover
+
+private int size=0
+
+
+#Methods
+@SuppressWarnings public HeapLoc(int maxSize, boolean rollover_)
+
+public HeapLoc<T> resizeNew(int newCapacity)
+
+public boolean add(T t)
+
+public int addAndReturnLocation(T t)
+
+public T peek()
+
+public T poll()
+
+*Returns the new location
+public int jiggle(T t)
+
+*Returns the new location
+public int jiggleDown(T t)
+
+*Returns the new location
+public int jiggleUp(T t)
+
+*Returns the new location
+private int percDown(int loc)
+
+*Returns the new location
+private int percUp(int loc)
+
+public boolean isEmpty()
+
+public boolean hasRoom()
+
+public void clear()
+
+public int size()
+
+public static int tier(int x)
+
+public boolean testForDuplicates()
+
+public ArrayList<T> toList()
+
+@Override public Iterator<T> iterator()
+
+</class HeapLoc>
+<class IntHashMap>
+*@author Brian Bushnell
+*@date June 7, 2017
+public final class IntHashMap
+
+#Fields
+private static final long serialVersionUID=5525726007591609843L
+
+private int[] keys
+
+private int[] values
+
+private int size=0
+
+*Value for empty cells
+private int invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+
+#Methods
+public static void main(String[] args)
+
+private static void bench(int size)
+
+public IntHashMap()
+
+public IntHashMap(int initialSize)
+
+public IntHashMap(int initialSize, float loadFactor_)
+
+@Override public void clear()
+
+@Override public int get(int key)
+
+@Override public int put(int key, int value)
+
+public void putAll(IntHashMap map)
+
+@Override public int set(int key, int value)
+
+@Override public int increment(int key)
+
+@Override public int increment(int key, int incr)
+
+public void incrementAll(IntHashMap map)
+
+public void setToMax(IntHashMap map)
+
+@Override public boolean remove(int key)
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+@Override int findCell(int key)
+
+private int findCellOrEmpty(int key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+@Override public int[] toArray()
+
+@Override public int[] keys()
+
+@Override public int[] values()
+
+@Override public int invalid()
+
+@Override public int size()
+
+@Override public boolean isEmpty()
+
+</class IntHashMap>
+<class IntHashMapBinary>
+*Like IntHashMap, but uses a power-of-2 length to avoid modulo operations.
+*@author Brian Bushnell
+*@date June 8, 2017
+public final class IntHashMapBinary
+
+#Fields
+private int[] keys
+
+private int[] values
+
+private int size=0
+
+*Value for empty cells
+private int invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+
+#Methods
+public static void main(String[] args)
+
+public IntHashMapBinary()
+
+public IntHashMapBinary(int initialSize)
+
+public IntHashMapBinary(int initialSize, float loadFactor_)
+
+@Override public void clear()
+
+@Override public int get(int key)
+
+@Override public int put(int key, int value)
+
+@Override public int set(int key, int value)
+
+@Override public int increment(int key)
+
+@Override public int increment(int key, int incr)
+
+@Override public boolean remove(int key)
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+@Override int findCell(int key)
+
+private int findCellOrEmpty(int key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+@Override public int[] toArray()
+
+@Override public int[] keys()
+
+@Override public int[] values()
+
+@Override public int invalid()
+
+@Override public int size()
+
+@Override public boolean isEmpty()
+
+</class IntHashMapBinary>
+<class IntHashSet>
+*@author Brian Bushnell
+*@date June 7, 2017
+public class IntHashSet
+
+#Fields
+private int[] array
+
+private int size=0
+
+*Value for empty cells
+private int invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final int MASK=Integer.MAX_VALUE
+
+private static final int MINMASK=Integer.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public static void main(String[] args)
+
+public IntHashSet()
+
+public IntHashSet(int initialSize)
+
+public IntHashSet(int initialSize, float loadFactor_)
+
+public void clear()
+
+public boolean contains(int value)
+
+*Add this value to the set.
+*@param value
+*@return true if the value was added, false if it was already contained.
+public boolean add(int value)
+
+*Add this list to the set.
+*@param list
+*@return Number of elements added.
+public int addAll(IntList list)
+
+protected final boolean addSpecial(int value)
+
+*Remove this value from the set.
+*@param value
+*@return true if the value was removed, false if it was not present.
+public boolean remove(int value)
+
+public int size()
+
+public int sizeLimit()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public int[] toArray()
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(int value)
+
+private int findCellOrEmpty(int value)
+
+private final void resize()
+
+private final void resize(long size2)
+
+</class IntHashSet>
+<class IntHashSetList>
+*Extends IntHashSet to track new numbers added for rapid clearing.
+*This is synchronized with clear, but not remove.
+*@author Brian Bushnell
+*@date September 13, 2017
+public class IntHashSetList
+
+#Fields
+private IntList list
+
+
+#Methods
+public IntHashSetList()
+
+public IntHashSetList(int initialSize)
+
+public IntHashSetList(int initialSize, float loadFactor_)
+
+@Override public void clear()
+
+@Override public boolean add(int value)
+
+@Override public int[] toArray()
+
+@Override public boolean verify()
+
+</class IntHashSetList>
+<class IntList>
+*High-performance integer list implementation optimized for memory efficiency.
+*Uses primitive int arrays instead of boxed Integer objects, providing significant
+*performance and memory benefits for large datasets.
+*Key advantages over ArrayList:
+*- No boxing/unboxing overhead
+*- Lower memory footprint (4 bytes vs ~16 bytes per element)
+*- Reduced garbage collection pressure
+*- Specialized operations for sorted data
+*@author Brian Bushnell
+*@contributor Isla Winglet
+*@date Sep 20, 2014
+public final class IntList
+
+#Fields
+*Backing array for element storage
+public int[] array
+
+*Current number of elements in the list
+public int size=0
+
+
+#Methods
+*Benchmark comparing IntList vs ArrayList vs LinkedList performance.
+*Accepts an optional argument for list length.
+public static void main(String[] args)
+
+*Performance benchmark testing add, shuffle, and sort operations.
+*@param length Number of elements to test with
+private static void benchmark(int length)
+
+*Default constructor with initial capacity of 256
+public IntList()
+
+*Constructor with specified initial capacity.
+*@param initial Initial array size (minimum 1)
+public IntList(int initial)
+
+*Creates a deep copy of this IntList.
+*@return New IntList with identical contents
+public IntList copy()
+
+*Clears the list (sets size to 0)
+public IntList clear()
+
+*Clears list and zeros all array elements
+public void clearFull()
+
+*Sets value at specified location, expanding array if necessary.
+*@param loc Index to set
+*@param value Value to store
+public final void set(int loc, int value)
+
+*Sets the last element to specified value.
+*@param value New value for last element
+public final void setLast(int value)
+
+*Increments value at location by 1
+public final void increment(int loc)
+
+*Increments value at location by specified amount.
+*@param loc Index to increment
+*@param value Amount to add
+public final void increment(int loc, int value)
+
+*Subtracts all elements from specified value (value - element).
+*@param value Value to subtract elements from
+public void subtractFrom(int value)
+
+*Adds element to end of list, expanding if necessary.
+*@param x Value to add
+public final void add(int x)
+
+*Adds element only if different from last element (pseudo-set behavior).
+*@param x Value to conditionally add
+public void addIfNotEqualToLast(int x)
+
+*Adds element without bounds checking (for performance).
+*@param x Value to add
+public final void addUnchecked(int x)
+
+*Adds all elements from another IntList.
+*@param counts Source IntList to copy from
+public void addAll(IntList counts)
+
+*Sorts the list in ascending order
+public void sort()
+
+*Randomly shuffles the list elements
+public void shuffle()
+
+*Reverses the order of elements
+public void reverse()
+
+*Expands internal array to accommodate more elements.
+*@param size2 New minimum capacity
+private final void resize(long size2)
+
+*Sets the logical size of the list.
+*@param size2 New size
+public final void setSize(int size2)
+
+*Shrinks internal array to match current size.
+*@return This IntList for chaining
+public final IntList shrink()
+
+*Calculates sum of all elements as long to prevent overflow.
+*@return Sum of all elements
+public final long sumLong()
+
+*Calculates sum of all elements as double.
+*@return Sum of all elements
+public final double sum()
+
+*Finds percentile value (assumes sorted data).
+*@param fraction Percentile as fraction (0.0 to 1.0)
+*@return Value at specified percentile
+public double percentile(double fraction)
+
+*Finds index of percentile position.
+*@param fraction Percentile as fraction (0.0 to 1.0)
+*@return Index of percentile position
+public int percentileIndex(double fraction)
+
+*Removes duplicates and shrinks to fit
+public final void shrinkToUnique()
+
+*Removes duplicate elements in-place (assumes sorted input).
+*Maintains sorted order while keeping only unique values.
+public final void condense()
+
+*Keeps only values that appear at least minCopies times.
+*Clever algorithm that keeps the Nth copy, not the first copy.
+*@param minCopies Minimum occurrences required to retain value
+public final void condenseMinCopies(int minCopies)
+
+*Gets value at specified location.
+*@param loc Index to retrieve
+*@return Value at index, or 0 if out of bounds
+public final int get(int loc)
+
+*Removes and returns last element.
+*@return Last element value
+public final int pop()
+
+*Returns last element value without removing it.
+*@return Last element value
+public int lastElement()
+
+*Returns last element without bounds checking.
+*@return Last element value
+public final int lastElementUnchecked()
+
+*Checks for duplicate values (slow O(n²) algorithm).
+*@return True if duplicates exist
+public boolean containsDuplicates()
+
+*Checks if list contains specified value.
+*@param x Value to search for
+*@return True if value is found
+public boolean contains(int x)
+
+*Creates array copy of current contents.
+*@return New array with list contents
+public int[] toArray()
+
+*Extracts unique values and their occurrence counts.
+*Assumes this list is sorted. Modifies this list to contain only unique values.
+*@param counts Output list to store occurrence counts
+public void getUniqueCounts(IntList counts)
+
+*Checks if list is sorted in ascending order (slow).
+*@return True if sorted
+public boolean sorted()
+
+*Checks if all elements are unique (slow).
+*@return True if no duplicates exist
+public boolean unique()
+
+*Returns current number of elements
+public int size()
+
+*Returns true if list is empty
+public boolean isEmpty()
+
+*Returns current array capacity
+public int capacity()
+
+*Returns unused array capacity
+public int freeSpace()
+
+@Override public String toString()
+
+*Returns string showing non-zero elements as (index, value) pairs.
+*@return String representation as set view
+public String toStringSetView()
+
+*Returns string showing all elements in order.
+*@return String representation as list view
+public String toStringListView()
+
+*Returns minimum of two integers
+private static final int min(int x, int y)
+
+*Returns maximum of two integers
+private static final int max(int x, int y)
+
+</class IntList>
+<class IntList2>
+*Similar to an ArrayList but intended to hold sets.
+*Faster insert could be handled via binary search if sorted,
+*or binary search for the last filled position if
+*all elements are unique.
+public final class IntList2
+
+#Fields
+*Holds entries. Each entry is a sets of numbers in an int[].
+*Leftmost values are valid, rightmost values are invalid.
+private int[][] entries
+
+*Number of entries in the primary array.
+public int size=0
+
+*This could be made mutable per instance, but it would be a lot of work.
+public static final int INVALID=-1
+
+
+#Methods
+*Re-call with default initial size.
+public IntList2()
+
+*Construct an IntList3 with this initial size.
+public IntList2(int initialSize)
+
+*Add this entry to the end of the list
+public final void add(int[] entry)
+
+*Added for better IntList3 compatibility
+public final void add(int[] entry, int len)
+
+*Set this location to specified entry
+public final void set(int loc, int[] entry)
+
+*Add this value to the specified location.
+*If an entry exists, insert the value, enlarging if necessary.
+*Otherwise, create a new entry.
+public final int insertIntoList(int v, int loc)
+
+*Resize the array of entries
+public final void resize(int size2)
+
+*Compress the list by eliminating the unused trailing space
+public final void shrink()
+
+*Get the entry at the location
+public final int[] get(int loc)
+
+*Added for better IntList3 compatibility
+public int getLen(int i)
+
+@Override public String toString()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class IntList2>
+<class IntList3>
+*Like IntList2 but has a size for each array independent of its length.
+*This is similar to a list of IntList but more efficient.
+*Designed for use with HashArrayHybridFast.
+*Assumes each entry is a set with all adds either ascending (Seal)
+*or unique (Sketch).
+*IntList3 does not extend IntList2 because virtual functions might be slower,
+*but it would make the code more concise.
+*@author Brian Bushnell
+*@date Dec 10, 2018
+public final class IntList3
+
+#Fields
+*Holds entries. Each entry is a sets of numbers in an int[].
+*Leftmost values are valid, rightmost values are invalid.
+private int[][] entries
+
+*Number of values in each entry.
+private int[] sizes
+
+*Number of entries in the primary array.
+public int size=0
+
+*True after shrinkToUnique has been called.
+*Currently unused.
+private boolean shrunk=false
+
+*Preconditions for adding values
+private final int mode
+
+*This could be made mutable per instance, but it would be a lot of work.
+public static final int INVALID=-1
+
+*Only scan back this far for duplicates when adding values
+public static final int slowAddLimit=4
+
+*All adds to an entry must be nondescending
+public static final int ASCENDING=1
+
+*All adds to an entry must be unique
+public static final int UNIQUE=2
+
+*No requirements for adds.
+*To ensure set functionality, shrinkToUnique should be called before use.
+public static final int DISORDERED=3
+
+*Should be set prior to creation, e.g. by Seal or Sketch
+public static int defaultMode=ASCENDING
+
+public static int defaultInitialSize=256
+
+
+#Methods
+*Re-call with default initial size and mode.
+public IntList3()
+
+*Construct an IntList3 with this initial size.
+*Setting the proper mode is the caller's responsibility.
+public IntList3(int initialSize, int mode_)
+
+*Add this entry to the end of the list
+public final void add(int[] entry, int len)
+
+*Set this location to specified entry
+public final void set(int loc, int[] entry, int len)
+
+*Add this value to the specified location.
+*If an entry exists, insert the value, enlarging if necessary.
+*Otherwise, create a new entry.
+public final int insertIntoList(int v, int loc)
+
+*Compress the list by eliminating the unused trailing space
+public final void shrink()
+
+*Provided for supporting disordered additions; not currently used.
+*Make each entry unique and minimal-length.
+public final void shrinkToUnique()
+
+*Provided for supporting disordered additions; not currently used.
+*I could redo this so that the sets become packed and the size changes without creating a new array.
+private void shrinkToUnique(int loc)
+
+private boolean readyToUse()
+
+*Get the entry at the location
+public final int[] get(int loc)
+
+*Added for better IntList2 compatibility
+public int getLen(int i)
+
+@Override public String toString()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class IntList3>
+<class IntListCompressor>
+public final class IntListCompressor
+
+#Fields
+public IntList list=new IntList(4)
+
+private int lastCompression=0
+
+
+#Methods
+public void add(int value)
+
+public void sortAndShrink()
+
+</class IntListCompressor>
+<class IntListHashMap>
+*A specialized hash map that maps integer keys to IntList values.
+*Uses open addressing with linear probing for collision resolution.
+*Optimized for scenarios where each key maps to a collection of integers.
+*@author Brian Bushnell
+*@contributor Isla Winglet
+*@date June 2, 2025
+public final class IntListHashMap
+
+#Fields
+*Serialization version identifier
+private static final long serialVersionUID=1L
+
+*Hash table for keys
+private int[] keys
+
+*Hash table for values
+private IntList[] values
+
+*List of all valid keys for iteration
+private IntList keyList
+
+*Current number of key-value pairs
+private int size=0
+
+*Sentinel value for empty cells (always negative)
+private int invalid
+
+*Prime modulus for hash calculation
+private int modulus
+
+*Maximum size before resizing
+private int sizeLimit
+
+*Load factor threshold for resizing
+private final float loadFactor
+
+*Mask for positive hash values
+static final int MASK=Integer.MAX_VALUE
+
+*Mask to ensure negative invalid keys
+static final int MINMASK=Integer.MIN_VALUE
+
+*Extra space buffer for hash table
+private static final int extra=10
+
+*Random number generator for invalid key generation
+private static final Random randy=new Random(1)
+
+
+#Methods
+*Default constructor with initial capacity of 256
+public IntListHashMap()
+
+*Constructor with specified initial size and default load factor
+public IntListHashMap(int initialSize)
+
+*Constructor with specified initial size and load factor.
+*@param initialSize Initial capacity of the hash table
+*@param loadFactor_ Maximum load factor before resizing (0.0-1.0)
+public IntListHashMap(int initialSize, float loadFactor_)
+
+*Removes all key-value pairs from the map
+public void clear()
+
+*Returns true if the map contains the specified key
+public final boolean contains(int key)
+
+*Returns true if the map contains the specified key
+public final boolean containsKey(int key)
+
+*Returns the IntList associated with the specified key.
+*@param key The key to look up
+*@return The IntList value, or null if key not found
+public IntList get(int key)
+
+*Returns the IntList for the key, creating a new one if necessary.
+*@param key The key to look up or create
+*@return The IntList value (never null)
+public IntList getOrCreate(int key)
+
+*Associates the specified IntList with the specified key.
+*@param key The key to store
+*@param value The IntList value to associate
+*@return The previous IntList value, or null
+public IntList put(int key, IntList value)
+
+*Adds a single integer value to the IntList for the specified key
+public void put(int key, int value)
+
+*Copies all key-value pairs from another IntListHashMap
+public void putAll(IntListHashMap map)
+
+*Removes the specified key and its associated value.
+*@param key The key to remove
+*@return True if the key was found and removed
+public boolean remove(int key)
+
+*Rehashes entries following a deletion to maintain clustering
+private void rehashFrom(int initial)
+
+*Attempts to move an entry closer to its ideal position
+private boolean rehashCell(int cell)
+
+*Generates a new invalid key when collision occurs
+private void resetInvalid()
+
+*Finds the cell containing the specified key, or -1 if not found
+int findCell(int key)
+
+*Finds cell containing key or first empty cell for insertion
+private int findCellOrEmpty(int key)
+
+*Doubles the hash table size when load factor exceeded
+private final void resize()
+
+*Resizes hash table to specified size
+private final void resize(long size2)
+
+*Returns array of all keys in the map
+public int[] toArray()
+
+*Returns the internal keys array (for advanced use)
+public int[] keys()
+
+*Returns the internal values array (for advanced use)
+public IntList[] values()
+
+*Returns the current invalid key marker
+public int invalid()
+
+*Returns the number of key-value pairs in the map
+public int size()
+
+*Returns true if the map contains no key-value pairs
+public boolean isEmpty()
+
+</class IntListHashMap>
+<class IntLongHashMap>
+*@author Brian Bushnell
+*@date December 12, 2017
+public final class IntLongHashMap
+
+#Fields
+private int[] keys
+
+private long[] values
+
+private int size=0
+
+*Value for empty cells
+private int invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final int MASK=Integer.MAX_VALUE
+
+private static final int MINMASK=Integer.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public IntLongHashMap()
+
+public IntLongHashMap(int initialSize)
+
+public IntLongHashMap(int initialSize, float loadFactor_)
+
+public void clear()
+
+public boolean contains(int key)
+
+public boolean containsKey(int key)
+
+public long get(int key)
+
+*Increment this key's value by 1.
+*@param key
+*@return New value
+public long add(int key)
+
+*Increment this key's value by incr.
+*@param key
+*@param incr
+*@return New value
+public long increment(int key, long incr)
+
+public void incrementAll(IntLongHashMap map)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(int key, long value)
+
+*Remove this key from the map.
+*@param key
+*@return Old value.
+public long remove(int key)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public int[] toArray()
+
+public long[] toArray(long thresh)
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(int key)
+
+private int findCellOrEmpty(int key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public int[] keys()
+
+public long[] values()
+
+public int invalid()
+
+public long sum()
+
+</class IntLongHashMap>
+<class IntMap>
+public class IntMap
+
+#Fields
+public int min
+
+public int max
+
+public int[] array
+
+private static final int INVALID=Integer.MIN_VALUE
+
+
+#Methods
+public static void main(String[] args)
+
+public IntMap(int from, int to)
+
+public int get(int key)
+
+public boolean containsKey(int key)
+
+public int increment(int key)
+
+public int increment(int key, int value)
+
+public int put(int key, int value)
+
+public int remove(int key)
+
+public int size()
+
+public int[] keys()
+
+public int[] values()
+
+public void clear()
+
+public void reset(int from, int to)
+
+</class IntMap>
+<class ListNum>
+public final class ListNum
+
+#Fields
+private static final long serialVersionUID=-7509242172010729386L
+
+public final ArrayList<K> list
+
+public final long id
+
+private static boolean GEN_RANDOM_NUMBERS=false
+
+private static Random randy
+
+private static long seed=0
+
+
+#Methods
+public ListNum(ArrayList<K> list_, long id_)
+
+public final int size()
+
+@Override public String toString()
+
+public final boolean isEmpty()
+
+public final K get(int i)
+
+public final K set(int i, K k)
+
+public final K remove(int i)
+
+public final void add(K k)
+
+public final void clear()
+
+@Override public Iterator<K> iterator()
+
+public static void setDeterministicRandomSeed(long seed_)
+
+public static void setDeterministicRandom(boolean b)
+
+public static boolean deterministicRandom()
+
+</class ListNum>
+<class LongArrayListHashMap>
+*@author Brian Bushnell
+*@date September 15, 2023
+public class LongArrayListHashMap
+
+#Fields
+private long[] keys
+
+private ArrayList<X>[] values
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public LongArrayListHashMap()
+
+public LongArrayListHashMap(int initialSize)
+
+public LongArrayListHashMap(int initialSize, float loadFactor_)
+
+public void clear()
+
+public boolean contains(long key)
+
+public boolean containsKey(long key)
+
+public ArrayList<X> get(long key)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, X value)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, ArrayList<X> value)
+
+*Remove this key from the map.
+*@param key
+*@return true if it was present
+public boolean remove(long key)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int sourceCell)
+
+private void resetInvalid()
+
+private int findCell(long key)
+
+private int findCellOrEmpty(long key)
+
+private final void resize()
+
+@SuppressWarnings private final void resize(long size2)
+
+public long[] keys()
+
+public ArrayList<X>[] values()
+
+public long invalid()
+
+</class LongArrayListHashMap>
+<class LongHashMap>
+*@author Brian Bushnell
+*@date August 3, 2017
+public final class LongHashMap
+
+#Fields
+private long[] keys
+
+private int[] values
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public LongHashMap()
+
+public LongHashMap(int initialSize)
+
+public LongHashMap(int initialSize, float loadFactor_)
+
+public boolean contains(long key)
+
+public boolean containsKey(long key)
+
+public int get(long key)
+
+*Increment this key's value by 1.
+*@param key
+*@return New value
+public int add(long key)
+
+*Increment this key's value by incr.
+*@param key
+*@param incr
+*@return New value
+public int increment(long key, int incr)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, int value)
+
+*Remove this key from the map.
+*@param key
+*@return Old value.
+public int remove(long key)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public long[] getMin(int thresh)
+
+public long[] toArray(int thresh)
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(long key)
+
+private int findCellOrEmpty(long key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public long[] keys()
+
+public int[] values()
+
+public long invalid()
+
+</class LongHashMap>
+<class LongHashSet>
+*@author Brian Bushnell
+*@date July 6, 2016
+public final class LongHashSet
+
+#Fields
+private long[] array
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public LongHashSet()
+
+public LongHashSet(int initialSize)
+
+public LongHashSet(int initialSize, float loadFactor_)
+
+public boolean contains(long value)
+
+*Add this value to the set.
+*@param value
+*@return true if the value was added, false if it was already contained.
+public boolean add(long value)
+
+*Remove this value from the set.
+*@param value
+*@return true if the value was removed, false if it was not present.
+public boolean remove(long value)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(long value)
+
+private int findCellOrEmpty(long value)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public final void resizeDestructive(int newSize)
+
+*Number of values that can be held without resizing
+public int capacity()
+
+</class LongHashSet>
+<class LongHeap>
+*@author Brian Bushnell
+*@date June 30, 2016
+public final class LongHeap
+
+#Fields
+private final long[] array
+
+private final int CAPACITY
+
+private final boolean rollover
+
+private int size=0
+
+public static final long EMPTY=Long.MIN_VALUE
+
+
+#Methods
+public LongHeap(int maxSize)
+
+public LongHeap(int maxSize, boolean rollover_)
+
+public boolean add(long t)
+
+public long peek()
+
+public long poll()
+
+private void percDown(int loc)
+
+private void percUp(int loc)
+
+private void percUpIter(int loc)
+
+public boolean isEmpty()
+
+public boolean isFull()
+
+public boolean hasRoom()
+
+public void clear()
+
+public int size()
+
+public static int tier(int x)
+
+public boolean testForDuplicates()
+
+public long[] array()
+
+public LongList toList()
+
+public int capacity()
+
+</class LongHeap>
+<class LongHeapMap>
+*Maintains a heap of unique values and counts.
+*@author Brian Bushnell
+*@date August 3, 2017
+public class LongHeapMap
+
+#Fields
+final int limit
+
+public LongHeap heap
+
+public LongHashMap map
+
+
+#Methods
+public LongHeapMap(int limit_)
+
+@Override public boolean add(long key)
+
+@Override public int increment(long key, int incr)
+
+@Override public void clear()
+
+public void add(LongHeapMap b)
+
+@Override public int size()
+
+@Override public boolean contains(long key)
+
+@Override public int capacity()
+
+@Override public boolean hasRoom()
+
+@Override public LongHeap heap()
+
+@Override public long peek()
+
+</class LongHeapMap>
+<class LongHeapSet>
+*Maintains a heap of unique values.
+*@author Brian Bushnell
+*@date July 6, 2016
+public class LongHeapSet
+
+#Fields
+final int limit
+
+public LongHeap heap
+
+public LongHashSet set
+
+
+#Methods
+public LongHeapSet(int limit_)
+
+@Override public boolean add(long value)
+
+@Override public int increment(long key, int incr)
+
+@Override public void clear()
+
+public void add(LongHeapSet b)
+
+@Override public int size()
+
+@Override public boolean contains(long key)
+
+@Override public int capacity()
+
+@Override public boolean hasRoom()
+
+@Override public LongHeap heap()
+
+@Override public long peek()
+
+</class LongHeapSet>
+<interface LongHeapSetInterface>
+*Maintains a heap of unique values.
+*@author Brian Bushnell
+*@date July 6, 2016
+public interface LongHeapSetInterface
+
+#Methods
+public boolean add(long key)
+
+public int increment(long key, int incr)
+
+public void clear()
+
+public int size()
+
+public int capacity()
+
+public boolean hasRoom()
+
+public LongHeap heap()
+
+public long peek()
+
+public boolean contains(long key)
+
+</interface LongHeapSetInterface>
+<class LongList>
+public final class LongList
+
+#Fields
+public long[] array
+
+*Highest occupied index plus 1, i.e., lowest unoccupied index
+public int size=0
+
+
+#Methods
+public static void main(String[] args)
+
+public LongList()
+
+public LongList(int initial)
+
+public void clear()
+
+public void clearFull()
+
+public final void set(int loc, long value)
+
+public final void setLast(long value)
+
+public final void increment(int loc, long value)
+
+public final void increment(int loc)
+
+public final void incrementBy(LongList b)
+
+public final void incrementBy(long[] b)
+
+public final void append(LongList b)
+
+public final void append(long[] b)
+
+public final long get(int loc)
+
+public final void add(long x)
+
+public boolean contains(long x)
+
+public void addAll(LongList list2)
+
+private final void resize(long size2)
+
+public final LongList shrink()
+
+public final double stdev()
+
+public final double avgDif(double x)
+
+public final double rmsDif(double x)
+
+public final long sumLong()
+
+public final long sumHist()
+
+public final double sum()
+
+public final double mean()
+
+public final double meanHist()
+
+public final double harmonicMean()
+
+public final double geometricMean()
+
+*Assumes list is sorted
+public final double medianWeightedAverage()
+
+*Assumes list is sorted
+public final long median()
+
+*Allows unsorted list
+public final long min()
+
+*Allows unsorted list
+public final long max()
+
+*Assumes list is sorted
+public final long mode()
+
+public long percentile(double fraction)
+
+public int percentileIndex(double fraction)
+
+public final void shrinkToUnique()
+
+public final void condense()
+
+public void removeElementAt(int i)
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public void sort()
+
+public void sortSerial()
+
+public void reverse()
+
+public boolean sorted()
+
+public int size()
+
+public int capacity()
+
+public int freeSpace()
+
+public boolean isEmpty()
+
+public int findIndex(long x)
+
+*Assumes sorted ascending
+public int findIndexAfter(long x)
+
+public void capHist(int max)
+
+private static final long min(long x, long y)
+
+private static final long max(long x, long y)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class LongList>
+<class LongList2>
+*Similar to an ArrayList but intended to hold sets.
+*Faster insert could be handled via binary search if sorted,
+*or binary search for the last filled position if
+*all elements are unique.
+public final class LongList2
+
+#Fields
+*Holds entries. Each entry is a sets of numbers in an long[].
+*Leftmost values are valid, rightmost values are invalid.
+private long[][] entries
+
+
+#Methods
+*Re-call with default initial size.
+public LongList2()
+
+*Construct an IntList3 with this initial size.
+public LongList2(int initialSize)
+
+*Add this entry to the end of the list
+public final void add(long[] entry)
+
+*Added for better IntList3 compatibility
+public final void add(long[] entry, int len)
+
+*Set this location to specified entry
+public final void set(int loc, long[] entry)
+
+*Add this value to the specified location.
+*If an entry exists, insert the value, enlarging if necessary.
+*Otherwise, create a new entry.
+public final int insertIntoList(long v, int loc)
+
+*Get the entry at the location
+public final long[] get(int loc)
+
+</class LongList2>
+<class LongList3>
+*Like IntList2 but has a size for each array independent of its length.
+*This is similar to a list of IntList but more efficient.
+*Designed for use with HashArrayHybridFast.
+*Assumes each entry is a set with all adds either ascending (Seal)
+*or unique (Sketch).
+*IntList3 does not extend IntList2 because virtual functions might be slower,
+*but it would make the code more concise.
+*@author Brian Bushnell
+*@date Dec 10, 2018
+public final class LongList3
+
+#Fields
+*Holds entries. Each entry is a sets of numbers in an int[].
+*Leftmost values are valid, rightmost values are invalid.
+private long[][] entries
+
+
+#Methods
+*Re-call with default initial size and mode.
+public LongList3()
+
+*Construct an IntList3 with this initial size.
+*Setting the proper mode is the caller's responsibility.
+public LongList3(int initialSize, int mode_)
+
+*Add this entry to the end of the list
+public final void add(long[] entry, int len)
+
+*Set this location to specified entry
+public final void set(int loc, long[] entry, int len)
+
+*Add this value to the specified location.
+*If an entry exists, insert the value, enlarging if necessary.
+*Otherwise, create a new entry.
+public final int insertIntoList(long v, int loc)
+
+*Get the entry at the location
+public final long[] get(int loc)
+
+</class LongList3>
+<class LongListSet>
+*A set of LongLists, designed to increase LongList capacity beyond 2B.
+*Auto-condenses; e.g., not intended to represent multiple copies of a value.
+*@author Brian Bushnell
+*@date January 8, 2021
+public class LongListSet
+
+#Fields
+private boolean sorted=false
+
+public final LongList[] array
+
+public final int[] nextCondense
+
+public static final int mod=3
+
+
+#Methods
+public static void main(String[] args)
+
+public String toString()
+
+public LongListSet()
+
+public void add(long x)
+
+public void sort()
+
+public void condense()
+
+public void shrinkToUnique()
+
+public LongListSetIterator iterator()
+
+</class LongListSet>
+<class LongListSet.LongListSetIterator>
+public class LongListSet.LongListSetIterator
+
+#Fields
+private int i=0
+
+private int j=0
+
+
+#Methods
+public long next()
+
+public boolean hasMore()
+
+*Increment and point to next valid element.
+*@return true if there is a valid element.
+boolean advance()
+
+*Point to next valid element.
+*If already valid, do nothing.
+*@return true if there is a valid element.
+boolean findNextValid()
+
+</class LongListSet.LongListSetIterator>
+<class LongLongHashMap>
+*@author Brian Bushnell
+*@date December 12, 2017
+public final class LongLongHashMap
+
+#Fields
+private long[] keys
+
+private long[] values
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public LongLongHashMap()
+
+public LongLongHashMap(int initialSize)
+
+public LongLongHashMap(int initialSize, float loadFactor_)
+
+public long get(long key)
+
+*Increment this key's value by 1.
+*@param key
+*@return New value
+public long add(long key)
+
+*Increment this key's value by incr.
+*@param key
+*@param incr
+*@return New value
+public long increment(long key, long incr)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, long value)
+
+*Remove this key from the map.
+*@param key
+*@return Old value.
+public long remove(long key)
+
+public long[] toArray(long thresh)
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(long key)
+
+private int findCellOrEmpty(long key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public long[] keys()
+
+public long[] values()
+
+public long invalid()
+
+</class LongLongHashMap>
+<class LongLongHashMapHybrid>
+*This class should allow mapping a long to one or more values.
+*For a single value, it will act as a LongLongHashMap.
+*For multiple values, it will act more like a LongLongListHashMap.
+*The primary value stored when there are multiple values will be the
+*(-index-OFFSET) of the list's index.
+*As such, this does NOT support negative values, though it could be
+*modified to support most negative values, by making OFFSET large.
+*However, that makes the logic of determining whether a key is present
+*from the return value more confusing.
+*@author Brian Bushnell
+*@date November 13, 2024
+public final class LongLongHashMapHybrid
+
+#Fields
+private ArrayList<LongList> multivalues=new ArrayList<LongList>(4)
+
+private long[] keys
+
+private long[] values
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+public static final long NOTPRESENT=-1
+
+private static final long OFFSET=2
+
+private static final int extra=10
+
+
+#Methods
+public static void main(String[] args)
+
+public LongLongHashMapHybrid()
+
+public LongLongHashMapHybrid(int initialSize)
+
+public LongLongHashMapHybrid(int initialSize, float loadFactor_)
+
+public void clear()
+
+public boolean contains(long key)
+
+public boolean containsKey(long key)
+
+public long get(long key)
+
+public LongList getListFromCode(long code)
+
+public LongList getOrFill(long key, LongList buffer)
+
+public long fill(long key, LongList buffer)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the value was added, false if it was already contained.
+public boolean put(long key, long value)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the value was added, false if it was already contained.
+public boolean putInner(long key, long value)
+
+*Remove this key from the map.
+*@param key
+*@return Old value.
+public long remove(long key)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public long[] toArray(long thresh)
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int cell)
+
+private void resetInvalid()
+
+private int findCell(long key)
+
+private int findCellOrEmpty(long key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public long[] keys()
+
+public long[] values()
+
+public long invalid()
+
+</class LongLongHashMapHybrid>
+<class LongLongListHashMap>
+*@author Brian Bushnell
+*@date August 29, 2023
+public final class LongLongListHashMap
+
+#Fields
+private long[] keys
+
+private LongList[] values
+
+private int size=0
+
+*Value for empty cells
+private long invalid
+
+private int modulus
+
+private int sizeLimit
+
+private final float loadFactor
+
+private static final Random randy=new Random(1)
+
+private static final long MASK=Long.MAX_VALUE
+
+private static final long MINMASK=Long.MIN_VALUE
+
+private static final int extra=10
+
+
+#Methods
+public LongLongListHashMap()
+
+public LongLongListHashMap(int initialSize)
+
+public LongLongListHashMap(int initialSize, float loadFactor_)
+
+public boolean contains(long key)
+
+public boolean containsKey(long key)
+
+public LongList get(long key)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, long value)
+
+*Map this key to value.
+*@param key
+*@param value
+*@return true if the key was added, false if it was already contained.
+public boolean put(long key, LongList value)
+
+*Remove this key from the map.
+*@param key
+*@return true if it was present
+public boolean remove(long key)
+
+public int size()
+
+public boolean isEmpty()
+
+@Override public String toString()
+
+public String toStringSetView()
+
+public String toStringListView()
+
+public long[] toArray()
+
+public boolean verify()
+
+private void rehashFrom(int initial)
+
+private boolean rehashCell(int sourceCell)
+
+private void resetInvalid()
+
+private int findCell(long key)
+
+private int findCellOrEmpty(long key)
+
+private final void resize()
+
+private final void resize(long size2)
+
+public long[] keys()
+
+public LongList[] values()
+
+public long invalid()
+
+</class LongLongListHashMap>
+<class LongM>
+*A mutable long object
+*@author Brian Bushnell
+*@date Feb 8, 2013
+public class LongM
+
+#Fields
+private boolean mutable=true
+
+private long value
+
+
+#Methods
+public LongM()
+
+public LongM(long v)
+
+*@param v Value
+*@param mut Mutable
+public LongM(long v, boolean mut)
+
+public LongM iCopy()
+
+public long value()
+
+public void lock()
+
+public long set(long v)
+
+public long increment()
+
+public long increment(long x)
+
+@Override public int hashCode()
+
+@Override public int compareTo(LongM b)
+
+public boolean equals(LongM b)
+
+@Override public boolean equals(Object b)
+
+@Override public String toString()
+
+public String toHexString()
+
+public String toBinaryString()
+
+</class LongM>
+<class LongPair>
+public class LongPair
+
+#Fields
+public long a
+
+public long b
+
+
+#Methods
+public LongPair(long a_, long b_)
+
+public LongPair()
+
+public long min()
+
+public long max()
+
+public long sum()
+
+@Override public int compareTo(LongPair other)
+
+</class LongPair>
+<class MultiBitSet>
+public class MultiBitSet
+
+#Fields
+private long maxCapacity=0
+
+private long capacity=0
+
+private int maxLength=0
+
+private int length=0
+
+private int[] array
+
+public static final int bits=2
+
+public static final int elementMask=~((-1) << bits)
+
+public static final int elementsPerCell=32 / bits
+
+public static final int modulus=elementsPerCell - 1
+
+
+#Methods
+public static void main(String[] args)
+
+MultiBitSet(long capacity_)
+
+MultiBitSet(long capacity_, int extra)
+
+@Override public void addToCell(int cell, int other)
+
+@Override public void setToMax(int cell, int other)
+
+@Override public void increment(int x, int amt)
+
+@Override public int getCount(int x)
+
+@Override public void clear()
+
+@Override public long cardinality()
+
+@Override public void setCapacity(long capacity_, int extra)
+
+@Override public long capacity()
+
+@Override public int length()
+
+@Override public final int bits()
+
+public int[] array()
+
+</class MultiBitSet>
+<class Point>
+public class Point
+
+#Fields
+public double x
+
+public double y
+
+
+#Methods
+public Point(double x_, double y_)
+
+@Override public int compareTo(Point p)
+
+@Override public boolean equals(Object p)
+
+public boolean equals(Point p)
+
+public String toString()
+
+</class Point>
+<class Quantizer>
+public class Quantizer
+
+#Fields
+private static byte[] quantizeArray={0,14,21,27,32,36}
+
+private static byte[] qualityRemapArray=makeQualityRemapArray(quantizeArray)
+
+private static boolean STICKY=true
+
+
+#Methods
+public static boolean parse(String arg, String a, String b)
+
+private static boolean setArray(String s)
+
+private static void setArray(byte[] a)
+
+public static void quantize(ArrayList<Read> list)
+
+public static void quantize(Read r1, Read r2)
+
+public static void quantize(Read r)
+
+public static void quantize(byte[] quals)
+
+private static final byte[] makeQualityRemapArray(byte[] quantizeArray)
+
+</class Quantizer>
+<class Range>
+*A numeric range, assuming 0-based, base-centered numbering.
+public class Range
+
+#Fields
+public int a
+
+public int b
+
+public Object obj1=null
+
+public static final boolean verbose=false
+
+
+#Methods
+public Range(int aa, int bb)
+
+public Range(int aa, int bb, Object oo)
+
+public Range clone()
+
+public boolean includes(int p)
+
+public boolean intersects(int p1, int p2)
+
+public boolean overlaps(K f)
+
+public boolean overlaps(Range f)
+
+public int overlap(Range f)
+
+public boolean adjacent(int p1, int p2)
+
+public boolean adjacent(int p1)
+
+public boolean touches(int p1, int p2)
+
+public boolean touches(int p1)
+
+public boolean includes(int p1, int p2)
+
+public boolean intersects(Range r)
+
+public boolean touches(Range r)
+
+public boolean includes(Range r)
+
+public int length()
+
+public Range merge(Range r)
+
+public void absorb(Range r)
+
+public void absorb(int p)
+
+public void fixBounds(int length)
+
+@Override public int hashCode()
+
+@Override public boolean equals(Object r)
+
+public boolean equals(Range r)
+
+@Override public int compareTo(Range r)
+
+@Override public String toString()
+
+public ByteBuilder appendTo(ByteBuilder bb)
+
+public static int mergeList(ArrayList<Range> ranges, boolean sort)
+
+public static boolean include(int a1, int b1, int p)
+
+public static boolean include(int a1, int b1, int a2, int b2)
+
+public static boolean overlaps(int a1, int b1, int a2, int b2)
+
+public static int overlap(int a1, int b1, int a2, int b2)
+
+public static int lopsidedness(int a1, int b1, int a2, int b2)
+
+public static boolean touch(int a1, int b1, int p)
+
+public static boolean touch(int a1, int b1, int a2, int b2)
+
+public static boolean adjacent(int a1, int b1, int p)
+
+public static boolean adjacent(int a1, int b1, int a2, int b2)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+*This should produce the minimal number of non-overlapping ranges,
+*such that each range has a list of all features that fully contain the range.
+public static Range[] toRanges(ArrayList<K> features)
+
+public static void populateRanges(Range[] ranges, ArrayList<K> features)
+
+public static int findIndex(int p, Range[] ranges)
+
+private static int findIndexLinear(int p, Range[] ranges)
+
+private static int findIndexBinary(int p, Range[] ranges)
+
+*List is sorted by start point; may be overlapping.
+*Returns the leftmost feature starting AFTER this point.
+public static int findIndexAfterBinary(int p, ArrayList<K> list)
+
+public static Range toRange(String s)
+
+</class Range>
+<class RawBitSet>
+public class RawBitSet
+
+#Fields
+private long maxCapacity=0
+
+private long capacity=0
+
+private int maxLength=0
+
+private int length=0
+
+private int[] array
+
+
+#Methods
+RawBitSet(long capacity_)
+
+RawBitSet(long capacity_, int extra)
+
+@Override public void addToCell(int cell, int mask)
+
+@Override public void setToMax(int cell, int mask)
+
+@Override public void increment(int x, int amt)
+
+@Override public int getCount(int x)
+
+@Override public void clear()
+
+@Override public long cardinality()
+
+@Override public void setCapacity(long capacity_, int extra)
+
+@Override public long capacity()
+
+@Override public int length()
+
+@Override public final int bits()
+
+public int[] array()
+
+</class RawBitSet>
+<class RingBuffer>
+*A circular buffer of fixed size for storing long values using modulo arithmetic.
+*Uses masks for speed, but allows arbitrary logical buffer size.
+*The physical buffer size is rounded up to the next power of two.
+*@author Brian Bushnell
+*@contributor Isla (Highly-customized Claude instance)
+*@date May 8, 2025
+public final class RingBuffer
+
+#Fields
+private final long[] array
+
+private final int mask
+
+private final int size
+
+private int pos=0
+
+private long count=0
+
+
+#Methods
+*Creates a buffer of specified size.
+*@param size The fixed capacity of the buffer.
+public RingBuffer(int size_)
+
+*Adds a value to the buffer, overwriting the oldest value if full.
+*@param value The value to add.
+public final void add(long value)
+
+*Gets the value at the current insertion position.
+*@return The value at the current position.
+public final long getCurrent()
+
+*Gets the most recently added value.
+*@return The most recent value.
+public final long getPrev()
+
+*Gets the oldest value in the buffer with bounds checking.
+*Returns the first element if the buffer isn't yet full.
+*@return The oldest value.
+public final long getOldest()
+
+*Gets the oldest value without bounds checking.
+*Assumes the buffer has been pre-filled with safe values.
+*@return The oldest value.
+public final long getOldestUnchecked()
+
+*Gets a value at a specified offset from the most recent value.
+*@param offset The number of positions back from the most recent value (0=most recent).
+*@return The value at the specified offset.
+public final long get(int offset)
+
+*Fills the entire buffer with a specified value.
+*@param value The value to fill the buffer with.
+public final void fill(long value)
+
+*Returns the number of valid elements in the buffer.
+*@return The number of elements, limited by buffer capacity.
+public final int size()
+
+</class RingBuffer>
+<class RingBufferMask>
+*A circular buffer of fixed size for storing long values using modulo arithmetic.
+*Uses masks for speed, so it is restricted to power-of-2 sizes.
+*@author Brian Bushnell
+*@contributor Isla (Highly-customized Claude instance)
+*@date May 8, 2025
+public final class RingBufferMask
+
+#Fields
+private final long[] array
+
+private final int mask
+
+private int pos=0
+
+private long count=0
+
+
+#Methods
+public static void main(String[] args)
+
+*Create a buffer of fixed length 2^bits.
+*@param bits log2 of buffer size.
+public RingBufferMask(int bits)
+
+*Adds a value to the buffer, overwriting the oldest value if full.
+*@param value The value to add.
+public final void add(long value)
+
+*Gets the value at the current insertion position.
+*@return The value at the current position.
+public final long getCurrent()
+
+*Gets the most recently added value.
+*@return The most recent value.
+public final long getPrev()
+
+*Gets the oldest value in the buffer with bounds checking.
+*Returns the first element if the buffer isn't yet full.
+*@return The oldest value.
+public final long getOldest()
+
+*Gets the oldest value without bounds checking.
+*Assumes the buffer has been pre-filled with safe values.
+*@return The oldest value.
+public final long getOldestUnchecked()
+
+*Gets a value at a specified offset from the most recent value.
+*@param offset The number of positions back from the most recent value (0=most recent).
+*@return The value at the specified offset.
+public final long get(int offset)
+
+*Fills the entire buffer with a specified value.
+*@param value The value to fill the buffer with.
+public final void fill(long value)
+
+*Returns the number of valid elements in the buffer.
+*@return The number of elements, limited by buffer capacity.
+public final int size()
+
+</class RingBufferMask>
+<class RingBufferMod>
+*A circular buffer of fixed size for storing long values using modulo arithmetic.
+*This implementation works with buffer sizes that are not powers of 2, using
+*standard modulo (%) operations instead of bit masking. This makes the code
+*more intuitive for readers but may be slightly less efficient than bit masking
+*for power-of-2 sizes.
+*@author Brian Bushnell
+*@contributor Isla (Highly-customized Claude instance)
+*@date May 8, 2025
+public final class RingBufferMod
+
+#Fields
+private final long[] array
+
+
+#Methods
+*Creates a buffer of specified size.
+*@param size The fixed capacity of the buffer.
+public RingBufferMod(int size_)
+
+*Adds a value to the buffer, overwriting the oldest value if full.
+*@param value The value to add.
+public final void add(long value)
+
+*Gets the value at the current insertion position.
+*@return The value at the current position.
+public final long getCurrent()
+
+*Gets the most recently added value.
+*@return The most recent value.
+public final long getPrev()
+
+*Gets the oldest value in the buffer with bounds checking.
+*Returns the first element if the buffer isn't yet full.
+*@return The oldest value.
+public final long getOldest()
+
+*Gets the oldest value without bounds checking.
+*Assumes the buffer has been pre-filled with safe values.
+*@return The oldest value.
+public final long getOldestUnchecked()
+
+*Gets a value at a specified offset from the most recent value.
+*@param offset The number of positions back from the most recent value (0=most recent).
+*@return The value at the specified offset.
+public final long get(int offset)
+
+*Fills the entire buffer with a specified value.
+*@param value The value to fill the buffer with.
+public final void fill(long value)
+
+*Returns the number of valid elements in the buffer.
+*@return The number of elements, limited by buffer capacity.
+public final int size()
+
+</class RingBufferMod>
+<class SeqCount>
+public class SeqCount
+
+#Fields
+public final byte[] bases
+
+public final int hashcode
+
+public static final byte[] symbolToNumber=AminoAcid.baseToNumber
+
+public static final byte[] symbolToComplementNumber=AminoAcid.baseToComplementNumber
+
+public static final byte[] symbolToNumber0=AminoAcid.baseToNumber0
+
+
+#Methods
+public SeqCount(byte[] s, int start, int stop)
+
+public SeqCount(byte[] bases_)
+
+@Override public SeqCount clone()
+
+public int count()
+
+@Override public final boolean equals(Object s)
+
+public final boolean equals(SeqCount s)
+
+@Override public int compareTo(SeqCount s)
+
+@Override public final int hashCode()
+
+@Override public String toString()
+
+</class SeqCount>
+<class SeqCountM>
+public class SeqCountM
+
+#Fields
+public int count=1
+
+public float score=-1
+
+
+#Methods
+public SeqCountM(SeqCount sq)
+
+public SeqCountM(byte[] s, int start, int stop)
+
+public SeqCountM(byte[] s)
+
+@Override public SeqCountM clone()
+
+public void add(SeqCount s)
+
+public void increment(int x)
+
+@Override public int count()
+
+@Override public int compareTo(SeqCount s)
+
+</class SeqCountM>
+<class SeqMap>
+public class SeqMap
+
+#Fields
+public final int k
+
+public final int maskMiddle
+
+public final int minCount
+
+private final long midMask
+
+private static final byte[] symbolToNumber=AminoAcid.baseToNumber
+
+private final ThreadLocal<HashSet<SeqPosM>> localSet=new ThreadLocal<HashSet<SeqPosM>>(){
+  @Override protected HashSet<SeqPosM> initialValue(){
+    return new HashSet<SeqPosM>();
+  }
+}
+
+private final ThreadLocal<ArrayList<SeqPosM>> localList=new ThreadLocal<ArrayList<SeqPosM>>(){
+  @Override protected ArrayList<SeqPosM> initialValue(){
+    return new ArrayList<SeqPosM>();
+  }
+}
+
+private final ThreadLocal<SeqPosM> localSP=new ThreadLocal<SeqPosM>(){
+  @Override protected SeqPosM initialValue(){
+    return new SeqPosM(null,0);
+  }
+}
+
+public final AtomicLong queries=new AtomicLong(0)
+
+public final AtomicLong setQueries=new AtomicLong(0)
+
+
+#Methods
+public SeqMap()
+
+public SeqMap(int k_, int maskMiddle_, int minCount_)
+
+public void add(byte[] s, int count, float score)
+
+public ArrayList<SeqPosM> fetch(byte[] query, int a1, int b1, int minOverlap0, int maxMM, int maxTrim, int maxLopsidedness, float minOverlapFractionQ, boolean sort)
+
+public ArrayList<SeqPosM> doubleFetch(byte[] query, int a1, int b1, int a2, int b2, int minOverlap0, int maxMM, int maxTrim, int maxLopsidedness, float minOverlapFractionQ, boolean sort)
+
+private int addCandidates(ArrayList<SeqPos> candidates, byte[] query, int a1, int b1, float qgc, int minOverlapQ, int maxTrim, int maxLopsidedness, float maxGCO, int qpos, SeqPosM temp, HashSet<SeqPosM> set, ArrayList<SeqPosM> retList)
+
+public int sort()
+
+public static SeqMap load(String ref, int k, int mm, int minCount, boolean rcomp, CellNet net)
+
+public static SeqMap load(ArrayList<Read> reads, int k, int mm, int minCount, boolean rcomp, CellNet net)
+
+@Override protected HashSet<SeqPosM> initialValue()
+
+@Override protected ArrayList<SeqPosM> initialValue()
+
+@Override protected SeqPosM initialValue()
+
+</class SeqMap>
+<class SeqPos>
+public class SeqPos
+
+#Fields
+public final byte[] seq
+
+public final int pos
+
+public final int hashcode
+
+public final int count
+
+public final float gc
+
+public final float score
+
+
+#Methods
+public SeqPos(SeqPos sp)
+
+SeqPos(byte[] seq_, int pos_, int count_, int code_, float gc_, float score_)
+
+@Override public boolean equals(Object o)
+
+public boolean equals(SeqPos o)
+
+@Override public int hashCode()
+
+@Override public SeqPos clone()
+
+@Override public int compareTo(SeqPos o)
+
+public final byte[] seq()
+
+public final int pos()
+
+</class SeqPos>
+<class SeqPosM>
+public class SeqPosM
+
+#Fields
+public byte[] seq
+
+public int pos
+
+public int hashcode
+
+public int count
+
+public float gc
+
+
+#Methods
+public SeqPosM(byte[] seq_, int pos_)
+
+public SeqPosM(SeqPosM sp)
+
+public SeqPosM(byte[] seq_, int pos_, int count_)
+
+private SeqPosM(byte[] seq_, int pos_, int count_, int code_, float gc_)
+
+public void setFrom(SeqPos sp)
+
+@Override public boolean equals(Object o)
+
+public boolean equals(SeqPosM o)
+
+@Override public int hashCode()
+
+@Override public SeqPosM clone()
+
+@Override public int compareTo(SeqPosM o)
+
+public final byte[] seq()
+
+public final int pos()
+
+public void setPos(int x)
+
+</class SeqPosM>
+<interface SetLoc>
+public interface SetLoc
+
+#Methods
+public void setLoc(int newLoc)
+
+public int loc()
+
+</interface SetLoc>
+<class StandardDeviator>
+public class StandardDeviator
+
+#Fields
+long totalSum
+
+long bins
+
+double mean
+
+double stdev
+
+long totalSumBinned
+
+long binsBinned
+
+double meanBinned
+
+double stdevBinned
+
+public LongList hist0
+
+public LongList hist1
+
+private final ReadWriteLock rwlock=new ReentrantReadWriteLock()
+
+public final int strand
+
+public final boolean stranded
+
+public boolean errorState=false
+
+private static final Scaffold POISON=new Scaffold("POISON",null,-1)
+
+public static boolean verbose=false
+
+
+#Methods
+public StandardDeviator(boolean stranded_, int strand_)
+
+public boolean calculateStuff(int threads0, ArrayList<Scaffold> scaffolds, boolean calcStd, boolean calcMedian, boolean calcHist, int minDepth, int histMax, double windowAvg, int window)
+
+public double[] standardDeviation(ArrayList<Scaffold> scaffolds, int minscaf0)
+
+*This works but is slow. Just use unbinned std.
+@Deprecated public double[] standardDeviationBinned(ArrayList<Scaffold> scaffolds, int binsize, int minscaf0)
+
+public double[] standardDeviationBinnedUnsafe(String fname, ArrayList<Scaffold> scaffolds, int binsize, int minscaf0)
+
+private static Scaffold getNext(ArrayBlockingQueue<Scaffold> queue)
+
+private static void addToQueue(ArrayBlockingQueue<Scaffold> queue, Scaffold s)
+
+@Override public void accumulate(ProcessThread t)
+
+@Override public boolean success()
+
+@Override public final ReadWriteLock rwlock()
+
+</class StandardDeviator>
+<class StandardDeviator.ProcessThread>
+class StandardDeviator.ProcessThread
+
+#Fields
+long totalSumT=0
+
+long binsT=0
+
+final int tid
+
+final int threads
+
+final ArrayList<Scaffold> list
+
+LongList hist0
+
+LongList hist1
+
+final boolean calcStd
+
+final boolean calcMedian
+
+final boolean calcHist
+
+final int minDepth
+
+final int histMax
+
+final double globalMean
+
+final double windowAvg
+
+final int window
+
+
+#Methods
+ProcessThread(int tid_, int threads_, ArrayList<Scaffold> list_, boolean calcStd_, boolean calcMedian_, boolean calcHist_, int minDepth_, int histMax_, double globalMean_, double windowAvg_, int window_)
+
+@Override public void run()
+
+*In the case of preallocated ca's with 0 mapped reads, this goes faster
+private void processCA(CoverageArray ca, int strand, int length, long mappedBases)
+
+private void addToHist(CoverageArray ca, int strand, int length)
+
+</class StandardDeviator.ProcessThread>
+<class StringCount>
+*Object holding a String and numbers, for tracking the number of read and base hits per scaffold.
+*Used by BBDuk and Seal.
+public class StringCount
+
+#Fields
+public final String name
+
+public int length
+
+public long reads
+
+public long bases
+
+public long ambigReads
+
+
+#Methods
+public StringCount(String name_)
+
+public StringCount(String name_, int len_, long reads_, long bases_)
+
+public StringCount(String name_, int len_, long reads_, long bases_, long ambigReads_)
+
+@Override public final int compareTo(StringCount o)
+
+public final boolean equals(StringCount o)
+
+@Override public final int hashCode()
+
+@Override public final String toString()
+
+</class StringCount>
+<class StringNum>
+public class StringNum
+
+#Fields
+public final String s
+
+public long n
+
+
+#Methods
+public StringNum(String s_, long n_)
+
+public long increment()
+
+public long increment(long x)
+
+public void add(StringNum sn)
+
+@Override public int compareTo(StringNum o)
+
+@Override public String toString()
+
+@Override public int hashCode()
+
+@Override public boolean equals(Object other)
+
+public boolean equals(StringNum other)
+
+</class StringNum>
+<class StringPair>
+public class StringPair
+
+#Fields
+public String a
+
+public String b
+
+
+#Methods
+public StringPair(String a_, String b_)
+
+@Override public String toString()
+
+</class StringPair>
+<class SuperLongList>
+*Holds counts of numbers for histograms.
+*Small numbers are stored as counts in an array.
+*Large numbers are stored individually in a LongList.
+*@author Brian Bushnell
+public class SuperLongList
+
+#Fields
+private long count
+
+private long sum
+
+final long[] array
+
+final LongList list
+
+final int limit
+
+
+#Methods
+public SuperLongList()
+
+*@param limit_ Length of array used to store small numbers.
+public SuperLongList(int limit_)
+
+public long[] array()
+
+public LongList list()
+
+public void addTo(long[] ca)
+
+*Add or increment these keys.
+public void add(LongList ll)
+
+*Add or increment these counts.
+public void addCounts(long[] counts)
+
+*Add or increment this key.
+*May result in duplicate copies appearing, which is fine.
+public void add(long x)
+
+public void increment(long x)
+
+public void increment(long x, long amt)
+
+public void add(SuperLongList sllT)
+
+public void incrementBy(SuperLongList sllT)
+
+public void sort()
+
+public double stdev()
+
+*Returns value such that percentile of values are below that value
+public long percentileValueByCount(double percentile)
+
+*Returns value such that percentile of sum of values are below that value
+public long percentileValueBySum(double percentile)
+
+*Returns the sum of the lower percentile of values
+public long percentileSumByCount(double percentile)
+
+*Returns the number of lower values needed to sum to this percentile of the total sum
+public long percentileCountBySum(double percentile)
+
+public long max()
+
+public double mean()
+
+public long median()
+
+public long mode()
+
+@Override public String toString()
+
+public long count()
+
+public long sum()
+
+</class SuperLongList>

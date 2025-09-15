@@ -1,0 +1,329 @@
+#version 1
+#package cluster
+#generated 2025-09-06T20:35:53
+
+<class Cluster>
+*@author Brian Bushnell
+*@date Mar 24, 2014
+public class Cluster
+
+#Fields
+public final int id
+
+*'big' kmer
+public final int k1
+
+*'small' kmer
+public final int k2
+
+public final int arraylen1
+
+public final int arraylen2
+
+public float gc
+
+public int depth1
+
+public int depth2
+
+final AtomicLongArray kmerArray1
+
+final float[] kmerProbArray1
+
+final AtomicLongArray kmerArray2
+
+final float[] kmerProbArray2
+
+final AtomicLong depthsum1=new AtomicLong(0)
+
+final AtomicLong depthsum2=new AtomicLong(0)
+
+final AtomicLong readCount=new AtomicLong(0)
+
+final AtomicLong baseCount=new AtomicLong(0)
+
+final AtomicLong gcCount=new AtomicLong(0)
+
+public static final int SCORE_MODE_DIF=0
+
+public static final int SCORE_MODE_RMS=1
+
+public static final int SCORE_MODE_AND=2
+
+public static final int SCORE_MODE_MULT=3
+
+public static final int SCORE_MODE_KS=4
+
+public static int scoreMode1=SCORE_MODE_MULT
+
+public static int scoreMode2=SCORE_MODE_RMS
+
+
+#Methods
+public Cluster(int id_, int k1_, int k2_, int arraylen1_, int arraylen2_)
+
+public void recalculate()
+
+public void resetAtomics()
+
+public void add(Read r)
+
+public float score(Read r)
+
+public float scoreSingle(Read r)
+
+*@param rt
+*@return
+private float scoreKmer1(ReadTag rt)
+
+*@param rt
+*@return
+private float scoreKmer2(ReadTag rt)
+
+*@param rt
+*@return
+private float scoreGcSingle(ReadTag rt)
+
+*@param rt
+*@return
+private float scoreDepthSingle(ReadTag rt)
+
+public float scorePaired(Read r)
+
+</class Cluster>
+<class ClusterTools>
+*@author Brian Bushnell
+*@date Mar 24, 2014
+public class ClusterTools
+
+#Fields
+public static boolean verbose=false
+
+
+#Methods
+public static int[] toKmerCounts(byte[] bases, Object object, int k)
+
+public static int[] toKmers(byte[] bases, int[] array_, int k)
+
+public static int[] toKmerCounts(byte[] bases, int[] array_, int k, int alen)
+
+public static int maxCanonicalKmer(int k)
+
+*@param kmers Read kmers
+*@param counts Cluster kmer counts
+*@return Score
+static final float andCount(int[] kmers, AtomicLongArray counts)
+
+*@param kmers Read kmers
+*@param probs Cluster kmer frequencies
+*@return Score
+static final float innerProduct(int[] kmers, float[] probs)
+
+*@param a Read kmer frequencies
+*@param b Cluster kmer frequencies
+*@return Score
+static final float absDif(float[] a, float[] b)
+
+*@param a Read kmer frequencies
+*@param b Cluster kmer frequencies
+*@return Score
+static final float rmsDif(float[] a, float[] b)
+
+*@param a Read kmer frequencies
+*@param b Cluster kmer frequencies
+*@return Score
+static final float ksFunction(float[] a, float[] b)
+
+</class ClusterTools>
+<class MergeReadHeaders>
+*Appears to replace read headers with those in a text file.
+*@author Brian Bushnell
+*@date Feb 7, 2014
+public class MergeReadHeaders
+
+#Fields
+public boolean errorState=false
+
+private String headerFile=null
+
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String out2=null
+
+private String extin=null
+
+private String extout=null
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private long maxReads=-1
+
+private final FileFormat ffheader
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public MergeReadHeaders(String[] args)
+
+void process(Timer t)
+
+public static String processHeader(String s)
+
+</class MergeReadHeaders>
+<class ReadTag>
+*@author Brian Bushnell
+*@date Mar 24, 2014
+class ReadTag
+
+#Fields
+private static final long serialVersionUID=-6186366525723397478L
+
+*Sorted long kmers
+private int[] kmerArray1
+
+*Canonically-ordered short kmer counts
+private int[] kmerArray2
+
+private float[] kmerFreq2
+
+final Read r
+
+final byte strand
+
+final int gcCount
+
+int depth
+
+int cluster0=-1
+
+int cluster1=-1
+
+float gc
+
+
+#Methods
+public ReadTag(Read r_)
+
+private void processHeader(String s)
+
+Read r1()
+
+Read r2()
+
+ReadTag tag1()
+
+ReadTag tag2()
+
+int[] kmerArray1(int k1)
+
+int[] kmerArray2(int k2)
+
+float[] kmerFreq2(int k2)
+
+</class ReadTag>
+<class ReclusterByKmer>
+*@author Brian Bushnell
+*@date Feb 7, 2014
+public class ReclusterByKmer
+
+#Fields
+public boolean errorState=false
+
+final ArrayList<Cluster> clusterList=new ArrayList<Cluster>(256)
+
+*'big' kmer
+public final int k1
+
+*'small' kmer
+public final int k2
+
+public final int arraylen1
+
+public final int arraylen2
+
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String out2=null
+
+private String extin=null
+
+private String extout=null
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private long maxReads=-1
+
+private int ambigMode=AMBIG_MODE_RAND
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+private PrintStream outstream=System.err
+
+private int THREADS=Shared.threads()
+
+public static boolean verbose=false
+
+public static final int CLUSTER_MODE_CREATE=0
+
+public static final int CLUSTER_MODE_RECLUSTER=1
+
+public static final int CLUSTER_MODE_REFINE=2
+
+public static final int AMBIG_MODE_BEST=0
+
+public static final int AMBIG_MODE_BOTH=1
+
+public static final int AMBIG_MODE_TOSS=2
+
+public static final int AMBIG_MODE_RAND=3
+
+
+#Methods
+public static void main(String[] args)
+
+public ReclusterByKmer(String[] args)
+
+void process(Timer t)
+
+Cluster fetchCluster(int x)
+
+*Creates clusters; Generates kmer spectra for clusters
+*@param t
+private void findKmerSpectra(Timer t)
+
+*Assign reads to clusters using additional kmer information.
+*@param t
+private void recluster(Timer t)
+
+</class ReclusterByKmer>

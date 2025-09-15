@@ -1,0 +1,2059 @@
+#version 1
+#package assemble
+#generated 2025-09-06T20:34:58
+
+<class AbstractBuildThread>
+*@author Brian Bushnell
+*@date Jul 18, 2015
+abstract class AbstractBuildThread
+
+#Fields
+*Input read stream
+final ConcurrentReadInputStream[] crisa
+
+final int mode
+
+int minCountSeedCurrent
+
+final int[] leftCounts=KillSwitch.allocInt1D(4)
+
+final int[] rightCounts=KillSwitch.allocInt1D(4)
+
+final ByteBuilder builderT=new ByteBuilder()
+
+final LongList insertSizes=new LongList()
+
+ArrayList<Contig> contigs=new ArrayList<Contig>()
+
+long readsInT=0
+
+long basesInT=0
+
+long lowqReadsT=0
+
+long lowqBasesT=0
+
+final int id
+
+
+#Methods
+public AbstractBuildThread(int id_, int mode_, ConcurrentReadInputStream[] crisa_)
+
+</class AbstractBuildThread>
+<class AbstractExploreThread>
+*Searches for dead ends.
+*@author Brian Bushnell
+*@date Jul 20, 2015
+abstract class AbstractExploreThread
+
+#Fields
+long kmersTestedT=0
+
+long deadEndsFoundT=0
+
+long bubblesFoundT=0
+
+final int id
+
+final Kmer myKmer
+
+final Kmer myKmer2
+
+final int[] leftCounts=KillSwitch.allocInt1D(4)
+
+final int[] rightCounts=KillSwitch.allocInt1D(4)
+
+final ByteBuilder builderT=new ByteBuilder()
+
+long[][] countMatrixT=new long[MAX_CODE + 1][MAX_CODE + 1]
+
+long[][] removeMatrixT=new long[MAX_CODE + 1][MAX_CODE + 1]
+
+public final Thread thread
+
+
+#Methods
+*Constructor
+public AbstractExploreThread(int id_, int kbig_)
+
+@Override public final void run()
+
+boolean processNextTable()
+
+boolean processNextTable(Kmer kmer, Kmer temp)
+
+boolean processNextVictims()
+
+boolean processNextVictims(Kmer kmer, Kmer temp)
+
+public final void start()
+
+public final Thread.State getState()
+
+public final void join()
+
+</class AbstractExploreThread>
+<class AbstractProcessContigThread>
+*Thread for exploring connectivity graph between contigs.
+*@author Brian Bushnell
+*@date July 12, 2018
+public abstract class AbstractProcessContigThread
+
+#Fields
+final int[] leftCounts=KillSwitch.allocInt1D(4)
+
+final int[] rightCounts=KillSwitch.allocInt1D(4)
+
+final int[] extraCounts=KillSwitch.allocInt1D(4)
+
+final ArrayList<Contig> contigs
+
+final AtomicInteger next
+
+int lastLength=-1
+
+int lastTarget=-1
+
+int lastExitCondition=-1
+
+int lastOrientation=-1
+
+ByteBuilder bb=new ByteBuilder()
+
+long edgesMadeT=0
+
+
+#Methods
+AbstractProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_)
+
+@Override public void run()
+
+public final void processContigs(ArrayList<Contig> contigs)
+
+void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+</class AbstractProcessContigThread>
+<class AbstractRemoveThread>
+*Removes kmers with counts outside a certain range.
+*@author Brian Bushnell
+*@date Jul 20, 2015
+public abstract class AbstractRemoveThread
+
+#Fields
+long kmersRemovedT=0
+
+final int id
+
+final int min
+
+final int max
+
+final AtomicInteger nextTable
+
+*Print messages to this stream
+static PrintStream outstream=System.err
+
+
+#Methods
+*Constructor
+public AbstractRemoveThread(int id_, int min_, int max_, AtomicInteger nextTable_)
+
+@Override public final void run()
+
+boolean processNextTable()
+
+public static long process(int threads, int min, int max, AbstractKmerTableSet tables, boolean print)
+
+</class AbstractRemoveThread>
+<class AbstractShaveThread>
+*Removes dead-end kmers.
+abstract class AbstractShaveThread
+
+#Fields
+long kmersRemovedT=0
+
+final int id
+
+
+#Methods
+*Constructor
+public AbstractShaveThread(int id_)
+
+@Override public final void run()
+
+boolean processNextTable()
+
+</class AbstractShaveThread>
+<class BubblePopper>
+public class BubblePopper
+
+#Fields
+final ArrayList<Contig> allContigs
+
+final HashMap<Integer,ArrayList<Edge>> destMap
+
+final int kbig
+
+final int minLen
+
+final ByteBuilder bb=new ByteBuilder()
+
+Contig center=null
+
+Contig dest=null
+
+int lastMutualDest=-1
+
+int lastMutualDestOrientation=-1
+
+int expansions=0
+
+int contigsAbsorbed=0
+
+long branchesRemoved=0
+
+static boolean verbose=false
+
+static boolean popDirect=true
+
+static boolean popIndirect=true
+
+static boolean debranch=false
+
+
+#Methods
+BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer,ArrayList<Edge>> destMap_, int kbig_)
+
+int expand(Contig c)
+
+void debranch(Contig c)
+
+private void debranchRight(Contig c)
+
+private void debranchLeft(Contig c)
+
+private boolean isDeadEndLeft(Contig c)
+
+private boolean isDeadEndRight(Contig c)
+
+private void debranch(Contig source, ArrayList<Edge> outbound)
+
+void truncate(Edge e, Contig from, Contig to)
+
+private boolean expandRightSimple()
+
+private int countInbound(int id, boolean destRight)
+
+private ArrayList<Edge> getInbound(int id, boolean destRight)
+
+private boolean expandRight()
+
+private boolean pop(Contig left, Contig right, Contig mid, Edge leftMidEdge, Edge rightMidEdge, ArrayList<Contig> midNodes)
+
+private void redirectEdges(int from, int to, boolean destRight)
+
+void removeDeadEdges(Contig c)
+
+private ArrayList<Edge> removeDeadEdges(ArrayList<Edge> edges)
+
+private boolean merge(Contig left, Contig right, Edge leftEdge)
+
+boolean isLoop(Contig c)
+
+boolean validate(Contig c)
+
+private Edge findRepresentativeMidEdge(ArrayList<Edge> edges)
+
+private boolean midNodesConcur(ArrayList<Contig> midNodes)
+
+private ArrayList<Contig> fetchMidNodes(ArrayList<Edge> outbound, boolean flipAsNeeded)
+
+private int findMutualDest(ArrayList<Edge> edges)
+
+</class BubblePopper>
+<class Contig>
+*Contig generated by Tadpole.
+*@author Brian Bushnell
+*@date July 12, 2018
+public class Contig
+
+#Fields
+public String name
+
+public byte[] bases
+
+public float coverage
+
+public int minCov
+
+public int maxCov
+
+int leftCode
+
+int rightCode
+
+float leftRatio
+
+float rightRatio
+
+public int id
+
+private boolean flipped=false
+
+private boolean used=false
+
+private boolean associate=false
+
+ArrayList<Edge> leftEdges
+
+ArrayList<Edge> rightEdges
+
+
+#Methods
+public Contig(byte[] bases_)
+
+public Contig(byte[] bases_, int id_)
+
+public Contig(byte[] bases_, String name_, int id_)
+
+public ByteBuilder toFasta(int wrap, ByteBuilder sb)
+
+@Override public String toString()
+
+public String name()
+
+public String name2()
+
+private ByteBuilder toHeader(ByteBuilder bb)
+
+int appendEdges(ArrayList<Edge> edges, ByteBuilder bb)
+
+*@return GC fraction
+public float gc()
+
+public int length()
+
+long leftKmer(int k)
+
+long rightKmer(int k)
+
+Kmer leftKmer(Kmer kmer)
+
+Kmer rightKmer(Kmer kmer)
+
+boolean canonical()
+
+void rcomp()
+
+boolean leftBranch()
+
+boolean rightBranch()
+
+boolean leftForwardBranch()
+
+boolean rightForwardBranch()
+
+boolean leftBackwardBranch()
+
+boolean rightBackwardBranch()
+
+final int leftEdgeCount()
+
+final int rightEdgeCount()
+
+public void addLeftEdge(Edge e)
+
+public void addRightEdge(Edge e)
+
+public void removeLeftEdge(int dest, boolean destRight)
+
+public void removeRightEdge(int dest, boolean destRight)
+
+public static ArrayList<Edge> removeEdge(int dest, boolean destRight, ArrayList<Edge> edges)
+
+public Edge getLeftEdge(int dest, int orientation)
+
+public Edge getRightEdge(int dest, int orientation)
+
+public boolean hasLeftEdge(int dest, byte[] path, int orientation)
+
+public boolean hasRightEdge(int dest, byte[] path, int orientation)
+
+public final boolean flipped()
+
+final void flip(ArrayList<Edge> inbound)
+
+public final boolean used()
+
+final void setUsed(HashMap<Integer,ArrayList<Edge>> map, ArrayList<Contig> allContigs)
+
+final void setUsed(ArrayList<Edge> inbound, ArrayList<Contig> allContigs)
+
+public final boolean associate()
+
+final void setAssociate(HashMap<Integer,ArrayList<Edge>> map, ArrayList<Contig> allContigs)
+
+final void setAssociate(ArrayList<Edge> inbound, ArrayList<Contig> allContigs)
+
+void removeAllEdges(ArrayList<Edge> inbound, ArrayList<Contig> allContigs)
+
+private void removeLeftEdgesTo(int destNode)
+
+private void removeRightEdgesTo(int destNode)
+
+private static ArrayList<Edge> removeEdgesTo(ArrayList<Edge> edges, int destNode)
+
+final void renumber(int newID, ArrayList<Edge> inbound)
+
+</class Contig>
+<class Edge>
+public class Edge
+
+#Fields
+byte[] bases
+
+int origin
+
+int destination
+
+int length
+
+int orientation
+
+int depth
+
+
+#Methods
+public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_)
+
+@Override public String toString()
+
+public ByteBuilder appendTo(ByteBuilder bb)
+
+public void toDot(ByteBuilder bb)
+
+public boolean destRight()
+
+public boolean sourceRight()
+
+void flipSource()
+
+void flipDest()
+
+void merge(Edge e)
+
+</class Edge>
+<class ErrorTracker>
+*Tracks and manages sequencing errors detected during assembly processing.
+*Maintains statistics on error detection, correction attempts, and rollback operations
+*for quality assessment and debugging.
+*@author Brian Bushnell
+*@documentation Eru
+*@date Oct 1, 2016
+public class ErrorTracker
+
+#Fields
+public int suspected
+
+public int detectedPincer
+
+public int detectedTail
+
+public int detectedBrute
+
+public int detectedReassemble
+
+public int correctedPincer
+
+public int correctedTail
+
+public int correctedBrute
+
+public int correctedReassembleInner
+
+public int correctedReassembleOuter
+
+public int marked
+
+public boolean rollback=false
+
+
+#Methods
+*Creates a new error tracking instance with all counters initialized to zero.
+public ErrorTracker()
+
+public void clear()
+
+public void clearDetected()
+
+public void clearCorrected()
+
+public int corrected()
+
+public int detected()
+
+public int correctedReassemble()
+
+@Override public String toString()
+
+</class ErrorTracker>
+<class KmerCompressor>
+*Assembles kmers into a concise representation.
+*@author Brian Bushnell
+*@date May 15, 2015
+public class KmerCompressor
+
+#Fields
+public final KmerTableSet tables
+
+*Normal kmer length
+final int k
+
+*k-1; used in some expressions
+private final int k2
+
+private ArrayList<Contig> allContigs
+
+private long contigsBuilt=0
+
+private long basesBuilt=0
+
+private long longestContig=0
+
+protected boolean extendThroughLeftJunctions=true
+
+int minCount=1
+
+int maxCount=Integer.MAX_VALUE
+
+*Only extend to kmers with the same count as this kmer
+boolean REQUIRE_SAME_COUNT=false
+
+public boolean showStats=true
+
+*Has this class encountered errors while processing?
+public boolean errorState=false
+
+*Contig output file
+private String outContigs=null
+
+long readsIn=0
+
+long basesIn=0
+
+long readsOut=0
+
+long basesOut=0
+
+long lowqReads=0
+
+long lowqBases=0
+
+protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>()
+
+protected ThreadLocal<LongList> localLongList=new ThreadLocal<LongList>()
+
+protected ThreadLocal<IntList> localIntList=new ThreadLocal<IntList>()
+
+protected ThreadLocal<ByteBuilder> localByteBuilder=new ThreadLocal<ByteBuilder>()
+
+protected ThreadLocal<BitSet> localBitSet=new ThreadLocal<BitSet>()
+
+protected ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>()
+
+*For numbering contigs
+final AtomicLong contigNum=new AtomicLong(0)
+
+*For controlling access to tables for contig-building
+final AtomicInteger nextTable
+
+*For controlling access to victim buffers for contig-building
+final AtomicInteger nextVictims
+
+final int fuse
+
+*Print messages to this stream
+protected static PrintStream outstream=System.err
+
+*Permission to overwrite existing files
+public static boolean overwrite=true
+
+*Permission to append to existing files
+public static boolean append=false
+
+*Print speed statistics upon completion
+public static boolean showSpeed=true
+
+*Display progress messages such as memory usage
+public static boolean DISPLAY_PROGRESS=true
+
+*Verbose messages
+public static boolean verbose=false
+
+*Debugging verbose messages
+public static boolean verbose2=false
+
+*Reverse-complement
+public static boolean doRcomp=true
+
+*Number of load threads
+public static int LOAD_THREADS=Shared.threads()
+
+*Number of build threads
+public static int BUILD_THREADS=1
+
+*Explore codes
+public static final int KEEP_GOING=0
+
+*Explore codes
+public static final int DEAD_END=1
+
+*Explore codes
+public static final int TOO_SHORT=2
+
+*Explore codes
+public static final int TOO_LONG=3
+
+*Explore codes
+public static final int TOO_DEEP=4
+
+*Extend codes
+public static final int BAD_SEED=12
+
+public static final int STATUS_UNEXPLORED=0
+
+public static final int STATUS_EXPLORED=1
+
+public static final int STATUS_REMOVE=2
+
+public static final int STATUS_KEEP=3
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+public static final int preparseK(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerCompressor(String[] args, boolean setDefaults)
+
+public final void process(Timer t)
+
+public long loadKmers(Timer t)
+
+public final void process2()
+
+*Build contigs.
+private final void buildContigs()
+
+private static void fuse(ArrayList<Contig> contigs, int fuse)
+
+BuildThread makeBuildThread(int id)
+
+*Extend these bases into a contig.
+*Stops at both left and right junctions.
+*Claims ownership.
+public int extendToRight(ByteBuilder bb, int[] rightCounts, int id)
+
+*Extend these bases into a contig.
+*Stops at both left and right junctions.
+*Claims ownership.
+public int extendToRight_RcompOnly(ByteBuilder bb, int[] rightCounts, int id)
+
+*Currently unused
+protected static final Kmer getKmer(byte[] bases, int loc, Kmer kmer)
+
+private final long rcomp(long kmer)
+
+private final long toValue(long kmer, long rkmer)
+
+public final int getCount(long kmer, long rkmer)
+
+final boolean claim(long kmer, int id)
+
+private final boolean claim(long kmer, long rkmer, int id)
+
+final int findOwner(ByteBuilder bb, int id)
+
+final void release(long key, int id)
+
+private final int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2)
+
+private final int fillRightCountsRcompOnly(long kmer, long rkmer, int[] counts, long mask, int shift2)
+
+final StringBuilder toText(long kmer)
+
+protected final void initializeThreadLocals()
+
+</class KmerCompressor>
+<class Postfilter>
+*@author Brian Bushnell
+*@date Jul 8, 2015
+public class Postfilter
+
+#Fields
+private ArrayList<String> mapArgs=new ArrayList<String>()
+
+private String in1=null
+
+private String in2=null
+
+private String ref=null
+
+private String out="filtered.fa"
+
+private String outdirty=null
+
+private String covstats="covstats.txt"
+
+private int maxIndel=0
+
+private int minHits=2
+
+private int bw=20
+
+private int tipsearch=0
+
+private boolean rescue=false
+
+private int trimEnds=0
+
+private double minCoverage=2
+
+private double minCoveredPercent=95
+
+private long minReads=6
+
+private int minLength=400
+
+boolean showStats=true
+
+boolean append=false
+
+boolean overwrite=true
+
+*Print messages to this stream
+private static PrintStream outstream=System.err
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Postfilter(String[] args, boolean setDefaults)
+
+public void process(Timer t)
+
+</class Postfilter>
+<class Rollback>
+public class Rollback
+
+#Fields
+final String id0
+
+final int flags0
+
+final byte[] bases0
+
+final byte[] quals0
+
+public final IntList counts0
+
+
+#Methods
+public Rollback(Read r)
+
+public Rollback(Read r, IntList counts)
+
+public void rollback(Read r)
+
+public void rollback(Read r, IntList counts)
+
+</class Rollback>
+<class ShaveObject>
+*Holds constants for shaving.
+*@author Brian Bushnell
+*@date Jul 20, 2015
+public abstract class ShaveObject
+
+#Fields
+*Print messages to this stream
+static PrintStream outstream=System.err
+
+public static final int contigMode=0
+
+public static final int extendMode=1
+
+public static final int correctMode=2
+
+public static final int insertMode=3
+
+public static final int discardMode=4
+
+*Explore codes
+public static final int KEEP_GOING=0
+
+*Explore codes
+public static final int DEAD_END=1
+
+*Explore codes
+public static final int TOO_SHORT=2
+
+*Explore codes
+public static final int TOO_LONG=3
+
+*Explore codes
+public static final int TOO_DEEP=4
+
+*Explore codes
+public static final int LOOP=7
+
+*Explore codes
+public static final int SUCCESS=8
+
+*Branch codes
+public static final int BRANCH_BIT=16
+
+*Branch codes
+public static final int F_BRANCH=BRANCH_BIT | 1
+
+*Branch codes
+public static final int B_BRANCH=BRANCH_BIT | 2
+
+*Branch codes
+public static final int D_BRANCH=BRANCH_BIT | 3
+
+*Extend codes
+public static final int BAD_OWNER=11
+
+*Extend codes
+public static final int BAD_SEED=12
+
+public static final int STATUS_UNEXPLORED=0
+
+public static final int STATUS_EXPLORED=1
+
+public static final int STATUS_REMOVE=2
+
+public static final int STATUS_KEEP=3
+
+public static final String[] codeStrings=new String[]{"KEEP_GOING","DEAD_END","TOO_SHORT","TOO_LONG","TOO_DEEP","5","6","LOOP","SUCCESS","9","10","BAD_OWNER","BAD_SEED","BRANCH","14","15","BRANCH","F_BRANCH","B_BRANCH","D_BRANCH"}
+
+public static final int MAX_CODE=codeStrings.length
+
+public static boolean printEventCounts=false
+
+*Verbose messages
+public static boolean verbose=false
+
+*Debugging verbose messages
+public static boolean verbose2=false
+
+
+#Methods
+public static final boolean isBranchCode(int code)
+
+</class ShaveObject>
+<class Shaver>
+*Designed for removal of dead ends (aka hairs).
+*@author Brian Bushnell
+*@date Jun 26, 2015
+public abstract class Shaver
+
+#Fields
+public long kmersTested=0
+
+public long deadEndsFound=0
+
+public long bubblesFound=0
+
+public long kmersRemoved=0
+
+final int kbig
+
+final int threads
+
+int minCount
+
+int maxCount
+
+final int minSeed
+
+final int minCountExtend
+
+final float branchMult2
+
+final int maxLengthToDiscard
+
+final int maxDistanceToExplore
+
+final boolean removeHair
+
+final boolean removeBubbles
+
+static boolean startFromHighCounts=true
+
+static boolean shaveFast=true
+
+static final boolean shaveVFast=false
+
+private long[][] countMatrix
+
+private long[][] removeMatrix
+
+*For controlling access to tables
+final AtomicInteger nextTable=new AtomicInteger(0)
+
+*For controlling access to victim buffers
+final AtomicInteger nextVictims=new AtomicInteger(0)
+
+
+#Methods
+public static final Shaver makeShaver(AbstractKmerTableSet tables, int threads)
+
+public static final Shaver makeShaver(AbstractKmerTableSet tables, int threads, int minCount, int maxCount, int minSeed, int minCountExtend, float branchMult2, int maxLengthToDiscard, int maxDistanceToExplore, boolean removeHair, boolean removeBubbles)
+
+public Shaver(AbstractKmerTableSet tables_, int threads_, int minCount_, int maxCount_, int minSeed_, int minCountExtend_, float branchMult2_, int maxLengthToDiscard_, int maxDistanceToExplore_, boolean removeHair_, boolean removeBubbles_)
+
+AbstractExploreThread makeExploreThread(int id_)
+
+AbstractShaveThread makeShaveThread(int id_)
+
+public final long shave(int minCount_, int maxCount_)
+
+public final long shave()
+
+AbstractKmerTableSet tables()
+
+</class Shaver>
+<class Shaver1>
+*Designed for removal of dead ends (aka hairs).
+*@author Brian Bushnell
+*@date Jun 26, 2015
+public class Shaver1
+
+#Fields
+final KmerTableSet tables
+
+final int k
+
+
+#Methods
+public Shaver1(KmerTableSet tables_, int threads_)
+
+public Shaver1(KmerTableSet tables_, int threads_, int minCount_, int maxCount_, int minSeed_, int minCountExtend_, float branchMult2_, int maxLengthToDiscard_, int maxDistanceToExplore_, boolean removeHair_, boolean removeBubbles_)
+
+@Override final AbstractExploreThread makeExploreThread(int id_)
+
+@Override final AbstractShaveThread makeShaveThread(int id_)
+
+public boolean exploreAndMark(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLengthToDiscard, int maxDistanceToExplore, boolean prune, long[][] countMatrixT, long[][] removeMatrixT)
+
+*Explores a single unbranching path in the forward direction.
+*@param kmer
+*@param bb
+*@param leftCounts
+*@param rightCounts
+*@param minCount
+*@param maxCount
+*@param maxLength0
+*@return A termination code such as DEAD_END
+public int explore(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLength0)
+
+*Explores a single unbranching path in the forward direction.
+*Returns reason for ending in this direction:
+*DEAD_END, TOO_LONG, TOO_DEEP, F_BRANCH, B_BRANCH
+public int explore2(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLength0)
+
+private final long toValue(long kmer, long rkmer)
+
+int getCount(long kmer, long rkmer)
+
+boolean claim(long kmer, int id)
+
+boolean claim(long kmer, long rkmer, int id)
+
+boolean doubleClaim(ByteBuilder bb, int id)
+
+boolean claim(ByteBuilder bb, int id, boolean earlyExit)
+
+boolean claim(byte[] array, int len, int id, boolean earlyExit)
+
+int findOwner(long kmer)
+
+int findOwner(ByteBuilder bb, int id)
+
+int findOwner(byte[] array, int len, int id)
+
+void release(ByteBuilder bb, int id)
+
+void release(byte[] array, int len, int id)
+
+int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2)
+
+int fillLeftCounts(long kmer, long rkmer, int[] counts, long mask, int shift2)
+
+static StringBuilder toText(long kmer, int k)
+
+@Override AbstractKmerTableSet tables()
+
+</class Shaver1>
+<class Shaver1.ExploreThread>
+*Searches for dead ends.
+class Shaver1.ExploreThread
+
+#Fields
+final int shift
+
+final int shift2
+
+final long mask
+
+
+#Methods
+*Constructor
+public ExploreThread(int id_)
+
+@Override boolean processNextTable(Kmer kmer, Kmer temp)
+
+@Override boolean processNextVictims(Kmer kmer, Kmer temp)
+
+private int traverseKmerNode_high(KmerNode kn)
+
+private int traverseKmerNode_low(KmerNode kn)
+
+private int processCell_low(HashArray1D table, int cell)
+
+private int processKmerNode_low(KmerNode kn)
+
+private int processKmer_low(long key)
+
+private int processCell_high(HashArray1D table, int cell)
+
+private int processKmerNode_high(KmerNode kn)
+
+private int processKmer_high(long key0)
+
+private int processKmer_high_leftLoop(long kmer0, long rkmer0)
+
+private int processKmer_high_safe(long key0)
+
+private int processKmer_high_safe_leftLoop(long kmer0, long rkmer0)
+
+</class Shaver1.ExploreThread>
+<class Shaver1.ShaveThread>
+*Removes dead-end kmers.
+class Shaver1.ShaveThread
+
+#Methods
+*Constructor
+public ShaveThread(int id_)
+
+@Override boolean processNextTable()
+
+private void traverseKmerNode(KmerNode kn)
+
+</class Shaver1.ShaveThread>
+<class Shaver2>
+*Designed for removal of dead ends (aka hairs).
+*@author Brian Bushnell
+*@date Jun 26, 2015
+public class Shaver2
+
+#Fields
+final KmerTableSetU tables
+
+
+#Methods
+public Shaver2(KmerTableSetU tables_, int threads_)
+
+public Shaver2(KmerTableSetU tables_, int threads_, int minCount_, int maxCount_, int minSeed_, int minCountExtend_, float branchMult2_, int maxLengthToDiscard_, int maxDistanceToExplore_, boolean removeHair_, boolean removeBubbles_)
+
+public boolean exploreAndMark(Kmer kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLengthToDiscard, int maxDistanceToExplore, boolean prune, long[][] countMatrixT, long[][] removeMatrixT)
+
+*Explores a single unbranching path in the forward (right) direction.
+*@param kmer
+*@param bb
+*@param leftCounts
+*@param rightCounts
+*@param minCount
+*@param maxCount
+*@param maxLength0
+*@return A termination code such as DEAD_END
+public int explore(Kmer kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount, int maxLength0)
+
+public boolean claim(ByteBuilder bb, int id, boolean exitEarly, Kmer kmer)
+
+public boolean claim(byte[] bases, int blen, int id, boolean exitEarly, Kmer kmer)
+
+final boolean countWithinLimits(Kmer kmer)
+
+int getCount(Kmer kmer)
+
+boolean claim(Kmer kmer, int id)
+
+boolean doubleClaim(ByteBuilder bb, int id, Kmer kmer)
+
+int findOwner(Kmer kmer)
+
+int findOwner(ByteBuilder bb, int id, Kmer kmer)
+
+int findOwner(byte[] array, int len, int id, Kmer kmer)
+
+void release(ByteBuilder bb, int id, Kmer kmer)
+
+void release(byte[] array, int len, int id, Kmer kmer)
+
+int fillRightCounts(Kmer kmer, int[] counts)
+
+int fillLeftCounts(Kmer kmer, int[] counts)
+
+static StringBuilder toText(Kmer kmer)
+
+@Override AbstractKmerTableSet tables()
+
+</class Shaver2>
+<class Shaver2.ExploreThread>
+*Searches for dead ends.
+class Shaver2.ExploreThread
+
+#Methods
+*Constructor
+public ExploreThread(int id_)
+
+@Override boolean processNextTable(Kmer kmer, Kmer temp)
+
+@Override boolean processNextVictims(Kmer kmer, Kmer temp)
+
+private int traverseKmerNodeU_high(KmerNodeU kn, Kmer kmer, Kmer temp)
+
+private int traverseKmerNodeU_low(KmerNodeU kn, Kmer kmer, Kmer temp)
+
+private int processCell_low(HashArrayU1D table, int cell, Kmer kmer0, Kmer temp)
+
+private int processKmerNodeU_low(KmerNodeU kn, Kmer kmer, Kmer temp)
+
+private int processKmer_low(Kmer original, Kmer temp)
+
+private int processCell_high(HashArrayU1D table, int cell, Kmer kmer0, Kmer temp, int count)
+
+private int processKmerNodeU_high(KmerNodeU kn, Kmer kmer, Kmer temp)
+
+private int processKmer_high(Kmer original, Kmer kmer, int count0)
+
+private int processKmer_high_leftLoop(Kmer original, Kmer kmer, int count0)
+
+</class Shaver2.ExploreThread>
+<class TadPipe>
+*Merges and error-corrects reads, then assembles.
+*@author Brian Bushnell
+*@date August 16, 2016
+public class TadPipe
+
+#Fields
+private ArrayList<String> trimArgs=new ArrayList<String>()
+
+private ArrayList<String> eccoArgs=new ArrayList<String>()
+
+private ArrayList<String> clumpifyArgs=new ArrayList<String>()
+
+private ArrayList<String> assembleArgs=new ArrayList<String>()
+
+private ArrayList<String> mergeArgs=new ArrayList<String>()
+
+private ArrayList<String> eccArgs=new ArrayList<String>()
+
+private ArrayList<String> extendArgs=new ArrayList<String>()
+
+private ArrayList<String> extend2Args=new ArrayList<String>()
+
+private String in1
+
+private String in2
+
+private String out="contigs.fa"
+
+private String tempdir=Shared.tmpdir()
+
+private boolean deleteTemp=true
+
+private boolean gz=false
+
+private boolean extend2=false
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public TadPipe(String[] args)
+
+public void process()
+
+*Delete all non-null filenames.
+*@param prefix Append this prefix to filenames before attempting to delete them
+*@param names Filenames to delete
+private void delete(String names)
+
+</class TadPipe>
+<class Tadpole>
+*Short-kmer assembler based on KmerCountExact.
+*@author Brian Bushnell
+*@date May 15, 2015
+public abstract class Tadpole
+
+#Fields
+*Big kmer length
+final int kbig
+
+private ArrayList<Contig> allContigs
+
+private LongList allInserts
+
+private long contigsBuilt=0
+
+private long basesBuilt=0
+
+private long longestContig=0
+
+protected boolean extendThroughLeftJunctions=true
+
+private boolean removeBubbles=false
+
+private boolean removeDeadEnds=false
+
+private boolean setShave=false
+
+private boolean setRinse=false
+
+protected int maxShaveDepth=1
+
+protected int shaveDiscardLen=150
+
+protected int shaveExploreDist=300
+
+protected int kmerRangeMin=0
+
+protected int kmerRangeMax=Integer.MAX_VALUE
+
+protected int processingMode=-1
+
+protected int extendLeft=-1
+
+protected int extendRight=-1
+
+protected int extensionRollback=3
+
+*Track kmer ownership
+public final boolean useOwnership
+
+public int maxContigLen=1000000000
+
+public int minExtension=2
+
+public int minContigLen=-1
+
+public float minCoverage=1
+
+public float maxCoverage=Float.MAX_VALUE
+
+public boolean joinContigs
+
+int trimEnds=0
+
+boolean trimCircular=true
+
+int minCountSeed=3
+
+protected int minCountExtend=2
+
+protected float branchMult1=20
+
+protected float branchMult2=3
+
+private int branchLowerConst=3
+
+private int errorPath=1
+
+private float errorMult1=16
+
+private float errorMult2=2.6f
+
+private float errorMultQFactor=0.002f
+
+private int errorLowerConst=4
+
+private int minCountCorrect=3
+
+private int pathSimilarityConstant=3
+
+private float pathSimilarityFraction=0.45f
+
+protected int errorExtensionReassemble=5
+
+protected int errorExtensionPincer=5
+
+protected int errorExtensionTail=9
+
+protected int deadZone=0
+
+protected int windowLen=12
+
+protected int windowCount=6
+
+protected int windowQualSum=80
+
+protected int windowCountHQ=2
+
+protected byte windowHQThresh=24
+
+protected byte qIncreasePincer=8
+
+protected byte qMinPincer=24
+
+protected byte qMaxPincer=32
+
+protected byte qIncreaseTail=4
+
+protected byte qMinTail=20
+
+protected byte qMaxTail=28
+
+public boolean showStats=true
+
+*Has this class encountered errors while processing?
+public boolean errorState=false
+
+*Input reads
+private ArrayList<String> in1=new ArrayList<String>()
+
+*Input reads
+private ArrayList<String> in2=new ArrayList<String>()
+
+*Output reads
+private ArrayList<String> out1=new ArrayList<String>()
+
+*Output reads
+private ArrayList<String> out2=new ArrayList<String>()
+
+*Output discarded reads
+private ArrayList<String> outd1=new ArrayList<String>()
+
+*Output discarded reads
+private ArrayList<String> outd2=new ArrayList<String>()
+
+*Output graph
+private String outDot=null
+
+*Insert size histogram
+private String outInsert=null
+
+*Kmer count output file
+protected String outKmers=null
+
+*Histogram output file
+protected String outHist=null
+
+*Add gc information to kmer histogram
+protected boolean gcHist=false
+
+*Histogram columns
+protected int histColumns=2
+
+*Histogram rows
+protected int histMax=100000
+
+*Print a histogram header
+protected boolean histHeader=true
+
+*Histogram show rows with 0 count
+protected boolean histZeros=false
+
+protected boolean smoothHist=false
+
+*Maximum input reads (or pairs) to process. Does not apply to references. -1 means unlimited.
+private long maxReads=-1
+
+long edgesMade=0
+
+long readsIn=0
+
+long basesIn=0
+
+long readsOut=0
+
+long basesOut=0
+
+long lowqReads=0
+
+long lowqBases=0
+
+long basesExtended=0
+
+long readsExtended=0
+
+long readsCorrected=0
+
+long basesCorrectedPincer=0
+
+long basesCorrectedTail=0
+
+long basesCorrectedReassemble=0
+
+long readsFullyCorrected=0
+
+long rollbacks=0
+
+long readsDetected=0
+
+long basesDetected=0
+
+long readsMarked=0
+
+long basesMarked=0
+
+long readsDiscarded=0
+
+long basesDiscarded=0
+
+long readsMerged=0
+
+long readsCorrectedEcco=0
+
+long basesCorrectedEcco=0
+
+protected boolean ECC_PINCER=false
+
+protected boolean ECC_TAIL=false
+
+protected boolean ECC_ALL=false
+
+protected boolean ECC_REASSEMBLE=true
+
+protected boolean ECC_AGGRESSIVE=false
+
+protected boolean ECC_CONSERVATIVE=false
+
+protected boolean ECC_ROLLBACK=true
+
+protected boolean ECC_REQUIRE_BIDIRECTIONAL=true
+
+*Mark bases as bad if they are completely covered by kmers with a count below this
+protected int MARK_BAD_BASES=0
+
+*Only mark bad bases that are adjacent to good bases
+protected boolean MARK_DELTA_ONLY=true
+
+*Only mark bad bases in reads that appear to have errors
+protected boolean MARK_ERROR_READS_ONLY=true
+
+*Assign this quality score to marked bases
+protected byte MARK_QUALITY=0
+
+*Discard reads that cannot be assembled
+protected boolean tossJunk=false
+
+*Discard reads with kmers below this depth
+protected int discardLowDepthReads=-1
+
+*Only discard reads in which at least this fraction of kmers are low depth
+protected float lowDepthDiscardFraction=0f
+
+*Only discard reads if both in a pair fail
+protected boolean requireBothBad=false
+
+*Discard reads with uncorrectable errors
+protected boolean discardUncorrectable=false
+
+*Look for contig-contig edges
+boolean processContigs=false
+
+*Pop simple bubbles in contig graph
+boolean popBubbles=true
+
+int bubblePasses=1
+
+*Expand simple tandem repeats in contig graph
+boolean expandTandemRepeats=false
+
+protected ThreadLocal<int[]> localLeftCounts=new ThreadLocal<int[]>()
+
+protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>()
+
+protected ThreadLocal<int[]> localExtraCounts=new ThreadLocal<int[]>()
+
+protected ThreadLocal<LongList> localLongList=new ThreadLocal<LongList>()
+
+protected ThreadLocal<IntList> localIntList=new ThreadLocal<IntList>()
+
+protected ThreadLocal<IntList> localIntList2=new ThreadLocal<IntList>()
+
+protected ThreadLocal<ByteBuilder> localByteBuilder=new ThreadLocal<ByteBuilder>()
+
+protected ThreadLocal<ByteBuilder> localByteBuilder2=new ThreadLocal<ByteBuilder>()
+
+protected ThreadLocal<BitSet> localBitSet=new ThreadLocal<BitSet>()
+
+private ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>()
+
+private ThreadLocal<Kmer> localKmer2=new ThreadLocal<Kmer>()
+
+protected ThreadLocal<ErrorTracker> localTracker=new ThreadLocal<ErrorTracker>()
+
+*min kmer count to dump to text
+protected int minToDump=1
+
+*max kmer count to dump to text
+protected int maxToDump=Integer.MAX_VALUE
+
+*Correct via kmers
+final boolean ecc
+
+*Correct via overlap
+final boolean ecco
+
+*Use stricter settings for merging
+final boolean vstrict
+
+*Merge, correct, and unmerge
+final boolean merge
+
+*Check bordering counts to see if the merge seems correct
+final boolean testMerge
+
+int testMergeWidth=4
+
+long testMergeMult=80L
+
+int testMergeThresh=3
+
+*For numbering contigs
+final AtomicLong contigNum=new AtomicLong(0)
+
+int bubblesPopped=0
+
+int contigPasses=16
+
+double contigPassMult=1.7
+
+*For controlling access to tables for contig-building
+final AtomicInteger nextTable
+
+*For controlling access to victim buffers for contig-building
+final AtomicInteger nextVictims
+
+*Permission to overwrite existing files
+public static boolean overwrite=true
+
+*Permission to append to existing files
+public static boolean append=false
+
+*Force output reads to stay in input order
+public static boolean ordered=false
+
+*Print speed statistics upon completion
+public static boolean showSpeed=true
+
+*Display progress messages such as memory usage
+public static boolean DISPLAY_PROGRESS=true
+
+*Number of ProcessThreads
+public static int THREADS=Shared.threads()
+
+*Number of BuildThreads
+public static int BUILD_THREADS=-1
+
+*Do garbage collection prior to printing memory usage
+private static final boolean GC_BEFORE_PRINT_MEMORY=false
+
+static boolean IGNORE_BAD_OWNER=false
+
+static boolean FORCE_TADPOLE2=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+public static Tadpole makeTadpole(String[] args, boolean setDefaults)
+
+public static final int preparseK(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Tadpole(String[] args, boolean setDefaults)
+
+public final void process(Timer t)
+
+void makeKhist()
+
+void dumpKmersAsText()
+
+public long loadKmers(Timer t)
+
+public final void clearData()
+
+public final void process2(int mode)
+
+public final long shaveAndRinse(Timer t, boolean shave, boolean rinse, boolean print)
+
+long shave(boolean shave, boolean rinse)
+
+void initializeOwnership()
+
+*Build contigs.
+private final void buildContigs(int mode)
+
+void runBuildThreads(int mode, ConcurrentReadInputStream[] crisa)
+
+void processContigs()
+
+HashMap<Integer,ArrayList<Edge>> destToEdgeMap()
+
+int popBubbles(boolean debranch)
+
+void runProcessContigThreads()
+
+void initializeContigs(ArrayList<Contig> contigs)
+
+AbstractBuildThread makeBuildThread(int i, int mode, ConcurrentReadInputStream[] crisa)
+
+AbstractProcessContigThread makeProcessContigThread(ArrayList<Contig> contigs, AtomicInteger next)
+
+*Extend reads.
+private final void extendReads()
+
+private final ConcurrentReadInputStream[] makeCrisArray(ArrayList<String> list1, ArrayList<String> list2)
+
+private static final ConcurrentReadOutputStream[] makeCrosArray(ArrayList<String> list1, ArrayList<String> list2)
+
+*Examines kmer counts around the merge borders to ensure the merge was not chimeric
+public boolean mergeOK(Read merged, int len1, int len2, BitSet bs, IntList countList, Kmer kmer, int width, int thresh, long mult)
+
+public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance)
+
+public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, Kmer kmer)
+
+*Extend these bases to the right by at most 'distance'.
+*Stops at right junctions only.
+*Does not claim ownership.
+public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase)
+
+*Extend these bases to the right by at most 'distance'.
+*Stops at right junctions only.
+*Does not claim ownership.
+public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase, Kmer kmer)
+
+*Test a read to see if it could possibly assemble.
+public boolean isJunk(Read r)
+
+public boolean isJunk(Read r, int[] localLeftCounts, Kmer kmer)
+
+*True if at least fraction of the reads kmers are at or below count.
+public boolean hasKmersAtOrBelow(Read r, int count, float fraction)
+
+*True if at least fraction of the reads kmers are at or below count.
+public boolean hasKmersAtOrBelow(Read r, int count, float fraction, Kmer kmer)
+
+public final int countErrors(IntList counts, byte[] quals)
+
+public int errorCorrect(Read r)
+
+public int errorCorrect(Read r, int[] leftCounts, int[] rightCounts, LongList kmers, IntList counts, IntList counts2, ByteBuilder bb, ByteBuilder bb2, ErrorTracker tracker, BitSet bs, Kmer kmer, Kmer kmer2)
+
+public int reassemble_inner(ByteBuilder bb, byte[] quals, int[] rightCounts, IntList counts, int extension, Kmer kmer, Kmer kmer2)
+
+public final int reassemble(byte[] bases, byte[] quals, int[] rightCounts, IntList counts, IntList counts2, ErrorTracker tracker, int errorExtension, ByteBuilder bb, ByteBuilder bb2, Kmer kmer, Kmer regenKmer, BitSet bs)
+
+public final int reassemble_pass(byte[] bases, byte[] quals, ByteBuilder fromLeft, ByteBuilder fromRight, int[] rightCounts, IntList counts, IntList counts2, ErrorTracker tracker, int errorExtension, Kmer kmer, Kmer kmer2, BitSet bs)
+
+private static int clearWindow2(ByteBuilder bb, byte[] quals, int window, int limit, int qsumLimit)
+
+*Changes to N any base covered strictly by kmers with count below minCount
+public final int markBadBases(byte[] bases, byte[] quals, IntList counts, BitSet bs, int minCount, boolean deltaOnly, byte markQuality)
+
+protected final boolean isSimilar(int a, int loc1, int loc2, IntList counts)
+
+protected final boolean isSimilar(int a, int b)
+
+protected final boolean isError(int a, int loc1, int loc2, IntList counts)
+
+protected final boolean isErrorBidirectional(int a, int b, byte qa, byte qb)
+
+protected final boolean isError(int high, int low)
+
+protected final boolean isError(int high, int low, byte q)
+
+protected final boolean isSubstitution(int ca, int errorExtension, byte qb, IntList counts)
+
+protected static final Kmer getKmer(byte[] bases, int loc, Kmer kmer)
+
+protected final boolean isJunction(int rightMax, int rightSecond, int leftMax, int leftSecond)
+
+*Technically, returns true if it is junction or max
+protected final boolean isJunction(int max, int second)
+
+float calcRatio(int[] counts)
+
+public AbstractKmerTableSet tables()
+
+public final int k()
+
+int minCountCorrect()
+
+protected final void initializeThreadLocals()
+
+protected Kmer getLocalKmer()
+
+protected Kmer getLocalKmer2()
+
+</class Tadpole>
+<class Tadpole1>
+*Short-kmer assembler based on KmerCountExact.
+*@author Brian Bushnell
+*@date May 15, 2015
+public class Tadpole1
+
+#Fields
+public final KmerTableSet tables
+
+*Normal kmer length
+final int k
+
+*k-1; used in some expressions
+final int k2
+
+final int shift
+
+final int shift2
+
+final long mask
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Tadpole1(String[] args, boolean setDefaults)
+
+@Override void initializeOwnership()
+
+@Override long shave(boolean shave, boolean rinse)
+
+@Override public long loadKmers(Timer t)
+
+final long rcomp(long kmer)
+
+final long toValue(long kmer, long rkmer)
+
+public final int getCount(long kmer, long rkmer)
+
+final boolean claim(long kmer, int id)
+
+final boolean claim(long kmer, long rkmer, int id)
+
+final boolean doubleClaim(ByteBuilder bb, int id)
+
+final boolean claim(ByteBuilder bb, int id, boolean earlyExit)
+
+final boolean claim(byte[] array, int len, int id, boolean earlyExit)
+
+final int findOwner(long kmer)
+
+final int findOwner(ByteBuilder bb, int id)
+
+final int findOwner(byte[] array, int len, int id)
+
+final void release(long key, int id)
+
+final void release(ByteBuilder bb, int id)
+
+final void release(byte[] array, int len, int id)
+
+final int fillRightCounts(long kmer, long rkmer, int[] counts)
+
+final int fillLeftCounts(long kmer, long rkmer, int[] counts)
+
+final StringBuilder toText(long kmer)
+
+@Override BuildThread makeBuildThread(int id, int mode, ConcurrentReadInputStream[] crisa)
+
+@Override ProcessContigThread makeProcessContigThread(ArrayList<Contig> contigs, AtomicInteger next)
+
+@Override public void initializeContigs(ArrayList<Contig> contigs)
+
+public int findInsertSize(Read r1, Read r2, int[] rightCounts)
+
+@Override public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, Kmer kmer)
+
+@Override public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance)
+
+*Returns distance between the two kmers, or -1
+public int measureInsert(long kmer1, long rkmer1, long kmer2, long rkmer2, int maxlen, int[] rightCounts)
+
+*Extend these bases into a contig.
+*Stops at both left and right junctions.
+*Claims ownership.
+public int extendToRight(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int id)
+
+@Override public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase)
+
+*Extend these bases to the right by at most 'distance'.
+*Stops at right junctions only.
+*Does not claim ownership.
+public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase, long kmer, long rkmer)
+
+@Override public boolean isJunk(Read r)
+
+@Override public boolean isJunk(Read r, int[] counts, Kmer kmer)
+
+public boolean isJunk(Read r, int[] counts)
+
+@Override public boolean hasKmersAtOrBelow(Read r, int tooLow, float fraction, Kmer kmer)
+
+@Override public boolean hasKmersAtOrBelow(Read r, int tooLow, float fraction)
+
+@Override public int errorCorrect(Read r)
+
+@Override public int errorCorrect(Read r, int[] leftCounts, int[] rightCounts, LongList kmers, IntList counts, IntList counts2, ByteBuilder bb, ByteBuilder bb2, ErrorTracker tracker, BitSet bs, Kmer kmer, Kmer kmer2)
+
+boolean hasErrorsFast(LongList kmers)
+
+public int errorCorrect(Read r, int[] leftCounts, int[] rightCounts, LongList kmers, IntList counts, IntList counts2, ByteBuilder bb, ByteBuilder bb2, ErrorTracker tracker, BitSet bs)
+
+private int findBestMutant(byte[] bases, int a, LongList kmers, long[] bestMutant)
+
+private boolean fixBestMutant(byte[] bases, int a, LongList kmers, IntList counts, int pos, long kmer)
+
+public int errorCorrectBruteForce(byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, LongList kmers, IntList counts, ByteBuilder bb, ErrorTracker tracker, int errorExtension)
+
+public int errorCorrectPincer(byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, LongList kmers, IntList counts, ByteBuilder bb, ErrorTracker tracker, int errorExtension)
+
+public int errorCorrectTail(byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, LongList kmers, IntList counts, ByteBuilder bb, ErrorTracker tracker, int startPos, int errorExtension)
+
+@Override public int reassemble_inner(ByteBuilder bb, byte[] quals, int[] rightCounts, IntList counts, int errorExtension, Kmer kmer, Kmer regenKmer)
+
+public int reassemble_inner(ByteBuilder bb, byte[] quals, int[] rightCounts, IntList counts, int errorExtension)
+
+private int correctSingleBasePincer(int a, int d, byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, LongList kmers, IntList counts, ByteBuilder bb, int errorExtension)
+
+private int correctSingleBaseRight(int a, byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, LongList kmers, IntList counts, ByteBuilder bb, int errorExtension0)
+
+private boolean isSimilar(int a, byte newBase, LongList kmers, IntList counts)
+
+@Override final void makeKhist()
+
+@Override final void dumpKmersAsText()
+
+@Override public final KmerTableSet tables()
+
+</class Tadpole1>
+<class Tadpole1.ProcessContigThread>
+class Tadpole1.ProcessContigThread
+
+#Methods
+ProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_)
+
+@Override public void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+@Override public void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+private int exploreRight(long kmer, long rkmer, int[] leftCounts, int[] rightCounts, ByteBuilder bb)
+
+</class Tadpole1.ProcessContigThread>
+<class Tadpole2>
+*Long-kmer assembler based on KmerCountExact.
+*@author Brian Bushnell
+*@date May 15, 2015
+public class Tadpole2
+
+#Fields
+public final KmerTableSetU tables
+
+*Normal kmer length
+final int ksmall
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public Tadpole2(String[] args, boolean setDefaults)
+
+@Override void initializeOwnership()
+
+@Override long shave(boolean shave, boolean rinse)
+
+public final int getCount(Kmer kmer)
+
+final boolean claim(Kmer kmer, int id)
+
+final boolean doubleClaim(ByteBuilder bb, int id, Kmer kmer)
+
+final boolean claim(ByteBuilder bb, int id, boolean earlyExit, Kmer kmer)
+
+final boolean claim(byte[] array, int len, int id, boolean earlyExit, Kmer kmer)
+
+final int findOwner(Kmer kmer)
+
+final int findOwner(ByteBuilder bb, int id, Kmer kmer)
+
+final int findOwner(byte[] array, int len, int id, Kmer kmer)
+
+final void release(Kmer kmer, int id)
+
+final void release(ByteBuilder bb, int id, Kmer kmer)
+
+final void release(byte[] array, int len, int id, Kmer kmer)
+
+final int fillRightCounts(Kmer kmer, int[] counts)
+
+final int fillLeftCounts(Kmer kmer, int[] counts)
+
+static final StringBuilder toText(Kmer kmer)
+
+static final StringBuilder toText(long[] key, int k)
+
+@Override BuildThread makeBuildThread(int id, int mode, ConcurrentReadInputStream[] crisa)
+
+@Override ProcessContigThread makeProcessContigThread(ArrayList<Contig> contigs, AtomicInteger next)
+
+@Override public void initializeContigs(ArrayList<Contig> contigs)
+
+public int findInsertSize(Read r1, Read r2, int[] rightCounts, Kmer kmer1, Kmer kmer2)
+
+@Override public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance)
+
+@Override public int extendRead(Read r, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, Kmer kmer)
+
+*Returns distance between the two kmers, or -1
+public int measureInsert(Kmer kmer1, Kmer kmer2, int maxlen, int[] rightCounts)
+
+*Extend these bases into a contig.
+*Stops at both left and right junctions.
+*Claims ownership.
+public int extendToRight(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int id, Kmer kmer)
+
+@Override public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase)
+
+@Override public int extendToRight2(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase, Kmer kmer)
+
+*Extend these bases to the right by at most 'distance'.
+*Stops at right junctions only.
+*Does not claim ownership.
+private int extendToRight2_inner(ByteBuilder bb, int[] leftCounts, int[] rightCounts, int distance, boolean includeJunctionBase, Kmer kmer)
+
+@Override public boolean isJunk(Read r)
+
+@Override public boolean isJunk(Read r, int[] counts, Kmer kmer)
+
+@Override public boolean hasKmersAtOrBelow(Read r, int tooLow, float fraction)
+
+@Override public boolean hasKmersAtOrBelow(Read r, int tooLow, float fraction, Kmer kmer)
+
+@Override public int errorCorrect(Read r)
+
+@Override public int errorCorrect(Read r, int[] leftCounts, int[] rightCounts, LongList kmers, IntList counts, IntList counts2, ByteBuilder bb, ByteBuilder bb2, ErrorTracker tracker, BitSet bs, Kmer kmer, Kmer kmer2)
+
+boolean hasErrorsFast(byte[] bases, Kmer kmer)
+
+public int errorCorrect(Read r, int[] leftCounts, int[] rightCounts, IntList counts, IntList counts2, ByteBuilder bb, ByteBuilder bb2, ErrorTracker tracker, BitSet bs, Kmer kmer, Kmer regenKmer)
+
+public int errorCorrectPincer(byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, IntList counts, ByteBuilder bb, ErrorTracker tracker, int errorExtension, Kmer kmer)
+
+public int errorCorrectTail(byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, IntList counts, ByteBuilder bb, ErrorTracker tracker, int startPos, int errorExtension, Kmer kmer)
+
+@Override public int reassemble_inner(ByteBuilder bb, byte[] quals, int[] rightCounts, IntList counts, int errorExtension, Kmer kmer, Kmer regenKmer)
+
+private int correctSingleBasePincer(int a, int d, byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, IntList counts, ByteBuilder bb, int errorExtension, Kmer kmer0)
+
+private int correctSingleBaseRight(int a, byte[] bases, byte[] quals, int[] leftBuffer, int[] rightBuffer, IntList counts, ByteBuilder bb, int errorExtension0, Kmer kmer0)
+
+private final boolean isSimilar(byte[] bases, int a, byte newBase, IntList counts, Kmer kmer0)
+
+@Override final void makeKhist()
+
+@Override final void dumpKmersAsText()
+
+@Override public final KmerTableSetU tables()
+
+</class Tadpole2>
+<class Tadpole2.ProcessContigThread>
+class Tadpole2.ProcessContigThread
+
+#Fields
+final Kmer kmerA
+
+final Kmer kmerB
+
+final Kmer kmerC
+
+
+#Methods
+ProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_)
+
+@Override public void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+@Override public void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb)
+
+private int exploreRight(Kmer kmer, int[] leftCounts, int[] rightCounts, ByteBuilder bb)
+
+</class Tadpole2.ProcessContigThread>
+<class TadpoleWrapper>
+*Assembles with multiple kmer lengths to find the best kmer length.
+*@author Brian Bushnell
+*@date Oct 15, 2015
+public class TadpoleWrapper
+
+#Fields
+private static int[] kmers
+
+private static boolean quitEarly=false
+
+private static boolean delete=false
+
+private static boolean expand=false
+
+private static boolean bisect=false
+
+private static String bestAssembly=null
+
+*Print status messages to this output stream
+private static PrintStream outstream=System.err
+
+
+#Methods
+public static void main(String[] args)
+
+public static int process(String[] args)
+
+static int expandLeft(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur)
+
+static int expandRight(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur)
+
+static int bisect(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur)
+
+</class TadpoleWrapper>

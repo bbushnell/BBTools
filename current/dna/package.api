@@ -1,0 +1,1644 @@
+#version 1
+#package dna
+#generated 2025-09-06T20:36:12
+
+<class AminoAcid>
+*@author Brian Bushnell
+*@date July 1, 2010
+public final class AminoAcid
+
+#Fields
+public final String name
+
+public final String symbol
+
+public final char letter
+
+public final String[] codeStrings
+
+public static final String[] canonicalCodons=new String[21]
+
+public static final byte[] numberToBase={'A','C','G','T','N'}
+
+public static final byte[] numberToAcid=new byte[21]
+
+public static final byte[] numberToComplementaryBase={'T','G','C','A','N'}
+
+public static final byte[] numberToComplement={3,2,1,0,4}
+
+public static final byte[] numberToBaseExtended={' ','A','C','M','G','R','S','V','T','W','Y','H','K','D','B','N','X',' ',' ',' ',' ',' ',' ',' '}
+
+*Has 'N' in position 0. Mainly for translating compressed arrays containing zeroes to bases.
+public static final byte[] numberToBaseExtended2={'N','A','C','M','G','R','S','V','T','W','Y','H','K','D','B','N','X',' ',' ',' ',' ',' ',' ',' '}
+
+public static final byte[] degenerateBases={' ',' ',' ','M',' ','R','S','V',' ','W','Y','H','K','D','B',' ',' ',' ',' ',' ',' ',' ',' ',' '}
+
+public static final byte[] numberToComplementaryBaseExtended={' ','T','G','K','C','Y','W','B','A','S','R','D','M','H','V','N','X',' ',' ',' ',' ',' ',' ',' '}
+
+*Element i is: 5-bit alphabetical code for a symbol, -1 otherwise
+public static final byte[] acidToNumber=new byte[128]
+
+*Element i is: 5-bit alphabetical code for a symbol other than stop, -1 otherwise
+public static final byte[] acidToNumberNoStops=new byte[128]
+
+*Element i is: 5-bit alphabetical code for a symbol, 0 otherwise
+public static final byte[] acidToNumber0=new byte[128]
+
+*Element i is: 5-bit alphabetical code for a symbol (plus X, B, J, Z, . and -), -1 otherwise
+public static final byte[] acidToNumberExtended=new byte[128]
+
+*Element i is: 5-bit alphabetical code for a symbol, -1 otherwise
+public static final byte[] acidToNumber8=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', -1 otherwise
+public static final byte[] baseToNumber=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 0 otherwise
+public static final byte[] baseToNumber0=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 3 otherwise
+public static final byte[] baseToNumber3=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 otherwise
+public static final byte[] baseToNumber4=new byte[128]
+
+*Element i is: 3 for 'A', 2 for 'C', 1 for 'G', 0 for 'T', -1 otherwise
+public static final byte[] baseToComplementNumber=new byte[128]
+
+*Element i is: 3 for 'A', 2 for 'C', 1 for 'G', 0 for 'T', 0 otherwise
+public static final byte[] baseToComplementNumber0=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 for 'N', -1 otherwise
+public static final byte[] baseToNumberACGTN=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 0 for 'N', -1 otherwise
+public static final byte[] baseToNumberACGTN2=new byte[128]
+
+*Element i is: 0 for 'A', 1 for 'C', 2 for 'G', 3 for 'T', 4 otherwise
+public static final byte[] baseToNumberACGTother=new byte[128]
+
+*Element i is: Some 7-bit number for ACGT, 0 otherwise
+public static final byte[] baseToHashcode=new byte[128]
+
+*Element i is: 0 for empty, 1-26 for A-Z, plus "*-"; otherwise, 31.
+*Allows fast alphabetical sorting of sequences.
+public static final byte[] symbolTo5Bit=new byte[128]
+
+*A>A, C>C, G>G, T/U>T, other>N
+public static final byte[] baseToACGTN=new byte[128]
+
+public static final byte[] baseToComplementExtended=new byte[128]
+
+public static final String[] codonToString=new String[64]
+
+*Uracil to Thymine, everything else unchanged
+public static final byte[] uToT=new byte[256]
+
+*Thymine to Uracil, everything else unchanged
+public static final byte[] tToU=new byte[256]
+
+*. - X to N, everything else unchanged
+public static final byte[] dotDashXToNocall=new byte[256]
+
+*. - X to ., everything else unchanged
+public static final byte[] dotDashXToNocallAA=new byte[256]
+
+*Letters to uppercase, everything else unchanged
+public static final byte[] toUpperCase=new byte[256]
+
+*Lowercase to N, everything else unchanged
+public static final byte[] lowerCaseToNocall=new byte[256]
+
+*Lowercase to ., everything else unchanged
+public static final byte[] lowerCaseToNocallAA=new byte[256]
+
+*Non-acgtACGT alphabet letters to N
+public static final byte[] iupacToNocall=new byte[256]
+
+*Element i is the bitwise OR of constituent IUPAC base numbers in baseToNumber.
+*For example, baseToNumberExtended['M'] = ((1
+*Invalid characters are -1
+public static final byte[] baseToNumberExtended=new byte[128]
+
+public static final byte[] baseToComplementNumberExtended=new byte[128]
+
+public static final AminoAcid[] AlphabeticalAAs=new AminoAcid[21]
+
+public static final AminoAcid[] codeToAA=new AminoAcid[66]
+
+public static final char[] codeToChar=new char[66]
+
+public static final byte[] codeToByte=new byte[66]
+
+public static final byte[] aminoToCode=new byte[128]
+
+public static final HashMap<String,AminoAcid> stringToAA=new HashMap<String,AminoAcid>(512)
+
+public static final AminoAcid Alanine=new AminoAcid("Alanine, Ala, A, GCU, GCC, GCA, GCG")
+
+public static final AminoAcid Arginine=new AminoAcid("Arginine, Arg, R, CGU, CGC, CGA, CGG, AGA, AGG")
+
+public static final AminoAcid Asparagine=new AminoAcid("Asparagine, Asn, N, AAU, AAC")
+
+public static final AminoAcid AsparticAcid=new AminoAcid("AsparticAcid, Asp, D, GAU, GAC")
+
+public static final AminoAcid Cysteine=new AminoAcid("Cysteine, Cys, C, UGU, UGC")
+
+public static final AminoAcid GlutamicAcid=new AminoAcid("GlutamicAcid, Glu, E, GAA, GAG")
+
+public static final AminoAcid Glutamine=new AminoAcid("Glutamine, Gln, Q, CAA, CAG")
+
+public static final AminoAcid Glycine=new AminoAcid("Glycine, Gly, G, GGU, GGC, GGA, GGG")
+
+public static final AminoAcid Histidine=new AminoAcid("Histidine, His, H, CAU, CAC")
+
+public static final AminoAcid Isoleucine=new AminoAcid("Isoleucine, Ile, I, AUU, AUC, AUA")
+
+public static final AminoAcid Leucine=new AminoAcid("Leucine, Leu, L, UUA, UUG, CUU, CUC, CUA, CUG")
+
+public static final AminoAcid Lysine=new AminoAcid("Lysine, Lys, K, AAA, AAG")
+
+public static final AminoAcid Methionine=new AminoAcid("Methionine, Met, M, AUG")
+
+public static final AminoAcid Phenylalanine=new AminoAcid("Phenylalanine, Phe, F, UUU, UUC")
+
+public static final AminoAcid Proline=new AminoAcid("Proline, Pro, P, CCU, CCC, CCA, CCG")
+
+public static final AminoAcid Serine=new AminoAcid("Serine, Ser, S, UCU, UCC, UCA, UCG, AGU, AGC")
+
+public static final AminoAcid Threonine=new AminoAcid("Threonine, Thr, T, ACU, ACC, ACA, ACG")
+
+public static final AminoAcid Tryptophan=new AminoAcid("Tryptophan, Trp, W, UGG")
+
+public static final AminoAcid Tyrosine=new AminoAcid("Tyrosine, Tyr, Y, UAU, UAC")
+
+public static final AminoAcid Valine=new AminoAcid("Valine, Val, V, GUU, GUC, GUA, GUG")
+
+public static final AminoAcid Selenocysteine=new AminoAcid("Selenocysteine, Sec, U")
+
+public static final AminoAcid Pyrrolysine=new AminoAcid("Pyrrolysine, Pyl, O")
+
+public static final AminoAcid END=new AminoAcid("End, End, *, UAA, UGA, UAG")
+
+public static final AminoAcid ANY=new AminoAcid("Any, Any, X, XXX")
+
+public static int AMINO_SHIFT=5
+
+public static final byte[][] COLORS=new byte[][]{{0,1,2,3},{1,0,3,2},{2,3,0,1},{3,2,1,0}}
+
+public static final short[] rcompBinaryTable=makeBinaryRcompTable(4)
+
+
+#Methods
+public static void main(String[] args)
+
+private AminoAcid()
+
+private AminoAcid(String line)
+
+private AminoAcid(String n, String c3, String c1, String[] bases)
+
+@Override public String toString()
+
+public static String kmerToString(long kmer, int k)
+
+public static long stringToKmer(String s)
+
+public static String kmerToStringAA(long kmer, int k)
+
+public static final String codonToString(int codon)
+
+public String canonicalCodon()
+
+*Element i is: N-bit code for a symbol, -1 otherwise
+public static final byte[] symbolToNumber(boolean amino)
+
+*Element i is: N-bit code for a symbol, 0 otherwise
+public static final byte[] symbolToNumber0(boolean amino)
+
+*Element i is: N-bit code for a symbol, -1 otherwise
+public static final byte[] symbolToComplementNumber(boolean amino)
+
+*Element i is: N-bit code for a symbol, 0 otherwise
+public static final byte[] symbolToComplementNumber0(boolean amino)
+
+public static boolean equalsReverseComp(byte[] bases, byte[] bases2)
+
+*Returns a new reverse-complemented array in ASCII coding
+public static final byte[] reverseComplementBases(byte[] in)
+
+public static final void reverseComplementBasesInPlace(byte[] in)
+
+public static final void complementBasesInPlace(byte[] in)
+
+public static final void complementBasesInPlace(byte[] in, int length)
+
+public static final void reverseComplementBasesInPlace(byte[] in, int length)
+
+public static final String reverseComplementBases(String in)
+
+public static final int reverseComplementBinary(int kmer, int k)
+
+public static final long reverseComplementBinary(long kmer, int k)
+
+public static final int reverseComplementBinaryFast(int kmer, int k)
+
+public static final long reverseComplementBinaryFast(long kmer, int k)
+
+public static final byte baseToColor(byte base1, byte base2)
+
+public static final byte colorToBase(byte base1, byte color)
+
+public static final AminoAcid toAA(String code)
+
+public static final char toChar(String code)
+
+public static final char[] splitBase(char c)
+
+public static final byte[] numberToBases(int code, int n)
+
+public static final int baseTupleToNumber(byte[] tuple)
+
+public static boolean isFullyDefined(char base)
+
+public static boolean isFullyDefined(byte base)
+
+public static boolean isFullyDefinedAA(byte acid)
+
+public static boolean isFullyDefinedAANoStops(byte acid)
+
+public static boolean isACGTN(String bases)
+
+public static boolean isACGTN(byte[] bases)
+
+public static boolean isACGTN(char base)
+
+public static boolean isACGTN(byte base)
+
+public static boolean containsOnlyACGTN(String s)
+
+public static boolean containsOnlyACGTNQ(String s)
+
+public static boolean containsOnlyACGTN(byte[] array)
+
+public static boolean isFullyDefined(String s)
+
+public static boolean isFullyDefined(byte[] s)
+
+public static int countUndefined(byte[] s)
+
+public static int countDefined(byte[] s)
+
+public static final byte toNumber(String s)
+
+public static final byte toNumber(char c1, char c2, char c3)
+
+public static final AminoAcid toAA(char c1, char c2, char c3)
+
+public static final char toChar(char c1, char c2, char c3)
+
+public static final byte toByte(byte c1, byte c2, byte c3)
+
+public static final char toChar(byte c1, byte c2, byte c3)
+
+public static final String stringToAAs(String bases)
+
+public static final byte[][] toAAsSixFrames(byte[] bases)
+
+public static final byte[][] toQualitySixFrames(byte[] quals, int offset)
+
+public static final byte[] toAAs(byte[] bases, int frame)
+
+public static final byte[] toAAs(byte[] bases, int start, int stop)
+
+public static final byte[] toAAQuality(byte[] quals, int frame)
+
+public static final byte[] toNTs(byte[] aminos)
+
+public static final boolean isHomopolymer(int kmer, int k, int maxRepeat)
+
+private static final short[] makeBinaryRcompTable(int k)
+
+</class AminoAcid>
+<class ChromArrayMaker>
+*Replaces FastaToChromArrays with a more general solution that can handle fastq.
+*@author Brian Bushnell
+*@date Jul 18, 2014
+public class ChromArrayMaker
+
+#Fields
+private Read currentScaffold
+
+private long scaffoldSum=0
+
+private long lengthSum=0
+
+private long definedSum=0
+
+private long undefinedSum=0
+
+private long contigSum=0
+
+public static boolean MERGE_SCAFFOLDS=true
+
+public static boolean WRITE_IN_THREAD=false
+
+public static boolean overwrite=true
+
+public static boolean append=false
+
+public static int START_PADDING=8000
+
+public static int MID_PADDING=300
+
+public static int END_PADDING=8000
+
+public static int MIN_SCAFFOLD=1
+
+public static int contigTrigger=10
+
+public static int VERSION=5
+
+public static int MAX_LENGTH=(1 << 29) - 200000
+
+public static boolean verbose=false
+
+public static boolean RETAIN=false
+
+public static boolean WAIT_FOR_WRITING=true
+
+public static boolean NODISK=false
+
+public static int LISTBUILD=-1
+
+public static ArrayList<String> INFO_LIST
+
+public static ArrayList<String> SCAF_LIST
+
+public static ArrayList<String> SUMMARY_LIST
+
+
+#Methods
+public static void main(String[] args)
+
+public static ArrayList<ChromosomeArray> main2(String[] args)
+
+private ChromArrayMaker()
+
+private static int[] countInfo(ChromosomeArray ca)
+
+@Deprecated public static void writeInfo(int genome, int chroms, String name, String source, boolean unload, boolean scafNamePrefix)
+
+private int makeChroms(String fname, String outRoot, String genomeName, boolean genScaffolds, boolean writeChroms, ArrayList<ChromosomeArray> r, boolean scafNamePrefix)
+
+private ChromosomeArray makeNextChrom(CrisWrapper criswrapper, int chrom, TextStreamWriter infoWriter, TextStreamWriter scafWriter, ArrayList<String> infolist, ArrayList<String> scaflist)
+
+public static final int currentVersion()
+
+</class ChromArrayMaker>
+<class ChromosomeArray>
+public class ChromosomeArray
+
+#Fields
+private static final long serialVersionUID=3199182397853127842L
+
+public final byte strand
+
+public int chromosome
+
+public byte[] array
+
+public int maxIndex=-1
+
+public int minIndex=Integer.MAX_VALUE
+
+public static boolean CHANGE_UNDEFINED_TO_N_ON_READ=false
+
+public static boolean CHANGE_U_TO_T=true
+
+public static boolean CHANGE_DEGENERATE_TO_N=true
+
+*Translation array for tracking base counts
+private static final byte[] charToNum=AssemblyStats2.makeCharToNum()
+
+
+#Methods
+public static void main(String[] args)
+
+private static void translateFile(String fname, int chrom)
+
+public static ChromosomeArray read(String fname, int chrom)
+
+public static ChromosomeArray read(String fname)
+
+public void changeUndefinedToN()
+
+public ChromosomeArray()
+
+*Actually does reverse complement
+public ChromosomeArray complement()
+
+public ChromosomeArray(int chrom, byte strnd)
+
+public ChromosomeArray(int chrom, byte strnd, int min, int max)
+
+public void set(int loc, int val)
+
+public void set(int loc, CharSequence s)
+
+public void set(int loc, byte[] s)
+
+public void set(int loc, ByteBuilder bb)
+
+public void set(int loc, byte[] s, int slen)
+
+*@param loc
+*@param length
+*@param counts
+*@return gc fraction
+public float calcGC(int loc, int length, int[] counts)
+
+*@param loc
+*@param length
+*@return counts: {A, C, G, T, Iupac, N, Other, Control}
+public int[] countACGTINOC(int loc, int length, int[] counts)
+
+*Returns the letter (IUPAC) representation of the base, as a byte
+public byte get(int loc)
+
+public String getString(int a, int b)
+
+*Returns FASTA format bytes. Same as getString, but faster.
+public byte[] getBytes(int a, int b)
+
+public byte getNumberACGTN(int loc)
+
+public byte getNumber(int loc)
+
+public boolean isFullyDefined(int a, int b)
+
+public boolean isFullyUndefined(int a, int b)
+
+public int countDefinedBases()
+
+public int countDefinedBases(int a, int b)
+
+public int getNumber(int a, int b)
+
+public static int toNumber(int a, int b, byte[] bases)
+
+public static int toNumber(int a, int b, String bases)
+
+public void resize(int newlen)
+
+public String toBaseString()
+
+public char[] nearestDefinedBase()
+
+public ArrayList<Range> toContigRanges(int nBlockSize)
+
+public boolean equalsIgnoreCase(ChromosomeArray other)
+
+private static final long min(long x, long y)
+
+private static final long max(long x, long y)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class ChromosomeArray>
+<class ChromToFasta>
+*@author Brian Bushnell
+*@date Jul 26, 2012
+public class ChromToFasta
+
+#Methods
+public static void main(String[] args)
+
+public static int writeContigs(ChromosomeArray cha, int contig, int trigger, int fastaBlocklen, TextStreamWriter tsw)
+
+public static void writeContig(StringBuilder sb, TextStreamWriter tsw, int blocklen)
+
+public static void writeChrom(ChromosomeArray cha, String fname, int blocklen)
+
+public static void writeChrom(ChromosomeArray cha, TextStreamWriter tsw, int blocklen)
+
+</class ChromToFasta>
+<class Data>
+public class Data
+
+#Fields
+public static int numChroms
+
+public static long numBases
+
+public static long numDefinedBases
+
+public static int numContigs
+
+public static int numScaffolds
+
+public static int interScaffoldPadding
+
+public static int[] chromLengths
+
+public static int[] chromDefinedBases
+
+public static int[] chromUndefinedBases
+
+public static int[] chromContigs
+
+public static int[] chromScaffolds
+
+public static int[] chromStartPad
+
+public static boolean allowZeroSizedGenome=true
+
+public static byte[][][] scaffoldNames
+
+public static int[][] scaffoldLocs
+
+*Does NOT include interScaffoldPadding
+public static int[][] scaffoldLengths
+
+*Should be true if scaffold names have extra prefixes (for BBSplitter mode), false otherwise
+public static boolean scaffoldPrefixes
+
+*Allows translation of sam coordinates back to native coordinates
+public static HashMap<String,ScafLoc> scaffoldNameTable
+
+public static String genomeSource
+
+public static String name
+
+private static final GeneSet[][] geneSetMatrix=new GeneSet[63][]
+
+private static final Gene[][] geneMatrix=new Gene[63][]
+
+public static final Range[][] geneSetRangeMatrix=new Range[63][]
+
+public static final Range[][] geneTxRangeMatrix=new Range[63][]
+
+public static final Range[][] geneCodeRangeMatrix=new Range[63][]
+
+private static final Range[][] geneCodeAndExonRangeMatrix=new Range[63][]
+
+public static final Range[][] exonRangeMatrix=new Range[63][]
+
+public static HashMap<Integer,ArrayList<GeneSet>> geneIDTable
+
+*Ranges within genes and exons or within NEAR their ends
+public static final Range[][] geneNearbyRangeMatrix=new Range[63][]
+
+public static ChromosomeArray[] chromosomePlusMatrix
+
+private static HashMap<Integer,String> geneIdToNameTable
+
+private static HashMap<String,Integer> geneNameToIdTable
+
+private static final HashMap<String,GeneSet>[] geneNameTable=new HashMap[63]
+
+private static final HashMap<String,Gene>[] transcriptNameTable=new HashMap[63]
+
+public static ChainLine[][] chains36to37
+
+public static ChainLine[][] chains37to36
+
+public static int[][][] BAITS
+
+private static final int TX_RANGE=0
+
+private static final int CODE_RANGE=1
+
+public static final int NEAR=200
+
+*Should be the same as ROOT_BASE but is found dynamically
+private static String ROOT
+
+public static String ROOT_BASE
+
+public static String ROOT_REF
+
+public static String ROOT_GENOME
+
+public static String ROOT_INDEX
+
+public static String ROOT_GENE
+
+public static String ROOT_CHAIN
+
+public static String ROOT_TEMPDIR
+
+public static String ROOT_CURRENT
+
+public static String ROOT_QUALITY
+
+public static final String VAR_FOLDER="VAR/"
+
+public static final String GENE_FOLDER="GENE/"
+
+public static int GENOME_BUILD=-1
+
+private static int genome_set_to=-1
+
+public static final boolean verbose=false
+
+*seqGene, knownGene, refGene, unionGene, seqRefGene, ccs
+public static String GENE_MAP="seqRefGene"
+
+private static final String GENEIDLOCK=new String("GENEIDLOCK")
+
+private static final String[] CHROMLOCKS=new String[256]
+
+private static final int INTERN_MAP_SIZE=20011
+
+private static final int INTERN_MAP_LIMIT=(int)(INTERN_MAP_SIZE * 0.75f)
+
+private static final ConcurrentHashMap<String,String> INTERNMAP=new ConcurrentHashMap<String,String>(INTERN_MAP_SIZE)
+
+static int calls=0
+
+public static PrintStream sysout=System.err
+
+public static boolean CHROMGZ=true
+
+public static boolean LOAD_SCAFFOLDS=true
+
+private static final String SUBPROCSYNC=new String("SUBPROCSYNC")
+
+private static final String SCAFMAPLOCK=new String("SCAFMAPLOCK")
+
+private static int GUNZIP=-1
+
+private static int GZIP=0
+
+private static int BGZIP=0
+
+private static int PIGZ=0
+
+private static int DSRC=0
+
+private static int BZIP2=0
+
+private static int PBZIP2=0
+
+private static int LBZIP2=0
+
+private static int SAMTOOLS=0
+
+private static int SAMBAMBA=0
+
+public static boolean USE_SAMTOOLS=true
+
+public static boolean USE_SAMBAMBA=true
+
+public static String SAMTOOLS_VERSION=null
+
+public static boolean SAMTOOLS_VERSION_1x=true
+
+public static String PIGZ_VERSION=null
+
+public static boolean PIGZ_VERSION_231plus=false
+
+public static boolean PIGZ_VERSION_23plus=false
+
+public static String BGZIP_VERSION=null
+
+public static boolean BGZIP_VERSION_threadsFlag=false
+
+public static boolean BGZIP_VERSION_levelFlag=false
+
+private static int SH=0
+
+
+#Methods
+public static void main(String[] args)
+
+public static void unloadAll()
+
+public static void unload(int chrom, boolean unloadSoft)
+
+public static void unloadGenes(int chrom)
+
+public static byte find(int x, byte[] array)
+
+public static void reverse(byte[] array)
+
+public static Gene[] getGenes(int chrom)
+
+public static Gene[] getGenes(int chrom, byte strand)
+
+public static GeneSet[] getGeneSets(int chrom)
+
+public static HashMap<Integer,ArrayList<GeneSet>> getGeneIDTable()
+
+public static ChromosomeArray getChromosome(int chrom)
+
+private static void loadGenes(int chrom)
+
+public static void loadChromosomes(int min, int max)
+
+private static void loadChromosome(int chrom)
+
+public static final String chromExtension()
+
+public static final String chromFname(int chrom, int genome)
+
+public static final String chromFname(int genome)
+
+public static Range[] findGeneRanges(Gene[] genes, int mode)
+
+public static Range[] findGeneSetRanges(GeneSet[] genes)
+
+public static Range[] findCodeAndExonRanges(Gene[] genes, boolean nearby, boolean codingOnly)
+
+public static Range[] geneSetRangeMatrix(int chrom)
+
+public static Range[] exonRangeMatrix(int chrom)
+
+public static Range[] geneCodeAndExonRangeMatrix(int chrom)
+
+public static Range[] geneNearbyRangeMatrix(int chrom)
+
+public static HashMap<String,GeneSet> geneNameTable(int chrom)
+
+public static HashMap<String,Gene> transcriptNameTable(int chrom)
+
+public static GeneSet[] getNearestGeneSets(int chrom, int loc)
+
+*Returns genesets overlapping the range
+public static GeneSet[] getNearestGeneSets(int chrom, int loc1, int loc2)
+
+public static boolean isExonic(byte chrom, int point, int thresh, boolean isCoding)
+
+public static final String padFront(String num, int width, String symbol)
+
+public static final String toBinaryString(long num, int width)
+
+public static final String toString(double[][] a)
+
+public static final String toStringRecursive(Iterable<X> a)
+
+public static final HashMap<String,Integer> geneNameToIdTable()
+
+public static final HashMap<Integer,String> geneIdToNameTable()
+
+public static ChainLine[][] getChainLines(int from, int to)
+
+public static final String toStringRecursive(Object a)
+
+public static boolean isBaited(Variation v)
+
+public static boolean isBaited(Variation v, int thresh)
+
+public static boolean isBaited(int chrom, int point, int thresh)
+
+*Is this point within "thresh" of a bait
+private static boolean isBaited(int point, int[][] baits, int thresh)
+
+private static boolean overlap(int a1, int b1, int a2, int b2)
+
+public static final void setGenome(int g)
+
+private static final void setGenome2(int g)
+
+public static HashMap<String,ScafLoc> scafNameTable()
+
+public static ScafLoc getScafLoc(byte[] name)
+
+public static ScafLoc getScafLoc(String name)
+
+public static byte[] scaffoldName(int chrom, int loc, int idx)
+
+public static int scaffoldRelativeLoc(int chrom, int loc, int idx)
+
+public static int scaffoldIndex(int chrom, int loc)
+
+*TODO: This can be made faster
+public static boolean isSingleScaffold(int chrom, int loc1, int loc2)
+
+*Returns overlap of these two points with the scaffold on which they are centered
+public static int scaffoldOverlapLength(int chrom, int loc1, int loc2)
+
+public static void trimScaffoldNames()
+
+public static final String findPath(String fname)
+
+public static final String findPath(String fname, boolean warn)
+
+public static final int min(int x, int y)
+
+public static final int max(int x, int y)
+
+public static final byte min(byte x, byte y)
+
+public static final byte max(byte x, byte y)
+
+public static final long min(long x, long y)
+
+public static final long max(long x, long y)
+
+public static final double min(double x, double y)
+
+public static final double max(double x, double y)
+
+public static final float min(float x, float y)
+
+public static final float max(float x, float y)
+
+public static String ROOT()
+
+public static void setPath(String path)
+
+public static final void intern(String[] s)
+
+public static String intern(String s)
+
+public static String forceIntern(String s0)
+
+public static boolean GUNZIP()
+
+*Note:
+*Magic number of bgzip files is (first 4 bytes):
+*1f 8b 08 04
+*31 139 8 4
+*= 529205252
+*gzip/pigz:
+*1f 8b 08 00 (actually I've seen it as 1f 8b 08 08 also)
+*31 139 8 0
+*= 529205248
+*od --format=x1 --read-bytes=16 names.txt_gzip.gz
+public static boolean BGZIP()
+
+public static boolean GZIP()
+
+public static boolean PIGZ()
+
+public static boolean DSRC()
+
+public static boolean BZIP2()
+
+public static boolean PBZIP2()
+
+public static boolean LBZIP2()
+
+public static boolean SAMTOOLS()
+
+public static boolean SAMBAMBA()
+
+public static boolean SH()
+
+private static int testExecute_old(String s, ByteBuilder bb)
+
+*Georg Rath Version -
+*fixed by closing stdin and ensuring both stdout and stderr are consumed.
+private static int testExecute(String s, ByteBuilder bb)
+
+</class Data>
+<class Exon>
+public class Exon
+
+#Fields
+private static final long serialVersionUID=1890833345682913235L
+
+public final int a
+
+public final int b
+
+public final boolean utr
+
+public final boolean cds
+
+public final byte chromosome
+
+public final byte strand
+
+public static final HashMap<Exon,Exon> table=new HashMap<Exon,Exon>(65536)
+
+
+#Methods
+public Exon()
+
+public Exon(String startPoint, String endPoint, String chrom, String strnd, boolean utr_, boolean cds_)
+
+public Exon(int startPoint, int endPoint, String chrom, String strnd, boolean utr_, boolean cds_)
+
+public Exon(int startPoint, int endPoint, byte chrom, byte strnd, boolean utr_, boolean cds_)
+
+public static Exon merge(Exon exon1, Exon exon2)
+
+public static boolean canMerge(Exon exon1, Exon exon2)
+
+public boolean intersects(int point)
+
+public boolean intersects(int a2, int b2)
+
+public boolean crosses(int a2, int b2)
+
+public boolean contains(int a2, int b2)
+
+public boolean intersectsNearby(int a, int b)
+
+private static boolean overlap(int a1, int b1, int a2, int b2)
+
+public int distToSpliceSite(int x, int y)
+
+public static int distToPoint(int x, int y, int point)
+
+public static byte toStrand(String s)
+
+public static byte toChromosome(String s)
+
+public int length()
+
+@Override public String toString()
+
+@Override public int compareTo(Exon other)
+
+@Override public boolean equals(Object other)
+
+public boolean equals(Exon other)
+
+@Override public int hashCode()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class Exon>
+<class FastaToChromArrays2>
+*Uses a ByteFile instead of TextFile for better speed and lower memory use.
+*@author Brian Bushnell
+*@date Jul 30, 2014
+public class FastaToChromArrays2
+
+#Fields
+private String lastHeader
+
+private String nextHeader
+
+private ByteBuilder currentScaffold
+
+private long scaffoldSum=0
+
+private long lengthSum=0
+
+private long definedSum=0
+
+private long undefinedSum=0
+
+private long contigSum=0
+
+public static boolean MERGE_SCAFFOLDS=true
+
+public static boolean WRITE_IN_THREAD=false
+
+public static boolean overwrite=true
+
+public static boolean append=false
+
+public static int START_PADDING=8000
+
+public static int MID_PADDING=300
+
+public static int END_PADDING=8000
+
+public static int MIN_SCAFFOLD=1
+
+public static int contigTrigger=10
+
+public static int VERSION=5
+
+public static int MAX_LENGTH=(1 << 29) - 200000
+
+public static boolean verbose=false
+
+public static boolean RETAIN=false
+
+public static boolean WAIT_FOR_WRITING=true
+
+public static boolean NODISK=false
+
+public static int LISTBUILD=-1
+
+public static ArrayList<String> INFO_LIST
+
+public static ArrayList<String> SCAF_LIST
+
+public static ArrayList<String> SUMMARY_LIST
+
+
+#Methods
+public static void main(String[] args)
+
+public static ArrayList<ChromosomeArray> main2(String[] args)
+
+private FastaToChromArrays2()
+
+private static int[] countInfo(ChromosomeArray ca)
+
+@Deprecated public static void writeInfo(int genome, int chroms, String name, String source, boolean unload, boolean scafNamePrefix)
+
+private int makeChroms(String fname, String outRoot, String genomeName, boolean genScaffolds, boolean writeChroms, ArrayList<ChromosomeArray> r, boolean scafNamePrefix)
+
+private ChromosomeArray makeNextChrom(ByteFile1 tf, int chrom, TextStreamWriter infoWriter, TextStreamWriter scafWriter, ArrayList<String> infolist, ArrayList<String> scaflist)
+
+private ByteBuilder nextScaffold(ByteBuilder sb, ByteFile1 tf)
+
+public static final int currentVersion()
+
+</class FastaToChromArrays2>
+<class Gene>
+public class Gene
+
+#Fields
+private static final long serialVersionUID=-1342555621377050981L
+
+*Transcription start position
+public final int txStart
+
+*Transcription end position
+public final int txStop
+
+*Coding region start
+public final int codeStart
+
+*Coding region end
+public final int codeStop
+
+*Length of transcribed area
+public final int txLength
+
+*Length of coding area
+public final int codeLength
+
+*Length of exons (summed)
+public final int exonLength
+
+*Length of exonic coding region
+public final int exonCodeLength
+
+*Number of amino acids (excluding stop codon)
+public final int aaLength
+
+public final int utrLength5prime
+
+public final int utrLength3prime
+
+*Reference sequence chromosome or scaffold
+public final byte chromosome
+
+*+ or - for strand
+public final byte strand
+
+*?
+public final byte cdsStartStat
+
+*?
+public final byte cdsEndStat
+
+public final boolean readCorrectly
+
+*Array of exons used by this gene
+public final Exon[] exons
+
+*Exon frame {0,1,2}, or -1 if no frame for exon
+public final byte[] exonFrames
+
+*Name of gene (usually transcript_id from GTF)
+public final String mrnaAcc
+
+*Protein accession
+public final String proteinAcc
+
+*Alternate name (e.g. gene_id from GTF)
+public final String symbol
+
+public final String description
+
+public final String fullDescription
+
+public final byte primarySource
+
+public final byte status
+
+public final byte completeness
+
+public final int id
+
+public final boolean untranslated
+
+public final boolean pseudo
+
+public final boolean valid
+
+public static final String[] sourceCodes={"seqGene","knownGene","refGene","unionGene","reserved1","reserved2","reserved3","reserved4"}
+
+*Index with cdsStartStat and cdsEndStat
+public static final String[] endStatCodes={"none","unk","incmpl","cmpl"}
+
+public static final String[] statusCodes={"Unknown","Reviewed","Validated","Provisional","Predicted","Inferred","Public"}
+
+public static final String[] completenessCodes={"Unknown","Complete5End","Complete3End","FullLength","IncompleteBothEnds","Incomplete5End","Incomplete3End","Partial"}
+
+*Index with chromosome number
+public static final String[] chromCodes={"A","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","X","Y","M","U"}
+
+private static final int NEAR=Data.NEAR
+
+public static final byte STAT_UNKNOWN=0
+
+public static final byte STAT_REVIEWED=1
+
+public static final byte STAT_VALIDATED=2
+
+public static final byte STAT_PROVISIONAL=3
+
+public static final byte STAT_PREDICTED=4
+
+public static final byte STAT_INFERRED=5
+
+public static final byte STAT_PUBLIC=6
+
+
+#Methods
+public Gene()
+
+public Gene(byte chrom, byte strand_, int txStart_, int txStop_, int cdStart_, int cdStop_, int gid, String name_, String trans_, String protTrans_, String status_, String completeness_, Exon[] exons_, boolean untran, boolean pseudo_, boolean valid_, String primarySource_, String descript_, String fullDescript_)
+
+public Gene merge(Gene g)
+
+public static byte toStrand(String s)
+
+public static int toChromosome(String s)
+
+public static int toBuild(String s)
+
+private void fillExons(String eStarts, String eEnds, byte chr, byte str)
+
+private Exon[] fillExonsCCDS(String estring, byte chr, byte str)
+
+public int toGeneRelativeOffset(int index)
+
+public int[] toExonRelativeOffset(int index)
+
+public boolean isHypothetical()
+
+public static boolean isHypothetical(String s)
+
+public boolean isNormalGene()
+
+public boolean intersectsTx(int point)
+
+public boolean intersectsTr(int point)
+
+public boolean intersectsCode(int point)
+
+public boolean intersectsExon(int point)
+
+*Note that this skips code intersection checking for untranslated genes.
+public boolean intersectsCodeAndExon(int point)
+
+*Note that this skips code intersection checking for untranslated genes.
+public boolean intersectsCodeAndExon(int a, int b)
+
+*Note that this skips code intersection checking for untranslated genes.
+public boolean intersectsIntron(int a, int b)
+
+*Note that this skips code intersection checking for untranslated genes.
+public boolean isDeepIntronic(int a, int b, int distFromEnds)
+
+public boolean intersectsSplice(int a, int b)
+
+public boolean intersectsNearby(int a, int b)
+
+private static int closestToPoint(int a, int b, int point)
+
+*@param a
+*@param b
+*@return {
+*distance,
+*nearest exon number (-1 means coding start or stop),
+*side (0 means start, 1 means stop),
+*position (1 means inside, 2 means outside, 3 means both),
+*site coordinate
+*}
+public int[] nearestSpliceSite(int a, int b)
+
+public boolean intersectsTx(int a, int b)
+
+public boolean intersectsTr(int a, int b)
+
+public boolean intersectsCode(int a, int b)
+
+public boolean intersectsExon(int a, int b)
+
+public boolean intersectsUTR(int a, int b)
+
+*Downstream
+public boolean intersectsUTR3(int a, int b)
+
+*Upstream
+public boolean intersectsUTR5(int a, int b)
+
+private static boolean overlap(int a1, int b1, int a2, int b2)
+
+public static final String header()
+
+@Override public String toString()
+
+public String toShortString()
+
+@Override public int compareTo(Gene other)
+
+public boolean isIdenticalTo(Gene other)
+
+@Override public boolean equals(Object other)
+
+public boolean equals(Gene other)
+
+@Override public int hashCode()
+
+public int translationStart()
+
+public int translationStop()
+
+public int codeStartStrandCompensated()
+
+public int codeStopStrandCompensated()
+
+public int translationStartStrandCompensated()
+
+public int translationStopStrandCompensated()
+
+public int exonStartStrandCompensated(int exNum)
+
+public int exonStopStrandCompensated(int exNum)
+
+public int findClosestExon(int a, int b)
+
+*Calculates the minimal distance between two ranges: (a1, b1) and (a2, b2).
+public static final int calcDistance(int a1, int b1, int a2, int b2)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class Gene>
+<class GeneSet>
+public class GeneSet
+
+#Fields
+public final String name
+
+public final int id
+
+public final byte chrom
+
+public final byte strand
+
+public final ArrayList<Gene> genes
+
+public final int transcripts
+
+*True if all transcripts are untranslated
+public final boolean untranslated
+
+*True if all transcripts are psuedogenes
+public final boolean pseudo
+
+public int minStart=Integer.MAX_VALUE
+
+public int maxEnd=0
+
+
+#Methods
+public static void main(String[] args)
+
+public GeneSet(String n, ArrayList<Gene> g)
+
+@Override public String toString()
+
+private static final String padFront(String num, int width)
+
+private static final String padBack(String num, int width)
+
+public boolean intersects(int point)
+
+public boolean intersects(int point1, int point2)
+
+@Override public int compareTo(GeneSet other)
+
+@Override public boolean equals(Object other)
+
+public boolean equals(GeneSet other)
+
+@Override public int hashCode()
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+private static final byte min(byte x, byte y)
+
+private static final byte max(byte x, byte y)
+
+private static final long min(long x, long y)
+
+private static final long max(long x, long y)
+
+private static final float min(float x, float y)
+
+private static final float max(float x, float y)
+
+</class GeneSet>
+<class Matrix>
+public class Matrix
+
+#Fields
+public float[][] grid
+
+public int prefix
+
+public String name
+
+private static HashMap<String,Matrix> table=null
+
+
+#Methods
+public Matrix(float[][] g, int pre, String nm)
+
+public float[][] subGrid(int prefixLength, int length)
+
+public static Set<?> keys()
+
+public static Matrix get(String s)
+
+private static void fillTable(String fname)
+
+</class Matrix>
+<class Motif>
+public abstract class Motif
+
+#Fields
+public final String name
+
+public String commonLetters
+
+public final int center
+
+public final int length
+
+public final int suffix
+
+static final byte[] numberToBase=AminoAcid.numberToBase
+
+static final byte[] numberToBaseExtended=AminoAcid.numberToBaseExtended
+
+static final byte[] baseToNumber=AminoAcid.baseToNumberACGTN
+
+static final byte[] baseToNumberExtended=AminoAcid.baseToNumberExtended
+
+static final float[] baseProb1={0.256614f,0.226617f,0.238012f,0.278756f}
+
+static final float[] baseProb2={0.076019f,0.046405f,0.071754f,0.062437f,0.067143f,0.066057f,0.020333f,0.073085f,0.060553f,0.054897f,0.068741f,0.053822f,0.052896f,0.059260f,0.077188f,0.089412f}
+
+static final float[] baseProb3={0.027343f,0.011857f,0.018295f,0.018524f,0.015942f,0.012337f,0.003792f,0.014333f,0.019988f,0.015837f,0.020411f,0.015518f,0.014382f,0.011355f,0.016466f,0.020234f,0.014364f,0.014299f,0.022875f,0.015605f,0.018893f,0.019412f,0.006677f,0.021076f,0.003629f,0.005854f,0.006783f,0.004067f,0.010491f,0.018413f,0.024257f,0.019924f,0.018029f,0.010640f,0.019427f,0.012458f,0.015158f,0.017025f,0.006167f,0.016547f,0.018098f,0.016891f,0.020042f,0.013710f,0.010580f,0.010773f,0.018026f,0.014443f,0.016281f,0.009609f,0.011157f,0.015849f,0.017150f,0.017284f,0.003696f,0.021130f,0.018839f,0.016316f,0.021506f,0.020527f,0.017442f,0.018720f,0.018440f,0.034811f}
+
+static final float[] invBaseProb1=invert(baseProb1)
+
+static final float[] invBaseProb2=invert(baseProb2)
+
+static final float[] invBaseProb3=invert(baseProb3)
+
+static final float[][] baseProbN={null,baseProb1,baseProb2,baseProb3}
+
+static final float[][] invBaseProbN={null,invBaseProb1,invBaseProb2,invBaseProb3}
+
+protected float[] percentile
+
+
+#Methods
+public Motif(String name_, int length_, int center_)
+
+public final int countExact(String s)
+
+public final int countExact(String s, int a, int b)
+
+public final int countExtended(String s)
+
+public final int countExtended(String s, int a, int b)
+
+public final int countExact(byte[] source, int a, int b)
+
+public final int countExtended(byte[] source, int a, int b)
+
+public boolean matchesExactly(byte[] source, int a)
+
+public boolean matchesExtended(byte[] source, int a)
+
+public float normalize(double strength)
+
+public float matchStrength(byte[] source, int a)
+
+public static final int minPos(float[] array)
+
+public static final int maxPos(float[] array)
+
+@Override public String toString()
+
+static final int min(int x, int y)
+
+static final int max(int x, int y)
+
+static final float min(float x, float y)
+
+static final float max(float x, float y)
+
+private static final float[] invert(float[] in)
+
+public int numBases()
+
+public float percentile(float strength)
+
+</class Motif>
+<class MotifMulti>
+public class MotifMulti
+
+#Fields
+public final Motif[] sub
+
+
+#Methods
+public MotifMulti(String name_, Motif args)
+
+@Override public boolean matchesExactly(byte[] source, int a)
+
+@Override public boolean matchesExtended(byte[] source, int a)
+
+@Override public float normalize(double strength)
+
+@Override public float matchStrength(byte[] source, int a)
+
+@Override public int numBases()
+
+</class MotifMulti>
+<class MotifProbsN>
+public class MotifProbsN
+
+#Fields
+public final int N
+
+public final float[][] probs
+
+public final float[] importance
+
+public final float matrixAvg
+
+public final byte[] lettersUpper
+
+public final byte[] lettersLower
+
+public final byte[] numbers
+
+public final byte[] numbersExtended
+
+private final byte[] chunk
+
+private final float[] baseProb
+
+public float maxProb
+
+public float minProb
+
+public final float invProbDif
+
+public final float invLength
+
+
+#Methods
+public static void main(String args)
+
+public static MotifProbsN makeMotif(String name_, int length_, int center_, int n_)
+
+public MotifProbsN(String name_, float[][] p, int cen, int n)
+
+public void adjustForBaseProb(float[][] grid, float[] base)
+
+@Override public float normalize(double strength)
+
+public float normalize2(double strength)
+
+@Override public boolean matchesExactly(byte[] source, int a)
+
+@Override public float matchStrength(byte[] source, int a)
+
+public float[] positionImportance(float[][] rawProbs)
+
+@Override public int numBases()
+
+</class MotifProbsN>
+<class MotifSimple>
+public class MotifSimple
+
+#Fields
+public final byte[] lettersUpper
+
+public final byte[] lettersLower
+
+public final byte[] numbers
+
+public final byte[] numbersExtended
+
+public final boolean extended
+
+
+#Methods
+public static void main(String args)
+
+public MotifSimple(String s, int cen)
+
+@Override public boolean matchesExactly(byte[] source, int a)
+
+@Override public boolean matchesExtended(byte[] source, int a)
+
+@Override public int numBases()
+
+</class MotifSimple>
+<class Scaffold>
+*@author Brian Bushnell
+*@date Jan 4, 2013
+public class Scaffold
+
+#Fields
+public String name
+
+public String assembly
+
+public int length=-1
+
+public long basehits=0
+
+public long readhits=0
+
+*For calculating FPKM
+public long fraghits=0
+
+public long readhitsMinus=0
+
+*{A,C,G,T,N}
+public long[] basecount
+
+public float gc
+
+*For attaching things
+public Object obj0
+
+*For attaching things for strand1
+public Object obj1
+
+
+#Methods
+public Scaffold(String name_, String assembly_, int length_)
+
+*Assumes SAM format
+*e.g. @SQ SN:scaffold_0 LN:1785514 AS:build 9
+@Deprecated public Scaffold(String[] split)
+
+*Should be faster. Assumes SAM format.
+*e.g. @SQ SN:scaffold_0 LN:1785514 AS:build 9
+public Scaffold(LineParser1 lp)
+
+*Should be faster. Assumes SAM format.
+*e.g. @SQ SN:scaffold_0 LN:1785514 AS:build 9
+public Scaffold(LineParserS1 lp)
+
+public Scaffold(String name_, int length_)
+
+@Override public int hashCode()
+
+@Override public int compareTo(Scaffold other)
+
+@Override public String toString()
+
+public static String name(LineParser1 lp)
+
+</class Scaffold>
+<class ScafLoc>
+*@author Brian Bushnell
+*@date Sep 24, 2013
+public class ScafLoc
+
+#Fields
+public String name
+
+public int chrom
+
+public int loc
+
+
+#Methods
+public ScafLoc(String name_, int chrom_, int loc_)
+
+</class ScafLoc>

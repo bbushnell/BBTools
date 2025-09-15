@@ -1,0 +1,1598 @@
+#version 1
+#package synth
+#generated 2025-09-06T20:39:02
+
+<class CoverageModel>
+*Models realistic genomic coverage variation using summed sine waves plus ORI bias.
+*Optimized for performance with pre-computed inverse periods and efficient power calculations.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 18, 2025
+class CoverageModel
+
+#Fields
+private final float[] amplitudes
+
+private final float[] inversePeriods
+
+private final float[] offsets
+
+private final float maxOriBiasStrength
+
+private final float minProbability
+
+private final float maxPossibleSum
+
+private static final float pi2=(float)(2 * Math.PI)
+
+
+#Methods
+public CoverageModel(Random randy)
+
+public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, double minProb, Random randy)
+
+*Creates a coverage model with multiple sine waves plus ORI bias.
+public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, double minProb, Random randy, int minPeriod, int maxPeriod)
+
+*Calculates probability of a read starting at the given position.
+*Optimized version using pre-computed values and efficient calculations.
+*Ignores contigs under 2kbp.
+*Otherwise, contigLength is only used for the ORI linear slope.
+public float getProbability(int position, int contigLength)
+
+*Determines whether to generate a read at the given position.
+public boolean shouldGenerateReadAt(int position, int contigLength, Random randy)
+
+*Simulates coverage directly from the probability model without random sampling.
+public static void main(String[] args)
+
+*Simulates reads and outputs coverage histogram.
+public static void main_old(String[] args)
+
+</class CoverageModel>
+<class CrossContaminate>
+*Generates artificial cross-contaminated data by mixing reads.
+*Takes input from multiple files, and writes output to the same number of files.
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class CrossContaminate
+
+#Fields
+private ArrayList<String> inNames=new ArrayList<String>()
+
+private ArrayList<String> outNames=new ArrayList<String>()
+
+private ArrayList<Vessel> vessels
+
+private long maxReads=-1
+
+private long seed=-1
+
+private int minSinks=1
+
+private int maxSinks=8
+
+private double minProb=0.000005
+
+private double maxProb=0.025
+
+private double minProbPow=Math.log(minProb)
+
+private double maxProbPow=Math.log(maxProb)
+
+private final Random randy=new Random()
+
+long readsProcessed=0
+
+long basesProcessed=0
+
+private int shufflethreads=3
+
+private boolean shuffle=false
+
+private boolean showspeed=true
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public CrossContaminate(String[] args)
+
+void process(Timer t)
+
+void shuffle(int threads)
+
+void processOneSource(int sourceNum)
+
+private void addRead(Read r, ArrayList<Vessel> list)
+
+private ArrayList<Vessel> makeVessels(ArrayList<String> strings)
+
+private ArrayList<Vessel> assignSinks(ArrayList<Vessel> list, int sourceNum)
+
+</class CrossContaminate>
+<class FakeReads>
+*@author Brian Bushnell
+*@date Sep 11, 2012
+public class FakeReads
+
+#Fields
+public boolean errorState=false
+
+public String identifier=null
+
+private String in1=null
+
+private boolean addSpacer=true
+
+private String spacer=" "
+
+private String qfin1=null
+
+private String out1=null
+
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+private String extin=null
+
+private String extout=null
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private long maxReads=-1
+
+private int minReadLength=1
+
+private int desiredLength=250
+
+private int overlap=50
+
+private boolean SPLITMODE=false
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FakeReads(String[] args)
+
+void process(Timer t)
+
+</class FakeReads>
+<class FuseSequence>
+*Fuses sequences together, with N-padding in between.
+*@author Brian Bushnell
+*@date Jan 20, 2015
+public final class FuseSequence
+
+#Fields
+int maxlen=Shared.MAX_ARRAY_LEN
+
+int npad
+
+byte defaultQuality
+
+boolean fusePairs
+
+ByteBuilder bases=new ByteBuilder()
+
+ByteBuilder quals=new ByteBuilder()
+
+String name
+
+boolean addNumber=false
+
+char PAD_SYMBOL='N'
+
+boolean amino=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FuseSequence(String[] args)
+
+@Override protected void setDefaults()
+
+@Override public boolean parseArgument(String arg, String a, String b)
+
+@Override protected void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+Read bufferToRead(long id)
+
+@Override protected boolean processReadPair(Read r1, Read r2)
+
+private void fusePair(Read r1, Read r2)
+
+private void processRead(Read r)
+
+@Override protected void startupSubclass()
+
+@Override protected void shutdownSubclass()
+
+@Override protected final boolean useSharedHeader()
+
+@Override protected void showStatsSubclass(Timer t, long readsIn, long basesIn)
+
+</class FuseSequence>
+<class GCBias>
+public class GCBias
+</class GCBias>
+<class MakeChimeras>
+*Fuses reads together randomly to make chimeric reads.
+*@author Brian Bushnell
+*@date Oct 7, 2014
+public class MakeChimeras
+
+#Fields
+private String in1=null
+
+private String qfin1=null
+
+private String out1=null
+
+private String extin=null
+
+private String extout=null
+
+private int forceLength=0
+
+private long readsIn=-1
+
+private long readsOut=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public MakeChimeras(String[] args)
+
+void process(Timer t)
+
+*@param a
+*@param b
+*@param randy
+*@return
+private Read makeChimera(Read a, Read b, Random randy, long numericID)
+
+*@param value
+*@param randy
+*@return
+private static Read getPiece(Read a, Random randy)
+
+*@param value
+*@param randy
+*@return
+private Read getPiece(Read a, Random randy, int len)
+
+</class MakeChimeras>
+<class MakeContaminatedGenomes>
+*Fuses files together randomly to make chimeric genomes.
+*@author Brian Bushnell
+*@date Oct 7, 2014
+public class MakeContaminatedGenomes
+
+#Fields
+private String fofn=null
+
+private String outPattern=null
+
+private String outNames=null
+
+private int chimeras=1
+
+private long seed=-1
+
+double exponent1=1
+
+double exponent2=1
+
+String delimiter="_"
+
+String regex="#"
+
+double subRate=0
+
+double indelRate=0
+
+double errorRate=0
+
+long basesRetained=0
+
+long readsProcessed=0
+
+long basesProcessed=0
+
+private PrintStream outstream=System.err
+
+private final FileFormat fffofn
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public MakeContaminatedGenomes(String[] args)
+
+void process(Timer t)
+
+String makeOne(String[] in, Random randy, int cid)
+
+String writeChimera(String inA, String inB, ArrayList<Read> readsA, ArrayList<Read> readsB, double fracA, double fracB, Random randy, int cid)
+
+public void processRead(Read r, ByteBuilder bb, double genomeFraction, Random randy)
+
+</class MakeContaminatedGenomes>
+<class MutateGenome>
+*@author Brian Bushnell
+*@date June 1, 2016
+public class MutateGenome
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private String outVcf=null
+
+private String prefix=null
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private final FileFormat ffoutVcf
+
+private long maxReads=-1
+
+private long mutationLengthAdded=0
+
+private long netLengthAdded=0
+
+private long subsAdded=0
+
+private long refAdded=0
+
+private long insAdded=0
+
+private long delsAdded=0
+
+private long insLenAdded=0
+
+private long delLenAdded=0
+
+private long junctionsAdded=0
+
+int sinewaves=0
+
+private int period=-1
+
+private float genomeFraction=1
+
+private long basesRetained
+
+private long readsProcessed=0
+
+private long basesProcessed=0
+
+private long readsOut=0
+
+private long basesOut=0
+
+private float subRate=0
+
+private float insRate=0
+
+private float delRate=0
+
+private int maxIndel=1
+
+private int indelSpacing=3
+
+private int padLeft=0
+
+private int padRight=0
+
+private boolean banHomopolymers=false
+
+private final float errorRate
+
+private final float errorRate2
+
+private final Random randy
+
+private long seed=-1
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+private static final int SUB=Var.SUB
+
+private static final int INS=Var.INS
+
+private static final int DEL=Var.DEL
+
+private java.io.PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public MutateGenome(String[] args)
+
+private static int parsePloidy(String[] args)
+
+void process(Timer t)
+
+public boolean isHomopolymerDel(byte[] bases, int pos, int len)
+
+public boolean isHomopolymerIns(byte[] bases, int pos, byte b)
+
+public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb)
+
+public void processRead(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar)
+
+private boolean delHomopolymer(byte[] bases, int i, int len, char prevChar)
+
+public void processReadAmino(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+private void condenseVars(ArrayList<SmallVar> vars)
+
+void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+</class MutateGenome>
+<class MutateGenome2>
+*@author Brian Bushnell
+*@date June 1, 2016
+public class MutateGenome2
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private String outVcf=null
+
+private String prefix=null
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private final FileFormat ffoutVcf
+
+private long maxReads=-1
+
+private int ploidy=1
+
+private float hetRate=0.5f
+
+private long mutationLengthAdded=0
+
+private long subsAdded=0
+
+private long insAdded=0
+
+private long delsAdded=0
+
+private long junctionsAdded=0
+
+private int period=-1
+
+private float genomeFraction=1
+
+private long basesRetained
+
+private long readsProcessed=0
+
+private long basesProcessed=0
+
+private float subRate=0
+
+private float indelRate=0
+
+private int maxIndel=1
+
+private int indelSpacing=10
+
+private boolean banHomopolymers=false
+
+private final float errorRate
+
+private final float errorRate2
+
+private final Random randy
+
+private long seed=-1
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+private static final int SUB=Var.SUB
+
+private static final int INS=Var.INS
+
+private static final int DEL=Var.DEL
+
+private java.io.PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public MutateGenome2(String[] args)
+
+void process(Timer t)
+
+public int[] makePresentArray()
+
+public boolean isHomopolymerDel(byte[] bases, int pos, int len)
+
+public boolean isHomopolymerIns(byte[] bases, int pos, byte b)
+
+public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb)
+
+public ArrayList<Read> processRead(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+public ArrayList<Read> processReadAmino(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+private void condenseVars(ArrayList<SmallVar> vars)
+
+void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers)
+
+</class MutateGenome2>
+<class RandomGenome>
+*@author Brian Bushnell
+*@date Jan 3, 2013
+public class RandomGenome
+
+#Fields
+private String out=null
+
+int chroms=1
+
+long totalLength=1000000
+
+float gc=0.5f
+
+final int chromLength
+
+final int wrap
+
+int pad=0
+
+boolean noPoly=false
+
+boolean includeStop=false
+
+long seed=-1
+
+final Random randy
+
+private long linesOut=0
+
+private long bytesOut=0
+
+private final FileFormat ffout
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public RandomGenome(String[] args)
+
+void process(Timer t)
+
+void processNucleotide(Timer t)
+
+void processAmino(Timer t)
+
+</class RandomGenome>
+<class RandomHexamer>
+*Models hexamer priming bias for realistic coverage patterns in synthetic read generation.
+*Creates sequence-dependent coverage variation by assigning different priming efficiencies
+*to different k-mer sequences, simulating the non-random nature of "random" hexamer priming
+*used in library preparation.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 30, 2025
+public class RandomHexamer
+
+#Fields
+*K-mer length for hexamer analysis
+private static int k=6
+
+*Whether the probability table has been initialized
+private static boolean initialized=false
+
+*Probability array indexed by k-mer value
+private static float[] probs
+
+*Power parameter for probability distribution (lower = more bias)
+private static float power=0.5f
+
+*Minimum probability for any k-mer
+private static float minProb=0.1f
+
+
+#Methods
+*Determines whether to keep a read based on hexamer priming bias at the start position.
+*@param bases The sequence bases to check
+*@param randy Random number generator
+*@return True if the read should be kept based on priming efficiency
+public static boolean keep(byte[] bases, Random randy)
+
+*Sets minimum probability for hexamers.
+*@param k_ The k-mer length (typically 6 for hexamers)
+*@param power_ The exponent (typically 0.5 for hexamers)
+*@param minProb_ Minimal relative occurrence frequency (typically 0.1 for hexamers)
+public static void set(int k_, float power_, float minProb_)
+
+*Sets minimum probability for hexamers.
+*@param minProb_ Minimal relative occurrence frequency (typically 0.1 for hexamers)
+public static void setMinProb(float minProb_)
+
+*Sets the power for random kmer probability density function.
+*@param power_ The exponent (typically 0.5 for hexamers)
+public static void setPower(float power_)
+
+*Sets the k-mer length for hexamer analysis.
+*@param k_ The k-mer length (typically 6 for hexamers)
+public static void setK(int k_)
+
+*Gets the current k-mer length.
+*@return Current k value
+public static int getK()
+
+*Initializes the hexamer probability table with default k value.
+*@param randy Random number generator for probability assignment
+*@return True if initialization was successful
+public static boolean initialize(Random randy)
+
+*Initializes the hexamer probability table with specified k value.
+*Uses power-law distribution to create realistic priming bias.
+*@param randy Random number generator for probability assignment
+*@param k_ The k-mer length to use
+*@return True if initialization was successful
+public static boolean initialize(Random randy, int k_)
+
+*Generates a biased probability using power-law distribution.
+*@param randy Random number generator
+*@return Probability value between minProb and 1.0
+private static float function(Random randy)
+
+</class RandomHexamer>
+<class RandomReads3>
+public final class RandomReads3
+
+#Fields
+private final Random randy
+
+private final Random randy2
+
+private final Random randyMutationType
+
+private final Random randyQual
+
+private final Random randyAdapter
+
+private final Random randyMate
+
+private final Random randy2Mate
+
+private final Random randyMutationTypeMate
+
+private final Random randyQualMate
+
+private final Random randyAdapterMate
+
+private final Random randyPerfectRead
+
+private final Random randyNoref
+
+private final Random randyLength
+
+private final Random randyAmp
+
+public final boolean paired
+
+private long nextReadID=0
+
+private byte[] pbadapter1=null
+
+private byte[] pbadapter2=null
+
+private byte[][] fragadapter1=null
+
+private byte[][] fragadapter2=null
+
+private BitSet bits_cached
+
+private int[] locs_cached
+
+private String prefix
+
+private static boolean quantizeQuality=false
+
+private static String slash1=" 1:"
+
+private static String slash2=" 2:"
+
+private static double[] chromProbs
+
+private static double[][] scafProbs
+
+private static int[] randomChrom
+
+private static long seed=0
+
+private static final byte[][] fixedQuality=new byte[301][]
+
+public static final boolean USE_FIXED_QUALITY=false
+
+public static final byte FIXED_QUALITY_VALUE=24
+
+public static boolean ADD_ERRORS_FROM_QUALITY=true
+
+public static boolean ADD_PACBIO_ERRORS=false
+
+public static float pbMinErrorRate=0.13f
+
+public static float pbMaxErrorRate=0.17f
+
+public static boolean REPLACE_NOREF=false
+
+public static boolean OUTPUT_INTERLEAVED=false
+
+*Rather than choosing a random location in the concatenated genome, choose a random scaffold, without respect to length
+public static boolean RANDOM_SCAFFOLD=false
+
+public static boolean METAGENOME=false
+
+public static String fileExt=".fq.gz"
+
+public static boolean verbose=false
+
+public static boolean mateSameStrand=false
+
+public static int mateMiddleMin=-200
+
+public static int mateMiddleMax=150
+
+public static int mateMiddleDev=-1
+
+public static int readLengthDev=-1
+
+public static boolean SUPERFLAT_DIST=false
+
+public static boolean FLAT_DIST=false
+
+public static boolean BELL_DIST=true
+
+public static boolean EXP_DIST=false
+
+public static boolean LINEAR_LENGTH=true
+
+public static boolean BELL_LENGTH=false
+
+public static double EXP_LAMDA=0.8d
+
+public static boolean BIASED_SNPS=false
+
+public static boolean ILLUMINA_NAMES=false
+
+public static boolean INSERT_NAMES=false
+
+public static int midPad=500
+
+public static boolean addslash=false
+
+public static boolean spaceslash=false
+
+public static boolean NODISK=false
+
+public static int AMP=1
+
+public static int qVariance=4
+
+public static float PERFECT_READ_RATIO=0f
+
+*Ban generation of reads over unspecified reference bases
+static boolean BAN_NS=false
+
+public static boolean USE_UNIQUE_SNPS=true
+
+public static boolean FORCE_SINGLE_SCAFFOLD=true
+
+public static int MIN_SCAFFOLD_OVERLAP=1
+
+public static boolean overwrite=true
+
+public static boolean append=false
+
+public static boolean errorState
+
+public static String in1
+
+static PrintStream outstream=System.err
+
+
+#Methods
+private static ArrayList<ChromosomeArray> writeRef(String reference, int build)
+
+public RandomReads3(boolean paired_)
+
+public RandomReads3(long seed, boolean paired_)
+
+private static final void addErrorsFromQuality(Read r, Random randy)
+
+private static final void addErrorsFromQuality(Read r, Random rand, int from, int to)
+
+public static void addFragAdapter(Read r, int loc, byte[][] adapters, Random rand)
+
+public static byte[] addPBAdapter(byte[] bases, int[] locs, int readlen, Random rand, byte[] adapter)
+
+public static byte[] addSNP(byte[] bases, int[] locs, int readlen, Random rand)
+
+public static byte[] addSNP(byte[] bases, int[] locs, int readlen, Random rand, BitSet bits)
+
+public static byte[] addSUB(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, Random rand)
+
+public static byte[] addN(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, Random rand, BitSet bits)
+
+public static byte[] addInsertion(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, int[] dif, Random rand)
+
+public static int[] makeDelsa(int dels, int minlen, int maxlen, Random rand)
+
+public static byte[] addDeletion(byte[] bases, int[] locs, int len, int readlen, int[] dif, Random rand)
+
+public int randomChrom(Read r0, int minChrom, int maxChrom)
+
+public int randomStrand(Read r0, int minChrom, int maxChrom, boolean sameStrandMate)
+
+public int randomLoc(Read r0, int chrom, int readlen, int minMiddle, int maxMiddle, int strand)
+
+public int randomLocPaired(Read r0, int chrom, int readlen, int minMiddle, int maxMiddle, int strand)
+
+public int randomLocSingle(int chrom, int readlen)
+
+private static long genomeLength()
+
+public int[] randomScaffoldLoc(int chrom, int readlen)
+
+public static void makeMetagenomeProbs(Random randy)
+
+public static double sortOfExponential(Random rand, double width)
+
+public int[] randomScaffoldLocMetagenome(int readlen)
+
+public void writeRandomReadsX(long numReads, int minlen, int maxlen, int midlen, int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs, float snpRate, float insRate, float delRate, float subRate, float nRate, int minInsLen, int minDelLen, int minSubLen, int minNLen, int maxInsLen, int maxDelLen, int maxSubLen, int maxNLen, int minChrom, int maxChrom, int minQual, int midQual, int maxQual, String fname1, String fname2)
+
+public ArrayList<Read> makeRandomReadsX(int numReads, int minlen, int maxlen, int midlen, int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs, float snpRate, float insRate, float delRate, float subRate, float nRate, int minInsLen, int minDelLen, int minSubLen, int minNLen, int maxInsLen, int maxDelLen, int maxSubLen, int maxNLen, int minChrom, int maxChrom, int minQual, int midQual, int maxQual)
+
+private void processSpecialNames(Read r1)
+
+public int genReadLen(int minLen, int maxLen, int midLen, Random randy, boolean linear, boolean bell)
+
+public Read makeRead(Read r0, int minlen, int maxlen, int midlen, int minChrom, int maxChrom, int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs, float snpRate, float insRate, float delRate, float subRate, float nRate, int minInsLen, int minDelLen, int minSubLen, int minNLen, int maxInsLen, int maxDelLen, int maxSubLen, int maxNLen, int minMiddle, int maxMiddle, boolean sameStrand, int minQual, int midQual, int maxQual, byte baseQuality, byte slant, boolean perfect, long rid, int[] locs, BitSet bits, int FORCE_CHROM, int FORCE_LOC)
+
+public void addPacBioErrors(Read r, float errorRate, float deviation)
+
+private static int[] fillRandomChrom()
+
+public static final byte[] getFixedQualityRead(int bases)
+
+private static long getSeed()
+
+</class RandomReads3>
+<class RandomReadsMG>
+*Generates synthetic metagenomic sequencing reads from reference genomes with realistic
+*coverage patterns, error profiles, and taxonomic diversity. Supports multiple sequencing
+*platforms (Illumina, PacBio, ONT) with platform-specific read length distributions,
+*error rates, and quality score modeling.
+*Features include configurable coverage depth distributions (uniform, exponential, power-law),
+*sine wave coverage modeling for realistic spatial bias, platform-specific error modeling
+*with substitutions, indels, and homopolymer errors, taxonomic integration via TaxTree
+*for proper species labeling, paired-end and single-end read generation with insert size
+*variation, and multi-threaded processing for large reference datasets.
+*Designed for benchmarking metagenomic analysis tools, generating training datasets,
+*and validating computational pipelines with ground-truth synthetic data.
+*@author Brian Bushnell
+*@contributor Isla
+*@contributor Janus
+*@date Feb 8, 2025
+public class RandomReadsMG
+
+#Fields
+*Set of input reference genome files to process
+private LinkedHashSet<String> inputFiles=new LinkedHashSet<String>()
+
+*Primary output file path for generated reads
+private String out1=null
+
+*Secondary output file path for paired reads
+private String out2=null
+
+*Primary quality output file path
+private String qfout1=null
+
+*Secondary quality output file path
+private String qfout2=null
+
+*Override output file extension
+private String extout=null
+
+*Path to taxonomic tree file for species classification
+private String taxTreeFile=null
+
+*Number of reference sequences processed
+protected long readsProcessed=0
+
+*Number of reference bases processed
+protected long basesProcessed=0
+
+*Number of synthetic reads generated
+protected long readsOut=0
+
+*Number of synthetic bases generated
+protected long basesOut=0
+
+*Number of PCR duplicates generated
+protected long pcrDupesOut=0
+
+*Enable verbose progress reporting
+private boolean loud=true
+
+*Atomic counter for unique read ID assignment
+private AtomicLong nextReadID=new AtomicLong(0)
+
+*Minimum coverage depth for any reference sequence
+private float minDepth=1
+
+*Maximum coverage depth for any reference sequence
+private float maxDepth=256
+
+*Amount of within-contig coverage variation (0=uniform, 1=high variation)
+private float depthVariance=0.5f
+
+*Enable sine wave coverage modeling for realistic spatial bias
+private boolean waveCoverage=false
+
+*Number of overlapping sine waves for coverage modeling
+private int numSineWaves=4
+
+*Maximum amplitude multiplier for sine wave coverage variation
+private float waveAmp=0.7f
+
+*Orientation bias factor for coverage modeling
+private float oriBias=0.25f
+
+*Minimum probability threshold for wave-based coverage
+private float minWaveProb=0.1f
+
+*Minimum period length for sine wave coverage patterns
+private int minPeriod=2000
+
+*Maximum period length for sine wave coverage patterns
+private int maxPeriod=80000
+
+*Random seed for reproducible generation (-1 for random)
+private long seed=-1
+
+*Enable per-contig depth variation within files
+private boolean varyDepthPerContig=false
+
+*Custom depth settings for specific files or taxonomy IDs
+private HashMap<String,Float> depthMap=new HashMap<String,Float>()
+
+*Maximum number of reads to generate (-1 for depth-based)
+private long maxReads=-1
+
+*Rate of substitution errors to add (0.0-1.0)
+private float subRate=0
+
+*Rate of indel errors to add (0.0-1.0)
+private float indelRate=0
+
+*Average insert size for paired-end reads
+private float avgInsert=300
+
+*Length of individual reads to generate
+private int readlen=150
+
+*Generate paired-end reads instead of single-end
+private boolean paired=true
+
+*Add platform-specific sequencing errors
+private boolean addErrors=false
+
+*Mean quality score for generated bases
+private int meanQScore=25
+
+*Quality score range around the mean (±qScoreRange)
+private int qScoreRange=0
+
+*Standard deviation for PacBio read length log-normal distribution
+private float pacBioLengthSigma=0.5f
+
+*Long tail factor for ONT read length distribution
+private float ontLongTailFactor=0.2f
+
+*Minimum read length for long-read platforms
+private int minLength=1000
+
+*Mean read length for long-read platforms
+private int meanLength=15000
+
+*Maximum read length for long-read platforms
+private int maxLength=100000
+
+*Number of threads to use for single file processing
+private int singleFileThreads=1
+
+*Maximum number of concurrent genomes to process
+private int maxConcurrentGenomes=8192
+
+*Substitution error rate for long-read platforms (-1 for default)
+private float sRate=-1
+
+*Insertion error rate for long-read platforms (-1 for default)
+private float iRate=-1
+
+*Deletion error rate for long-read platforms (-1 for default)
+private float dRate=-1
+
+*Homopolymer error bonus rate for long-read platforms (-1 for default)
+private float hRate=-1
+
+*Available coverage depth distribution modes
+static final String[] modes={"MIN4","EXP","ROOT","LINEAR"}
+
+static final int MIN4=0
+
+static final int EXP=1
+
+static final int ROOT=2
+
+static final int LINEAR=3
+
+*Selected coverage depth distribution mode
+int depthMode=MIN4
+
+*Available sequencing platform types
+static final String[] platforms={"ILLUMINA","ONT","PACBIO"}
+
+static final int ILLUMINA=0
+
+static final int ONT=1
+
+static final int PACBIO=2
+
+*Selected sequencing platform
+int platform=ILLUMINA
+
+*Flag indicating read length was explicitly set by user
+boolean setReadLength=false
+
+*Flag indicating maximum length was explicitly set by user
+boolean setMaxLength=false
+
+*Rate of PCR duplicates
+private float pcrRate=0.0f
+
+*Use random kmer priming
+private boolean randomPriming=false
+
+*Enable adapter contamination for short inserts
+private boolean addAdapters=false
+
+*Forward read adapter sequence for contamination
+private byte[] fragadapter1="AGATCGGAAGAGCACACGTCTGAACTCCAGTCACTAGCTTATCTCGTATGCCGTCTTCTGC".getBytes()
+
+*Reverse read adapter sequence for contamination
+private byte[] fragadapter2="AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT".getBytes()
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+*Taxonomic tree for species classification and labeling
+private final TaxTree tree
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Program entry point for command-line execution. Instantiates RandomReadsMG,
+*processes all input reference genomes to generate synthetic metagenomic reads,
+*and reports timing statistics. The main workflow includes argument parsing,
+*file validation, platform configuration, and multi-threaded read generation.
+*@param args Command line arguments specifying input files, coverage parameters,
+*platform settings, and output destinations
+public static void main(String[] args)
+
+*Constructs a RandomReadsMG instance with the specified command line arguments.
+*Parses all parameters, validates file paths, configures platform-specific defaults,
+*initializes output file formats, and loads the taxonomic tree for species labeling.
+*The constructor performs complete setup but does not begin read generation.
+*@param args Command line arguments containing input files, coverage settings,
+*platform parameters, and output file specifications
+public RandomReadsMG(String[] args)
+
+*Parses command line arguments into internal configuration parameters.
+*Handles file specifications, coverage depth settings, platform selection,
+*error rate configuration, read length parameters, and custom depth mappings.
+*Supports both explicit parameter=value syntax and positional file arguments.
+*@param args Array of command line arguments to parse
+*@return Configured Parser object with standard parameter settings
+private Parser parse(String[] args)
+
+*Replaces '#' placeholders in output file paths with '1' and '2' for paired-end output.
+*Enables convenient specification of paired output files using a single path template.
+*If out1 contains '#' and out2 is null, creates both out1 and out2 paths by replacing
+*'#' with '1' and '2' respectively. Validates that out2 is not specified without out1.
+private void doPoundReplacement()
+
+*Validates that all input files exist and are readable, and all output files
+*can be written without conflicts. Checks file permissions, prevents overwrites
+*when overwrite=false, detects duplicate file specifications, and ensures
+*input files are accessible before beginning processing.
+*@throws RuntimeException if file validation fails
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Validates that all user-specified parameters are within acceptable ranges
+*and required parameters are properly set. Performs bounds checking on depth
+*ranges, error rates, read lengths, and platform-specific parameters to prevent
+*invalid configurations that could cause runtime errors or unrealistic output.
+*@return true if all parameters pass validation
+private boolean validateParams()
+
+*Sets platform-specific default error rates and quality scores based on the selected
+*sequencing technology. Illumina uses default rates (mostly error-free), while ONT
+*and PacBio get realistic error profiles matching their characteristics.
+void setPlatformDefaults()
+
+*Orchestrates the complete synthetic read generation process from input reference genomes.
+*Sets platform-specific error rates, initializes random hexamer priming if enabled,
+*creates output streams, spawns worker threads for parallel processing, and aggregates
+*statistics. Handles thread synchronization, error state propagation, and resource cleanup.
+*Reports detailed timing and throughput statistics upon completion.
+*@param t Timer object for execution timing and reporting
+void process(Timer t)
+
+*Creates and initializes a ConcurrentReadInputStream for reading reference genome sequences.
+*Configures the stream for multi-threaded access with automatic format detection and
+*starts background reading threads. Used for processing individual reference files
+*during synthetic read generation.
+*@param ff FileFormat object specifying input file type and compression
+*@return Initialized and started ConcurrentReadInputStream ready for reading
+private ConcurrentReadInputStream makeCris(FileFormat ff)
+
+*Creates and initializes a ConcurrentReadOutputStream for writing generated synthetic reads.
+*Configures paired-end or single-end output based on user settings, handles interleaved
+*output when appropriate, and sets up quality score output streams. Returns null if
+*no output file was specified (useful for benchmarking scenarios).
+*@return Configured and started ConcurrentReadOutputStream, or null if no output specified
+private ConcurrentReadOutputStream makeCros()
+
+*Creates and launches worker threads for parallel processing of reference genome files.
+*Handles special case of single-file multi-threading by duplicating file entries and
+*adjusting depth calculations. Distributes work across available threads using atomic
+*counters for load balancing, then waits for all threads to complete before returning.
+*@param files Collection of reference genome file paths to process
+*@param ros Output stream for generated synthetic reads
+private void spawnThreads(Collection<String> files, ConcurrentReadOutputStream ros)
+
+*Blocks until all worker threads complete, then aggregates their statistics.
+*Handles thread interruption gracefully and accumulates per-thread counters for
+*reads processed, bases processed, reads generated, bases generated, and PCR duplicates.
+*Sets global error state if any thread encountered errors during processing.
+*@param alpt List of ProcessThread objects to wait for completion
+private void waitForThreads(ArrayList<ProcessThread> alpt)
+
+*Creates a ConcurrentReadInputStream for a specific reference file.
+*Automatically detects file format (FASTA/FASTQ), handles compression,
+*and configures the stream for single-threaded reading with buffering.
+*This overloaded version is used by ProcessThread workers for individual file access.
+*@param fname Path to the reference genome file to read
+*@return Initialized and started ConcurrentReadInputStream for the specified file
+private ConcurrentReadInputStream makeCris(String fname)
+
+*Determines the coverage depth for a specific input file.
+*First checks for custom depth settings, then uses the selected distribution mode.
+*@param path Filename to check for custom depth setting
+*@param taxID Taxonomy ID to check for custom depth setting
+*@param fnum File number for reporting
+*@param randy Random number generator
+*@return The depth to use for this file
+float chooseDepthForFile(String path, int taxID, int fnum, Random randy)
+
+*Generates a random coverage depth value based on the selected distribution mode.
+*Delegates to the appropriate distribution function (MIN4, EXP, ROOT, or LINEAR)
+*to create realistic metagenomic abundance patterns. Each mode produces different
+*characteristics matching common metagenomic diversity patterns.
+*@param randy Random number generator for consistent reproducible results
+*@return Generated coverage depth value within the configured min/max range
+float randomDepth(Random randy)
+
+*Generates a depth value using the minimum of 4 random values.
+*This creates a distribution that is skewed toward lower values.
+*@param randy Random number generator
+*@return The generated depth value
+float depthMin4(Random randy)
+
+*Generates a depth value using a uniform linear distribution.
+*@param randy Random number generator
+*@return The generated depth value
+float depthLinear(Random randy)
+
+*Generates a depth value using a square root distribution.
+*This creates a distribution that is moderately skewed toward lower values.
+*@param randy Random number generator
+*@return The generated depth value
+float depthRoot(Random randy)
+
+*Generates a depth value using an exponential distribution.
+*This creates a natural long-tailed distribution common in metagenomic samples.
+*@param randy Random number generator
+*@return The generated depth value
+float depthExp(Random randy)
+
+*Adds adapter contamination to a read starting at the specified position.
+*Used when insert size is shorter than read length, causing sequencing
+*to read through the insert and into the adapter sequence. Positions beyond
+*the adapter are filled with 'G' bases (typical 2-dye Illumina behavior) with
+*low quality scores.
+*@param r The read to modify
+*@param loc Position where adapter sequence begins
+*@param adapter The adapter sequence to add
+public static void addFragAdapter(Read r, int loc, byte[] adapter)
+
+*Applies Illumina-specific sequencing errors based on quality scores. Generates
+*random quality scores within the specified range, then introduces substitution
+*errors probabilistically based on the quality score at each position. This models
+*the relationship between base quality and error probability in Illumina data.
+*@param r The read to modify
+*@param meanQ Mean quality score for the read
+*@param qRange Quality score range (±qRange around meanQ)
+*@param randy Random number generator for randomized decisions
+*@return The number of substitutions added to the read
+public static int mutateIllumina(Read r, int meanQ, int qRange, Random randy)
+
+*Adds substitution errors to a read at the specified rate, randomly changing bases
+*without considering quality scores. Used for simple error modeling or in combination
+*with platform-specific error functions.
+*@param r The read to modify
+*@param rate The probability (0.0-1.0) of introducing a substitution at each position
+*@param randy Random number generator for randomized decisions
+*@return The number of substitutions added to the read
+public static int addSubs(Read r, float rate, Random randy)
+
+*Adds insertions and deletions to a read at the specified rate, ensuring the final read length
+*matches the desired length.
+*This method introduces indels randomly throughout the read while tracking available "padding"
+*to ensure the final read is exactly the requested length. Insertions add random bases and
+*increase available padding. Deletions are only performed when padding is available to prevent
+*the read from becoming too short. Quality scores for inserted bases are randomly generated
+*within the specified quality range.
+*@param r The read to modify with indels
+*@param rate The probability (0.0-1.0) of introducing an indel at each position
+*@param desiredLength The target length for the modified read
+*@param meanQ The mean quality score for inserted bases
+*@param qRange The range around meanQ for quality score randomization
+*@param randy Random number generator for randomized decisions
+*@return The number of indels (insertions+deletions) added to the read
+*@throws AssertionError If the resulting read length doesn't match the desired length
+public static int addIndels(Read r, float rate, int desiredLength, int meanQ, int qRange, Random randy)
+
+*Applies long-read sequencing errors including substitutions, insertions, deletions,
+*and homopolymer-specific errors. Models the error characteristics of PacBio and
+*ONT platforms with context-dependent error rates.
+*@param r The read to modify
+*@param sRate Substitution error rate
+*@param iRate Insertion error rate
+*@param dRate Deletion error rate
+*@param hRate Homopolymer error bonus rate
+*@param randy Random number generator
+*@return The number of changes made to the read
+public int mutateLongRead(Read r, float sRate, float iRate, float dRate, float hRate, Random randy)
+
+*Generates realistic PacBio HiFi read lengths using a log-normal distribution.
+*PacBio HiFi reads follow a characteristic log-normal pattern with most reads
+*clustering around the mean and a moderate tail of longer reads. The sigma parameter
+*controls the distribution width, with typical values of 0.4-0.5 for HiFi data.
+*Applies reasonable bounds to prevent extremely short or long reads.
+*@param minLength Minimum allowable read length (hard lower bound)
+*@param meanLength Target mean read length (typically 10000-15000 for HiFi)
+*@param maxLength Maximum allowable read length (hard upper bound)
+*@param sigma Standard deviation in log space (0.4-0.5 typical for HiFi)
+*@param randy Random number generator for consistent reproducible results
+*@return Generated read length bounded within [minLength, max(meanLength*4, maxLength)]
+public static int generatePacBioHiFiLength(int minLength, int meanLength, int maxLength, double sigma, Random randy)
+
+*Generates realistic ONT read lengths using a mixed distribution approach.
+*ONT reads exhibit a bimodal pattern: most reads follow a log-normal core distribution,
+*but a significant fraction form a heavy exponential tail of very long reads.
+*The longTailFactor controls what fraction of reads come from the exponential tail
+*versus the log-normal core, typically 0.1-0.3 for real ONT data.
+*@param minLength Minimum allowable read length (hard lower bound)
+*@param meanLength Approximate target mean for the core distribution
+*@param maxLength Maximum allowable read length (hard upper bound)
+*@param longTailFactor Probability of drawing from heavy tail (0.1-0.3 typical)
+*@param randy Random number generator for consistent reproducible results
+*@return Generated read length following ONT-like mixed distribution
+public static int generateONTLength(int minLength, int meanLength, int maxLength, double longTailFactor, Random randy)
+
+</class RandomReadsMG>
+<class Shred>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class Shred
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private String extin=null
+
+private String extout=null
+
+boolean parseFileTID=false
+
+boolean parseSequenceTID=false
+
+String prefix=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+protected long readsOut=0
+
+protected long basesOut=0
+
+private long maxReads=-1
+
+private int median=-1
+
+private int variance=-1
+
+private int shredLength=500
+
+private int minLength=-1
+
+private int maxLength=-1
+
+private int maxNs=-1
+
+private final int range
+
+private int overlap=0
+
+private final int increment
+
+private final double incMult
+
+private final boolean evenLengths
+
+private final Random randy
+
+int mode=LINEAR
+
+static final int LINEAR=0
+
+static final int LOG=1
+
+static final int EXP=2
+
+static final String[] modes={"LINEAR","LOG","EXP"}
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Shred(String[] args)
+
+public boolean parseArgument(String arg, String a, String b)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+void processEvenly(Read r1, ArrayList<Read> list, int tid)
+
+void processUnevenly(Read r1, ArrayList<Read> list, int tid)
+
+void processRandomly(Read r1, ArrayList<Read> list, int tid)
+
+final String toName(String name, int start, int stop, int tid)
+
+final int randomLength(int remainder)
+
+final int randomLengthLinear(int remainder)
+
+final int randomLengthExp(int remainder)
+
+*Samples a length from a continuous log-uniform distribution.
+*@author Isla
+private int logUniformLength(int remainder)
+
+</class Shred>
+<class SynthMDA>
+*@author Brian Bushnell
+*@date Oct 17, 2014
+public class SynthMDA
+
+#Fields
+private String ref=null
+
+private String out1=null
+
+private String extref=null
+
+private String extout=null
+
+private final FileFormat ffref
+
+private final FileFormat ffout1
+
+private int minlen=10000
+
+private int minlen2=4000
+
+private int maxlen=150000
+
+private int cycles=9
+
+private float initialRatio=1.3f
+
+private float ratio=2
+
+private String prefix=null
+
+private long reads=12000000
+
+private int readlength=150
+
+private int amp=200
+
+private boolean paired=true
+
+private int build=7
+
+private String readsOut=null
+
+private float perfectrate=0
+
+private final Random randy=Shared.threadLocalRandom()
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public SynthMDA(String[] args)
+
+void process(Timer t)
+
+private ByteBuilder amplify(ByteBuilder source, boolean retain, int minlen, int maxlen, float ratio)
+
+</class SynthMDA>

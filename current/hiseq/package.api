@@ -1,0 +1,1719 @@
+#version 1
+#package hiseq
+#generated 2025-09-06T20:36:49
+
+<class AnalyzeFlowCell>
+*Analyzes a flow cell for low-quality areas.
+*Removes reads in the low-quality areas.
+*@author Brian Bushnell
+*@date August 31, 2016
+public class AnalyzeFlowCell
+
+#Fields
+private final ReadWriteLock rwlock=new ReentrantReadWriteLock()
+
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private ArrayList<String> extra=new ArrayList<String>()
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+*Discard output file path
+private String outbad=null
+
+*Optional aligned reads (e.g. PhiX)
+private String samInput=null
+
+private final boolean processSamMT=true
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private String dumpOut=null
+
+private String dumpIn=null
+
+private String coordsOut=null
+
+private byte delimiter='+'
+
+private int barcodesPerRead=2
+
+private String expectedBarcodes
+
+private String barcodeCounts
+
+private BarcodeStats barcodeStats
+
+private ConcurrentHashMap<String,AtomicStringNum> barcodeMap
+
+boolean align=false
+
+String alignOut=null
+
+String alignRef="phix"
+
+float alignMinid1=0.66f
+
+float alignMinid2=0.56f
+
+int alignK1=17
+
+int alignK2=13
+
+int alignMM1=1
+
+int alignMM2=1
+
+SideChannel3 sidechannel
+
+*Number of reads processed
+public long readsProcessed=0
+
+*Number of bases processed
+public long basesProcessed=0
+
+*Number of reads discarded
+public long readsDiscarded=0
+
+*Number of bases discarded
+public long basesDiscarded=0
+
+protected long gsTransformedToN=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Whether interleaved was explicitly set.
+private boolean setInterleaved=false
+
+private int loadThreads=24
+
+private int fillThreads=64
+
+private static final int fillThreadsM=96
+
+private BloomFilter bloomFilter
+
+int idmask_read=7
+
+int idmask_write=15
+
+private int smoothDepths=0
+
+private boolean deblurDepths=false
+
+private boolean blurTiles=false
+
+private boolean loadKmers=true
+
+private float minProb=0
+
+private boolean deterministic=true
+
+private int cbits=2
+
+private int hashes=2
+
+private boolean recalibrate=false
+
+private boolean merge=false
+
+private boolean strictmerge=false
+
+private int targetAverageReads=1600
+
+private int targetAlignedReads=250
+
+private int targetX=Tile.xSize
+
+private int targetY=Tile.ySize
+
+private static final int k=31
+
+private FlowCell flowcell
+
+private boolean changePolyGHitsToMisses=false
+
+private float dmult=-0.2f
+
+private boolean discardOnlyLowQuality=true
+
+private int discardLevel=1
+
+private boolean gToN=false
+
+private boolean discardG=false
+
+private int minlen=30
+
+private float trimq=-1
+
+private final float trimE
+
+private boolean trimLeft=false
+
+private boolean trimRight=true
+
+private boolean warned=false
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+*Output for discarded reads
+private final FileFormat ffoutbad
+
+*Number of reads output in the last run
+public static long lastReadsOut
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Output reads in input order (possibly todo)
+private final boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public AnalyzeFlowCell(String[] args)
+
+private Parser parse(String[] args)
+
+private void checkFiles()
+
+private void doPoundReplacement()
+
+private void checkFileExistence()
+
+private void adjustInterleaving()
+
+private static void checkStatics()
+
+*Create read streams and process all data
+public void process(Timer t)
+
+*Create read streams and process all data
+void loadKmers()
+
+*Create read streams and process all data
+void fillTiles()
+
+private void processSamLine(SamLine sl, IlluminaHeaderParser2 ihp)
+
+*Create read streams and process all data
+void processReads(Timer t)
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, ConcurrentReadOutputStream rosb, ByteStreamWriter coords)
+
+*Iterate through the reads
+public void loadKmersInner(ConcurrentReadInputStream cris)
+
+private void loadKmers(Read r, LongList kmers)
+
+*Iterate through the reads
+public void fillTilesInner(ConcurrentReadInputStream cris, SamLineStreamer ss)
+
+private void processTileKmers(Read r, IntList klist, IntList blist)
+
+private void fillDepthList(Read r, IntList depths)
+
+private void smooth3(IntList list)
+
+private void smooth5(IntList list)
+
+void deblur(IntList klist, IntList blist)
+
+private final long toKey(long kmer)
+
+private final long toKey(long kmer, long rkmer)
+
+boolean processReadPair(Read r1, Read r2)
+
+*Process a single read pair.
+*@param r1 Read 1
+*@param r2 Read 2 (may be null)
+*@return True if the reads should be kept, false if they should be discarded.
+boolean processReadPair_inner(Read r1, Read r2)
+
+private boolean shouldDiscard(Read r, MicroTile mt)
+
+private boolean shouldDiscardG(Read r, MicroTile mt)
+
+private int doGToN(Read r, MicroTile mt)
+
+*Generate a kmer from specified start location
+*@param bases
+*@param start
+*@param klen kmer length
+*@return kmer
+private static final long toKmer(byte[] bases, int start, int klen)
+
+BarcodeStats loadBarcodes(String expectedBarcodesFile)
+
+private static void dumpBarcodes(Collection<AtomicStringNum> counts, String fname, boolean overwrite)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, SamLineStreamer ss)
+
+@Override public final void accumulate(ProcessThread pt)
+
+@Override public final boolean success()
+
+@Override public final ReadWriteLock rwlock()
+
+</class AnalyzeFlowCell>
+<class AnalyzeFlowCell.ProcessThread>
+class AnalyzeFlowCell.ProcessThread
+
+#Fields
+*Number of reads processed by this thread
+protected long readsProcessedT=0
+
+*Number of bases processed by this thread
+protected long basesProcessedT=0
+
+int xmin=Integer.MAX_VALUE
+
+int ymin=Integer.MAX_VALUE
+
+int tmin=Integer.MAX_VALUE
+
+int xmax=-1
+
+int ymax=-1
+
+int tmax=-1
+
+public String flowcellName=null
+
+private IntList kmerDepths0=new IntList(151)
+
+private IntList kmerDepths1=new IntList(151)
+
+private IntList baseDepths0=new IntList(151)
+
+private IntList baseDepths1=new IntList(151)
+
+private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2()
+
+*True only if this thread has completed successfully
+boolean success=false
+
+*Shared input stream
+private final ConcurrentReadInputStream cris
+
+*Optional sam input stream
+private final SamLineStreamer ss
+
+*Thread ID
+final int tid
+
+final FlowCell flowcellT
+
+
+#Methods
+ProcessThread(ConcurrentReadInputStream cris_, SamLineStreamer ss_, int tid_, FlowCell flowcell_)
+
+@Override public void run()
+
+*Iterate through the reads
+void processInner()
+
+void processList(ListNum<Read> ln)
+
+*Process a read or a read pair.
+*@param r1 Read 1
+*@param r2 Read 2 (may be null)
+void processReadPair(Read r1, Read r2)
+
+private void processSam()
+
+</class AnalyzeFlowCell.ProcessThread>
+<class BGI2Illumina>
+*Converts BGI to Illumina headers
+*@author Brian Bushnell
+*@date May 6, 2024
+public class BGI2Illumina
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Whether interleaved was explicitly set.
+private boolean setInterleaved=false
+
+private String barcode=null
+
+private BGIHeaderParser2 bhp=new BGIHeaderParser2()
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*This flag has no effect on singlethreaded programs
+private final boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public BGI2Illumina(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Replace # with 1 and 2 in headers
+private void doPoundReplacement()
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Make sure interleaving agrees with number of input and output files
+private void adjustInterleaving()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private ConcurrentReadInputStream makeCris()
+
+private ConcurrentReadOutputStream makeCros(boolean pairedInput)
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+*Process a list of Reads.
+*@param ln The list.
+*@param cris Read Input Stream
+*@param ros Read Output Stream for reads that will be retained
+void processList(ListNum<Read> ln, ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+*Process a single read pair.
+*@param r1 Read 1
+*@param r2 Read 2 (may be null)
+*@return True if the reads should be kept, false if they should be discarded.
+boolean processReadPair(Read r1, Read r2)
+
+</class BGI2Illumina>
+<class BGIHeaderParser>
+*@author Brian Bushnell
+*@date April 5, 2024
+public class BGIHeaderParser
+
+#Fields
+private final LineParserS4 lp=new LineParserS4("_LCR/\t")
+
+private final ByteBuilder bb=new ByteBuilder(64)
+
+
+#Methods
+public static void main(String[] args)
+
+public BGIHeaderParser parse(String id_)
+
+public String toIllumina(String barcode)
+
+@Override public String sample()
+
+@Override public String machine()
+
+@Override public int run()
+
+@Override public String flowcell()
+
+@Override public int lane()
+
+@Override public int tile()
+
+@Override public int xPos()
+
+@Override public int yPos()
+
+@Override public char pairCode()
+
+@Override public char chastityCode()
+
+@Override public int controlBits()
+
+@Override public String barcode()
+
+@Override public String extra()
+
+</class BGIHeaderParser>
+<class BGIHeaderParser2>
+*Uses a reverse parser because BGI headers have an unknown prefix.
+*As a result, it does not support comments, but this could be preprocessed.
+*@author Brian Bushnell
+*@date May 6, 2024
+public class BGIHeaderParser2
+
+#Fields
+private String extra=null
+
+private final LineParserS4Reverse lp=new LineParserS4Reverse("_LCR/")
+
+private final ByteBuilder bb=new ByteBuilder(64)
+
+public static boolean PARSE_EXTRA=false
+
+
+#Methods
+public static void main(String[] args)
+
+public BGIHeaderParser2 parse(String id_)
+
+private static int firstWhitespace(String s)
+
+public String toIllumina(String barcode)
+
+@Override public String sample()
+
+@Override public String machine()
+
+@Override public int run()
+
+@Override public String flowcell()
+
+@Override public int lane()
+
+@Override public int tile()
+
+@Override public int xPos()
+
+@Override public int yPos()
+
+@Override public char pairCode()
+
+@Override public char chastityCode()
+
+@Override public int controlBits()
+
+@Override public String barcode()
+
+@Override public String extra()
+
+</class BGIHeaderParser2>
+<class CycleTracker>
+*Tracks base and quality composition per cycle.
+*@author Brian Bushnell
+*@date August 16, 2018
+public class CycleTracker
+
+#Fields
+public long[][] acgtnq=new long[6][]
+
+public float[][] cycleAverages=new float[6][]
+
+public float[] maxes
+
+public float[] averages
+
+public int length=0
+
+
+#Methods
+public void add(Read r)
+
+public void add(CycleTracker ct)
+
+public void process()
+
+private void addBases(byte[] bases)
+
+private void addQuality(byte[] quals)
+
+private void resize(int newLen)
+
+public float max(byte base)
+
+public float max(char base)
+
+public float avg(byte base)
+
+public float avg(char base)
+
+public void clear()
+
+</class CycleTracker>
+<class FlowCell>
+public class FlowCell
+
+#Fields
+public ArrayList<Lane> lanes=new ArrayList<Lane>()
+
+long readsProcessed
+
+long basesProcessed
+
+long readsAligned
+
+long basesAligned
+
+long readErrors
+
+long baseErrors
+
+String name
+
+int xMin=-1
+
+int xMax=-1
+
+int yMin=-1
+
+int yMax=-1
+
+int tMin=-1
+
+int tMax=-1
+
+int k=31
+
+public double avgReads
+
+public double avgAlignedReads
+
+public double minCountToUse
+
+public double avgQuality
+
+public double avgUnique
+
+public double avgDepth
+
+public double avgErrorFree
+
+public double avgPolyG
+
+public double avgG
+
+public double stdQuality
+
+public double stdUnique
+
+public double stdDepth
+
+public double stdErrorFree
+
+public double stdPolyG
+
+public double stdG
+
+public double[] uniqueToReadErrorRateFormula
+
+public double[] uniqueToBaseErrorRateFormula
+
+private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2()
+
+
+#Methods
+public FlowCell(String fname)
+
+public FlowCell(int k_)
+
+public MicroTile getMicroTile(String id)
+
+public MicroTile getMicroTile(IlluminaHeaderParser2 ihp)
+
+public MicroTile getMicroTile(int lane, int tile, int x, int y)
+
+public MicroTile getMicroTile(int lane, int tile, int x, int y, boolean create)
+
+public Lane getLane(int lane)
+
+public ArrayList<MicroTile> toList()
+
+public ArrayList<MicroTile> calcStats()
+
+public FlowCell widenToTargetReads(int targetReads)
+
+public FlowCell widenToTargetAlignedReads(int targetAlignedReads)
+
+public void unwiden()
+
+public FlowCell widen(boolean loud)
+
+public FlowCell widen(int x2, int y2, boolean loud)
+
+public void blur()
+
+public void dump(String fname, boolean overwrite)
+
+public void add(FlowCell fcb)
+
+FlowCell setFrom(FlowCell fc)
+
+public double alignmentRate()
+
+public double baseErrorRate()
+
+</class FlowCell>
+<class FlowcellCoordinate>
+public class FlowcellCoordinate
+
+#Fields
+public int lane=-1
+
+public int tile=-1
+
+public int x=-1
+
+public int y=-1
+
+public String umi
+
+private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2()
+
+public static final float big=10000000
+
+public static boolean parseUMI=false
+
+private static final ThreadLocal<FlowcellCoordinate> localFC=new ThreadLocal<FlowcellCoordinate>()
+
+
+#Methods
+public FlowcellCoordinate()
+
+public FlowcellCoordinate(String id)
+
+public void setFrom(String id)
+
+public boolean isSet()
+
+@Override public int compareTo(FlowcellCoordinate b)
+
+public static FlowcellCoordinate getFC()
+
+</class FlowcellCoordinate>
+<class IlluminaHeaderParser1>
+*Parses an Illumina header to gather positional information.
+*Superceded by ihp2.
+*@author Brian Bushnell
+*@date Aug 22, 2018
+public class IlluminaHeaderParser1
+
+#Fields
+*Flowcell lane number
+public int lane
+
+*Tile number
+public int tile
+
+*X-coordinate within tile (pixels)
+public int x
+
+*Y-coordinate within tile (pixels)
+public int y
+
+*'1' for read 1, '2' for read 2
+public char pairCode
+
+*'Y' for fail, 'N' for pass
+public char chastityCode
+
+*A number for control bits set
+public int controlBits
+
+*Read barcode
+public String barcode
+
+*Anything after the barcode
+public String extra
+
+*Length of header
+private int limit
+
+*Current position, typically the start of the next token
+private int pos
+
+*Position after coordinates, but before pairnum; typically space or slash
+private int commentSeparator
+
+
+#Methods
+public static void main(String[] args)
+
+public IlluminaHeaderParser1 parse(String id_)
+
+@Override public String machine()
+
+@Override public String sample()
+
+@Override public int run()
+
+@Override public String flowcell()
+
+@Override public int lane()
+
+@Override public int tile()
+
+@Override public int xPos()
+
+@Override public int yPos()
+
+@Override public char pairCode()
+
+@Override public char chastityCode()
+
+@Override public int controlBits()
+
+@Override public String barcode()
+
+@Override public String extra()
+
+*Parse lane, tile, x, and y coordinates
+private void parseCoordinates()
+
+*Parse the comment field for pair number, chastity filter, and barcode
+private void parseComment()
+
+*Clear all fields and point to a new header
+private void reset(String id_)
+
+*Find the first instance of the comment separator (' ' or '/')
+*@return Position of the separator, or header length if not found
+private int findCommentSeparator()
+
+*Decrement pos until target colons have been encountered
+*@modifies pos
+*@param target number of colons to backtrack
+private void goBackSeveralColons(int target)
+
+*Parse an integer from the current location in the string,
+*and advance the position to the beginning of the next number.
+*@modifies pos
+*@return The parsed number
+private int parseInt()
+
+*Parse a character from the current location in the string,
+*and advance the position to the next code character.
+*@modifies pos
+*@return The parsed char
+private char parseChar()
+
+public String toString()
+
+</class IlluminaHeaderParser1>
+<class IlluminaHeaderParser2>
+*Faster version of IlluminaHeaderParser using LineParser.
+*@author Brian Bushnell
+*@date April 3, 2024
+public class IlluminaHeaderParser2
+
+#Fields
+private final LineParserS3 lp=new LineParserS3(':')
+
+int whitespaceIndex=-1
+
+
+#Methods
+public static void main(String[] args)
+
+public IlluminaHeaderParser2 parse(String id_)
+
+public boolean canShrink()
+
+public boolean looksValid()
+
+public boolean looksShrunk()
+
+@Override public String machine()
+
+@Override public String sample()
+
+@Override public int run()
+
+@Override public String flowcell()
+
+@Override public int lane()
+
+@Override public int tile()
+
+@Override public int xPos()
+
+@Override public int yPos()
+
+@Override public char pairCode()
+
+@Override public char chastityCode()
+
+@Override public int controlBits()
+
+@Override public String barcode()
+
+@Override public String index3()
+
+@Override public int whitespaceIndex()
+
+@Override public String extra()
+
+public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+public ByteBuilder appendCoordinates(ByteBuilder bb)
+
+public long encodeCoordinates()
+
+public LineParser lp()
+
+</class IlluminaHeaderParser2>
+<class Lane>
+public class Lane
+
+#Fields
+public ArrayList<Tile> tiles=new ArrayList<Tile>()
+
+public AtomicLongArray[] depthSums=new AtomicLongArray[]{new AtomicLongArray(500),new AtomicLongArray(500)}
+
+public AtomicLongArray[] depthCounts=new AtomicLongArray[]{new AtomicLongArray(500),new AtomicLongArray(500)}
+
+public AtomicLongArray[] matchCounts=new AtomicLongArray[]{new AtomicLongArray(500),new AtomicLongArray(500)}
+
+public AtomicLongArray[] subCounts=new AtomicLongArray[]{new AtomicLongArray(500),new AtomicLongArray(500)}
+
+public AtomicLongArray[][] longLists=new AtomicLongArray[][]{depthSums,depthCounts,matchCounts,subCounts}
+
+public int lane
+
+
+#Methods
+public Lane(int lane_)
+
+public MicroTile getMicroTile(int tile, int x, int y)
+
+public MicroTile getMicroTile(int tile, int x, int y, boolean create)
+
+public Tile getTile(int index)
+
+public void add(Lane b)
+
+public void addLists(Lane b)
+
+public void print(ByteStreamWriter bsw, int k, double[] rerf, double[] berf)
+
+*Calculates the rate of high-depth genomic kmers in the lane,
+*using the observed rates of unique kmers and alignment errors.
+*@param k Kmer length.
+*@return HG Rate of high depth genomic kmers.
+public double calcHighDepthGenomic(int k)
+
+@Override public Iterator<Tile> iterator()
+
+public boolean isEmpty()
+
+</class Lane>
+<class MicroTile>
+public class MicroTile
+
+#Fields
+public long hits
+
+public long misses
+
+public long depthSum
+
+public long readCount
+
+public long baseCount
+
+public long alignedReadCount
+
+public long alignedBaseCount
+
+public long readErrorCount
+
+public long baseErrorCount
+
+public long kmerReadErrorCount
+
+public long kmerBaseErrorCount
+
+public long readInsCount
+
+public long readDelCount
+
+public double readQualityByProbSum
+
+public double probErrorFreeSum
+
+public double baseErrorProbSum
+
+public double goodKmerSum
+
+public long validKmerSum
+
+public long[] acgtn=new long[5]
+
+public long homoPolyGCount
+
+public long homoPolyGSum
+
+public int discard=0
+
+public final int lane
+
+public final int tile
+
+public final int x1
+
+public final int x2
+
+public final int y1
+
+public final int y2
+
+long barcodes
+
+long barcodeHDistSum=0
+
+long barcodePolymers=0
+
+long mergedReads=0
+
+long insertSum=0
+
+long overlapSum=0
+
+long mergeErrorSum=0
+
+public final CycleTracker tracker=TRACK_CYCLES ? new CycleTracker() : null
+
+public static int MIN_POLY_G=15
+
+public static boolean TRACK_CYCLES=false
+
+public static boolean shortHeader=true
+
+
+#Methods
+public MicroTile()
+
+public MicroTile(int lane_, int tile_, int x1_, int x2_, int y1_, int y2_)
+
+void process()
+
+public boolean contains(int x, int y)
+
+@Override public String toString()
+
+public double averageReadQualityByProb()
+
+public double averageExpectedBaseErrorRate()
+
+public double averageExpectedBaseErrorRatePhred()
+
+public double percentErrorFree()
+
+public double goodKmerFraction()
+
+public double alignmentRate()
+
+public double trueQuality()
+
+public double readErrorRate()
+
+public double baseErrorRate()
+
+public double readInsRate()
+
+public double readDelRate()
+
+public double kmerErrorRateR()
+
+public double kmerErrorRateB()
+
+public double hitPercent()
+
+public double uniquePercent()
+
+public double polyGPercent()
+
+public double depth()
+
+public double avgG()
+
+public double maxG()
+
+public double impliedErrorRate(double[] berf)
+
+public long kmerCount()
+
+public void clear()
+
+public void add(MicroTile mt)
+
+public void multiplyBy(double mult)
+
+private float countGoodKmers(byte[] quals, int k)
+
+public void add(Read r)
+
+*Has some slow functions offloaded to increase
+*concurrency, but did not result in a speedup.
+public void addQuick(Read r)
+
+public static String header()
+
+public ByteBuilder toText(ByteBuilder bb, int k, double HG, double[] rerf, double[] berf)
+
+*Although this seems like it should work, it did not work
+*very well at all in a test of real data.
+*@param HG_lane High depth genomic kmer fraction of lane.
+*@return E_tile Per-base error rate of this tile.
+public float calcErrorRateFromUniqueness(double HG_lane, int k)
+
+*Sorts better tiles first
+@Override public int compareTo(MicroTile mt)
+
+</class MicroTile>
+<class PlotFlowCell>
+*Analyzes a flow cell for low-quality areas.
+*Removes reads in the low-quality areas.
+*@author Brian Bushnell
+*@date August 31, 2016
+public class PlotFlowCell
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private ArrayList<String> extra=new ArrayList<String>()
+
+*Override input file extension
+private String extin=null
+
+private boolean pound=true
+
+private String dump=null
+
+private String dumpIn=null
+
+*Number of reads processed
+public long readsProcessed=0
+
+*Number of bases processed
+public long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Hold kmers. A kmer X such that X%WAYS=Y will be stored in keySets[Y]
+private AbstractKmerTable[] keySets
+
+private BloomFilter bloomFilter
+
+private BloomFilterCorrector bloomCorrector
+
+private boolean bloomMode=false
+
+private boolean multithreadedLoad=false
+
+private boolean multithreadedFill=false
+
+private boolean loadKmers=true
+
+private int kmersPerRead=1
+
+private int cbits=4
+
+private int hashes=3
+
+private int targetAverageReads=800
+
+private static final int WAYS=31
+
+private static final int k=31
+
+private static final int k2=30
+
+private FlowCell flowcell
+
+private String refPath="phix"
+
+private MicroAligner3 mapper
+
+float minIdentity=0.65f
+
+int alignK=19
+
+private byte delimiter='+'
+
+private int barcodesPerRead=2
+
+private String expectedBarcodes
+
+private BarcodeStats barcodeStats
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+private final ReadWriteLock rwlock=new ReentrantReadWriteLock()
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public PlotFlowCell(String[] args)
+
+*Create read streams and process all data
+public void process(Timer t)
+
+*Create read streams and process all data
+void loadKmers()
+
+BarcodeStats loadBarcodes(String expectedBarcodesFile)
+
+*Create read streams and process all data
+void fillTiles()
+
+*Iterate through the reads
+private void loadKmersInner(ConcurrentReadInputStream cris)
+
+private void loadKmersST(ConcurrentReadInputStream cris)
+
+private void loadKmers(Read r, LongList kmers)
+
+*Iterate through the reads
+private void fillTilesInner(ConcurrentReadInputStream cris)
+
+void processTileKmers(Read r, MicroTile mt, LongList kmers, IntList counts)
+
+void processOneKmer(Read r, MicroTile mt)
+
+void processAllKmers(Read r, MicroTile mt, LongList kmers, IntList counts)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris)
+
+@Override public final void accumulate(WorkerThread pt)
+
+@Override public final boolean success()
+
+*Generate a kmer from specified start location
+*@param bases
+*@param start
+*@param klen kmer length
+*@return kmer
+private static final long toKmer(byte[] bases, int start, int klen)
+
+@Override public final ReadWriteLock rwlock()
+
+</class PlotFlowCell>
+<class PlotFlowCell.WorkerThread>
+class PlotFlowCell.WorkerThread
+
+#Fields
+*Number of reads processed by this thread
+protected long readsProcessedT=0
+
+*Number of bases processed by this thread
+protected long basesProcessedT=0
+
+*True only if this thread has completed successfully
+boolean success=false
+
+*Shared input stream
+private final ConcurrentReadInputStream cris
+
+*Thread ID
+final int tid
+
+final FlowCell fc
+
+final LongList kmers=new LongList()
+
+final IntList counts=new IntList()
+
+
+#Methods
+WorkerThread(ConcurrentReadInputStream cris_, int tid_)
+
+@Override public void run()
+
+*Iterate through the reads
+void processInner()
+
+void processList(ListNum<Read> ln)
+
+*Process a read or a read pair.
+*@param r1 Read 1
+*@param r2 Read 2 (may be null)
+*@return True if the reads should be kept, false if they should be discarded.
+void processReadPair(Read r1, Read r2)
+
+</class PlotFlowCell.WorkerThread>
+<class PlotHist>
+*Generates histograms from a square matrix.
+*Intended for plotting a TileDump.
+*If rewritten to use FloatList, it could ignore outlier percentiles...
+*@author Brian Bushnell
+*@date Nov 5, 2024
+public class PlotHist
+
+#Fields
+*Primary input file path
+private String in1=null
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+*Input File
+private final FileFormat ffin1
+
+String[] header
+
+long[][] countMatrix
+
+double[] maxArray
+
+int bins=1000
+
+int terms=0
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public PlotHist(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create streams and process all data
+void process(Timer t)
+
+private void gatherData(ByteFile bf)
+
+private void processInner(ByteFile bf)
+
+private void writeData()
+
+</class PlotHist>
+<class PlotReadPosition>
+*@author Brian Bushnell
+*@date Oct 6, 2014
+public class PlotReadPosition
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private String expectedPath=null
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private final PCRMatrixHDist matrix
+
+private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2()
+
+private long maxReads=-1
+
+private java.io.PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public PlotReadPosition(String[] args)
+
+void process(Timer t)
+
+</class PlotReadPosition>
+<class ReadHeaderParser>
+*Superclass for Illumina header parsers.
+*@author Brian Bushnell
+*@date April 3, 2024
+public abstract class ReadHeaderParser
+
+#Fields
+*Read header
+String id
+
+*Parse lane, tile, x, and y coordinates
+public static boolean PARSE_COORDINATES=true
+
+*Parse the comment field for pair number, chastity filter, and barcode
+public static boolean PARSE_COMMENT=false
+
+
+#Methods
+public final void test(String s)
+
+public ReadHeaderParser parse(String id)
+
+public String machine()
+
+public int run()
+
+public String flowcell()
+
+public int lane()
+
+public int tile()
+
+public int xPos()
+
+public int yPos()
+
+public char pairCode()
+
+public char chastityCode()
+
+public int controlBits()
+
+public String barcode()
+
+public String extra()
+
+public String sample()
+
+public final ReadHeaderParser parse(Read r)
+
+public final String id()
+
+public char commentSeparator()
+
+public int surface()
+
+public int swath()
+
+public int pairnum()
+
+public boolean chastityFail()
+
+public char barcodeDelimiter()
+
+public int barcodeLength1()
+
+public int barcodeLength2()
+
+public int barcodeLength()
+
+public int barcodeLetters()
+
+public int numBarcodes()
+
+public String index3()
+
+public int whitespaceIndex()
+
+public static char commentSeparator(String id)
+
+public static final int surface(int tile)
+
+public static final int swath(int tile)
+
+public static final char barcodeDelimiter(String bc)
+
+public static int barcodeLength1(String bc)
+
+public static int barcodeLength2(String bc)
+
+public static int barcodeLetters(String bc)
+
+public static int numBarcodes(String bc)
+
+public String toString()
+
+</class ReadHeaderParser>
+<class Tile>
+public class Tile
+
+#Fields
+public ArrayList<ArrayList<MicroTile>> xlist=new ArrayList<ArrayList<MicroTile>>()
+
+public int lane
+
+public int tile
+
+public static int xSize=500
+
+public static int ySize=500
+
+
+#Methods
+public Tile(int lane_, int tile_)
+
+public MicroTile get(int x, int y, boolean create)
+
+private ArrayList<MicroTile> getIndex(int xindex, boolean create)
+
+@Override public String toString()
+
+public ByteBuilder toText(int k, double HG, double[] rerf, double[] berf)
+
+public void add(Tile tb)
+
+@Override public Iterator<MicroTile> iterator()
+
+public ArrayList<MicroTile> mtList()
+
+</class Tile>
+<class TileDump>
+public class TileDump
+
+#Fields
+public static final int VERSION_OUT=3
+
+public static int VERSION_IN=1
+
+public static boolean verbose
+
+static float maxDiscardFraction=0.4f
+
+static float maxImpliedErrorRate=0.012f
+
+static float qDeviations=2.4f
+
+static float uDeviations=1.5f
+
+static float eDeviations=3.0f
+
+static float pgDeviations=1.4f
+
+static float gDeviations=3f
+
+static float qualFraction=0.08f
+
+static float uniqueFraction=0.01f
+
+static float errorFreeFraction=0.2f
+
+static float polyGFraction=0.2f
+
+static float gFraction=.1f
+
+static float qualAbs=2.0f
+
+static float uniqueAbs=1f
+
+static float errorFreeAbs=6f
+
+static float polyGAbs=0.2f
+
+static float gAbs=.1f
+
+private String in=null
+
+private String out=null
+
+private int targetX=-1
+
+private int targetY=-1
+
+private int targetReads=-1
+
+private int targetAlignedReads=250
+
+private boolean blurTiles=false
+
+private boolean overwrite=true
+
+
+#Methods
+public static void main(String[] args)
+
+public void process(Timer t)
+
+*Constructor.
+*@param args Command line arguments
+public TileDump(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+public static boolean parseStatic(String arg, String a, String b)
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+public static void write(FlowCell fc, String fname, boolean overwrite)
+
+private static void printTSV(ByteStreamWriter bsw, AtomicLongArray list, String label)
+
+public static FlowCell loadDump(String fname)
+
+public static FlowCell loadDump(String fname, FlowCell fc)
+
+public static int parseHeader(ByteFile bf, FlowCell fc)
+
+public static long loadTiles1(ByteFile bf, FlowCell fc)
+
+public static long loadTiles2(ByteFile bf, FlowCell fc, int dumpVersion)
+
+static final long markTiles(FlowCell flowcell, ArrayList<MicroTile> mtList, PrintStream outstream)
+
+</class TileDump>

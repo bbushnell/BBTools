@@ -1,0 +1,1154 @@
+#version 1
+#package icecream
+#generated 2025-09-06T20:37:04
+
+<class IceCreamAligner>
+public abstract class IceCreamAligner
+
+#Methods
+public static IceCreamAligner makeAligner(int bits)
+
+*@param query
+*@param ref
+*@param qstart
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+public AlignmentResult alignForward(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+*@param query
+*@param ref
+*@param qstart
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+public AlignmentResult alignForwardShort(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+long iters()
+
+long itersShort()
+
+</class IceCreamAligner>
+<class IceCreamAlignerJava>
+public final class IceCreamAlignerJava
+
+#Fields
+long iters=0
+
+long itersShort=0
+
+public static final int pointsMatch=1
+
+public static final int pointsSub=-1
+
+public static final int pointsDel=-2
+
+public static final int pointsIns=-2
+
+
+#Methods
+IceCreamAlignerJava()
+
+*@param query
+*@param ref
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+@Override public AlignmentResult alignForward(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+*@param query
+*@param ref
+*@param qstart
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+@Override public AlignmentResult alignForwardShort(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+@Override long iters()
+
+@Override long itersShort()
+
+</class IceCreamAlignerJava>
+<class IceCreamAlignerJNI>
+public final class IceCreamAlignerJNI
+
+#Fields
+long iters=0
+
+long itersShort=0
+
+public static final int pointsMatch=1
+
+public static final int pointsSub=-1
+
+public static final int pointsDel=-2
+
+public static final int pointsIns=-2
+
+
+#Methods
+IceCreamAlignerJNI()
+
+*@param query
+*@param ref
+*@param qstart
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+@Override public AlignmentResult alignForward(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+*@param query
+*@param ref
+*@param qstart
+*@param rstart
+*@param rstop
+*@param minScore Quit early if score drops below this
+*@param minRatio Don't return results if max score is less than this fraction of max possible score
+*@return
+@Override public AlignmentResult alignForwardShort(byte[] query, byte[] ref, int rstart, int rstop, int minScore, float minRatio)
+
+private static void alignForwardPseudo(int[] query, int[] ref, int[] retArray, int qlen, int rlen, int minScore, float minRatio)
+
+private static void alignForwardShortPseudo(int[] query, int[] ref, int[] retArray, int qlen, int rlen)
+
+private static void alignForwardJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen, int minScore, float minRatio)
+
+private static void alignForward16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen, short minScore, float minRatio)
+
+private static void alignForwardShortJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen)
+
+private static void alignForwardShort16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen)
+
+@Override long iters()
+
+@Override long itersShort()
+
+</class IceCreamAlignerJNI>
+<class IceCreamFinder>
+*Detects inverted repeats in PacBio reads.
+*Attempts to determine whether reads are chimeric
+*due to a missing adapter.
+*@author Brian Bushnell
+*@date June 5, 2019
+public final class IceCreamFinder
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String outg=null
+
+*Ambiguous output file path
+private String outa=null
+
+*Bad output file path
+private String outb=null
+
+*Junction output file path
+private String outj=null
+
+*Stats (screen) output file path
+private String outstats=null
+
+*Adapter score ratio histogram
+private String asrhist=null
+
+*Inverted repeat score ratio histogram
+private String irsrhist=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private int targetQlen=352
+
+private int minQlen=100
+
+*Make a query at most this fraction of read length
+private float maxQlenFraction=0.15f
+
+*Exit alignment early if score drops below this.
+*An aggressive optimization that may miss some low-quality inverted repeats.
+*-700 seems safe.
+private int minScore=-800
+
+*Fraction of maximum alignment score to consider as matching for initial alignment
+private float minRatio1=0.59f
+
+*Fraction of maximum alignment score to consider as matching for realignment
+private float minRatio2=0.64f
+
+private float adapterRatio=0.18f
+
+private float adapterRatio2=0.325f
+
+private float suspectRatio=0.85f
+
+private boolean useLocality=true
+
+private boolean useAltMsa=true
+
+private float tipRatio=1.5f
+
+private float longReadMult=1.5f
+
+private float shortReadMult=1.5f
+
+private float veryShortMult=0.35f
+
+*Short half of inverted repeat must be at least this fraction of read length to be classed as a triangle
+private float minJunctionFraction=0.4f
+
+*Only filter triangle reads, not all inverted repeats
+private boolean filterIceCreamOnly=true
+
+*Align again once the junction position is provisionally identified
+private boolean realign=true
+
+*For internal read array transfers
+private int queuelen=80
+
+*For grading synthetic data
+private boolean parseCustom
+
+*Input reads are CCS (full pass)
+private boolean CCS
+
+private boolean modifyHeader=false
+
+private boolean sendAmbigToGood=true
+
+private boolean sendAmbigToBad=false
+
+private boolean setAmbig=false
+
+private boolean keepZMWsTogether=false
+
+private boolean keepShortReads=true
+
+private int format=FORMAT_TEXT
+
+private static final int FORMAT_TEXT=1
+
+private static final int FORMAT_JSON=2
+
+*Alignment iterations for inverted repeat calculation with ref columns and query rows
+protected long alignmentIters=0
+
+*Alignment iterations for inverted repeat calculation with query columns and ref rows
+protected long alignmentItersShort=0
+
+*Time spent in long iterations
+protected long elapsed=0
+
+*Time spent in short iterations
+protected long elapsedShort=0
+
+*Print iteration time statistics
+protected boolean printTiming=false
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Number of junctions detected in IR reads
+protected long junctionsOut=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+protected long iceCreamReads=0
+
+protected long iceCreamBases=0
+
+*ZMWs with discarded reads
+protected long iceCreamZMWs=0
+
+*Sum of IR alignment ratios for IR reads not containing adapters
+protected double iceCreamRatio=0
+
+*Number of ratios in iceCreamRatio
+protected long ratiosCounted=0
+
+*Histogram
+protected final long[] adapterScores=new long[201]
+
+*Histogram
+protected final long[] repeatScores=new long[201]
+
+*ZMWs with a triangle read but no hidden adapters
+protected long missingAdapterZMWs=0
+
+*ZMWs with hidden adapters
+protected long hiddenAdapterZMWs=0
+
+protected long basesTrimmed=0
+
+protected long readsTrimmed=0
+
+protected long lowEntropyZMWs=0
+
+protected long lowEntropyReads=0
+
+*Total ZMWs observed
+protected long ZMWs=0
+
+protected long truePositiveReads=0
+
+protected long falsePositiveReads=0
+
+protected long trueNegativeReads=0
+
+protected long falseNegativeReads=0
+
+protected long ambiguousReads=0
+
+protected long truePositiveZMWs=0
+
+protected long falsePositiveZMWs=0
+
+protected long trueNegativeZMWs=0
+
+protected long falseNegativeZMWs=0
+
+protected long ambiguousZMWs=0
+
+protected final int stride
+
+protected final int window
+
+protected final int ALIGN_ROWS
+
+protected final int ALIGN_COLUMNS
+
+private boolean timeless=true
+
+protected final int maxSwScore
+
+protected final int minSwScore
+
+protected final int minSwScoreSuspect
+
+protected final int maxImperfectSwScore
+
+protected final int suspectMidpoint
+
+protected final int suspectDistance=100
+
+protected int npad=0
+
+private byte[] adapter="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT".getBytes()
+
+private boolean alignAdapter=true
+
+private boolean alignRC=true
+
+private boolean flagLongReads=true
+
+private boolean trimReads=true
+
+private int minLengthAfterTrimming=40
+
+private int adapterTipLen=100
+
+private int adapterTipPad=35
+
+boolean trimPolyA=false
+
+*Minimum entropy to be considered "complex", on a scale of 0-1
+float entropyCutoff=-1
+
+*Minimum length of a low-entropy block to fail a read
+int entropyLength=350
+
+*Minimum length of a low-entropy block as a fraction of read length;
+*the minimum of the two will be used
+float entropyFraction=0.5f
+
+float maxMonomerFraction=0.74f
+
+*Primary input file
+private final FileFormat ffin1
+
+*Primary output file
+private final FileFormat ffoutg
+
+*Ambiguous output file
+private final FileFormat ffouta
+
+*Bad output file
+private final FileFormat ffoutb
+
+*Junction output file
+private final FileFormat ffoutj
+
+*Stats output file
+private final FileFormat ffstats
+
+*Adapter score ratio histogram
+private final FileFormat ffasrhist
+
+*Inverted repeat score ratio histogram
+private final FileFormat ffirsrhist
+
+private final int threads
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public IceCreamFinder(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private ByteBuilder toText(Timer t)
+
+private JsonObject toJson(Timer t)
+
+private static void writeScoreRatioHistogram(FileFormat ff, long[] hist)
+
+private ConcurrentReadOutputStream makeCros(FileFormat ff)
+
+*Spawn process threads
+private void spawnThreads(ZMWStreamer zstream, ConcurrentReadOutputStream rosg, ConcurrentReadOutputStream rosa, ConcurrentReadOutputStream rosb, ConcurrentReadOutputStream rosj)
+
+private void waitForThreads(ArrayList<ProcessThread> alpt)
+
+</class IceCreamFinder>
+<class IceCreamGrader>
+*@author Brian Bushnell
+*@date June 11, 2019
+public class IceCreamGrader
+
+#Fields
+private String in1=null
+
+private String extin=null
+
+private long maxReads=-1
+
+private long goodReads=0
+
+private long goodBases=0
+
+private long badReads=0
+
+private long badBases=0
+
+private final FileFormat ffin1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public IceCreamGrader(String[] args)
+
+void process(Timer t)
+
+private boolean process(Read r)
+
+</class IceCreamGrader>
+<class IceCreamMaker>
+*Generates chimeric PacBio reads containing inverted repeats
+*due to missing adapters.
+*@author Brian Bushnell
+*@date June 8, 2019
+public class IceCreamMaker
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String out1=null
+
+*Primary output file path
+private String outIdHist=null
+
+private String qfout1=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private int minMoleculeLength=500
+
+private int maxMoleculeLength=10000
+
+private int minMovie=500
+
+private int maxMovie=40000
+
+private double missingRate=0.0
+
+private double hiddenRate=0.0
+
+private boolean allowBothEndsBad=false
+
+private float genomeGC=0.6f
+
+private long genomeSize=10000000
+
+private boolean addNs=true
+
+private double invertedRepeatRate=0.0
+
+private int invertedRepeatMinLength=100
+
+private int invertedRepeatMaxLength=10000
+
+private float minErrorRate=0.05f
+
+private float maxErrorRate=0.25f
+
+private boolean addErrors=true
+
+*One read per ZMW
+private boolean makeCCS=false
+
+private long seed=-1
+
+private long[] idHist=new long[ID_BINS]
+
+private float insFraction=0.40f
+
+private float delFraction=0.35f
+
+private float subFraction=0.25f
+
+private final float insThresh
+
+private final float delThresh
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Quit after processing this many INPUT reads
+private long maxReads=-1
+
+*Quit after generating this many OUTPUT zmws
+private long maxZMWs=-1
+
+*Reference genome, max 2Gbp
+private byte[] ref
+
+private AtomicLong nextZmwID=new AtomicLong(0)
+
+*Primary input file
+private final FileFormat ffin1
+
+*Primary output file
+private final FileFormat ffout1
+
+*Primary output file
+private final FileFormat ffIdHist
+
+private static final int ID_BINS=201
+
+private static final long MAX_GENOME_LENGTH=2000000000
+
+public static final byte[] pacbioAdapter="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT".getBytes()
+
+public static final int adapterLen=pacbioAdapter.length
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public IceCreamMaker(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private void writeIdHist()
+
+*Create a Read Input Stream
+private ConcurrentReadInputStream makeCris()
+
+*Create a Read Output Stream
+private ConcurrentReadOutputStream makeCros(boolean pairedInput)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+*Wait until all worker threads are finished, then return
+private void waitForThreads(ArrayList<ProcessThread> alpt)
+
+private byte randomBase(Random randy)
+
+private static int randomLength(int min, int max, Random randy)
+
+private static float randomRate(float min, float max, Random randy)
+
+private byte[] genSynthGenome(Random randy)
+
+private byte[] loadData(ConcurrentReadInputStream cris, Random randy)
+
+private void addInvertedRepeats(byte[] bases, Random randy)
+
+</class IceCreamMaker>
+<class PBHeader>
+public class PBHeader
+
+#Fields
+public String original
+
+public String runID
+
+public int zmwID
+
+public int start
+
+public int stop
+
+
+#Methods
+public PBHeader(String s)
+
+public void setFrom(String header)
+
+public static int parseZMW(String header)
+
+</class PBHeader>
+<class PolymerTrimmer>
+public class PolymerTrimmer
+
+#Fields
+static int minPolymer=5
+
+private static float minFraction=0.8f
+
+private static float penalty=(1f / (1 - minFraction)) - 1
+
+private static float minScore=-4 * penalty
+
+
+#Methods
+public static boolean parse(String arg, String a, String b)
+
+public static int testLeft(byte[] bases, char symbol)
+
+public static int testLeft(byte[] bases, byte symbol)
+
+public static int testRight(byte[] bases, char symbol)
+
+public static int testRight(byte[] bases, byte symbol)
+
+public static void setMinFraction(float f)
+
+</class PolymerTrimmer>
+<class ReadBuilder>
+class ReadBuilder
+
+#Fields
+ByteBuilder bases
+
+final long zmw
+
+final int movieStart
+
+int movieStop
+
+float passes
+
+int fullPasses=0
+
+int subreads=1
+
+int missing=0
+
+int adapters=0
+
+float errorRate=0
+
+
+#Methods
+public ReadBuilder(byte[] bases_, float passes_, int movieStart_, long zmw_)
+
+public ReadBuilder(ByteBuilder bases_, float passes_, int movieStart_, long zmw_)
+
+public static boolean isIceCream(String id)
+
+public static ReadBuilder parse(Read r)
+
+@Override public String toString()
+
+public ByteBuilder toHeader()
+
+public int length()
+
+void add(ReadBuilder rb)
+
+Read toRead()
+
+</class ReadBuilder>
+<class ReformatPacBio>
+*Version of Reformat designed for PacBio data.
+*Supports some of Reformat's capability, like subsampling,
+*in a ZMW-aware tool.
+*@author Brian Bushnell
+*@date June 5, 2019
+public final class ReformatPacBio
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String outg=null
+
+*Bad output file path
+private String outb=null
+
+*Stats (screen) output file path
+private String outstats=null
+
+*Subread count histogram
+private String schist=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private float longReadMult=1.5f
+
+*For grading synthetic data
+private boolean parseCustom
+
+*Input reads are CCS (full pass)
+private boolean CCSInput
+
+private boolean keepZMWsTogether=false
+
+private boolean keepShortReads=true
+
+private boolean subsampleFromEnds=false
+
+private int format=FORMAT_TEXT
+
+private static final int FORMAT_TEXT=1
+
+private static final int FORMAT_JSON=2
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Number of ZMWs retained
+protected long ZMWsOut=0
+
+protected long partiallyDiscardedZMWs=0
+
+protected long fullyDiscardedZMWs=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+protected long basesTrimmed=0
+
+protected long readsTrimmed=0
+
+protected long lowEntropyZMWs=0
+
+protected long lowEntropyReads=0
+
+*Total ZMWs observed
+protected long ZMWs=0
+
+*Histogram
+protected final long[] subreadCounts=new long[101]
+
+private boolean flagLongReads=false
+
+private boolean trimReads=false
+
+private int minLengthAfterTrimming=0
+
+boolean trimPolyA=false
+
+long initialReads=0
+
+long initialZMWs=0
+
+long initialBases=0
+
+long readsRemaining=0
+
+long ZMWsRemaining=0
+
+long basesRemaining=0
+
+float samplerate=1.0f
+
+long sampleReadsTarget=-1
+
+long sampleBasesTarget=-1
+
+long sampleZMWsTarget=-1
+
+final boolean sampleReadsExact
+
+final boolean sampleBasesExact
+
+final boolean sampleZMWsExact
+
+final boolean sampleExact
+
+boolean keepBestPass=false
+
+boolean keepLongestPass=false
+
+String whitelist
+
+String blacklist
+
+IntHashSet whiteSet
+
+IntHashSet blackSet
+
+*Minimum entropy to be considered "complex", on a scale of 0-1
+float entropyCutoff=-1
+
+*Minimum length of a low-entropy block to fail a read
+int entropyLength=350
+
+*Minimum length of a low-entropy block as a fraction of read length;
+*the minimum of the two will be used
+float entropyFraction=0.5f
+
+float maxMonomerFraction=0.74f
+
+*Primary input file
+private final FileFormat ffin1
+
+*Primary output file
+private final FileFormat ffoutg
+
+*Bad output file
+private final FileFormat ffoutb
+
+*Stats output file
+private final FileFormat ffstats
+
+*Subread count histogram
+private final FileFormat ffschist
+
+private final int threads
+
+private long seed=-1
+
+private long maxZMWs=-1
+
+private int shredLength=500
+
+private int overlap=10
+
+private float minShredIdentity=0.6f
+
+private boolean makeCCS=false
+
+private boolean findOrientation=false
+
+private float minPasses=0
+
+private int minSubreads=0
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public ReformatPacBio(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private ByteBuilder toText(Timer t)
+
+private JsonObject toJson(Timer t)
+
+private static void writeHistogram(FileFormat ff, long[] hist)
+
+private ConcurrentReadOutputStream makeCros(FileFormat ff)
+
+*Spawn process threads
+private void spawnThreads(ZMWStreamer zstream, ConcurrentReadOutputStream rosg, ConcurrentReadOutputStream rosb)
+
+private void waitForThreads(ArrayList<ProcessThread> alpt)
+
+public Read makeConsensus(ZMW zmw)
+
+private float shredAndAdd(Read subread, BaseGraph bg, Aligner ssa)
+
+private static ArrayList<Read> shred(Read r, int shredLength, int overlap)
+
+void countInitial()
+
+</class ReformatPacBio>
+<class ZMW>
+*Container for the list of reads from a single
+*PacBio ZMW.
+*@author Brian Bushnell
+*@date June 5, 2020
+public class ZMW
+
+#Fields
+*For serialization.
+private static final long serialVersionUID=-2580124131008824113L
+
+*Identifier assigned by streamer, not by PacBio.
+*First identifier is 0, then 1, etc.
+public long id
+
+*ZMW ID assigned by PacBio.
+private int zid=-1
+
+
+#Methods
+public ZMW()
+
+public ZMW(int initialSize)
+
+public long countBases()
+
+public int medianLength(boolean includeDiscarded)
+
+public int longestLength(boolean includeDiscarded)
+
+public Read medianRead(boolean includeDiscarded)
+
+public Read longestRead(boolean includeDiscarded)
+
+public int zid()
+
+private int parseZID()
+
+public static void fixReadHeader(Read r, int leftTrim, int rightTrim)
+
+public void setDiscarded(boolean b)
+
+public int[] lengths()
+
+public float estimatePasses()
+
+private float estimatePasses(int len, int median)
+
+public boolean discarded()
+
+public Read first()
+
+public Read last()
+
+</class ZMW>
+<class ZMWStreamer>
+*Wrapper for a ReadInputStream.
+*Produces one ZMW at a time for consumers.
+*Allows stopping after X reads or X ZMWs.
+*@author Brian Bushnell
+*@date June 5, 2020
+public class ZMWStreamer
+
+#Fields
+private final ConcurrentReadInputStream cris
+
+private final SamStreamer ss
+
+private final int queuelen
+
+public long ZMWs=0
+
+private final long maxReads
+
+private final long maxZMWs
+
+public boolean errorState=false
+
+private final ArrayBlockingQueue<ZMW> queue
+
+private static final ZMW POISON=new ZMW(0)
+
+public static boolean verbose=false
+
+public static boolean useStreamer=false
+
+public static final int streamerThreads=1
+
+
+#Methods
+public ZMWStreamer(FileFormat ff, int queuelen_, long maxReads_, long maxZMWs_)
+
+public ZMWStreamer(ConcurrentReadInputStream cris_, SamStreamer ss_, int queuelen_)
+
+public Thread runStreamer(boolean makeThread)
+
+@Override public void run()
+
+private ConcurrentReadInputStream makeCris(FileFormat ff)
+
+private SamReadStreamer makeStreamer(FileFormat ff)
+
+*Pull reads from the cris;
+*organize them into lists of subreads from the same ZMW;
+*put those lists into the shared queue.
+private void handleCris()
+
+*Pull reads from the streamer;
+*organize them into lists of subreads from the same ZMW;
+*put those lists into the shared queue.
+private void handleStreamer()
+
+private void addPoison()
+
+private void addToQueue(ZMW buffer)
+
+public ZMW nextZMW()
+
+</class ZMWStreamer>

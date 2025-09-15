@@ -1,0 +1,1738 @@
+#version 1
+#package driver
+#generated 2025-09-06T20:36:23
+
+<class BBVersion>
+public class BBVersion
+
+#Methods
+public static void main(String[] args)
+
+</class BBVersion>
+<class ClearRam>
+public class ClearRam
+
+#Fields
+private static long current=0
+
+
+#Methods
+public static void main(String[] args)
+
+public static void attempt()
+
+public static void writeJunk(int megs)
+
+</class ClearRam>
+<class CollateSpikeIn>
+*@author Brian Bushnell
+*@date Oct 10, 2013
+public class CollateSpikeIn
+
+#Methods
+public static void main(String[] args)
+
+</class CollateSpikeIn>
+<class CompareReferenceGenomes>
+public class CompareReferenceGenomes
+
+#Methods
+public static void main(String[] args)
+
+public static void compareGenomes(String pattern1, String pattern2)
+
+public static boolean compare(ChromosomeArray cha, ChromosomeArray chb)
+
+</class CompareReferenceGenomes>
+<class CompareSequences>
+public class CompareSequences
+</class CompareSequences>
+<class ConcatenateFiles>
+public class ConcatenateFiles
+
+#Methods
+public static void main(String[] args)
+
+public static void concatenatePattern(String basename, String out)
+
+public static void concatenateDirectory(String in, String out)
+
+</class ConcatenateFiles>
+<class ConcatenateTextFiles>
+public class ConcatenateTextFiles
+
+#Fields
+public static final int MAX_LISTS=8
+
+public static final int LIST_SIZE=100
+
+public static boolean overwrite=true
+
+public static boolean append=false
+
+public static boolean allowSubprocess=true
+
+
+#Methods
+*Format: infile1,infile2,...infileN,outfile
+public static void main(String[] args)
+
+private static void concatenate(String[] split)
+
+private static void processTerm(String term, ArrayList<String>[] bufferptr, WriteThread wt)
+
+</class ConcatenateTextFiles>
+<class Concatenator>
+public class Concatenator
+
+#Methods
+public static void main(String args)
+
+public static void writeFile(String fname, TextStreamWriter tsw)
+
+public static StringBuilder merge(String[] fnames)
+
+</class Concatenator>
+<class ConvertSamToAln>
+public class ConvertSamToAln
+
+#Methods
+public static void main(String[] args)
+
+public static final void convert(String fname)
+
+</class ConvertSamToAln>
+<class CorrelateIdentity>
+*@author Brian Bushnell
+*@date Nov 21, 2014
+public class CorrelateIdentity
+
+#Fields
+*Input files
+public String in1
+
+*Input files
+public String in2
+
+*Output file
+public String out
+
+private float samplerate=1
+
+private float sampleseed=-1
+
+private int columnLength=Integer.MAX_VALUE
+
+private boolean overwrite=true
+
+private boolean append=false
+
+*Verbose messages
+public static final boolean verbose=false
+
+*Print messages to this stream
+private static PrintStream outstream=System.err
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public CorrelateIdentity(String[] args)
+
+public void process()
+
+</class CorrelateIdentity>
+<class CountRNAs>
+public class CountRNAs
+</class CountRNAs>
+<class CountSharedLines>
+*Filters text lines by exact match or substring.
+*@author Brian Bushnell
+*@date Jul 6, 2015
+public class CountSharedLines
+
+#Fields
+private LinkedHashSet<String> in1=new LinkedHashSet<String>()
+
+private LinkedHashSet<String> in2=new LinkedHashSet<String>()
+
+private boolean exclude=true
+
+private boolean nameSubstringOfLine=false
+
+private boolean lineSubstringOfName=false
+
+private boolean ignoreCase=true
+
+private boolean prefixMode=false
+
+private long maxLines=-1
+
+private String replace1=null
+
+private String replace2=null
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private boolean useSharedHeader=false
+
+
+#Methods
+public static void main(String[] args)
+
+public CountSharedLines(String[] args)
+
+static final String getOutputName(String fname)
+
+void process(Timer t)
+
+LinkedHashSet<String> getContents(String fname)
+
+void processInner(String fnameIn, String fnameOut, Collection<String> list)
+
+</class CountSharedLines>
+<class EstherFilter>
+*@author Brian Bushnell
+*@date Jul 29, 2014
+public class EstherFilter
+
+#Methods
+public static void main(String[] args)
+
+public static void processToFasta(BufferedReader b, float cutoff, String query)
+
+public static void processToNames(BufferedReader b, float cutoff)
+
+public static void outputFasta(String fname, ArrayList<String> names)
+
+</class EstherFilter>
+<class FilterAssemblySummary>
+*@author Brian Bushnell
+*@date May 1, 2016
+public class FilterAssemblySummary
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private long maxReads=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+*The actual filter
+private final TaxFilter filter
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public FilterAssemblySummary(String[] args)
+
+void process(Timer t)
+
+private String processLine(String line)
+
+</class FilterAssemblySummary>
+<class FilterLines>
+*Filters text lines by exact match or substring.
+*@author Brian Bushnell
+*@date Jul 6, 2015
+public class FilterLines
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private boolean exclude=true
+
+private boolean nameSubstringOfLine=false
+
+private boolean lineSubstringOfName=false
+
+private boolean ignoreCase=true
+
+private boolean prefixMode=false
+
+private long maxLines=-1
+
+private String replace1=null
+
+private String replace2=null
+
+private LinkedHashSet<String> names=new LinkedHashSet<String>()
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private boolean useSharedHeader=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FilterLines(String[] args)
+
+void process(Timer t)
+
+</class FilterLines>
+<class FilterReadsByName>
+*@author Brian Bushnell
+*@date Oct 8, 2014
+public class FilterReadsByName
+
+#Fields
+private String in1=null
+
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+private String out1=null
+
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+private String extin=null
+
+private String extout=null
+
+private long maxReads=-1
+
+private boolean exclude=true
+
+private boolean prefixmode=false
+
+private boolean nameSubstringOfHeader=false
+
+private boolean headerSubstringOfName=false
+
+private boolean ignoreCase=true
+
+private boolean truncateHeaderSymbol=false
+
+private boolean trimWhitespace=false
+
+private boolean coordinate=false
+
+private int minLength=0
+
+private int fromPos=-1
+
+private int toPos=-1
+
+private LinkedHashSet<String> names=new LinkedHashSet<String>()
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+private boolean useSharedHeader=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FilterReadsByName(String[] args)
+
+private static String substringUntilWhitespace(String s)
+
+void process(Timer t)
+
+</class FilterReadsByName>
+<class FindMotifs>
+public class FindMotifs
+
+#Fields
+public static float THRESH=.2f
+
+public static long analyses=0
+
+*Exon start
+public static final int ESTART=0
+
+*Exon stop
+public static final int ESTOP=1
+
+*Gene (and exon) start
+public static final int GSTART=2
+
+*Gene (and exon) stop
+public static final int GSTOP=3
+
+*Exon start using AG
+public static final int ESTARTAG=4
+
+*Exon stop using GT
+public static final int ESTOPGT=5
+
+*Exon start without AG
+public static final int ESTARTATG=6
+
+*Exon stop without GT
+public static final int ESTOPNONGT=7
+
+*Exon start without AG, AC, or ATG
+public static final int ESTARTNON=8
+
+*Exon start using AC
+public static final int ESTARTAC=9
+
+private static final int CLEN=200
+
+public static ArrayList<Integer> locations=new ArrayList<Integer>()
+
+
+#Methods
+public static long analyzeChromosomeGStarts(int chrom, Motif m, ArrayList<Integer> list, byte strand)
+
+public static long analyzeChromosomeGStartsStronger(int chrom, Motif m, ArrayList<Integer> list, ArrayList<Integer> listBeat, byte strand)
+
+public static long analyzeChromosomeGStartsStrongerInFrame(int chrom, Motif m, ArrayList<Integer> list, ArrayList<Integer> listBeat, boolean in, byte strand)
+
+public static float analyze(int point, Motif m, ChromosomeArray ca)
+
+private static String padFront(String s, int len)
+
+public static void swap(long[] a, int x, int y)
+
+public static void swap(char[] a, int x, int y)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+</class FindMotifs>
+<class FixChr>
+*One-off program for converting grch38 sam files to hg19
+public class FixChr
+</class FixChr>
+<class FixDumbFile>
+*@author Brian Bushnell
+*@date May 15, 2014
+public class FixDumbFile
+
+#Methods
+public static void main(String[] args)
+
+</class FixDumbFile>
+<class GenerateNoCallsFromCoverage>
+public class GenerateNoCallsFromCoverage
+
+#Fields
+public static int minCovered=2
+
+public static int minHalfCovered=1
+
+
+#Methods
+public static ArrayList<VarLine> generate(byte chrom, CoverageArray2 ca, int build, char gender)
+
+public static ArrayList<VarLine> removeDuplicateNocalls(List<VarLine> input, int copies)
+
+public static boolean checkCopyCountHaplotyped(List<VarLine> list)
+
+*All elements of input should share haplotype
+public static ArrayList<VarLine> removeDuplicateNocallsHaplotyped(ArrayList<VarLine> input)
+
+public static ArrayList<VarLine>[] splitHaplotypes(List<VarLine> input, int copies)
+
+</class GenerateNoCallsFromCoverage>
+<class GetSequence>
+public class GetSequence
+
+#Methods
+public static void main(String[] args)
+
+public static byte get(int chrom, int a)
+
+public static String get(int chrom, int a, int b)
+
+public static String get(int chrom, int a, int b, byte strand)
+
+</class GetSequence>
+<class GetUniquePrefixes>
+public class GetUniquePrefixes
+</class GetUniquePrefixes>
+<class Grep>
+public class Grep
+</class Grep>
+<class Life>
+*@author Brian Bushnell
+*@date April 9, 2020
+public class Life
+
+#Fields
+private String out=null
+
+private long maxCycles=100
+
+private int columns=50
+
+private int rows=20
+
+private float prob=0.25f
+
+private boolean display=true
+
+private int delay=0
+
+private final int xMax
+
+private final int yMax
+
+private final byte[] buffer
+
+private final TextStreamWriter bsw
+
+private byte[][] current
+
+private byte[][] prev
+
+private byte[][] next
+
+private final byte[][] stateMap=new byte[][]{{0,0,0,1,0,0,0,0,0,0},{0,0,0,1,1,0,0,0,0,0}}
+
+private final byte[] charMap=new byte[]{' ','@'}
+
+private long linesOut=0
+
+private long bytesOut=0
+
+private final FileFormat ffout
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Life(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+void process(Timer t)
+
+private void init()
+
+private void processInner()
+
+private boolean runCycle(long cycle)
+
+private int advance()
+
+private int fillRow(int y)
+
+private void printRow(byte[] row)
+
+private void printRow2(byte[] row)
+
+private byte[] getRow(int y, byte[][] matrix)
+
+private static TextStreamWriter makeBSW(FileFormat ff)
+
+private void delay(int millis)
+
+</class Life>
+<class LineCount>
+public class LineCount
+</class LineCount>
+<class LoadReads>
+*This class loads data to see how much memory is used.
+*@author Brian Bushnell
+*@date October 28, 2016
+public class LoadReads
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Override input file extension
+private String extin=null
+
+private ArrayList<ArrayList<Read>> storage=new ArrayList<ArrayList<Read>>()
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of quality scores processed
+protected long qualitiesProcessed=0
+
+*Number of header characters processed
+protected long headersProcessed=0
+
+*Approximate number of fastq disk bytes processed
+protected long diskBytesProcessed=0
+
+*Approximate number of read memory bytes processed
+protected long memBytesProcessed=0
+
+*Minimal observed memory usage
+protected long minMem=Long.MAX_VALUE
+
+*Maximal observed memory usage
+protected long maxMem=0
+
+protected long initialMem=-1
+
+protected long finalMem=-1
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private int overhead=0
+
+private boolean earlyExit=false
+
+private boolean gc=false
+
+private boolean lowComplexity=false
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*This flag has no effect on singlethreaded programs
+private final boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public LoadReads(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris)
+
+private void calcMem()
+
+</class LoadReads>
+<class LookAtID>
+*@author Brian Bushnell
+*@date Dec 3, 2012
+public class LookAtID
+</class LookAtID>
+<class MakeTestScript>
+public class MakeTestScript
+
+#Fields
+public static int numReads=400000
+
+public static int readlen=150
+
+public static final int[][] sets=new int[][]{{0,0,0,0,0},{1,0,0,0,0},{2,0,0,0,0},{3,0,0,0,0},{4,0,0,0,0},{5,0,0,0,0},{6,0,0,0,0},{7,0,0,0,0},{8,0,0,0,0},{10,0,0,0,0},{12,0,0,0,0},{14,0,0,0,0},{16,0,0,0,0},{18,0,0,0,0},{20,0,0,0,0},{24,0,0,0,0},{28,0,0,0,0},{32,0,0,0,0},{36,0,0,0,0},{40,0,0,0,0},{0,1,0,0,0},{0,2,0,0,0},{0,3,0,0,0},{0,4,0,0,0},{0,5,0,0,0},{0,6,0,0,0},{0,7,0,0,0},{0,8,0,0,0},{0,10,0,0,0},{0,12,0,0,0},{0,14,0,0,0},{0,16,0,0,0},{0,18,0,0,0},{0,20,0,0,0},{0,24,0,0,0},{0,28,0,0,0},{0,32,0,0,0},{0,36,0,0,0},{0,40,0,0,0},{0,0,1,0,0},{0,0,2,0,0},{0,0,3,0,0},{0,0,4,0,0},{0,0,5,0,0},{0,0,6,0,0},{0,0,7,0,0},{0,0,8,0,0},{0,0,10,0,0},{0,0,12,0,0},{0,0,14,0,0},{0,0,16,0,0},{0,0,18,0,0},{0,0,20,0,0},{0,0,24,0,0},{0,0,28,0,0},{0,0,32,0,0},{0,0,36,0,0},{0,0,40,0,0},{0,0,48,0,0},{0,0,56,0,0},{0,0,64,0,0},{0,0,96,0,0},{0,0,128,0,0},{0,0,192,0,0},{0,0,256,0,0},{0,0,384,0,0},{0,0,512,0,0},{0,0,768,0,0},{0,0,1000,0,0},{0,0,1500,0,0},{0,0,2000,0,0},{0,0,3000,0,0},{0,0,4000,0,0},{0,0,6000,0,0},{0,0,8000,0,0},{0,0,12000,0,0},{0,0,16000,0,0},{0,0,24000,0,0},{0,0,32000,0,0},{0,0,48000,0,0},{0,0,64000,0,0},{0,0,96000,0,0},{0,0,128000,0,0},{0,0,0,1,0},{0,0,0,2,0},{0,0,0,3,0},{0,0,0,4,0},{0,0,0,5,0},{0,0,0,6,0},{0,0,0,7,0},{0,0,0,8,0},{0,0,0,10,0},{0,0,0,12,0},{0,0,0,14,0},{0,0,0,16,0},{0,0,0,18,0},{0,0,0,20,0},{0,0,0,24,0},{0,0,0,28,0},{0,0,0,32,0},{0,0,0,36,0},{0,0,0,40,0},{0,0,0,0,1},{0,0,0,0,2},{0,0,0,0,3},{0,0,0,0,4},{0,0,0,0,5},{0,0,0,0,6},{0,0,0,0,7},{0,0,0,0,8},{0,0,0,0,10},{0,0,0,0,12},{0,0,0,0,14},{0,0,0,0,16},{0,0,0,0,18},{0,0,0,0,20},{0,0,0,0,24},{0,0,0,0,28},{0,0,0,0,32},{0,0,0,0,36},{0,0,0,0,40},{0,0,0,0,0,400},{2,2,2,2,0,400},{4,2,2,2,0,400},{6,3,3,3,0,400},{8,4,4,4,0,400},{10,4,4,4,0,400},{12,4,4,4,0,400},{14,4,4,4,0,400},{16,4,4,4,0,400},{18,4,4,4,0,400},{20,5,5,5,0,400}}
+
+
+#Methods
+public static void main(String[] args)
+
+private static void print(String[] array, int[] blank, int x)
+
+</class MakeTestScript>
+<class MakeTestScriptScoreOnly>
+public class MakeTestScriptScoreOnly
+
+#Fields
+public static int numReads=400000
+
+public static final int[][] sets=new int[][]{{0,0,0,0},{1,0,0,0},{2,0,0,0},{3,0,0,0},{4,0,0,0},{5,0,0,0},{6,0,0,0},{7,0,0,0},{8,0,0,0},{10,0,0,0},{12,0,0,0},{14,0,0,0},{16,0,0,0},{18,0,0,0},{20,0,0,0},{24,0,0,0},{28,0,0,0},{32,0,0,0},{36,0,0,0},{40,0,0,0},{0,1,0,0},{0,2,0,0},{0,3,0,0},{0,4,0,0},{0,5,0,0},{0,6,0,0},{0,7,0,0},{0,8,0,0},{0,10,0,0},{0,12,0,0},{0,14,0,0},{0,16,0,0},{0,20,0,0},{0,24,0,0},{0,28,0,0},{0,32,0,0},{0,36,0,0},{0,40,0,0},{0,0,1,0},{0,0,2,0},{0,0,3,0},{0,0,4,0},{0,0,5,0},{0,0,6,0},{0,0,7,0},{0,0,8,0},{0,0,10,0},{0,0,12,0},{0,0,14,0},{0,0,16,0},{0,0,20,0},{0,0,24,0},{0,0,28,0},{0,0,32,0},{0,0,48,0},{0,0,64,0},{0,0,128,0},{0,0,192,0},{0,0,256,0},{0,0,512,0},{0,0,1000,0},{0,0,2000,0},{0,0,3000,0},{0,0,4000,0},{0,0,6000,0},{0,0,8000,0},{0,0,10000,0},{0,0,12000,0},{0,0,14000,0},{0,0,16000,0},{0,0,20000,0},{0,0,24000,0},{0,0,28000,0},{0,0,32000,0},{0,0,0,1},{0,0,0,2},{0,0,0,3},{0,0,0,4},{0,0,0,5},{0,0,0,6},{0,0,0,7},{0,0,0,8},{0,0,0,10},{0,0,0,12},{0,0,0,14},{0,0,0,16},{0,0,0,20},{0,0,0,24},{0,0,0,28},{0,0,0,32},{0,0,0,36},{0,0,0,40}}
+
+
+#Methods
+private static void print(String[] array, int[] blank, int x)
+
+</class MakeTestScriptScoreOnly>
+<class MeasureGene>
+public class MeasureGene
+
+#Fields
+private static final MotifProbsN mAG=MotifProbsN.makeMotif("AG Exon Starts MP2",13,11,2)
+
+private static final MotifProbsN mAC=MotifProbsN.makeMotif("AC Exon Starts MP2",13,11,2)
+
+private static final MotifProbsN mATG=MotifProbsN.makeMotif("ATG Exon Starts MP2",13,11,2)
+
+private static final MotifProbsN mGT=MotifProbsN.makeMotif("GT Exon Stops MP2",10,3,2)
+
+private static final MotifProbsN mGC=MotifProbsN.makeMotif("GC Exon Stops MP2",10,3,2)
+
+private static final MotifProbsN mGStartATG=MotifProbsN.makeMotif("Gene Starts MP2",13,11,2)
+
+private static final MotifProbsN mGStopTAA=MotifProbsN.makeMotif("TAA Gene Stops MP2",13,11,2)
+
+private static final MotifProbsN mGStopTAG=MotifProbsN.makeMotif("TAG Gene Stops MP2",13,11,2)
+
+private static final MotifProbsN mGStopTGA=MotifProbsN.makeMotif("TGA Gene Stops MP2",13,11,2)
+
+private static final MotifMulti mGStart=new MotifMulti("Gene Starts MP2",mGStartATG)
+
+private static final MotifMulti mEStart=new MotifMulti("Exon Starts MP2",mAG,mAC)
+
+private static final MotifMulti mEStop=new MotifMulti("Exon Stops MP2",mGT,mGC)
+
+private static final MotifMulti mGStop=new MotifMulti("Gene Stops MP2",mGStopTAA,mGStopTAG,mGStopTGA)
+
+private static final int length=2
+
+public static final float[] exonicFreq1={0.259195f,0.260530f,0.260441f,0.219835f}
+
+public static final float[] nonExonicFreq1={0.277111f,0.204189f,0.213443f,0.305257f}
+
+public static final float[] exonicFreq2={0.071395f,0.055355f,0.077256f,0.052618f,0.079593f,0.077505f,0.032685f,0.071248f,0.075189f,0.070017f,0.070666f,0.045554f,0.032210f,0.057977f,0.079080f,0.051651f}
+
+public static final float[] nonExonicFreq2={0.086472f,0.047310f,0.070451f,0.072291f,0.069003f,0.055260f,0.011722f,0.071913f,0.058469f,0.045772f,0.056984f,0.054175f,0.062555f,0.059560f,0.076273f,0.101790f}
+
+public static final float[] freqDif=(length == 2 ? makeDif(exonicFreq2,nonExonicFreq2) : length == 1 ? makeDif(exonicFreq1,nonExonicFreq1) : null)
+
+
+#Methods
+public static void main(String[] args)
+
+public static float analyzeGene(Gene g)
+
+public static Gene[] toNormalGenes(Gene[] genes)
+
+public static ArrayList<Exon> getExons(Gene genes)
+
+public static float measureExonFrequency(int a, int b, byte chrom, byte strand)
+
+public static final float[] makeDif(float[] a, float[] b)
+
+</class MeasureGene>
+<class MergeBigelow>
+*@author Brian Bushnell
+*@date Oct 17, 2014
+public class MergeBigelow
+
+#Fields
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String delimiter="\t"
+
+private HashMap<String,String[]> table
+
+private long maxReads=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public MergeBigelow(String[] args)
+
+private CharSequence processLine(String line)
+
+private HashMap<String,String[]> hash(FileFormat ff)
+
+</class MergeBigelow>
+<class MergeCoverageOTU>
+*@author Brian Bushnell
+*@date Oct 13, 2014
+public class MergeCoverageOTU
+</class MergeCoverageOTU>
+<class MergeTextFiles>
+public class MergeTextFiles
+
+#Methods
+public static StringBuilder mergeWithHeader(String fname1, String fname2, int col1, int col2)
+
+private static StringBuilder toString(String[] a, String[] b, int alen, int blen)
+
+private static Hashtable<String,String[]> makeTable(String[][] lines, int col, int firstLine)
+
+private static int findMaxWidth(String[][] matrix)
+
+</class MergeTextFiles>
+<class MergeTextFiles2>
+public class MergeTextFiles2
+</class MergeTextFiles2>
+<class MoveFiles>
+public class MoveFiles
+
+#Methods
+*@param srFile
+*@param dtFile
+*{@link from http://www.roseindia.net/java/beginners/CopyFile.shtml}
+private static void copyFile(String src, String dst)
+
+</class MoveFiles>
+<class ParseCrossblockResults>
+*@author Brian Bushnell
+*@date June 9, 2016
+public class ParseCrossblockResults
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private long maxReads=-1
+
+private long basesKept=0
+
+private long basesDiscarded=0
+
+private long contigsKept=0
+
+private long contigsDiscarded=0
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public ParseCrossblockResults(String[] args)
+
+void process(Timer t)
+
+private void processLine(String line)
+
+public long basesKept()
+
+public long basesDiscarded()
+
+public long contigsKept()
+
+public long contigsDiscarded()
+
+public long contigs()
+
+public long bases()
+
+</class ParseCrossblockResults>
+<class PlotGC>
+*@author Brian Bushnell
+*@date Feb 21, 2017
+public class PlotGC
+
+#Fields
+private String in1=null
+
+private String out1="stdout.txt"
+
+private String extin=null
+
+private long maxReads=-1
+
+private int interval=1000
+
+private int offset=0
+
+private boolean showSpeed=false
+
+private boolean printShortBins=true
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public PlotGC(String[] args)
+
+private String toGC(String name, int start, int stop, long rstart, long rstop, int[] acgt)
+
+</class PlotGC>
+<class PrintEnv>
+*@author Brian Bushnell
+*@date Apr 4, 2013
+public class PrintEnv
+</class PrintEnv>
+<class ProcessFragMerging>
+*For BBMerge comparison data collation
+*@author Brian Bushnell
+*@date Mar 15, 2016
+public class ProcessFragMerging
+
+#Methods
+public static void main(String[] args)
+
+public static double toSeconds(String s)
+
+</class ProcessFragMerging>
+<class ProcessSpeed>
+*For BBMerge comparison data collation
+*@author Brian Bushnell
+*@date Feb 28, 2016
+public class ProcessSpeed
+
+#Methods
+public static double toSeconds(String s)
+
+</class ProcessSpeed>
+<class ProcessSpeed2>
+*For generic data collation
+*@author Brian Bushnell
+*@date December 6, 2016
+public class ProcessSpeed2
+
+#Methods
+public static double toSeconds(String s)
+
+</class ProcessSpeed2>
+<class ProcessWebcheck>
+*@author Brian Bushnell
+*@date May 9, 2016
+public class ProcessWebcheck
+
+#Fields
+private ArrayList<String> in1=new ArrayList<String>()
+
+private String out1=null
+
+private String outInvalid=null
+
+private String outFail=null
+
+private String ms="ms"
+
+private long linesProcessed=0
+
+private long linesValid=0
+
+private long bytesProcessed=0
+
+private IntList passLatency=new IntList()
+
+private IntList failLatency=new IntList()
+
+private IntList failCode=new IntList()
+
+private HashMap<String,long[]> map=new HashMap<String,long[]>()
+
+private long maxLines=Long.MAX_VALUE
+
+private boolean extendedStats=false
+
+private final ArrayList<FileFormat> ffin1
+
+private final FileFormat ffout1
+
+private final FileFormat ffoutInvalid
+
+private final FileFormat ffoutFail
+
+private PrintStream outstream=System.out
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public ProcessWebcheck(String[] args)
+
+void process(Timer t)
+
+private void process2(ByteFile bf, ByteStreamWriter bswFail, ByteStreamWriter bswInvalid)
+
+</class ProcessWebcheck>
+<class ReduceSilva>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class ReduceSilva
+
+#Fields
+private HashSet<String> table=new HashSet<String>()
+
+private String in1=null
+
+private String out1=null
+
+private String extin=null
+
+private String extout=null
+
+private int column=1
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+protected long readsOut=0
+
+protected long basesOut=0
+
+private long maxReads=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public ReduceSilva(String[] args)
+
+public boolean parseArgument(String arg, String a, String b)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+*Process a single read pair.
+*@param r1 Read 1
+*@return True if the read should be kept, false if it should be discarded.
+boolean processRead(Read r1)
+
+</class ReduceSilva>
+<class RenameAndMux>
+*@author Brian Bushnell
+*@date June 1, 2016
+public class RenameAndMux
+
+#Fields
+protected ArrayList<String> readPaths=new ArrayList<String>()
+
+protected String out1
+
+protected String out2
+
+protected String extin
+
+protected String extout
+
+*Number of reads processed
+protected AtomicLong readsProcessedA=new AtomicLong(0)
+
+*Number of bases processed
+protected AtomicLong basesProcessedA=new AtomicLong(0)
+
+protected AtomicLong nextListNumber=new AtomicLong(0)
+
+protected AtomicInteger nextPathNumber=new AtomicInteger(0)
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*This flag has no effect on singlethreaded programs
+private final boolean ordered=false
+
+*Whether interleaved was explicitly set.
+private boolean setInterleaved=false
+
+private boolean printedInterleavedMessage=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public RenameAndMux(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+private void renameAndMerge_MT()
+
+void renameAndMergeOneFile(String path, ConcurrentReadOutputStream ros)
+
+</class RenameAndMux>
+<class RenameByHeader>
+*Renames files based on their headers
+*@author Brian Bushnell
+*@date May 19, 2016
+public class RenameByHeader
+
+#Fields
+private ArrayList<String> list=new ArrayList<String>()
+
+private PrintStream outstream=System.err
+
+private static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public RenameByHeader(String[] args)
+
+void process(Timer t)
+
+void processFile(String path)
+
+</class RenameByHeader>
+<class RenameNcbiToTid>
+*@author Brian Bushnell
+*@date Oct 17, 2014
+public class RenameNcbiToTid
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private long maxReads=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public RenameNcbiToTid(String[] args)
+
+void process(Timer t)
+
+private static String processLine(String line)
+
+</class RenameNcbiToTid>
+<class RenameRefseqFiles>
+public class RenameRefseqFiles
+
+#Methods
+public static void main(String[] args)
+
+</class RenameRefseqFiles>
+<class Sample>
+*@author Brian Bushnell
+*@date Oct 13, 2015
+*This class will read a file and write it to another file.
+public class Sample
+
+#Methods
+*Do stuff
+static void processData(BufferedReader br, PrintWriter pw)
+
+*Fetches a BufferedReader, which allows line-by-line String iteration over text files
+static BufferedReader getReader(String fname)
+
+*Fetches a PrintWriter, which transforms Strings into a byte stream.
+static PrintWriter getWriter(String fname)
+
+</class Sample>
+<class Search>
+public class Search
+
+#Methods
+*Find genes in the array that overlap point "p"
+public static List<Gene> findGenes(int p, Gene[] genes)
+
+*Find genes in the array that overlap point "p"
+public static List<Gene> findGenesBinary(int p, Range[] ranges, boolean nearby)
+
+*Find genes in the array that overlap point "p"
+public static List<Gene> findGenesLinear(int p, Gene[] genes, Range[] ranges)
+
+public static int findPointLinear(int p, Range[] array)
+
+public static int findPointBinary(int p, Range[] array)
+
+public static boolean containsPointBinary(int p, Range[] array, int thresh)
+
+public static int findPointBinary(int p, int a, int b, Range[] array)
+
+public static boolean overlaps(int a, Gene g)
+
+private static final int min(int x, int y)
+
+private static final int max(int x, int y)
+
+private static final long min(long x, long y)
+
+private static final long max(long x, long y)
+
+</class Search>
+<class SelectReads>
+*Selects only reads with long deletions
+*@author Brian Bushnell
+*@date Jun 21, 2013
+public final class SelectReads
+
+#Methods
+public static void main(String[] args)
+
+private static boolean testLine(SamLine sl, int minlen, int index)
+
+</class SelectReads>
+<class SniffSplices>
+public class SniffSplices
+
+#Fields
+private static final int N_MOTIF=2
+
+private static final MotifProbsN eStarts2=MotifProbsN.makeMotif("Exon Starts MP" + N_MOTIF,13,9,2)
+
+private static final MotifProbsN eStarts2_AC=MotifProbsN.makeMotif("AC Exon Starts MP" + N_MOTIF,13,9,2)
+
+private static final MotifProbsN eStarts2_15=MotifProbsN.makeMotif("Exon Starts MP" + N_MOTIF,19,15,2)
+
+private static final MotifProbsN eStops2=MotifProbsN.makeMotif("Exon Stops MP" + N_MOTIF,13,4,2)
+
+private static final MotifProbsN eStops2_GC=MotifProbsN.makeMotif("GC Exon Stops MP" + N_MOTIF,13,4,2)
+
+private static final MotifProbsN gStarts2=MotifProbsN.makeMotif("Gene Starts MP" + N_MOTIF,13,9,2)
+
+private static final MotifProbsN gStops2=MotifProbsN.makeMotif("Gene Stops MP" + N_MOTIF,13,4,2)
+
+private static final MotifProbsN trStarts2=MotifProbsN.makeMotif("Tr Starts MP" + N_MOTIF,13,7,2)
+
+private static final MotifProbsN trStops2=MotifProbsN.makeMotif("Tr Stops MP" + N_MOTIF,13,7,2)
+
+</class SniffSplices>
+<class SummarizeContamReport>
+*@author Brian Bushnell
+*@date Oct 17, 2014
+public class SummarizeContamReport
+
+#Fields
+private ArrayList<String> in=new ArrayList<String>()
+
+private String out1=null
+
+private String treeFile="auto"
+
+private String sizeFile="auto"
+
+TaxTree tree=null
+
+private HashMap<String,StringLongLong> map=new HashMap<String,StringLongLong>()
+
+long minReads=0
+
+long minSeqUnits=0
+
+long linesProcessed=0
+
+long charsProcessed=0
+
+private final FileFormat ffinArray
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public SummarizeContamReport(String[] args)
+
+void process(Timer t)
+
+void processOneFile(FileFormat ff)
+
+private void printOutput()
+
+private void processLine(String line)
+
+</class SummarizeContamReport>
+<class SummarizeContamReport.ComparatorA>
+class SummarizeContamReport.ComparatorA
+
+#Methods
+@Override public int compare(StringLongLong x, StringLongLong y)
+
+</class SummarizeContamReport.ComparatorA>
+<class SummarizeContamReport.ComparatorB>
+class SummarizeContamReport.ComparatorB
+
+#Methods
+@Override public int compare(StringLongLong x, StringLongLong y)
+
+</class SummarizeContamReport.ComparatorB>
+<class SummarizeContamReport.StringLongLong>
+class SummarizeContamReport.StringLongLong
+
+#Fields
+final String s
+
+long a
+
+long b
+
+
+#Methods
+StringLongLong(String s_)
+
+StringLongLong(String s_, long a_, long b_)
+
+</class SummarizeContamReport.StringLongLong>
+<class SummarizeCoverage>
+*@author Brian Bushnell
+*@date Apr 29, 2015
+public class SummarizeCoverage
+
+#Fields
+final ArrayList<String> in
+
+final String out
+
+
+#Methods
+public SummarizeCoverage(String[] args)
+
+public void process()
+
+</class SummarizeCoverage>
+<class SummarizeCrossblock>
+*@author Brian Bushnell
+*@date June 1, 2016
+public class SummarizeCrossblock
+
+#Fields
+private ArrayList<String> inList=new ArrayList<String>()
+
+private String out1=null
+
+private long basesKept=0
+
+private long basesDiscarded=0
+
+private long contigsKept=0
+
+private long contigsDiscarded=0
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public SummarizeCrossblock(String[] args)
+
+void process(Timer t)
+
+public long basesKept()
+
+public long basesDiscarded()
+
+public long contigsKept()
+
+public long contigsDiscarded()
+
+</class SummarizeCrossblock>
+<class SummarizeMSDIN>
+*Summarizes match/sub/ins/del/N rates for consecutive BBMap runs
+*@author Brian Bushnell
+*@date Jan 8, 2014
+public class SummarizeMSDIN
+</class SummarizeMSDIN>
+<class SummarizeQuast>
+*@author Brian Bushnell
+*@date May 8, 2015
+public class SummarizeQuast
+
+#Fields
+final ArrayList<String> in
+
+final String out
+
+String requiredString=null
+
+boolean normalize=true
+
+boolean box=true
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+public SummarizeQuast(String[] args)
+
+public LinkedHashMap<String,LinkedHashMap<String,ArrayList<Double>>> summarize()
+
+public void print(LinkedHashMap<String,LinkedHashMap<String,ArrayList<Double>>> metricMap)
+
+</class SummarizeQuast>
+<class SummarizeSealCrosstalk>
+*@author Brian Bushnell
+*@date August 15, 2023
+public class SummarizeSealCrosstalk
+
+#Fields
+private ArrayList<String> in=new ArrayList<String>()
+
+private String out1="stdout.txt"
+
+private final FileFormat ffout1
+
+private boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+private boolean usePrimary=false
+
+private java.io.PrintStream outstream=System.err
+
+
+#Methods
+public SummarizeSealCrosstalk(String[] args)
+
+void process(Timer t)
+
+private void outputResults(ArrayList<byte[]> header, ArrayList<Result> results)
+
+</class SummarizeSealCrosstalk>
+<class SummarizeSealStats>
+*@author Brian Bushnell
+*@date May 8, 2015
+public class SummarizeSealStats
+
+#Fields
+final ArrayList<String> in
+
+final String out
+
+boolean ignoreSameTaxa=false
+
+boolean ignoreSameBarcode=false
+
+boolean ignoreSameLocation=false
+
+boolean totalDenominator=false
+
+boolean printTotal=true
+
+
+#Methods
+public SummarizeSealStats(String[] args)
+
+public void summarize()
+
+</class SummarizeSealStats>
+<class TestCompressionSpeed>
+public class TestCompressionSpeed
+
+#Methods
+public static void compress(String[] text, String fname, int level)
+
+public static String[] read(String fname)
+
+</class TestCompressionSpeed>
+<class TestLockSpeed>
+*@author Brian Bushnell
+*@date Sep 25, 2014
+public class TestLockSpeed
+
+#Fields
+static final int UNLOCKED=0
+
+static final int LOCKED=1
+
+static final int ATOMIC=2
+
+static final int VOLATILE=3
+
+static final int FIELD=4
+
+static final int STATICFIELD=5
+
+</class TestLockSpeed>
+<class TestLockSpeed.CountThread>
+static class TestLockSpeed.CountThread
+
+#Fields
+final CountBox box0
+
+final long max
+
+final int mode
+
+
+#Methods
+public CountThread(CountBox box_, long max_, int mode_)
+
+@Override public void run()
+
+</class TestLockSpeed.CountThread>
+<class TestLockSpeed.CountBox>
+static abstract class TestLockSpeed.CountBox
+
+#Methods
+void increment()
+
+long value()
+
+</class TestLockSpeed.CountBox>
+<class TestLockSpeed.LockBox>
+static class TestLockSpeed.LockBox
+
+#Fields
+long counter
+
+
+#Methods
+@Override void increment()
+
+@Override long value()
+
+</class TestLockSpeed.LockBox>
+<class TestLockSpeed.AtomBox>
+static class TestLockSpeed.AtomBox
+
+#Fields
+AtomicLong counter=new AtomicLong(0)
+
+
+#Methods
+@Override void increment()
+
+@Override long value()
+
+</class TestLockSpeed.AtomBox>
+<class TestLockSpeed.VolatileBox>
+static class TestLockSpeed.VolatileBox
+
+#Fields
+long counter
+
+static final AtomicLongFieldUpdater<VolatileBox> updater=AtomicLongFieldUpdater.newUpdater(VolatileBox.class,"counter")
+
+
+#Methods
+@Override void increment()
+
+@Override long value()
+
+</class TestLockSpeed.VolatileBox>
+<class Translator>
+public class Translator
+
+#Fields
+public final int fromBuild
+
+public final int toBuild
+
+public final ChainLine[][] lines
+
+
+#Methods
+public Translator(int from_, int to_)
+
+public VarLine[][] translate(VarLine[][] in)
+
+public Variation[][] translate(Variation[][] in)
+
+public VarLine translate(VarLine v)
+
+public Variation translate(Variation v)
+
+</class Translator>
+<class Translator2>
+public class Translator2
+
+#Methods
+*chrom, strand, loc
+public static final int[] translate(int fromBuild, int toBuild, int chrom, int strand, int loc)
+
+</class Translator2>
+<class TransposeTextFile>
+public class TransposeTextFile
+
+#Methods
+public static void process(String fname, int skipLines)
+
+</class TransposeTextFile>
+<class TrimSamFile>
+public class TrimSamFile
+
+#Methods
+public static HashSet<String> findBadLines(TextFile tf, String scafS, int from, int to)
+
+public static void printExcludingSet(TextFile tf, HashSet<String> set)
+
+</class TrimSamFile>

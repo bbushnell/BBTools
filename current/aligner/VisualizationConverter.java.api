@@ -1,0 +1,70 @@
+// VisualizationConverter.java API Documentation
+// Generated: September 9, 2025
+// Purpose: Converts text-based alignment visualizations to color bitmap images
+
+CLASS: VisualizationConverter
+PACKAGE: aligner  
+AUTHOR: Brian Bushnell
+CONTRIBUTOR: Isla (Highly-customized Claude instance)
+DATE: April 2025
+
+DESCRIPTION:
+- Converts ASCII text-based alignment visualizations to color bitmap images
+- Uses color gradients to represent alignment scores and exploration patterns
+- Supports multiple output image formats (PNG, JPG, BMP)
+- Adaptive scaling based on visualization size
+
+COLOR SCHEME MAPPING:
+- Green (a-z): Low scores
+- Yellow (0-9): Medium scores  
+- Red (A-Z): High scores
+- Black: Unexplored regions
+- Gray: Explored but pruned regions
+- White: Optimal alignment path
+
+MAIN METHOD:
+main(String[] args)
+- Command-line interface for conversion
+- Usage: java aligner.VisualizationConverter <input_text_file> <output_image> [color_scheme]
+- Parameters:
+  * args[0]: Input text file path (required)
+  * args[1]: Output image file path (required, determines format by extension)
+  * args[2]: Color scheme number (optional, default varies)
+
+CORE METHODS:
+1. convertToBitmap(String textFile, String imageFile)
+   - Main conversion method (private static)
+   - Reads text file, determines dimensions, creates BufferedImage
+   - Parameters:
+     * textFile: Path to input ASCII visualization file
+     * imageFile: Path to output image file
+   - Throws: IOException for file operations
+
+2. getColorForChar1(char c) / getColorForChar2(char c)
+   - Color mapping functions for different schemes
+   - Convert ASCII characters to Color objects
+   - Support different visualization aesthetics
+
+TECHNICAL DETAILS:
+- DEFAULT_SCALE: 2 (pixel scale factor)
+- Auto-scaling: Uses scale=1 for width>=2000 pixels
+- Supported formats: PNG (default), JPG, JPEG, BMP
+- Uses BufferedImage.TYPE_INT_RGB for color images
+
+SCALING BEHAVIOR:
+- Each text character becomes a scale×scale pixel block
+- Large visualizations (≥2000 chars wide) use 1:1 scaling
+- Smaller visualizations use 2×2 scaling for clarity
+- Maintains aspect ratio of original text
+
+FILE FORMAT SUPPORT:
+- Input: Plain text files with ASCII visualization
+- Output: PNG (default), JPG/JPEG, BMP based on file extension
+- Error handling for invalid formats and empty files
+
+WEB INTEGRATION NOTES:  
+- Primary use: Convert Visualizer text output to web-displayable images
+- Input: Text files from Visualizer class
+- Output: Image files suitable for web browsers
+- Command-line tool suitable for server-side conversion
+- Could be wrapped in web service for real-time conversion

@@ -1,0 +1,163 @@
+#version 1
+#package server
+#generated 2025-09-06T20:38:13
+
+<class PercentEncoding>
+public class PercentEncoding
+
+#Fields
+public static final String[] reservedSymbol=new String[]{"!","#","$","&","'","(",")","*","+",",","/",":",";","=","?","@","[","]"}
+
+public static final String[] reservedCode=new String[]{"%21","%23","%24","%26","%27","%28","%29","%2A","%2B","%2C","%2F","%3A","%3B","%3D","%3F","%40","%5B","%5D"}
+
+public static final String[] commonSymbol=new String[]{"\n"," ","\"","%","<",">","\\","|"}
+
+public static final String[] commonCode=new String[]{"%0A","%20","%22","%25","%3C","%3E","%5C","%7C"}
+
+private static final BitSet isSpecial=makeBitSet(reservedSymbol,commonSymbol)
+
+private static final BitSet isCommon=makeBitSet(commonSymbol)
+
+public static final String[] symbolToCodeArray=makeSymbolToCodeArray()
+
+*Don't print caught exceptions
+public static boolean suppressErrors=false
+
+
+#Methods
+public static boolean containsSpecialSymbol(String s)
+
+public static boolean containsCommonSymbol(String s)
+
+public static String symbolToCode(String s)
+
+public static String commonSymbolToCode(String s)
+
+private static int parseCode(String s, int start)
+
+public static String codeToSymbol(String s)
+
+private static HashMap<String,String> makeCodeToSymbolMap()
+
+private static HashMap<String,String> makeSymbolToCodeMap()
+
+private static String[] makeSymbolToCodeArray()
+
+private static final BitSet makeBitSet(String[] matrix)
+
+</class PercentEncoding>
+<class ServerTools>
+public class ServerTools
+
+#Fields
+*Don't print caught exceptions
+public static boolean suppressErrors=false
+
+private static HttpClient client
+
+
+#Methods
+public static void main(String[] args)
+
+public static ByteBuilder readPage(String address, boolean convert)
+
+*Send a message to a remote URL, and return the response.
+*Set message to null if there is no message.
+public static StringNum sendAndReceive(byte[] message, String address)
+
+*Send a message to a remote URL, and return the response.
+*Set message to null if there is no message.
+public static StringNum sendAndReceive_httpUrlConnection(byte[] message, String address)
+
+*Send a message to a remote URL, and return the response.
+*Set message to null if there is no message.
+public static StringNum sendAndReceive_httpClient(byte[] message, String address)
+
+public static byte[] gzipCompress(byte[] data)
+
+public static String determineContentEncoding(HttpResponse<?> httpResponse)
+
+*Send a message to a remote URL, and return the response.
+*Set message to null if there is no message.
+public static StringNum sendAndReceive(ArrayList<byte[]> messages, String address, boolean verbose)
+
+*Send a message to a remote URL, and return the response.
+*Set message to null if there is no message.
+public static StringNum sendAndReceiveFTP(byte[] message, String address)
+
+*Read the body of an incoming HTTP session
+public static String receive(HttpExchange t)
+
+*Completely read an InputStream into a String
+public static String readStream(InputStream is)
+
+*Completely read an InputStream into a String
+public static ArrayList<byte[]> readStreamToList(InputStream is)
+
+*Write to the body of an incoming HTTP session
+public static boolean reply(String response, String type, HttpExchange t, boolean verbose, int code, boolean close)
+
+*Write to the body of an incoming HTTP session
+public static boolean replyWithFile(String path, String type, HttpExchange t, boolean verbose, int code, boolean close)
+
+*Write to the body of an incoming HTTP session
+public static boolean reply(byte[] response, String type, HttpExchange t, boolean verbose, int code, boolean close)
+
+*Wait for a set amount of time
+*@param millis Time to wait
+public static void pause(long millis)
+
+public static String getClientAddress(HttpExchange t)
+
+public static boolean isInternalQuery(HttpExchange t, String prefix, boolean allowLocalHost, boolean printIP, boolean printHeaders)
+
+public static ArrayList<String> listDirectory(String baseAddress, int retries)
+
+public static ArrayList<String> readFTPFile(String address)
+
+public Thread newThread(Runnable r)
+
+</class ServerTools>
+<class SimpleHttpServer>
+*@author Shijie Yao
+*@date Dec 13, 2016
+public class SimpleHttpServer
+
+#Fields
+public static int port=8321
+
+
+#Methods
+public static void main(String[] args)
+
+</class SimpleHttpServer>
+<class SimpleHttpServer.GetHandler>
+static class SimpleHttpServer.GetHandler
+
+#Methods
+@Override public void handle(HttpExchange t)
+
+</class SimpleHttpServer.GetHandler>
+<class StressTest>
+public class StressTest
+
+#Methods
+public static void main(String[] args)
+
+</class StressTest>
+<class StressTest2>
+public class StressTest2
+
+#Methods
+public static void main(String[] args)
+
+@Override public Void call()
+
+</class StressTest2>
+<class StressTest3>
+public class StressTest3
+
+#Methods
+public static void main(String[] args)
+
+</class StressTest3>
