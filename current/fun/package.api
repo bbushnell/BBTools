@@ -1,0 +1,1162 @@
+#version 1
+#package fun
+#generated 2025-09-06T20:36:39
+
+<class Calc>
+public class Calc
+
+#Fields
+*Primary output file path
+private String out1="stdout.txt"
+
+private int numStats=6
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Calc(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+void processInner(int numStats)
+
+int sum(int stats)
+
+</class Calc>
+<class Chance>
+public class Chance
+
+#Methods
+public static void main(String[] args)
+
+private static int runOneRound(Random randy, int draws, int minSuccess, float prob)
+
+</class Chance>
+<class Crunch>
+public class Crunch
+
+#Methods
+public static void main(String[] args)
+
+</class Crunch>
+<class DiskBench>
+*@author Brian Bushnell
+*@date December 6, 2017
+public class DiskBench
+
+#Fields
+private String path=""
+
+private int bufferlen=4096
+
+private long data=8000000000L
+
+private int passes=2
+
+public int linesInternal
+
+private int threads
+
+private long maxLines=Long.MAX_VALUE
+
+int mode=READWRITE
+
+static final int READWRITE=1
+
+static final int READ=2
+
+static final int WRITE=3
+
+boolean printTid=false
+
+boolean processBis=false
+
+boolean preRead=false
+
+int method=BYTEFILE
+
+static final int BYTEFILE=1
+
+static final int TEXTFILE=2
+
+static final int BUFFEREDINPUTSTREAM=3
+
+static final int FILEINPUTSTREAM=4
+
+static final int BUFFEREDINPUTSTREAM2=5
+
+static final int FILEINPUTSTREAM2=6
+
+static final int QUICKFILE=7
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+
+#Methods
+public static void main(String[] args)
+
+public DiskBench(String[] args)
+
+public static long writeRandomData(String fname, long size, Timer t, boolean overwrite)
+
+String[] makeFnames(int pass)
+
+Timer readWrite(String[] fnamesW, String[] fnamesR)
+
+Timer write(String[] fnames)
+
+Timer read(String[] fnames)
+
+void delete(String[] fnames)
+
+void process(Timer t0)
+
+</class DiskBench>
+<class DiskBench.WriteThread>
+class DiskBench.WriteThread
+
+#Fields
+String fname
+
+long size
+
+long written=0
+
+Timer t
+
+
+#Methods
+public WriteThread(String fname_, long size_)
+
+@Override public void run()
+
+</class DiskBench.WriteThread>
+<class DiskBench.ReadThread>
+class DiskBench.ReadThread
+
+#Fields
+byte[] cache
+
+ArrayList<byte[]> list
+
+String fname
+
+long read=0
+
+long lines=0
+
+Timer t
+
+final int tid
+
+
+#Methods
+public ReadThread(String fname_, int tid_)
+
+@Override public void run()
+
+private void runBf(FileFormat ffin)
+
+private void runQf(FileFormat ffin)
+
+private void runTf(FileFormat ffin)
+
+private void runBis(FileFormat ffin, boolean bufferedStream)
+
+private void runBis2(FileFormat ffin, boolean bufferedStream)
+
+</class DiskBench.ReadThread>
+<class DiskSpaceAnalyzer>
+*@author BBushnell
+*@contributor Nepgear (Haiku)
+public class DiskSpaceAnalyzer
+
+#Fields
+private static Comparator<DirSize> SIZE_COMPARATOR=new Comparator<DirSize>(){
+  @Override public int compare(  DirSize a,  DirSize b){
+    return Long.compare(b.bytes,a.bytes);
+  }
+}
+
+
+#Methods
+@Override public int compare(DirSize a, DirSize b)
+
+public static void analyzeDiskSpace(String rootPath)
+
+@Override public int compare(DirSize a, DirSize b)
+
+private static long analyzeDirRecursive(File dir, List<DirSize> results)
+
+private static void generateHTMLReport(List<DirSize> dirSizes, String rootPath)
+
+public static void main(String[] args)
+
+</class DiskSpaceAnalyzer>
+<class DiskSpaceAnalyzer.DirSize>
+*Internal class to track directory size information.
+static class DiskSpaceAnalyzer.DirSize
+
+#Fields
+String path
+
+long bytes
+
+
+#Methods
+*Constructs a DirSize object.
+*@param path Directory path
+*@param bytes Total bytes in directory
+DirSize(String path, long bytes)
+
+</class DiskSpaceAnalyzer.DirSize>
+<class Dongle>
+public class Dongle
+
+#Fields
+private static final String pattern="MM-dd-yyyy"
+
+private static final SimpleDateFormat sdf=new SimpleDateFormat(pattern)
+
+private static final long min=-6788251374689658131L
+
+private static final long max=2715152938288332905L
+
+private static final long number=4964420948893066024L
+
+private static final long mask=0x5555555555555555L
+
+private static final long mask2=0x3333333333333333L
+
+private static final long mask3=0xF0F0F0F0F0F0F0F0L
+
+private static final long limit=346896001029L
+
+private static final int rot=26
+
+private static final int rot2=44
+
+private static final int rot3=16
+
+
+#Methods
+public static void main(String[] args)
+
+public static final boolean check(Object args)
+
+private static long encode(long x)
+
+private static long decode(long x)
+
+private static long parse(String s)
+
+</class Dongle>
+<class FindPath>
+public class FindPath
+
+#Fields
+static HashMap<String,Node> map
+
+
+#Methods
+private static Path findPath(Node start, Node stop)
+
+private static void printPath(Path path)
+
+static void makeGraph(String fname)
+
+static Node fetch(String s)
+
+</class FindPath>
+<class FindPath.Node>
+static class FindPath.Node
+
+#Fields
+String name
+
+ArrayList<Edge> edges=new ArrayList<Edge>()
+
+
+#Methods
+Node(String s)
+
+</class FindPath.Node>
+<class FindPath.Edge>
+static class FindPath.Edge
+
+#Fields
+Node a
+
+Node b
+
+int dist
+
+
+#Methods
+Edge(Node a_, Node b_, int dist_)
+
+</class FindPath.Edge>
+<class FindPath.Path>
+static class FindPath.Path
+
+#Fields
+public ArrayList<Node> list=new ArrayList<Node>()
+
+public int dist=0
+
+
+#Methods
+Path(Node start)
+
+private Path()
+
+public void add(Edge e)
+
+public Path copy()
+
+</class FindPath.Path>
+<class Foo>
+*Reads a text file.
+*Prints it to another text file.
+*Filters out invalid lines and prints them to an optional third file.
+*@author Brian Bushnell
+*@date May 9, 2016
+public class Foo
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String out1=null
+
+*Junk output file path
+private String outInvalid=null
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long maxLines=Long.MAX_VALUE
+
+*Input File
+private final FileFormat ffin1
+
+*Output File
+private final FileFormat ffout1
+
+*Optional Output File for Junk
+private final FileFormat ffoutInvalid
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public Foo(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create streams and process all data
+void process(Timer t)
+
+*Example line:
+*120395044|1465795004|3191|11574|MEP_itags|1465795004|FAu|1|14297|14297
+*|-rw-r-----|1496172205|1496172205|1048576|1516819694
+*|%2Fdna%2F.snapshots%2F2023-05-17%2Fprojectdirs%2FMEP%2Fitags%2FiTagger3%2F
+*data%2FDIVERSITY%2F1%2F1822.qiime%2Fbdiv_even1000%2Funweighted_unifrac_emperor
+*_pcoa_plot%2Femperor_required_resources%2Fjs%2Fjquery.colorPicker.js
+private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+</class Foo>
+<class Foo2>
+public class Foo2
+
+#Fields
+static final Pattern pipePattern=Pattern.compile("\\|")
+
+
+#Methods
+public static void main(String[] args)
+
+static long processSlow(String line)
+
+static long processFast(String line)
+
+</class Foo2>
+<class Foo3>
+public class Foo3
+
+#Fields
+static final int LOWER_BITS=31
+
+static final int MANTISSA_BITS=24
+
+static final int EXP_BITS=LOWER_BITS - MANTISSA_BITS
+
+static final int UPPER_BITS=64 - MANTISSA_BITS
+
+static final long LOWER_MASK=~((-1L) << LOWER_BITS)
+
+static final long MANTISSA_MASK=~((-1L) << MANTISSA_BITS)
+
+static final Pattern pipePattern=Pattern.compile("\\|")
+
+static final int MAX_ARRAY_LEN=Integer.MAX_VALUE - 20
+
+
+#Methods
+public static void main(String[] args)
+
+static void psort(ArrayList<T> list)
+
+static String timeString(long time)
+
+*Example line:
+*120395044|1465795004|3191|11574|MEP_itags|1465795004|FAu|1|14297|14297
+*|-rw-r-----|1496172205|1496172205|1048576|1516819694
+*|%2Fdna%2F.snapshots%2F2023-05-17%2Fprojectdirs%2FMEP%2Fitags%2FiTagger3%2F
+*data%2FDIVERSITY%2F1%2F1822.qiime%2Fbdiv_even1000%2Funweighted_unifrac_emperor
+*_pcoa_plot%2Femperor_required_resources%2Fjs%2Fjquery.colorPicker.js
+static Pair processSlow(String line)
+
+static Pair processFast(String line)
+
+static long parseLong(String array, int a, int b)
+
+public static final long min(long x, long y)
+
+static final long compress(long raw)
+
+static final long decompress(long f)
+
+static final long combine(long time, long size)
+
+static final long getTime(long combined)
+
+static final long getSize(long combined)
+
+</class Foo3>
+<class Foo3.LongList>
+static class Foo3.LongList
+
+#Fields
+public long[] array
+
+*Highest occupied index plus 1, i.e., lowest unoccupied index
+public int size=0
+
+
+#Methods
+public LongList(int initial)
+
+public final long get(int loc)
+
+public final void add(long x)
+
+private final void resize(long size2)
+
+public void sort()
+
+</class Foo3.LongList>
+<class Foo4>
+*Reads a text file.
+*Prints it to another text file.
+*Filters out invalid lines and prints them to an optional third file.
+*@author Brian Bushnell
+*@date May 9, 2016
+public class Foo4
+
+#Fields
+static final byte delimiter=(byte)'|'
+
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String out1=null
+
+*Junk output file path
+private String outInvalid=null
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long maxLines=Long.MAX_VALUE
+
+*Input File
+private final FileFormat ffin1
+
+*Output File
+private final FileFormat ffout1
+
+*Optional Output File for Junk
+private final FileFormat ffoutInvalid
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Foo4(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create streams and process all data
+void process(Timer t)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid)
+
+void processLine(byte[] line, ArrayList<Pair> list, LongList sizes)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+static String timeString(long time)
+
+</class Foo4>
+<class Foo5>
+public class Foo5
+
+#Fields
+static long lastSize=-1
+
+static final int LOWER_BITS=31
+
+static final int MANTISSA_BITS=24
+
+static final int EXP_BITS=LOWER_BITS - MANTISSA_BITS
+
+static final int UPPER_BITS=64 - MANTISSA_BITS
+
+static final long LOWER_MASK=~((-1L) << LOWER_BITS)
+
+static final long MANTISSA_MASK=~((-1L) << MANTISSA_BITS)
+
+static final int MAX_ARRAY_LEN=Integer.MAX_VALUE - 20
+
+
+#Methods
+static String timeString(long time)
+
+static long processFast(String line)
+
+static long parseLong(String array, int a, int b)
+
+static final long min(long x, long y)
+
+static final long compress(long raw)
+
+static final long decompress(long f)
+
+static final long combine(long time, long size)
+
+static final long getTime(long combined)
+
+static final long getSize(long combined)
+
+</class Foo5>
+<class Foo5.LongList>
+static class Foo5.LongList
+
+#Fields
+public long[] array
+
+*Highest occupied index plus 1, i.e., lowest unoccupied index
+public int size=0
+
+
+#Methods
+public LongList(int initial)
+
+public final long get(int loc)
+
+public final void add(long x)
+
+private final void resize(long size2)
+
+public void sort()
+
+</class Foo5.LongList>
+<class Foo6>
+*Reads a text file.
+*Prints it to another text file.
+*Filters out invalid lines and prints them to an optional third file.
+*@author Brian Bushnell
+*@date May 9, 2016
+public class Foo6
+
+#Fields
+static final byte delimiter=(byte)'|'
+
+static final int LOWER_BITS=31
+
+static final int MANTISSA_BITS=24
+
+static final int EXP_BITS=LOWER_BITS - MANTISSA_BITS
+
+static final int UPPER_BITS=64 - MANTISSA_BITS
+
+static final long LOWER_MASK=~((-1L) << LOWER_BITS)
+
+static final long MANTISSA_MASK=~((-1L) << MANTISSA_BITS)
+
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String out1=null
+
+*Junk output file path
+private String outInvalid=null
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long maxLines=Long.MAX_VALUE
+
+*Input File
+private final FileFormat ffin1
+
+*Output File
+private final FileFormat ffout1
+
+*Optional Output File for Junk
+private final FileFormat ffoutInvalid
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Foo6(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create streams and process all data
+void process(Timer t)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid)
+
+long processLine(byte[] line, LongList list)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+static String timeString(long time)
+
+static final long compress(long raw)
+
+static final long decompress(long f)
+
+static final long combine(long time, long size)
+
+static final long getTime(long combined)
+
+static final long getSize(long combined)
+
+</class Foo6>
+<class Foo7>
+*Reads a text file.
+*Prints it to another text file.
+*Filters out invalid lines and prints them to an optional third file.
+*@author Brian Bushnell
+*@date May 9, 2016
+public class Foo7
+
+#Fields
+static final int LOWER_BITS=31
+
+static final int MANTISSA_BITS=24
+
+static final int EXP_BITS=LOWER_BITS - MANTISSA_BITS
+
+static final int UPPER_BITS=64 - MANTISSA_BITS
+
+static final long LOWER_MASK=~((-1L) << LOWER_BITS)
+
+static final long MANTISSA_MASK=~((-1L) << MANTISSA_BITS)
+
+*Primary input file path
+private String in1=null
+
+*Primary output file path
+private String out1=null
+
+*Junk output file path
+private String outInvalid=null
+
+private boolean useLP2=false
+
+private static final byte delimiter=(byte)'|'
+
+private final LineParser lp
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long maxLines=Long.MAX_VALUE
+
+*Input File
+private final FileFormat ffin1
+
+*Output File
+private final FileFormat ffout1
+
+*Optional Output File for Junk
+private final FileFormat ffoutInvalid
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Foo7(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create streams and process all data
+void process(Timer t)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid)
+
+long processLine(byte[] line, LongList list)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+static String timeString(long time)
+
+static final long compress(long raw)
+
+static final long decompress(long f)
+
+static final long combine(long time, long size)
+
+static final long getTime(long combined)
+
+static final long getSize(long combined)
+
+</class Foo7>
+<class Genetic>
+public class Genetic
+
+#Fields
+public static final Random randy=new Random()
+
+final int pop
+
+final int bits
+
+final int iters
+
+final double mutProb
+
+final long mask
+
+
+#Methods
+public static void main(String[] args)
+
+public Genetic(String[] args)
+
+public long solve()
+
+public Bug[] iterate(Bug[] current, double[] prob)
+
+public long breed(Bug[] current, double[] prob, double mutProb)
+
+public int findIndex(double f, double[] prob)
+
+public static double f(long x)
+
+</class Genetic>
+<class Life>
+public class Life
+
+#Fields
+int[][] grid
+
+int xdim
+
+int ydim
+
+int rounds
+
+float prob
+
+
+#Methods
+public Life(String[] args)
+
+void simulate()
+
+int[][] copy(int[][] a)
+
+boolean equals(int[][] a, int[][] b)
+
+void initialize()
+
+int fill(int[][] nextGrid)
+
+int next(int x, int y)
+
+int neighbors(int x, int y)
+
+void print(int round)
+
+</class Life>
+<class MakeAdjacencyList>
+public class MakeAdjacencyList
+
+#Fields
+public static int nodes=10
+
+public static int minlen=5
+
+public static int maxlen=25
+
+public static float prob=0.3f
+
+public static long seed=-1
+
+public static String out="stdout.txt"
+
+
+#Methods
+public static void parse(String[] args)
+
+public static int[][] genMatrix()
+
+public static void writeMatrix(int[][] matrix)
+
+public static String toString(int number)
+
+</class MakeAdjacencyList>
+<class Merced>
+public class Merced
+
+#Fields
+HashMap<String,Person> nameTable=new HashMap<String,Person>()
+
+
+#Methods
+public static void main(String[] args)
+
+</class Merced>
+<class Merced.Person>
+class Merced.Person
+
+#Fields
+String name
+
+int age
+
+int salary
+
+float looks
+
+float brains
+
+
+#Methods
+Person(String name_)
+
+float attractiveness()
+
+</class Merced.Person>
+<class Palindrome>
+public class Palindrome
+
+#Fields
+static boolean rcomp=false
+
+static int maxMismatches=0
+
+static int maxLoop=0
+
+static final char[] baseToComp=makeBaseToComp()
+
+static int a_
+
+static int b_
+
+
+#Methods
+public static ArrayList<String> getSequence(String fname)
+
+public static String longestPalindrome(String s)
+
+public static String longestPalindrome(String s, int maxloop)
+
+public static int palindromeLengthOdd(String s, int middle)
+
+public static int palindromeLengthOdd(String s, int a, int b)
+
+public static int palindromeLengthEven(String s, int middle)
+
+public static int palindromeLengthEven(String s, int a, int b)
+
+static boolean matches(char a, char b)
+
+static char[] makeBaseToComp()
+
+</class Palindrome>
+<class Palindrome2>
+public class Palindrome2
+
+#Fields
+static boolean rcomp=false
+
+static int maxMismatches=0
+
+static int maxLoop=0
+
+static final char[] baseToComp=makeBaseToComp()
+
+static int a_
+
+static int b_
+
+</class Palindrome2>
+<class PalSim>
+public class PalSim
+</class PalSim>
+<class ParseDouble>
+public class ParseDouble
+
+#Fields
+private static final double[] DECIMAL_INV_MULT=new double[20]
+
+private static final boolean[] NUMERIC_MAP=new boolean[128]
+
+
+#Methods
+public static void main(String[] args)
+
+private static double testCustomParser(String valueStr, int iterations)
+
+private static double testCustomParser2(String valueStr, int iterations)
+
+private static double testJavaParser(String valueStr, int iterations)
+
+public static double parseDouble(byte[] array, int a0, int b)
+
+public static double parseDouble2(byte[] array, int a0, int b)
+
+</class ParseDouble>
+<class ProbShared>
+public class ProbShared
+
+#Methods
+public static void main(String args)
+
+static int cardinality(int k, int seqLength)
+
+static double probIntersect(int k, int len1, int len2)
+
+</class ProbShared>
+<class ProbShared2>
+public class ProbShared2
+
+#Fields
+static final Random randy=new Random()
+
+static final byte[] numberToBase=AminoAcid.numberToBase
+
+static final byte[] baseToNumber=AminoAcid.baseToNumber
+
+
+#Methods
+public static void main(String args)
+
+static double simulate(int k, int len1, int len2, int rounds)
+
+static int simulateOnePair(int k, int len1, int len2, HashSet<Long> set)
+
+static byte[] randomSequence(int len)
+
+</class ProbShared2>
+<class ProbShared3>
+public class ProbShared3
+
+#Fields
+static final Random randy=new Random()
+
+
+#Methods
+public static void main(String args)
+
+static double simulate(int k, int len1, int len2, int rounds)
+
+static int simulateOnePair(int k, int len1, int len2, HashSet<Long> set)
+
+static void fillRandomSet(int k, int len, HashSet<Long> set)
+
+</class ProbShared3>

@@ -1,11 +1,2 @@
-# Ignore everything in root directory
-/*
-
-# But don't ignore these specific files/directories
-!.gitignore
-!.gitattributes
-!README.md
-!BBTools/
-
-# Make sure everything inside BBTools is included
-!BBTools/**
+current/barcode/prob/
+current/barcode/prob/*.*

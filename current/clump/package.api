@@ -1,0 +1,1197 @@
+#version 1
+#package clump
+#generated 2025-09-06T20:35:46
+
+<class Clump>
+*A list of reads sharing a kmer.
+*@author Brian Bushnell
+*@date Nov 7, 2015
+public class Clump
+
+#Fields
+public final long kmer
+
+private int width=-1
+
+private int maxLeft=-1
+
+private int maxRight=-1
+
+private int[][] baseCounts
+
+private int[][] qualityCounts
+
+private float[][] qualityAverages
+
+private Read consensusRead
+
+private boolean useQuality=true
+
+boolean added=false
+
+public static final int overhead=overhead()
+
+static boolean allowNs=true
+
+static boolean markAll=false
+
+static boolean markOnly=false
+
+static boolean opticalOnly=false
+
+static boolean containment=false
+
+static boolean compareUMI=false
+
+static int umiSubs=0
+
+static boolean affix=false
+
+static boolean printDuplicates=false
+
+private static boolean renameByCount=false
+
+private static int scanLimit=5
+
+private static int maxSubstitutions=2
+
+private static float dupeSubRate=0
+
+private static float maxOpticalDistance=40
+
+static boolean forceProcess=false
+
+static boolean conservativeFlag=false
+
+static boolean aggressiveFlag=false
+
+static boolean conservativeMode=false
+
+static boolean renameConsensus=false
+
+static int minCountCorrect=4
+
+static float minSizeFractionCorrect=0.20f
+
+static float minRatio=30.0f
+
+static float minQRatio=2.8f
+
+static float minAQRatio=0.7f
+
+static float minRatioOffset=1.9f
+
+static float minRatioQMult=0.08f
+
+static float minRatioMult=1.80f
+
+static float minIdentity=0.97f
+
+static byte maxQAdjust=0
+
+static int maxQIncorrect=Integer.MAX_VALUE
+
+static int maxCIncorrect=Integer.MAX_VALUE
+
+static boolean sortX=false
+
+static boolean sortY=true
+
+static boolean forceSortXY=false
+
+static int sortXYSize=6
+
+public static int k=31
+
+private static final long serialVersionUID=1L
+
+
+#Methods
+public static Clump makeClump(long kmer)
+
+private Clump(long kmer_)
+
+private Clump(long kmer_, int size)
+
+@Override public boolean add(Read r)
+
+private void setMaxima()
+
+*This will create counts of bases, or sums of qualities, at each position in the cluster.
+private int[][] count(boolean qualityScores)
+
+public Read makeSimpleConsensus()
+
+public int removeDuplicates()
+
+private int removeDuplicates_inner(int maxSubs, float subRate, int scanLimit, int maxDiscarded, boolean optical, boolean xySorted, boolean mark, boolean markAll, boolean rename, float dist)
+
+*Only for containments
+private int removeDuplicates_backwards(int maxSubs, float subRate, int scanLimit, int maxDiscarded, boolean optical, boolean xySorted, boolean mark, boolean markAll, boolean rename, float dist)
+
+public int parseExtraCopies(Read a)
+
+private void renameFromCount(Read a)
+
+private static void renameToTotal(Read a, int total)
+
+public static boolean equals(Read a, Read b, int maxSubs, float dupeSubRate)
+
+public static boolean equals(byte[] a, byte[] b, int maxSubs)
+
+public static boolean contains(Read a, Read b, int maxSubs)
+
+public static boolean contains_inner(Read a, Read b, int maxSubs)
+
+public static boolean contains(byte[] a, byte[] b, int posA, int posB, int maxSubs)
+
+public long splitAndErrorCorrect()
+
+public long errorCorrect()
+
+private int errorCorrect(Read call, Read ref, int[] rvector)
+
+public ArrayList<Read> makeConsensus()
+
+private float identity(Read call, byte[] rbases, int[] rvector)
+
+long getSumAtPosition(int[][] counts, int pos)
+
+byte getConsensusAtPosition(int[][] counts, int pos)
+
+byte getSecondHighest(int[][] counts, int pos)
+
+public String toStringStaggered()
+
+public Read consensusRead()
+
+public int width()
+
+public int maxLeft()
+
+public int maxRight()
+
+int[][] baseCounts()
+
+int[][] qualityCounts()
+
+float[][] qualityAverages()
+
+void clearCounts()
+
+private void clearConsensus()
+
+@Override public boolean equals(Object b)
+
+@Override public int hashCode()
+
+@Override public int compareTo(Clump o)
+
+boolean useQuality()
+
+private static int overhead()
+
+public static boolean parseStatic(String arg, String a, String b)
+
+static void setConservative(boolean newState)
+
+public static void setXY()
+
+*May slightly increase speed for optical dedupe. Can be safely disabled.
+static boolean sortYEarly()
+
+</class Clump>
+<class Clumpify>
+*@author Brian Bushnell
+*@date Nov 6, 2015
+public class Clumpify
+
+#Fields
+private boolean lowComplexity=false
+
+private boolean quantizeQuality=false
+
+private Random randy=new Random()
+
+private int groups=31
+
+private int passes=1
+
+private boolean ecco=false
+
+private boolean addName=false
+
+private String shortName="f"
+
+private boolean useTmpdir=false
+
+private boolean delete=true
+
+private boolean deleteInput=false
+
+private boolean useSharedHeader=false
+
+private boolean forceCompressTemp=false
+
+private boolean forceRawTemp=false
+
+private boolean overwrite=true
+
+private boolean unpair=false
+
+private boolean repair=false
+
+private boolean namesort=false
+
+private boolean V2=false
+
+private boolean V3=true
+
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String out2=null
+
+ArrayList<String> args2=new ArrayList<String>()
+
+private PrintStream outstream=System.err
+
+public static boolean sharedErrorState=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public Clumpify(String[] args)
+
+*Create read streams and process all data
+public void process(Timer t)
+
+private void runOnePass(String[] args, int pass, String in1, String in2, String out1, String out2)
+
+private long runOnePass_v2(String[] args, int pass, String in1, String in2, String out1, String out2, long fileMem)
+
+private void autoSetGroups(String s)
+
+private String getTempFname(String core)
+
+public static void shrinkName(Read r)
+
+public static void shortName(Read r)
+
+</class Clumpify>
+<class ClumpList>
+*A list of clumps, meaning a list of lists of reads.
+*Allows adding reads by streaming and generating new clumps as needed.
+*The input reads must be correctly ordered.
+*@author Brian Bushnell
+*@date Nov 9, 2015
+public class ClumpList
+
+#Fields
+static final int CONDENSE=1
+
+static final int CORRECT=2
+
+static final int DEDUPE=3
+
+private final boolean makeSimpleConsensus
+
+long cAdded=0
+
+long rAdded=0
+
+final int k
+
+final AtomicInteger ptr=new AtomicInteger(0)
+
+private LinkedHashMap<LongM,ArrayList<Clump>> map
+
+public static boolean UNRCOMP=true
+
+private static boolean verbose=false
+
+private static final long serialVersionUID=1L
+
+private static final PrintStream outstream=System.err
+
+
+#Methods
+public ClumpList(int k_)
+
+public ClumpList(ArrayList<Read> list, int k_, boolean makeSimpleConsensus_)
+
+public void addReads(ArrayList<Read> list)
+
+public void reorderPaired()
+
+private void addFriends(Clump c, ArrayList<Clump> temp, int depth)
+
+public void reorder()
+
+public void addReadsMT(ArrayList<Read> list)
+
+public void addReadsST(ArrayList<Read> list)
+
+public ArrayList<Read> process(int threads, int mode, long[] rvector)
+
+@Override public void clear()
+
+public LinkedHashMap<LongM,ArrayList<Clump>> map()
+
+private LinkedHashMap<LongM,ArrayList<Clump>> makeMap()
+
+private void fillMap(LinkedHashMap<LongM,ArrayList<Clump>> map)
+
+</class ClumpList>
+<class ClumpTools>
+*@author Brian Bushnell
+*@date Nov 12, 2015
+public class ClumpTools
+
+#Fields
+private static String fname1=null
+
+private static String fname2=null
+
+private static KCountArray table=null
+
+
+#Methods
+public static KCountArray table()
+
+public static KCountArray getTable(ArrayList<Read> reads, int k, int minCount)
+
+public static KCountArray getTable(String fname1_, String fname2_, int k_, int minCount_)
+
+public static void clearTable()
+
+</class ClumpTools>
+<class Hasher>
+public class Hasher
+
+#Fields
+private static final long[][] hashcodes=makeCodes2(32)
+
+
+#Methods
+private static long[][] makeCodes2(int modes)
+
+private static long[][] makeCodes(int symbols, int modes)
+
+public static long hash(byte[] bases)
+
+public static final long hash(Read r)
+
+public static final long hashPair(Read r)
+
+public static final boolean equalsPaired(Read a, Read b)
+
+public static final boolean equals(Read a, Read b)
+
+</class Hasher>
+<class KmerComparator>
+*@author Brian Bushnell
+*@date Nov 4, 2015
+public class KmerComparator
+
+#Fields
+public final int k
+
+final int shift
+
+final int shift2
+
+final long mask
+
+final long seed
+
+final int border
+
+final int hashes
+
+final boolean addName
+
+final boolean rcompReads
+
+private final long[][] codes
+
+static long defaultSeed=1
+
+static int defaultHashes=4
+
+static int defaultBorder=1
+
+public static float minProb=0f
+
+public static boolean verbose=true
+
+public static boolean mergeFirst=false
+
+public static boolean compareSequence=true
+
+public static ThreadLocal<ReadKey> localReadKey=new ThreadLocal<ReadKey>()
+
+public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT,127)
+
+public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE,127)
+
+
+#Methods
+public KmerComparator(int k_, boolean addName_, boolean rcomp_)
+
+public KmerComparator(int k_, long seed_, int border_, int hashes_, boolean addName_, boolean rcomp_)
+
+public void hashThreaded(ArrayList<Read> list, KCountArray table, int minCount)
+
+public void hash(ArrayList<Read> list, KCountArray table, int minCount, boolean setObject)
+
+public long hash(Read r1, KCountArray table, int minCount, boolean setObject)
+
+private long hash_inner(Read r1, KCountArray table, int minCount, boolean setObject)
+
+@Override public int compare(Read a, Read b)
+
+*Finds the global maximum
+public long fillMax(Read r, ReadKey key, KCountArray table, int minCount)
+
+*Finds the global maximum, forward only
+public long example1(Read r)
+
+*Finds the global maximum, forward and reverse
+public long example2(Read r)
+
+*Finds the global maximum, forward and reverse, with qualities and border
+public long example3(Read r)
+
+*Generates a key when the read is shorter than k
+public long fillShort(Read r, ReadKey key)
+
+public static void setHashes(int x)
+
+public final long hash(long kmer)
+
+static ReadKey getLocalKey()
+
+</class KmerComparator>
+<class KmerComparator2>
+*A minimal KmerComparator without the heavyweight auto-hashing methods of the original
+public abstract class KmerComparator2
+
+#Methods
+@Override public final int compare(Read a, Read b)
+
+public int compare(ReadKey a, ReadKey b)
+
+public static final int compareSequence(Read a, Read b, int depth)
+
+public static final int compareSequence(byte[] a, byte[] b)
+
+public static final int compareQuality(Read a, Read b)
+
+</class KmerComparator2>
+<class KmerComparatorX>
+public class KmerComparatorX
+
+#Fields
+static final KmerComparatorX comparator=new KmerComparatorX()
+
+
+#Methods
+private KmerComparatorX()
+
+@Override public int compare(ReadKey a, ReadKey b)
+
+</class KmerComparatorX>
+<class KmerComparatorY>
+public class KmerComparatorY
+
+#Fields
+static final KmerComparatorY comparator=new KmerComparatorY()
+
+
+#Methods
+private KmerComparatorY()
+
+</class KmerComparatorY>
+<class KmerReduce>
+*Reduces reads to their feature kmer.
+*@author Brian Bushnell
+*@date Nov 10, 2015
+public class KmerReduce
+
+#Fields
+private int k=31
+
+static boolean prefilter=true
+
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String extin=null
+
+private String extout=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+private long maxReads=-1
+
+protected boolean ecco=false
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*@param fname0 Input filename of reads
+*@param k Kmer length
+*@param cutoff Minimum count to retain
+*@return Set of pivot kmers
+public static KmerTableSet getValidKmersFromReads(String fname0, int k, int cutoff)
+
+*@param fname Input filename of pivot kmers
+*@param k Kmer length
+*@param cutoff Minimum count to retain
+*@return Set of pivot kmers
+public static KmerTableSet getValidKmers(String fname, int k, int cutoff)
+
+*Constructor.
+*@param args Command line arguments
+public KmerReduce(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Manage threads
+public void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+public byte[] toBytes(long kmer)
+
+public void fill(long kmer, byte[] dest, int pos)
+
+</class KmerReduce>
+<class KmerSort>
+*@author Brian Bushnell
+*@date June 20, 2014
+public abstract class KmerSort
+
+#Fields
+int k=31
+
+int minCount=0
+
+int groups=1
+
+KCountArray table=null
+
+String in1=null
+
+String in2=null
+
+String out1=null
+
+String out2=null
+
+String extin=null
+
+String extout=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+protected long diskProcessed=0
+
+protected long memProcessed=0
+
+protected static long entryFiltered=0
+
+protected long readsOut=0
+
+protected long basesOut=0
+
+protected long entryFilteredThisPass=0
+
+protected long readsThisPass=0
+
+protected long memThisPass=0
+
+protected long readsProcessedThisPass=0
+
+protected long clumpsProcessedThisPass=0
+
+protected long correctionsThisPass=0
+
+protected long duplicatesThisPass=0
+
+protected static long duplicatesTotal=0
+
+protected long clumpsProcessedTotal=0
+
+protected static long correctionsTotal=0
+
+protected int passes=1
+
+long maxReads=-1
+
+protected boolean addName=false
+
+boolean shortName=false
+
+boolean shrinkName=false
+
+boolean rcomp=false
+
+boolean condense=false
+
+boolean correct=false
+
+boolean dedupe=false
+
+boolean splitInput=false
+
+boolean ecco=false
+
+boolean unpair=false
+
+boolean repair=false
+
+boolean namesort=false
+
+boolean entryfilter=false
+
+final boolean parallelSort=Shared.parallelSort
+
+boolean memWarned=false
+
+boolean useSharedHeader=false
+
+int reorderMode=REORDER_FALSE
+
+public static long lastReadsIn=-1
+
+public static long lastBasesIn=-1
+
+public static long lastReadsOut=-1
+
+public static long lastBasesOut=-1
+
+static boolean quantizeQuality=false
+
+static final int REORDER_FALSE=0
+
+static final int REORDER_CONSENSUS=1
+
+static final int REORDER_PAIRED=2
+
+static final int REORDER_AUTO=3
+
+PrintStream outstream=System.err
+
+public static boolean verbose=true
+
+public static boolean doHashAndSplit=true
+
+public boolean errorState=false
+
+boolean overwrite=true
+
+boolean append=false
+
+
+#Methods
+*Count kmers
+final void preprocess()
+
+*Create read streams and process all data
+void process(Timer t)
+
+final void printStats(Timer t)
+
+final ArrayList<Read> runOnePass(ArrayList<Read> reads, KmerComparator kc)
+
+static final ArrayList<Read> nameSort(ArrayList<Read> list, boolean pair)
+
+static final ArrayList<Read> idSort(ArrayList<Read> list, boolean pair)
+
+static final ArrayList<Read> read1Only(ArrayList<Read> list)
+
+public final ArrayList<Read> processClumps(ClumpList cl, int mode)
+
+public final void hashAndSplit(ArrayList<Read> list, KmerComparator kc, ArrayList<Read>[] array)
+
+ArrayList<Read> fetchReads1(ConcurrentReadInputStream cris, KmerComparator kc)
+
+</class KmerSort>
+<class KmerSort1>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class KmerSort1
+
+#Fields
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerSort1(String[] args)
+
+@Override void process(Timer t)
+
+*Collect and sort the reads
+void processInner(ConcurrentReadOutputStream ros)
+
+</class KmerSort1>
+<class KmerSort2>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class KmerSort2
+
+#Fields
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public KmerSort2(String[] args)
+
+@Override void process(Timer t)
+
+*Collect and sort the reads
+void processInner(ConcurrentReadOutputStream rosa)
+
+private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old)
+
+</class KmerSort2>
+<class KmerSort3>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class KmerSort3
+
+#Fields
+protected static long lastMemProcessed=0
+
+final long expectedSizePerGroup
+
+private final long expectedMemPerGroup
+
+final long totalMem
+
+final long fileMem
+
+final long fileSize
+
+private final int outerPassNum
+
+private final int outerPasses
+
+private final double memRatio
+
+static final ArrayList<Read> POISON=new ArrayList<Read>()
+
+protected static int fetchThreads=2
+
+final FileFormat ffin1
+
+final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(long fileMem, int outerPassNum, int outerPasses, String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerSort3(long fileMem_, int outerPassNum_, int outerPasses_, String[] args)
+
+@Override void process(Timer t)
+
+*Collect and sort the reads
+void processInner(ConcurrentReadOutputStream rosa)
+
+private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old)
+
+public ArrayList<FetchThread3> fetchReads(KmerComparator kc, int fetchThreads, SynchronousQueue<ArrayList<Read>> listQ, ConcurrentReadOutputStream[] rosa)
+
+private long closeFetchThread3s(ArrayList<FetchThread3> alft)
+
+</class KmerSort3>
+<class KmerSplit>
+*@author Brian Bushnell
+*@date June 20, 2014
+public class KmerSplit
+
+#Fields
+private int k=31
+
+int groups=16
+
+int minCount=0
+
+KCountArray table=null
+
+private String in1=null
+
+private String in2=null
+
+private String out1=null
+
+private String[] outArray=null
+
+private String extin=null
+
+private String extout=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+protected long diskProcessed=0
+
+protected long memProcessed=0
+
+protected static long lastMemProcessed=0
+
+private long maxReads=-1
+
+boolean shortName=false
+
+boolean shrinkName=false
+
+boolean ecco=false
+
+boolean unpair=false
+
+static int maxZipLevel=2
+
+static boolean quantizeQuality=false
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat[] ffout
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public KmerSplit(String[] args)
+
+*Count kmers
+void preprocess()
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Collect and sort the reads
+void processInner(ConcurrentReadInputStream cris, ConcurrentReadOutputStream[] ros)
+
+public void splitReads(ConcurrentReadInputStream cris, ConcurrentReadOutputStream[] ros, KmerComparator kc)
+
+</class KmerSplit>
+<class PivotSet>
+*Reduces reads to their feature kmer.
+*@author Brian Bushnell
+*@date August 19, 2016
+public class PivotSet
+
+#Fields
+private int k=31
+
+private int minCount=2
+
+private String in1=null
+
+private String in2=null
+
+private String extin=null
+
+protected long readsProcessed=0
+
+protected long basesProcessed=0
+
+private long maxReads=-1
+
+private boolean ecco=false
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+public static KCountArray makeSet(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public PivotSet(String[] args)
+
+private static long getCells(double fraction, int cbits)
+
+*Create read streams and process all data
+public KCountArray process(Timer t, boolean amino)
+
+*Manage threads
+public static KCountArray makeKcaStatic(ConcurrentReadInputStream cris, int k, int minCount, boolean amino)
+
+*Manage threads
+public void processInner(ConcurrentReadInputStream cris, KCountArray kca)
+
+</class PivotSet>
+<class ReadKey>
+class ReadKey
+
+#Fields
+public int flag
+
+public long kmer
+
+*Position of rightmost base of kmer
+public int position
+
+public boolean flipped
+
+public boolean kmerMinusStrand
+
+public Clump clump
+
+public IntList vars
+
+public int lane
+
+public int tile
+
+public int x
+
+public int y
+
+public String umi
+
+public static final int overhead=overhead()
+
+public static boolean spanTilesX=false
+
+public static boolean spanTilesY=false
+
+public static boolean spanAdjacentOnly=false
+
+private static final long serialVersionUID=1L
+
+
+#Methods
+public static ReadKey makeKey(Read r, boolean setObject)
+
+private ReadKey(Read r)
+
+private ReadKey(Read r, long kmer_, int position_, boolean plus_)
+
+protected ReadKey()
+
+public void set(long kmer_, int position_, boolean minus_)
+
+private long setKmer(long kmer_)
+
+private int setPosition(int position_)
+
+public Clump setClump(Clump clump_)
+
+private boolean setFlipped(boolean flipped_)
+
+public void clear()
+
+public void flip(Read r, int k)
+
+@Override public int compareTo(ReadKey b)
+
+@Override public boolean equals(Object b)
+
+@Override public int hashCode()
+
+*True if this physically contains b (ignoring mismatches)
+public boolean physicallyContains(ReadKey b, int aLen, int bLen)
+
+*True if this physically contains b as a prefix or suffix (ignoring mismatches).
+*More restrictive than physicallyContains.
+public boolean physicalAffix(ReadKey b, int aLen, int bLen)
+
+*Note that this is different than compareTo()==0
+*That's to prevent sortYEarly comparison making things unequal.
+*@param b
+*@return True if equal
+public boolean equals(ReadKey b, boolean containment)
+
+public boolean equals(ReadKey b)
+
+@Override public String toString()
+
+public float distance(ReadKey rkb)
+
+public boolean near(ReadKey rkb, float dist)
+
+public boolean nearXY(ReadKey rkb, float dist)
+
+public boolean umiMatches(ReadKey rkb, int maxSubs)
+
+private static int overhead()
+
+public static boolean spanTiles()
+
+</class ReadKey>
+<class Splitter>
+*A tool for splitting clumps by allele.
+*@author Brian Bushnell
+*@date September 26, 2016
+class Splitter
+
+#Fields
+static int minSizeSplit=4
+
+static float minSizeFractionSplit=0.17f
+
+static boolean conservative=false
+
+private static final int alleleMask=0x3
+
+private static final int posMask=~alleleMask
+
+private static final int shift=2
+
+static boolean FIND_CORRELATIONS=true
+
+static int MAX_CORRELATIONS=12
+
+
+#Methods
+static ArrayList<Clump> splitOnPivot(Clump c)
+
+static ArrayList<Clump> splitOnPivot(ArrayList<Clump> list)
+
+static int splitAndAdd(Clump c, int var1, int var2, ArrayList<Clump> list)
+
+static int countVariants(Clump c, LongList varCounts)
+
+static LinkedHashMap<Integer,ArrayList<Read>> findReadVariants(Clump c, boolean makeMap)
+
+static int findBestPivot_Correlated(Clump c, IntList pivots)
+
+static boolean containsVar(int var, Read r, int maxLeft)
+
+static boolean hasDifferentAllele(int var, Read r)
+
+static int countDifferentAlleles(int var, ArrayList<Read> list)
+
+static int examineVar(int var, ArrayList<Read> list, IntList collection, int[] rvector, LinkedHashMap<Integer,ArrayList<Read>> map)
+
+static final int toReadLocation(int clumpLocation, int maxLeft, int readPos)
+
+static final int toClumpLocation(int readLocation, int maxLeft, int readPos)
+
+static int findBestPivots(Clump c, boolean findCorrelations, IntList pivots)
+
+</class Splitter>
+<class StreamToOutput>
+public class StreamToOutput
+
+#Fields
+long readsIn=0
+
+long basesIn=0
+
+ConcurrentReadInputStream cris
+
+ConcurrentReadOutputStream[] rosa
+
+final KmerComparator kc
+
+final boolean sortByName
+
+boolean errorState=false
+
+
+#Methods
+public StreamToOutput(FileFormat ffin1, FileFormat ffin2, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator)
+
+public StreamToOutput(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator)
+
+public boolean process()
+
+public void processSingle(ConcurrentReadInputStream cris)
+
+public void processMulti(ConcurrentReadInputStream cris)
+
+</class StreamToOutput>

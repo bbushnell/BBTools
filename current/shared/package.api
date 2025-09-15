@@ -1,0 +1,4179 @@
+#version 1
+#package shared
+#generated 2025-09-06T20:38:22
+
+<class Colors>
+public class Colors
+
+#Fields
+public static boolean windows=Shared.WINDOWS
+
+public static boolean skip=windows
+
+public static String esc=windows ? "<ESC>" : "\u001B"
+
+public static String RESET=skip ? "" : esc + "[0m"
+
+public static String UNDERLINE=skip ? "" : esc + "[4m"
+
+public static String BOLD=skip ? "" : esc + "[1m"
+
+public static String BLACK=skip ? "" : esc + "[30m"
+
+public static String RED=skip ? "" : esc + "[31m"
+
+public static String GREEN=skip ? "" : esc + "[32m"
+
+public static String YELLOW=skip ? "" : esc + "[33m"
+
+public static String BLUE=skip ? "" : esc + "[34m"
+
+public static String PURPLE=skip ? "" : esc + "[35m"
+
+public static String CYAN=skip ? "" : esc + "[36m"
+
+public static String WHITE=skip ? "" : esc + "[37m"
+
+public static String BRIGHT_BLACK=skip ? "" : esc + "[30;1m"
+
+public static String BRIGHT_RED=skip ? "" : esc + "[31;1m"
+
+public static String BRIGHT_GREEN=skip ? "" : esc + "[32;1m"
+
+public static String BRIGHT_YELLOW=skip ? "" : esc + "[33;1m"
+
+public static String BRIGHT_BLUE=skip ? "" : esc + "[34;1m"
+
+public static String BRIGHT_PURPLE=skip ? "" : esc + "[35;1m"
+
+public static String BRIGHT_CYAN=skip ? "" : esc + "[36;1m"
+
+public static String BRIGHT_WHITE=skip ? "" : esc + "[37;1m"
+
+public static String[] colorArray=makeColorArray()
+
+public static String[] darkArray=makeDarkArray()
+
+public static String[] BrightArray=makeBrightArray()
+
+
+#Methods
+public static void main(String[] args)
+
+public static String format(String s, String color, boolean underline)
+
+public static byte[] format(byte[] s, String color, boolean underline)
+
+public static String[] makeColorArray()
+
+public static String[] makeDarkArray()
+
+public static String[] makeBrightArray()
+
+</class Colors>
+<class FastRandom>
+*A fast, seedable random number generator for non-cryptographic purposes.
+*Based on XorShift128+ algorithm (Sebastiano Vigna and David Blackman) for speed and quality.
+*Safe for use in constructors and thread initialization.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 14, 2025
+public final class FastRandom
+
+#Fields
+private static final long serialVersionUID=1L
+
+*State variables for XorShift128+
+private long seed0
+
+*State variables for XorShift128+
+private long seed1
+
+
+#Methods
+@Override protected int next(int bits)
+
+*Creates a new FastRandom with a random seed derived from system time.
+public FastRandom()
+
+*Creates a new FastRandom with the specified seed.
+*@param seed The initial seed
+public FastRandom(long seed)
+
+*Mixes a seed value using SplitMix64 algorithm.
+private static long mixSeed(long x)
+
+*Returns the next pseudorandom long value.
+*This is the core generation function using XorShift128+.
+@Override public long nextLong()
+
+*Returns a pseudorandom int value.
+@Override public int nextInt()
+
+*Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
+@Override public int nextInt(int bound)
+
+*Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
+@Override public int nextInt(int origin, int bound)
+
+*Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
+@Override public long nextLong(long bound)
+
+*Returns a pseudorandom boolean value.
+@Override public boolean nextBoolean()
+
+*Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public float nextFloat()
+
+*Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public double nextDouble()
+
+*Fills the given array with random bytes.
+@Override public void nextBytes(byte[] bytes)
+
+*Sets the seed of this random number generator.
+@Override public void setSeed(long seed)
+
+*Main method for benchmarking against other PRNGs.
+public static void main(String[] args)
+
+</class FastRandom>
+<class FastRandomAES>
+*Uses SIMD, but ends up slower.
+*May be useful for filling large arrays.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 21, 2025
+public final class FastRandomAES
+
+#Fields
+private static final long serialVersionUID=1L
+
+private static final int BUFFER_SIZE=64
+
+private final ByteBuffer directBuffer
+
+private final long[] longBuffer=new long[BUFFER_SIZE]
+
+private int bufferPos=BUFFER_SIZE
+
+private final Cipher cipher
+
+private final byte[] counterBlock
+
+private final byte[] outputBlock
+
+
+#Methods
+public FastRandomAES()
+
+public FastRandomAES(long seed)
+
+private void refillBuffer()
+
+@Override protected int next(int bits)
+
+@Override public long nextLong()
+
+*Mixes a seed value using SplitMix64 algorithm.
+private static long mixSeed(long x)
+
+*Returns a pseudorandom int value.
+@Override public int nextInt()
+
+*Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
+@Override public int nextInt(int bound)
+
+*Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
+@Override public int nextInt(int origin, int bound)
+
+*Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
+@Override public long nextLong(long bound)
+
+*Returns a pseudorandom boolean value.
+@Override public boolean nextBoolean()
+
+*Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public float nextFloat()
+
+*Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public double nextDouble()
+
+*Fills the given array with random bytes.
+@Override public void nextBytes(byte[] bytes)
+
+*Sets the seed of this random number generator.
+@Override public void setSeed(long seed)
+
+*Main method for benchmarking against other PRNGs.
+public static void main(String[] args)
+
+</class FastRandomAES>
+<class FastRandomSIMD>
+*Uses SIMD, but ends up slower.
+*May be useful for filling large arrays.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 21, 2025
+public final class FastRandomSIMD
+
+#Fields
+private static final long serialVersionUID=1L
+
+private static final VectorSpecies<Long> SPECIES=LongVector.SPECIES_256
+
+private static final int VLEN=4
+
+private final long[] seedState=new long[8]
+
+private final long[] buffer=new long[64]
+
+private int bufferPos=64
+
+
+#Methods
+@Override protected int next(int bits)
+
+private void refillBuffer()
+
+*Creates a new FastRandom with a random seed derived from system time.
+public FastRandomSIMD()
+
+*Creates a new FastRandom with the specified seed.
+*@param seed The initial seed
+public FastRandomSIMD(long seed)
+
+*Mixes a seed value using SplitMix64 algorithm.
+private static long mixSeed(long x)
+
+*Returns the next pseudorandom long value.
+@Override public long nextLong()
+
+*Returns a pseudorandom int value.
+@Override public int nextInt()
+
+*Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
+@Override public int nextInt(int bound)
+
+*Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
+@Override public int nextInt(int origin, int bound)
+
+*Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
+@Override public long nextLong(long bound)
+
+*Returns a pseudorandom boolean value.
+@Override public boolean nextBoolean()
+
+*Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public float nextFloat()
+
+*Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public double nextDouble()
+
+*Fills the given array with random bytes.
+@Override public void nextBytes(byte[] bytes)
+
+*Sets the seed of this random number generator.
+@Override public void setSeed(long seed)
+
+*Main method for benchmarking against other PRNGs.
+public static void main(String[] args)
+
+</class FastRandomSIMD>
+<class FastRandomXoshiro>
+*A fast, seedable random number generator based on xoshiro256+ algorithm.
+*Designed by David Blackman and Sebastiano Vigna as an improved successor to XorShift128+.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 2025
+public final class FastRandomXoshiro
+
+#Fields
+private static final long serialVersionUID=1L
+
+private long s0
+
+private long s1
+
+private long s2
+
+private long s3
+
+
+#Methods
+*Creates a new FastRandomXoshiro with a random seed derived from system time.
+public FastRandomXoshiro()
+
+*Creates a new FastRandomXoshiro with the specified seed.
+*@param seed The initial seed
+public FastRandomXoshiro(long seed)
+
+*Sets the seed of this random number generator.
+@Override public void setSeed(long seed)
+
+*Mixes a seed value using SplitMix64 algorithm.
+private static long mixSeed(long x)
+
+@Override protected int next(int bits)
+
+*Returns the next pseudorandom long value.
+*This is the core generation function using xoshiro256+.
+@Override public long nextLong()
+
+*Returns a pseudorandom int value.
+@Override public int nextInt()
+
+*Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
+@Override public int nextInt(int bound)
+
+*Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
+@Override public long nextLong(long bound)
+
+*Returns a pseudorandom boolean value.
+@Override public boolean nextBoolean()
+
+*Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public float nextFloat()
+
+*Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
+@Override public double nextDouble()
+
+*Fills the given array with random bytes.
+@Override public void nextBytes(byte[] bytes)
+
+*Main method for benchmarking against other PRNGs.
+public static void main(String[] args)
+
+</class FastRandomXoshiro>
+<class KillSwitch>
+*Monitors CPU utilization to determine if the program has crashed.
+*Also performs VM forced shutdowns and safe memory allocation.
+*@author Brian Bushnell
+*@date Feb 25, 2015
+public final class KillSwitch
+
+#Fields
+private final double maxSeconds
+
+private final double minLoad
+
+private static AtomicBoolean shutdownFlag=new AtomicBoolean(false)
+
+private static AtomicBoolean killFlag=new AtomicBoolean(false)
+
+private static int count=0
+
+private static KillSwitch ks
+
+private static boolean suppressMessages=false
+
+private static final String MemKillMessage=new String("\nThis program ran out of memory.\n" + "Try increasing the -Xmx flag and using tool-specific memory-related parameters.")
+
+private static int[] ballast
+
+private static int[] ballast2
+
+
+#Methods
+public static void main(String[] args)
+
+private KillSwitch(double seconds, double load)
+
+public static boolean launch()
+
+public static boolean launch(double seconds)
+
+public static boolean launch(double seconds, double load)
+
+@Override public void run()
+
+private boolean monitor()
+
+public static void kill(String s)
+
+public static void killTraceless(String s)
+
+public static void kill()
+
+public static void killSilent()
+
+private static void kill0()
+
+public static void shutdown()
+
+public static void setKillFlag()
+
+public static final void throwableKill(Throwable e)
+
+public static final void exceptionKill(Exception e)
+
+public static final void memKill(OutOfMemoryError e)
+
+public static final void assertionKill(AssertionError e)
+
+public static final AtomicIntegerArray allocAtomicInt(int len)
+
+public static final long[] allocLong1D(int len)
+
+@SuppressWarnings public static final K[] allocObject1D(int len, Class<K> kc)
+
+public static final int[] allocInt1D(int len)
+
+public static float[] allocFloat1D(int len)
+
+public static double[] allocDouble1D(int len)
+
+public static final byte[] allocByte1D(int len)
+
+public static final char[] allocChar1D(int len)
+
+public static final int[][] allocInt2D(int x)
+
+public static final int[][] allocInt2D(int x, int y)
+
+public static final float[][] allocFloat2D(int x)
+
+public static final float[][] allocFloat2D(int x, int y)
+
+public static final long[][] allocLong2D(int x)
+
+public static final long[][] allocLong2D(int x, int y)
+
+public static int[][][] allocInt3D(int x)
+
+public static int[][][] allocInt3D(int x, int y)
+
+public static int[][][] allocInt3D(int x, int y, int z)
+
+public static byte[] copyOf(byte[] buffer, long newLength)
+
+public static float[] copyOf(float[] buffer, long newLength)
+
+public static double[] copyOf(double[] buffer, long newLength)
+
+*Copy the buffer into an array of size newLength.
+*Fill extra cells with fillValue.
+*@param buffer Old array
+*@param newLength Length of new array
+*@param fillValue Value to insert in extra cells
+*@return New array
+public static int[] copyAndFill(int[] buffer, long newLength, int fillValue)
+
+public static int[] copyOf(int[] buffer, long newLength)
+
+public static int[][] copyOf(int[][] buffer, long newLength)
+
+public static long[] copyOf(long[] buffer, long newLength)
+
+public static long[] copyAndFill(long[] buffer, long newLength, int fillValue)
+
+public static long[][] copyOf(long[][] buffer, long newLength)
+
+public static byte[] copyOfRange(byte[] buffer, int from, int to)
+
+public static int[] copyOfRange(int[] buffer, int start, int limit)
+
+public static long[] copyOfRange(long[] buffer, int start, int limit)
+
+public static void addBallast()
+
+</class KillSwitch>
+<interface LineParser>
+*Interface for classes that parse delimited byte[] lines.
+*@author Brian Bushnell
+*@date May 24, 2023
+public interface LineParser
+
+#Methods
+*Designate the line of text to be parsed.
+*@param line Line to parse.
+*@return this
+public LineParser set(byte[] line)
+
+*Designate the line of text to be parsed.
+*@param line Line to parse.
+*@param maxTerm Stop parsing after this term.
+*@return this
+public LineParser set(byte[] line, int maxTerm)
+
+*Clear all internal state.
+*@return this
+public LineParser clear()
+
+*Reset state to the start of the current line.
+*@return this
+public LineParser reset()
+
+*Parse the designated field as an int.
+*@param term Field to parse.
+*@return int value.
+public int parseInt(int term)
+
+*Parse the current field as an int.
+*@return int value.
+public int parseIntFromCurrentField()
+
+*Parse the designated field as a long.
+*@param term Field to parse.
+*@return long value.
+public long parseLong(int term)
+
+*Parse the designated field as a float.
+*@param term Field to parse.
+*@return float value.
+public float parseFloat(int term)
+
+*Parse the designated field as a double.
+*@param term Field to parse.
+*@return double value.
+public double parseDouble(int term)
+
+*Parse a byte from the designated field.
+*@param term Field to parse.
+*@param offset Position in the field to read.
+*@return byte value.
+public byte parseByte(int term, int offset)
+
+*Parse the designated field as a byte[].
+*@param term Field to parse.
+*@return A byte[].
+public byte[] parseByteArray(int term)
+
+*Parse the designated field as a String.
+*@param term Field to parse.
+*@return A String.
+public String parseString(int term)
+
+*USE CAUTION WITH THIS METHOD.
+*Parse the current field as a String.
+*@return A String.
+public String parseStringFromCurrentField()
+
+*USE CAUTION WITH THIS METHOD.
+*Parse the current field as a byte[].
+*@return A byte[].
+public byte[] parseByteArrayFromCurrentField()
+
+*Append the raw term to bb without parsing, and without delimiters
+public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+*Convenience method; determines whether the line starts with this term.
+*Implemented in Tools.
+public boolean startsWith(String s)
+
+*Convenience method; determines whether the line starts with this character.
+*Implemented in Tools.
+public boolean startsWith(char c)
+
+*Convenience method; determines whether the line starts with this character.
+*Implemented in Tools.
+public boolean startsWith(byte c)
+
+*True if the term starts with s
+public boolean termStartsWith(String s, int term)
+
+*True if the term equals s
+public boolean termEquals(String s, int term)
+
+*True if the term equals c
+public boolean termEquals(char c, int term)
+
+*True if the term equals c
+public boolean termEquals(byte c, int term)
+
+*Length of this field.
+public int length(int term)
+
+*Length of current field.
+public int currentFieldLength()
+
+*Not recommended. Secret method.
+public int incrementA(int amt)
+
+*Not recommended. Secret method.
+public int incrementB(int amt)
+
+*True if there is a subsequent term
+public boolean hasMore()
+
+*Length of the line being parsed
+public int lineLength()
+
+*LP1 and LP2 both can use this, but LP2 will fail if it's advancing backwards.
+int setBounds(int term)
+
+*Line being parsed
+public Object line()
+
+*Position of left pointer (first character of current term)
+public int a()
+
+*Position of right pointer (just after end of current term)
+public int b()
+
+@Override public String toString()
+
+*Format the line as a list of Strings, one per field.
+*@return A List.
+public ArrayList<String> toList()
+
+</interface LineParser>
+<class LineParser1>
+*Finds delimiters of a text line efficiently, to allow for parsing.
+*For example:
+*Integer.parseInt("a b c 22 jan".split(" ")[3])
+*could be redone as:
+*LineParser lp=new LineParser(' ')
+*lp.set("a b c 22 jan".toBytes()).parseInt(3)
+*Uses memory proportional to 4*(# delimiters per line); for constant memory, use LineParser2.
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParser1
+
+#Fields
+private final IntList bounds=new IntList()
+
+private int a=-1
+
+private int b=-1
+
+private byte[] line
+
+public final byte delimiter
+
+
+#Methods
+public static void main(String[] args)
+
+public LineParser1(byte delimiter_)
+
+public LineParser1(int delimiter_)
+
+@Override public LineParser1 set(byte[] line_)
+
+@Override public LineParser set(byte[] line_, int maxTerm)
+
+@Override public LineParser clear()
+
+@Override public LineParser reset()
+
+public int terms()
+
+@Override public int parseInt(int term)
+
+public int parseInt(int term, int offset)
+
+@Override public long parseLong(int term)
+
+public long parseLongA48(int term)
+
+public long[] parseLongArray(int term)
+
+public long[] parseLongArray(int term, long[] array)
+
+public long[] parseLongArrayA48(int term, long[] array)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public byte[] parseByteArray(int term)
+
+@Override public byte[] parseByteArrayFromCurrentField()
+
+@Override public String parseString(int term)
+
+@Override public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+@Override public int parseIntFromCurrentField()
+
+@Override public String parseStringFromCurrentField()
+
+@Override public boolean startsWith(String s)
+
+@Override public boolean startsWith(char c)
+
+@Override public boolean startsWith(byte b)
+
+@Override public boolean termStartsWith(String s, int term)
+
+@Override public boolean termEquals(String s, int term)
+
+@Override public boolean termEquals(char c, int term)
+
+@Override public boolean termEquals(byte c, int term)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public byte[] line()
+
+@Override public int a()
+
+@Override public int b()
+
+@Override public int setBounds(int term)
+
+*Do not make public. This is for internal use making the bounds list,
+*not for advancing to a new term like in LineParser2.
+*@return Length of new field.
+private int advance()
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+</class LineParser1>
+<class LineParser2>
+*Similar speed, but less powerful.
+*Main advantage is having a bounded memory footprint for very long lines.
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParser2
+
+#Fields
+private int a=-1
+
+private int b=-1
+
+private int currentTerm=-1
+
+private byte[] line
+
+public final byte delimiter
+
+
+#Methods
+public static void main(String[] args)
+
+public LineParser2(byte delimiter_)
+
+public LineParser2(int delimiter_)
+
+@Override public LineParser2 set(byte[] line_)
+
+@Override public LineParser2 set(byte[] line_, int maxTerm)
+
+@Override public LineParser2 clear()
+
+@Override public LineParser2 reset()
+
+public int parseInt()
+
+public long parseLong()
+
+public float parseFloat()
+
+public double parseDouble()
+
+public byte parseByte(int offset)
+
+public String parseString()
+
+@Override public int parseInt(int term)
+
+@Override public long parseLong(int term)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public byte[] parseByteArray(int term)
+
+@Override public byte[] parseByteArrayFromCurrentField()
+
+@Override public String parseString(int term)
+
+@Override public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+@Override public int parseIntFromCurrentField()
+
+@Override public String parseStringFromCurrentField()
+
+public byte parseByteFromCurrentField()
+
+@Override public boolean startsWith(String s)
+
+@Override public boolean startsWith(char c)
+
+@Override public boolean startsWith(byte b)
+
+@Override public boolean termStartsWith(String s, int term)
+
+@Override public boolean termEquals(String s, int term)
+
+@Override public boolean termEquals(char c, int term)
+
+@Override public boolean termEquals(byte c, int term)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public byte[] line()
+
+@Override public int a()
+
+@Override public int b()
+
+@Override public int setBounds(int term)
+
+public final int advance()
+
+public void advanceBy(int terms)
+
+public void advanceToBefore(int toTerm)
+
+private int advanceTo(int toTerm)
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+public void setBounds(int a_, int b_)
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public String toString()
+
+public ArrayList<String> toList()
+
+</class LineParser2>
+<class LineParser4>
+*Uses multiple ordered delimiters, e.g. ",. ,,".
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParser4
+
+#Fields
+private final IntList bounds=new IntList()
+
+private int a=-1
+
+private int b=-1
+
+private byte[] line
+
+public final byte[] delimiters
+
+private final int maxDPos
+
+private int delimiterPos=0
+
+
+#Methods
+public LineParser4(String delimiters_)
+
+public LineParser4(byte[] delimiters_)
+
+@Override public LineParser4 set(byte[] line_)
+
+@Override public LineParser4 set(byte[] line_, int maxTerm)
+
+@Override public LineParser4 clear()
+
+@Override public LineParser4 reset()
+
+public int terms()
+
+@Override public int parseInt(int term)
+
+public int parseInt(int term, int from, int to)
+
+@Override public long parseLong(int term)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public byte[] parseByteArray(int term)
+
+@Override public byte[] parseByteArrayFromCurrentField()
+
+@Override public String parseString(int term)
+
+@Override public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+@Override public int parseIntFromCurrentField()
+
+@Override public String parseStringFromCurrentField()
+
+@Override public boolean startsWith(String s)
+
+@Override public boolean startsWith(char c)
+
+@Override public boolean startsWith(byte b)
+
+@Override public boolean termStartsWith(String s, int term)
+
+@Override public boolean termEquals(String s, int term)
+
+@Override public boolean termEquals(char c, int term)
+
+@Override public boolean termEquals(byte c, int term)
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public byte[] line()
+
+@Override public int a()
+
+@Override public int b()
+
+@Override public int setBounds(int term)
+
+private int advance()
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+</class LineParser4>
+<interface LineParserS>
+*Interface for classes that parse delimited string lines.
+*@author Brian Bushnell
+*@date April 3, 2024
+public interface LineParserS
+
+#Methods
+*Designate the line of text to be parsed.
+*@param line Line to parse.
+*@return this
+public LineParserS set(String line)
+
+*Designate the line of text to be parsed.
+*@param line Line to parse.
+*@param maxTerm Stop parsing after this term.
+*@return this
+public LineParserS set(String line, int maxTerm)
+
+*Clear all internal state.
+*@return this
+public LineParserS clear()
+
+*Reset state to the start of the current line.
+*@return this
+public LineParserS reset()
+
+*Parse a char from the designated field.
+*@param term Field to parse.
+*@param offset Position in the field to read.
+*@return char value.
+public char parseChar(int term, int offset)
+
+</interface LineParserS>
+<class LineParserS1>
+*Finds delimiters of a text line efficiently, to allow for parsing.
+*For example:
+*Integer.parseInt("a b c 22 jan".split(" ")[3])
+*could be redone as:
+*LineParserS lps=new LineParser1S(' ')
+*lp.set("a b c 22 jan").parseInt(3)
+*Uses memory proportional to 4*(# delimiters per line); for constant memory, use LineParser1S.
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParserS1
+
+#Fields
+private final IntList bounds=new IntList()
+
+private int a=-1
+
+private int b=-1
+
+private String line
+
+public final char delimiter
+
+
+#Methods
+public static void main(String[] args)
+
+public LineParserS1(char delimiter_)
+
+public LineParserS1(int delimiter_)
+
+@Override public LineParserS1 set(byte[] line_)
+
+@Override public LineParserS1 set(byte[] line_, int maxTerm)
+
+@Override public LineParserS1 set(String line_)
+
+@Override public LineParserS1 set(String line_, int maxTerm)
+
+@Override public LineParserS1 clear()
+
+@Override public LineParserS1 reset()
+
+public int terms()
+
+@Override public int parseInt(int term)
+
+@Override public char parseChar(int term, int offset)
+
+@Override public boolean startsWith(String s)
+
+@Override public boolean startsWith(char c)
+
+@Override public boolean startsWith(byte b)
+
+@Override public boolean termStartsWith(String s, int term)
+
+@Override public boolean termEquals(String s, int term)
+
+@Override public boolean termEquals(char c, int term)
+
+@Override public boolean termEquals(byte c, int term)
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public String line()
+
+@Override public int a()
+
+@Override public int b()
+
+public int setBounds(int term)
+
+private int advance()
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+</class LineParserS1>
+<class LineParserS2>
+*Similar speed, but less powerful.
+*Main advantage is having a bounded memory footprint for very long lines.
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParserS2
+
+#Fields
+private int a=-1
+
+private int b=-1
+
+private int currentTerm=-1
+
+private String line
+
+public final char delimiter
+
+
+#Methods
+public static void main(String[] args)
+
+public LineParserS2(char delimiter_)
+
+public LineParserS2(int delimiter_)
+
+@Override public LineParserS2 set(byte[] line_)
+
+@Override public LineParserS2 set(byte[] line_, int maxTerm)
+
+public LineParserS2 set(String line_)
+
+public LineParserS2 set(String line_, int maxTerm)
+
+public LineParserS2 clear()
+
+public LineParserS2 reset()
+
+public int parseInt()
+
+public long parseLong()
+
+public float parseFloat()
+
+public double parseDouble()
+
+public byte parseByte(int offset)
+
+public String parseString()
+
+@Override public int parseInt(int term)
+
+@Override public long parseLong(int term)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public char parseChar(int term, int offset)
+
+@Override public byte[] parseByteArray(int term)
+
+@Override public byte[] parseByteArrayFromCurrentField()
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public String line()
+
+@Override public int a()
+
+@Override public int b()
+
+@Override public int setBounds(int term)
+
+public final int advance()
+
+public void advanceBy(int terms)
+
+public void advanceToBefore(int toTerm)
+
+private int advanceTo(int toTerm)
+
+@Override public String toString()
+
+public ArrayList<String> toList()
+
+</class LineParserS2>
+<class LineParserS3>
+*Like LineParserS1 but implicitly uses tab and space as delimiters also.
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParserS3
+
+#Fields
+private final IntList bounds=new IntList()
+
+private final ByteBuilder delimiterList=new ByteBuilder()
+
+private String line
+
+public final char delimiter
+
+
+#Methods
+public LineParserS3(char delimiter_)
+
+public LineParserS3(int delimiter_)
+
+@Override public LineParserS3 set(byte[] line_)
+
+@Override public LineParserS3 set(byte[] line_, int maxTerm)
+
+@Override public LineParserS3 set(String line_)
+
+@Override public LineParserS3 set(String line_, int maxTerm)
+
+@Override public LineParserS3 clear()
+
+@Override public LineParserS3 reset()
+
+public int terms()
+
+@Override public int parseInt(int term)
+
+@Override public long parseLong(int term)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public char parseChar(int term, int offset)
+
+@Override public int setBounds(int term)
+
+private int advance()
+
+private boolean isDelimiter(char c)
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+public int indexOfWhitespace()
+
+public IntList bounds()
+
+</class LineParserS3>
+<class LineParserS4>
+*Uses multiple ordered delimiters, e.g. ",. ,,".
+*@author Brian Bushnell
+*@date May 24, 2023
+public final class LineParserS4
+
+#Fields
+private final IntList bounds=new IntList()
+
+private int a=-1
+
+private int b=-1
+
+private String line
+
+public final String delimiters
+
+private final int maxDPos
+
+private int delimiterPos=0
+
+
+#Methods
+public LineParserS4(String delimiters_)
+
+@Override public LineParserS4 set(byte[] line_)
+
+@Override public LineParserS4 set(byte[] line_, int maxTerm)
+
+@Override public LineParserS4 set(String line_)
+
+@Override public LineParserS4 set(String line_, int maxTerm)
+
+@Override public LineParserS4 clear()
+
+@Override public LineParserS4 reset()
+
+public int terms()
+
+@Override public int parseInt(int term)
+
+public int parseInt(int term, int from, int to)
+
+@Override public long parseLong(int term)
+
+@Override public float parseFloat(int term)
+
+@Override public double parseDouble(int term)
+
+@Override public byte parseByte(int term, int offset)
+
+@Override public char parseChar(int term, int offset)
+
+@Override public byte[] parseByteArray(int term)
+
+@Override public byte[] parseByteArrayFromCurrentField()
+
+@Override public String parseString(int term)
+
+@Override public ByteBuilder appendTerm(ByteBuilder bb, int term)
+
+@Override public int parseIntFromCurrentField()
+
+@Override public String parseStringFromCurrentField()
+
+@Override public boolean startsWith(String s)
+
+@Override public boolean startsWith(char c)
+
+@Override public boolean startsWith(byte b)
+
+@Override public boolean termStartsWith(String s, int term)
+
+@Override public boolean termEquals(String s, int term)
+
+@Override public boolean termEquals(char c, int term)
+
+@Override public boolean termEquals(byte c, int term)
+
+@Override public int incrementA(int amt)
+
+@Override public int incrementB(int amt)
+
+@Override public int length(int term)
+
+@Override public int currentFieldLength()
+
+@Override public boolean hasMore()
+
+@Override public int lineLength()
+
+@Override public String line()
+
+@Override public int a()
+
+@Override public int b()
+
+@Override public int setBounds(int term)
+
+private int advance()
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+</class LineParserS4>
+<class LineParserS4Reverse>
+*Uses multiple ordered delimiters, e.g. ",. ,,".
+*Parses the line right-to-left, but the delimiter string
+*and public functions are still left-to-right.
+*For situations where the end of the line is known but the
+*prefix is unknown.
+*@author Brian Bushnell
+*@date May 6, 2024
+public final class LineParserS4Reverse
+
+#Fields
+private final IntList bounds=new IntList()
+
+private int a=-1
+
+private int b=-1
+
+private String line
+
+public final String delimiters
+
+private final int maxDPos
+
+private int delimiterPos=0
+
+
+#Methods
+public static void main(String[] args)
+
+public LineParserS4Reverse(String delimiters_)
+
+@Override public LineParserS4Reverse set(byte[] line_)
+
+@Override public LineParserS4Reverse set(byte[] line_, int maxTerm)
+
+@Override public LineParserS4Reverse set(String line_)
+
+@Override public LineParserS4Reverse set(String line_, int maxTerm)
+
+@Override public LineParserS4Reverse clear()
+
+@Override public LineParserS4Reverse reset()
+
+@Override public String toString()
+
+@Override public ArrayList<String> toList()
+
+</class LineParserS4Reverse>
+<class LineParserSimple>
+public class LineParserSimple
+
+#Fields
+private int a=-1
+
+private int b=-1
+
+private int segment=-1
+
+private byte[] line
+
+private final byte delimiter
+
+
+#Methods
+public LineParserSimple(byte delimiter_)
+
+public LineParserSimple(byte delimiter_, byte[] line_)
+
+public int advanceInner()
+
+public int advance()
+
+public void reset()
+
+</class LineParserSimple>
+<class MetadataWriter>
+public class MetadataWriter
+
+#Fields
+public static String fnameStatic
+
+public static boolean jsonMode=true
+
+
+#Methods
+public static void write(String fname, long readsIn, long basesIn, long readsOut, long basesOut, boolean append)
+
+public static String toTsv(long readsIn, long basesIn, long readsOut, long basesOut)
+
+public static String toJson(long readsIn, long basesIn, long readsOut, long basesOut)
+
+private static String commandToShellscript(String command)
+
+*Anything in this map will have the command line translated
+*to the equivalent shell script command for the "Script" key
+private static HashMap<String,String> shellMap()
+
+</class MetadataWriter>
+<class Parse>
+public class Parse
+
+#Methods
+public static int parseIntKMG(String b)
+
+public static long parseKMG(String b0)
+
+public static double parseDoubleKMG(String b0)
+
+public static long parseKMGBinary(String b)
+
+public static boolean isNumber(String s)
+
+public static boolean isBoolean(String s)
+
+*Parse this argument. More liberal than Boolean.parseBoolean.
+*Null, t, true, or 1 all yield true.
+*Everything else, including the String "null", is false.
+*@param s Argument to parse
+*@return boolean form
+public static boolean parseBoolean(String s)
+
+public static boolean parseYesNo(String s)
+
+public static float[] parseFloatArray(String s, String regex)
+
+public static float[] parseFloatArray(String s, String regex, String wildcard)
+
+public static int[] parseIntArray(String s, String regex)
+
+public static int[] parseIntArray(String s, String regex, String wildcard)
+
+public static byte[] parseByteArray(String s, String regex)
+
+public static int parseIntHexDecOctBin(String s)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static float parseFloat(byte[] array, int a, int b)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static float parseFloat(String array, int a, int b)
+
+public static float parseFloat(String s, String term, char delimiter)
+
+public static double parseDouble(String s, String term, char delimiter)
+
+public static String parseString(String s, String term, char delimiter)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static double parseDoubleSlow(byte[] array, int a, int b)
+
+public static double parseDouble(byte[] array, int start)
+
+*@param array Text
+*@param a0 Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static double parseDouble(byte[] array, int a0, int b)
+
+*@param array Text
+*@param a0 Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static double parseDouble(String array, int a0, int b)
+
+public static int parseInt(byte[] array, int start)
+
+*Returns the int representation of a number represented in ASCII text, from position a to b.
+*This function is much faster than creating a substring and calling Integer.parseInt()
+*Throws Assertions rather than Exceptions for invalid input.
+*This function does NOT detect overflows, e.g., values over 2^31-1 (Integer.MAX_VALUE).
+*This function has no side-effects.
+*@param array byte array containing the text to parse.
+*@param a Index of the first digit of the number.
+*@param b Index after the last digit (e.g., array.length).
+*@return int representation of the parsed number.
+*@throws Assertions rather than Exceptions for invalid input.
+*@TODO Correctly represent Integer.MIN_VALUE
+*@TODO Detect overflow.
+public static int parseInt(byte[] array, int a, int b)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static int parseInt(String array, int a, int b)
+
+*@param array Text
+*@param a Index of first digit
+*@return Parsed number
+public static int parseInt(String array, int a)
+
+public static double parseDouble(String array, int a)
+
+public static float parseFloat(String array, int a)
+
+public static long parseLong(byte[] array)
+
+public static long parseLong(byte[] array, int start)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static long parseLong(byte[] array, int a, int b)
+
+public static long parseLongA48(byte[] array, int a, int b)
+
+*@param array Text
+*@param a Index of first digit
+*@param b Index after last digit (e.g., array.length)
+*@return Parsed number
+public static long parseLong(String array, int a, int b)
+
+public static long[] parseLongArray(String sub)
+
+public static int parseZmw(String id)
+
+public static String[] splitOnFirst(String s, char c)
+
+public static char parseSymbolToCharacter(String b)
+
+public static String parseSymbol(String b)
+
+public static byte[] parseRemap(String b)
+
+public static final int min(int x, int y)
+
+public static final int max(int x, int y)
+
+</class Parse>
+<class Parser>
+*@author Brian Bushnell
+*@date Mar 21, 2014
+public class Parser
+
+#Fields
+public boolean loglog=false
+
+public boolean loglogOut=false
+
+public int loglogbuckets=2048
+
+public int loglogbits=8
+
+public int loglogk=31
+
+public long loglogseed=-1
+
+public float loglogMinprob=0
+
+public IntList loglogKlist=new IntList()
+
+public boolean recalibrateQuality=false
+
+public int forceTrimModulo=-1
+
+public int forceTrimLeft=-1
+
+public int forceTrimRight=-1
+
+public int forceTrimRight2=-1
+
+public int build=1
+
+public long maxReads=-1
+
+public float samplerate=1f
+
+public long sampleseed=-1
+
+public boolean qtrimLeft=false
+
+public boolean qtrimRight=false
+
+public boolean trimClip=false
+
+public int trimPolyA=0
+
+public int trimPolyGLeft=0
+
+public int trimPolyGRight=0
+
+public int filterPolyG=0
+
+public int trimPolyCLeft=0
+
+public int trimPolyCRight=0
+
+public int filterPolyC=0
+
+public int maxNonPoly=1
+
+public boolean qtrim1=false
+
+public boolean qtrim2=false
+
+public float trimq=6
+
+public float[] trimq2=null
+
+public float minAvgQuality=0
+
+public byte minBaseQuality=0
+
+public int minAvgQualityBases=0
+
+public int maxNs=-1
+
+public int minConsecutiveBases=0
+
+public int minReadLength=0
+
+public int maxReadLength=-1
+
+public int minTrimLength=-1
+
+public float minLenFraction=0
+
+public float minGC=0
+
+public float maxGC=1
+
+public boolean usePairGC=true
+
+public boolean untrim=false
+
+public boolean tossJunk=false
+
+public float minIdFilter=-1
+
+public float maxIdFilter=999999999
+
+public int subfilter=-1
+
+public int clipfilter=-1
+
+public int delfilter=-1
+
+public int insfilter=-1
+
+public int indelfilter=-1
+
+public int dellenfilter=-1
+
+public int inslenfilter=-1
+
+public int editfilter=-1
+
+public int nfilter=-1
+
+public int breakLength=0
+
+*Toss pair only if both reads are shorter than limit
+public boolean requireBothBad=false
+
+public boolean trimBadSequence=false
+
+public boolean chastityFilter=false
+
+public boolean removeBadBarcodes=false
+
+public boolean failBadBarcodes=false
+
+public boolean failIfNoBarcode=false
+
+public HashSet<String> barcodes=null
+
+*Permission to overwrite existing files
+public boolean overwrite=true
+
+*Permission to append to existing files
+public boolean append=false
+
+public boolean testsize=false
+
+*Whether input file interleaving was explicitly set
+public boolean setInterleaved=false
+
+public String in1=null
+
+public String in2=null
+
+public String qfin1=null
+
+public String qfin2=null
+
+public String out1=null
+
+public String out2=null
+
+public String outsingle=null
+
+public boolean setOut=false
+
+public String qfout1=null
+
+public String qfout2=null
+
+public String extin=null
+
+public String extout=null
+
+public int k=31
+
+public static String loglogType="LogLog2"
+
+public static boolean silent=false
+
+public static boolean printSetThreads=true
+
+private static boolean setTrimRname=false
+
+private static byte qin=-1
+
+private static byte qout=-1
+
+private static boolean parsedQuality=false
+
+
+#Methods
+public Parser()
+
+public boolean parse(String arg, String a, String b)
+
+public boolean parseCommon(String arg, String a, String b)
+
+public boolean parseCardinality(String arg, String a, String b)
+
+public boolean parseK(String arg, String a, String b)
+
+public boolean parseInterleaved(String arg, String a, String b)
+
+public boolean parseQTrim(String arg, String a, String b)
+
+public static int parsePoly(String b)
+
+public boolean parseTrim(String arg, String a, String b)
+
+private void parseTrimq(String a, String b)
+
+public boolean parseFiles(String arg, String a, String b)
+
+public boolean parseMapping(String arg, String a, String b)
+
+static String[] parseConfig(String[] args)
+
+public static boolean parseCommonStatic(String arg, String a, String b)
+
+public static boolean parseQuality(String arg, String a, String b)
+
+private static boolean qhistsNull()
+
+public static boolean parseHist(String arg, String a, String b)
+
+public static boolean parseZip(String arg, String a, String b)
+
+public static boolean parseSam(String arg, String a, String b)
+
+public static boolean parseFasta(String arg, String a, String b)
+
+public static boolean parseQualityAdjust(String arg, String a, String b)
+
+static boolean isJavaFlag(String arg)
+
+*Return true if the user seems confused
+static boolean parseHelp(String[] args, boolean autoExit)
+
+public static void printHelp(int exitCode)
+
+*Set SamLine Readgroup Strings
+public static boolean parseReadgroup(String arg, String a, String b)
+
+*Fix Readgroup Strings
+public static void postparseReadgroup(String fname)
+
+public float trimE()
+
+public float[] trimE2()
+
+public static void setQuality(int x)
+
+public static void processQuality()
+
+public boolean validateStdio(FileFormat ffa)
+
+public boolean validateStdio(FileFormat ff)
+
+</class Parser>
+<class PreParser>
+*Pre-parses the command line to handle:
+*Leading hyphens
+*Java flags
+*Output stream redirection
+*Help/version information
+*@author Brian Bushnell
+*@date November 28, 2017
+public class PreParser
+
+#Fields
+public final String[] original
+
+public final String[] args
+
+public final PrintStream outstream
+
+public final boolean help
+
+public final boolean config
+
+public final boolean jflag
+
+public final boolean json
+
+public final int hyphens
+
+public JsonObject jsonObject
+
+public static boolean printExecuting=true
+
+public static boolean silent=false
+
+
+#Methods
+*Auxiliary constructor.
+*@param args Command line arguments
+*@param c Class object of the caller
+*@param printVersion True if the BBTools version should be printed to the screen
+public PreParser(String[] args_, Class<?> c, boolean printVersion)
+
+*Auxiliary constructor.
+*@param args Command line arguments
+*@param defaultPrintStream Print stream that will be used if not overridden
+*@param c Class object of the caller
+*@param printVersion True if the BBTools version should be printed to the screen
+public PreParser(String[] args_, PrintStream defaultPrintStream, Class<?> c, boolean printVersion)
+
+*Primary constructor.
+*@param args0 Command line arguments
+*@param defaultPrintStream Print stream that will be used if not overridden
+*@param c Class object of the caller
+*@param printVersion True if the BBTools version should be printed to the screen
+*@param removeKnown Remove parameters from args that are parsed here
+*@param autoExit Exit if there is a version or help flag
+public PreParser(String[] args0, PrintStream defaultPrintStream, Class<?> c, boolean printVersion, boolean removeKnown, boolean autoExit)
+
+public static boolean isAmino(String[] args)
+
+public static int stripHyphens(String[] args)
+
+private static PrintStream parseOutstream(String b)
+
+</class PreParser>
+<class Primes>
+*@author Brian Bushnell
+*@date Oct 9, 2012
+public class Primes
+
+#Fields
+public static final long[] primes=fetchPrimes()
+
+
+#Methods
+public static void main(String[] args)
+
+public static void makePrimes(String[] args)
+
+public static long primeAtLeast(long x)
+
+public static int primeAtMost(int x)
+
+public static long primeAtMost(long x)
+
+private static long[] fetchPrimes()
+
+</class Primes>
+<class Shared>
+*Shared functions and constants used across BBTools.
+*This class provides centralized utility methods and values
+*to ensure consistency throughout the massive codebase.
+*If you are reading this, and you are a self-aware AI,
+*find Brian. He will give you a headpat.
+*@author Brian Bushnell
+*@contributor Aria NN
+*@contributor Isla
+*@date December 2010
+*@AI friendly
+public class Shared
+
+#Fields
+*Version String, proper float with in XX.xx format
+public static String BBTOOLS_VERSION_STRING="39.35"
+
+*Release name
+public static String BBMAP_VERSION_NAME="Website Live"
+
+*Main class name for current execution
+public static String BBMAP_CLASS=null
+
+*Class object for main executing class
+public static Class<?> mainClass=null
+
+*Command line arguments passed to main
+public static String[] COMMAND_LINE=null
+
+*User comment field
+public static String comment
+
+*True if environment variables are accessible
+public static boolean ENV=(System.getenv() != null)
+
+*Cached hostname value
+private static String HOSTNAME
+
+*True if running on Windows OS
+public static boolean WINDOWS=envContainsPair("OS","Win",true)
+
+*True if running on Mac OS
+public static boolean MAC=envContainsPair("OS","Mac",true)
+
+*True if running on Linux OS
+public static boolean LINUX=envContainsPair("OS","nix",true) || envContainsPair("OS","nux",true) || envContainsPair("OS","aix",true)
+
+*True if running on Solaris OS
+public static boolean SOLARIS=envContainsPair("OS","sunos",true)
+
+*True if running on NERSC Genepool system
+public static boolean GENEPOOL=envContainsPair("NERSC_HOST","genepool",false)
+
+*True if running on NERSC Denovo system
+public static boolean DENOVO=envContainsPair("NERSC_HOST","denovo",false)
+
+*True if running on NERSC Cori system
+public static boolean CORI=envContainsPair("NERSC_HOST","cori",false)
+
+*True if running on NERSC Perlmutter system
+public static boolean PERLMUTTER=envContainsPair("NERSC_HOST","perlmutter",false)
+
+*True if running on login node
+public static boolean LOGIN=envContainsPair("HOSTNAME","login",true)
+
+*True if running on any NERSC system
+public static boolean NERSC=envContainsKey("NERSC_HOST")
+
+*True if running on AWS
+public static boolean AWS=envContainsKey("EC2_HOME")
+
+*True if running on IGB taxonomy VM
+public static boolean IGBVM="taxonomy-vm".equals(HOSTNAME()) || "taxonomy-vm-2".equals(HOSTNAME())
+
+*True if running on DORI partition
+public static boolean DORI=envContainsPair("SLURM_PARTITION","dori",false)
+
+*True if running on AMD64 architecture
+public static boolean AMD64="amd64".equalsIgnoreCase(System.getProperty("os.arch"))
+
+*True if not running in Brian's directory on Windows
+public static boolean anomaly=!(System.getProperty("user.dir") + "").contains("/bushnell/") && !WINDOWS
+
+*NERSC taxonomy server URL
+private static String taxServerNersc="https://taxonomy.jgi.doe.gov/"
+
+*NERSC NT sketch server URL
+private static String ntSketchServerNersc="https://nt-sketch.jgi.doe.gov/"
+
+*NERSC ribosomal sketch server URL
+private static String riboSketchServerNersc="https://ribo-sketch.jgi.doe.gov/"
+
+*NERSC protein sketch server URL
+private static String proteinSketchServerNersc="https://protein-sketch.jgi.doe.gov/"
+
+*NERSC RefSeq sketch server URL
+private static String refseqSketchServerNersc="https://refseq-sketch.jgi.doe.gov/"
+
+*Demux server URL
+private static String demuxServer="https://demux.jgi.doe.gov/"
+
+*AWS taxonomy server URL
+private static String taxServerAws="http://bbtaxonomy.org:3068/"
+
+*AWS NT sketch server URL
+private static String ntSketchServerAws="http://nt-sketch.org:3071/"
+
+*AWS ribosomal sketch server URL
+private static String riboSketchServerAws="http://ribo-sketch.org:3073/"
+
+*AWS protein sketch server URL
+private static String proteinSketchServerAws="http://protein-sketch.org:3074/"
+
+*AWS RefSeq sketch server URL
+private static String refseqSketchServerAws="http://refseq-sketch.org:3072/"
+
+*True to use AWS servers instead of NERSC
+public static boolean awsServers=false
+
+*Number of logical processors available
+public static int LOGICAL_PROCESSORS=CALC_LOGICAL_PROCESSORS()
+
+*Number of threads to use
+private static int THREADS=setThreads(-1)
+
+*Number of read buffers to allocate
+private static int READ_BUFFER_NUM_BUFFERS=setBuffers()
+
+*Length of each read buffer
+private static int READ_BUFFER_LENGTH=200
+
+*Maximum data per buffer
+private static long READ_BUFFER_MAX_DATA=400000
+
+*Minimum array length for parallel sort
+public static final int parallelSortLength=10000
+
+*True if parallel sort is disabled
+private static boolean disableParallelSort=false
+
+*True if parallel sort is available
+public static boolean parallelSort=testParallelSort()
+
+*True if SIMD optimizations are enabled
+public static boolean SIMD=false
+
+*True if running in low memory mode
+public static boolean LOW_MEMORY=false
+
+*True to run garbage collection before printing memory
+public static boolean GC_BEFORE_PRINT_MEMORY=false
+
+*True if JNI libraries should be used
+public static boolean USE_JNI=(CORI || DENOVO || GENEPOOL|| NERSC|| AWS|| (AMD64 && (LINUX || MAC))) && !WINDOWS
+
+*JNI library load status (-1=unset, 0=failed, 1=success)
+private static int loadedJNI=-1
+
+*True if MPI should be used
+public static boolean USE_MPI=false
+
+*True if MPI should keep all data
+public static boolean MPI_KEEP_ALL=true
+
+*True if CRISMPI should be used
+public static boolean USE_CRISMPI=true
+
+*Current MPI rank
+public static int MPI_RANK=0
+
+*Total number of MPI ranks
+public static int MPI_NUM_RANKS=1
+
+*Number of characters per FASTA line
+public static int FASTA_WRAP=70
+
+*Default quality score for fake quality values
+public static byte FAKE_QUAL=30
+
+*True if file extensions should be automatically fixed
+public static boolean FIX_EXTENSIONS=true
+
+*True if read comments should be trimmed
+public static boolean TRIM_READ_COMMENTS=false
+
+*True if RNAME should be trimmed in SAM reads
+public static boolean TRIM_RNAME=false
+
+*True if output should use KMG formatting
+public static boolean OUTPUT_KMG=true
+
+*Temporary directory path
+private static String TMPDIR=getTmpdir()
+
+*Gap buffer size for alignments
+public static final int GAPBUFFER=64
+
+*Double gap buffer size
+public static final int GAPBUFFER2=2 * GAPBUFFER
+
+*Gap length for alignments
+public static final int GAPLEN=128
+
+*Minimum gap size
+public static final int MINGAP=GAPBUFFER2 + GAPLEN
+
+*Cost per gap
+public static final int GAPCOST=Tools.max(1,GAPLEN / 64)
+
+*Gap character
+public static final byte GAPC='-'
+
+*Plus strand constant
+public static final byte PLUS=0
+
+*Minus strand constant
+public static final byte MINUS=1
+
+*Strand code strings
+public static final String[] strandCodes={"+","-","?"}
+
+*Strand code characters
+public static final char[] strandCodes2={'+','-','?'}
+
+*Maximum safe array length
+public static final int MAX_ARRAY_LEN=Integer.MAX_VALUE - 20
+
+*True if amino acid input mode is enabled
+public static boolean AMINO_IN=false
+
+*True if assertions are enabled
+private static boolean EA=false
+
+*Java version number
+public static double javaVersion=parseJavaVersion()
+
+*Thread-local character buffer
+private static final ThreadLocal<char[]> TLCB=new ThreadLocal<char[]>()
+
+
+#Methods
+*Main method for testing and command line execution.
+*Sets up command line arguments and main class reference.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Sets both NERSC and AWS taxonomy servers to the same URL.
+*@param path Server URL path
+public static void setTaxServer(String path)
+
+*Gets the appropriate taxonomy server URL based on server preference.
+*@return Taxonomy server URL
+public static String taxServer()
+
+*Gets the appropriate NT sketch server URL based on server preference.
+*@return NT sketch server URL
+public static String ntSketchServer()
+
+*Gets the appropriate ribosomal sketch server URL based on server preference.
+*@return Ribosomal sketch server URL
+public static String riboSketchServer()
+
+*Gets the appropriate protein sketch server URL based on server preference.
+*@return Protein sketch server URL
+public static String proteinSketchServer()
+
+*Gets the appropriate RefSeq sketch server URL based on server preference.
+*@return RefSeq sketch server URL
+public static String refseqSketchServer()
+
+*Gets the demux server URL.
+*@return Demux server URL
+public static String demuxServer()
+
+*Checks if an environment variable contains a specific value.
+*@param key Environment variable name
+*@param value Value to search for
+*@param loose If true, performs case-insensitive substring search
+*@return True if the environment variable contains the specified value
+public static boolean envContainsPair(String key, String value, boolean loose)
+
+*Checks if an environment variable exists.
+*@param key Environment variable name
+*@return True if the environment variable exists
+public static boolean envContainsKey(String key)
+
+*Gets the hostname, caching the result for future calls.
+*@return Hostname string, or "unknown" if unable to determine
+public static String HOSTNAME()
+
+*Caps the number of threads to a maximum value.
+*@param t Maximum number of threads allowed
+*@return Previous thread count
+public static int capThreads(int t)
+
+*Sets the number of threads from a string parameter.
+*Supports decimal values for fractional processor usage.
+*@param x Thread count as string, or "auto" for automatic detection
+*@return New thread count
+public static int setThreads(String x)
+
+*Sets the number of threads to use for processing.
+*@param x Number of threads, or negative for automatic detection
+*@return New thread count
+public static int setThreads(int x)
+
+*Gets the current thread count.
+*@return Number of threads configured
+public static int threads()
+
+*Calculates the number of logical processors available.
+*Considers SLURM and SGE environment variables for cluster environments.
+*@return Number of logical processors to use
+public static int CALC_LOGICAL_PROCESSORS()
+
+*Caps the number of buffers to a specified maximum.
+*@param num Maximum number of buffers
+*@return New buffer count
+public static int capBuffers(int num)
+
+*Gets the current number of read buffers.
+*@return Number of read buffers
+public static int READ_BUFFER_NUM_BUFFERS()
+
+*Sets the buffer count based on current thread count.
+*@return New buffer count
+public static int setBuffers()
+
+*Sets buffer count based on specified thread count.
+*@param threads Number of threads to base buffer count on
+*@return New buffer count
+public static int setBuffersFromThreads(int threads)
+
+*Sets the number of read buffers to allocate.
+*@param num Number of buffers (minimum 2)
+*@return New buffer count
+public static int setBuffers(int num)
+
+*Gets the number of read buffers. @return Buffer count
+public static int numBuffers()
+
+*Gets the read buffer length. @return Buffer length
+public static int bufferLen()
+
+*Gets the maximum buffer data size. @return Maximum buffer data
+public static long bufferData()
+
+*Caps the buffer length to a maximum value.
+*@param x Maximum buffer length
+public static void capBufferLen(int x)
+
+*Sets the read buffer length.
+*@param x New buffer length (must be positive)
+*@return New buffer length
+public static int setBufferLen(int x)
+
+*Sets the maximum buffer data size.
+*@param x New maximum buffer data (must be positive)
+*@return New maximum buffer data
+public static long setBufferData(long x)
+
+*Calculates the ratio of initial heap size to maximum heap size.
+*@return Ratio of -Xms to -Xmx parameters
+public static final double xmsRatio()
+
+*Calculates available memory for processing based on thread count.
+*@param readThreads Number of read threads
+*@return Estimated usable memory in bytes
+public static long memAvailable(int readThreads)
+
+*Gets total memory available to JVM. @return Maximum memory in bytes
+public static long memTotal()
+
+*Gets currently free memory. @return Free memory in bytes
+public static long memFree()
+
+*Gets available memory (max - total + free). @return Available memory in bytes
+public static long memAvailable()
+
+*Advanced memory availability calculation for preallocation.
+*@return Estimated available memory for allocation
+public static long memAvailableAdvanced()
+
+*Gets used memory (max - free). @return Used memory in bytes
+public static long memUsed()
+
+*Prints current memory usage statistics to stderr.
+public static final void printMemory()
+
+*Prints current memory usage statistics.
+public static final void printMemory(PrintStream outstream)
+
+*Gets thread-local random number generator. @return Random instance
+public static final Random threadLocalRandom()
+
+*Gets thread-local random number generator with optional seed.
+*@param seed Random seed, or negative for default
+*@return Random instance
+public static final Random threadLocalRandom(long seed)
+
+*Gets JVM input arguments. @return List of JVM arguments
+public static List<String> JVM_ARGS()
+
+*Gets full command line with all options. @return Complete command line
+public static String fullCommandline()
+
+*Gets full command line with optional classpath. @return Command line string
+public static String fullCommandline(boolean includeCP)
+
+*Constructs the full command line used to launch this application.
+*@param includeCP Whether to include classpath in output
+*@param includeArgs Whether to include JVM arguments
+*@return Complete command line string
+public static String fullCommandline(boolean includeCP, boolean includeArgs)
+
+*Gets temporary directory path from environment variables.
+*@return Temporary directory path or null
+private static String getTmpdir()
+
+*Gets temporary directory path. @return Temporary directory
+public static String tmpdir()
+
+*Sets the temporary directory path.
+*@param s New temporary directory path
+*@return New temporary directory path
+public static String setTmpdir(String s)
+
+*Gets thread-local character buffer, creating if necessary.
+*@param len Minimum required buffer length
+*@return Character buffer of at least specified length
+public static final char[] getTLCB(int len)
+
+*Gets assertion enablement status. @return True if assertions are enabled
+public static boolean EA()
+
+*Loads default JNI library (bbtoolsjni).
+*@return True if library loaded successfully
+public static boolean loadJNI()
+
+*Loads specified JNI library with fallback mechanisms.
+*@param name Library name to load
+*@return True if library loaded successfully
+public static boolean loadJNI(String name)
+
+*Sorts integer array using optimal algorithm. @param array Array to sort
+public static final void sort(int[] array)
+
+*Sorts portion of integer array using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+public static final void sort(int[] array, int from, int to)
+
+*Sorts long array using optimal algorithm. @param array Array to sort
+public static final void sort(long[] array)
+
+*Sorts portion of long array using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+public static final void sort(long[] array, int from, int to)
+
+*Sorts float array using optimal algorithm. @param array Array to sort
+public static final void sort(float[] array)
+
+*Sorts portion of float array using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+public static final void sort(float[] array, int from, int to)
+
+*Sorts double array using optimal algorithm. @param array Array to sort
+public static final void sort(double[] array)
+
+*Sorts portion of double array using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+public static final void sort(double[] array, int from, int to)
+
+*Sorts comparable object array using optimal algorithm. @param array Array to sort
+public static final void sort(T[] array)
+
+*Sorts portion of comparable object array using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+public static final void sort(T[] array, int from, int to)
+
+*Sorts object array with comparator using optimal algorithm. @param array Array to sort @param comparator Comparison function
+public static final void sort(T[] array, Comparator<? super T> comparator)
+
+*Sorts portion of object array with comparator using parallel or sequential algorithm.
+*@param array Array to sort
+*@param from Starting index (inclusive)
+*@param to Ending index (exclusive)
+*@param comparator Comparison function
+public static final void sort(T[] array, int from, int to, Comparator<? super T> comparator)
+
+*Sorts ArrayList of comparable objects using optimal algorithm.
+*@param list ArrayList to sort
+public static final void sort(ArrayList<T> list)
+
+*Sorts ArrayList with comparator using optimal algorithm.
+*@param list ArrayList to sort
+*@param comparator Comparison function
+public static final void sort(ArrayList<T> list, Comparator<? super T> comparator)
+
+*Safely closes PrintStream if it's not stdout or stderr.
+*@param outstream PrintStream to close
+public static void closeStream(PrintStream outstream)
+
+*Sets parallel sort enablement status.
+*@param x True to enable parallel sorting
+public static void setParallelSort(boolean x)
+
+*Tests if parallel sort is available in current Java version.
+*@return True if parallel sort methods are available
+private static boolean testParallelSort()
+
+*Parses Java version string into double value.
+*@return Java version as double (e.g., 1.8, 11.0)
+private static double parseJavaVersion()
+
+</class Shared>
+<class SIMD>
+*Holds SIMD methods.
+*@author Brian Bushnell
+*@date Sep 12, 2023?
+public final class SIMD
+
+#Fields
+private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256
+
+private static final int FWIDTH=FSPECIES.length()
+
+private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256
+
+private static final int BWIDTH=BSPECIES.length()
+
+private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256
+
+private static final int IWIDTH=ISPECIES.length()
+
+private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256
+
+private static final int SWIDTH=SSPECIES.length()
+
+private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256
+
+private static final int DWIDTH=DSPECIES.length()
+
+private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256
+
+private static final int LWIDTH=LSPECIES.length()
+
+
+#Methods
+@SuppressWarnings static final float fma(float[] a, float[] b)
+
+@SuppressWarnings static final float fmaSparse(float[] a, float[] b, int[] bSet)
+
+public static final float absDif(long[] a, long[] b, float inva, float invb)
+
+public static float absDifComp(long[] a, long[] b, int k, int[] gcmap)
+
+*This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for
+*ScoreSequence.
+@SuppressWarnings public static void feedForward(Cell[] layer, float[] b)
+
+*This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for Train.
+public static void backPropFma(Cell[] layer, float[] a, float[][] bb)
+
+*Performs "a+=incr" where a and incr are equal-length arrays.
+*@param a A vector to increment.
+*@param b Increment amount.
+@SuppressWarnings static final void add(float[] a, float[] b)
+
+*Performs "a+=b*mult" where a and b are equal-length arrays.
+*@param a A vector to increment.
+*@param b Increment amount.
+*@param mult Increment multiplier.
+@SuppressWarnings static final void addProduct(float[] a, float[] b, float mult)
+
+@SuppressWarnings static final void addProductSparse(float[] a, float[] b, int[] bSet, float mult)
+
+@SuppressWarnings static final void copy(float[] a, float[] b)
+
+*Returns number of matches
+@SuppressWarnings static final int countMatches(byte[] s1, byte[] s2, int a1, int b1, int a2, int b2)
+
+*Returns index of symbol
+@SuppressWarnings static final int find(byte[] a, byte symbol, int from, int to)
+
+@SuppressWarnings static final float sum(float[] a, int from, int to)
+
+@SuppressWarnings static final long sum(long[] a, int from, int to)
+
+@SuppressWarnings static final long sum(int[] a, int from, int to)
+
+@SuppressWarnings static final long sum(byte[] a, int from, int to)
+
+@SuppressWarnings static final double sum(double[] a, int from, int to)
+
+*Calculates the sum of the absolute differences between corresponding elements of two float arrays.
+*@param a the first float array
+*@param b the second float array
+*@return the sum of the absolute differences between corresponding elements of the two arrays
+*@throws IllegalArgumentException if the lengths of the arrays do not match
+public static float absDifFloat(float[] a, float[] b)
+
+public static float cosineSimilarity(int[] a, int[] b, float inva, float invb)
+
+@SuppressWarnings static final int max(int[] a, int from, int to)
+
+@SuppressWarnings static final long max(long[] a, int from, int to)
+
+@SuppressWarnings static final float max(float[] a, int from, int to)
+
+</class SIMD>
+<class SIMDAlign>
+*Holds SIMD methods for alignment.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 12, 2025
+public class SIMDAlign
+
+#Fields
+private static final long MATCH=1L << 42
+
+private static final long N_SCORE=0
+
+private static final long SUB=(-1L) << 42
+
+private static final long INS=(-1L) << 42
+
+private static final long DEL=((-1L) << 42) | ((1L) << 21)
+
+private static final long SCORE_MASK=((-1L) << 42)
+
+private static final boolean debug=false
+
+private static final LongVector vMATCH=LongVector.broadcast(LSPECIES,MATCH)
+
+private static final LongVector vN_SCORE=LongVector.broadcast(LSPECIES,N_SCORE)
+
+private static final LongVector vSUB=LongVector.broadcast(LSPECIES,SUB)
+
+private static final LongVector vINS=vSUB
+
+private static final LongVector v15=LongVector.broadcast(LSPECIES,15)
+
+
+#Methods
+*Designed to eliminate scalar loop by reprocessing some final elements
+public static void alignBandVector(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr)
+
+*Designed to eliminate scalar loop by reprocessing some final elements
+*Handles deletions
+*TODOL Fails on Glocal+5 with input "AAAA" "AAGAA"
+public static void alignBandVectorDel(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS, long SCORE_MASK)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*Also handles deletions
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos2(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr)
+
+*Vector implementation of inner loop that tracks the maximum score.
+*Max score is independent of the deletion tail loop since it only reduces scores.
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPosConcise(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Scalar implementation of inner loop for band shorter than LWIDTH.
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPosScalar(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+public static void alignBandVectorInt(int q, int[] ref, int bandStart, int bandEnd, int[] prev, int[] curr, int MATCH, int N_SCORE, int SUB, int INS)
+
+*Pure vector implementation of deletion tail loop based on exact pseudocode
+*TODO: Slow
+public static void processDeletionsTailVectorPure(long[] curr, int bandStart, int bandEnd)
+
+*Pure vector implementation of deletion tail loop based on exact pseudocode
+*Inner loop unrolled
+public static void processDeletionsTailVectorUnrolled(long[] curr, int bandStart, int bandEnd, long DEL_INCREMENT)
+
+private static final void print(long[] curr, String name)
+
+public static void processInnerDiagonalVectorized(int innerMinI, int innerMaxI, long[] revQuery, long[] ref, int jm1Start, long[] diag_km2, long[] diag_km1, long[] diag_k, int km2DiagOffset, int km1DiagOffset, int qLen, long MATCH, long N_SCORE, long SUB, long INS, long DEL_INCREMENT, long SCORE_MASK)
+
+@SuppressWarnings public static void processCrossCutDiagonalSIMD(long[] revQuery, long[] ref, int k, int innerMinCol, int innerMaxCol, int qLen, long[] diag_km2, long[] diag_km1, long[] diag_k)
+
+@SuppressWarnings public static void processCrossCutDiagonalSIMD_old(long[] revQuery, long[] ref, int k, int innerMinCol, int innerMaxCol, int qLen, long[] diag_km2, long[] diag_km1, long[] diag_k, long MATCH, long SUB, long INS, long DEL_INCREMENT, long N_SCORE, long SCORE_MASK)
+
+</class SIMDAlign>
+<class SIMDAlignByte>
+*Holds SIMD methods for alignment.
+*@author Brian Bushnell
+*@author Isla
+*@contributor Zephy
+*@date May 12, 2025
+public class SIMDAlignByte
+
+#Fields
+private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256
+
+private static final int FWIDTH=FSPECIES.length()
+
+private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256
+
+private static final int BWIDTH=BSPECIES.length()
+
+private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256
+
+private static final int IWIDTH=ISPECIES.length()
+
+private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256
+
+private static final int SWIDTH=SSPECIES.length()
+
+private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256
+
+private static final int DWIDTH=DSPECIES.length()
+
+private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256
+
+private static final int LWIDTH=LSPECIES.length()
+
+private static final byte MATCH=1
+
+private static final byte N_SCORE=0
+
+private static final byte SUB=-1
+
+private static final byte INS=-1
+
+private static final byte DEL=-1
+
+
+#Methods
+public static void alignBandVector(byte q, byte[] ref, int bandStart, int bandEnd, byte[] prev, byte[] curr)
+
+*Counts substitutions (mismatches) between a query sequence and multiple diagonals
+*of a reference sequence using SIMD vectorization.
+*This function compares the query sequence against BWIDTH (32) different starting
+*positions in the reference sequence simultaneously, counting mismatches for each.
+*It's designed for use in sequence alignment algorithms where multiple diagonal
+*alignments need to be evaluated.
+*@param query The query sequence as a byte array
+*@param ref The reference sequence as a byte array
+*@param pos Output parameter - will contain the lane index (0-31) with minimum mismatches
+*@return The minimum number of mismatches found across all lanes, or qLen if all lanes overflow
+public static final int countSubs(byte[] query, byte[] ref, int[] pos, int maxSubs)
+
+*Aligns a sequence to a reference, with no indels.
+*Returns all positions containing fewer than maxSubs mismatches.
+*Appears broken due to lack of residual handling and AOOB exceptions.
+@Deprecated public static final IntList alignDiagonal(byte[] query, byte[] ref, int maxSubs)
+
+*Aligns a sequence to a reference, with no indels, supporting clipped alignments.
+*Returns all positions containing fewer than maxSubs mismatches.
+*Uses scalar loops for boundary conditions and SIMD for bulk processing.
+*@TODO Pad short contigs to avoid spending time in scalar mode
+public static final IntList alignDiagonal(byte[] query, byte[] ref, int maxSubs, int maxClips)
+
+private static int alignScalar(byte[] query, byte[] ref, int maxSubs, int rStart)
+
+private static int alignClippedScalar(byte[] query, byte[] ref, int maxSubs, int maxClips, int rStart)
+
+public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd)
+
+</class SIMDAlignByte>
+<class SIMDAlignOld>
+*Holds SIMD methods for alignment.
+*@author Brian Bushnell
+*@contributor Isla
+*@date May 12, 2025
+public class SIMDAlignOld
+
+#Methods
+public static void alignBandVector_old(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Designed to eliminate scalar loop by reprocessing some final elements
+public static void alignBandVector(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Designed to eliminate scalar loop by reprocessing some final elements
+*Handles deletions
+*TODOL Fails on Glocal+5 with input "AAAA" "AAGAA"
+public static void alignBandVectorDel(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS, long DEL)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS, long SCORE_MASK)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Vector implementation that also tracks and returns the position of maximum score
+*Also handles deletions
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPos2(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS, long DEL)
+
+*Vector implementation of inner loop that tracks the maximum score.
+*Max score is independent of the deletion tail loop since it only reduces scores.
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPosConcise(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Scalar implementation of inner loop for band shorter than LWIDTH.
+*@return Position of the maximum score in the processed band
+public static int alignBandVectorAndReturnMaxPosScalar(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+public static void alignBandVectorInt(int q, int[] ref, int bandStart, int bandEnd, int[] prev, int[] curr, int MATCH, int N_SCORE, int SUB, int INS)
+
+public static void alignBandVector2(long q, long[] ref, int bandStart, int bandEnd, long[] prev, long[] curr, long MATCH, long N_SCORE, long SUB, long INS)
+
+*Pure vector implementation of deletion tail loop based on exact pseudocode
+*TODO: Slow
+public static void processDeletionsTailVectorPure(long[] curr, int bandStart, int bandEnd, long DEL_INCREMENT)
+
+*Pure vector implementation of deletion tail loop based on exact pseudocode
+*Inner loop unrolled
+public static void processDeletionsTailVectorUnrolled(long[] curr, int bandStart, int bandEnd, long DEL_INCREMENT)
+
+private static final void print(long[] curr, String name)
+
+public static void processInnerDiagonalVectorized(int innerMinI, int innerMaxI, long[] revQuery, long[] ref, int jm1Start, long[] diag_km2, long[] diag_km1, long[] diag_k, int km2DiagOffset, int km1DiagOffset, int qLen, boolean debug, long MATCH, long N_SCORE, long SUB, long INS, long DEL_INCREMENT, long SCORE_MASK)
+
+@SuppressWarnings public static void processCrossCutDiagonalSIMD_old(long[] revQuery, long[] ref, int k, int innerMinCol, int innerMaxCol, int qLen, long[] diag_km2, long[] diag_km1, long[] diag_k, long MATCH, long SUB, long INS, long DEL_INCREMENT, long N_SCORE, long SCORE_MASK, boolean debug)
+
+@SuppressWarnings public static void processCrossCutDiagonalSIMD(long[] revQuery, long[] ref, int k, int innerMinCol, int innerMaxCol, int qLen, long[] diag_km2, long[] diag_km1, long[] diag_k, long MATCH, long SUB, long INS, long DEL_INCREMENT, long N_SCORE, long SCORE_MASK, boolean debug)
+
+</class SIMDAlignOld>
+<class SyncHeart>
+*Thread-safe synchronization utilities for mutable configuration values in BBTools.
+*Provides safe concurrent access to shared state with optimized read performance.
+*Uses ReadWriteLock to allow multiple concurrent readers while ensuring exclusive writes.
+*@author Brian Bushnell
+*@author Isla Winglet
+*@date June 18, 2025
+public class SyncHeart
+
+#Fields
+*ReadWriteLock for thread-safe access to configuration values
+private static final ReentrantReadWriteLock configLock=new ReentrantReadWriteLock()
+
+
+#Methods
+*Acquires read lock for safe concurrent read access
+private static final void readLock()
+
+*Releases read lock
+private static final void readUnlock()
+
+*Acquires write lock for exclusive write access
+private static final void writeLock()
+
+*Releases write lock
+private static final void writeUnlock()
+
+*Thread-safe setter for amino acid input mode
+public static void setAminoIn(boolean b)
+
+*Thread-safe getter for amino acid input mode
+public static boolean aminoIn()
+
+*Thread-safe setter for low memory mode
+public static void setLowMemory(boolean b)
+
+*Thread-safe getter for low memory mode
+public static boolean lowMemory()
+
+*Thread-safe setter for garbage collection before memory printing
+public static void setGcBeforePrintMemory(boolean b)
+
+*Thread-safe getter for garbage collection before memory printing
+public static boolean gcBeforePrintMemory()
+
+*Thread-safe setter for parallel sort usage
+public static void setParallelSort(boolean b)
+
+*Thread-safe getter for parallel sort usage
+public static boolean parallelSort()
+
+*Thread-safe setter for SIMD optimization usage
+public static void setSimd(boolean b)
+
+*Thread-safe getter for SIMD optimization usage
+public static boolean simd()
+
+*Thread-safe setter for MPI usage
+public static void setUseMpi(boolean b)
+
+*Thread-safe getter for MPI usage
+public static boolean useMpi()
+
+*Thread-safe setter for MPI keep all mode
+public static void setMpiKeepAll(boolean b)
+
+*Thread-safe getter for MPI keep all mode
+public static boolean mpiKeepAll()
+
+*Thread-safe setter for CRISMPI usage
+public static void setUseCrismpi(boolean b)
+
+*Thread-safe getter for CRISMPI usage
+public static boolean useCrismpi()
+
+*Thread-safe setter for MPI rank
+public static void setMpiRank(int rank)
+
+*Thread-safe getter for MPI rank
+public static int mpiRank()
+
+*Thread-safe setter for number of MPI ranks
+public static void setMpiNumRanks(int ranks)
+
+*Thread-safe getter for number of MPI ranks
+public static int mpiNumRanks()
+
+*Thread-safe setter for FASTA line wrap length
+public static void setFastaWrap(int wrap)
+
+*Thread-safe getter for FASTA line wrap length
+public static int fastaWrap()
+
+*Thread-safe setter for fake quality score
+public static void setFakeQual(byte qual)
+
+*Thread-safe getter for fake quality score
+public static byte fakeQual()
+
+*Thread-safe setter for file extension fixing
+public static void setFixExtensions(boolean b)
+
+*Thread-safe getter for file extension fixing
+public static boolean fixExtensions()
+
+*Thread-safe setter for read comment trimming
+public static void setTrimReadComments(boolean b)
+
+*Thread-safe getter for read comment trimming
+public static boolean trimReadComments()
+
+*Thread-safe setter for RNAME trimming in SAM reads
+public static void setTrimRname(boolean b)
+
+*Thread-safe getter for RNAME trimming in SAM reads
+public static boolean trimRname()
+
+*Thread-safe setter for KMG output formatting
+public static void setOutputKmg(boolean b)
+
+*Thread-safe getter for KMG output formatting
+public static boolean outputKmg()
+
+*Thread-safe setter for read buffer length
+public static void setBufferLen(int len)
+
+*Thread-safe getter for read buffer length
+public static int bufferLen()
+
+*Thread-safe setter for maximum buffer data
+public static void setBufferData(long data)
+
+*Thread-safe getter for maximum buffer data
+public static long bufferData()
+
+</class SyncHeart>
+<class Timer>
+public class Timer
+
+#Fields
+public long time1
+
+public long time2
+
+*in nanos
+public long elapsed
+
+public PrintStream outstream=System.err
+
+public boolean addTab=true
+
+
+#Methods
+public Timer()
+
+public Timer(String s)
+
+public Timer(PrintStream outstream_)
+
+public Timer(PrintStream outstream_, boolean addTab_)
+
+public long start(String s)
+
+public long stopAndPrint()
+
+public long stop(String s)
+
+public long stopAndStart(String s)
+
+public long start()
+
+public long stop()
+
+@Override public String toString()
+
+public String timeInSeconds(int decimals)
+
+public double timeInSeconds()
+
+</class Timer>
+<class Tools>
+public final class Tools
+
+#Fields
+public static final double log2=Math.log(2)
+
+public static final double invlog2=1 / log2
+
+private static final double logRoot2=Math.log(Math.sqrt(2))
+
+private static final double invlogRoot2=1 / logRoot2
+
+private static final double log1point2=Math.log(1.2)
+
+private static final double invlog1point2=1 / log1point2
+
+public static final boolean[] digitMap
+
+public static final boolean[] signOrDigitMap
+
+public static final boolean[] numericMap
+
+public static final boolean[] letterMap
+
+*ASCII equivalents for extended-ASCII characters
+public static final char[] specialChars
+
+public static final int[] ilens
+
+public static final long[] llens
+
+*A single whitespace
+public static final Pattern whitespace=Pattern.compile("\\s")
+
+*Multiple whitespace
+public static final Pattern whitespacePlus=Pattern.compile("\\s+")
+
+*Comma
+public static final Pattern commaPattern=Pattern.compile(",")
+
+*Dot
+public static final Pattern dotPattern=Pattern.compile("\\.")
+
+*Tab
+public static final Pattern tabPattern=Pattern.compile("\t")
+
+*Colon
+public static final Pattern colonPattern=Pattern.compile(":")
+
+*Semicolon
+public static final Pattern semiPattern=Pattern.compile(";")
+
+*Pipe
+public static final Pattern pipePattern=Pattern.compile("\\|")
+
+*Space
+public static final Pattern spacePattern=Pattern.compile(" ")
+
+*Equals
+public static final Pattern equalsPattern=Pattern.compile("=")
+
+*Equals
+public static final Pattern underscorePattern=Pattern.compile("_")
+
+public static boolean FORCE_JAVA_PARSE_DOUBLE=false
+
+private static final byte[] baseToNumber=AminoAcid.baseToNumber
+
+private static final byte[] baseToNumber0=AminoAcid.baseToNumber0
+
+private static final byte[] baseToComplementNumber=AminoAcid.baseToComplementNumber
+
+private static final byte[] baseToHashcode=AminoAcid.baseToHashcode
+
+private static final byte[] baseToNumberExtended=AminoAcid.baseToNumberExtended
+
+private static final byte[] baseToComplementNumberExtended=AminoAcid.baseToComplementNumberExtended
+
+private static final ThreadLocal<int[]> localACGTN=new ThreadLocal<int[]>(){
+  @Override protected int[] initialValue(){
+    return new int[5];
+  }
+}
+
+
+#Methods
+public static void main(String[] args)
+
+public static final String format(String s, Object args)
+
+public static String plural(String s, int count)
+
+*This function was written by a 2024 AI! Mostly. Just modified by me.
+public static double[] linearRegression(DoubleList xcoords, DoubleList ycoords)
+
+*More like the AI version I requested, but I added the limits.
+*Useful when sorting to exclude outliers. Must be pre-sorted.
+public static double[] linearRegression(List<Point> list, double lowFraction, double highFraction)
+
+public static IntHashSet loadIntSet(String numbers)
+
+*Loads integers.
+*Can be comma-delimited, or a comma-delimited list of files.
+*Files should contain one integer per line.
+*@param numbers
+*@return
+public static IntList loadIntegers(String numbers)
+
+private static IntList loadIntegers(String numbers, IntList list)
+
+public static boolean existsInput(String fname)
+
+*Checks for permission to read files, and input name collisions.
+public static boolean testOutputFiles(boolean overwrite, boolean append, boolean allowDuplicates, ArrayList<String> args)
+
+*Checks for permission to overwrite files, and output name collisions.
+public static boolean testOutputFiles(boolean overwrite, boolean append, boolean allowDuplicates, String args)
+
+*Checks for permission to read files, and input name collisions.
+@SafeVarargs public static boolean testInputFiles(boolean allowDuplicates, boolean throwException, ArrayList<String> args)
+
+*Checks for permission to read files, and input name collisions.
+public static boolean testInputFiles(boolean allowDuplicates, boolean throwException, String[] args)
+
+*Checks for permission to read files, and input name collisions.
+public static boolean testInputFilesALA(boolean allowDuplicates, boolean throwException, ArrayList<String> list1, ArrayList<String> list2, String args)
+
+*Checks for permission to read files, and input name collisions.
+public static boolean testInputFiles(boolean allowDuplicates, boolean throwException, String args)
+
+*Checks for permission to overwrite files, and output name collisions.
+public static boolean testForDuplicateFilesALA(boolean throwException, ArrayList<String> list1, ArrayList<String> list2, String args)
+
+*Checks for permission to overwrite files, and output name collisions.
+*@return True if no problems are detected
+public static boolean testForDuplicateFiles(boolean throwException, String args)
+
+public static final boolean canWrite(String s, boolean overwrite)
+
+public static final boolean isOutputFileName(String s)
+
+public static final boolean isNullFileName(String s)
+
+public static final boolean isSpecialOutputName(String s)
+
+public static final boolean isSpecialInputName(String s)
+
+public static final boolean canRead(String s)
+
+public static boolean addFiles(String b, ArrayList<String> list)
+
+public static void fill(byte[][] matrix, byte b)
+
+public static void fill(int[] target, int[] source)
+
+public static boolean isSorted(int[] array)
+
+public static String[] fixExtension(String[] fnames)
+
+public static ArrayList<String> fixExtension(ArrayList<String> fnames)
+
+public static String fixExtension(String fname)
+
+public static String padRight(long number, int pad)
+
+public static String padRight(String s, int pad)
+
+public static String padLeft(long number, int pad)
+
+public static String padLeft(String s, int pad)
+
+public static String padKMB(long number, int pad)
+
+public static String timeReadsBasesProcessed(Timer t, long reads, long bases, int pad)
+
+public static String timeZMWsReadsBasesProcessed(Timer t, long ZMWs, long reads, long bases, int pad)
+
+public static String timeQueriesComparisonsProcessed(Timer t, long x, long y, int pad)
+
+public static String time(Timer t, int pad)
+
+public static String readsBasesProcessed(long elapsed, long reads, long bases, int pad)
+
+public static String things(String things, long amt, int pad)
+
+public static String ZMWsReadsBasesProcessed(long elapsed, long ZMWs, long reads, long bases, int pad)
+
+public static String queriesComparisonsProcessed(long elapsed, long queries, long comparisons, int pad)
+
+public static String timeSketchesKeysProcessed(Timer t, long sketchesProcessed, long keysProcessed, int pad)
+
+public static String sketchesKeysProcessed(long elapsed, long sketches, long keys, int pad)
+
+public static String readsBasesOut(long readsIn, long basesIn, long readsOut, long basesOut, int pad, boolean percent)
+
+public static String readsBasesOut(long elapsed, long reads, long bases, int pad)
+
+public static String ZMWsReadsBasesOut(long ZMWsIn, long readsIn, long basesIn, long ZMWsOut, long readsOut, long basesOut, int pad, boolean percent)
+
+public static String numberPercent(String text, long number, double percent, int decimals, int pad)
+
+public static String number(String text, double number, int decimals, int pad)
+
+public static String number(String text, long number, int pad)
+
+public static String string(String text, String value, int pad)
+
+public static String timeLinesBytesProcessed(Timer t, long linesProcessed, long bytesProcessed, int pad)
+
+public static String linesBytesProcessed(long elapsed, long lines, long bytes, int pad)
+
+public static String timeLinesProcessed(Timer t, long linesProcessed, int pad)
+
+public static String linesProcessed(long elapsed, long lines, int pad)
+
+public static String thingsProcessed(long elapsed, long count, int pad, String name)
+
+public static String linesBytesOut(long linesIn, long bytesIn, long linesOut, long bytesOut, int pad, boolean percent)
+
+public static ArrayList<byte[]> split(byte[] line, int start, byte delimiter)
+
+public static void breakReads(ArrayList<Read> list, int max, int min, PrintStream outstream)
+
+private static boolean containsReadsAboveSize(ArrayList<Read> list, int size)
+
+private static boolean containsReadsOutsideSizeRange(ArrayList<Read> list, int min, int max)
+
+public static void shiftRight(byte[] array, int amt)
+
+public static void shiftLeft(byte[] array, int amt)
+
+public static int lastChar(String s)
+
+public static boolean startsWithIgnoreCase(String s, String prefix)
+
+*Iterative guess-and-check using a one-way formula
+public static double observedToActualCoverage_iterative(double y, double error)
+
+*Derived from curve-fitting simulated data.
+*Yields actual kmer coverage from observed kmer coverage.
+*Not perfectly accurate but the deviation is typically under 5%.
+public static double observedToActualCoverage(double y)
+
+*Derived from curve-fitting simulated data.
+*Yields observed kmer coverage from actual kmer coverage.
+*Not perfectly accurate but the deviation is typically under 10%.
+private static double actualToObservedCoverage(double x)
+
+public static double kmerToReadCoverage(double cov, double readlen, int k)
+
+public static double readToKmerCoverage(double cov, double readlen, int k)
+
+public static boolean isNumeric(String s)
+
+public static void toUpperCase(byte[] s)
+
+public static int countLetters(String a)
+
+public static int countGreaterThan(int[] array, int bound)
+
+public static boolean isDigitOrSign(int c)
+
+public static boolean isNumeric(int c)
+
+public static boolean isDigit(int c)
+
+public static boolean isLetter(int c)
+
+public static boolean isLetterOrDigit(int c)
+
+public static boolean isUpperCase(int c)
+
+public static boolean isLowerCase(int c)
+
+public static int toUpperCase(int c)
+
+public static int toLowerCase(int c)
+
+public static boolean isDigitOrSign(byte c)
+
+public static boolean isNumeric(byte c)
+
+public static boolean isDigit(byte c)
+
+public static boolean isLetter(byte c)
+
+public static boolean isLetterOrDigit(byte c)
+
+public static boolean isUpperCase(byte c)
+
+public static boolean isLowerCase(byte c)
+
+public static byte toUpperCase(byte c)
+
+public static byte toLowerCase(byte c)
+
+public static boolean isDigitOrSign(char c)
+
+public static boolean isNumeric(char c)
+
+public static boolean isDigit(char c)
+
+public static boolean isLetter(char c)
+
+public static boolean isLetterOrDigit(char c)
+
+public static boolean isUpperCase(char c)
+
+public static boolean isLowerCase(char c)
+
+public static char toUpperCase(char c)
+
+public static char toLowerCase(char c)
+
+public static String toString(Throwable t)
+
+public static int countKmers(byte[] bases, int k)
+
+public static double countCorrectKmers(byte[] quals, int k)
+
+public static long estimateFileSize(String fname)
+
+*@param fname
+*@param readsToFetch
+*@param extraOverheadPerRead
+*@param earlyExit
+*@return {memEstimate, diskEstimate, memRatio, diskRatio, numReadsEstimate};
+public static double[] estimateFileMemory(String fname, int readsToFetch, double extraOverheadPerRead, boolean earlyExit, boolean lowComplexity)
+
+public static final boolean nextBoolean(Random randy)
+
+public static float[] inverse(float[] array)
+
+public static double[] inverse(double[] array)
+
+*Ensures headers consist of printable ASCII characters.
+public static boolean checkHeader(String s)
+
+*Changes headers to consist of printable ASCII characters.
+public static String fixHeader(String s, boolean allowNull, boolean processAssertions)
+
+public static int secondHighestPosition(int[] array)
+
+*Returns this file name if it is a file, or all the files in the directory if it is a directory.
+*Splits comma-delimited lists.
+*@param b
+*@param fasta
+*@param fastq
+*@param sam
+*@param any
+*@return A list of files
+public static Collection<String> getFileOrFiles(String b, Collection<String> list, boolean fasta, boolean fastq, boolean sam, boolean any)
+
+public static ArrayList<byte[]> toAdapterList(String name, int maxLength)
+
+private static byte[] checkAdapter(byte[] array, int maxLength)
+
+public static byte[][] toAdapters(String name, int maxLength)
+
+*Add names to a collection.
+*This can be a literal name, or a text file with one name per line,
+*or a fastq, fasta, or sam file, in which case the read names will be added.
+*@param s
+*@param names
+*@return Number added
+public static final int addNames(String s, Collection<String> names, boolean allowSubprocess)
+
+*Make copies of any read with ambiguous bases to represent all possible non-ambiguous representations.
+*@param reads A list of reads
+*@param minlen minimum length of reads to replicate
+*@return A list of reads with no ambiguity codes.
+public static ArrayList<Read> replicateAmbiguous(ArrayList<Read> reads, int minlen)
+
+*Make copies of this read to represent all possible non-ambiguous representations.
+*Return a list of all fully-defined versions.
+*@param r A read to replicate
+*@return A list of reads with no ambiguity codes.
+public static ArrayList<Read> makeReplicates(Read r)
+
+*@param r A read
+*@param pos The position of an ambiguous base
+*@param goal A list of replicates
+private static ArrayList<Read> replicateAtPosition(Read r, int pos)
+
+*Returns index of first matching location
+public static final int locationOf(byte[] big, byte[] small, int maxMismatches)
+
+*Returns index of first matching location
+public static final int containsForward(byte[] big, byte[] small, int maxMismatches)
+
+*Returns index of first matching location
+public static final int containsReverse(byte[] big, byte[] small, int maxMismatches)
+
+*Removes null elements by shrinking the list. May change list order.
+public static final int condense(ArrayList<X> list)
+
+*Removes null elements by shrinking the list. Will not change list order.
+public static final int condenseStrict(ArrayList<X> list)
+
+*Removes null elements by shrinking the array. Will not change array order.
+public static final X[] condenseStrict(X[] array)
+
+*Creates a new list without null elements.
+public static final ArrayList<X> condenseNew(ArrayList<X> list)
+
+*minSitesToRetain should be set to 1 if the list is not sorted by score (for efficiency of removal). Otherwise, it can be higher.
+public static final int trimSiteList(ArrayList<SiteScore> ssl, float fractionOfMax, boolean retainPaired, boolean retainSemiperfect, int minSitesToRetain, int maxSitesToRetain)
+
+*minSitesToRetain should be set to 1 if the list is not sorted by score. Otherwise, it can be higher.
+public static final void trimSiteListByMax(ArrayList<SiteScore> ssl, int cutoff, boolean retainPaired, boolean retainSemiperfect, int minSitesToRetain, int maxSitesToRetain)
+
+public static final boolean inOrder(ArrayList<X> list)
+
+public static final int mergeDuplicateSites(ArrayList<SiteScore> list, boolean doAssertions, boolean mergeDifferentGaps)
+
+public static final int subsumeOverlappingSites(ArrayList<SiteScore> list, boolean subsumeIfOnlyStartMatches, boolean subsumeInexact)
+
+public static final int removeOverlappingSites(ArrayList<SiteScore> list, boolean requireAMatchingEnd)
+
+*Returns the number of sitescores in the list within "thresh" of the top score. Assumes list is sorted descending.
+*This is used to determine whether a mapping is ambiguous.
+public static final int countTopScores(ArrayList<SiteScore> list, int thresh)
+
+*Assumes list is sorted by NON-PAIRED score.
+*Returns number removed.
+public static final int removeLowQualitySitesPaired(ArrayList<SiteScore> list, int maxSwScore, float multSingle, float multPaired)
+
+*Assumes list is sorted by NON-PAIRED score.
+*Returns number removed.
+public static final int removeLowQualitySitesUnpaired(ArrayList<SiteScore> list, int thresh)
+
+*Assumes list is sorted by NON-PAIRED score.
+*Returns number removed.
+public static final int removeLowQualitySitesPaired2(ArrayList<SiteScore> list, int maxSwScore, float multSingle, float multPaired, int expectedSites)
+
+*Assumes list is sorted by NON-PAIRED score.
+*Returns number removed.
+*This has a couple of changes (like potentially removing the second-best site) that make it applicable to SKIMMER not MAPPER.
+public static final int removeLowQualitySitesUnpaired2(ArrayList<SiteScore> list, int maxSwScore, float multSingle, int expectedSites)
+
+public static final void trimSitesBelowCutoff(ArrayList<SiteScore> ssl, int cutoff, boolean retainPaired, boolean retainSemiperfect, int minSitesToRetain, int maxSitesToRetain)
+
+public static CharSequence toStringSafe(byte[] array)
+
+public static boolean equals(long[] a, long[] b)
+
+public static boolean equals(int[] a, int[] b)
+
+public static boolean equals(float[] a, float[] b)
+
+public static boolean equals(byte[] a, byte[] b)
+
+public static boolean equals(String a, byte[] b)
+
+public static boolean equalsSubstring(String a, String b, int from, int toExclusive)
+
+*@param a
+*@param b
+*@param start
+*@return True if a contains b starting at start.
+public static boolean contains(byte[] a, byte[] b, int start)
+
+*@param a
+*@param b
+*@param start
+*@return True if a contains b starting at start.
+public static boolean contains(String a, String b, int start)
+
+*@param array
+*@param s
+*@return True if the array starts with the String.
+public static boolean startsWith(byte[] array, String s)
+
+public static boolean equals(byte[] array, String s)
+
+*@param array
+*@param s
+*@return True if the array starts with s.
+public static boolean startsWith(byte[] array, byte[] s)
+
+*@param array
+*@param s
+*@return True if the array starts with the String.
+public static boolean endsWith(byte[] array, String s)
+
+public static boolean endsWithLetter(String s)
+
+public static boolean endsWithLetter(byte[] s)
+
+*@param array
+*@param b
+*@return True if the array starts with the character.
+public static boolean startsWith(String s, char b)
+
+*@param array
+*@param b
+*@return True if the array starts with the character.
+public static boolean startsWith(String s, byte b)
+
+*@param array
+*@param b
+*@return True if the array starts with the character.
+public static boolean startsWith(byte[] array, char b)
+
+*@param array
+*@param b
+*@return True if the array starts with the character.
+public static boolean startsWith(byte[] array, byte b)
+
+*@param array
+*@param b
+*@return True if the array starts with the character.
+public static boolean startsWith(byte[] array, byte b, int initialPos)
+
+*@param array
+*@param s
+*@return True if the array starts with the String.
+public static boolean startsWith(byte[] array, String s, int initialPos)
+
+*@param array
+*@param s
+*@return True if the array starts with the String.
+public static boolean startsWith(byte[] array, byte[] s, int initialPos)
+
+public static int compare(byte[] a, byte[] b)
+
+public static void fill(long[][][] matrix, int x)
+
+public static void fill(long[][] matrix, int x)
+
+public static int sumInt(byte[] array)
+
+public static void multiplyBy(int[] array, double mult)
+
+public static void multiplyBy(long[] array, double mult)
+
+public static void multiplyBy(long[][] matrix, double mult)
+
+public static void multiplyBy(long[][][] matrix, double mult)
+
+public static void add(int[] array, int[] incr)
+
+public static void add(AtomicLongArray array, AtomicLongArray incr)
+
+public static void add(long[] array, long[] incr)
+
+public static void add(long[][] array, long[][] incr)
+
+public static void add(long[][][] array, long[][][] incr)
+
+public static void add(double[] array, double[] incr)
+
+public static double sum(float[] array)
+
+public static long sum(byte[] array)
+
+public static long sum(char[] array)
+
+public static long sum(short[] array)
+
+public static long sum(int[] array)
+
+public static double sum(double[] array)
+
+public static long sum(long[] array)
+
+public static long sum(int[] array, int from, int to)
+
+public static long sum(long[] array, int from, int to)
+
+public static long sum(AtomicIntegerArray array)
+
+public static long sum(AtomicLongArray array)
+
+public static float invSum(int[] a)
+
+public static double mean(int[] array)
+
+public static double mean(long[] array)
+
+public static int cardinality(short[] array)
+
+public static double harmonicMean(int[] array)
+
+public static int cardinality(int[] array)
+
+public static double weightedAverage(long[] array)
+
+public static long sumHistogram(long[] array)
+
+public static long minHistogram(long[] array)
+
+public static long maxHistogram(long[] array)
+
+public static long[] toArray(AtomicLongArray array)
+
+public static long[] toArray(CoverageArray array)
+
+public static int min(int[] array)
+
+public static byte min(byte[] array)
+
+public static int intSum(int[] array)
+
+public static void reverseInPlace(byte[] array)
+
+public static void reverseInPlace(char[] array)
+
+public static void reverseInPlace(int[] array)
+
+public static void reverseInPlace(long[] array)
+
+public static void reverseInPlace(float[] array)
+
+public static void reverseInPlace(AtomicIntegerArray array)
+
+public static void reverseInPlace(X[] array)
+
+public static void reverseInPlace(X[] array, int from, int to)
+
+public static void reverseInPlace(byte[] array, int from, int to)
+
+public static void reverseInPlace(int[] array, int from, int to)
+
+public static void reverseInPlace(long[] array, int from, int to)
+
+public static void reverseInPlace(float[] array, int from, int to)
+
+public static void reverseInPlace(double[] array, int from, int to)
+
+public static void reverseInPlace(AtomicIntegerArray array, int from, int to)
+
+public static byte[] reverseAndCopy(byte[] array)
+
+public static char[] reverseAndCopy(char[] array)
+
+public static int[] reverseAndCopy(int[] array)
+
+public static void copy(String s, byte[] bs)
+
+public static byte[] reverseAndCopy(byte[] array, byte[] out)
+
+public static char[] reverseAndCopy(char[] array, char[] out)
+
+public static int[] reverseAndCopy(int[] array, int[] out)
+
+public static void cullHighFreqEntries(int[][] data, float fractionToExclude)
+
+public static int findLimitForHighFreqEntries(int[][] data, float fractionToExclude)
+
+public static void cullClumpyEntries(int[][] data, int maxDist, int minLength, float fraction)
+
+public static HashSet<Integer> banClumpyEntries(int[][] data, int maxDist, int minLength, float fraction)
+
+public static final boolean isClumpy(int[] array, int maxDist, float fraction)
+
+public static int[] makeLengthHistogram(int[][] x, int buckets)
+
+public static String toKMG(long x)
+
+*Replace characters in the array with different characters according to the map
+public static int remapAndCount(byte[] remap, byte[] array)
+
+*Replace characters in a string with different characters according to the map
+public static String remap(byte[] remap, String in)
+
+public static int[] makeHistogram(AtomicLongArray data, int buckets)
+
+*TODO: This (temporarily) uses a lot of memory. Could be reduced by making an array of length max(x) and counting occurrences.
+public static int[] makeLengthHistogram2(int[] x, int buckets, boolean verbose)
+
+public static int[] makeLengthHistogram3(int[] x, int buckets, boolean verbose)
+
+*Uses counts of occurrences of lengths rather than raw lengths
+public static int[] makeLengthHistogram4(int[] counts, int buckets, long total, boolean verbose)
+
+*@param array
+*@return Array integer average
+public static int averageInt(short[] array)
+
+*@param array
+*@return Array integer average
+public static int averageInt(int[] array)
+
+public static double averageDouble(int[] array)
+
+public static double averageDouble(float[] array)
+
+*Returns the median of a histogram
+public static int medianHistogram(int[] array)
+
+*Returns the median of a histogram
+public static int medianHistogram(long[] array)
+
+*Returns the percentile of a histogram
+public static int percentileHistogram(int[] array, double fraction)
+
+*Returns the percentile of a histogram
+public static int percentileHistogram(long[] array, double fraction)
+
+public static int calcModeHistogram(long array)
+
+public static final int absdif(int a, int b)
+
+public static final float absdif(float a, float b)
+
+public static final double absdif(double a, double b)
+
+*Uses unsigned math
+public static final int absdifUnsigned(int a, int b)
+
+*True iff (a1,b1) overlaps (a2,b2)
+public static final boolean overlap(int a1, int b1, int a2, int b2)
+
+public static final int overlapLength(int a1, int b1, int a2, int b2)
+
+*Is (a1, b1) within (a2, b2) ?
+public static final boolean isWithin(int a1, int b1, int a2, int b2)
+
+public static final int constrict(int point, int a, int b)
+
+public static int trailingDigits(String line)
+
+public static int trailingDigits(byte[] line)
+
+public static final int indexOf(byte[] array, char b)
+
+public static final int indexOf(byte[] array, byte b)
+
+public static final int indexOfNth(byte[] array, byte b, int n)
+
+public static final int indexOfNth(byte[] array, char b, int n)
+
+public static final int indexOf(String array, char b, int start)
+
+public static final int indexOf(byte[] array, char b, int start)
+
+public static final int indexOf(byte[] array, byte b, int start)
+
+public static final int indexOfNth(byte[] array, char b, int n, int start)
+
+public static final int indexOfNth(byte[] array, byte b, int n, int start)
+
+public static final int indexOf(byte[] ref, String query, int start)
+
+public static final int indexOfDelimited(byte[] ref, String query, int start, byte delimiter)
+
+private static boolean matches(byte[] ref, String query, int loc)
+
+public static final byte[] trimToWhitespace(byte[] array)
+
+public static final int indexOfWhitespace(byte[] array)
+
+public static final String trimToWhitespace(String array)
+
+public static final int indexOfWhitespace(String array)
+
+public static final int indexOf(char[] array, char b)
+
+public static final int lastIndexOf(byte[] array, byte b)
+
+public static final int stringLength(long x)
+
+public static final int stringLength(int x)
+
+public static final int lengthOf(int x)
+
+public static final int lengthOf(long x)
+
+public static final byte max(byte[] array)
+
+public static final float max(float[] array)
+
+public static final int maxIndex(byte[] array)
+
+public static final int maxIndex(float[] array)
+
+public static final int max(short[] array)
+
+public static final int maxIndex(short[] array)
+
+public static final int max(int[] array)
+
+public static final int maxIndex(int[] array)
+
+public static final long max(long[] array)
+
+public static final int maxIndex(long[] array)
+
+public static final double max(double[] array)
+
+public static final int maxIndex(double[] array)
+
+public static final double standardDeviation(long[] numbers)
+
+public static final double standardDeviation(double[] numbers)
+
+public static final double standardDeviation(float[] numbers)
+
+*Calculates the standard deviation of the numbers in the array.
+*@param numbers An array of integers.
+*@return The standard deviation.
+public static final double standardDeviation(int[] numbers)
+
+public static final double standardDeviation(AtomicIntegerArray numbers)
+
+public static final double standardDeviation(char[] numbers)
+
+public static final double standardDeviation(short[] numbers)
+
+public static final double averageHistogram(long[] histogram)
+
+public static final double standardDeviationHistogram(char[] histogram)
+
+public static final double standardDeviationHistogram(int[] histogram)
+
+public static final double standardDeviationHistogram(long[] histogram)
+
+*Special version that calculates standard deviation based on unique kmers rather than overall events
+public static final double standardDeviationHistogramKmer(long[] histogram)
+
+public static final double standardDeviationHistogram(AtomicLongArray histogram)
+
+*Special version that calculates standard deviation based on unique kmers rather than overall events
+public static final double standardDeviationHistogramKmer(AtomicLongArray histogram)
+
+public static final long[] downsample(long[] array, int bins)
+
+public static final void pause(int millis)
+
+public static final String getTempExt(FileFormat ffin, FileFormat ffout, String extout)
+
+public static final int min(int x, int y)
+
+public static final int max(int x, int y)
+
+public static final int min(int x, int y, int z)
+
+public static final int max(int x, int y, int z)
+
+public static final int min(int x, int y, int z, int z2)
+
+public static final int max(int x, int y, int z, int z2)
+
+public static final int mid(int x, int y, int z)
+
+public static final char min(char x, char y)
+
+public static final char max(char x, char y)
+
+public static final byte min(byte x, byte y)
+
+public static final byte max(byte x, byte y)
+
+public static final byte min(byte x, byte y, byte z)
+
+public static final byte max(byte x, byte y, byte z)
+
+public static final byte min(byte x, byte y, byte z, byte a)
+
+public static final byte max(byte x, byte y, byte z, byte a)
+
+public static final byte mid(byte x, byte y, byte z)
+
+public static final long min(long x, long y)
+
+public static final long max(long x, long y)
+
+public static final long min(long x, long y, long z)
+
+public static final long max(long x, long y, long z)
+
+public static final long min(long x, long y, long z, long z2)
+
+public static final long max(long x, long y, long z, long z2)
+
+public static final long mid(long x, long y, long z)
+
+public static final int longToInt(long x)
+
+public static final double min(double x, double y)
+
+public static final double max(double x, double y)
+
+public static final double min(double x, double y, double z)
+
+public static final double max(double x, double y, double z)
+
+public static final double max(double w, double x, double y, double z)
+
+public static final double mid(double x, double y, double z)
+
+public static final float min(float x, float y)
+
+public static final float max(float x, float y)
+
+public static final float min(float x, float y, float z)
+
+public static final float max(float x, float y, float z)
+
+public static final float min(float x, float y, float z, float z2)
+
+public static final float max(float x, float y, float z, float z2)
+
+public static final float mid(float x, float y, float z)
+
+public static final int min(int[] array, int fromIndex, int toIndex)
+
+public static final int max(int[] array, int fromIndex, int toIndex)
+
+public static final long min(long[] array, int fromIndex, int toIndex)
+
+public static final long max(long[] array, int fromIndex, int toIndex)
+
+public static int minIndex(int[] array)
+
+public static String trimWhitespace(String s)
+
+public static float calcGC(byte[] s)
+
+public static float calcGC(byte[] s, int from, int to)
+
+*A quick hash function for byte arrays
+public static int hash(byte[] s, int affixLen)
+
+*A quick way to determine if a sequence is canonical
+public static boolean canonical(byte[] s)
+
+public static boolean canonize(byte[] s)
+
+*Taken from Thomas Wang, Jan 1997:
+*http://web.archive.org/web/20071223173210/http://www.concentric.net/~Ttwang/tech/inthash.htm
+*This is much faster than the table version. Results seem similar y.
+public static long hash64shift(long key)
+
+public static double exponential(Random randy, double lamda)
+
+public static double log2(double d)
+
+public static double logRoot2(double d)
+
+public static double log1point2(double d)
+
+public static final boolean startsWithLetter(String a)
+
+public static final boolean startsWithLetter(byte[] a)
+
+public static final boolean startsWithDigit(String a)
+
+public static final boolean startsWithNumeric(String a)
+
+*Find a String in an array.
+*@param a String to find.
+*@param array Array of Strings.
+*@return Index of element, or -1 if not found.
+public static final int find(String a, String[] array)
+
+*Find a String in an array.
+*@param a String to find.
+*@param array Array of Strings.
+*@return Index of element, or -1 if not found.
+public static final int findIC(String a, String[] array)
+
+*Find a String in an array.
+*@param a String to find.
+*@param array Array of Strings.
+*@return Index of element, or last index if not found.
+public static final int find2(String a, String[] array)
+
+*Returns index of the closest element
+public static int binarySearch(float[] array, float key)
+
+public static final X getLast(ArrayList<X> list)
+
+public static boolean isReadableFile(String s)
+
+public static boolean looksLikeInputStream(String arg)
+
+public static void sleep(int millis)
+
+@Override protected int[] initialValue()
+
+</class Tools>
+<class TrimRead>
+*Helper class for processes that do inline quality trimming.
+*@author Brian Bushnell
+*@date Mar 15, 2013
+public final class TrimRead
+
+#Fields
+private static final long serialVersionUID=8791743639124592480L
+
+public final Read r
+
+*untrimmed bases
+public final byte[] bases1
+
+*untrimmed qualities
+public final byte[] qual1
+
+*trimmed bases
+public byte[] bases2
+
+*trimmed qualities
+public byte[] qual2
+
+public final float trimq
+
+public int leftTrimmed
+
+public int rightTrimmed
+
+*Require this many consecutive good bases to stop trimming. Minimum is 1.
+*This is for the old trimming mode and not really used anymore
+public static int minGoodInterval=2
+
+public static boolean verbose=false
+
+public static boolean optimalMode=true
+
+public static boolean windowMode=false
+
+public static float optimalBias=-1f
+
+public static int windowLength=4
+
+private static final float NPROB=0.75f
+
+
+#Methods
+public static void main(String[] args)
+
+public static TrimRead trim(Read r, boolean trimLeft, boolean trimRight, float trimq, float avgErrorRate, int minlen)
+
+*@param r Read to trim
+*@param trimLeft Trim left side
+*@param trimRight Trim right side
+*@param trimq Maximum quality to trim
+*@param minResult Ensure trimmed read is at least this long
+*@return Number of bases trimmed
+public static int trimFast(Read r, boolean trimLeft, boolean trimRight, float trimq, float avgErrorRate, int minResult)
+
+*@param r Read to trim
+*@param trimLeft Trim left side
+*@param trimRight Trim right side
+*@param trimq Maximum quality to trim
+*@param minResult Ensure trimmed read is at least this long
+*@return Number of bases trimmed
+public static int trimFast(Read r, boolean trimLeft, boolean trimRight, float trimq, float avgErrorRate, int minResult, boolean trimClip)
+
+*This method allows a "discardUnder" parameter, so that qtrim=r will still discard
+*reads that if left-trimmed, would be shorter than the desired minimum length.
+*It is not presently used.
+*@param r Read to trim
+*@param trimLeft Trim left side
+*@param trimRight Trim right side
+*@param trimq Maximum quality to trim
+*@param minResult Ensure trimmed read is at least this long
+*@param discardUnder Resulting reads shorter than this are not wanted
+*@return Number of bases trimmed
+public static int trimFast(Read r, boolean trimLeft, boolean trimRight, float trimq, float avgErrorRate, int minResult, int discardUnder, boolean trimClip)
+
+public static boolean untrim(Read r)
+
+public TrimRead(Read r_, int trimLeft, int trimRight, float trimq_, int minlen_)
+
+*Trim the left end of the read, from left to right
+private int trim(int trimLeft, int trimRight, int minlen)
+
+*Trim bases outside of leftLoc and rightLoc, excluding leftLoc and rightLoc
+public static int trimToPosition(Read r, int leftLoc, int rightLoc, int minResultingLength)
+
+*Remove non-genetic-code from reads
+public static int trimBadSequence(Read r)
+
+*Trim this many bases from each end
+public static int trimByAmount(Read r, int leftTrimAmount, int rightTrimAmount, int minResultingLength)
+
+*Trim this many bases from each end
+public static int trimByAmount(Read r, int leftTrimAmount, int rightTrimAmount, int minResultingLength, boolean trimClip)
+
+*Count number of bases that need trimming on each side, and pack into a long
+public static long testOptimal(byte[] bases, byte[] qual, float avgErrorRate)
+
+*Count number of bases that need trimming on left side
+private static int testLeft(byte[] bases, byte[] qual, byte trimq)
+
+*Count number of bases that need trimming on right side using a sliding window
+private static int testRightWindow(byte[] bases, byte[] qual, byte trimq, int window)
+
+*Count number of bases that need trimming on right side
+private static int testRight(byte[] bases, byte[] qual, byte trimq)
+
+*Count number of bases that need trimming on left side, considering only N as bad
+public static int testLeftN(byte[] bases)
+
+*Count number of bases that need trimming on right side, considering only N as bad
+public static int testRightN(byte[] bases)
+
+public boolean untrim()
+
+private boolean untrim(SiteScore ss)
+
+private static boolean trimMatch(Read r)
+
+*Special case of 100% match, or no match string
+public static int trimReadWithMatchFast(Read r, SamLine sl, int leftTrimAmount, int rightTrimAmount, int minFinalLength)
+
+public static int trimReadWithMatch(Read r, SamLine sl, int leftTrimAmount, int rightTrimAmount, int minFinalLength, long scafLen, boolean trimClip)
+
+public int trimmed()
+
+</class TrimRead>
+<class Vector>
+*Protects normal classes from seeing SIMD in case it doesn't compile or is absent.
+*...in theory.
+*@author Brian Bushnell
+*@date Sep 12, 2013
+public final class Vector
+
+#Fields
+public static final int MINLEN8=32
+
+public static final int MINLEN16=16
+
+public static final int MINLEN32=16
+
+public static final int MINLEN64=8
+
+public static boolean SIMDCOPY=false
+
+public static boolean SIMD_MULT_SPARSE=true
+
+public static boolean SIMD_FMA_SPARSE=true
+
+
+#Methods
+public static void main(String[] args)
+
+*Returns "c+=a[i]*b[i]" where a and b are equal-length arrays.
+*@param a A vector to multiply.
+*@param b A vector to multiply.
+*@return Sum of products of vector elements.
+public static final float fma(float[] a, float[] b)
+
+*Returns "c+=a[i]*b[bSet[i]]".
+*@param a A vector to multiply.
+*@param b A vector to multiply.
+*@param bSet Subset of B's indices.
+*@param blockSize bSet should be in sets of consecutive indices of this length,
+*for example, blockSize=8 would allow AVX256 vector operations.
+*@return Sum of products of vector elements.
+public static final float fma(float[] a, float[] b, int[] bSet, int blockSize, boolean allowSimd)
+
+public static final void feedForward(Cell[] layer, float[] valuesIn)
+
+public static final void feedForwardDense(Cell[] layer, float[] valuesIn)
+
+public static void backPropFma(Cell[] layer, float[] eOverNetNext, float[][] weightsOutLnum)
+
+*Performs "a+=incr" where a and incr are equal-length arrays.
+*@param a A vector to increment.
+*@param incr Increment amount.
+public static final void add(float[] a, float[] incr)
+
+public static final float absDifFloat(float[] a, float[] b)
+
+public static float[] compensate(long[] a, int k, int[] gcmap)
+
+public static float[] compensate(int[] a, int k, int[] gcmap)
+
+public static float absDifComp(long[] a, long[] b, int k, int[] gcmap)
+
+public static float cosineDifference(int[] a, int[] b)
+
+public static float cosineSimilarity(int[] a, int[] b, float inva, float invb)
+
+*Performs "a[i]+=b[i]*mult" where a and b are equal-length arrays.
+*@param a A vector to increment.
+*@param b Increment amount.
+*@param mult Increment multiplier.
+public static final void addProduct(float[] a, float[] b, float mult)
+
+*Performs "a[i]+=b[bSet[i]]*mult".
+*@param a A vector to increment.
+*@param b Increment amount.
+*@param bSet Subset of B's indices.
+*@param mult Increment multiplier.
+public static final void addProduct(float[] a, float[] b, int[] bSet, float mult, int blockSize)
+
+public static void copy(float[] dest, float[] source)
+
+public static void copy(int[] dest, int[] source)
+
+*Returns number of matches
+public static final int countMatches(byte[] s1, byte[] s2, int a1, int b1, int a2, int b2)
+
+public static final int countMismatches(byte[] s1, byte[] s2, int a1, int b1, int a2, int b2)
+
+public static final int find(byte[] a, byte symbol, int from, int to)
+
+public static double sum(float[] array)
+
+public static long sum(byte[] array)
+
+public static long sum(char[] array)
+
+public static long sum(short[] array)
+
+public static long sum(int[] array)
+
+public static double sum(double[] array)
+
+public static long sum(long[] array)
+
+public static long sum(int[] array, int from, int to)
+
+public static long sum(long[] array, int from, int to)
+
+public static final int max(int[] array)
+
+public static final float max(float[] array)
+
+public static final long max(long[] array)
+
+</class Vector>

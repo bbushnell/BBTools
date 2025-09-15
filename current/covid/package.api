@@ -1,0 +1,67 @@
+#version 1
+#package covid
+#generated 2025-09-06T20:36:05
+
+<class SummarizeCoverage>
+*@author Brian Bushnell
+*@date April 5, 2020
+public class SummarizeCoverage
+
+#Fields
+private LinkedHashSet<String> in=new LinkedHashSet<String>()
+
+private String out1="stdout.txt"
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long maxLines=Long.MAX_VALUE
+
+private long refLen=-1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public SummarizeCoverage(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+void process(Timer t)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw, String name)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+</class SummarizeCoverage>

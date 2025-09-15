@@ -1,0 +1,911 @@
+#version 1
+#package sort
+#generated 2025-09-06T20:38:38
+
+<class ContigLengthComparator>
+*Sorts longest contig first
+*@author Brian Bushnell
+*@date Jul 12, 2018
+public final class ContigLengthComparator
+
+#Fields
+public static final ContigLengthComparator comparator=new ContigLengthComparator()
+
+private int ascending=-1
+
+
+#Methods
+private ContigLengthComparator()
+
+@Override public int compare(Contig a, Contig b)
+
+private static int compareInner(Contig a, Contig b)
+
+private static int compareVectors(byte[] a, byte[] b)
+
+public void setAscending(boolean asc)
+
+</class ContigLengthComparator>
+<class MergeSorted>
+*Sorts reads by name, potentially from multiple input files.
+*@author Brian Bushnell
+*@date September 21, 2016
+public class MergeSorted
+
+#Fields
+*Primary input file path
+private ArrayList<String> in1=new ArrayList<String>()
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private String giTableFile=null
+
+private String taxTreeFile=null
+
+private String accessionFile=null
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+private int maxFiles=16
+
+private boolean delete=true
+
+private boolean useSharedHeader=false
+
+private boolean allowInputSubprocess=true
+
+private String tempExt=null
+
+private boolean genKmer=true
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+private static ReadComparator comparator=ReadComparatorName.comparator
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*Print verbose messages
+public static final boolean verbose2=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public MergeSorted(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+private ArrayList<String> mergeRecursive(ArrayList<String> inList)
+
+public String getTempFile()
+
+public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2)
+
+</class MergeSorted>
+<class ReadComparator>
+*@author Brian Bushnell
+*@date Nov 9, 2016
+public abstract class ReadComparator
+
+#Methods
+public void setAscending(boolean asc)
+
+</class ReadComparator>
+<class ReadComparatorClump>
+*Sorts similarly to Clumpify
+*@author Brian Bushnell
+*@date Oct 5, 2022
+public final class ReadComparatorClump
+
+#Fields
+public static final ReadComparatorClump comparator=new ReadComparatorClump()
+
+private int ascending=-1
+
+private static final int k=31
+
+private static final int shift=2 * k
+
+private static final int shift2=shift - 2
+
+private static final long mask=(shift > 63 ? -1L : ~((-1L) << shift))
+
+
+#Methods
+private ReadComparatorClump()
+
+@Override public int compare(Read a, Read b)
+
+private static int compareInner(Read a, Read b)
+
+*Finds the global maximum, forward and reverse
+public static final long set(Read r)
+
+*Generates a key when the read is shorter than k
+public static final long setShort(Read r)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorClump>
+<class ReadComparatorCrispr>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class ReadComparatorCrispr
+
+#Fields
+private static String netFile=Data.findPath("?crispr.bbnet.gz",false)
+
+public static final ReadComparatorCrispr comparator=new ReadComparatorCrispr()
+
+private static CellNet net=null
+
+private static float[] vec=null
+
+int ascending=1
+
+
+#Methods
+private ReadComparatorCrispr()
+
+@Override public int compare(Read r1, Read r2)
+
+private SeqCountM getSCM(Read r)
+
+public int compare(Read r1, Read r2, boolean compareMates)
+
+@Override public void setAscending(boolean asc)
+
+public static void loadNet()
+
+public static void setNet(CellNet net_)
+
+</class ReadComparatorCrispr>
+<class ReadComparatorFlowcell>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public final class ReadComparatorFlowcell
+
+#Fields
+private int ascending=1
+
+public ThreadLocal<FlowcellCoordinate> tlc1=new ThreadLocal<FlowcellCoordinate>()
+
+public ThreadLocal<FlowcellCoordinate> tlc2=new ThreadLocal<FlowcellCoordinate>()
+
+public static final ReadComparatorFlowcell comparator=new ReadComparatorFlowcell()
+
+
+#Methods
+private ReadComparatorFlowcell()
+
+@Override public int compare(Read r1, Read r2)
+
+public int compareInner(Read r1, Read r2)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorFlowcell>
+<class ReadComparatorID>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public final class ReadComparatorID
+
+#Fields
+public static final ReadComparatorID comparator=new ReadComparatorID()
+
+private int mult=1
+
+
+#Methods
+@Override public int compare(Read r1, Read r2)
+
+public static int compareInner(Read r1, Read r2)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorID>
+<class ReadComparatorList>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public final class ReadComparatorList
+
+#Fields
+private int ascending=1
+
+private HashMap<String,Integer> map
+
+
+#Methods
+public ReadComparatorList(String fname)
+
+@Override public int compare(Read r1, Read r2)
+
+public int compareInner(Read r1, Read r2)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorList>
+<class ReadComparatorMapping>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class ReadComparatorMapping
+
+#Fields
+public static boolean SAME_STRAND_PAIRS=false
+
+
+#Methods
+public int compare2(Read a, Read b)
+
+public int compareCross(Read a, Read b)
+
+public int compare3(Read a, Read b)
+
+public int compareVectors(byte[] a, byte[] b)
+
+public int compareMatchStrings(byte[] a, byte[] b)
+
+</class ReadComparatorMapping>
+<class ReadComparatorName>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public final class ReadComparatorName
+
+#Fields
+private int ascending=1
+
+public static final ReadComparatorName comparator=new ReadComparatorName()
+
+
+#Methods
+private ReadComparatorName()
+
+@Override public int compare(Read r1, Read r2)
+
+public static int compareInner(Read r1, Read r2)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorName>
+<class ReadComparatorPosition>
+*@author Brian Bushnell
+*@date November 20, 2016
+public final class ReadComparatorPosition
+
+#Fields
+private int ascending=1
+
+public static final ReadComparatorPosition comparator=new ReadComparatorPosition()
+
+public static ScafMap scafMap=null
+
+
+#Methods
+private ReadComparatorPosition()
+
+@Override public int compare(Read r1, Read r2)
+
+public static int compareInner(Read r1, Read r2)
+
+public static int compareInner(SamLine a, SamLine b)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorPosition>
+<class ReadComparatorRandom>
+*@author Brian Bushnell
+*@date Mar 6, 2017
+public final class ReadComparatorRandom
+
+#Fields
+public static final ReadComparatorRandom comparator=new ReadComparatorRandom()
+
+private int mult=1
+
+
+#Methods
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorRandom>
+<class ReadComparatorTaxa>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public final class ReadComparatorTaxa
+
+#Fields
+private int ascending=1
+
+public static TaxTree tree
+
+public static final ReadComparatorTaxa comparator=new ReadComparatorTaxa()
+
+
+#Methods
+private ReadComparatorTaxa()
+
+private static int compareInner(Read r1, Read r2)
+
+private static int compareSimple(TaxNode a, TaxNode b)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorTaxa>
+<class ReadComparatorTopological>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class ReadComparatorTopological
+
+#Fields
+public static final ReadComparatorTopological comparator=new ReadComparatorTopological()
+
+int ascending=1
+
+
+#Methods
+private ReadComparatorTopological()
+
+public int compare(Read r1, Read r2, boolean compareMates)
+
+public int compareVectors(byte[] a, byte[] b)
+
+public int compareVectorsN(byte[] a, byte[] b)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorTopological>
+<class ReadComparatorTopological5Bit>
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class ReadComparatorTopological5Bit
+
+#Fields
+public static final ReadComparatorTopological5Bit comparator=new ReadComparatorTopological5Bit()
+
+int ascending=1
+
+
+#Methods
+private ReadComparatorTopological5Bit()
+
+@Override public int compare(Read r1, Read r2)
+
+public int compare(Read r1, Read r2, boolean compareMates)
+
+public int compareVectors(byte[] a, byte[] b, int start)
+
+public int compareVectorsN(byte[] a, byte[] b, int start)
+
+public static long genKmer(Read r)
+
+public static long genKmer(byte[] bases)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadComparatorTopological5Bit>
+<class ReadErrorComparator>
+*@author Brian Bushnell
+*@date May 30, 2013
+public final class ReadErrorComparator
+
+#Fields
+public static final ReadErrorComparator comparator=new ReadErrorComparator()
+
+
+#Methods
+@Override public int compare(Read r1, Read r2)
+
+</class ReadErrorComparator>
+<class ReadLengthComparator>
+*Sorts longest reads first
+*@author Brian Bushnell
+*@date Jul 19, 2013
+public final class ReadLengthComparator
+
+#Fields
+public static final ReadLengthComparator comparator=new ReadLengthComparator()
+
+private int ascending=-1
+
+
+#Methods
+private ReadLengthComparator()
+
+@Override public int compare(Read a, Read b)
+
+private static int compareInner(Read a, Read b)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadLengthComparator>
+<class ReadQualityComparator>
+*Sorts highest-quality reads first, and longest first on ties.
+*@author Brian Bushnell
+*@date Nov 9, 2016
+public final class ReadQualityComparator
+
+#Fields
+public static final ReadQualityComparator comparator=new ReadQualityComparator()
+
+private int ascending=1
+
+
+#Methods
+private ReadQualityComparator()
+
+private static int compareInner(Read a, Read b)
+
+@Override public void setAscending(boolean asc)
+
+</class ReadQualityComparator>
+<class Shuffle>
+*Randomizes the order of reads.
+*@author Brian Bushnell
+*@date Oct 27, 2014
+public class Shuffle
+
+#Fields
+private String in1=null
+
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+private String out1=null
+
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+private String extin=null
+
+private String extout=null
+
+private long maxReads=-1
+
+private final int mode
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffout2
+
+private final boolean useSharedHeader
+
+private static int maxShuffleThreads=1
+
+private static int currentShuffleThreads=0
+
+private static String SHUFFLE_LOCK=new String("SHUFFLE_LOCK")
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+public static boolean showSpeed=true
+
+public static boolean printClass=true
+
+public static final int SHUFFLE=1
+
+public static final int SORT_NAME=2
+
+public static final int SORT_SEQ=3
+
+public static final int SORT_COORD=4
+
+public static final int SORT_ID=5
+
+public static final String[] MODES={"shuffle","name","sequence","coordinate","id"}
+
+
+#Methods
+public static void main(String[] args)
+
+public Shuffle(String[] args)
+
+void process(Timer t)
+
+private void writeHeader(ByteStreamWriter bsw)
+
+public static void setMaxThreads(int x)
+
+public static int addThread(int x)
+
+public static void waitForFinish()
+
+</class Shuffle>
+<class Shuffle.ShuffleThread>
+public static class Shuffle.ShuffleThread
+
+#Fields
+final String in1
+
+final String in2
+
+final String out1
+
+final String out2
+
+final int mode
+
+final boolean ow
+
+
+#Methods
+public ShuffleThread(String in1_, String in2_, String out1_, String out2_, int mode_, boolean ow_)
+
+@Override public void start()
+
+@Override public void run()
+
+</class Shuffle.ShuffleThread>
+<class Shuffle2>
+*Sorts reads by name, potentially from multiple input files.
+*@author Brian Bushnell
+*@date September 21, 2016
+public class Shuffle2
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+private ArrayList<String> outTemp=new ArrayList<String>()
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private String tempExt=null
+
+long maxLengthObserved=0
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private boolean delete=true
+
+private boolean useSharedHeader=false
+
+private boolean allowTempFiles=true
+
+private int minlen=0
+
+private float memMult=0.35f
+
+*Max files to merge per pass
+private int maxFiles=16
+
+private long seed=-1
+
+static Random randy=Shared.threadLocalRandom()
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*Print verbose messages
+public static final boolean verbose2=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*This flag has no effect on singlethreaded programs
+private final boolean ordered=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public Shuffle2(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+public void processInner(ConcurrentReadInputStream cris)
+
+private void waitOnMemory(AtomicLong outstandingMem, long target)
+
+private ArrayList<String> mergeRecursive(ArrayList<String> inList)
+
+public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2)
+
+private String getTempFile()
+
+private boolean mergeAndDump(ArrayList<String> fnames, boolean useHeader)
+
+public boolean mergeAndDump(ArrayList<String> fnames, FileFormat ffout1, FileFormat ffout2, boolean delete, boolean useHeader, PrintStream outstream)
+
+private static void mergeAndDump(ArrayList<CrisContainer> q, ConcurrentReadOutputStream ros, PrintStream outstream)
+
+private void shuffleAndDump(ArrayList<Read> storage, long currentMem, AtomicLong outstandingMem, String fname, boolean useHeader)
+
+</class Shuffle2>
+<class SortByName>
+*Sorts reads by name, potentially from multiple input files.
+*@author Brian Bushnell
+*@date September 21, 2016
+public class SortByName
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+private ArrayList<String> outTemp=new ArrayList<String>()
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+private String tempExt=null
+
+private String giTableFile=null
+
+private String taxTreeFile=null
+
+private String accessionFile=null
+
+long maxLengthObserved=0
+
+private static long maxLengthObservedStatic=0
+
+private final boolean qualityObserved
+
+private static boolean qualityObservedStatic
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private boolean delete=true
+
+private boolean deleteEarly=false
+
+private boolean useSharedHeader=false
+
+private boolean allowTempFiles=true
+
+private int minlen=0
+
+private float memBlockMult=0.30f
+
+private float memTotalMult=0.65f
+
+*Max files to merge per pass
+private int maxFiles=12
+
+private boolean setMaxFiles=false
+
+private static int mergeFileLimit=24
+
+private boolean genKmer=true
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+private final boolean clump
+
+private static ReadComparator comparator=ReadComparatorName.comparator
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*Print verbose messages
+public static final boolean verbose2=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public SortByName(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Iterate through the reads
+public void processInner(ConcurrentReadInputStream cris)
+
+private void waitOnMemory(AtomicLong outstandingMem, long target)
+
+private final long maxSizeObserved()
+
+static final long maxSizeObservedStatic()
+
+private static long mergeMemNeeded(long maxSizeObserved, int inFiles)
+
+private static int maxMergeFiles(long maxSizeObserved)
+
+private static void adjustBuffers(long maxSizeObserved, int inFiles, PrintStream outstream)
+
+private ArrayList<String> mergeRecursive(ArrayList<String> inList, boolean allowSubprocess)
+
+public void mergeRecursiveInner(ArrayList<String> inList, FileFormat ffoutTemp1, FileFormat ffoutTemp2, boolean deleteAfterMerge, boolean allowSubprocess)
+
+private String getTempFile()
+
+private boolean mergeAndDump(ArrayList<String> fnames, boolean useHeader, boolean allowSubprocess)
+
+public static boolean mergeAndDump(ArrayList<String> fnames, FileFormat ffout1, FileFormat ffout2, boolean deleteAfterMerge, boolean useHeader, boolean allowSubprocess, PrintStream outstream, long maxSizeObserved)
+
+private static void mergeAndDump(PriorityQueue<CrisContainer> q, ConcurrentReadOutputStream ros, PrintStream outstream)
+
+private static final int indexOfLowestAbovePivot(ArrayList<Read> list, Read pivot)
+
+*Returns highest index of an equal value, or the insert position
+private static final int binarySearch(ArrayList<Read> list, Read pivot)
+
+private void sortAndDump(ArrayList<Read> storage, long currentMem, AtomicLong outstandingMem, String fname1, String fname2, boolean useHeader)
+
+</class SortByName>
+<class SortReadsByID>
+*@author Brian Bushnell
+*@date Nov 1, 2012
+public class SortReadsByID
+
+#Fields
+public String in1
+
+public String in2
+
+public String out
+
+private final boolean outText
+
+private final boolean outFasta
+
+private final boolean outFastq
+
+public static int BLOCKSIZE=8000000
+
+public static boolean overwrite=true
+
+public static boolean append=false
+
+public static boolean RENUMBER=false
+
+public static boolean OUT_INTERLEAVED=false
+
+
+#Methods
+public static void main(String[] args)
+
+public void process()
+
+public SortReadsByID(String in1_, String in2_, String out_)
+
+</class SortReadsByID>

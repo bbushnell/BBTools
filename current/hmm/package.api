@@ -1,0 +1,143 @@
+#version 1
+#package hmm
+#generated 2025-09-06T20:36:56
+
+<class HMMSearchLine>
+public class HMMSearchLine
+
+#Fields
+public final byte[] line
+
+String name
+
+String field1
+
+int length
+
+String hmmName
+
+String accession
+
+int field5
+
+double field6
+
+float field7
+
+float field8
+
+float field9
+
+float field10
+
+double field11
+
+double field12
+
+float field13
+
+float field14
+
+int field15
+
+int field16
+
+int field17
+
+int field18
+
+int field19
+
+int field20
+
+float field21
+
+String field22
+
+
+#Methods
+public HMMSearchLine(byte[] line_)
+
+public ByteBuilder toText()
+
+public String toString()
+
+</class HMMSearchLine>
+<class HMMSearchReport>
+*Loads output of HMMSearch.
+*@author Brian Bushnell
+*@date April 9, 2020
+public class HMMSearchReport
+
+#Fields
+private String in=null
+
+public HashMap<String,ProteinSummary> map=new HashMap<String,ProteinSummary>()
+
+private long linesProcessed=0
+
+private long bytesProcessed=0
+
+private final FileFormat ffin
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public HMMSearchReport(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+void process(Timer t)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw)
+
+private void addToMap(HMMSearchLine line)
+
+private ArrayList<HMMSearchLine> load(ByteFile bf)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+</class HMMSearchReport>
+<class ProteinSummary>
+public class ProteinSummary
+
+#Fields
+*Name of query sequence
+public final String name
+
+*Map of reference model name to hit length
+public HashMap<String,Integer> map=new HashMap<String,Integer>()
+
+
+#Methods
+public ProteinSummary(String name)
+
+*Returns true if anything changed
+public boolean add(HMMSearchLine line)
+
+</class ProteinSummary>

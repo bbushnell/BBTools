@@ -1,0 +1,3866 @@
+#version 1
+#package sketch
+#generated 2025-09-06T20:38:30
+
+<class AddSSU>
+*@author Brian Bushnell
+*@date May 9, 2016
+public class AddSSU
+
+#Fields
+private String in1=null
+
+private String out1=null
+
+private String r16SFile="auto"
+
+private String r18SFile="auto"
+
+private String treeFile="auto"
+
+boolean preferSSUMap=false
+
+boolean preferSSUMapEuks=false
+
+boolean preferSSUMapProks=false
+
+boolean useSSUMapOnly=false
+
+boolean useSSUMapOnlyEuks=false
+
+boolean useSSUMapOnlyProks=false
+
+boolean clear16S=false
+
+boolean clear18S=false
+
+boolean clear16SEuks=false
+
+boolean clear18SEuks=false
+
+boolean clear16SProks=false
+
+boolean clear18SProks=false
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private long sketchCount=0
+
+private long r16Sin=0
+
+private long r16Sout=0
+
+private long r16SfromMap=0
+
+private long r18Sin=0
+
+private long r18Sout=0
+
+private long r18SfromMap=0
+
+private long maxLines=Long.MAX_VALUE
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private final TaxTree tree
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public AddSSU(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+void process(Timer t)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+private void processInner(ByteFile bf, ByteStreamWriter bsw)
+
+void processHeader(SketchHeader header)
+
+int parseTaxID(byte[] line)
+
+</class AddSSU>
+<class AlignmentJob>
+public class AlignmentJob
+
+#Fields
+final Comparison c
+
+final ArrayBlockingQueue<Comparison> dest
+
+
+#Methods
+AlignmentJob(Comparison c_, ArrayBlockingQueue<Comparison> dest_)
+
+void doWork()
+
+private void put()
+
+final boolean isPoison()
+
+</class AlignmentJob>
+<class AlignmentThreadPool>
+public class AlignmentThreadPool
+
+#Fields
+final ArrayList<AlignmentThread> tlist
+
+final int maxThreads
+
+final AtomicInteger busy=new AtomicInteger(0)
+
+private boolean poisoned=false
+
+private static final AlignmentJob poison=new AlignmentJob(null,null)
+
+private static final ArrayBlockingQueue<AlignmentJob> source=new ArrayBlockingQueue<AlignmentJob>(4096)
+
+
+#Methods
+public AlignmentThreadPool(int maxThreads_)
+
+public void addJobs(ArrayList<Comparison> list, int maxRecords)
+
+public void addJob(Comparison c, ArrayBlockingQueue<Comparison> dest)
+
+private void spawnThread()
+
+void poison()
+
+private void put(AlignmentJob job)
+
+private final X take(ArrayBlockingQueue<X> queue)
+
+</class AlignmentThreadPool>
+<class AnalyzeSketchResults>
+*@author Brian Bushnell
+*@date May 9, 2016
+public class AnalyzeSketchResults
+
+#Fields
+private String in1=null
+
+private String in2=null
+
+private String out1="stdout.txt"
+
+private String outMap=null
+
+private String outAccuracy=null
+
+private String outBad=null
+
+private String treeFile=null
+
+private ByteStreamWriter bswBad=null
+
+private long linesProcessed=0
+
+private long linesOut=0
+
+private long bytesProcessed=0
+
+private long bytesOut=0
+
+private boolean shrinkOnly=false
+
+int minSamples=1
+
+private long maxLines=Long.MAX_VALUE
+
+static final int taxLevels=TaxTree.numTaxLevelNamesExtended
+
+final HashMap<Long,Float> aniMap=new HashMap<Long,Float>()
+
+final HashMap<Long,Float> aaiMap=new HashMap<Long,Float>()
+
+final TaxTree tree
+
+final ArrayList<RecordSet> recordSets
+
+static final String[] printLevels=new String[]{"strain","species","genus","family","order","class","phylum","superkingdom","life"}
+
+static final long printLevelsMask=makePrintLevelsMask(printLevels)
+
+static int NOHIT=0
+
+static int CORRECT=1
+
+static int INCORRECT_TAX=2
+
+static int INCORRECT_SSU=4
+
+static int MISSING_SSU=8
+
+private static int INCORRECT_TAX_CORRECT_SSU=INCORRECT_TAX
+
+private static int INCORRECT_TAX_INCORRECT_SSU=INCORRECT_TAX | INCORRECT_SSU
+
+private static int INCORRECT_TAX_MISSING_SSU=INCORRECT_TAX | MISSING_SSU
+
+static final int BBSKETCH_MODE=0
+
+static final int MASH_MODE=1
+
+static final int SOURMASH_MODE=2
+
+static final int BLAST_MODE=3
+
+static int mode=BBSKETCH_MODE
+
+private final FileFormat ffin1
+
+private final FileFormat ffin2
+
+private final FileFormat ffout1
+
+private final FileFormat ffoutMap
+
+private final FileFormat ffoutAccuracy
+
+private final FileFormat ffoutBad
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public AnalyzeSketchResults(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Add or remove .gz or .bz2 as needed
+private void fixExtensions()
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+void process(Timer t)
+
+private void runShrinkOnly(ByteFile bf)
+
+private void processInner(ByteFile bf, ResultLineParser parser, HashMap<Long,Float> map)
+
+private void processSetsThreaded()
+
+private void printAccuracy(ByteStreamWriter bswAcc)
+
+private void printMap(ByteStreamWriter bsw)
+
+private void printResults(ResultLineParser parser, ByteStreamWriter bsw)
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+private static long makePrintLevelsMask(String[] printLevelsArray)
+
+</class AnalyzeSketchResults>
+<class Blacklist>
+public class Blacklist
+
+#Fields
+private static String ntBlacklist
+
+private static String silvaBlacklist
+
+private static String refseqBlacklist
+
+private static String imgBlacklist
+
+private static String prokProtBlacklist
+
+private static String nrBlacklist
+
+private static String mitoBlacklist
+
+private static String fungiBlacklist
+
+*Hold kmers. A kmer X such that X%WAYS=Y will be stored in keySets[Y]
+static AbstractKmerTable[] keySets
+
+private static final int ways=1
+
+private static ArrayList<String> added=new ArrayList<String>()
+
+
+#Methods
+public static boolean parseBlacklist(String arg, String a, String b)
+
+public static void addFiles(String fname)
+
+private static ArrayList<Sketch> addFile(String fname)
+
+private static void addSketches(ArrayList<Sketch> sketches)
+
+public static int increment(long key)
+
+public static boolean contains(long key)
+
+public static boolean exists()
+
+public static final String toBlacklist(String b)
+
+static String ntBlacklist()
+
+static String silvaBlacklist()
+
+static String refseqBlacklist()
+
+static String imgBlacklist()
+
+static String nrBlacklist()
+
+static String prokProtBlacklist()
+
+static String mitoBlacklist()
+
+static String fungiBlacklist()
+
+</class Blacklist>
+<class BlacklistMaker>
+*Makes blacklists in a taxa-aware manner.
+*@author Brian Bushnell
+*@date April 3, 2017
+public class BlacklistMaker
+
+#Fields
+private final int mode
+
+private String giTableFile=null
+
+private String taxTreeFile=null
+
+private String accessionFile=null
+
+private String imgFile=null
+
+private String outName=null
+
+private String sketchName=null
+
+private int outTaxid=-1
+
+private int taxLevel=1
+
+private boolean prefilter=true
+
+private boolean tossJunk=true
+
+private boolean bestEffort=true
+
+private int minTaxCount=100
+
+private int prepasses=2
+
+private int prehashes=2
+
+private int prebits=-1
+
+private boolean autoPasses=false
+
+double prefilterFraction=0.2
+
+long filterMemory0
+
+long filterMemory1
+
+private HashMap<Long,IntListCompressor>[] maps
+
+public KCountArray prefilterArray=null
+
+final int ways=63
+
+int resultingSize=-1
+
+private final AtomicInteger nextUnknown=new AtomicInteger(SketchObject.minFakeID)
+
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+*Primary output file path
+private String outSketch=null
+
+*Histogram output file path
+private String outHist=null
+
+*Override input file extension
+private String extin=null
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffsketch
+
+*Histogram output file
+private final FileFormat ffhist
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order
+private boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+@SuppressWarnings public BlacklistMaker(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris)
+
+private void writeSketch(boolean destroy)
+
+private void shrinkListsAndWriteHist()
+
+private Sketch toSketch(boolean destroy)
+
+private long[] toArray(boolean destroy)
+
+private void calcMemory()
+
+private long filterMemory(int pass)
+
+private void makePrefilter()
+
+public final KCountArray makePrefilter_inner(KCountArray[] filter, int currentPass, int overallFilterMax)
+
+private void loadGiToTaxid()
+
+</class BlacklistMaker>
+<class BlacklistMaker2>
+*Makes blacklists from existing sketches.
+*@author Brian Bushnell
+*@date November 12, 2019
+public class BlacklistMaker2
+
+#Fields
+public final SketchSearcher searcher=new SketchSearcher()
+
+private final int mode
+
+private String taxTreeFile=null
+
+private String imgFile=null
+
+private String outName="blacklist"
+
+private String sketchName=null
+
+private int outTaxid=-1
+
+private int taxLevel=1
+
+private boolean tossJunk=true
+
+private int minTaxCount=20
+
+private int maxKeys=300000
+
+private HashMap<Long,IntListCompressor>[] maps
+
+final int ways=63
+
+int resultingSize=-1
+
+private final AtomicInteger nextUnknown=new AtomicInteger(SketchObject.minFakeID)
+
+*Primary output file path
+private String outSketch=null
+
+*Histogram output file path
+private String outHist=null
+
+*Number of reads processed
+protected long sketchesProcessed=0
+
+*Number of bases processed
+protected long keysProcessed=0
+
+*Primary output file
+private final FileFormat ffsketch
+
+*Histogram output file
+private final FileFormat ffhist
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+@SuppressWarnings public BlacklistMaker2(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads()
+
+private void writeSketch(boolean destroy)
+
+private void shrinkListsAndWriteHist()
+
+private Sketch toSketch(boolean destroy)
+
+private long[] toArray(boolean destroy)
+
+</class BlacklistMaker2>
+<class CompareBuffer>
+public class CompareBuffer
+
+#Fields
+private int hits
+
+private int multiHits
+
+private int noHits
+
+private int unique2
+
+private int unique3
+
+private int contamHits
+
+private int contam2Hits
+
+private int multiContamHits
+
+private int queryDivisor
+
+private int refDivisor
+
+private int querySize
+
+private int refSize
+
+private long depthSum
+
+private float depthSum2
+
+private long refHitSum
+
+private int hits1
+
+private int qSeen1
+
+private int rSeen1
+
+public final AbstractBitSet cbs
+
+
+#Methods
+public CompareBuffer(boolean makeBS)
+
+void set(int hits_, int multiHits_, int unique2_, int unique3_, int noHits_, int contamHits_, int contam2Hits_, int multiContamHits_, int queryDivisor_, int refDivisor_, int querySize_, int refSize_, long depthSum_, double depthSum2_, long refHitSum_, int k1hits_, int k1seenQ_, int k1seenR_)
+
+void clear()
+
+float depth()
+
+float depth2()
+
+float avgRefHits()
+
+@Override public String toString()
+
+final float wkid()
+
+final float kid()
+
+final float aniOld()
+
+final float ani()
+
+final float wkid1()
+
+final float kid1()
+
+final float ani1()
+
+final float wkid2()
+
+final float kid2()
+
+final float ani2()
+
+final float aniDual()
+
+int hits()
+
+int multiHits()
+
+int noHits()
+
+int unique2()
+
+int unique3()
+
+int contamHits()
+
+int contam2Hits()
+
+int multiContamHits()
+
+int queryDivisor()
+
+int refDivisor()
+
+int querySize()
+
+int refSize()
+
+long depthSum()
+
+float depthSum2()
+
+long refHitSum()
+
+int hits1()
+
+int qSeen1()
+
+int rSeen1()
+
+int minDivisor1()
+
+int maxDivisor1()
+
+int hits2()
+
+int qSeen2()
+
+int rSeen2()
+
+int minDivisor2()
+
+int maxDivisor2()
+
+int minDivisor()
+
+int maxDivisor()
+
+int minSize()
+
+int maxSize()
+
+int uniqueHits()
+
+int uniqueContamHits()
+
+float k1Fraction()
+
+</class CompareBuffer>
+<class CompareSketch>
+*Compares one or more input sketches to a set of reference sketches.
+*@author Brian Bushnell
+*@date July 29, 2016
+public class CompareSketch
+
+#Fields
+private ArrayList<String> in=new ArrayList<String>()
+
+private String out="stdout.txt"
+
+private String taxTreeFile=null
+
+private ArrayList<Sketch> inSketches
+
+public final SketchSearcher searcher=new SketchSearcher()
+
+private boolean printMemory=false
+
+private boolean silent=false
+
+private String outTaxName=null
+
+private String outFname=null
+
+private String outName0=null
+
+private String outSketch=null
+
+private int sketchFiles=1
+
+private int outTaxID=-1
+
+private long outSpid=-1
+
+private long outImgID=-1
+
+private ArrayList<String> outMeta=null
+
+private long resultsPrinted=0
+
+*Primary output file
+private final FileFormat ffout
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+private boolean ordered=true
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public CompareSketch(String[] args)
+
+public void process(Timer t)
+
+void writeSketches(String fname, int files)
+
+void writeOneSketchFile(String fname)
+
+void writeManySketchFiles(String fname, int files)
+
+private static void addFiles(String a, Collection<String> list)
+
+</class CompareSketch>
+<class CompareSSU>
+*Compares SSUs, all-to-all or fractional matrix.
+*@author Brian Bushnell
+*@date December 2, 2019
+public class CompareSSU
+
+#Fields
+*Primary input file path
+private String in1=null
+
+private String treeFile="auto"
+
+*Primary output file path
+private String out1=null
+
+public static ArrayList<Read> ssuList=null
+
+static final int taxLevels=TaxTree.numTaxLevelNamesExtended
+
+static final String[] printLevelsArray=new String[]{"strain","species","genus","family","order","class","phylum","superkingdom","life"}
+
+static final long printLevels=makePrintLevels(printLevelsArray)
+
+private final TaxTree tree
+
+private FloatList[] idLists=new FloatList[taxLevels]
+
+private long[] counts=new long[taxLevels]
+
+private double[] sums=new double[taxLevels]
+
+private int minlen=0
+
+private int maxlen=Integer.MAX_VALUE
+
+private int maxns=-1
+
+*Number of reads processed
+protected long queriesProcessed=0
+
+*Number of bases processed
+protected long comparisons=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private AtomicInteger next=new AtomicInteger(0)
+
+private boolean allToAll=false
+
+private boolean storeResults=false
+
+*Primary output file
+private final FileFormat ffout1
+
+private final ReadWriteLock rwlock=new ReentrantReadWriteLock()
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order
+private boolean ordered=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public CompareSSU(String[] args)
+
+*Parse arguments from the command line
+private Parser parse(String[] args)
+
+*Ensure files can be read and written
+private void checkFileExistence()
+
+*Adjust file-related static fields as needed for this program
+private static void checkStatics()
+
+*Ensure parameter ranges are within bounds and required parameters are set
+private boolean validateParams()
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads(ByteStreamWriter bsw)
+
+@Override public final void accumulate(ProcessThread pt)
+
+@Override public final boolean success()
+
+private static ByteStreamWriter makeBSW(FileFormat ff)
+
+private static final long makePrintLevels(String[] names)
+
+@Override public final ReadWriteLock rwlock()
+
+</class CompareSSU>
+<class CompareSSU.ProcessThread>
+*This class is static to prevent accidental writing to shared variables.
+*It is safe to remove the static modifier.
+class CompareSSU.ProcessThread
+
+#Fields
+*Number of reads processed by this thread
+protected long querysProcessedT=0
+
+*Number of bases processed by this thread
+protected long comparisonsT=0
+
+*True only if this thread has completed successfully
+boolean success=false
+
+*Shared output stream
+private final ByteStreamWriter bsw
+
+*Thread ID
+final int threadID
+
+final int threads
+
+ArrayList<Read> listCopy
+
+final FloatList[] idListsT=new FloatList[taxLevels]
+
+long[] countsT=new long[taxLevels]
+
+double[] sumsT=new double[taxLevels]
+
+
+#Methods
+ProcessThread(ByteStreamWriter bsw_, int tid_, int threads_)
+
+@Override public void run()
+
+*Iterate through the reads
+void processInner()
+
+void processRead(Read query)
+
+float compare(Read query, Read ref, int level)
+
+</class CompareSSU.ProcessThread>
+<class Comparison>
+public final class Comparison
+
+#Fields
+public static final ScoreComparator scoreComparator=new ScoreComparator()
+
+public static final DepthComparator depthComparator=new DepthComparator()
+
+public static final Depth2Comparator depth2Comparator=new Depth2Comparator()
+
+public static final VolumeComparator volumeComparator=new VolumeComparator()
+
+public static final KIDComparator KIDComparator=new KIDComparator()
+
+public static final SSUComparator SSUComparator=new SSUComparator()
+
+public static final WKIDComparator WKIDComparator=new WKIDComparator()
+
+public static final HitsComparator HitsComparator=new HitsComparator()
+
+private static final boolean sqrt=false
+
+private static final double aaBitValue=0.86438561897747246957406388589788
+
+public Sketch a
+
+public Sketch b
+
+String taxName
+
+int taxID
+
+private int hits
+
+private int multiHits
+
+private int unique2
+
+private int unique3
+
+private int noHits
+
+private float depth
+
+private float depth2
+
+private float avgRefHits
+
+private float score
+
+private int contamHits
+
+private int contam2Hits
+
+private int multiContamHits
+
+private int refDivisor
+
+private int queryDivisor
+
+private int refSize
+
+private int querySize
+
+private int hits1
+
+private int qSeen1
+
+private int rSeen1
+
+private float ssuIdentity=-1
+
+
+#Methods
+public Comparison(CompareBuffer buffer, Sketch a_, Sketch b_)
+
+public void setFrom(CompareBuffer buffer)
+
+public void recompare(CompareBuffer buffer, int[][] taxHits, int contamLevel)
+
+@Override public boolean equals(Object b)
+
+public float idQueryDivisor()
+
+public float idRefDivisor()
+
+public float completeness()
+
+public float contamFraction()
+
+public float contam2Fraction()
+
+public float uContamFraction()
+
+final float wkid()
+
+final float kid()
+
+final float aniOld()
+
+final float ani()
+
+final float wkid1()
+
+final float kid1()
+
+final float ani1()
+
+final float wkid2()
+
+final float kid2()
+
+final float ani2()
+
+final float aniDual()
+
+int hits1()
+
+int qSeen1()
+
+int rSeen1()
+
+int minDivisor1()
+
+int maxDivisor1()
+
+int hits2()
+
+int qSeen2()
+
+int rSeen2()
+
+int minDivisor2()
+
+int maxDivisor2()
+
+int minDivisor()
+
+int maxDivisor()
+
+private float score0_old()
+
+private float score0()
+
+private long range()
+
+private static double eValue(int hits, int minDiv, int maxDiv, long range)
+
+public double eValue()
+
+public double eValue1()
+
+public double eValue2()
+
+public String scoreS()
+
+public double depth(boolean observedToActual)
+
+public double depth2(boolean observedToActual)
+
+public String depthS(boolean observedToActual)
+
+public float avgRefHits()
+
+public String avgRefHitsS()
+
+public String depth2S(boolean observedToActual)
+
+public String volumeS()
+
+static String format3(double x)
+
+static String format2(double x)
+
+float volume()
+
+@Override public String toString()
+
+public String name()
+
+public String taxName()
+
+String name0()
+
+String fname()
+
+public int taxID()
+
+long imgID()
+
+long genomeSizeBases()
+
+long genomeSizeKmers()
+
+long genomeSequences()
+
+long genomeSizeEstimate()
+
+float gc()
+
+boolean hasGC()
+
+public boolean hasSSU()
+
+public boolean hasSSUIdentity()
+
+public boolean needsAlignment()
+
+public boolean hasQueryTaxID()
+
+public int uHits()
+
+*Common ancestor TaxID, if both Sketches have a TaxID
+public int commonAncestor()
+
+*Common ancestor node tax level, if both Sketches have a TaxID
+public String commonAncestorLevel()
+
+*Common ancestor node tax level, if both Sketches have a TaxID
+public int commonAncestorLevelInt()
+
+@Override public int compareTo(Comparison b)
+
+@Override public int hashCode()
+
+int hits()
+
+int multiHits()
+
+int noHits()
+
+int unique2()
+
+int unique3()
+
+float depth()
+
+float depth2()
+
+float score()
+
+int contamHits()
+
+int contam2Hits()
+
+int multiContamHits()
+
+int queryDivisor()
+
+int refDivisor()
+
+int querySize()
+
+int refSize()
+
+int ssuType()
+
+int ssuLen()
+
+boolean has16S()
+
+boolean has18S()
+
+float ssuIdentity()
+
+private static float calcIdentity(byte[] ssuA, byte[] ssuB)
+
+</class Comparison>
+<class Comparison.ScoreComparator>
+static class Comparison.ScoreComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.ScoreComparator>
+<class Comparison.DepthComparator>
+static class Comparison.DepthComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.DepthComparator>
+<class Comparison.Depth2Comparator>
+static class Comparison.Depth2Comparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.Depth2Comparator>
+<class Comparison.VolumeComparator>
+static class Comparison.VolumeComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.VolumeComparator>
+<class Comparison.KIDComparator>
+static class Comparison.KIDComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.KIDComparator>
+<class Comparison.WKIDComparator>
+static class Comparison.WKIDComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.WKIDComparator>
+<class Comparison.SSUComparator>
+static class Comparison.SSUComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.SSUComparator>
+<class Comparison.HitsComparator>
+static class Comparison.HitsComparator
+
+#Methods
+@Override public int compare(Comparison a, Comparison b)
+
+@Override public String toString()
+
+</class Comparison.HitsComparator>
+<class DisplayParams>
+public class DisplayParams
+
+#Fields
+private int hashVersion=SketchObject.HASH_VERSION
+
+private int k=SketchObject.k
+
+private int k2=SketchObject.k2
+
+boolean amino=SketchObject.amino
+
+boolean translate=SketchObject.translate
+
+boolean sixframes=SketchObject.sixframes
+
+boolean noFilters=false
+
+boolean postParsed=false
+
+public int maxRecords=default_maxRecords
+
+public int recordsPerLevel=0
+
+public float minANI=0
+
+public int minBases=0
+
+public float minSizeRatio=0
+
+public float minWKID=default_minWKID
+
+public int format=default_format
+
+*For tracking unique SendSketch queries
+public int chunkNum=-1
+
+public int minHits=default_minHits
+
+public int taxLevel=default_taxLevel
+
+public int mode=default_mode
+
+public float samplerate=default_samplerate
+
+public long maxReads=default_maxReads
+
+public int minKeyOccuranceCount=default_minKeyOccuranceCount
+
+public String inputVersion=null
+
+public String dbName=null
+
+boolean requireSSU=false
+
+long minRefSizeEstimate=-1
+
+long minRefSizeBases=-1
+
+boolean requiredMetaAnd=true
+
+ArrayList<String> requiredMeta=null
+
+ArrayList<String> bannedMeta=null
+
+public boolean printKID=true
+
+public boolean printWKID=true
+
+public boolean printSSU=true
+
+public boolean printSSULen=false
+
+public boolean printSSUSequence=default_printSSUSequence
+
+public boolean printTax=default_printTax
+
+public boolean printOriginalName=default_printOriginalName
+
+public boolean printQueryFileName=default_printQueryFileName
+
+public boolean printRefFileName=default_printRefFileName
+
+public boolean printImg=default_printImg
+
+public boolean printAni=default_printAni
+
+public boolean printCompleteness=default_printCompleteness
+
+public boolean printScore=default_printScore
+
+public boolean printEValue=default_printEValue
+
+private boolean trackCounts=default_trackCounts
+
+public boolean printDepth=default_printDepth
+
+public boolean printDepth2=default_printDepth2
+
+public boolean printActualDepth=default_printActualDepth
+
+public boolean printVolume=default_printVolume
+
+public boolean printRefHits=default_printRefHits
+
+public boolean printLength=default_printLength
+
+public boolean printTaxID=default_printTaxID
+
+public boolean printGSize=default_printGSize
+
+public boolean printGC=default_printGC
+
+public boolean gSizeKMG=default_gSizeKMG
+
+public boolean printGKmers=default_printGKmers
+
+public boolean printCommonAncestor=default_printCommonAncestor
+
+public boolean printCommonAncestorLevel=default_printCommonAncestorLevel
+
+public boolean printTaxName=default_printTaxName
+
+public boolean printGSeqs=default_printGSeqs
+
+public boolean printGBases=default_printGBases
+
+public boolean jsonArray=default_jsonArray
+
+public boolean printD3=default_printD3
+
+public boolean D3LevelNodes=false
+
+public int D3sizeMode=D3_HIT_SIZE
+
+public static final int D3_HIT_SIZE=0
+
+public static final int D3_ANI_SIZE=1
+
+public static final int D3_KID_SIZE=2
+
+public static final int D3_WKID_SIZE=3
+
+public static final int D3_DEPTH_SIZE=4
+
+public float minEntropy=default_minEntropy
+
+public float minProb=0.0008f
+
+public byte minQual=0
+
+public boolean printUnique=default_printUnique
+
+public boolean printUnique2=default_printUnique2
+
+public boolean printUnique3=default_printUnique3
+
+public boolean printUContam=default_printUContam
+
+public boolean printNoHit=default_printNoHit
+
+public boolean printColors=default_printColors
+
+public boolean setColors=false
+
+public int colorLevel=default_colorLevel
+
+*TODO: Note this is conflated between printing %contam and calculating things based on contam hits.
+public boolean printContam=default_printContam
+
+public boolean printContam2=default_printContam2
+
+private int contamLevel=default_contamLevel
+
+*Raw fields
+public boolean printMatches=default_printMatches
+
+public boolean printRefDivisor=false
+
+public boolean printQueryDivisor=false
+
+public boolean printRefSize=false
+
+public boolean printQuerySize=false
+
+public boolean printContamHits=false
+
+public boolean mergePairs=false
+
+public boolean printIntersection=false
+
+public boolean useTaxidName=false
+
+public boolean useImgName=false
+
+public boolean useTaxName=false
+
+public boolean useFilePrefixName=false
+
+public boolean reportAniOnly=false
+
+public int taxLevelWhite=0
+
+public int taxLevelBlack=0
+
+public String taxFilterWhiteList=null
+
+public String taxFilterBlackList=null
+
+public String taxFilterWhiteString=null
+
+public String taxFilterBlackString=null
+
+public TaxFilter taxFilterWhite=null
+
+public TaxFilter taxFilterBlack=null
+
+public boolean banUnclassified=false
+
+public boolean banVirus=false
+
+public Comparator<Comparison> comparator=Comparison.scoreComparator
+
+public static final int FORMAT_OLD=0
+
+public static final int FORMAT_MULTICOLUMN=2
+
+public static final int FORMAT_QUERY_REF_ANI=3
+
+public static final int FORMAT_JSON=4
+
+public static final int FORMAT_CONSTELLATION=5
+
+public static final boolean default_printD3=false
+
+public static final boolean default_jsonArray=false
+
+public static final int default_maxRecords=20
+
+public static final float default_minWKID=0.0001f
+
+public static final int default_format=FORMAT_MULTICOLUMN
+
+public static final boolean default_printSSUSequence=false
+
+public static final boolean default_printTax=false
+
+public static final boolean default_printOriginalName=false
+
+public static final boolean default_printQueryFileName=true
+
+public static final boolean default_printRefFileName=false
+
+public static final boolean default_printImg=false
+
+public static final boolean default_printAni=true
+
+public static final boolean default_printCompleteness=true
+
+public static final boolean default_printScore=false
+
+public static final boolean default_printEValue=false
+
+public static final boolean default_trackCounts=false
+
+public static final boolean default_printDepth=false
+
+public static final boolean default_printDepth2=false
+
+public static final boolean default_printActualDepth=true
+
+public static final boolean default_printVolume=false
+
+public static final boolean default_printRefHits=false
+
+public static final boolean default_printContam=true
+
+public static final boolean default_printContam2=false
+
+public static final boolean default_printMatches=true
+
+public static final boolean default_printLength=false
+
+public static final boolean default_printTaxID=true
+
+public static final boolean default_printGSize=true
+
+public static final boolean default_printGC=false
+
+public static final boolean default_gSizeKMG=true
+
+public static final boolean default_printGKmers=false
+
+public static final boolean default_printCommonAncestor=false
+
+public static final boolean default_printCommonAncestorLevel=false
+
+public static final boolean default_printTaxName=true
+
+public static final boolean default_printGSeqs=true
+
+public static final boolean default_printGBases=false
+
+public static final float default_minEntropy=0.66f
+
+public static final float default_minEntropy_amino=0.70f
+
+public static final float default_minProb=0.0008f
+
+public static final byte default_minQual=0
+
+public static final boolean default_printUnique=true
+
+public static final boolean default_printUnique2=false
+
+public static final boolean default_printUnique3=false
+
+public static final boolean default_printUContam=false
+
+public static final boolean default_printNoHit=false
+
+public static final boolean default_printColors=true
+
+public static final int default_colorLevel=TaxTree.FAMILY_E
+
+public static final int default_taxLevel=TaxTree.SPECIES
+
+public static final int default_contamLevel=TaxTree.GENUS_E
+
+public static final int default_mode=SketchObject.ONE_SKETCH
+
+public static final int default_minHits=3
+
+public static final float default_samplerate=1
+
+public static final long default_maxReads=-1
+
+public static final int default_minKeyOccuranceCount=1
+
+
+#Methods
+@Override public DisplayParams clone()
+
+public DisplayParams parseDoubleHeader(String s)
+
+public DisplayParams parseDoubleHeaderLine(String line)
+
+public boolean parse(String arg, String a, String b)
+
+public void postParse(boolean requireTree, boolean makeTaxFilters)
+
+public boolean postParsed()
+
+@Override public String toString()
+
+public String toString(int chunkNum)
+
+public boolean compatible()
+
+public void setPrintAll()
+
+public JsonObject toJson(SketchResults sr)
+
+public void toJsonArrayForm(JsonObject j0)
+
+public JsonObject toJson(Sketch sk)
+
+public JsonObject toJson(Comparison c)
+
+public boolean json()
+
+public JsonObject toD3(SketchResults sr)
+
+private JsonObject converToD3ArrayFormat_SingleNodeRoot(JsonObject root)
+
+private JsonObject converToD3ArrayFormat_SingleNode(JsonObject nameNode)
+
+private JsonObject converToD3ArrayFormat_LevelNode(JsonObject levelNode)
+
+private JsonObject converToD3ArrayFormat_NameNode(JsonObject nameNode)
+
+void addToLevel(JsonObject levelNode, ArrayList<JsonObject> list, int pos)
+
+void addAsChild(JsonObject levelNode, ArrayList<JsonObject> list, int pos)
+
+int promote(int levelE)
+
+public ArrayList<JsonObject> toD3List(Comparison c)
+
+private Number toD3Size(Comparison c)
+
+public ArrayList<TaxNode> toTNList(int tid)
+
+ByteBuilder queryHeader(Sketch sk)
+
+int toColorTid(int taxID)
+
+String toColor(int taxID)
+
+String header()
+
+String columnwiseHeader()
+
+void formatComparisonColumnwise(Comparison c, ByteBuilder bb, int prevTid)
+
+void appendKMG(long value, ByteBuilder bb)
+
+String toKMG(long value)
+
+void formatComparison3Column(Comparison c, ByteBuilder sb, int prevTid)
+
+void formatComparison(Comparison c, ByteBuilder sb, int prevTaxID)
+
+public boolean passesFilter(Sketch sk)
+
+private boolean passesTaxFilter(Sketch sk)
+
+private boolean passesTaxFilter(TaxFilter filter, int id, String s)
+
+private boolean passesMetaFilter(Sketch sk)
+
+private boolean passesSSUFilter(Sketch sk)
+
+private boolean passesSizeFilter(Sketch sk)
+
+private boolean aminoOrTranslate()
+
+boolean amino()
+
+boolean hasMetaFilters()
+
+boolean hasTaxFilters()
+
+public boolean printSSU()
+
+*Make sure the settings are consistent, for CompareSketch.
+*This is not yet complete.
+public boolean checkValid()
+
+public boolean trackCounts()
+
+public boolean needContamCounts()
+
+public boolean needIndex()
+
+public int contamLevel()
+
+public int compare(Comparison a, Comparison b)
+
+</class DisplayParams>
+<class InvertKey>
+*@author Brian Bushnell
+*@date Oct 17, 2014
+public class InvertKey
+
+#Fields
+final long key0
+
+final LongHashSet set
+
+final int shift
+
+final int shift2
+
+final long mask
+
+boolean printOnce=true
+
+long kmersProcessed=0
+
+private String in1=null
+
+boolean fasta
+
+boolean sketch
+
+private String keyString=null
+
+private String out1="stdout.fa"
+
+private long maxReads=-1
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+private PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+public boolean errorState=false
+
+private boolean overwrite=true
+
+private boolean append=false
+
+
+#Methods
+public static void main(String[] args)
+
+public InvertKey(String[] args)
+
+void process(Timer t)
+
+private boolean invert(long key2, Read r, ByteStreamWriter bsw)
+
+</class InvertKey>
+<class KmerLimit>
+*@author Brian Bushnell
+*@date July 25, 2018
+public class KmerLimit
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+private final SketchHeap sharedHeap
+
+private final int heapSize
+
+private final long targetKmers
+
+private final int minCount
+
+final int shift
+
+final int shift2
+
+final long mask
+
+final float minProb
+
+final byte minQual
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order (not enabled)
+private boolean ordered=false
+
+*Shuffle input
+private boolean shuffle=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerLimit(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros)
+
+</class KmerLimit>
+<class KmerLimit2>
+*@author Brian Bushnell
+*@date July 30, 2018
+public class KmerLimit2
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+private String qfin1=null
+
+private String qfin2=null
+
+*Primary output file path
+private String out1=null
+
+*Secondary output file path
+private String out2=null
+
+private String qfout1=null
+
+private String qfout2=null
+
+*Override input file extension
+private String extin=null
+
+*Override output file extension
+private String extout=null
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of reads retained
+protected long readsOut=0
+
+*Number of bases retained
+protected long basesOut=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+private boolean paired=false
+
+private int trials=25
+
+private long seed=-1
+
+private int maxExpandedLength=50000000
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output file
+private final FileFormat ffout1
+
+*Secondary output file
+private final FileFormat ffout2
+
+private final SketchHeap sharedHeap
+
+private final int heapSize
+
+private final long targetKmers
+
+private final int minCount
+
+final int shift
+
+final int shift2
+
+final long mask
+
+final float minProb
+
+final byte minQual
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Reads are output in input order (not enabled)
+private boolean ordered=true
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public KmerLimit2(String[] args)
+
+*Create read streams and process all data
+void process(Timer t)
+
+*Spawn process threads
+private void spawnThreads0()
+
+*Spawn process threads
+private void spawnThreads2(double rate)
+
+public static Sketch capLengthAtCountSum(Sketch sketch0, int max)
+
+public static long calcTargetReads(Sketch sketch, long targetKmers, int minCount, int trials, long seed)
+
+public static long reduceRounds(int[] counts0, int[] counts, int minCount, int targetKeys, Random randy)
+
+public static long reduceRoundsIM(int[] counts0, int[] expanded, int minCount, int targetKeys, Random randy, IntMap map)
+
+</class KmerLimit2>
+<class MergeSketch>
+*Combines multiple sketches into a single sketch.
+*@author Brian Bushnell
+*@date July 23, 2018
+public class MergeSketch
+
+#Fields
+private ArrayList<String> in=new ArrayList<String>()
+
+private String outSketch=null
+
+private final SketchTool tool
+
+private ArrayList<Sketch> inSketches
+
+private String outTaxName=null
+
+private String outFname=null
+
+private String outName0=null
+
+private int outTaxID=-1
+
+private long outSpid=-1
+
+private long outImgID=-1
+
+private ArrayList<String> outMeta=null
+
+*Primary output file
+private final FileFormat ffout
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Don't print caught exceptions
+public static boolean suppressErrors=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public MergeSketch(String[] args)
+
+private void process(Timer t)
+
+private static boolean addFiles(String a, Collection<String> list)
+
+</class MergeSketch>
+<class Record>
+class Record
+
+#Fields
+final int qTaxID
+
+final int rTaxID
+
+final long qBases
+
+final long rBases
+
+final long qSize
+
+final long rSize
+
+final double ani
+
+private double ssu=-1
+
+int taxLevelExtended
+
+int correctNCBI
+
+int correctSSU
+
+boolean missingSSU
+
+byte[] text
+
+static boolean verbose
+
+
+#Methods
+Record(ResultLineParser parser)
+
+Record copy()
+
+public void processSSU()
+
+@Override public int compareTo(Record o)
+
+public double ssu()
+
+</class Record>
+<class RecordSet>
+class RecordSet
+
+#Fields
+ArrayList<Record> records=new ArrayList<Record>(8)
+
+long levels
+
+final int qID
+
+boolean sorted=false
+
+boolean swept=false
+
+boolean ssuProcessed=false
+
+static boolean verbose
+
+
+#Methods
+RecordSet(int qID_)
+
+public void sortAndSweep()
+
+public void processSSU()
+
+int[] test(ByteStreamWriter bswBad)
+
+void addLevel(int level)
+
+boolean hasLevel(int level)
+
+</class RecordSet>
+<class ResultLineParser>
+class ResultLineParser
+
+#Fields
+final long[] levelCounts=new long[AnalyzeSketchResults.taxLevels]
+
+final long[] levelCountsSSU=new long[AnalyzeSketchResults.taxLevels]
+
+final double[] levelAniSums=new double[AnalyzeSketchResults.taxLevels]
+
+final double[] levelSSUSums=new double[AnalyzeSketchResults.taxLevels]
+
+final FloatList[] aniLists=new FloatList[AnalyzeSketchResults.taxLevels]
+
+final FloatList[] ssuLists=new FloatList[AnalyzeSketchResults.taxLevels]
+
+final ArrayList<RecordSet> recordSets
+
+final int mode
+
+final TaxTree tree
+
+final ByteStreamWriter bswBad
+
+int qTaxID=-1
+
+int rTaxID=-1
+
+long qBases
+
+long rBases
+
+long qSize
+
+long rSize
+
+double ani=-1
+
+double ssu=-1
+
+int taxLevelExtended=-1
+
+boolean processed=true
+
+RecordSet currentSet=null
+
+final boolean keepText
+
+byte[] text=null
+
+private static int qTaxIDColumn=7
+
+private static int rTaxIDColumn=8
+
+private static int qSizeColumn=3
+
+private static int rSizeColumn=4
+
+private static int qBasesColumn=5
+
+private static int rBasesColumn=6
+
+private static int aniColumn=2
+
+private static int ssuColumn=11
+
+private static int caLevelColumn=12
+
+static int MIN_HITS=3
+
+
+#Methods
+ResultLineParser(int mode_, TaxTree tree_, ByteStreamWriter bswBad_, ArrayList<RecordSet> recordSets_, boolean keepText_)
+
+void parse(byte[] line)
+
+private void parseHeader(byte[] line)
+
+private void parseData(byte[] line)
+
+private TaxNode getTaxNode(String fname)
+
+private void parseDataMash(byte[] line)
+
+RecordSet processData(HashMap<Long,Float> map, boolean saveRecord)
+
+</class ResultLineParser>
+<class SendSketch>
+*Compares one or more input sketches to a set of reference sketches.
+*@author Brian Bushnell
+*@date July 29, 2016
+public class SendSketch
+
+#Fields
+private ArrayList<String> in=new ArrayList<String>()
+
+private String out="stdout.txt"
+
+private String outSketch=null
+
+private String taxTreeFile=null
+
+private final SketchTool tool
+
+private ArrayList<Sketch> inSketches
+
+private String address=null
+
+private boolean local=false
+
+*List of reference names or TaxIDs to use as queries
+private String refNames=null
+
+private String outTaxName=null
+
+private String outFname=null
+
+private String outName0=null
+
+private int outTaxID=-1
+
+private long outSpid=-1
+
+private long outImgID=-1
+
+private ArrayList<String> outMeta=null
+
+*Primary output file
+private final FileFormat ffout
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+private boolean silent=false
+
+public int SEND_BUFFER_MAX_BYTES=8000000
+
+public int SEND_BUFFER_MAX_SKETCHES=400
+
+private static final int MAX_ALLOWED_SKETCHES=100000
+
+*Don't print caught exceptions
+public static boolean suppressErrors=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public SendSketch(String[] args)
+
+private void setFromAddress(String address, boolean setBlacklist)
+
+public void process(Timer t)
+
+private void processRemote(Timer t)
+
+public static ArrayList<JsonObject> sendSketches(ArrayList<Sketch> inSketches, String address, DisplayParams params)
+
+@Deprecated public static String sendSketch(Sketch sk, String address, int format, int chunkNum)
+
+*For programmatic use
+public static String sendSketch(Sketch sk, String address, DisplayParams params, int chunkNum)
+
+private static boolean checkForError(String s)
+
+private void processLocal(Timer t)
+
+private void processRefMode(Timer t)
+
+private static boolean addFiles(String a, Collection<String> list)
+
+public static final String toAddress(String b)
+
+private static String ntAddress()
+
+private static String refseqAddress()
+
+private static String silvaAddress()
+
+private static String imgAddress()
+
+private static String nrAddress()
+
+private static String prokProtAddress()
+
+private static String mitoAddress()
+
+private static String fungiAddress()
+
+</class SendSketch>
+<class Sketch>
+*@author Brian Bushnell
+*@date July 7, 2016
+public class Sketch
+
+#Fields
+*Stores sorted hashcodes, ascending, as Long.MAX_VALUE-(raw hashcode)
+public long[] keys
+
+*Stores kmer (hashcode) observation counts
+public int[] keyCounts
+
+*Stores base (ACGTN) counts
+final long[] baseCounts
+
+private byte[] r16S
+
+private byte[] r18S
+
+public int taxID
+
+public int maxCount
+
+int sketchID
+
+public final long genomeSequences
+
+public final long genomeSizeBases
+
+public final long genomeSizeKmers
+
+public final float probCorrect
+
+private String taxName
+
+private String name0
+
+private String fname
+
+ArrayList<String> meta
+
+private AbstractBitSet compareBitSet
+
+private AbstractBitSet indexBitSet
+
+public long imgID=-1
+
+public long spid=-1
+
+private boolean mergedBitSets=false
+
+*Tracks the number of reference sketches sharing each kmer.
+*Should be set to null when no longer needed.
+private int[] refHitCounts
+
+private static AtomicInteger nextSketch=new AtomicInteger(1)
+
+
+#Methods
+@Override public Sketch clone()
+
+public Sketch(long[] keys_, int[] keyCounts_, long[] baseCounts_, byte[] r16S_, byte[] r18S_, ArrayList<String> meta_)
+
+public Sketch(SketchHeap heap, boolean clearFname, boolean keepCounts, ArrayList<String> meta_)
+
+public Sketch(SketchHeap heap, boolean clearFname, boolean keepCounts, ArrayList<String> meta_, int minKeyOccuranceCount)
+
+public Sketch(long[] keys_, int[] keyCounts_, long[] baseCounts_, byte[] r16S_, byte[] r18S_, int taxID_, long imgID_, long gSizeBases_, long gSizeKmers_, long gSequences_, double probCorrect_, String taxName_, String name0_, String fname_, ArrayList<String> meta_)
+
+void loadSSU()
+
+void addMeta(String s)
+
+void setMeta(ArrayList<String> list)
+
+private static String fix(String s)
+
+public void add(Sketch other, int maxlen)
+
+public void resize(int newSize)
+
+int fixKeyCounts()
+
+int fixKeyCounts(int maxLen)
+
+public int applyBlacklist()
+
+public static final Sketch intersection(Sketch sa, Sketch sb)
+
+public static final Sketch intersection(long[] a, long[] b, int[] aCounts)
+
+public static final Sketch union(Sketch sa, Sketch sb)
+
+public static final Sketch union(long[] a, long[] b, int[] aCounts, int[] bCounts, long[] aBaseCounts, long[] bBaseCounts, byte[] a16S, byte[] b16S, byte[] a18S, byte[] b18S)
+
+boolean passesMeta(DisplayParams params)
+
+boolean passesMeta(ArrayList<String> requiredMeta, ArrayList<String> bannedMeta, boolean requiredMetaAnd)
+
+public int countMatches(Sketch other, CompareBuffer buffer, AbstractBitSet present, boolean fillPresent, int[][] taxHits, int contamLevel)
+
+public static final int countMatches(long[] a, long[] b, int[] aCounts, int[] bCounts, int[] refHitCounts, int bid, CompareBuffer buffer, AbstractBitSet present, boolean fillPresent, int[][] taxHits, int contamLevel)
+
+@Override public int hashCode()
+
+@Override public int compareTo(Sketch b)
+
+@Override public boolean equals(Object b)
+
+public boolean equals(Sketch b)
+
+public ByteBuilder toHeader()
+
+public ByteBuilder toHeader(ByteBuilder bb)
+
+public ByteBuilder toBytes()
+
+public ByteBuilder toBytes(ByteBuilder bb)
+
+private ByteBuilder toBytesA48D(ByteBuilder bb)
+
+public static final void appendA48(long value, ByteBuilder bb, byte[] temp)
+
+public static final String toA48(long value)
+
+@Override public String toString()
+
+public static long parseA48(String line)
+
+*Parses coverage too
+public static long parseA48C(String line, IntList covList)
+
+public static long parseHex(String line)
+
+public static long parseA48(byte[] line)
+
+public static long parseNuc(String line)
+
+*Returns the maximal key in the sequence
+public static long parseNuc(byte[] bases)
+
+*Parses coverage too
+public static long parseA48C(byte[] line, IntList covList)
+
+public static long parseHex(byte[] line)
+
+public static long parseA48(ByteBuilder bb)
+
+public static long parseNuc(ByteBuilder bb)
+
+*Parses coverage too
+public static long parseA48C(ByteBuilder bb, IntList covList)
+
+public static long parseHex(ByteBuilder bb)
+
+public long genomeSizeEstimate()
+
+public long genomeSizeEstimate(int minCount)
+
+public float gc()
+
+public String filePrefix()
+
+public String name()
+
+public String taxName()
+
+public String name0()
+
+public String fname()
+
+public int length()
+
+public void setTaxName(String s)
+
+public void setName0(String s)
+
+public void setFname(String s)
+
+public ArrayList<LongPair> toKhist()
+
+public void addSSU()
+
+public void makeBitSets(boolean printContam, boolean index)
+
+public void addToBitSet(AbstractBitSet rbs)
+
+public AbstractBitSet compareBitSet()
+
+public AbstractBitSet indexBitSet()
+
+public void mergeBitSets()
+
+public boolean merged()
+
+public int r16SLen()
+
+public int r18SLen()
+
+public byte[] r16S()
+
+public byte[] r18S()
+
+public boolean hasSSU()
+
+public boolean sharesSSU(Sketch b)
+
+public int[] refHitCounts()
+
+public void clearRefHitCounts()
+
+public void setRefHitCounts(int[] x)
+
+</class Sketch>
+<class SketchHeap>
+public class SketchHeap
+
+#Fields
+private String taxName
+
+private String name0
+
+private String fname
+
+public long taxID=-1
+
+public long imgID=-1
+
+public long genomeSizeBases=0
+
+public long genomeSizeKmers=0
+
+public long genomeSequences=0
+
+public final long[] baseCounts=(SketchObject.aminoOrTranslate() ? null : new long[4])
+
+private byte[] r16S
+
+private byte[] r18S
+
+double probSum=0
+
+private final LongHeapSet set
+
+private final LongHeapMap map
+
+private final LongHeapSetInterface setOrMap
+
+public final LongHeap heap
+
+public final int minKeyOccuranceCount
+
+*Determines whether to use LongHeapSet or LongHeapMap
+public final boolean setMode
+
+
+#Methods
+SketchHeap(int limit, int minKeyOccuranceCount_, boolean trackCounts)
+
+public void clear(boolean clearFname)
+
+public void add(SketchHeap b)
+
+public void add(Sketch b)
+
+public StringBuilder toHeader()
+
+public boolean checkAndAdd(long value)
+
+public final int maxLen()
+
+public final long[] toSketchArray()
+
+public final long[] toSketchArray_minCount(int minKeyOccuranceCount_)
+
+final long[] toSketchArray_maxLen(int maxLen)
+
+private final long[] toSketchArrayOld(int maxLen)
+
+private final long[] toSketchArray(int maxLen, int minKeyOccuranceCount_)
+
+@Override public int hashCode()
+
+public long genomeSizeEstimate()
+
+public long genomeSizeEstimate(int minCount)
+
+public long sketchSizeEstimate()
+
+public boolean contains(long key)
+
+@Override public String toString()
+
+public String name()
+
+public String taxName()
+
+public String name0()
+
+public String fname()
+
+public long[] baseCounts(boolean original)
+
+public void setTaxName(String s)
+
+public void setName0(String s)
+
+public void setFname(String s)
+
+public byte[] r16S()
+
+public int r16SLen()
+
+public void set16S(byte[] b)
+
+private float score16S(byte[] seq)
+
+private float score18S(byte[] seq)
+
+private float scoreSSU(byte[] seq, int idealLen)
+
+private float lengthScore(int len, int ideal)
+
+public byte[] r18S()
+
+public int r18SLen()
+
+public void set18S(byte[] b)
+
+boolean isEukaryote()
+
+public float probCorrect()
+
+public int capacity()
+
+public boolean hasRoom()
+
+public long peek()
+
+public int size()
+
+public LongHashMap map()
+
+public void clear()
+
+public void clearSet()
+
+public boolean add(long key)
+
+public int increment(long key, int incr)
+
+</class SketchHeap>
+<class SketchIdComparator>
+public class SketchIdComparator
+
+#Fields
+public static final SketchIdComparator comparator=new SketchIdComparator()
+
+
+#Methods
+private SketchIdComparator()
+
+@Override public int compare(Sketch a, Sketch b)
+
+</class SketchIdComparator>
+<class SketchIndex>
+public class SketchIndex
+
+#Fields
+public final KmerTableSet tables
+
+public final AbstractKmerTable[] tableArray
+
+public final ArrayList<Sketch> refSketches
+
+public boolean errorState=false
+
+private static final boolean printTime=false
+
+public static boolean useIntMap=true
+
+public static int intMapSize=1000
+
+public static int indexLimit=Integer.MAX_VALUE
+
+public static final int WAYS=31
+
+
+#Methods
+public SketchIndex(ArrayList<Sketch> refs)
+
+public void load()
+
+*Spawn index threads
+private void spawnIndexThreads()
+
+public SketchResults getSketches(Sketch a, DisplayParams params)
+
+*Return true if added.
+private boolean addToTaxSet(int sketchID, IntHashSetList taxSet, int taxLevelExtended)
+
+public SketchResults getSketchesList(Sketch a, DisplayParams params)
+
+public final int[] getSketchIdsMap(long key, int[] singleton)
+
+public SketchResults getSketchesMap(Sketch a, DisplayParams params)
+
+</class SketchIndex>
+<class SketchIndex.IndexThread>
+public class SketchIndex.IndexThread
+
+#Fields
+AtomicInteger nextIndex
+
+AtomicLong keyCount
+
+AtomicLong uniqueKeyCount
+
+long codesProcessedT=0
+
+HashBuffer buffer
+
+boolean success=false
+
+
+#Methods
+public IndexThread(AtomicInteger nextIndex_, AtomicLong keyCount_, AtomicLong uniqueKeyCount_)
+
+@Override public void run()
+
+</class SketchIndex.IndexThread>
+<class SketchMaker>
+*Creates MinHashSketches rapidly.
+*@author Brian Bushnell
+*@date July 6, 2016
+public class SketchMaker
+
+#Fields
+*Primary input file path
+private String in1=null
+
+*Secondary input file path
+private String in2=null
+
+*Primary output file path
+private String out1=null
+
+*Override input file extension
+private String extin=null
+
+private String giTableFile=null
+
+private String taxTreeFile=null
+
+private String accessionFile=null
+
+private String imgFile=null
+
+String outTaxName=null
+
+String outFname=null
+
+String outName0=null
+
+int outTaxID=-1
+
+long outSpid=-1
+
+long outImgID=-1
+
+ArrayList<String> outMeta=null
+
+static boolean parseSubunit=false
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Number of bases processed
+protected long kmersProcessed=0
+
+*Number of sketches started
+protected long sketchesMade=0
+
+*Number of sketches written
+protected long sketchesWritten=0
+
+*Quit after processing this many input reads; -1 means no limit
+private long maxReads=-1
+
+final LongList sizeList
+
+final HashMap<Long,Long> sizeMap
+
+private HashMap<Long,SketchHeap> longMaps
+
+private ByteStreamWriter tsw
+
+*Primary input file
+private final FileFormat ffin1
+
+*Secondary input file
+private final FileFormat ffin2
+
+*Primary output files
+private final FileFormat ffout
+
+*Number of output files
+private final int files
+
+final int mode
+
+private final SketchTool tool
+
+*Don't make sketches from sequences smaller than this
+final int minSizeBases
+
+*Don't make sketches from sequences smaller than this
+final int minSizeKmers
+
+private int taxLevel=1
+
+private boolean prefilter=false
+
+private boolean tossJunk=true
+
+boolean bestEffort=true
+
+private final AtomicInteger nextUnknown=new AtomicInteger(minFakeID)
+
+private static final int MAP_WAYS=32
+
+private static final int MAP_MASK=MAP_WAYS - 1
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+private static void recallCompareSketch(String[] args)
+
+*Constructor.
+*@param args Command line arguments
+public SketchMaker(String[] args)
+
+private static FileFormat[] makeFFArray(String fname0, int files, boolean overwrite, boolean append)
+
+private static ByteStreamWriter[] makeTSWArray(FileFormat[] ff)
+
+private LongList sizeList()
+
+private HashMap<Long,Long> sizeMap()
+
+*Create read streams and process all data
+void process(Timer t)
+
+private void singleSketchMT()
+
+*Spawn process threads
+@SuppressWarnings private void spawnThreads(ConcurrentReadInputStream cris)
+
+private boolean writeMap(HashMap<Long,SketchHeap>[] maps)
+
+private void loadGiToTaxid()
+
+</class SketchMaker>
+<class SketchMakerMini>
+*Creates MinHashSketches rapidly.
+*@author Brian Bushnell
+*@date July 6, 2016
+public class SketchMakerMini
+
+#Fields
+*True only if this thread has completed successfully
+boolean success=false
+
+SketchHeap heap
+
+final int aminoShift
+
+final int shift
+
+final int shift2
+
+final long mask
+
+final EntropyTracker eTracker
+
+final GeneCaller gCaller
+
+*Number of reads processed
+public long readsProcessed=0
+
+*Number of bases processed
+public long basesProcessed=0
+
+*Number of bases processed
+public long kmersProcessed=0
+
+*Number of sketches started
+public long sketchesMade=0
+
+public boolean pacBioDetected=false
+
+private float minProb
+
+private byte minQual
+
+private final SketchTool tool
+
+private final boolean rcomp
+
+final int mode
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+
+#Methods
+public SketchMakerMini(SketchTool tool_, int mode_, DisplayParams params)
+
+*Constructor.
+public SketchMakerMini(SketchTool tool_, int mode_, float minEntropy_, float minProb_, byte minQual_)
+
+*Create read streams and process all data
+public ArrayList<Sketch> toSketches(String fname, float samplerate, long reads)
+
+*Create read streams and process all data
+public ArrayList<Sketch> toSketches(FileFormat ffin1, FileFormat ffin2, float samplerate, long reads)
+
+*Iterate through the reads
+ArrayList<Sketch> processInner(ConcurrentReadInputStream cris)
+
+void processReadPair(Read r1, Read r2)
+
+public void processRead(Read r)
+
+public void processReadTranslated(Read r)
+
+public void processReadNucleotide(Read r)
+
+boolean looksLikePacBio(Read r)
+
+void processReadAmino(Read r)
+
+void processReadAmino_old_no_entropy(Read r)
+
+public Sketch toSketch(int minCount)
+
+public void add(SketchMakerMini smm)
+
+public boolean isEmpty()
+
+public float minEntropy()
+
+public SketchHeap heap()
+
+float minProb()
+
+byte minQual()
+
+</class SketchMakerMini>
+<class SketchObject>
+public class SketchObject
+
+#Fields
+*Plaintext decimal
+public static final int RAW=0
+
+*Hexadecimal (4-bit)
+public static final int HEX=1
+
+*ASCII-48 6-bit encoding
+public static final int A48=2
+
+public static final char[] codingArray={'R','H','A'}
+
+static final byte[] hexTable=new byte[128]
+
+public static final int ONE_SKETCH=1
+
+public static final int PER_SEQUENCE=2
+
+public static final int PER_TAXA=3
+
+public static final int PER_IMG=4
+
+public static final int PER_FILE=6
+
+private static final String IMG_PATH="/global/cfs/cdirs/bbtools/img/current/img#.sketch"
+
+private static final String NT_PATH="/global/cfs/cdirs/bbtools/nt/current/taxa#.sketch"
+
+private static final String NR_PATH="/global/cfs/cdirs/bbtools/nr/current/taxa#.sketch"
+
+private static final String REFSEQ_PATH="/global/cfs/cdirs/bbtools/refseq/current/taxa#.sketch"
+
+private static final String REFSEQ_PATH_BIG="/global/cfs/cdirs/bbtools/refseq/current/big#.sketch"
+
+private static final String SILVA_PATH="/global/cfs/cdirs/bbtools/silva/latest/both_taxa#.sketch"
+
+private static final String PROKPROT_PATH="/global/cfs/cdirs/bbtools/refseq/current/prot/taxa#.sketch"
+
+private static final String PROKPROT_PATH_BIG="/global/cfs/cdirs/bbtools/refseq/current/prot/big#.sketch"
+
+private static final String MITO_PATH="/global/cfs/cdirs/bbtools/mito2/taxa#.sketch"
+
+private static final String FUNGI_PATH="/global/cfs/cdirs/bbtools/mito2/fungi#.sketch"
+
+private static final String IMG_PATH_IGBVM="/data/sketch/img/current/img#.sketch"
+
+private static final String NT_PATH_IGBVM="/data/sketch/nt/current/taxa#.sketch"
+
+private static final String NR_PATH_IGBVM="/data/sketch/nr/current/taxa#.sketch"
+
+private static final String REFSEQ_PATH_IGBVM="/data/sketch/refseq/current/taxa#.sketch"
+
+private static final String REFSEQ_PATH_BIG_IGBVM="/data/sketch/refseq/current/big#.sketch"
+
+private static final String SILVA_PATH_IGBVM="/data/sketch/silva/current/both_taxa#.sketch"
+
+private static final String PROKPROT_PATH_IGBVM="/data/sketch/refseq/current/prot/taxa#.sketch"
+
+private static final String PROKPROT_PATH_BIG_IGBVM="/data/sketch/refseq/current/prot/big#.sketch"
+
+private static final String MITO_PATH_IGBVM="/data/sketch/mito2/taxa#.sketch"
+
+private static final String FUNGI_PATH_IGBVM="/data/sketch/mito2/fungi#.sketch"
+
+private static final String IMG_PATH_AWS=null
+
+private static final String NT_PATH_AWS="/test1/sketch/latest/nt/taxa#.sketch"
+
+private static final String NR_PATH_AWS=null
+
+private static final String REFSEQ_PATH_AWS="/test1/sketch/latest/refseq/taxa#.sketch"
+
+private static final String SILVA_PATH_AWS="/test1/sketch/latest/ribo/both_taxa#.sketch"
+
+private static final String PROKPROT_PATH_AWS="/test1/sketch/latest/protein/taxa#.sketch"
+
+private static final String MITO_PATH_AWS=null
+
+private static final String FUNGI_PATH_AWS=null
+
+public static int CODING=A48
+
+public static boolean deltaOut=true
+
+public static boolean rcomp=true
+
+public static final int defaultK=32
+
+public static final int defaultK2=24
+
+public static final int defaultKAmino=12
+
+public static final int defaultK2Amino=9
+
+public static int k=defaultK
+
+public static int k2=defaultK2
+
+public static int entropyK=3
+
+public static boolean setK=false
+
+public static boolean amino=false
+
+public static boolean amino8=false
+
+public static boolean translate=false
+
+public static boolean sixframes=false
+
+public static boolean processSSU=true
+
+public static int min_SSU_len=1000
+
+public static int HASH_VERSION=2
+
+public static String pgmFile=null
+
+public static GeneModel pgm=null
+
+private static int bitsPerCycle=8
+
+private static long cycleMask=~((-1L) << bitsPerCycle)
+
+private static final long codeOrMask=1L
+
+private static final long codeAndMask=~1L
+
+private static int maxCycles=(64 + bitsPerCycle - 1) / bitsPerCycle
+
+private static int codeIncrement=(int)(cycleMask + 1)
+
+private static int codeMax
+
+private static int codeMax2
+
+private static long hashSeed=12345
+
+private static long[][] codes
+
+private static long[] codes1D
+
+static boolean useToValue2=true
+
+private static int bitsPerBase=2
+
+private static int basesPerCycle=bitsPerCycle / bitsPerBase
+
+private static int hashCycles=64 / bitsPerCycle
+
+private static int hashCycles2
+
+private static long k2mask
+
+private static long k2submask
+
+private static int k2shift
+
+private static long k2midmask
+
+*Make the SketchHeap size this factor bigger,
+*when minKeyOccuranceCount is used
+public static double sketchHeapFactor=8
+
+public static int minSketchSize=3
+
+public static int targetSketchSize=10000
+
+public static boolean AUTOSIZE=true
+
+public static float AUTOSIZE_FACTOR=1
+
+public static boolean SET_AUTOSIZE_FACTOR=false
+
+public static boolean SET_AUTOSIZE=false
+
+public static boolean SET_TARGET_SIZE=false
+
+public static boolean AUTOSIZE_LINEAR=false
+
+public static double AUTOSIZE_LINEAR_DENSITY=0.001
+
+public static float maxGenomeFraction=0.04f
+
+public static float maxGenomeFractionSmall=0.10f
+
+public static int smallSketchSize=150
+
+public static boolean makeIndex=true
+
+public static float prealloc=0
+
+public static boolean allToAll=false
+
+public static boolean compareSelf=false
+
+public static boolean skipCompare=false
+
+public static final int bitSetBits=2
+
+private static double keyFraction=0.16
+
+private static double keyFraction2=keyFraction * 1.2
+
+public static long minHashValue=setMinHashValue()
+
+public static int minFakeID=1900000000
+
+static boolean hashNames=false
+
+static boolean skipNonCanonical=true
+
+static boolean useSizeEstimate=true
+
+public static boolean allowMultithreadedFastq=false
+
+static boolean forceDisableMultithreadedFastq=false
+
+static boolean preferSSUMap=false
+
+static boolean preferSSUMapForEuks=true
+
+static boolean useSSUMapOnly=false
+
+static boolean useSSUMapOnlyForEuks=false
+
+static boolean ban18SForProks=true
+
+static boolean ban16SForEuks=true
+
+public static long sampleseed=-1L
+
+public static TaxTree taxtree=null
+
+private static String treefile=null
+
+static String blacklist=null
+
+static boolean useWhitelist=false
+
+private static boolean postparsed=false
+
+public static boolean KILL_OK=false
+
+public static boolean EXACT_ANI=true
+
+public static boolean useSSA=true
+
+public static boolean useSSA3=false
+
+public static DisplayParams defaultParams=new DisplayParams()
+
+static AlignmentThreadPool alignerPool=null
+
+public static boolean verbose2=false
+
+public static boolean LOADER2=true
+
+
+#Methods
+public static void main(String[] args)
+
+public static boolean parseSketchFlags(String arg, String a, String b)
+
+private static boolean parseCoding(String arg, String a, String b)
+
+static int parseMode(String[] args)
+
+static int parseMode(String arg, String a, String b)
+
+static void setTaxtree(String taxTreeFile, PrintStream outstream)
+
+public static void reset()
+
+public static void postParse()
+
+private static void remakeCodes(long hashSeed)
+
+public static long[][] makeCodes(int symbols, int modes, long seed, boolean positive)
+
+private static void antialias(long[][] matrix, Random randy)
+
+private static void antialias(long[] array, Random randy)
+
+private static void antialiasBit(long[] array, Random randy, int bit)
+
+private static void antialiasNumbers(long[] array, Random randy)
+
+private static long antialiasNumber(long number, Random randy)
+
+public static long[] makeCodes1D(long[][] codes2D)
+
+public static final long hash(long kmer)
+
+public static final long hash(long kmer, long rkmer)
+
+public static final long hash(long kmer, long rkmer, boolean rcomp)
+
+*New version.
+*Generates a hash code from a kmer.
+*@param kmer Kmer to hash
+*@return Hash code
+private static final long hashToValue2(long kmer0, long rkmer0, boolean rcomp)
+
+*Fastest version!
+*Generates a hash code from a kmer.
+*@param kmer Kmer to hash
+*@return Hash code
+private static final long hash1(long kmer)
+
+*Generates a hash code from a kmer, using dual kmer lengths.
+*@param kmer Kmer to hash
+*@return Hash code
+private static final long hash2(long kmer0)
+
+*Generates a hash code from a kmer, using dual kmer lengths, allowing K2 to be a non-multiple-of-4.
+*Uses one additional and, xor, and lookup.
+*@param kmer Kmer to hash
+*@return Hash code
+private static final long hash3(long kmer0)
+
+public static final float align(byte[] query, byte[] ref)
+
+public static final float alignAndMakeMatch(Read r, byte[] ref)
+
+public static final float alignAndMakeMatch(Read r, byte[] ref, float[] refWeights)
+
+static String fixMeta(String s)
+
+static ArrayList<String> fixMeta(ArrayList<String> list)
+
+public static final float aniToWkid(double ani)
+
+public static final float wkidToAniExact(double wkid, int A, int B, double maxDeviation)
+
+public static double aniToWkid(double ani, int A, int B)
+
+public static double aniToWkid(double ani, int A)
+
+public static final float wkidToAniExact(double wkid, int k)
+
+public static final float wkidToAni(double wkid)
+
+public static void hashArrayToSketchArray(long[] keys)
+
+public static final long genomeSizeEstimate(long min, int length)
+
+public static final int toSketchSize(long genomeSizeBases, long genomeSizeKmers, long genomeSizeEstimate, int maxSketchSize)
+
+private static final int toSketchSizeBases(long genomeSizeBases, int maxSketchSize)
+
+private static final int toSketchSizeKmers(long genomeSizeKmers, int maxSketchSize)
+
+private static final long toValue(long kmer, long rkmer)
+
+private static ArrayList<String> makePaths(String pattern, int files)
+
+public static final String IMG_PATH()
+
+public static final String NT_PATH()
+
+public static final String NR_PATH()
+
+public static final String REFSEQ_PATH()
+
+public static final String REFSEQ_PATH_BIG()
+
+public static final String SILVA_PATH()
+
+public static final String PROKPROT_PATH()
+
+public static final String PROKPROT_PATH_BIG()
+
+public static final String MITO_PATH()
+
+public static final String FUNGI_PATH()
+
+public static boolean useWhitelist()
+
+public static String blacklist()
+
+static boolean aminoOrTranslate()
+
+public static double keyFraction()
+
+public static void setKeyFraction(double d)
+
+public static long setMinHashValue()
+
+</class SketchObject>
+<class SketchResults>
+public class SketchResults
+
+#Fields
+private static String recordBreak="\n"
+
+public final Sketch sketch
+
+public ArrayList<Sketch> refSketchList
+
+public int[][] taxHits
+
+public ArrayList<Comparison> list
+
+public int totalRecords=0
+
+
+#Methods
+SketchResults(Sketch s)
+
+SketchResults(Sketch s, ArrayList<Sketch> sketchList_, int[][] taxHits_)
+
+public void addMap(ConcurrentHashMap<Integer,Comparison> map, DisplayParams params, CompareBuffer buffer)
+
+public void recompare(CompareBuffer buffer, DisplayParams params)
+
+private static ArrayList<Comparison> addToList(ConcurrentHashMap<Integer,Comparison> map, DisplayParams params, ArrayList<Comparison> old)
+
+public boolean isEmpty()
+
+public int primaryTax(int level)
+
+void writeResults(DisplayParams params, TextStreamWriter tsw)
+
+public ByteBuilder toText(DisplayParams params)
+
+void alignSSUs(int maxRecords)
+
+</class SketchResults>
+<class SketchSearcher>
+public class SketchSearcher
+
+#Fields
+public SketchIndex index=null
+
+public boolean autoIndex=true
+
+public SketchTool tool=null
+
+public ArrayList<Sketch> refSketches
+
+LinkedHashSet<String> refFiles=new LinkedHashSet<String>()
+
+*For ref sketch lookups by TaxID
+private IntHashMap taxIDToSketchIDMap
+
+public int threads=Shared.threads()
+
+boolean verbose
+
+boolean errorState=false
+
+AtomicLong comparisons=new AtomicLong(0)
+
+int minLevelExtended=-1
+
+
+#Methods
+public SketchSearcher()
+
+public boolean parse(String arg, String a, String b, boolean addFileIfNotFound)
+
+public boolean compare(ArrayList<Sketch> querySketches, ByteBuilder sb, DisplayParams params, int maxThreads)
+
+public SketchResults processSketch(Sketch a, CompareBuffer buffer, AtomicInteger fakeID, ConcurrentHashMap<Integer,Comparison> map, DisplayParams params, int maxThreads)
+
+boolean passesTax(Sketch q, Sketch ref)
+
+private void spawnThreads(Sketch a, ArrayList<Sketch> refs, AtomicInteger fakeID, ConcurrentHashMap<Integer,Comparison> map, DisplayParams params, int maxThreads)
+
+boolean processPair(Sketch a, Sketch b, CompareBuffer buffer, AbstractBitSet abs, AtomicInteger fakeID, ConcurrentHashMap<Integer,Comparison> map, DisplayParams params)
+
+private static Comparison compareOneToOne(Sketch a, Sketch b, CompareBuffer buffer, AbstractBitSet abs, int minHits, float minWKID, float minANI, boolean requireSSU, Heap<Comparison> heap)
+
+public void addRefFiles(String a)
+
+static void addFiles(String a, Set<String> list)
+
+public void makeIndex()
+
+public void loadReferences(int mode_, DisplayParams params)
+
+public void loadReferences(int mode_, int minKeyOccuranceCount, float minEntropy, float minProb, byte minQual)
+
+public void makeTool(int minKeyOccuranceCount, boolean trackCounts, boolean mergePairs)
+
+public ArrayList<Sketch> loadSketchesFromString(String sketchString)
+
+public int refFileCount()
+
+public int refSketchCount()
+
+public Sketch findReferenceSketch(int taxID)
+
+</class SketchSearcher>
+<class SketchTool>
+*@author Brian Bushnell
+*@date June 28, 2016
+public final class SketchTool
+
+#Fields
+final int stTargetSketchSize
+
+public final int minKeyOccuranceCount
+
+*Force kmer counts to be tracked.
+public final boolean trackCounts
+
+*Merge reads before processing kmers.
+public final boolean mergePairs
+
+public final boolean rcomp
+
+public static int BUFLEN=16384
+
+public static boolean BUFFERED_READER=false
+
+
+#Methods
+public SketchTool(int size_, DisplayParams params)
+
+public SketchTool(int size_, int minKeyOccuranceCount_, boolean trackCounts_, boolean mergePairs_, boolean rcomp_)
+
+public Sketch toSketch(KmerTableSet tables, boolean multithreaded)
+
+private Sketch toSketch_ST(KmerTableSet tables)
+
+private Sketch toSketch_MT(KmerTableSet tables, int threads)
+
+public SketchHeap toHeap(HashArray1D table, SketchHeap heap)
+
+public LongList toList(HashArray1D table, LongList list)
+
+public Sketch toSketch(ArrayList<SketchHeap> heaps, boolean allowZeroSizeSketch)
+
+Sketch toSketch(LongList list)
+
+private void addRecursive(SketchHeap heap, KmerNode kn)
+
+private void addRecursive(LongList list, KmerNode kn)
+
+public ArrayList<Sketch> loadSketches_MT(DisplayParams params, Collection<String> fnames)
+
+public ArrayList<Sketch> loadSketches_MT(DisplayParams params, String fnames)
+
+public ArrayList<Sketch> loadSketches_MT(int mode, float samplerate, long reads, float minEntropy, float minProb, byte minQual, Collection<String> fnames)
+
+public ArrayList<Sketch> loadSketches_MT(int mode, float samplerate, long reads, float minEntropy, float minProb, byte minQual, String fnames)
+
+public ArrayList<Sketch> loadSketchesFromFile(String fname0, SketchMakerMini smm, int maxThreads, long reads, int mode, DisplayParams params, boolean allowZeroSizeSketch)
+
+public ArrayList<Sketch> loadSketchesFromFile(String fname0, SketchMakerMini smm, int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch)
+
+private ArrayList<Sketch> loadSketchesFromSequenceFile(FileFormat ff, SketchMakerMini smm, int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch)
+
+private ArrayList<Sketch> loadSketchesFromSketchFile(FileFormat ff, boolean allowZeroSizeSketch)
+
+*Usually much faster due to not manifesting the multithreaded load Java slowdown. Should incur less garbage collection also.
+private ArrayList<Sketch> loadSketchesFromSketchFile2(FileFormat ff, boolean allowZeroSizeSketch)
+
+public ArrayList<Sketch> loadSketchesFromString(String sketchString)
+
+public Sketch processReadsMT(String fname, int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch)
+
+public Sketch processReadsMT(String fname1, String fname2, int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch)
+
+public Sketch processReadsMT(FileFormat ffin1, FileFormat ffin2, int maxThreads, long reads, int mode, DisplayParams params, boolean allowZeroSizeSketch)
+
+public Sketch processReadsMT(FileFormat ffin1, FileFormat ffin2, int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch)
+
+public static boolean write(ArrayList<Sketch> sketches, FileFormat ff)
+
+public static boolean write(ArrayList<Sketch> sketches, FileFormat ff)
+
+public static boolean write(Sketch sketch, FileFormat ff)
+
+public static void write(Sketch sketch, ByteStreamWriter tsw, ByteBuilder bb)
+
+</class SketchTool>
+<class SSUMap>
+public class SSUMap
+
+#Fields
+public static String r16SFile=null
+
+public static String r18SFile=null
+
+public static HashMap<Integer,byte[]> r16SMap=null
+
+public static HashMap<Integer,byte[]> r18SMap=null
+
+static boolean verbose=false
+
+static boolean errorState=false
+
+
+#Methods
+public static void load(PrintStream outstream)
+
+private static HashMap<Integer,byte[]> load(String ssuFile, String defaultFile, PrintStream outstream)
+
+private static HashMap<Integer,byte[]> loadSSU(FileFormat ff, PrintStream outstream)
+
+private static ConcurrentReadInputStream makeCris(FileFormat ff, PrintStream outstream)
+
+public static boolean hasMap()
+
+public static int r16SCount()
+
+public static int r18SCount()
+
+</class SSUMap>
+<class SubSketch>
+*Generates smaller sketches from input sketches.
+*@author Brian Bushnell
+*@date July 23, 2018
+public class SubSketch
+
+#Fields
+private LinkedHashSet<String> in=new LinkedHashSet<String>()
+
+private String outSketch=null
+
+private final SketchTool tool
+
+private ArrayList<Sketch> inSketches
+
+private long keysOut=0
+
+private long sketchesOut=0
+
+private long blackKeys=0
+
+private int files=31
+
+*Print status messages to this output stream
+private PrintStream outstream=System.err
+
+*Print verbose messages
+public static boolean verbose=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+*Overwrite existing output files
+private boolean overwrite=true
+
+*Append to existing output files
+private boolean append=false
+
+*Don't print caught exceptions
+public static boolean suppressErrors=false
+
+
+#Methods
+*Constructor.
+*@param args Command line arguments
+public SubSketch(String[] args)
+
+private void process(Timer t)
+
+void processInner(ArrayList<Sketch> sketches, ByteStreamWriter bsw)
+
+void processInner(ArrayList<Sketch> sketches, ByteStreamWriter bswa)
+
+private static boolean addFiles(String a, Collection<String> list)
+
+</class SubSketch>
+<class SummarizeSketchStats>
+*@author Brian Bushnell
+*@date June 28, 2017
+public class SummarizeSketchStats
+
+#Fields
+final ArrayList<String> in
+
+final String out
+
+TaxTree tree=null
+
+int taxLevel=TaxTree.GENUS_E
+
+boolean uniqueHitsForSecond=false
+
+int minUniqueHits=3
+
+boolean printHeader=true
+
+*Legacy code from SealStats
+boolean ignoreSameTaxa=false
+
+boolean ignoreSameBarcode=false
+
+boolean ignoreSameLocation=false
+
+boolean totalDenominator=false
+
+boolean printTotal=true
+
+PrintStream outstream=System.err
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static void main(String[] args)
+
+public SummarizeSketchStats(String[] args)
+
+void setTaxtree(String taxTreeFile)
+
+public void summarize()
+
+private ArrayList<SketchResultsSummary> summarize(String fname)
+
+public static String header()
+
+</class SummarizeSketchStats>
+<class Whitelist>
+public class Whitelist
+
+#Fields
+*Hold codes. A code X such that X%WAYS=Y will be stored in keySets[Y]
+private static AbstractKmerTable[] keySets
+
+private static final int ways=31
+
+
+#Methods
+public static void initialize(AbstractKmerTable[] tableArray)
+
+public static void apply(Sketch s)
+
+*Hashed value from an actual sketch
+public static boolean contains(long key)
+
+*Raw hashed value which has not yet been subtracted from Long.MAX_VALUE
+public static boolean containsRaw(long key)
+
+public static boolean exists()
+
+</class Whitelist>

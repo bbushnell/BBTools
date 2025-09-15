@@ -1,0 +1,4792 @@
+#version 1
+#package stream
+#generated 2025-09-06T20:38:46
+
+<class ArrayListSet>
+*Associates reads with named lists.
+*Designed for dynamically demultiplexing reads into output streams with MultiCros.
+*This class is not thread-safe; one should be instantiated per thread.
+*@author Brian Bushnell
+*@date Apr 2, 2015
+public class ArrayListSet
+
+#Fields
+private final boolean ordered
+
+private final ArrayList<String> nameList=new ArrayList<String>()
+
+private final ArrayList<Pack> packList=new ArrayList<Pack>()
+
+private final LinkedHashMap<String,Pack> stringMap=new LinkedHashMap<String,Pack>()
+
+private final int taxLevelE
+
+private final TaxTree tree
+
+private final ThreadLocal<HashSet<Integer>> tls=new ThreadLocal<HashSet<Integer>>()
+
+
+#Methods
+public ArrayListSet(boolean ordered_)
+
+*Create an ArrayListSet with an optional TaxTree and level.
+*The tree is to assign reads to a list based on the taxonomy of the name,
+*rather than the name itself.
+*@param ordered_ Whether input order should be maintained. Unimplemented.
+*@param tree_ A taxonomic tree.
+*@param taxLevelE_ The minimum level in the tree to stop.
+public ArrayListSet(boolean ordered_, TaxTree tree_, int taxLevelE_)
+
+public void add(Read r, Iterable<String> names)
+
+public void add(Read r, String name)
+
+public void add(Read r, int id)
+
+public ArrayList<Read> getAndClear(String name)
+
+public ArrayList<Read> getAndClear(int id)
+
+public Collection<String> getNames()
+
+public int size()
+
+*Look up the sequence name, which should start with a gi or ncbi number, and
+*associate the read with the ancestor node at some taxonomic level.
+*@param r
+*@param name
+public void addByTaxid(Read r, String name)
+
+public void addByTaxid(Read r, int taxid)
+
+public void addByTaxid(Read r, ArrayList<String> names)
+
+public void addByTaxid(Read r, Iterable<String> names)
+
+private int nameToTaxid(String name)
+
+private Pack getPack(String name, boolean add)
+
+private Pack getPack(int id, boolean add)
+
+@Override public String toString()
+
+</class ArrayListSet>
+<class BufferedMultiCros>
+*Allows output of reads to multiple different output streams.
+*Each output stream is controlled by a buffer,
+*which stores reads until there is a sufficient quantity to dump.
+*@author Brian Bushnell
+*@date May 14, 2019
+public abstract class BufferedMultiCros
+
+#Fields
+*Output file patterns containing a % symbol
+public final String pattern1
+
+*Output file patterns containing a % symbol
+public final String pattern2
+
+*True if an error was encountered
+boolean errorState=false
+
+*File overwrite permission
+final boolean overwrite
+
+*File append permission
+final boolean append
+
+*Subprocess spawning permission (e.g., for pigz)
+final boolean allowSubprocess
+
+*Output file format, if unclear from file extension
+final int defaultFormat
+
+*Buffers for each ReadStreamWriter
+int rswBuffers=1
+
+*Print the shared header (for sam files)
+final boolean useSharedHeader
+
+*Don't retire below this limit
+final long memLimitLower
+
+*Possibly take some action
+final long memLimitMid
+
+*Dump everything if this limit is reached from buffered reads
+final long memLimitUpper
+
+*Allow this many active streams, for MCros3+
+public final int maxStreams
+
+*Retire this many streams at a time
+public final int streamsToRetire
+
+*Dump a buffer once it holds this many reads
+public int readsPerBuffer=defaultReadsPerBuffer
+
+*Dump a buffer once it holds this many bytes (estimated)
+public int bytesPerBuffer=defaultBytesPerBuffer
+
+*Never write files with fewer than this many reads
+public long minReadsToDump=0
+
+*Number of reads encountered that were not written
+public long residualReads=0
+
+*Number of reads encountered that were not written
+public long residualBases=0
+
+long readsInTotal=0
+
+*Current number of buffered reads
+long readsInFlight=0
+
+*Current number of buffered bytes (estimated)
+long bytesInFlight=0
+
+*Used when MultiCros is run in threaded mode
+private final ArrayBlockingQueue<ArrayList<Read>> transferQueue
+
+*Signal to terminate when in threaded mode
+private final ArrayList<Read> poisonToken=new ArrayList<Read>(0)
+
+*True if this object is intended to run in a separate thread
+public final boolean threaded
+
+*Use a LogLog to track cardinality for each output file
+public boolean trackCardinality=false
+
+private static float memLimitLowerMult=0.20f
+
+private static float memLimitMidMult=0.40f
+
+private static float memLimitUpperMult=0.60f
+
+public static boolean defaultThreaded=true
+
+public static int defaultMaxStreams=12
+
+public static int defaultMcrosType=6
+
+public static int defaultReadsPerBuffer=32000
+
+public static int defaultBytesPerBuffer=16000000
+
+public static boolean verbose=false
+
+
+#Methods
+public static BufferedMultiCros make(String out1, String out2, boolean overwrite, boolean append, boolean allowSubprocess, boolean useSharedHeader, int defaultFormat)
+
+public static BufferedMultiCros make(String out1, String out2, boolean overwrite, boolean append, boolean allowSubprocess, boolean useSharedHeader, int defaultFormat, boolean threaded, int mcrosType, int maxStreams)
+
+*Primary constructor.
+*@param pattern1_ Name pattern for file 1; must contain % (required)
+*@param pattern2_ Name pattern for file 2; must contain % (optional)
+*@param overwrite_ Permission to overwrite
+*@param append_ Permission to append to existing files (this should generally be false)
+*@param allowSubprocess_ Allow subprocesses such as pigz, bgzip, or samtools
+*@param useSharedHeader_ Print the stored header (from an input sam file) in all output sam files
+*@param defaultFormat_ Assume files are in this format if they don't have a valid extension
+*@param threaded_ Run this mcros in its own thread
+*@param maxStreams_ Max allowed number of concurrent open streams
+public BufferedMultiCros(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_)
+
+public static boolean parseStatic(String arg, String a, String b)
+
+*True if no errors were encountered
+public boolean finishedSuccessfully()
+
+*Add a single read. Should not be used in threaded mode.
+*Should only be used by this class.
+*@param r Read to add.
+*@param name Name of destination buffer.
+void add(Read r, String name)
+
+*Dump all buffered reads to disk, except when minReadsToDump forbids it.
+*@return Number of reads dumped.
+long dumpAll()
+
+*Dump all residual reads to this stream.
+*@param rosu Destination stream.
+*@return Number of residual reads dumped.
+public long dumpResidual(ConcurrentReadOutputStream rosu)
+
+*Dump everything and close any open streams.
+long closeInner()
+
+*Generate a report on how many reads went to each file
+public ByteBuilder report()
+
+*Time for shutting down output threads
+public String printRetireTime()
+
+*Time for shutting down output threads
+public String printCreateTime()
+
+public Set<String> getKeys()
+
+*Shut this down and perform any cleanup needed.
+public final void close()
+
+*Primary file pattern
+public final String fname()
+
+*Return true if this stream has detected an error
+public final boolean errorState()
+
+*Send a list of reads to an output buffer.
+*The reads must have a name attached to the object field in order to be written.
+public final void add(ArrayList<Read> list)
+
+*Send individual reads to their designated buffer
+private final void addToBuffers(ArrayList<Read> list)
+
+*Called to handle load after adding a list
+void handleLoad0()
+
+@Override public final void run()
+
+*Indicate that no more reads will be sent, for threaded mode
+public final void poison()
+
+boolean addToQueue(ArrayList<Read> list)
+
+*Indicate that no more reads will be sent, for threaded mode
+public final void poisonAndWait()
+
+*Wait for this object's thread to terminate
+public final void waitForFinish()
+
+</class BufferedMultiCros>
+<class ConcurrentCollectionReadInputStream>
+public class ConcurrentCollectionReadInputStream
+
+#Fields
+private boolean shutdown=false
+
+*TODO
+private boolean errorState=false
+
+private float samplerate=1f
+
+private java.util.Random randy=null
+
+private Thread[] threads
+
+public final List<Read> producer1
+
+public final List<Read> producer2
+
+private ConcurrentDepot<Read> depot
+
+private long basesIn=0
+
+private long readsIn=0
+
+private long maxReads
+
+private long generated=0
+
+private long listnum=0
+
+private long nextProgress=PROGRESS_INCR
+
+public static boolean verbose=false
+
+private static final ArrayList<Read> poison=new ArrayList<Read>(0)
+
+
+#Methods
+public ConcurrentCollectionReadInputStream(List<Read> source1, List<Read> source2, long maxReadsToGenerate)
+
+@Override public ListNum<Read> nextList()
+
+@Override public void returnList(long listNumber, boolean poison)
+
+@Override public void run()
+
+private final void addPoison()
+
+private final void readSingles()
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public boolean verbose()
+
+private void incrementGenerated(long amt)
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean errorState()
+
+@Override public Object[] producers()
+
+</class ConcurrentCollectionReadInputStream>
+<class ConcurrentDepot>
+public class ConcurrentDepot
+
+#Fields
+public final ArrayBlockingQueue<ArrayList<K>> empty
+
+public final ArrayBlockingQueue<ArrayList<K>> full
+
+public final int bufferSize
+
+public final int bufferCount
+
+public static boolean fair=false
+
+private final ArrayList<K>[] lists
+
+
+#Methods
+@SuppressWarnings public ConcurrentDepot(int bufSize, int numBufs)
+
+</class ConcurrentDepot>
+<class ConcurrentGenericReadInputStream>
+public class ConcurrentGenericReadInputStream
+
+#Fields
+private boolean shutdown=false
+
+*TODO
+private boolean errorState=false
+
+private boolean[] running=new boolean[]{false}
+
+private float samplerate=1f
+
+private java.util.Random randy=null
+
+private ArrayBlockingQueue<ArrayList<Read>> p1q
+
+private ArrayBlockingQueue<ArrayList<Read>> p2q
+
+private Thread[] threads
+
+public final ReadInputStream producer1
+
+public final ReadInputStream producer2
+
+private ConcurrentDepot<Read> depot
+
+private long basesIn=0
+
+private long readsIn=0
+
+private long maxReads
+
+private long generated=0
+
+private long listnum=0
+
+private long nextProgress=PROGRESS_INCR
+
+private long lastTime=System.nanoTime()
+
+public static boolean verbose=false
+
+private static final ArrayList<Read> poison=new ArrayList<Read>(0)
+
+
+#Methods
+public static void main(String[] args)
+
+public ConcurrentGenericReadInputStream(ReadInputStream source1, ReadInputStream source2, long maxReadsToGenerate)
+
+@Override public ListNum<Read> nextList()
+
+@Override public void returnList(long listNumber, boolean poison)
+
+@Override public void run()
+
+private void run0()
+
+private final void addPoison()
+
+private final void readLists()
+
+private final void pair(ArrayList<Read> buffer1, ArrayList<Read> buffer2)
+
+private static final int removeDiscarded(ArrayList<Read> buffer1, ArrayList<Read> buffer2)
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public boolean verbose()
+
+private void incrementGenerated(long amt)
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean errorState()
+
+@Override public Object[] producers()
+
+</class ConcurrentGenericReadInputStream>
+<class ConcurrentGenericReadOutputStream>
+*@author Brian Bushnell
+*@date Jan 26, 2015
+public final class ConcurrentGenericReadOutputStream
+
+#Fields
+private final ReadStreamWriter readstream1
+
+private final ReadStreamWriter readstream2
+
+private long nextListID=0
+
+*Number of lists held before the stream blocks
+private final int MAX_CAPACITY=256
+
+private final int ADD_LIMIT=MAX_CAPACITY - 2
+
+private final int HALF_LIMIT=ADD_LIMIT / 2
+
+*For ordered output
+private final HashMap<Long,ArrayList<Read>> table
+
+private boolean printBufferNotification=true
+
+
+#Methods
+ConcurrentGenericReadOutputStream(FileFormat ff1_, FileFormat ff2_, String qf1, String qf2, int rswBuffers, CharSequence header, boolean useSharedHeader)
+
+@Override public void start()
+
+@Override public void add(ArrayList<Read> list, long listnum)
+
+@Override public void close()
+
+@Override public void join()
+
+@Override public void resetNextListID()
+
+@Override public final String fname()
+
+@Override public boolean errorState()
+
+@Override public boolean finishedSuccessfully()
+
+private void addOrdered(ArrayList<Read> list, long listnum)
+
+private void addDisordered(ArrayList<Read> list, long listnum)
+
+private void write(ArrayList<Read> list)
+
+@Override public final ReadStreamWriter getRS1()
+
+@Override public final ReadStreamWriter getRS2()
+
+</class ConcurrentGenericReadOutputStream>
+<class ConcurrentLegacyReadInputStream>
+public class ConcurrentLegacyReadInputStream
+
+#Fields
+private boolean shutdown=false
+
+*TODO
+private boolean errorState=false
+
+private float samplerate=1f
+
+private java.util.Random randy=null
+
+private Thread[] threads
+
+public final ReadInputStream producer
+
+private ConcurrentDepot<Read> depot
+
+public static boolean verbose=false
+
+private long basesIn=0
+
+private long readsIn=0
+
+private long maxReads
+
+private long generated=0
+
+private long listnum=0
+
+
+#Methods
+public ConcurrentLegacyReadInputStream(ReadInputStream source, long maxReadsToGenerate)
+
+@Override public ListNum<Read> nextList()
+
+@Override public void returnList(long listNumber, boolean poison)
+
+@Override public void run()
+
+private final void addPoison()
+
+private final void readSingles()
+
+private final void readLists()
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public boolean verbose()
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean errorState()
+
+@Override public Object[] producers()
+
+</class ConcurrentLegacyReadInputStream>
+<class ConcurrentReadInputStream>
+*Abstract superclass of all ConcurrentReadStreamInterface implementations.
+*ConcurrentReadInputStreams allow paired reads from twin files to be treated as a single stream.
+*@author Brian Bushnell
+*@date Nov 26, 2014
+public abstract class ConcurrentReadInputStream
+
+#Fields
+final int BUF_LEN=Shared.bufferLen()
+
+final int NUM_BUFFS=Shared.numBuffers()
+
+final long MAX_DATA=Shared.bufferData()
+
+public final String fname
+
+public boolean ALLOW_UNEQUAL_LENGTHS=false
+
+boolean started=false
+
+public static boolean SHOW_PROGRESS=false
+
+public static boolean SHOW_PROGRESS2=false
+
+public static long PROGRESS_INCR=1000000
+
+public static boolean REMOVE_DISCARDED_READS=false
+
+
+#Methods
+protected ConcurrentReadInputStream(String fname_)
+
+*Special method for testing, handles some parsing.
+*Used by MultiCros.
+*Not really necessary; safe to remove.
+protected static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, boolean allowSubprocess, String args)
+
+*@See primary method
+public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2)
+
+*@See primary method
+public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, boolean mpi, boolean keepAll)
+
+*@See primary method
+public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, String qf1, String qf2)
+
+*@param maxReads Quit producing after this many reads (or pairs)
+*@param keepSamHeader If the input is sam, store the header in the static shared header object
+*@param ff1 Read 1 file (required)
+*@param ff2 Read 2 file (optional)
+*@param qf1 Qual file 1 (optional)
+*@param qf2 Qual file 2 (optional)
+*@param mpi True if MPI will be used
+*@param keepAll In MPI mode, tells this stream to keep all reads instead of just a fraction
+*@return
+public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, String qf1, String qf2, boolean mpi, boolean keepAll)
+
+public static ArrayList<Read> getReads(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, String qf1, String qf2)
+
+public ArrayList<Read> getReads()
+
+@Override public void start()
+
+public final boolean started()
+
+@Override public ListNum<Read> nextList()
+
+@Override public final void returnList(ListNum<Read> ln)
+
+@Override public void returnList(long listNum, boolean poison)
+
+@Override public void run()
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public String fname()
+
+@Override public Object[] producers()
+
+@Override public boolean errorState()
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean verbose()
+
+</class ConcurrentReadInputStream>
+<class ConcurrentReadInputStreamD>
+*This class is designed for distributed environments.
+*The 'master' reads from the filesystem, creates reads, and broadcasts them.
+*The 'slaves' listen for broadcasts.
+*@author Brian Bushnell
+*@date Oct 7, 2014
+public class ConcurrentReadInputStreamD
+
+#Fields
+*Wrapped source of reads. Null for slaves.
+private ConcurrentReadInputStream source
+
+private final boolean master
+
+protected final boolean keepAll
+
+protected final int rank
+
+protected final int ranks
+
+private boolean errorState=false
+
+private boolean[] running=new boolean[]{false}
+
+private boolean shutdown=false
+
+private ConcurrentDepot<Read> depot
+
+private Thread[] threads
+
+private long basesIn=0
+
+private long readsIn=0
+
+private long listnum=0
+
+*This should be set in the first broadcast
+private final boolean paired
+
+public static boolean verbose=false
+
+
+#Methods
+public ConcurrentReadInputStreamD(ConcurrentReadInputStream cris_, boolean master_, boolean keepAll_)
+
+@Override public ListNum<Read> nextList()
+
+@Override public void returnList(long listNumber, boolean poison)
+
+@Override public void run()
+
+private final void addPoison()
+
+private final void readLists_master()
+
+private final void readLists_slave()
+
+protected void broadcast(ListNum<Read> ln)
+
+protected void unicast(ListNum<Read> ln, int toRank)
+
+protected void broadcastPaired(boolean b)
+
+protected void broadcastKeepall(boolean b)
+
+protected ListNum<Read> listen()
+
+protected boolean listenPaired()
+
+protected boolean listenKeepall()
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public boolean verbose()
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean errorState()
+
+@Override public Object[] producers()
+
+</class ConcurrentReadInputStreamD>
+<class ConcurrentReadListDepot>
+public class ConcurrentReadListDepot
+
+#Fields
+public final ArrayBlockingQueue<ArrayList<K>> empty
+
+public final ArrayBlockingQueue<ArrayList<K>> full
+
+public final int bufferSize
+
+public final int bufferCount
+
+
+#Methods
+public ConcurrentReadListDepot(int bufSize, int numBufs)
+
+</class ConcurrentReadListDepot>
+<class ConcurrentReadOutputStream>
+*Abstract superclass for ConcurrentReadOutputStream implementations.
+*These manage ReadStreamWriters, which write reads to a file in their own thread.
+*ConcurrentReadOutputStreams allow paired reads output to twin files to be treated as a single stream.
+*@author Brian Bushnell
+*@date Jan 26, 2015
+public abstract class ConcurrentReadOutputStream
+
+#Fields
+public final FileFormat ff1
+
+public final FileFormat ff2
+
+public final boolean ordered
+
+boolean errorState=false
+
+boolean finishedSuccessfully=false
+
+boolean started=false
+
+public static boolean verbose=false
+
+
+#Methods
+*@See primary method
+public static ConcurrentReadOutputStream getStream(FileFormat ff1, int rswBuffers, CharSequence header, boolean useSharedHeader)
+
+*@See primary method
+public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, int rswBuffers, CharSequence header, boolean useSharedHeader)
+
+*@See primary method
+public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2, int rswBuffers, CharSequence header, boolean useSharedHeader)
+
+*Create a ConcurrentReadOutputStream.
+*@param ff1 Read 1 file (required)
+*@param ff2 Read 2 file (optional)
+*@param qf1 Qual file 1 (optional)
+*@param qf2 Qual file 2 (optional)
+*@param rswBuffers Maximum number of lists to buffer for each ReadStreamWriter
+*@param header A header to write to each output file before anything else
+*@param useSharedHeader Write the shared header to each output file (mainly for sam output)
+*@param mpi True if MPI will be used
+*@param keepAll In MPI mode, tells this stream to keep all reads instead of just a fraction
+*@return
+public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2, int rswBuffers, CharSequence header, boolean useSharedHeader, boolean mpi, boolean keepAll)
+
+ConcurrentReadOutputStream(FileFormat ff1_, FileFormat ff2_)
+
+*Must be called before writing to the stream
+public void start()
+
+public final boolean started()
+
+*Enqueue this list to be written.
+*@param list List of reads
+*@param listnum A number, starting at 0. In ordered mode, lists will only be written in numeric order, regardless of adding order.
+public void add(ArrayList<Read> list, long listnum)
+
+public void close()
+
+public void join()
+
+public void resetNextListID()
+
+public String fname()
+
+*Return true if this stream has detected an error
+public boolean errorState()
+
+public boolean finishedSuccessfully()
+
+public long basesWritten()
+
+public long readsWritten()
+
+public ReadStreamWriter getRS1()
+
+public ReadStreamWriter getRS2()
+
+</class ConcurrentReadOutputStream>
+<class ConcurrentReadOutputStreamD>
+*@author Brian Bushnell
+*@date Jan 26, 2015
+public class ConcurrentReadOutputStreamD
+
+#Fields
+protected final AtomicInteger terminatedCount=new AtomicInteger(0)
+
+protected final ConcurrentReadOutputStreamD thisPointer=this
+
+*Wrapped destination of reads. Null for slaves.
+protected ConcurrentReadOutputStream dest
+
+protected final boolean master
+
+protected final int rank
+
+protected final int ranks
+
+
+#Methods
+public ConcurrentReadOutputStreamD(ConcurrentReadOutputStream cros_, boolean master_)
+
+@Override public void start()
+
+private void startThreads()
+
+@Override public void add(ArrayList<Read> list, long listnum)
+
+@Override public void close()
+
+@Override public void join()
+
+@Override public void resetNextListID()
+
+@Override public String fname()
+
+@Override public boolean errorState()
+
+@Override public boolean finishedSuccessfully()
+
+private void unicast(ArrayList<Read> list, long listnum, int i)
+
+protected void unicast(ListNum<Read> ln, int i)
+
+protected ListNum<Read> listen(int i)
+
+*Slaves listen to master's finishedSuccessfully status.
+protected boolean listenFinishedSuccessfully()
+
+*Master reports finishedSuccessfully status to slaves.
+protected void broadcastFinishedSuccessfully(boolean b)
+
+*Master tells slaves that 'join' was successful.
+protected void broadcastJoin(boolean b)
+
+*Slave listens to see that master 'join' was successful.
+protected boolean listenForJoin()
+
+@Override public ReadStreamWriter getRS1()
+
+@Override public ReadStreamWriter getRS2()
+
+</class ConcurrentReadOutputStreamD>
+<interface ConcurrentReadStreamInterface>
+public interface ConcurrentReadStreamInterface
+
+#Methods
+*Start this in a new thread.
+public void start()
+
+*Fetch the next list of reads. Returns an empty list when end of input is reached.
+public ListNum<Read> nextList()
+
+*Re-calls returnList(returnList(ln.id, ln.list.isEmpty())
+public void returnList(ListNum<Read> ln)
+
+*When the nextList() caller is done processing a list, it MUST be returned using this method.
+*The 'poison' flag should be set to false normally. When a consumer thread receives an empty list from nextList(),
+*it should be returned with the poison flag set to true, then the consumer should terminate.
+*This will return a list to the 'full' queue, allowing another thread to pull the empty list and terminate.
+public void returnList(long listNumber, boolean poison)
+
+*This must be called (indirectly, via Thread.start()) before reads will be generated.
+@Override public void run()
+
+*Indicate to producer threads that no more reads are desired, and interrupts them.
+public void shutdown()
+
+*Reset state to allow production of reads from the beginning of the input files.
+*Does not work with stdin (may cause strange behavior).
+public void restart()
+
+*Calls shutdown, then shuts down all threads and closes all associated files.
+public void close()
+
+*Returns true for paired-end stream, false for single-end stream.
+public boolean paired()
+
+*Name of the file or resource underlying this stream
+public String fname()
+
+*Returns the underlying read object producer(s), such as ReadInputStreams. Optional method for things such as error messages.
+public Object[] producers()
+
+*Return true if this stream or its producers have detected an error.
+public boolean errorState()
+
+*Set the read sampling rate. Optional method.
+*@param rate Fraction of reads to use, 0-1.
+*@param seed Random number generator seed when positive. If negative, a random seed will be used.
+public void setSampleRate(float rate, long seed)
+
+*@return Number of bases read by this stream.
+public long basesIn()
+
+*@return Number of reads read by this stream.
+public long readsIn()
+
+*@return Value of verbose field.
+public boolean verbose()
+
+</interface ConcurrentReadStreamInterface>
+<class CrisContainer>
+public class CrisContainer
+
+#Fields
+final ConcurrentReadInputStream cris
+
+private Read read
+
+private long lastNum=-1
+
+private ArrayList<Read> list
+
+private final Comparator<Read> comparator
+
+private final boolean genKmer
+
+private final boolean clump
+
+
+#Methods
+public CrisContainer(String fname, Comparator<Read> comparator_, boolean allowSubprocess)
+
+public CrisContainer(ConcurrentReadInputStream cris_, Comparator<Read> comparator_)
+
+public ArrayList<Read> fetch()
+
+private void fetchInner()
+
+public boolean close()
+
+public Read peek()
+
+@Override public int compareTo(CrisContainer other)
+
+public int compareTo(Read other)
+
+public boolean hasMore()
+
+public ConcurrentReadInputStream cris()
+
+</class CrisContainer>
+<class CrisWrapper>
+*Wraps a cris to allow single-read next() capability, and the ability to go back.
+*@author Brian Bushnell
+*@date Jul 18, 2014
+public class CrisWrapper
+
+#Fields
+private ListNum<Read> ln
+
+private ArrayList<Read> reads
+
+private int index
+
+public ConcurrentReadInputStream cris
+
+public boolean errorState=false
+
+
+#Methods
+public CrisWrapper(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2)
+
+public CrisWrapper(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, String qf1, String qf2)
+
+public CrisWrapper(ConcurrentReadInputStream cris_, boolean start)
+
+public void initialize(ConcurrentReadInputStream cris_, boolean start)
+
+public Read next()
+
+public void goBack()
+
+</class CrisWrapper>
+<class CustomHeader>
+*For custom headers of synthetic reads.
+*This class is pretty ancient.
+public class CustomHeader
+
+#Fields
+public int rnum
+
+public long id
+
+public int start
+
+public int stop
+
+public int insert
+
+public int strand
+
+public int bbstart
+
+public int bbchrom
+
+public byte[] match
+
+public String rname
+
+private static final char ESCAPE='!'
+
+private static final char MIDDLE='&'
+
+private static final byte[] decodeArray
+
+private static final byte[] escapeArray
+
+
+#Methods
+public CustomHeader(String original)
+
+public CustomHeader(String original, int rnum_)
+
+public CustomHeader(int rnum_, long id_, int start_, int stop_, int insert_, int strand_, String cigar_, int bbstart_, int bbstop_, int bbchrom_, int bbscaffold_, byte[] match_, String rname_)
+
+public CustomHeader(Read r)
+
+public ByteBuilder appendTo(ByteBuilder bb)
+
+public static String customID_old(Read r)
+
+public static String toString(Read r)
+
+public static String toString(CustomHeader h1, CustomHeader h2, int rnum)
+
+public static String decodeRname(String rname)
+
+public static String encodeRname(String rname)
+
+public static int getPairnum(String s)
+
+public int bbstop()
+
+</class CustomHeader>
+<class DualCris>
+*@author Brian Bushnell
+*@date Apr 3, 2015
+public class DualCris
+
+#Fields
+private final ConcurrentReadInputStream cris1
+
+private final ConcurrentReadInputStream cris2
+
+private boolean cris1Active
+
+private boolean cris2Active
+
+private boolean errorState=false
+
+private boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public static DualCris getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2, String qf1, String qf2)
+
+public DualCris(ConcurrentReadInputStream cris1_, ConcurrentReadInputStream cris2_)
+
+@Override public ListNum<Read> nextList()
+
+@Override public void returnList(long listNum, boolean poison)
+
+public void returnList(long listNum, boolean foundR1, boolean foundR2)
+
+@Override public void start()
+
+@Override public void run()
+
+@Override public void shutdown()
+
+@Override public void restart()
+
+@Override public void close()
+
+@Override public boolean paired()
+
+@Override public Object[] producers()
+
+@Override public boolean errorState()
+
+@Override public void setSampleRate(float rate, long seed)
+
+@Override public long basesIn()
+
+@Override public long readsIn()
+
+@Override public boolean verbose()
+
+</class DualCris>
+<class EmblReadInputStream>
+public class EmblReadInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile bf
+
+private final int flag
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long MAX_DATA=Shared.bufferData()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public EmblReadInputStream(String fname, boolean allowSubprocess_)
+
+public EmblReadInputStream(FileFormat ff)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+public static ArrayList<Read> toReadList(ByteFile bf, int maxReadsToReturn, long numericID, int flag)
+
+@Override public boolean close()
+
+@Override public void restart()
+
+@Override public boolean paired()
+
+*Return true if this stream has detected an error
+@Override public boolean errorState()
+
+@Override public String fname()
+
+</class EmblReadInputStream>
+<class FastaQualReadInputStream>
+public class FastaQualReadInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile btf
+
+private final ByteFile qtf
+
+private final boolean interleaved
+
+private final int BUF_LEN=Shared.bufferLen()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public static boolean NUMERIC_QUAL=true
+
+public static boolean verbose=false
+
+private byte[] nextHeaderB=null
+
+private byte[] nextHeaderQ=null
+
+private byte[] currentHeader=null
+
+private ByteBuilder builder=null
+
+private boolean finished=false
+
+private boolean closed=false
+
+private final byte carrot='>'
+
+private final byte space=' '
+
+private final byte zero='0'
+
+
+#Methods
+public FastaQualReadInputStream(String fname, String qfname, boolean allowSubprocess_)
+
+public FastaQualReadInputStream(FileFormat ff, String qfname)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+private ArrayList<Read> toReads(int maxReadsToReturn, long numericID, boolean interleaved)
+
+private ArrayList<Read> toReadList(int maxReadsToReturn, long numericID, boolean interleaved)
+
+private final byte[] nextBases(ByteFile btf, ByteBuilder bb)
+
+private final byte[] nextQualities(ByteFile qtf, ByteBuilder bb)
+
+private Read makeRead(long numericID)
+
+@Override public boolean close()
+
+@Override public void restart()
+
+@Override public boolean paired()
+
+private void finish()
+
+@Override public String fname()
+
+</class FastaQualReadInputStream>
+<class FastaReadInputStream>
+*@author Brian Bushnell
+*@date Feb 13, 2013
+public class FastaReadInputStream
+
+#Fields
+public final String name
+
+private ArrayList<Read> currentList=null
+
+private String header=null
+
+private String reportedHeader=null
+
+private boolean open=false
+
+private byte[] buffer=new byte[16384]
+
+private int bstart=0
+
+private int bstop=0
+
+public InputStream ins
+
+private long consumed=0
+
+private long nextReadID=0
+
+private int nextReadIndex=0
+
+private int currentSection=0
+
+public final boolean allowSubprocess
+
+public final boolean interleaved
+
+public final boolean amino
+
+public final int flag
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long MAX_DATA
+
+private final int maxLen
+
+private final int minLen
+
+public static boolean verbose=false
+
+private static final byte slashr='\r'
+
+private static final byte slashn='\n'
+
+private static final byte carrot='>'
+
+private static final byte space=' '
+
+private static final byte tab='\t'
+
+private static final byte SOH=0x1
+
+private static final byte STX=0x2
+
+public static boolean SPLIT_READS=false
+
+public static int TARGET_READ_LEN=500
+
+public static int MIN_READ_LEN=1
+
+public static boolean FAKE_QUALITY=false
+
+public static boolean FORCE_SECTION_NAME=false
+
+public static boolean WARN_IF_NO_SEQUENCE=true
+
+public static boolean WARN_FIRST_TIME_ONLY=true
+
+public static boolean ABORT_IF_NO_SEQUENCE=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FastaReadInputStream(String fname, boolean interleaved_, boolean amino_, boolean allowSubprocess_, long maxdata)
+
+public FastaReadInputStream(FileFormat ff, boolean interleaved_, boolean amino_, long maxdata)
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+@Override public boolean hasMore()
+
+@Override public void restart()
+
+@Override public final boolean close()
+
+@Override public boolean paired()
+
+@Override public void start()
+
+private final boolean fillList()
+
+private final Read generateRead(int pairnum)
+
+private String nextHeader()
+
+private byte[] nextBases()
+
+private void handleNoSequence(int x)
+
+*Fills buffer. Ensures that result will extend to the next caret or EOF. Returns number of bytes filled.
+private final int fillBuffer()
+
+private final InputStream open()
+
+public boolean isOpen()
+
+*Validate fasta settings for auto-shredding input.
+*This is kind of obsolete legacy code for BBMap.
+public static final boolean settingsOK()
+
+@Override public String fname()
+
+</class FastaReadInputStream>
+<class FastaShredInputStream>
+*@author Brian Bushnell
+*@date Feb 13, 2013
+public class FastaShredInputStream
+
+#Fields
+public final String name
+
+private ArrayList<Read> currentList=null
+
+private boolean open=false
+
+private ByteBuilder buffer=new ByteBuilder()
+
+public ByteFile bf
+
+private long nextReadID=0
+
+private long consumed=0
+
+public final boolean allowSubprocess
+
+public final boolean amino
+
+public final int flag
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long maxData
+
+private final int maxLen
+
+private final int minLen
+
+public static boolean verbose=false
+
+private static final byte carrot='>'
+
+public static int TARGET_READ_LEN=800
+
+public static int TARGET_READ_OVERLAP=31
+
+public static int MIN_READ_LEN=31
+
+public static boolean FAKE_QUALITY=false
+
+public static boolean WARN_IF_NO_SEQUENCE=true
+
+public static boolean WARN_FIRST_TIME_ONLY=true
+
+public static boolean ABORT_IF_NO_SEQUENCE=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FastaShredInputStream(String fname, boolean amino_, boolean allowSubprocess_, long maxdata)
+
+public FastaShredInputStream(FileFormat ff, boolean amino_, long maxData_)
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+@Override public boolean hasMore()
+
+@Override public void restart()
+
+@Override public final boolean close()
+
+@Override public boolean paired()
+
+@Override public void start()
+
+private final boolean fillList()
+
+private final Read generateRead()
+
+private final ByteFile open()
+
+public boolean isOpen()
+
+public static final boolean settingsOK()
+
+@Override public String fname()
+
+</class FastaShredInputStream>
+<class FASTQ>
+public class FASTQ
+
+#Fields
+private static boolean errorState=false
+
+private static boolean negativeFive=false
+
+private static long incr=10000000000L
+
+public static boolean PARSE_CUSTOM=false
+
+public static boolean PARSE_NEW=true
+
+public static boolean PARSE_CUSTOM_WARNING=true
+
+public static boolean TAG_CUSTOM=false
+
+public static boolean TAG_CUSTOM_SIMPLE=false
+
+public static boolean DELETE_OLD_NAME=false
+
+public static byte ASCII_OFFSET=33
+
+public static byte ASCII_OFFSET_OUT=33
+
+*Autodetect interleaving based on read names
+public static boolean TEST_INTERLEAVED=true
+
+public static boolean TEST_BARCODE=false
+
+*Override autodetection and treat input as interleaved
+public static boolean FORCE_INTERLEAVED=false
+
+public static boolean DETECT_QUALITY=true
+
+public static boolean DETECT_QUALITY_OUT=true
+
+public static boolean ADD_PAIRNUM_TO_CUSTOM_ID=true
+
+public static boolean ADD_SLASH_PAIRNUM_TO_CUSTOM_ID=false
+
+public static boolean SPACE_SLASH=false
+
+public static boolean FAST_FAILED=false
+
+public static boolean SHRINK_HEADERS=false
+
+public static boolean PAIR_READS=true
+
+public static boolean FLIP_R2=false
+
+public static final int MIN_LENGTH_TO_FORCE_ASCII_33=200
+
+public static final int QUAL_THRESH=54
+
+public static boolean IGNORE_BAD_QUALITY=false
+
+public static boolean SET_QIN=false
+
+public static boolean verbose=false
+
+public static boolean warnQualityChange=true
+
+private static boolean EA=Shared.EA()
+
+
+#Methods
+private static String[] getFirstTwoFastaHeaders(String fname)
+
+public static byte testQuality(String fname)
+
+public static boolean isInterleaved(String fname, boolean allowIdentical)
+
+public static boolean testInterleaved(ArrayList<String> oct, String fname, boolean allowIdentical)
+
+public static boolean testInterleavedFasta(String fname, boolean allowIdentical)
+
+private static boolean testInterleavedFasta(String[] headers, String fname, boolean allowIdentical)
+
+public static byte testQuality(ArrayList<String> oct)
+
+public static boolean testPairNames(Read r1, Read r2, boolean allowIdentical)
+
+public static boolean testPairNames(String id1, String id2, boolean allowIdentical)
+
+@Deprecated public static boolean testPairNames_old(String id1, String id2, boolean allowIdentical)
+
+private static int fastqLength(Read r)
+
+public static ByteBuilder toFASTQ(Read r, ByteBuilder bb)
+
+public static Read[] toReads(TextFile tf, int maxReadsToReturn, long numericID, boolean interleaved)
+
+public static final String makeId(String s)
+
+public static final String makeId(byte[] s)
+
+public static ArrayList<Read> toReadList(TextFile tf, int maxReadsToReturn, long numericID, boolean interleaved)
+
+public static ArrayList<Read> toReadList(ByteFile bf, int maxReadsToReturn, long numericID, boolean interleaved, int flag)
+
+public static byte[][] scarfToQuad(byte[] scarf, byte[][] quad)
+
+public static Read quadToRead_slow(byte[][] quad, boolean scarf, ByteFile bf, long numericID, int flag)
+
+*Should be faster, but is slower
+public static Read quadToRead_fast(byte[][] quad, ByteFile bf, long numericID, int flag)
+
+public static ArrayList<Read> toScarfReadList(ByteFile tf, int maxReadsToReturn, long numericID, boolean interleaved)
+
+public static String qualToString(byte[] quals)
+
+*Return true if this has detected an error
+public static boolean errorState()
+
+public static boolean setErrorState(boolean b)
+
+private static long incr()
+
+</class FASTQ>
+<class FastqReadInputStream>
+public class FastqReadInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile tf
+
+private final boolean interleaved
+
+private final int flag
+
+private boolean shrinkHeaders
+
+private final ByteBuilder bbh=new ByteBuilder(128)
+
+private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2()
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long MAX_DATA=Shared.bufferData()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public FastqReadInputStream(String fname, boolean allowSubprocess_)
+
+public FastqReadInputStream(FileFormat ff)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+private void shrinkHeader(Read r1, Read r2)
+
+@Override public boolean close()
+
+@Override public void restart()
+
+@Override public boolean paired()
+
+@Override public String fname()
+
+*Return true if this stream has detected an error
+@Override public boolean errorState()
+
+</class FastqReadInputStream>
+<class GbkReadInputStream>
+public class GbkReadInputStream
+
+#Methods
+public GbkReadInputStream(String fname, boolean allowSubprocess_)
+
+public GbkReadInputStream(FileFormat ff)
+
+@Override public String fname()
+
+</class GbkReadInputStream>
+<class HeaderInputStream>
+*@author Brian Bushnell
+*@date June 1, 2016
+public class HeaderInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile tf
+
+private final int BUF_LEN=Shared.bufferLen()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+public static boolean verbose=false
+
+
+#Methods
+public HeaderInputStream(String fname, boolean allowSubprocess_)
+
+public HeaderInputStream(FileFormat ff)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+@Override public boolean close()
+
+@Override public void restart()
+
+public static ArrayList<Read> toReadList(ByteFile tf, int maxReadsToReturn, long numericID)
+
+@Override public String fname()
+
+</class HeaderInputStream>
+<class MDWalker>
+*@author Brian Bushnell
+*@date May 5, 2016
+public class MDWalker
+
+#Fields
+*Position in match string (excluding clipping and insertions)
+private int matchPos
+
+*Position in read bases (excluding clipping and insertions)
+private int bpos
+
+*Position in reference bases (excluding clipping)
+private int rpos
+
+private char sym
+
+private String mdTag
+
+private String cigar
+
+private byte[] longmatch
+
+private int mdPos
+
+private int current
+
+private int mode
+
+private SamLine sl
+
+private static final int NORMAL=0
+
+private static final int SUB=1
+
+private static final int DEL=2
+
+private static final int INS=3
+
+
+#Methods
+MDWalker(String tag, String cigar_, byte[] longmatch_, SamLine sl_)
+
+void fixMatch(byte[] bases)
+
+boolean nextSub()
+
+public int matchPosition()
+
+public int basePosition()
+
+public int refPosition()
+
+public char symbol()
+
+</class MDWalker>
+<class MultiCros>
+*Allows output of reads to multiple different output streams.
+*@author Brian Bushnell
+*@date Apr 12, 2015
+public class MultiCros
+
+#Fields
+public final String pattern1
+
+public final String pattern2
+
+public final ArrayList<ConcurrentReadOutputStream> streamList
+
+public final LinkedHashMap<String,ConcurrentReadOutputStream> streamMap
+
+public final boolean ordered
+
+boolean errorState=false
+
+boolean started=false
+
+final boolean overwrite
+
+final boolean append
+
+final boolean allowSubprocess
+
+final int defaultFormat
+
+final int maxSize
+
+final boolean useSharedHeader
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public MultiCros(String pattern1_, String pattern2_, boolean ordered_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, int maxSize_)
+
+public void add(ArrayListSet set, long listnum)
+
+public void add(ArrayList<Read> list, long listnum, String name)
+
+public void join()
+
+public void resetNextListID()
+
+public String fname()
+
+*Return true if this stream has detected an error
+public boolean errorState()
+
+public boolean finishedSuccessfully()
+
+public Set<String> getKeys()
+
+private ConcurrentReadOutputStream makeStream(String name)
+
+public ConcurrentReadOutputStream getStream(String name)
+
+</class MultiCros>
+<class MultiCros2>
+*This implementation allows only a single, synchronous open stream.
+*@author Brian Bushnell
+*@date May 1, 2019
+public class MultiCros2
+
+#Fields
+*Map of names to buffers
+public final LinkedHashMap<String,Buffer> bufferMap
+
+
+#Methods
+*For testing
+public static void main(String[] args)
+
+*@See Details in superclass constructor
+public MultiCros2(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_)
+
+@Override public boolean finishedSuccessfully()
+
+@Override public void add(Read r, String name)
+
+@Override public long dumpResidual(ConcurrentReadOutputStream rosu)
+
+@Override public ByteBuilder report()
+
+@Override public Set<String> getKeys()
+
+@Override long closeInner()
+
+@Override long dumpAll()
+
+</class MultiCros2>
+<class MultiCros3>
+*This implementation allows multiple concurrent open streams.
+*@author Brian Bushnell
+*@date May 14, 2019
+public class MultiCros3
+
+#Fields
+private long retireTime1=0
+
+private long retireTime2=0
+
+private long retireTime3=0
+
+private long retireTime4=0
+
+private long retireCount=0
+
+private long retireCalls=0
+
+private long createTime1=0
+
+private long createTime2=0
+
+private long createTime3=0
+
+private long createTime4=0
+
+private long createTime5=0
+
+private long bufferTimer=0
+
+*Open stream names
+private final ArrayDeque<String> streamQueue
+
+*Map of names to buffers
+public final LinkedHashMap<String,Buffer> bufferMap
+
+*Trigger stream close, but don't wait for it to finish.
+*Prevents error state from being captured.
+*THIS IS UNSAFE AND CAUSES ERRORS,
+*because the stream might get reopened again before writing is finished.
+private static final boolean closeFast=false
+
+
+#Methods
+*For testing.
+*args should be:
+*{input file, output pattern, names...}
+public static void main(String[] args)
+
+*@See Details in superclass constructor
+public MultiCros3(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_)
+
+@Override public boolean finishedSuccessfully()
+
+@Override public void add(Read r, String name)
+
+@Override public long dumpResidual(ConcurrentReadOutputStream rosu)
+
+@Override public ByteBuilder report()
+
+@Override public Set<String> getKeys()
+
+@Override long closeInner()
+
+@Override long dumpAll()
+
+*Close the least-recently-used stream
+private void retire_old()
+
+*Close the least-recently-used streams
+private void retire(int count)
+
+public String printRetireTime()
+
+public String printCreateTime()
+
+</class MultiCros3>
+<class MultiCros4>
+*Uses a retire queue with independent threads.
+*@author Brian Bushnell
+*@date April 5, 2024
+public class MultiCros4
+
+#Fields
+private long retireTime1=0
+
+private long retireTime2=0
+
+private long retireTime3=0
+
+private long retireTime4=0
+
+private long retireCount=0
+
+private long retireCalls=0
+
+private long createTime1=0
+
+private long createTime2=0
+
+private long createTime3=0
+
+private long createTime4=0
+
+private long createTime5=0
+
+private final int maxRetireThreads
+
+*Allow this many open streams
+public final int maxOpenStreams
+
+*Open stream names
+private final ArrayDeque<String> streamQueue
+
+*Tokens available for use
+private final ArrayBlockingQueue<Token> freeTokens
+
+*Buffers waiting to retire
+private final ArrayBlockingQueue<Buffer> retireQueue
+
+*Buffers waiting to retire
+private final ArrayList<RetireThread> retireThreads
+
+*Map of names to buffers
+public final LinkedHashMap<String,Buffer> bufferMap
+
+private final Buffer POISON_BUFFER=new Buffer("POISON_BUFFER_NOT_A_FILE")
+
+private static final int CLOSED=0
+
+private static final int OPEN=1
+
+private static final int RETIRING=2
+
+
+#Methods
+*For testing.
+*args should be:
+*{input file, output pattern, names...}
+public static void main(String[] args)
+
+*@See Details in superclass constructor
+public MultiCros4(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_)
+
+@Override public boolean finishedSuccessfully()
+
+@Override public void add(Read r, String name)
+
+@Override public long dumpResidual(ConcurrentReadOutputStream rosu)
+
+@Override public ByteBuilder report()
+
+@Override public Set<String> getKeys()
+
+@Override long closeInner()
+
+*Wait for this object's thread to terminate
+public final void waitForFinishInner()
+
+@Override long dumpAll()
+
+*Close the least-recently-used stream
+private void retire(int retCount)
+
+public String printRetireTime()
+
+public String printCreateTime()
+
+</class MultiCros4>
+<class MultiCros5>
+*Timestamps and sorts open buffers prior to retirement.
+*@author Brian Bushnell
+*@date April 8, 2024
+public class MultiCros5
+
+#Fields
+private long retireTime1=0
+
+private long retireTime2=0
+
+private long retireTime3=0
+
+private long retireTime4=0
+
+private long retireCount=0
+
+private long retireCalls=0
+
+private long createTime1=0
+
+private long createTime2=0
+
+private long createTime3=0
+
+private long createTime4=0
+
+private long createTime5=0
+
+private long bufferTimer=0
+
+*Open stream names
+private final ArrayDeque<String> streamQueue
+
+*Map of names to buffers
+public final LinkedHashMap<String,Buffer> bufferMap
+
+*Trigger stream close, but don't wait for it to finish.
+*Prevents error state from being captured.
+*THIS IS UNSAFE AND CAUSES ERRORS,
+*because the stream might get reopened again before writing is finished.
+private static final boolean closeFast=false
+
+
+#Methods
+*@See Details in superclass constructor
+public MultiCros5(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_)
+
+@Override public boolean finishedSuccessfully()
+
+@Override public void add(Read r, String name)
+
+@Override void handleLoad0()
+
+@Override long dumpAll()
+
+*Close the least-recently-used streams
+private void retire(int retCount)
+
+public String printRetireTime()
+
+public String printCreateTime()
+
+</class MultiCros5>
+<class MultiCros6>
+*Timestamps and sorts open buffers prior to retirement.
+*Also uses a heap to open the largest closed buffer.
+*This is the most efficient at minimizing file opens/closes,
+*and seems to be the fastest too.
+*@author Brian Bushnell
+*@date April 9, 2024
+public class MultiCros6
+
+#Fields
+private long retireTime1=0
+
+private long retireTime2=0
+
+private long retireTime3=0
+
+private long retireTime4=0
+
+private long retireCount=0
+
+private long retireCalls=0
+
+private long createTime1=0
+
+private long createTime2=0
+
+private long createTime3=0
+
+private long createTime4=0
+
+private long createTime5=0
+
+*Essentially the number of dumps. Does not distinguish by dump size.
+private long bufferTimer=0
+
+private HeapLoc<Buffer> heap
+
+*Open stream names
+private final ArrayDeque<String> streamQueue
+
+*Map of names to buffers
+public final LinkedHashMap<String,Buffer> bufferMap
+
+
+#Methods
+*For testing.
+*args should be:
+*{input file, output pattern, names...}
+public static void main(String[] args)
+
+*@See Details in superclass constructor
+public MultiCros6(String pattern1_, String pattern2_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_, int maxStreams_)
+
+@Override public boolean finishedSuccessfully()
+
+@Override public void add(Read r, String name)
+
+@Override void handleLoad0()
+
+@Override public long dumpResidual(ConcurrentReadOutputStream rosu)
+
+@Override public ByteBuilder report()
+
+@Override public Set<String> getKeys()
+
+@Override long closeInner()
+
+@Override long dumpAll()
+
+*Close the least-recently-used streams
+private void retire(int retCount)
+
+private void addToHeap(Buffer b)
+
+public String printRetireTime()
+
+public String printCreateTime()
+
+</class MultiCros6>
+<class NullOutputStream>
+*Writes to nowhere.
+*Courtesy of https://stackoverflow.com/a/692580 and https://stackoverflow.com/a/691835
+public class NullOutputStream
+
+#Methods
+@Override public void write(int b)
+
+@Override public void write(byte[] b)
+
+@Override public void write(byte[] b, int off, int len)
+
+</class NullOutputStream>
+<class OnelineReadInputStream>
+public class OnelineReadInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile tf
+
+private final boolean interleaved
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long MAX_DATA=Shared.bufferData()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+public static boolean verbose=false
+
+
+#Methods
+public OnelineReadInputStream(String fname, boolean allowSubprocess_)
+
+public OnelineReadInputStream(FileFormat ff)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+private ArrayList<Read> toReadList()
+
+@Override public boolean close()
+
+@Override public void restart()
+
+@Override public boolean paired()
+
+*Return true if this stream has detected an error
+@Override public boolean errorState()
+
+@Override public String fname()
+
+</class OnelineReadInputStream>
+<class RandomReadInputStream3>
+*@author Brian Bushnell
+*@date Sep 10, 2014
+public class RandomReadInputStream3
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final int BUF_LEN=Shared.bufferLen()
+
+public long generated=0
+
+public long consumed=0
+
+public long number=100000
+
+public int minreadlen=100
+
+public int maxreadlen=100
+
+public int maxInsertionLen=6
+
+public int maxSubLen=6
+
+public int maxDeletionLen=100
+
+public int maxNLen=6
+
+public int minInsertionLen=1
+
+public int minSubLen=1
+
+public int minDeletionLen=1
+
+public int minNLen=1
+
+public int minChrom=1
+
+public int maxChrom=22
+
+public int maxSnps=4
+
+public int maxInss=2
+
+public int maxDels=2
+
+public int maxSubs=2
+
+public int maxNs=2
+
+public float snpRate=0.5f
+
+public float insRate=0.25f
+
+public float delRate=0.25f
+
+public float subRate=0.10f
+
+public float NRate=0.10f
+
+public final boolean paired
+
+public final byte minQual
+
+public final byte midQual
+
+public final byte maxQual
+
+private RandomReads3 rr
+
+
+#Methods
+public RandomReadInputStream3(long number_, boolean paired_)
+
+public RandomReadInputStream3(long number_, int minreadlen_, int maxreadlen_, int maxSnps_, int maxInss_, int maxDels_, int maxSubs_, float snpRate_, float insRate_, float delRate_, float subRate_, int maxInsertionLen_, int maxDeletionLen_, int maxSubLen_, int minChrom_, int maxChrom_, boolean paired_, int minQual_, int midQual_, int maxQual_)
+
+@Override public void start()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+@Override public void restart()
+
+@Override public boolean close()
+
+@Override public boolean paired()
+
+@Override public String fname()
+
+</class RandomReadInputStream3>
+<class Read>
+public final class Read
+
+#Fields
+private static final long serialVersionUID=-1026645233407290096L
+
+*Bases of the read.
+public byte[] bases
+
+*Quality of the read.
+public byte[] quality
+
+*Alignment string. E.G. mmmmDDDmmm would have 4 matching bases, then a 3-base deletion, then 3 matching bases.
+public byte[] match
+
+public int[] gaps
+
+public String id
+
+public long numericID
+
+public int chrom
+
+public int start
+
+public int stop
+
+public int copies=1
+
+*Errors detected
+public int errors=0
+
+*Alignment score from BBMap. Assumed to max at approx 100*bases.length
+public int mapScore=0
+
+public ArrayList<SiteScore> sites
+
+public SiteScore originalSite
+
+public Object obj=null
+
+public SamLine samline=null
+
+public Read mate
+
+public int flags
+
+*-1 if invalid. TODO: Currently not retained through most processes.
+private int insert=-1
+
+*A random number for deterministic usage.
+*May decrease speed in multithreaded applications.
+public double rand=-1
+
+private static final byte[][] QUALCACHE=new byte[1000][]
+
+public static final int STRANDMASK=1
+
+public static final int MAPPEDMASK=(1 << 1)
+
+public static final int PAIREDMASK=(1 << 2)
+
+public static final int PERFECTMASK=(1 << 3)
+
+public static final int AMBIMASK=(1 << 4)
+
+public static final int RESCUEDMASK=(1 << 5)
+
+public static final int SYNTHMASK=(1 << 7)
+
+public static final int DISCARDMASK=(1 << 8)
+
+public static final int INVALIDMASK=(1 << 9)
+
+public static final int SWAPMASK=(1 << 10)
+
+public static final int SHORTMATCHMASK=(1 << 11)
+
+public static final int PAIRNUMSHIFT=12
+
+public static final int PAIRNUMMASK=(1 << PAIRNUMSHIFT)
+
+public static final int INSERTMASK=(1 << 13)
+
+public static final int ADAPTERMASK=(1 << 14)
+
+public static final int SECONDARYMASK=(1 << 15)
+
+public static final int AAMASK=(1 << 16)
+
+public static final int JUNKMASK=(1 << 17)
+
+public static final int VALIDATEDMASK=(1 << 18)
+
+public static final int TESTEDMASK=(1 << 19)
+
+public static final int IRMASK=(1 << 20)
+
+public static final int TRIMMEDMASK=(1 << 21)
+
+private static final int[] maskArray=makeMaskArray(22)
+
+public static boolean TO_UPPER_CASE=false
+
+public static boolean LOWER_CASE_TO_N=false
+
+public static boolean DOT_DASH_X_TO_N=false
+
+public static boolean AVERAGE_QUALITY_BY_PROBABILITY=true
+
+public static boolean FIX_HEADER=false
+
+public static boolean ALLOW_NULL_HEADER=false
+
+public static boolean SKIP_SLOW_VALIDATION=false
+
+public static final boolean VALIDATE_BRANCHLESS=true
+
+public static final int IGNORE_JUNK=0
+
+public static final int FLAG_JUNK=1
+
+public static final int FIX_JUNK=2
+
+public static final int CRASH_JUNK=3
+
+public static final int FIX_JUNK_AND_IUPAC=4
+
+public static int JUNK_MODE=CRASH_JUNK
+
+public static boolean IUPAC_TO_N=false
+
+public static boolean U_TO_T=false
+
+public static boolean COMPRESS_MATCH_BEFORE_WRITING=true
+
+public static boolean DECOMPRESS_MATCH_ON_LOAD=true
+
+public static boolean ADD_BEST_SITE_TO_LIST_FROM_TEXT=true
+
+public static boolean NULLIFY_BROKEN_QUALITY=false
+
+public static boolean TOSS_BROKEN_QUALITY=false
+
+public static boolean FLAG_BROKEN_QUALITY=false
+
+public static boolean FLAT_IDENTITY=true
+
+public static boolean VALIDATE_IN_CONSTRUCTOR=true
+
+public static boolean verbose=false
+
+*Offset for quality scores, normally 33, or 64 for some old Illumina data
+private static final byte ASCII_OFFSET=33
+
+*Allow quality scores to be changed, typically for corrupt Illumina data
+public static boolean CHANGE_QUALITY=true
+
+*Minimum allowed quality score for called (ACGT) bases
+private static byte MIN_CALLED_QUALITY=2
+
+*Maximum allowed quality score for called (ACGT) bases
+private static byte MAX_CALLED_QUALITY=50
+
+*Maximum allowed quality score for merged reads, which otherwise would normally be very high
+public static byte MAX_MERGE_QUALITY=50
+
+public static byte[] qMap=makeQmap(MIN_CALLED_QUALITY,MAX_CALLED_QUALITY)
+
+
+#Methods
+public Read(byte[] bases_, byte[] quals_, long id_)
+
+public Read(byte[] bases_, byte[] quals_, String name_, long id_)
+
+public Read(byte[] bases_, byte[] quals_, String name_, long id_, int flag_)
+
+public Read(byte[] s_, byte[] quals_, long id_, int chrom_, int start_, int stop_, byte strand_)
+
+*Note that strand can be used as flag
+public Read(byte[] bases_, byte[] quals_, String id_, long numericID_, int flags_, int chrom_, int start_, int stop_)
+
+public boolean validate(boolean processAssertions)
+
+public boolean checkQuality()
+
+private void uToT()
+
+private void tToU()
+
+private boolean validateJunk(boolean processAssertions)
+
+private void validateQualityLength(boolean processAssertions)
+
+private void fixQuality()
+
+private void fixCase()
+
+private boolean validateCommonCase_branchless(boolean processAssertions)
+
+private boolean validateCommonCase(boolean processAssertions)
+
+private final void fixHeader(boolean processAssertions)
+
+private static final int absdif(int a, int b)
+
+*Returns true if these reads are identical, allowing at most n no-calls and m mismatches of max quality q
+public boolean isDuplicateByBases(Read r, int nmax, int mmax, byte qmax, boolean banSameQualityMismatch)
+
+*Returns true if these reads are identical, allowing at most n no-calls and m mismatches of max quality q
+public boolean isDuplicateByBases(Read r, int nmax, int mmax, byte qmax, boolean banSameQualityMismatch, boolean allowDifferentLength)
+
+public boolean isDuplicateByMapping(Read r, boolean bothEnds, boolean checkAlignment)
+
+public boolean isDuplicateByMappingDifferentLength(Read r, boolean bothEnds, boolean checkAlignment)
+
+public void merge(Read r, boolean mergeVectors, boolean mergeN)
+
+private void mergePrivate(Read r, boolean mergeVectors, boolean mergeN, boolean mergeMate)
+
+@Override public String toString()
+
+public ByteBuilder toSites()
+
+public ByteBuilder toSites(ByteBuilder sb)
+
+public ByteBuilder toInfo()
+
+public ByteBuilder toInfo(ByteBuilder bb)
+
+public ByteBuilder toFastq()
+
+public ByteBuilder toFastq(ByteBuilder bb)
+
+public ByteBuilder toFasta()
+
+public ByteBuilder toFasta(ByteBuilder bb)
+
+public ByteBuilder toFasta(int wrap)
+
+public ByteBuilder toFasta(int wrap, ByteBuilder bb)
+
+public ByteBuilder toSam()
+
+public ByteBuilder toSam(ByteBuilder bb)
+
+public static CharSequence header()
+
+public ByteBuilder toText(boolean okToCompressMatch)
+
+public ByteBuilder toText(boolean okToCompressMatch, ByteBuilder bb)
+
+public static Read fromText(String line)
+
+*Inflates gaps between contigs in a scaffold.
+public void inflateGaps(int minGapIn, int minGapOut)
+
+public ArrayList<Read> breakAtGaps(boolean agp, int minContig)
+
+*Reverse-complements the read.
+public Read reverseComplement()
+
+*Complements the read.
+public void complement()
+
+@Override public int compareTo(Read o)
+
+public SiteScore toSite()
+
+public SiteScore topSite()
+
+public int numSites()
+
+public SiteScore makeOriginalSite()
+
+public void setFromSite(SiteScore ss)
+
+public void setFromOriginalSite()
+
+public void setFromTopSite()
+
+public void setFromTopSite(boolean randomIfAmbiguous, boolean primary, int maxPairDist)
+
+public void clearPairMapping()
+
+public void clearMapping()
+
+public void clearSite()
+
+public void clearAnswers(boolean clearMate)
+
+public boolean isBadPair(boolean requireCorrectStrands, boolean sameStrandPairs, int maxdist)
+
+public int countMismatches()
+
+*@param k
+*@return Number of valid kmers
+public int numValidPairKmers(int k)
+
+*@param k
+*@return Number of valid kmers
+public int numValidKmers(int k)
+
+*@param match string
+*@return Total number of match, sub, del, ins, or clip symbols
+public static final int[] matchToMsdicn(byte[] match)
+
+*@param match string
+*@return Ref length of match string
+public static final int calcMatchLength(byte[] match)
+
+public final float identity()
+
+public static final float identity(byte[] match)
+
+public final boolean hasLongInsertion(int maxlen)
+
+public final boolean hasLongDeletion(int maxlen)
+
+public static final boolean hasLongInsertion(byte[] match, int maxlen)
+
+public static final boolean hasLongDeletion(byte[] match, int maxlen)
+
+public int mappedNonClippedBases()
+
+*Handles short or long mode.
+*@param match string
+*@return Identity based on number of match, sub, del, ins, or N symbols
+public static final float identityFlat(byte[] match, boolean penalizeN)
+
+*Handles short or long mode.
+*@param match string
+*@return Identity based on number of match, sub, del, ins, or N symbols
+public static final float identitySkewed(byte[] match, boolean penalizeN, boolean sqrt, boolean log, boolean single)
+
+public boolean failsChastity()
+
+public boolean failsChastity(boolean processAssertions)
+
+public boolean failsBarcode(HashSet<String> set, boolean failIfNoBarcode)
+
+public String barcode(boolean failIfNoBarcode)
+
+*Parse the barcode from an Illumina header.
+*@param failIfNoBarcode Terminate the JVM if no barcode is present.
+*@return The barcode
+public static String headerToBarcode(String id, boolean failIfNoBarcode)
+
+*@return The rname of this Read's SamLine, if present and mapped.
+public String rnameS()
+
+*Average based on summing quality scores
+public double avgQuality(boolean countUndefined, int maxBases)
+
+*Average based on summing quality scores
+public int avgQualityInt(boolean countUndefined, int maxBases)
+
+*Average based on summing error probabilities
+public int avgQualityByProbabilityInt(boolean countUndefined, int maxBases)
+
+*Average based on summing error probabilities
+public double avgQualityByProbabilityDouble(boolean countUndefined, int maxBases)
+
+*Average based on summing error probabilities
+public double probabilityErrorFree(boolean countUndefined, int maxBases)
+
+*Average based on summing error probabilities
+public static int avgQualityByProbabilityInt(byte[] bases, byte[] quality, boolean countUndefined, int maxBases)
+
+*Average based on summing error probabilities
+public static double avgQualityByProbabilityDouble(byte[] bases, byte[] quality, boolean countUndefined, int maxBases)
+
+*Average based on summing quality scores
+public int avgQualityByScoreInt(int maxBases)
+
+*Average based on summing quality scores
+public double avgQualityByScoreDouble(int maxBases)
+
+*Used by BBMap tipsearch.
+public int avgQualityFirstNBases(int n)
+
+*Used by BBMap tipsearch.
+public int avgQualityLastNBases(int n)
+
+*Used by BBDuk.
+public int minQuality()
+
+*Used by BBMap tipsearch.
+public byte minQualityFirstNBases(int n)
+
+*Used by BBMap tipsearch.
+public byte minQualityLastNBases(int n)
+
+public boolean containsNonM()
+
+public boolean containsNonNM()
+
+public boolean containsVariants()
+
+public boolean containsClipping()
+
+public int countAlignedBases()
+
+public static int countAlignedBases(byte[] match)
+
+public int countErrors()
+
+public static int countErrors(byte[] match)
+
+*@return {m,S,C,N,I,D};
+public int[] countMatchSymbols()
+
+*@return {m,S,C,N,I,D};
+public static int[] countMatchSymbols(byte[] match)
+
+*Here, consecutive symbols are collapsed, so mmmDDDmmmm would yield 2 m and 1 D.
+*@return {m,S,C,N,I,D};
+public static int[] countMatchEvents(byte[] match)
+
+public boolean containsNonNMXY()
+
+public boolean containsSDI()
+
+public boolean containsNonNMS()
+
+public boolean containsConsecutiveS(int num)
+
+public boolean containsIndels()
+
+public int countSubs()
+
+public boolean containsInMatch(char c)
+
+public boolean containsNocalls()
+
+public int countNocalls()
+
+public int longestHomopolymer()
+
+public static int countSubs(byte[] match)
+
+public static int countVars(byte[] match)
+
+public static int countVars(byte[] match, boolean sub, boolean ins, boolean del)
+
+public static boolean containsSubs(byte[] match)
+
+public static boolean containsVars(byte[] match)
+
+public static int countNocalls(byte[] match)
+
+public static int countUndefined(byte[] bases)
+
+public static int countUndefined(byte[] bases, int from, int to)
+
+public static int longestHomopolymer(byte[] bases)
+
+public static int longestHomopolymer(byte[] bases, int from, int to)
+
+public static int countInsertions(byte[] match)
+
+public static int countDeletions(byte[] match)
+
+public static int countInsertionEvents(byte[] match)
+
+public static int countDeletionEvents(byte[] match)
+
+public boolean containsNonACGTN()
+
+public boolean containsUndefined()
+
+public boolean containsLowercase()
+
+public int countUndefined()
+
+public boolean hasMinConsecutiveBases(int min)
+
+*@return The number of occurrences of the rarest base.
+public int minBaseCount()
+
+public boolean containsXY()
+
+public static boolean containsXY(byte[] match)
+
+public boolean containsXY2()
+
+public boolean containsXYC()
+
+*Replaces 'B' in match string with 'S', 'm', or 'N'
+public boolean fixMatchB()
+
+public float expectedTipErrors(boolean countUndefined, int maxBases)
+
+public float expectedErrorsIncludingMate(boolean countUndefined)
+
+public float expectedErrors(boolean countUndefined, int maxBases)
+
+public static float probabilityErrorFree(byte[] bases, byte[] quality, boolean countUndefined, int maxBases)
+
+public static float expectedErrors(byte[] bases, byte[] quality, boolean countUndefined, int maxBases)
+
+*Runs backwards instead of forwards
+public static float expectedTipErrors(byte[] bases, byte[] quality, boolean countUndefined, int maxBases)
+
+public int estimateErrors()
+
+*{M, S, D, I, N, splice}
+public int[] countErrors(int minSplice)
+
+public static boolean isShortMatchString(byte[] match)
+
+public void toShortMatchString(boolean doAssertion)
+
+public static byte[] toShortMatchString(byte[] match)
+
+public void toLongMatchString(boolean doAssertion)
+
+public static byte[] toLongMatchString(byte[] shortmatch)
+
+public String parseCustomRname()
+
+public FloatList fetchVector()
+
+public ByteBuilder fetchBB()
+
+public Object obj()
+
+public Object setObj(Object x)
+
+public Object nullifyObj()
+
+public Object nullifyObject()
+
+public Object setObjNull()
+
+public TrimRead fetchTrimRead()
+
+public Class getObjectClass()
+
+public Object fetchObject()
+
+public String name()
+
+public long time()
+
+*Number of bases in this pair, including the mate if present.
+public int pairLength()
+
+*Number of bases in this pair, including the mate if present.
+public int numPairKmers(int k)
+
+*Number of reads in this pair. Returns 1 if the read has no mate, and 2 if it does.
+public int pairCount()
+
+public int pairMappedCount()
+
+public int length()
+
+public int numKmers(int k)
+
+public int qlength()
+
+public int mateLength()
+
+public int numMateKmers(int k)
+
+public String mateId()
+
+public int mateCount()
+
+public boolean mateMapped()
+
+public boolean eitherMapped()
+
+public long countMateBytes()
+
+public long countMateFastqBytes()
+
+*Number of bytes this read pair uses in memory, approximately
+public long countPairBytes()
+
+*Number of bytes this read uses in memory, approximately
+public long countBytes()
+
+*Number of bytes this read uses in on disk in Fastq format
+public long countFastqBytes()
+
+public int countLeading(char base)
+
+public int countTrailing(char base)
+
+public int countLeft(char base)
+
+public int countRight(char base)
+
+public int countLeft(byte base)
+
+public int countRight(byte base)
+
+public boolean untrim()
+
+public int trailingLowerCase()
+
+public int leadingLowerCase()
+
+public char strandChar()
+
+public byte strand()
+
+public boolean mapped()
+
+public boolean paired()
+
+public boolean synthetic()
+
+public boolean ambiguous()
+
+public boolean perfect()
+
+public boolean rescued()
+
+public boolean discarded()
+
+public boolean invalid()
+
+public boolean swapped()
+
+public boolean shortmatch()
+
+public boolean insertvalid()
+
+public boolean hasAdapter()
+
+public boolean secondary()
+
+public boolean aminoacid()
+
+public boolean amino()
+
+public boolean junk()
+
+public boolean validated()
+
+public boolean tested()
+
+public boolean invertedRepeat()
+
+public boolean trimmed()
+
+*For paired ends: 0 for read1, 1 for read2
+public int pairnum()
+
+public boolean valid()
+
+public boolean getFlag(int mask)
+
+public int flagToNumber(int mask)
+
+public void setFlag(int mask, boolean b)
+
+public void setStrand(int b)
+
+*For paired ends: 0 for read1, 1 for read2
+public void setPairnum(int b)
+
+public void setPaired(boolean b)
+
+public void setSynthetic(boolean b)
+
+public void setAmbiguous(boolean b)
+
+public boolean setPerfectFlag(int maxScore)
+
+private boolean testMatchPerfection(boolean returnIfNoMatch)
+
+*@return GC fraction
+public float gc()
+
+*@param swapFrom
+*@param swapTo
+*@return number of swaps
+public int swapBase(byte swapFrom, byte swapTo)
+
+*@param remap Table of new values
+public void remap(byte[] remap)
+
+*@param remap Table of new values
+public int remapAndCount(byte[] remap)
+
+public int convertUndefinedTo(byte b)
+
+public void swapBasesWithMate()
+
+public int insert()
+
+public int insertSizeMapped(boolean ignoreStrand)
+
+public static int insertSizeMapped(Read r1, Read r2, boolean ignoreStrand)
+
+*TODO: This is not correct when the insert is shorter than a read's bases with same-strand reads
+public static int insertSizeMapped_PlusLeft(Read r1, Read r2)
+
+public static int insertSizeMapped_Unstranded(Read r1, Read r2)
+
+public int insertSizeOriginalSite()
+
+public static int insertSize(SiteScore ssa, SiteScore ssb, int lena, int lenb)
+
+public static int insertSize(int chroma, int chromb, int starta, int startb, int stopa, int stopb, int lena, int lenb)
+
+public Read subRead(int from, int to)
+
+public Read joinRead()
+
+public Read joinRead(int x)
+
+public static Read joinRead(Read a, Read b, int insert)
+
+*@param minlen
+*@param maxlen
+*@return A list of read fragments
+public ArrayList<Read> split(int minlen, int maxlen)
+
+*Generate and return an array of canonical kmers for this read
+public long[] toKmers(int k, int gap, long[] kmers, boolean makeCanonical, Kmer longkmer)
+
+*Generate and return an array of canonical kmers for this read
+public long[] toLongKmers(int k, long[] kmers, boolean makeCanonical, Kmer kmer)
+
+public static final boolean CHECKSITES(Read r, byte[] basesM)
+
+public static final boolean CHECKSITES(Read r, byte[] basesM, boolean verifySorted)
+
+public static final boolean CHECKSITES(ArrayList<SiteScore> list, byte[] basesP, byte[] basesM, long id)
+
+public static final boolean CHECKSITES(ArrayList<SiteScore> list, byte[] basesP, byte[] basesM, long id, boolean verifySorted)
+
+*Makes sure 'bases' is for correct strand.
+public static final boolean CHECKORDER(ArrayList<SiteScore> list)
+
+*Makes sure 'bases' is for correct strand.
+public static final boolean CHECKSITE(SiteScore ss, byte[] basesP, byte[] basesM, long id)
+
+*Make sure 'bases' is for correct strand!
+public static final boolean CHECKSITE(SiteScore ss, byte[] bases, long id)
+
+public void setPerfect(boolean b)
+
+public void setRescued(boolean b)
+
+public void setMapped(boolean b)
+
+public void setPairDiscarded(boolean b)
+
+public void setDiscarded(boolean b)
+
+public void setInvalid(boolean b)
+
+public void setSwapped(boolean b)
+
+public void setShortMatch(boolean b)
+
+public void setInsertValid(boolean b)
+
+public void setHasAdapter(boolean b)
+
+public void setSecondary(boolean b)
+
+public void setAminoAcid(boolean b)
+
+public void setJunk(boolean b)
+
+public void setValidated(boolean b)
+
+public void setTested(boolean b)
+
+public void setInvertedRepeat(boolean b)
+
+public void setTrimmed(boolean b)
+
+public void setInsert(int x)
+
+private static int[] makeMaskArray(int max)
+
+public static byte[] getFakeQuality(int len)
+
+public byte[] getScaffoldName(boolean requireSingleScaffold)
+
+public void bisulfite(boolean AtoG, boolean CtoT, boolean GtoA, boolean TtoC)
+
+public Read copy()
+
+@Override public Read clone()
+
+*@return This protein in canonical nucleotide space.
+public Read aminoToNucleic()
+
+public static byte MIN_CALLED_QUALITY()
+
+public static byte MAX_CALLED_QUALITY()
+
+public static void setMaxCalledQuality(int x)
+
+public static void setMinCalledQuality(int x)
+
+public static byte capQuality(long q)
+
+public static byte capQuality(byte q)
+
+public static byte capQuality(byte q, byte b)
+
+private static byte[] makeQmap(byte min, byte max)
+
+</class Read>
+<class ReadInputStream>
+public abstract class ReadInputStream
+
+#Fields
+*TODO
+protected boolean errorState=false
+
+
+#Methods
+public static final ArrayList<Read> toReads(String fname, int defaultFormat, long maxReads)
+
+public static final Read[] toReadArray(FileFormat ff, long maxReads)
+
+public static final ArrayList<Read> toReads(FileFormat ff, long maxReads)
+
+public Read next()
+
+public ArrayList<Read> nextList()
+
+public boolean hasMore()
+
+public void restart()
+
+*Returns true if there was an error, false otherwise
+public boolean close()
+
+public boolean paired()
+
+protected static final ArrayList<Read> toList(Read[] array)
+
+*Return true if this stream has detected an error
+public boolean errorState()
+
+public final boolean preferLists()
+
+public void start()
+
+public String fname()
+
+</class ReadInputStream>
+<class ReadStreamByteWriter>
+public class ReadStreamByteWriter
+
+#Fields
+private static final boolean buffered=true
+
+private static final boolean verbose=false
+
+
+#Methods
+public ReadStreamByteWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean useSharedHeader)
+
+@Override public void run()
+
+private void run2()
+
+private void writeHeader()
+
+private void processJobs(ByteBuilder bb, ByteBuilder bbq)
+
+*@throws IOException
+private void finishWriting(ByteBuilder bb, ByteBuilder bbq)
+
+private void writeQuality(Job job, ByteBuilder bbq)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeBread(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeAttachment(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeHeader(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeFasta(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeOneline(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeFastq(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeFastr(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@param os
+*@throws IOException
+private void writeSites(Job job, ByteBuilder bb, OutputStream os)
+
+*@param job
+*@param bb
+*@throws IOException
+private void writeSam(Job job, ByteBuilder bb, OutputStream os)
+
+*@param r Read to print
+*@param primary Primary alignment of this read
+*@param bb A buffer
+private void writeSam(Read r, SamLine primary, ByteBuilder bb)
+
+</class ReadStreamByteWriter>
+<class ReadStreamWriter>
+public abstract class ReadStreamWriter
+
+#Fields
+*TODO
+protected boolean errorState=false
+
+protected boolean finishedSuccessfully=false
+
+public final boolean OUTPUT_SAM
+
+public final boolean OUTPUT_BAM
+
+public final boolean OUTPUT_FASTQ
+
+public final boolean OUTPUT_FASTA
+
+public final boolean OUTPUT_FASTR
+
+public final boolean OUTPUT_HEADER
+
+public final boolean OUTPUT_ATTACHMENT
+
+public final boolean OUTPUT_ONELINE
+
+public final boolean OUTPUT_STANDARD_OUT
+
+public final boolean SITES_ONLY
+
+public boolean OUTPUT_INTERLEAVED=false
+
+protected final int FASTA_WRAP
+
+protected final boolean allowSubprocess
+
+protected final boolean read1
+
+protected final String fname
+
+protected final String qfname
+
+protected final OutputStream myOutstream
+
+protected final PrintWriter myWriter
+
+protected final OutputStream myQOutstream
+
+protected final PrintWriter myQWriter
+
+protected final ArrayBlockingQueue<Job> queue
+
+protected long readsWritten=0
+
+protected long basesWritten=0
+
+public static int MINCHROM=-1
+
+public static int MAXCHROM=-1
+
+public static CharSequence HEADER
+
+public static boolean NUMERIC_QUAL=true
+
+public static boolean OUTPUT_SAM_SECONDARY_ALIGNMENTS=false
+
+public static boolean ignorePairAssertions=false
+
+public static boolean ASSERT_CIGAR=false
+
+public static boolean NO_HEADER=false
+
+public static boolean NO_HEADER_SEQUENCES=false
+
+public static boolean USE_ATTACHED_SAMLINE=false
+
+
+#Methods
+protected ReadStreamWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean makeWriter, boolean buffered, boolean useSharedHeader)
+
+@Override public void run()
+
+*Uses this thread to transform reads to text, and the ReadStreamWriter thread to write text to disk
+public final void addListAsText(ArrayList<Read> list)
+
+public final void poison()
+
+public final void addList(ArrayList<Read> list)
+
+public final void addList(ArrayList<Read> l, PrintWriter w, OutputStream o, boolean c)
+
+public final void addJob(Job j)
+
+protected static final ByteBuilder toQualityB(byte[] quals, int len, int wrap, ByteBuilder bb)
+
+protected static final ByteBuilder fakeQualityB(int q, int len, int wrap, ByteBuilder bb)
+
+public String fname()
+
+public long readsWritten()
+
+public long basesWritten()
+
+*Return true if this stream has detected an error
+public final boolean errorState()
+
+*Return true if this stream has finished
+public final boolean finishedSuccessfully()
+
+</class ReadStreamWriter>
+<class ReadStreamWriter.Job>
+protected static class ReadStreamWriter.Job
+
+#Fields
+public final ArrayList<Read> list
+
+public final PrintWriter writer
+
+public final OutputStream outstream
+
+public final boolean close
+
+public final boolean poison
+
+
+#Methods
+public Job(ArrayList<Read> list_, PrintWriter writer_, OutputStream outstream_, boolean closeWhenDone_, boolean shutdownThread_)
+
+public Job(ArrayList<Read> list_, PrintWriter writer_)
+
+public boolean isEmpty()
+
+</class ReadStreamWriter.Job>
+<class RTextInputStream>
+*This class allows multiple files as input.
+*These files are synchronized, so a read will be created by merging the sitescores from the same line of each file.
+*@author Brian Bushnell
+*@date Jul 16, 2013
+public class RTextInputStream
+
+#Fields
+public boolean finished=false
+
+public String[] fnames
+
+public TextFile[] textfiles
+
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private long readCount
+
+private final long readLimit
+
+private final boolean interleaved
+
+public static final int READS_PER_LIST=Shared.bufferLen()
+
+private final RTextInputStream mateStream
+
+private final ConcurrentLegacyReadInputStream cris
+
+public static boolean USE_CRIS=true
+
+
+#Methods
+public static void main(String[] args)
+
+public RTextInputStream(FileFormat ff1, FileFormat ff2, long crisReadLimit)
+
+public RTextInputStream(String fname1, String fname2, long crisReadLimit)
+
+public RTextInputStream(String[] fnames_, long crisReadLimit)
+
+public RTextInputStream(String[] fnames_, String[] mate_fnames_, long crisReadLimit)
+
+public static boolean isInterleaved(String fname)
+
+@Override public void start()
+
+@Override public ArrayList<Read> nextList()
+
+private ArrayList<Read> readList()
+
+private ArrayList<Read> getListFromFile(TextFile tf)
+
+@Override public boolean paired()
+
+public final void shutdown()
+
+@Override public String fname()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public void restart()
+
+@Override public boolean close()
+
+</class RTextInputStream>
+<class SamHeader>
+*@author Brian Bushnell
+*@date Jul 7, 2014
+public class SamHeader
+
+#Fields
+public static String PN="BBMap"
+
+private static final boolean verbose=false
+
+
+#Methods
+public static ByteBuilder header0B(ByteBuilder bb)
+
+public static StringBuilder header0()
+
+static ArrayList<String> scaffolds(int minChrom, int maxChrom, boolean sort)
+
+public static StringBuilder header1(int minChrom, int maxChrom)
+
+public static void printHeader1(int minChrom, int maxChrom, PrintWriter pw)
+
+public static void printHeader1B(int minChrom, int maxChrom, ByteBuilder bb, OutputStream os)
+
+public static void printHeader1(int minChrom, int maxChrom, TextStreamWriter tsw)
+
+static void appendScafName(StringBuilder sb, byte[] scn)
+
+static void appendScafName(ByteBuilder sb, byte[] scn)
+
+public static StringBuilder header2()
+
+public static ByteBuilder header2B(ByteBuilder sb)
+
+</class SamHeader>
+<class SamLine>
+public class SamLine
+
+#Fields
+private static final long serialVersionUID=-4180486051387471116L
+
+public String qname
+
+public int flag
+
+public int pos
+
+public int mapq
+
+public String cigar
+
+public int pnext
+
+public int tlen
+
+public byte[] seq
+
+public byte[] qual
+
+public ArrayList<String> optional
+
+public byte[] mdTag
+
+public Object obj
+
+public int scafnum=-1
+
+private byte[] rname
+
+private byte[] rnext
+
+private String rnameS
+
+private static final String stringstar="*"
+
+private static final String stringequals="="
+
+private static final byte[] bytestar=new byte[]{(byte)'*'}
+
+private static final byte[] byteequals=new byte[]{(byte)'='}
+
+private static final String XSPLUS="XS:A:+"
+
+private static final String XSMINUS="XS:A:-"
+
+private static boolean warning=System.getProperty("user.dir").contains("/bushnell/")
+
+public static String READGROUP_ID=null
+
+public static String READGROUP_CN=null
+
+public static String READGROUP_DS=null
+
+public static String READGROUP_DT=null
+
+public static String READGROUP_FO=null
+
+public static String READGROUP_KS=null
+
+public static String READGROUP_LB=null
+
+public static String READGROUP_PG=null
+
+public static String READGROUP_PI=null
+
+public static String READGROUP_PL=null
+
+public static String READGROUP_PU=null
+
+public static String READGROUP_SM=null
+
+public static String READGROUP_TAG=null
+
+*Turn this off for RNAseq or long indels
+public static boolean MAKE_MD_TAG=false
+
+public static boolean NO_TAGS=false
+
+public static boolean MAKE_AM_TAG=true
+
+public static boolean MAKE_NM_TAG=true
+
+public static boolean MAKE_SM_TAG=false
+
+public static boolean MAKE_XM_TAG=false
+
+public static boolean MAKE_XS_TAG=false
+
+public static boolean MAKE_XT_TAG=true
+
+public static boolean MAKE_AS_TAG=false
+
+public static boolean MAKE_NH_TAG=false
+
+public static boolean MAKE_TOPHAT_TAGS=false
+
+public static boolean XS_SECONDSTRAND=false
+
+public static boolean MAKE_IDENTITY_TAG=false
+
+public static boolean MAKE_SCORE_TAG=false
+
+public static boolean MAKE_STOP_TAG=false
+
+public static boolean MAKE_LENGTH_TAG=false
+
+public static boolean MAKE_CUSTOM_TAGS=false
+
+public static boolean MAKE_INSERT_TAG=false
+
+public static boolean MAKE_CORRECTNESS_TAG=false
+
+public static boolean MAKE_TIME_TAG=false
+
+public static boolean MAKE_BOUNDS_TAG=false
+
+public static boolean MAKE_MATEQ_TAG=false
+
+public static boolean PENALIZE_AMBIG=true
+
+public static boolean CONVERT_CIGAR_TO_MATCH=true
+
+public static boolean SOFT_CLIP=true
+
+public static boolean SECONDARY_ALIGNMENT_ASTERISKS=true
+
+*OK to use the "setFrom" function which uses the old SamLine instead of translating the read, if a genome is not loaded.
+public static boolean SET_FROM_OK=false
+
+*For paired reads, keep original names rather than changing read2's name to match read1
+public static boolean KEEP_NAMES=false
+
+public static float VERSION=1.4f
+
+*Tells program when to use 'N' rather than 'D' in cigar strings
+public static int INTRON_LIMIT=Integer.MAX_VALUE
+
+public static boolean RNAME_AS_BYTES=true
+
+*Prefer MD tag over reference for translating cigar strings to match
+public static boolean PREFER_MDTAG=false
+
+*Determine whether cigar X means match N or S.
+*This makes sam loading substantially slower.
+public static boolean FIX_MATCH_NS=false
+
+public static boolean setxs=false
+
+public static boolean setintron=false
+
+*Sort header scaffolds in alphabetical order to be more compatible with Tophat
+public static boolean SORT_SCAFFOLDS=false
+
+*qname
+public static boolean PARSE_0=true
+
+*rname
+public static boolean PARSE_2=true
+
+*cigar
+public static boolean PARSE_5=true
+
+*rnext
+public static boolean PARSE_6=true
+
+*pnext
+public static boolean PARSE_7=true
+
+*tlen
+public static boolean PARSE_8=true
+
+*qual
+public static boolean PARSE_10=true
+
+public static boolean PARSE_OPTIONAL=true
+
+public static boolean PARSE_OPTIONAL_MD_ONLY=false
+
+public static boolean PARSE_OPTIONAL_MATEQ_ONLY=false
+
+public static boolean FLIP_ON_LOAD=true
+
+public static boolean verbose=false
+
+
+#Methods
+public SamLine()
+
+public SamLine(String s)
+
+public SamLine(SamLine sl)
+
+private void setFrom(SamLine sl)
+
+public SamLine(Read r1, int fragNum)
+
+public SamLine(String[] s)
+
+public SamLine(LineParser1 lp)
+
+public SamLine(byte[] s)
+
+public void trimNames()
+
+public static final int parseFlagOnly(byte[] s)
+
+public static final String parseNameOnly(byte[] s)
+
+public static String toCigar13(byte[] match, int readStart, int readStop, long reflen, byte[] bases)
+
+public static String toCigar13(String cigar14)
+
+public static String toCigar14(byte[] match, int readStart, int readStop, long reflen, byte[] bases)
+
+public boolean cigarContainsOnlyME()
+
+public int calcCigarLength(boolean includeSoftClip, boolean includeHardClip)
+
+public int calcCigarReadLength(boolean includeSoftClip, boolean includeHardClip)
+
+*Reference length of cigar string
+public static int calcCigarLength(String cigar, boolean includeSoftClip, boolean includeHardClip)
+
+*Reference length of cigar string
+public static int calcCigarReadLength(String cigar, boolean includeSoftClip, boolean includeHardClip)
+
+*Number of query bases in cigar string
+public static int calcCigarBases(String cigar, boolean includeSoftClip, boolean includeHardClip)
+
+*Length of clipped initial bases. Used to calculate correct start location of clipped reads.
+public static int countLeadingClip(String cigar, boolean includeSoftClip, boolean includeHardClip)
+
+*Length of clipped final bases. Used to calculate correct stop location of clipped reads.
+public static int countTrailingClip(String cigar, boolean includeSoftClip, boolean includeHardClip)
+
+*Length of clipped final bases. Used to calculate correct stop location of clipped reads.
+public static int countTrailingHardClip(String cigar)
+
+public static int countMdSubs(String mdTag)
+
+*Length of clipped initial bases.
+public static int countLeadingClip(byte[] match)
+
+*Length of match string portion describing clipped initial bases.
+public static int countLeadingClip2(byte[] match)
+
+*Length of clipped trailing bases.
+public static int countTrailingClip(byte[] match)
+
+*Length of clipped (out of bounds) initial insertions and deletions.
+public static int countLeadingIndels(int rloc, byte[] match)
+
+*Length of clipped (out of bounds) trialing insertions and deletions.
+public static int countTrailingIndels(int rloc, int rlen, byte[] match)
+
+public int mappedNonClippedBases()
+
+*@param cigar
+*@return Max consecutive match, sub, del, ins, or clip symbols
+public static final int[] cigarToMdsiMax(String cigar)
+
+public float calcIdentity()
+
+public int countSubs()
+
+*@param cigar
+*@return Total number of match, sub, del, ins, or clip symbols
+public static final int[] cigarToMsdic(String cigar)
+
+*@param allowM Allow M symbols in the cigar string
+*@return Match string of this cigar string when possible, otherwise null.
+*Takes into account MD tag and bases, but not reference (other than in MD tag).
+public final byte[] toShortMatch(boolean allowM)
+
+*Requires longmatch.
+*Replaces M
+public static void fixMatch(byte[] call, byte[] ref, byte[] match, int refstart, boolean unClip)
+
+*@param cigar
+*@return Match string of this cigar string when possible, otherwise null
+public static final byte[] cigarToShortMatch_old(String cigar, boolean allowM)
+
+public static String makeStopTag(int pos, int seqLength, String cigar, boolean perfect)
+
+public static String makeLengthTag(int pos, int seqLength, String cigar, boolean perfect)
+
+public static String makeIdentityTag(byte[] match, boolean perfect)
+
+public static String makeScoreTag(int score)
+
+public String matchTag()
+
+private String makeXSTag(Read r)
+
+public static String makeMdTag(int chrom, int refstart, byte[] match, byte[] call, int scafloc, int scaflen)
+
+public static int calcLeftClip(String cig, String id)
+
+public static int calcRightClip(String cig, String id)
+
+public ArrayList<String> makeOptionalTags(Read r, Read r2, boolean perfect, int scafloc, int scaflen, boolean inbounds, boolean inbounds2)
+
+*Length of read bases
+public int length()
+
+public static int toMapq(Read r, SiteScore ss)
+
+public static int toMapq(int score, int length, boolean mapped, boolean ambig)
+
+public Read parseName()
+
+public long parseNumericId()
+
+public Read toRead(boolean parseCustom)
+
+public Read toRead(boolean parseCustom, boolean includeHardClip)
+
+*Aproximate length of result of SamLine.toText()
+public int textLength()
+
+public ByteBuilder toText()
+
+public ByteBuilder toBytes(ByteBuilder bb)
+
+@Override public String toString()
+
+private static ByteBuilder appendTo(ByteBuilder sb, byte[] a)
+
+private static ByteBuilder appendTo(ByteBuilder sb, String a)
+
+private static ByteBuilder appendReverseComplemented(ByteBuilder sb, byte[] a)
+
+private static ByteBuilder appendQual(ByteBuilder sb, byte[] a)
+
+private static ByteBuilder appendQualReversed(ByteBuilder sb, byte[] a)
+
+*Assumes a custom name including original location
+public byte[] originalContig()
+
+public static int makeFlag(Read r, Read r2, int fragNum, boolean sameScaf)
+
+public boolean hasCigar()
+
+*contains a cigar with X or = symbols
+public boolean hasCigarXE()
+
+public boolean hasMate()
+
+public boolean properPair()
+
+public static boolean mapped(int flag)
+
+public static byte strand(int flag)
+
+public boolean mapped()
+
+public boolean nextMapped()
+
+public byte strand()
+
+public byte mateStrand()
+
+public byte nextStrand()
+
+public boolean firstFragment()
+
+public boolean lastFragment()
+
+public int pairnum()
+
+public boolean primary()
+
+public void setPrimary(boolean b)
+
+public void setMapped(boolean b)
+
+public void setFirstFragment(boolean b)
+
+public void setStrand(int strand)
+
+public boolean discarded()
+
+public boolean duplicate()
+
+public boolean supplementary()
+
+public boolean leftmost()
+
+public boolean ambiguous()
+
+*Assumes rname is an integer.
+public int chrom_old()
+
+*Returns the zero-based starting location of this read on the sequence.
+public int start(boolean includeSoftClip, boolean includeHardClip)
+
+*Returns the zero-based stop location of this read on the sequence.
+public int stop(int start, boolean includeSoftClip, boolean includeHardClip)
+
+public int stop2(int start, boolean includeSoftClip, boolean includeHardClip)
+
+public long numericId()
+
+*This includes half-mapped pairs.
+public boolean pairedOnSameChrom()
+
+*Assumes a custom name including original location
+public int originalContigStart()
+
+public int rnameLen()
+
+public byte[] rname()
+
+public byte[] rnext()
+
+public void setRname(byte[] x)
+
+public void setRnext(byte[] x)
+
+public void setRname(String x)
+
+public void setRnext(String x)
+
+public String rnameS()
+
+public String rnextS()
+
+public String rnamePrefix()
+
+private static String toPrefix(String s)
+
+private static String toPrefix(byte[] s)
+
+public void addOptionalTag(String s)
+
+public String findTag(String prefix)
+
+public String mdTag()
+
+public String mateqTag()
+
+public int parseIntFlag(String prefix)
+
+public float parseFloatFlag(String prefix)
+
+public int mateq()
+
+public float mateID()
+
+public int setScafnum(ScafMap scafMap)
+
+public long countBytes()
+
+public static boolean makeReadgroupTags()
+
+public static boolean makeOtherTags()
+
+public static boolean makeAnyTags()
+
+</class SamLine>
+<class SamLineStreamer>
+*Loads sam files rapidly with multiple threads.
+*@author Brian Bushnell
+*@date November 4, 2016
+public class SamLineStreamer
+
+#Fields
+final ArrayBlockingQueue<ListNum<SamLine>> outq
+
+
+#Methods
+*Constructor.
+public SamLineStreamer(String fname_, int threads_, boolean saveHeader_, long maxReads_)
+
+*Constructor.
+public SamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, long maxReads_)
+
+@Override public ListNum<SamLine> nextLines()
+
+@Override public ListNum<Read> nextReads()
+
+*Spawn process threads
+@Override void spawnThreads()
+
+</class SamLineStreamer>
+<class SamReadInputStream>
+public class SamReadInputStream
+
+#Fields
+private static ArrayList<byte[]> SHARED_HEADER
+
+private ArrayList<Read> buffer=null
+
+private ArrayList<byte[]> header=null
+
+private int next=0
+
+private final ByteFile tf
+
+private final boolean interleaved
+
+private final boolean loadHeader
+
+private final int BUF_LEN=Shared.bufferLen()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+
+#Methods
+public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, boolean allowSubprocess_)
+
+public SamReadInputStream(FileFormat ff, boolean loadHeader_, boolean interleaved_)
+
+private void fillBuffer()
+
+*@param tf2
+*@param bUF_LEN2
+*@param nextReadID2
+*@param interleaved2
+*@return
+private final ArrayList<Read> toReadList(ByteFile tf2, int buflen, long nextReadID2, boolean parseCustom)
+
+@Override public boolean close()
+
+@Override public void restart()
+
+public static ArrayList<byte[]> getSharedHeader(boolean wait)
+
+public static void setSharedHeader(ArrayList<byte[]> list)
+
+static byte[] trimHeaderSQ(byte[] line)
+
+@Override public String fname()
+
+@Override public boolean paired()
+
+</class SamReadInputStream>
+<class SamReadStreamer>
+*Loads sam files rapidly with multiple threads.
+*@author Brian Bushnell
+*@date November 4, 2016
+public class SamReadStreamer
+
+#Fields
+final ArrayBlockingQueue<ListNum<Read>> outq
+
+
+#Methods
+*Constructor.
+public SamReadStreamer(String fname_, int threads_, boolean saveHeader_, long maxReads_)
+
+*Constructor.
+public SamReadStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, long maxReads_)
+
+@Override public ListNum<Read> nextReads()
+
+@Override public ListNum<SamLine> nextLines()
+
+</class SamReadStreamer>
+<class SamStreamer>
+*Loads sam files rapidly with multiple threads.
+*@author Brian Bushnell
+*@date November 4, 2016
+public abstract class SamStreamer
+
+#Fields
+*Primary input file path
+protected String fname
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads
+private final long maxReads
+
+final boolean saveHeader
+
+*Primary input file
+final FileFormat ffin
+
+final ArrayBlockingQueue<ListNum<byte[]>> inq
+
+final int threads
+
+public ArrayList<byte[]> header
+
+static final ListNum<Read> POISON_READS=new ListNum<Read>(null,-1)
+
+static final ListNum<SamLine> POISON_LINES=new ListNum<SamLine>(null,-1)
+
+static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null,-1)
+
+public static int LIST_SIZE=200
+
+public static int DEFAULT_THREADS=6
+
+*Print status messages to this output stream
+protected PrintStream outstream=System.err
+
+*Print verbose messages
+public static final boolean verbose=false
+
+public static final boolean verbose2=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static final void main(String[] args)
+
+*Constructor.
+public SamStreamer(String fname_, int threads_, boolean saveHeader_, long maxReads_)
+
+*Constructor.
+public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, long maxReads_)
+
+final void test()
+
+*Create read streams and process all data
+public final void start()
+
+public final ListNum<Read> nextList()
+
+public ListNum<Read> nextReads()
+
+public ListNum<SamLine> nextLines()
+
+*Thread 0 reads the actual file, optionally processes the header,
+*and produces lists of byte[] for other threads to format as SamLines.
+*@param tid Thread number (should be 0).
+public final void processBytes0(int tid)
+
+final void putBytes(ListNum<byte[]> list)
+
+final ListNum<byte[]> takeBytes()
+
+*Spawn process threads
+void spawnThreads()
+
+</class SamStreamer>
+<class SamStreamerMF>
+*Loads multiple sam files rapidly with multiple threads.
+*@author Brian Bushnell
+*@date March 6, 2019
+public class SamStreamerMF
+
+#Fields
+*Primary input file path
+protected String fname
+
+*Number of reads processed
+protected long readsProcessed=0
+
+*Number of bases processed
+protected long basesProcessed=0
+
+*Quit after processing this many input reads; -1 means no limit
+protected long maxReads=-1
+
+final boolean saveHeader
+
+*Primary input file
+final FileFormat[] ffin
+
+*Readers
+private ArrayDeque<SamReadStreamer> streamerSource
+
+private ArrayDeque<SamReadStreamer> activeStreamers
+
+final int threads
+
+public static int DEFAULT_THREADS=6
+
+public static int MAX_FILES=8
+
+*Print status messages to this output stream
+protected PrintStream outstream=System.err
+
+*Print verbose messages
+public static final boolean verbose=false
+
+public static final boolean verbose2=false
+
+*True if an error was encountered
+public boolean errorState=false
+
+
+#Methods
+*Code entrance from the command line.
+*@param args Command line arguments
+public static final void main(String[] args)
+
+*Constructor.
+public SamStreamerMF(String[] fnames_, int threads_, boolean saveHeader_, long maxReads_)
+
+*Constructor.
+public SamStreamerMF(FileFormat[] ffin_, int threads_, boolean saveHeader_, long maxReads_)
+
+final void test()
+
+*Create read streams and process all data
+public final void start()
+
+public final ListNum<Read> nextList()
+
+public final ListNum<Read> nextReads()
+
+*Spawn process threads
+void spawnThreads()
+
+</class SamStreamerMF>
+<class SamStreamerWrapper>
+public class SamStreamerWrapper
+
+#Fields
+SamFilter filter
+
+private String in1=null
+
+private String out1=null
+
+private String ref=null
+
+private final FileFormat ffin1
+
+private final FileFormat ffout1
+
+public boolean errorState=false
+
+public boolean ordered=true
+
+private long maxReads=-1
+
+private boolean forceParse
+
+private boolean fixCigar
+
+private java.io.PrintStream outstream=System.err
+
+public static boolean verbose=false
+
+
+#Methods
+SamStreamerWrapper(String[] args)
+
+void process(Timer t)
+
+</class SamStreamerWrapper>
+<class ScaffoldCoordinates>
+*Transforms BBMap index coordinates into scaffold-relative coordinates.
+*@author Brian Bushnell
+*@date Aug 26, 2014
+public class ScaffoldCoordinates
+
+#Fields
+public int scafIndex=-1
+
+public int iChrom=-1
+
+public int iStart=-1
+
+public int iStop=-1
+
+public int start=-1
+
+public int stop=-1
+
+public byte strand=-1
+
+public int scafLength=0
+
+public byte[] name=null
+
+public boolean valid=false
+
+
+#Methods
+public ScaffoldCoordinates()
+
+public ScaffoldCoordinates(Read r)
+
+public ScaffoldCoordinates(SiteScore ss)
+
+public boolean set(Read r)
+
+public boolean set(SiteScore ss)
+
+public boolean setFromIndex(int iChrom_, int iStart_, int iStop_, int strand_, Object o)
+
+public void clear()
+
+</class ScaffoldCoordinates>
+<class ScarfReadInputStream>
+public class ScarfReadInputStream
+
+#Fields
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final ByteFile tf
+
+private final boolean interleaved
+
+private final int BUF_LEN=Shared.bufferLen()
+
+private final long MAX_DATA=Shared.bufferData()
+
+public long generated=0
+
+public long consumed=0
+
+private long nextReadID=0
+
+public final boolean stdin
+
+public static boolean verbose=false
+
+
+#Methods
+public static void main(String[] args)
+
+public ScarfReadInputStream(String fname, boolean allowSubprocess_)
+
+public ScarfReadInputStream(FileFormat ff)
+
+@Override public boolean paired()
+
+*Return true if this stream has detected an error
+@Override public boolean errorState()
+
+@Override public String fname()
+
+</class ScarfReadInputStream>
+<class SequentialReadInputStream>
+public class SequentialReadInputStream
+
+#Fields
+private long id=0
+
+public int position=0
+
+public int maxPosition
+
+private int chrom
+
+private ArrayList<Read> buffer=null
+
+private int next=0
+
+private final int BUF_LEN=Shared.bufferLen()
+
+public static boolean UNLOAD=false
+
+public long generated=0
+
+public long consumed=0
+
+public final long maxReads
+
+public final int readlen
+
+public final int POSITION_INCREMENT
+
+public final int minReadlen
+
+public final int maxChrom
+
+public final int overlap
+
+public final boolean alternateStrand
+
+public static boolean verbose=false
+
+
+#Methods
+public SequentialReadInputStream(long maxReads_, int readlen_, int minreadlen_, int overlap_, boolean alternateStrand_)
+
+@Override public void start()
+
+@Override public void restart()
+
+@Override public boolean paired()
+
+@Override public boolean close()
+
+@Override public boolean hasMore()
+
+@Override public Read next()
+
+@Override public ArrayList<Read> nextList()
+
+private void fillBuffer()
+
+@Override public String fname()
+
+</class SequentialReadInputStream>
+<class SiteScore>
+public final class SiteScore
+
+#Fields
+private static final long serialVersionUID=-8096245242590075081L
+
+public final byte strand
+
+public boolean rescued=false
+
+public boolean perfect=false
+
+public boolean semiperfect=false
+
+public int start
+
+public int stop
+
+public int quickScore
+
+public int score
+
+public int slowScore
+
+public int pairedScore
+
+public int hits
+
+public final int chrom
+
+public long flags
+
+public int[] gaps
+
+public byte[] match
+
+public static final PositionComparator PCOMP=new PositionComparator()
+
+public static final long strandMask=(1L << 0)
+
+public static final long rescuedMask=(1L << 1)
+
+public static final long perfectMask=(1L << 2)
+
+public static final long semiperfectMask=(1L << 3)
+
+public static boolean verbose=false
+
+
+#Methods
+public SiteScore(int chrom_, byte strand_, int start_, int stop_, int hits_, int quickScore_)
+
+public SiteScore(int chrom_, byte strand_, int start_, int stop_, int hits_, int quickScore_, boolean rescued_, boolean perfect_)
+
+@Override public int compareTo(SiteScore other)
+
+@Override public boolean equals(Object other)
+
+@Override public int hashCode()
+
+@Override public String toString()
+
+public CharSequence toText()
+
+public ByteBuilder toBytes(ByteBuilder sb)
+
+public boolean isSemiPerfect(byte[] bases)
+
+public boolean isPerfect(byte[] bases)
+
+public boolean setPerfectFlag(int maxScore, byte[] bases)
+
+*Sets "perfect" and "semiperfect" flags
+public boolean setPerfect(byte[] bases)
+
+*Sets "perfect" and "semiperfect" flags, optionally assuming "perfect" flag is correct.
+public boolean setPerfect(byte[] bases, boolean assumePerfectCorrect)
+
+public final boolean overlaps(SiteScore ss)
+
+public final boolean overlaps(SiteScore ss, boolean ignoreStrand)
+
+private static boolean overlap(int a1, int b1, int a2, int b2)
+
+public static String header()
+
+public static SiteScore fromText(String s)
+
+public boolean positionalMatch(SiteScore b, boolean testGaps)
+
+public byte[] getScaffoldName(boolean requireSingleScaffold)
+
+public SiteScore copy()
+
+@Override public SiteScore clone()
+
+public boolean isInBounds()
+
+public boolean matchContainsXY()
+
+public boolean matchContainsAB()
+
+public boolean matchContainsC()
+
+public boolean isCorrect(int chrom_, byte strand_, int start_, int stop_, int thresh)
+
+public int leftPaddingNeeded(int tiplen, int maxIndel)
+
+public int rightPaddingNeeded(int tiplen, int maxIndel)
+
+*Assumes bases are rcomped as needed
+public int unclip(byte[] bases, byte[] rbases)
+
+*Simply replaces terminal 'I', 'X', and 'Y' with 'C' and adjusts length
+*TODO: Also clip out-of-bounds.
+public int clipTipIndels(int rlen)
+
+public boolean clipTipIndels(byte[] bases, byte[] basesM, int tiplen, int maxIndel, MSA msa)
+
+public boolean clipTipIndels(byte[] bases, int tiplen, int maxIndel, MSA msa)
+
+public boolean clipLeftTipIndel(byte[] bases, int tiplen, int maxIndel)
+
+public boolean clipRightTipIndel(byte[] bases, int tiplen, int maxIndel)
+
+public boolean unclip(byte[] bases)
+
+*TODO: Test
+*Attempt to extend match/N symbols where there are X and Y symbols
+public boolean fixXY(byte[] bases, boolean nullifyOnFailure, MSA msa)
+
+public boolean lengthsAgree()
+
+public int mappedLength()
+
+public int matchLength()
+
+public boolean plus()
+
+public boolean minus()
+
+public boolean perfect()
+
+public boolean semiperfect()
+
+public boolean rescued()
+
+public byte strand()
+
+public void setPerfect()
+
+public void incrementStart(int x)
+
+public void incrementStop(int x)
+
+public void setLimits(int a, int b)
+
+@Deprecated public void fixLimitsXY()
+
+public void setStart(int a)
+
+public void setStop(int b)
+
+public boolean CHECKGAPS()
+
+public int start()
+
+public int stop()
+
+public void setSlowScore(int x)
+
+public void setPairedScore(int x)
+
+public void setSlowPairedScore(int x, int y)
+
+public void setScore(int x)
+
+</class SiteScore>
+<class SiteScore.PositionComparator>
+public static class SiteScore.PositionComparator
+
+#Methods
+private PositionComparator()
+
+@Override public int compare(SiteScore a, SiteScore b)
+
+public void sort(ArrayList<SiteScore> list)
+
+public void sort(SiteScore[] list)
+
+</class SiteScore.PositionComparator>
+<class SiteScoreR>
+*@author Brian Bushnell
+*@date Jul 16, 2012
+public final class SiteScoreR
+
+#Fields
+public static final PositionComparator PCOMP=new PositionComparator()
+
+public static final NormalizedComparator NCOMP=new NormalizedComparator()
+
+public static final IDComparator IDCOMP=new IDComparator()
+
+public int start
+
+public int stop
+
+public int readlen
+
+public int score
+
+public int pairedScore
+
+public final int chrom
+
+public final byte strand
+
+public boolean perfect
+
+public boolean semiperfect
+
+public final long numericID
+
+public final byte pairnum
+
+public float normalizedScore
+
+public boolean correct=false
+
+public int retainVotes=0
+
+
+#Methods
+public SiteScoreR(SiteScore ss, int readlen_, long numericID_, byte pairnum_)
+
+public SiteScoreR(int chrom_, byte strand_, int start_, int stop_, int readlen_, long numericID_, byte pairnum_, int score_, int pscore_, boolean perfect_, boolean semiperfect_)
+
+@Override public int compareTo(SiteScoreR other)
+
+@Override public boolean equals(Object other)
+
+@Override public int hashCode()
+
+public boolean equals(SiteScore other)
+
+public boolean equals(SiteScoreR other)
+
+@Override public String toString()
+
+public StringBuilder toText()
+
+public final boolean overlaps(SiteScoreR ss)
+
+private static boolean overlap(int a1, int b1, int a2, int b2)
+
+public static String header()
+
+public static SiteScoreR fromText(String s)
+
+public static SiteScoreR[] fromTextArray(String s)
+
+public boolean positionalMatch(SiteScoreR b)
+
+public int reflen()
+
+</class SiteScoreR>
+<class SiteScoreR.PositionComparator>
+public static class SiteScoreR.PositionComparator
+
+#Methods
+private PositionComparator()
+
+@Override public int compare(SiteScoreR a, SiteScoreR b)
+
+public void sort(List<SiteScoreR> list)
+
+public void sort(SiteScoreR[] list)
+
+</class SiteScoreR.PositionComparator>
+<class SiteScoreR.NormalizedComparator>
+public static class SiteScoreR.NormalizedComparator
+
+#Methods
+private NormalizedComparator()
+
+@Override public int compare(SiteScoreR a, SiteScoreR b)
+
+public void sort(List<SiteScoreR> list)
+
+public void sort(SiteScoreR[] list)
+
+</class SiteScoreR.NormalizedComparator>
+<class SiteScoreR.IDComparator>
+public static class SiteScoreR.IDComparator
+
+#Methods
+private IDComparator()
+
+@Override public int compare(SiteScoreR a, SiteScoreR b)
+
+public void sort(ArrayList<SiteScoreR> list)
+
+public void sort(SiteScoreR[] list)
+
+</class SiteScoreR.IDComparator>
