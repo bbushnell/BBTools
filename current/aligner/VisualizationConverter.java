@@ -18,7 +18,7 @@ import javax.imageio.ImageIO;
  * - Gray: Explored but pruned regions
  * - White: Optimal alignment path
  * @author Brian Bushnell
- * @author Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 2025
  */
 public class VisualizationConverter {

@@ -14,7 +14,7 @@ import structures.IntHashMap;
  * masking and error patterns.
  * 
  * @author Brian Bushnell
- * @contributor Isla SOS
+ * @contributor Isla
  * @date June 4, 2025
  */
 public class MinHitsCalculatorOld {

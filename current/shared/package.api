@@ -2776,7 +2776,7 @@ public static void processInnerDiagonalVectorized(int innerMinI, int innerMaxI, 
 *Provides safe concurrent access to shared state with optimized read performance.
 *Uses ReadWriteLock to allow multiple concurrent readers while ensuring exclusive writes.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 18, 2025
 public class SyncHeart
 

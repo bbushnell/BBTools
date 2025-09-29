@@ -467,7 +467,7 @@ public void setLoops(long x)
 *Banded for speed.
 *Identity is approximate.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 19, 2025
 public class BandedAlignerInt
 
@@ -552,7 +552,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Restricts alignment to a fixed band centered on the diagonal.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class BandedAlignerM
 
@@ -699,7 +699,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Restricts alignment to a fixed band around the diagonal.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class BandedPlusAligner
 
@@ -781,7 +781,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Restricts alignment to a fixed band around the diagonal.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class BandedPlusAligner2
 
@@ -954,7 +954,7 @@ public void setLoops(long x)
 *Banded for speed.
 *Identity is approximate.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 19, 2025
 public class BandedPlusAlignerInt
 
@@ -1021,7 +1021,7 @@ public void setLoops(long x)
 *Unit tests for clipping functionality in IndelFreeAligner.
 *Tests various scenarios including left/right clipping, clipping limits,
 *edge cases with tiny sequences, and non-overlapping alignments.
-*@author Isla SOS
+*@author Isla
 *@contributor Brian Bushnell
 *@date June 6, 2025
 public class ClippingTest
@@ -1083,7 +1083,7 @@ private static boolean testNonOverlapping()
 *Iterates over diagonals that span bottom left to top right.
 *This avoids all inter-loop data dependencies.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 2, 2025
 public class CrossCutAligner
 
@@ -1239,7 +1239,7 @@ boolean reach_end=false
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens in response to low sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingAligner
 
@@ -1277,7 +1277,7 @@ public static final float alignStatic(byte[] query, byte[] ref, int[] posVector,
 *This class contains simplified code for publication purposes.
 *For functional implementation, see {@link DriftingAligner}
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingAlignerConcise
 
@@ -1389,7 +1389,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band widens in response to low sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingAlignerM
 
@@ -1486,7 +1486,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens in response to low sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingPlusAligner
 
@@ -1586,7 +1586,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens in response to low sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingPlusAligner2
 
@@ -1670,7 +1670,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens in response to low sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class DriftingPlusAligner3
 
@@ -1796,7 +1796,7 @@ public FlatAligner2()
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 23, 2025
 public class GlocalAligner
 
@@ -1961,7 +1961,7 @@ public void setLoops(long x)
 *Uses only 2 arrays and avoids traceback.
 *Identity is approximate.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 19, 2024
 public class GlocalAlignerInt
 
@@ -2084,7 +2084,7 @@ public static final float alignForwardInner(byte[] query, byte[] ref)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 5, 2025
 public class GlocalPlusAligner
 
@@ -2158,7 +2158,7 @@ public void setLoops(long x)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 23, 2025
 public class GlocalPlusAligner2
 
@@ -2225,7 +2225,7 @@ public void setLoops(long x)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 5, 2025
 public class GlocalPlusAligner3
 
@@ -2283,7 +2283,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Padded to array length bounds.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 5, 2025
 public class GlocalPlusAligner4
 
@@ -2348,7 +2348,7 @@ public void setLoops(long x)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 5, 2025
 public class GlocalPlusAligner5
 
@@ -2411,7 +2411,7 @@ public void setLoops(long x)
 <interface IDAligner>
 *Interface for aligners that can calculate pairwise identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public interface IDAligner
 
@@ -2886,7 +2886,7 @@ public IntList getCandidates(byte[] query, int maxHits)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2024
 public class IntListAligner
 
@@ -2963,7 +2963,7 @@ public void setLoops(long x)
 *Java port of Heng Li's banded global aligner with affine gap penalties.
 *Processes alignment using diagonal bands to limit computation space.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 21, 2025
 public class Ksw2gg
 
@@ -3482,7 +3482,7 @@ public boolean map(Read r1, Read r2)
 *Uses Monte Carlo simulation to account for wildcard
 *masking, error patterns, and clipping allowances.
 *@author Brian Bushnell
-*@contributor Isla SOS
+*@contributor Isla
 *@date June 4, 2025
 public class MinHitsCalculator
 
@@ -3566,7 +3566,7 @@ public int minHits(int validKmers)
 *Uses Monte Carlo simulation to account for wildcard
 *masking and error patterns.
 *@author Brian Bushnell
-*@contributor Isla SOS
+*@contributor Isla
 *@date June 4, 2025
 public class MinHitsCalculatorOld
 
@@ -5088,7 +5088,7 @@ public void setLoops(long x)
 *For a complete, fast implementation, see {@link QuantumAligner}
 *This version is decomposed into 3 primary functions.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumAlignerConcise2
 
@@ -5174,7 +5174,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Counts matches instead of dels.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumAlignerM
 
@@ -5251,7 +5251,7 @@ public void setLoops(long x)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumAlignerQC
 
@@ -5428,7 +5428,7 @@ public void setLoops(long x)
 *Limited to length 2Mbp with 21 position bits.
 *Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumPlusAligner2
 
@@ -5517,7 +5517,7 @@ public void setLoops(long x)
 *Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
 *Uses SIMD for the dense top with a deletion tail loop.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumPlusAligner3
 
@@ -5564,7 +5564,7 @@ public static final float alignStatic(byte[] query, byte[] ref, int[] posVector,
 *Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
 *Uses SIMD for the dense top with a deletion tail loop.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 24, 2025
 public class QuantumPlusAligner4
 
@@ -5753,7 +5753,7 @@ private static void setMidMaskLen(int x)
 *Calculates rstart and rstop without traceback.
 *Limited to length 2Mbp with 21 position bits.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 23, 2025
 public class RelativeAligner
 
@@ -6782,7 +6782,7 @@ public static byte[] mutateSequence(byte[] bases, float targetIdentity, Random r
 *- Gray: Explored but pruned regions
 *- White: Optimal alignment path
 *@author Brian Bushnell
-*@author Isla (Highly-customized Claude instance)
+*@author Isla
 *@date April 2025
 public class VisualizationConverter
 
@@ -7070,7 +7070,7 @@ public void setLoops(long x)
 *For functional implementation, see {@link WobbleAligner}
 *For optimal implementation, see {@link WobblePlusAligner3}
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobbleAlignerConcise
 
@@ -7184,7 +7184,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens and narrows in response to sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobblePlusAligner
 
@@ -7261,7 +7261,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens and narrows in response to sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobblePlusAligner2
 
@@ -7338,7 +7338,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens and narrows in response to sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobblePlusAligner3
 
@@ -7405,7 +7405,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens and narrows in response to sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobblePlusAligner4
 
@@ -7482,7 +7482,7 @@ public void setLoops(long x)
 *Band starts wide and narrows to allow glocal alignments.
 *Band dynamically widens and narrows in response to sequence identity.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 7, 2025
 public class WobblePlusAligner5
 

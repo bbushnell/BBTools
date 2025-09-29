@@ -6,7 +6,7 @@
 *Utility class for analyzing and manipulating variants in reads.
 *Contains static methods for variant detection, modification, and filtering.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date December 2024
 public class AnalyzeVars
 
@@ -1009,7 +1009,7 @@ void process(Timer t)
 *Utility class for writing CallVariants output files.
 *Contains static methods for generating various output formats.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 2025
 public class CVOutputWriter
 
@@ -1879,7 +1879,7 @@ private void spawnThreads(ConcurrentReadInputStream cris, ConcurrentReadOutputSt
 *Performs glocal alignment with padding around the original alignment region
 *and only retains realignments that improve the alignment score.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class Realigner
 
 #Fields
@@ -1982,7 +1982,7 @@ public MSA msa()
 *configurable criteria including mapping quality, position ranges, alignment
 *identity, and SAM flags. Supports both inclusive and exclusive filtering modes.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class SamFilter
 
 #Fields
@@ -2104,7 +2104,7 @@ public void setSamtoolsFilter()
 *Supports optional strand-specific coverage tracking and lazy initialization
 *of coverage arrays for memory efficiency.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class Scaffold
 
 #Fields
@@ -2236,7 +2236,7 @@ public static boolean trackStrand()
 *Maintains both primary and alternative name mappings to handle whitespace
 *variations in scaffold names across different file formats.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class ScafMap
 
 #Fields
@@ -2444,7 +2444,7 @@ public void clearCoverage()
 *poorly aligned terminal regions and converting them to clipped sequences.
 *Uses a scoring system to determine optimal clipping boundaries.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class SoftClipper
 
 #Methods
@@ -3450,7 +3450,7 @@ public String toString(double pairingRate, int ploidy)
 *Contains static methods for generating file headers, calculating scores, analyzing homopolymers,
 *and processing junction variants. Extracted from Var class for better code organization.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 2025
 public class VarHelper
 
@@ -3560,7 +3560,7 @@ static ArrayList<Var> toJunctions(Read r, SamLine sl, int scafnum, boolean conta
 *identification is needed, without storing complete allele sequences.
 *Note: This class is not currently thought to be used in the active codebase.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class VarKey
 
 #Fields
@@ -3866,7 +3866,7 @@ public void clear()
 *Uses precomputed probability matrices for efficient calculation of binomial
 *event probabilities with bias adjustments for real-world sequencing data.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 25, 2025
 public class VarProb
 
@@ -3930,7 +3930,7 @@ private static double[][] makeProbMatrix(int len)
 *Used primarily for VCF file comparison and processing operations
 *rather than direct variant calling.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@date January 14, 2017
 public class VCFFile
 
@@ -4201,7 +4201,7 @@ private void recalc()
 *Supports both custom VAR format and standard VCF format with optional
 *coverage and extended information parsing.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 public class VcfLoader
 
 #Fields
@@ -4311,7 +4311,7 @@ private Var loadVcfLine(byte[] line, boolean loadCoverage, boolean loadExtended)
 *- Basic: Creates Var with position and allele data only
 *- Extended: Includes full statistical data (coverage, quality, bias metrics)
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 25, 2025
 public class VcfToVar
 

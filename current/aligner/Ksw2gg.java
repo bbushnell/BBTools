@@ -5,7 +5,7 @@ package aligner;
  * Processes alignment using diagonal bands to limit computation space.
  * 
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 21, 2025
  */
 public class Ksw2gg implements IDAligner {

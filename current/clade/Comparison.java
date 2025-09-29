@@ -1,7 +1,7 @@
-package bin;
+package clade;
 
 import aligner.IDAligner;
-import aligner.SingleStateAlignerFlat2;
+import bin.SimilarityMeasures;
 import shared.Vector;
 import structures.ByteBuilder;
 import tax.TaxTree;
@@ -15,7 +15,7 @@ import tax.TaxTree;
  * @author Brian Bushnell
  * @date April 19, 2024
  */
-public class Comparison extends BinObject implements Comparable<Comparison> {
+public class Comparison extends CladeObject implements Comparable<Comparison> {
 	
 	/**
 	 * Creates an empty Comparison object.
@@ -304,13 +304,15 @@ public class Comparison extends BinObject implements Comparable<Comparison> {
 		if(bb==null) {bb=new ByteBuilder();}
 		Clade q=query;
 		Clade r=ref;
-		
-		bb.appendt(q.name.replace('\t', ' '));
+
+		final String qname=(q.name==null ? "null" : q.name);
+		final String rname=(r.name==null ? "null" : r.name);
+		bb.appendt(qname.replace('\t', ' '));
 		if(printQTID) {bb.appendt(q.taxID);}
 		bb.appendt(q.gc, 3);
 		bb.appendt(q.bases);
 		bb.appendt(q.contigs);
-		bb.appendt(r.name.replace('\t', ' '));
+		bb.appendt(rname.replace('\t', ' '));
 		bb.appendt(r.taxID);
 		bb.appendt(r.gc, 3);
 		bb.appendt(r.bases);
@@ -399,10 +401,10 @@ public class Comparison extends BinObject implements Comparable<Comparison> {
 	 */
 	int correctLevel() {
 		if(ref==null || query==null || query.taxID==0 || 
-				ref.taxID==0 || BinObject.tree==null) {
+				ref.taxID==0 || CladeObject.tree==null) {
 			return TaxTree.LIFE;
 		}
-		return BinObject.tree.commonAncestorLevel(query.taxID, ref.taxID);
+		return CladeObject.tree.commonAncestorLevel(query.taxID, ref.taxID);
 	}
 	
 	/**
@@ -434,7 +436,9 @@ public class Comparison extends BinObject implements Comparable<Comparison> {
 	}
 	
 	/** The query Clade being compared */
-	Clade query, ref;
+	Clade query;
+
+	public Clade ref;
 	
 	/** GC content difference between query and reference */
 	float gcdif=1;

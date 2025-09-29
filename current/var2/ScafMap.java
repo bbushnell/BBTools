@@ -21,7 +21,7 @@ import stream.SamLine;
  * variations in scaffold names across different file formats.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class ScafMap {
 	

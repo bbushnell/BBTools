@@ -13,7 +13,7 @@ import structures.IntList;
  * This version is decomposed into 3 primary functions.
  * 
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class QuantumAlignerConcise2 implements IDAligner{

@@ -8,7 +8,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Uses ReadWriteLock to allow multiple concurrent readers while ensuring exclusive writes.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet  
+ * @author Isla
  * @date June 18, 2025
  */
 public class SyncHeart {

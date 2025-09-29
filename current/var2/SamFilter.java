@@ -13,7 +13,7 @@ import stream.SamLine;
  * identity, and SAM flags. Supports both inclusive and exclusive filtering modes.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class SamFilter {
 	

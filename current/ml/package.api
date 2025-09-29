@@ -824,7 +824,7 @@ public class CellNetReverseComparator
 *Handles data parsing, shuffling, class balancing, and train/test splitting.
 *Supports multiple file formats and automatic data type inference.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@version 1.0
 public class DataLoader
 
@@ -1187,7 +1187,7 @@ public String toString()
 *Handles input/output data transformation, range detection, and format conversion.
 *Supports automatic range adjustment and binary classification conversion.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@version 1.0
 public class Matrix
 

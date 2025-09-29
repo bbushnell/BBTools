@@ -17,7 +17,7 @@ import structures.RingBuffer;
  *Band dynamically widens and narrows in response to sequence identity.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 7, 2025
  */
 public class WobblePlusAligner implements IDAligner{

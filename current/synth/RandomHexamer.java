@@ -12,7 +12,7 @@ import dna.AminoAcid;
  * used in library preparation.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date June 30, 2025
  */
 public class RandomHexamer {

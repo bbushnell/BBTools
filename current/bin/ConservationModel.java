@@ -9,7 +9,7 @@ import structures.IntHashSet;
  * Used to determine position-dependent mutation rates during sequence simulation.
  *
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  * @date May 30, 2025
  */
 public class ConservationModel {

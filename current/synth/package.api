@@ -666,7 +666,7 @@ void processAmino(Timer t)
 *to different k-mer sequences, simulating the non-random nature of "random" hexamer priming
 *used in library preparation.
 *@author Brian Bushnell
-*@author Isla Winglet
+*@author Isla
 *@date June 30, 2025
 public class RandomHexamer
 

@@ -1541,7 +1541,7 @@ public IntHashSetList(int initialSize, float loadFactor_)
 *- Reduced garbage collection pressure
 *- Specialized operations for sorted data
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@date Sep 20, 2014
 public final class IntList
 
@@ -1915,7 +1915,7 @@ public void sortAndShrink()
 *Uses open addressing with linear probing for collision resolution.
 *Optimized for scenarios where each key maps to a collection of integers.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@date June 2, 2025
 public final class IntListHashMap
 
@@ -3590,7 +3590,7 @@ public int[] array()
 *Uses masks for speed, but allows arbitrary logical buffer size.
 *The physical buffer size is rounded up to the next power of two.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 8, 2025
 public final class RingBuffer
 
@@ -3651,7 +3651,7 @@ public final int size()
 *A circular buffer of fixed size for storing long values using modulo arithmetic.
 *Uses masks for speed, so it is restricted to power-of-2 sizes.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 8, 2025
 public final class RingBufferMask
 
@@ -3715,7 +3715,7 @@ public final int size()
 *more intuitive for readers but may be slightly less efficient than bit masking
 *for power-of-2 sizes.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date May 8, 2025
 public final class RingBufferMod
 

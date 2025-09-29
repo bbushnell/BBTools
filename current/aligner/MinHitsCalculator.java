@@ -15,7 +15,7 @@ import structures.IntHashMap;
  * masking, error patterns, and clipping allowances.
  * 
  * @author Brian Bushnell
- * @contributor Isla SOS
+ * @contributor Isla
  * @date June 4, 2025
  */
 public class MinHitsCalculator {

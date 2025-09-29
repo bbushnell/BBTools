@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *Identity is approximate.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 19, 2024
  */
 public class GlocalAlignerInt implements IDAligner{

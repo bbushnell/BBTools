@@ -16,7 +16,7 @@ import shared.Tools;
  *This avoids all inter-loop data dependencies.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 2, 2025
  */
 public class CrossCutAligner implements IDAligner{

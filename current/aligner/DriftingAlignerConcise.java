@@ -11,7 +11,7 @@ import shared.Tools;
  * For functional implementation, see {@link DriftingAligner}
  * 
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class DriftingAlignerConcise implements IDAligner{

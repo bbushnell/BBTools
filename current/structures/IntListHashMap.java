@@ -14,7 +14,7 @@ import shared.Tools;
  * Optimized for scenarios where each key maps to a collection of integers.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  * @date June 2, 2025
  */
 public final class IntListHashMap implements Serializable {

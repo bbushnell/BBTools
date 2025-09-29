@@ -14,7 +14,7 @@ import shared.Timer;
  *Limited to length 2Mbp with 21 position bits.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 5, 2025
  */
 public class GlocalPlusAligner implements IDAligner{

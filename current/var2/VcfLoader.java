@@ -19,7 +19,7 @@ import structures.ListNum;
  * coverage and extended information parsing.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class VcfLoader {
 	

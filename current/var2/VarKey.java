@@ -8,7 +8,7 @@ package var2;
  * Note: This class is not currently thought to be used in the active codebase.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class VarKey implements Comparable<VarKey> {
 	

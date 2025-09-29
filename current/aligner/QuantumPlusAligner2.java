@@ -17,7 +17,7 @@ import structures.IntList;
  * Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class QuantumPlusAligner2 implements IDAligner{

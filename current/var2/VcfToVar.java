@@ -15,7 +15,7 @@ import shared.Tools;
  * - Extended: Includes full statistical data (coverage, quality, bias metrics)
  * 
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date June 25, 2025
  */
 public class VcfToVar {

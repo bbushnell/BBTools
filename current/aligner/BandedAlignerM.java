@@ -15,7 +15,7 @@ import shared.Tools;
  *Restricts alignment to a fixed band centered on the diagonal.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class BandedAlignerM implements IDAligner{

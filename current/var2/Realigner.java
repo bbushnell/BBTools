@@ -17,7 +17,7 @@ import stream.SiteScore;
  * and only retains realignments that improve the alignment score.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class Realigner {
 	

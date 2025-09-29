@@ -2533,7 +2533,7 @@ public static void setComparisonCutoffMult2(float f)
 *Maintains a heap of the top N Comparisons encountered.
 *Useful for finding the best N matches rather than just the single best match.
 *@author Brian Bushnell
-*@contributor Isla (Highly-customized Claude instance)
+*@contributor Isla
 *@date April 19, 2024
 public class ComparisonHeap
 
@@ -2571,7 +2571,7 @@ public Comparison worst()
 *Models realistic genomic conservation variation using summed sine waves.
 *Used to determine position-dependent mutation rates during sequence simulation.
 *@author Brian Bushnell
-*@contributor Isla Winglet
+*@contributor Isla
 *@date May 30, 2025
 public class ConservationModel
 

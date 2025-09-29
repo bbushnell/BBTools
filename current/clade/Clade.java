@@ -1,7 +1,9 @@
-package bin;
+package clade;
 
 import java.util.ArrayList;
 
+import bin.AdjustEntropy;
+import bin.SimilarityMeasures;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
@@ -23,7 +25,7 @@ import tracker.EntropyTracker;
  * @author Brian Bushnell
  * @date April 12, 2025
  */
-public class Clade extends BinObject implements Comparable<Clade>{
+public class Clade extends CladeObject implements Comparable<Clade>{
 
 	/**
 	 * Constructs a Clade with the specified taxonomic information.
@@ -55,7 +57,7 @@ public class Clade extends BinObject implements Comparable<Clade>{
 		TaxNode tn=tree.getNode(tid);
 		assert(tn!=null);
 		if(tn==null) {
-			return new Clade(tid, -1, null);
+			return new Clade(tid, -1, null);//TODO: Changed to "Unknown_TaxID_" + tid in server version
 		}
 		return new Clade(tn.id, tn.level, tn.name);
 	}

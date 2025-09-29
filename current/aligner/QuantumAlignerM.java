@@ -17,7 +17,7 @@ import structures.IntList;
  *Counts matches instead of dels.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class QuantumAlignerM implements IDAligner{

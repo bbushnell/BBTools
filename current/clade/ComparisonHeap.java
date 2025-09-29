@@ -1,4 +1,4 @@
-package bin;
+package clade;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -10,7 +10,7 @@ import java.util.PriorityQueue;
  * Useful for finding the best N matches rather than just the single best match.
  * 
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 19, 2024
  */
 public class ComparisonHeap {

@@ -16,7 +16,7 @@ import stream.SamLine;
  * Contains static methods for variant detection, modification, and filtering.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date December 2024
  */
 public class AnalyzeVars {

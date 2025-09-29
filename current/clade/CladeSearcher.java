@@ -1,4 +1,4 @@
-package bin;
+package clade;
 
 import java.io.File;
 import java.io.PrintStream;
@@ -11,6 +11,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import aligner.Factory;
 import aligner.IDAligner;
 import aligner.SingleStateAlignerFlat2;
+import bin.AdjustEntropy;
+import bin.GeneTools;
 import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -38,7 +40,7 @@ import tracker.ReadStats;
  * @author Brian Bushnell
  * @date April 12, 2025
  */
-public class CladeSearcher extends BinObject implements Accumulator<CladeSearcher.ProcessThread> {
+public class CladeSearcher extends CladeObject implements Accumulator<CladeSearcher.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -141,7 +143,7 @@ public class CladeSearcher extends BinObject implements Accumulator<CladeSearche
 			AdjustEntropy.load(4, 150);
 		}
 		
-		if(useTree) {BinObject.loadTree();}
+		if(useTree) {CladeObject.loadTree();}
 		if(Clade.callSSU) {
 			GeneTools.loadPGM();
 			GeneCaller.call23S=GeneCaller.call5S=GeneCaller.calltRNA=GeneCaller.callCDS=false;

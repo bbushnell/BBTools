@@ -28,7 +28,7 @@ import stream.FastaReadInputStream;
  * rather than direct variant calling.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  * @date January 14, 2017
  */
 public class VCFFile {

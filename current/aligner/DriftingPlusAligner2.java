@@ -18,7 +18,7 @@ import shared.Tools;
  *Band dynamically widens in response to low sequence identity.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class DriftingPlusAligner2 implements IDAligner{

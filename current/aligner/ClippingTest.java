@@ -5,8 +5,8 @@ package aligner;
  * Tests various scenarios including left/right clipping, clipping limits,
  * edge cases with tiny sequences, and non-overlapping alignments.
  * 
- * @author Isla SOS
- * @contributor Brian Bushnell
+ * @author Brian Bushnell
+ * @contributor Isla
  * @date June 6, 2025
  */
 public class ClippingTest {

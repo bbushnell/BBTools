@@ -1,4 +1,4 @@
-package bin;
+package clade;
 
 import java.io.File;
 import java.io.PrintStream;
@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import bin.AdjustEntropy;
+import bin.GeneTools;
 import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -45,7 +47,7 @@ import tracker.ReadStats;
  * @author Brian Bushnell
  * @date April 12, 2025
  */
-public class CladeLoaderMF extends BinObject implements Accumulator<CladeLoaderMF.ProcessThread> {
+public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoaderMF.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/

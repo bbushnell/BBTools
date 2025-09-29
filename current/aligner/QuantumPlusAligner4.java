@@ -18,7 +18,7 @@ import structures.IntList;
  * Uses SIMD for the dense top with a deletion tail loop.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class QuantumPlusAligner4 implements IDAligner{

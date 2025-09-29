@@ -8,7 +8,7 @@ import shared.Timer;
  * A circular buffer of fixed size for storing long values using modulo arithmetic.
  * Uses masks for speed, so it is restricted to power-of-2 sizes.
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 8, 2025
  */
 public final class RingBufferMask {

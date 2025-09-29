@@ -1,4 +1,4 @@
-package bin;
+package clade;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,7 +17,7 @@ import shared.Parse;
  * @date April 19, 2024
  */
 public class CladeIndex implements Cloneable {
-	
+
 	/**
 	 * Creates a new CladeIndex containing the specified Clades.
 	 * Each Clade will be indexed by its GC content for fast retrieval.
@@ -26,9 +26,9 @@ public class CladeIndex implements Cloneable {
 	 */
 	public CladeIndex(Collection<Clade> coll) {
 		for(Clade c : coll) {add(c);}
-//		System.err.println("Indexed "+coll.size()+" clades.");
+		//		System.err.println("Indexed "+coll.size()+" clades.");
 	}
-	
+
 	/**
 	 * Creates a clone of this CladeIndex.
 	 * The clone shares the same indexed Clades but has zeroed comparison counters.
@@ -46,7 +46,7 @@ public class CladeIndex implements Cloneable {
 		ci.comparisons=ci.slowComparisons=0;
 		return ci;
 	}
-	
+
 	/**
 	 * Loads and indexes Clades from the specified reference files.
 	 * 
@@ -56,7 +56,7 @@ public class CladeIndex implements Cloneable {
 	public static CladeIndex loadIndex(String... ref) {
 		return loadIndex(Arrays.asList(ref));
 	}
-	
+
 	/**
 	 * Loads and indexes Clades from the specified reference files.
 	 * 
@@ -69,7 +69,7 @@ public class CladeIndex implements Cloneable {
 		CladeIndex index=new CladeIndex(map.values());
 		return index;
 	}
-	
+
 	/**
 	 * Parses a command-line parameter and sets the corresponding configuration.
 	 * Supports a wide range of tuning parameters for the search algorithm and comparison methods.
@@ -116,7 +116,7 @@ public class CladeIndex implements Cloneable {
 		}else if(a.equalsIgnoreCase("earlyExit") || a.equals("ee")){
 			Comparison.earlyExit=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("calcCladeEntropy") || a.equals("entropy")){
-			BinObject.calcCladeEntropy=Parse.parseBoolean(b);
+			CladeObject.calcCladeEntropy=Parse.parseBoolean(b);
 		}else if(a.equals("banself")){
 			banSelf=Parse.parseBoolean(b);
 		}else if(a.equals("includeself")){
@@ -126,7 +126,7 @@ public class CladeIndex implements Cloneable {
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Adds a Clade to the index.
 	 * The Clade is indexed by its GC content, rounded to the nearest percentage.
@@ -140,7 +140,7 @@ public class CladeIndex implements Cloneable {
 		list.add(c);
 		cladesLoaded++;
 	}
-	
+
 	/**
 	 * Finds the best match for a given Clade in the index.
 	 * Uses a GC-bucket based search strategy that first checks Clades with similar GC content,
@@ -151,7 +151,7 @@ public class CladeIndex implements Cloneable {
 	 */
 	public ArrayList<Comparison> findBest(final Clade c) {
 		assert(c.finished());
-//		System.err.println("Searching for best match for "+c);
+		//		System.err.println("Searching for best match for "+c);
 		final int center=Math.round(c.gc*100);
 		final Comparison temp=new Comparison();
 		final ComparisonHeap heap=new ComparisonHeap(heapSize);
@@ -171,7 +171,37 @@ public class CladeIndex implements Cloneable {
 		}
 		return heap.toList();
 	}
-	
+
+	/**
+	 * Thread-safe version of findBest that takes heapSize as parameter.
+	 * This avoids race conditions when multiple threads need different heap sizes.
+	 *
+	 * @param c The query Clade to find matches for
+	 * @param requestedHeapSize The number of results to return
+	 * @return An ordered list of Comparison objects containing the best matches found.
+	 */
+	public ArrayList<Comparison> findBest(final Clade c, final int requestedHeapSize) {
+		assert(c.finished());
+		final int center=Math.round(c.gc*100);
+		final Comparison temp=new Comparison();
+		final ComparisonHeap heap=new ComparisonHeap(requestedHeapSize);
+		{
+			Comparison best=new Comparison();
+			heap.offer(best);
+		}
+		synchronized(heap) {
+			synchronized(c) {//Probably unnecessary...
+				findBest(c, gcDex[center], heap, temp, center);
+				for(int i=1; i<=maxSteps; i++) {
+					int low=center-i, high=center+i;
+					if(low>=0) {findBest(c, gcDex[low], heap, temp, low);}
+					if(high<gcDex.length) {findBest(c, gcDex[high], heap, temp, high);}
+				}
+			}
+		}
+		return heap.toList();
+	}
+
 	/**
 	 * Searches a specific GC bucket for the best match to the given Clade.
 	 * Uses a two-stage comparison process with early filtering to improve performance.
@@ -184,9 +214,9 @@ public class CladeIndex implements Cloneable {
 	 * @param gcLevel The GC percentage (0-100) of this bucket
 	 */
 	private void findBest(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
-			Comparison temp, int gcLevel) {
+		Comparison temp, int gcLevel) {
 		if(list==null || list.isEmpty()) {return;}
-//		System.err.println("\nSearching a list of size "+list.size());
+		//		System.err.println("\nSearching a list of size "+list.size());
 		Comparison worst=heap.worst();
 		float k5Limit=worst.k5dif;
 		float gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
@@ -195,15 +225,15 @@ public class CladeIndex implements Cloneable {
 		if(Math.abs((gcLevel*0.01f)-a.gc)>gcLimit+0.005f) {return;}
 		for(Clade b : list) {
 			if(b==a || (b.taxID==a.taxID && banSelf)) {continue;}
-//			System.err.println("Comparing to "+b);
+			//			System.err.println("Comparing to "+b);
 			comparisons++;
 			if(!temp.quickCompare(a, b, gcLimit, strLimit)) {continue;}
 			slowComparisons++;
 			float ret=temp.slowCompare(a, b, k5Limit);//ret is not currently used
-//			System.err.println("Comparison: "+temp);
+			//			System.err.println("Comparison: "+temp);
 			boolean added=heap.offer(temp);
 			if(added) {
-//				System.err.println("***New worst!");
+				//				System.err.println("***New worst!");
 				worst=heap.worst();
 				k5Limit=worst.k5dif;		
 				gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
@@ -211,7 +241,7 @@ public class CladeIndex implements Cloneable {
 			}
 		}
 	}
-	
+
 	/**
 	 * Gets the number of Clades indexed.
 	 * 
@@ -220,7 +250,7 @@ public class CladeIndex implements Cloneable {
 	public int size() {
 		return cladesLoaded;
 	}
-	
+
 	/** Array of Clade lists indexed by GC percentage (0-100) */
 	@SuppressWarnings("unchecked")
 	final ArrayList<Clade>[] gcDex=new ArrayList[101];
@@ -246,5 +276,5 @@ public class CladeIndex implements Cloneable {
 	static float gcMult=0.5f; //These are optimized for ABS; higher is safer
 	/** Multiplier for dynamic strandedness difference threshold based on k-mer similarity */
 	static float strMult=1.2f;
-	
+
 }

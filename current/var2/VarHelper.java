@@ -16,7 +16,7 @@ import stream.SamLine;
  * and processing junction variants. Extracted from Var class for better code organization.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet  
+ * @author Isla
  * @date June 2025
  */
 public class VarHelper {

@@ -15,7 +15,7 @@ import shared.Shared;
  *Restricts alignment to a fixed band around the diagonal.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public class BandedPlusAligner2 implements IDAligner{

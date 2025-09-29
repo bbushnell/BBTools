@@ -9,6 +9,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 
+import clade.Clade;
+import clade.CladeIndex;
+import clade.CladeSearcher;
+import clade.Comparison;
 import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;

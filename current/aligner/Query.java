@@ -9,7 +9,7 @@ import shared.Tools;
  * Pre-computes forward and reverse k-mer indices plus metadata for efficient alignment.
  * 
  * @author Brian Bushnell
- * @contributor Isla  
+ * @contributor Isla
  * @date June 3, 2025
  */
 public class Query {

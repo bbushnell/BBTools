@@ -1,6 +1,5 @@
 package bin;
 
-import aligner.SingleStateAlignerFlat2;
 import dna.Data;
 import prok.CallGenes;
 import prok.GeneCaller;
@@ -9,12 +8,12 @@ import prok.GeneModelParser;
 
 public class GeneTools {
 	
-	static synchronized GeneCaller makeGeneCaller() {
+	public static synchronized GeneCaller makeGeneCaller() {
 		if(pgm==null) {loadPGM();}
 		return CallGenes.makeGeneCaller(pgm);
 	}
 	
-	static synchronized void loadPGM() {
+	public static synchronized void loadPGM() {
 		if(pgm!=null) {return;}
 		if(pgmFile==null){pgmFile=Data.findPath("?model.pgm");}
 		

@@ -23,7 +23,7 @@ import shared.Tools;
  * - Specialized operations for sorted data
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  * @date Sep 20, 2014
  */
 public final class IntList{

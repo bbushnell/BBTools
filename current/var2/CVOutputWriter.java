@@ -10,7 +10,7 @@ import shared.Tools;
  * Contains static methods for generating various output formats.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date June 2025
  */
 public class CVOutputWriter {

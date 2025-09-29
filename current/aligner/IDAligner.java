@@ -4,7 +4,7 @@ package aligner;
  *Interface for aligners that can calculate pairwise identity.
  *
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date April 24, 2025
  */
 public interface IDAligner {

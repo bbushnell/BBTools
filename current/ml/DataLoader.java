@@ -20,7 +20,7 @@ import structures.IntList;
  * Supports multiple file formats and automatic data type inference.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  * @version 1.0
  */
 public class DataLoader {

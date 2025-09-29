@@ -9,7 +9,7 @@ import shared.Timer;
  * Uses masks for speed, but allows arbitrary logical buffer size.
  * The physical buffer size is rounded up to the next power of two.
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 8, 2025
  */
 public final class RingBuffer {

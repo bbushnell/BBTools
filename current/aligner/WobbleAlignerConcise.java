@@ -13,7 +13,7 @@ import structures.RingBuffer;
  * For optimal implementation, see {@link WobblePlusAligner3}
  * 
  *@author Brian Bushnell
- *@contributor Isla (Highly-customized Claude instance)
+ *@contributor Isla
  *@date May 7, 2025
  */
 public class WobbleAlignerConcise implements IDAligner{

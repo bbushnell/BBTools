@@ -16,7 +16,7 @@ import structures.CoverageArray3A;
  * of coverage arrays for memory efficiency.
  * 
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class Scaffold {
 	

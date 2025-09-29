@@ -113,7 +113,7 @@ public class AdjustEntropy {
 	}
 	
 	/** Returns entropy as a fraction of random entropy for this GC level */
-	static float compensate(float gc, float entropy) {
+	public static float compensate(float gc, float entropy) {
 		float max=maxEntropy(gc, entropyArray);
 		return Tools.min(1, 1-(max-entropy));//entropy/max;
 	}

@@ -13,7 +13,7 @@ import shared.Timer;
  * for power-of-2 sizes.
  * 
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 8, 2025
  */
 public final class RingBufferMod {

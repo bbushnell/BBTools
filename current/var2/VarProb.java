@@ -12,7 +12,7 @@ import shared.Tools;
  * event probabilities with bias adjustments for real-world sequencing data.
  * 
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date June 25, 2025
  */
 public class VarProb {
