@@ -427,7 +427,7 @@ public class CladeObject {
 	
 	/** Print status messages to this output stream */
 	static PrintStream outstream=System.err;
-	static TaxTree tree=null;
+	public static TaxTree tree=null;
 	static String treePath="auto";
 	
 	static int minClusterSize=50000;

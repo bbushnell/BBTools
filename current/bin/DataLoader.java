@@ -91,6 +91,10 @@ public class DataLoader extends BinObject {
 			depthRatioMethod=Integer.parseInt(b);
 		}
 		
+		else if(a.equalsIgnoreCase("flat") || a.equalsIgnoreCase("flatMode")){
+			flatMode=Parse.parseBoolean(b);
+		}
+		
 		else if(a.equalsIgnoreCase("addEuclidian")){
 			addEuclidian=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("addHellinger") || a.equalsIgnoreCase("addHell") || a.equals("addhel")){
@@ -296,7 +300,7 @@ public class DataLoader extends BinObject {
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 
-		final boolean parseCov=(covIn==null && readFiles.isEmpty() && covstats.isEmpty());
+		final boolean parseCov=(covIn==null && readFiles.isEmpty() && covstats.isEmpty() && !flatMode);
 		final ArrayList<Contig> contigs=loadAndProcessContigs(fname, parseCov);
 
 		if(parseCov) {
@@ -449,6 +453,14 @@ public class DataLoader extends BinObject {
 				depthCalculated=true;
 			}
 			t.stop("Loaded "+Tools.plural("file", readFiles.size())+" and "+readsUsed+" reads: ");
+		}
+		
+		if(flatMode) {
+			depthCalculated=true;
+			for(Contig c : contigs) {
+				c.clearDepth();
+				c.setDepth(8, 0);
+			}
 		}
 		
 		if(readFiles.isEmpty() && !depthCalculated) {
@@ -977,6 +989,7 @@ public class DataLoader extends BinObject {
 	static int MAX_DEPTH_COUNT=999;
 	static int MAX_EDGES_TO_PRINT=8;
 	static boolean loadSamSerial=false;
+	static boolean flatMode=false;
 	boolean makePairGraph=true;
 	int numDepths=0;
 	static boolean streamContigs=true;

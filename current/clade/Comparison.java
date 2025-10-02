@@ -2,6 +2,7 @@ package clade;
 
 import aligner.IDAligner;
 import bin.SimilarityMeasures;
+import shared.LineParserS1;
 import shared.Vector;
 import structures.ByteBuilder;
 import tax.TaxTree;
@@ -30,6 +31,44 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	public Comparison(Clade query_, Clade ref_) {
 		compare(query_, ref_, 1, 1, 1);
+	}
+	
+	public Comparison(String s, LineParserS1 lp) {
+		if(lp==null) {lp=new LineParserS1('\t');}
+		lp.set(s);
+		query=new Clade(-1, 0, lp.parseString(0));
+		ref=new Clade(lp.parseInt(5), lp.parseInt(9), lp.parseString(4));
+		query.gc=lp.parseFloat(1);
+		query.bases=lp.parseInt(2);
+		query.contigs=lp.parseInt(3);
+		ref.gc=lp.parseFloat(6);
+		ref.bases=lp.parseInt(7);
+		ref.contigs=lp.parseInt(8);
+		ref.level=lp.parseInt(9);
+		ref.lineage=lp.parseString(15);
+
+		gcdif=lp.parseFloat(10);
+		strdif=lp.parseFloat(11);
+		k3dif=lp.parseFloat(12);
+		k4dif=lp.parseFloat(13);
+		k5dif=lp.parseFloat(14);
+		
+//		bb.append(query.name).tab();//0
+//		bb.append(String.format("%.3f", query.gc)).tab();//1
+//		bb.append(query.bases).tab();//2
+//		bb.append(query.contigs).tab();//3
+//		bb.append(ref.name != null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();//4
+//		bb.append(ref.taxID).tab();//5
+//		bb.append(String.format("%.3f", ref.gc)).tab();//6
+//		bb.append(ref.bases).tab();//7
+//		bb.append(ref.contigs).tab();//8
+//		bb.append(ref.level).tab();//9
+//		bb.append(String.format("%.3f", comp.gcdif)).tab();//10
+//		bb.append(String.format("%.3f", comp.strdif)).tab();//11
+//		bb.append(String.format("%.3f", comp.k3dif)).tab();//12
+//		bb.append(String.format("%.3f", comp.k4dif)).tab();//13
+//		bb.append(String.format("%.3f", comp.k5dif)).tab();//14
+//		bb.append(ref.lineage()).nl();//15
 	}
 	
 	/**

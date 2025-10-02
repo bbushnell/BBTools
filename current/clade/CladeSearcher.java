@@ -8,9 +8,7 @@ import java.util.Collections;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import aligner.Factory;
 import aligner.IDAligner;
-import aligner.SingleStateAlignerFlat2;
 import bin.AdjustEntropy;
 import bin.GeneTools;
 import dna.Data;
@@ -106,7 +104,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			extout=parser.extout;
 		}
 
-		if(ref.isEmpty()) {
+		if(ref.isEmpty() && !serverMode) {
 			String s=defaultRef();
 			if(s!=null) {ref.add(s);}
 		}
@@ -154,6 +152,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * Loads and indexes reference clades from the specified files.
 	 */
 	void loadIndex() {
+		if(serverMode) {return;}
 		Timer t=new Timer(outstream, false);
 		index=CladeIndex.loadIndex(ref);
 		t.stop("Indexed "+index.size()+" spectra in ");
@@ -166,7 +165,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	void loadQueries() {
 		Timer t=new Timer(outstream, false);
 		CladeLoaderMF loaderMF=new CladeLoaderMF();
-		queries=loaderMF.loadFiles(in, perContig, minContig);
+		queries=loaderMF.loadFiles(in, perContig, minContig, maxReads);
 		t.stopAndStart("Loaded "+queries.size()+" queries in ");
 	}
 	
@@ -232,6 +231,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				printMetrics=Parse.parseBoolean(b);
 			}else if(a.equals("usetree")){
 				useTree=Parse.parseBoolean(b);
+			}else if(a.equals("server")){
+				serverMode=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
@@ -273,7 +274,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}
 		
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in.get(0), ref.get(0), out)){
+		if(!Tools.testForDuplicateFiles(true, in.get(0), (ref.isEmpty() ? null : ref.get(0)), out)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -322,7 +323,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		loadQueries();
 		ArrayList<Object> results;
 		t.start();
-		if(multithreaded) {
+		
+		if(index==null || serverMode) {
+			String s=SendClade.sendClades(queries, SendClade.defaultAddress, true || format==MACHINE, 
+				maxHitsToPrint, true, CladeIndex.banSelf, false, CladeIndex.heapSize, false);
+			outstream.print(s);
+			return;
+		}else if(multithreaded) {
 			results=spawnThreads(queries, index);
 		}else {
 			results=searchST(queries, index);
@@ -691,6 +698,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private ArrayList<String> ref=new ArrayList<String>();
 	/** Loaded query clades */
 	private ArrayList<Clade> queries;
+	
+	private boolean serverMode=false;
 	
 	/** Override input file extension */
 	private String extin=null;

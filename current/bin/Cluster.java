@@ -94,6 +94,7 @@ public class Cluster extends Bin {
 			labelTaxid=c.labelTaxid;
 			sketchedSize=c.sketchedSize;
 			entropy=c.entropy;
+			lineage=c.lineage;
 //			acRatio=c.acRatio;
 		}else {
 			if(labelTaxid<1 || (c.labelTaxid!=labelTaxid && c.size()>=0.05f*size())) {nonDominantSize+=c.size();}

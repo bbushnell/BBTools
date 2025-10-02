@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified June 23, 2025
+Last modified September 29, 2025
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -19,7 +19,7 @@ reads from the PacBio CCS reads and align them:
 randomreadsmg.sh in=ccs.fa out=synth.fq depth=10 variance=0 paired length=250 avginsert=600 
 
 Usage:  
-quickbin.sh in=contigs.fa out=bins *.sam covout=cov.txt
+quickbin.sh in=contigs.fa out=bins *.sam covout=cov.txt report=report.tsv
 or
 quickbin.sh in=contigs.fa out=bins cov=cov.txt
 or
@@ -40,6 +40,7 @@ out=<pattern>   Output pattern.  If this contains a % symbol, like bin%.fa,
                 indicate their bin number.  A term without a '.' symbol
                 like 'out=output' will be considered a directory.
 chaff           Enable to write small clusters to a shared file.
+report=<file>   Report on bin size, quality, and taxonomy.
 
 Size parameters:
 mincluster=50k  (mcs) Minimum output cluster size in base pairs; smaller 
@@ -101,7 +102,12 @@ minid=0.96            When loading sam files, ignore reads aligned with
                       identity below this, both for edges and coverage.
 
 Other parameters:
-sketchoutput=f        Use SendSketch to identify taxonomy of output clusters.
+quickclade=f          Use QuickClade to determine taxonomy of output bins.
+server=f              Prioritize using QuickClade server instead of local ref.
+                      Normally, a local reference will be used if present;
+		      this is faster and available at:
+		      https://sourceforge.net/projects/bbmap/files/Resources/
+sketchoutput=f        Use SendSketch to determine taxonomy of output bins.
 validate=f            If contig headers have a term such as 'tid_1234', this
                       will be parsed and used to evaluate correctness.
 printcc=f             Print completeness/contam after each step.
@@ -109,6 +115,9 @@ callssu=f             Call 16S and 18S genes; do not merge clusters with
                       incompatible SSU sequence.
 minssuid=0.98         SSUs with identity below this are incompatible.
 aligner=quantum       Options include ssa2, glocal, drifting, banded, crosscut.
+threads=auto          Number of threads; default is logical cores.
+flat                  Ignore depth; may still be used with bam files for e.g. MDA.
+                      Required flag if there is no coverage information.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

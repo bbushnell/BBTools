@@ -246,7 +246,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		//Reset counters
 		readsProcessed=basesProcessed=0;
 		
-		ArrayList<Clade> list=loadFiles(in, perContig, minContig);
+		ArrayList<Clade> list=loadFiles(in, perContig, minContig, -1);
 		
 		if(ffout!=null) {
 			write(ffout, list);
@@ -476,9 +476,10 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @param in List of file paths to load
 	 * @param perContig Whether to treat each contig as a separate clade
 	 * @param minContig Minimum contig length to process
+	 * @param maxReads TODO
 	 * @return List of all clades loaded from the files
 	 */
-	public ArrayList<Clade> loadFiles(ArrayList<String> in, boolean perContig, int minContig){
+	public ArrayList<Clade> loadFiles(ArrayList<String> in, boolean perContig, int minContig, long maxReads){
 		ArrayList<Clade> list=spawnThreads(in, perContig, minContig);
 		return list;
 	}

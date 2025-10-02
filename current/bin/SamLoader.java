@@ -181,7 +181,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			
 			final Contig c2=contigMap.get(rnext);
 			if(c2==null) {
-				System.err.println("Can't find "+rnext);
+				//System.err.println("Can't find "+rnext);//Happens when using mincontig
 				return true;
 			}//Contig not found
 //			System.err.println("Adding edge: "+rname+" - "+rnext);

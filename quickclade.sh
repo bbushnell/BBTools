@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 4, 2025
+Last modified September 29, 2025
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -35,6 +35,8 @@ ref=<file,file> Reference files; the current default is:
                 It is plaintext, human-readable, and pretty small.
 out=stdout      Set to a file to redirect output.  Only the query results will
                 be written here; progress messages will still go to stderr.
+server          Use this flag to send kmer spectra to a remote server if you do not
+                have a local database.
 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
@@ -117,7 +119,7 @@ calcXmx () {
 calcXmx "$@"
 
 quickclade() {
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bin.CladeSearcher $@"
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.CladeSearcher $@"
 	echo $CMD >&2
 	eval $CMD
 }

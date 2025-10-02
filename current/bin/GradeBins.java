@@ -7,12 +7,14 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.concurrent.locks.ReadWriteLock;
 
 import clade.Clade;
 import clade.CladeIndex;
 import clade.CladeSearcher;
 import clade.Comparison;
+import clade.SendClade;
 import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -49,7 +51,7 @@ import template.ThreadWaiter;
  * @date Feb 8, 2025
  *
  */
-public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
+public class GradeBins {
 
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -137,6 +139,8 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 				imgMapFile=b;
 			}else if(a.equalsIgnoreCase("spectra")){
 				spectraFile=b;
+			}else if(a.equalsIgnoreCase("server")){
+				cladeServer=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("quickclade")){
 				runQuickClade=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("callgenes")){
@@ -200,12 +204,16 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 			CallGenes.callCDS=CallGenes.calltRNA=CallGenes.call16S=
 					CallGenes.call23S=CallGenes.call5S=CallGenes.call18S=true;
 		}
+		if(gtdbFile!=null || (cladeIndex!=null && report!=null)) {useTree=true;}
+		loadStuff();
+	}
+	
+	static void loadStuff() {
 		loadGff();
 		loadSpectra();
 		loadCov();
 		makeLevelMaps();
-		if(gtdbFile!=null || (cladeIndex!=null && report!=null)) {useTree=true;}
-		if(useTree) {BinObject.loadTree();}
+		if(useTree && BinObject.tree==null) {BinObject.loadTree();}
 	}
 	
 	static synchronized void makeLevelMaps() {
@@ -263,10 +271,15 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	}
 	
 	static void loadSpectra() {
+		if(cladeServer) {spectraFile=null; return;}
 		if(runQuickClade && spectraFile==null) {spectraFile=CladeSearcher.defaultRef();}
 		if(spectraFile!=null) {runQuickClade=true;}
 		if(spectraFile==null || cladeIndex!=null) {return;}
+		if(!new File(spectraFile).isFile()) {return;}
+		Timer t=new Timer();
+//		t.start("Loading "+spectraFile);
 		cladeIndex=CladeIndex.loadIndex(spectraFile);
+		t.stopAndPrint();
 	}
 	
 	void process(Timer t){
@@ -298,7 +311,8 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		gtdbMap=loadGTDBDir(gtdbFile);
 		Timer t2=new Timer(System.err, false);
 		System.err.print("Loading bins: ");
-		ArrayList<BinStats> bins=(loadMT ? loadMT(in) : loadST(in));
+//		ArrayList<BinStats> bins=(loadMT ? toBinStats(in, null) : loadST(in));
+		ArrayList<BinStats> bins=toBinStats(in, null, 0, true, true, true);
 		t2.stopAndPrint();
 		
 		printResults(bins);
@@ -434,7 +448,7 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		for(Bin b : bins) {
 			if(b.size()>minSize) {b.calcContam(sizeMap);}
 		}
-		return toScoreString(toStats(bins, minSize), sizeMap.sum());
+		return toScoreString(toBinStats(null, bins, minSize, false, false, false), sizeMap.sum());
 	}
 	
 	private static String toScoreString(ArrayList<BinStats> bins, long totalSize){
@@ -489,29 +503,15 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		outstream.println("Bad Contigs:                 \t"+
 				String.format("%.3f", badContigs*100.0/(cleanContigs+contamContigs)));
 	}
-
-	public static ArrayList<BinStats> loadST(ArrayList<String> in){
-		ArrayList<BinStats> bins=new ArrayList<BinStats>(in.size());
-		for(String s : in) {
-			final BinStats bs;
-			Cluster clust=loadCluster(s);
-			calcContam(s, clust);
-			bs=new BinStats(clust, ReadWrite.stripToCore(s));
-			if(runQuickClade) {bs.taxid=callTax(clust);}
-			if(callGenes) {
-				callGenes(clust, GeneTools.gCaller, bs);
-			}else if(gffMap!=null) {
-				annotate(clust, gffMap, bs);
-			}
-			
-			bins.add(bs);
-		}
-		return bins;
-	}
 	
-	public ArrayList<BinStats> loadMT(ArrayList<String> in){
+	public static ArrayList<BinStats> toBinStats(List<String> fnames, List<? extends Bin> bins,
+		int minSize, boolean qclade, boolean call, boolean annot){
+		
+//		new Exception("").printStackTrace();
+		
 		//Do anything necessary prior to processing
-		ArrayList<BinStats> bins=new ArrayList<BinStats>(in.size());
+		final int count=(fnames==null ? bins.size() : fnames.size());
+		ArrayList<BinStats> binStats=new ArrayList<BinStats>(count);
 		
 		//Determine how many threads may be used
 		int threads=Shared.threads();
@@ -520,15 +520,34 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(in, bins, i, threads));
+			alpt.add(new ProcessThread(fnames, bins, binStats, i, threads, minSize, qclade, call, annot));
 		}
 		
 		//Start the threads and wait for them to finish
-		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		this.success&=!success;
+		PTAccumulator pta=new PTAccumulator();
+		boolean success=ThreadWaiter.startAndWait(alpt, pta);
+//		assert(false) : alpt.size()+", "+binStats.size();
+		success&=!success;
+		Tools.condenseStrict(binStats);//Not really necessary, perhaps...
+		
+		if(runQuickClade && qclade && binStats.size()>0) {
+			if(cladeIndex==null) { 
+				ArrayList<Clade> clades=new ArrayList<Clade>(binStats.size());
+				for(BinStats bs : binStats) {
+					if(bs.clade!=null) {clades.add(bs.clade);}
+				}
+				runQuickClade(clades);
+			}
+			for(BinStats bs : binStats) {
+				if(bs.clade!=null) {
+					bs.taxid=bs.clade.taxID;
+					bs.lineage=bs.clade.lineage;
+				}
+			}
+		}
 		
 		//Do anything necessary after processing
-		return bins;
+		return binStats;
 	}
 
 	static Cluster loadCluster(String fname) {
@@ -605,58 +624,71 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		c.contam=best.contam;
 	}
 	
-	static ArrayList<BinStats> toStats(Collection<? extends Bin> bins, int minSize) {
-		ArrayList<BinStats> list=new ArrayList<BinStats>();
-		for(Bin b : bins) {
-			if(b.size()>=minSize) {
-				BinStats bs=new BinStats(b, b.name());
-				if(runQuickClade) {bs.taxid=callTax(b);}
-				if(callGenes) {
-					callGenes(b, GeneTools.gCaller, bs);
-				}else if(gffMap!=null) {
-					annotate(b, gffMap, bs);
-				}
-				list.add(bs);
-			}
-		}
-		return list;
-	}
+//	static ArrayList<BinStats> toStatsST(Collection<? extends Bin> bins, int minSize) {
+//		ArrayList<BinStats> list=new ArrayList<BinStats>();
+//		for(Bin b : bins) {
+//			if(b.size()>=minSize) {
+//				BinStats bs=new BinStats(b, b.name());
+//				if(runQuickClade) {
+//					bs.taxid=callTax(b);
+//					bs.lineage=b.lineage;
+//				}
+//				if(callGenes) {
+//					callGenes(b, GeneTools.gCaller, bs);
+//				}else if(gffMap!=null) {
+//					annotate(b, gffMap, bs);
+//				}
+//				list.add(bs);asdf
+//			}
+//		}
+//		return list;
+//	}
 	
-	static void printClusterReport(Collection<? extends Bin> bins, int minSize, String fname) {
-		ArrayList<BinStats> list=toStats(bins, minSize);
-		printClusterReport(list, minSize, fname);
-	}
+//	static void printClusterReport(List<? extends Bin> bins, int minSize, String fname) {
+//		ArrayList<BinStats> list=toBinStats(null, bins, minSize, true, true, true);
+//		printClusterReport(list, minSize, fname);
+//	}
 	
 	static void printClusterReport(ArrayList<BinStats> bins, int minSize, String fname) {
 		if(fname==null) {return;}
 		Collections.sort(bins);
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
 		bsw.start();
+		boolean printTaxID=true;//TODO
+		boolean printCCT=false;
+		boolean printLineage=true;
+		for(BinStats b : bins) {
+			if(b.taxid>0) {printTaxID=true;}
+			if(b.complt>0 || b.contam>0) {printCCT=true;}
+			if(b.lineage!=null || (b.taxid>0 && BinObject.tree!=null)) {printLineage=true;}
+		}
 		String header="#Bin\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
-		header+="\tCompleteness\tContam\tTaxID\tType";
+		if(printTaxID) {header+="\tTaxID";}
+		if(printCCT) {header+="\tCompleteness\tContam\tType";}
 		if(callGenes || gffFile!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
-		if(BinObject.tree!=null) {header+="\tLineage";}
+		if(printLineage) {header+="\tLineage";}
+		
 		bsw.println(header);
 		int i=0;
 		for(BinStats b : bins) {
+//			assert(false) : b+"\n"+(BinObject.tree!=null)+(printLineage);
 			if(b.size>=minSize) {
 				bsw.printt(b.name).printt(b.size).printt(b.contigs);
 				bsw.printt(b.gc, 3).printt(b.depth, 2);
 				bsw.printt(b.minDepth, 2).printt(b.maxDepth, 2);
-				bsw.printt(b.complt, 5).printt(b.contam, 5);
-				bsw.printt(b.taxid).print(b.type(useRNA));
+				if(printTaxID) {bsw.printt(b.taxid);}
+				if(printCCT) {bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));}
 				
 				if(callGenes || gffFile!=null) {
-					bsw.tab().printt(b.r16Scount).printt(b.r18Scount);
+					bsw.printt(b.r16Scount).printt(b.r18Scount);
 					bsw.printt(b.r23Scount).printt(b.r5Scount);
 					bsw.printt(b.trnaCount);
-					bsw.printt(b.cdsCount).print(b.cdsLength);
+					bsw.printt(b.cdsCount).printt(b.cdsLength);
 				}
 				
-				if(BinObject.tree!=null) {
-					bsw.tab().print(b.lineage!=null ? b.lineage : Clade.lineage(b.taxid));
-				}
-				bsw.println();
+				Object lineage=(b.lineage!=null ? b.lineage : BinObject.tree!=null ? Clade.lineage(b.taxid) : "NA");
+				if(printLineage) {bsw.println(lineage.toString());}
+				else {bsw.println();}
 				i++;
 			}
 		}
@@ -675,11 +707,11 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 		}
 	}
 	
-	static void printBinQuality(Collection<? extends Bin> bins, int minSize, boolean useRNA, 
-			PrintStream outstream) {
-		ArrayList<BinStats> list=toStats(bins, minSize);
-		printBinQuality(list, minSize, useRNA, outstream);
-	}
+//	static void printBinQuality(List<? extends Bin> bins, int minSize, boolean useRNA, 
+//			PrintStream outstream) {
+//		ArrayList<BinStats> list=toBinStats(null, bins, minSize, false, useRNA, useRNA);
+//		printBinQuality(list, minSize, useRNA, outstream);
+//	}
 	
 	static void printBinQuality(ArrayList<BinStats> bins, int minSize, boolean useRNA, 
 			PrintStream outstream) {
@@ -1008,30 +1040,60 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	/*----------------          Accumulator         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	@Override
-	public void accumulate(ProcessThread t) {
-		success=(success && t.success);
-	}
+	private static class PTAccumulator implements Accumulator<GradeBins.ProcessThread> {
 
-	@Override
-	public ReadWriteLock rwlock() {
-		return null;
-	}
+		@Override
+		public void accumulate(ProcessThread t) {
+			success=(success && t.success);
+		}
 
-	@Override
-	public boolean success() {
-		return success;
+		@Override
+		public ReadWriteLock rwlock() {
+			return null;
+		}
+
+		@Override
+		public boolean success() {
+			return success;
+		}
+		
+		boolean success=true;
 	}
 	
-	static int callTax(Bin b) {
-		Clade clade=new Clade(-1, -1, b.name());
-		for(Contig c : b) {
-			clade.add(c.bases, null);
+	private static void runQuickClade(List<Clade> clades){
+		assert(cladeIndex==null);
+		
+		if(cladeIndex!=null) {
+			for(Clade c : clades) {
+				if(c!=null) {cladeIndex.setFromBest(c);}
+			}
+		}else {
+//			new Exception().printStackTrace();
+//			System.err.println(clades.size());
+//			System.err.println(clades.get(0));
+			String response=SendClade.sendClades(clades, null, true, 
+				1, true, false, false, 1, false);
+			ArrayList<Comparison> comps=null;
+			try{
+				comps=SendClade.responseToComparisons(response);
+				assert(comps.size()==clades.size());
+				for(int i=0; i<clades.size(); i++) {
+					Clade clade=clades.get(i);
+					Comparison comp=comps.get(i);
+					if(clade!=null && comp!=null) {
+						clade.name=comp.ref.name;
+						clade.taxID=comp.ref.taxID;
+						clade.lineage=comp.ref.lineage;
+					}
+				}
+			}catch(Throwable e){
+				// TODO Auto-generated catch block
+				synchronized(GradeBins.class) {
+					if(!serverError) {e.printStackTrace();}
+					serverError=true;
+				}
+			}
 		}
-		clade.finish();
-		ArrayList<Comparison> list=cladeIndex.findBest(clade);
-		Comparison best=(list==null ? null : list.get(0));
-		return best==null || best.ref==null ? -1 : best.ref.taxID;
 	}
 	
 	static void callGenes(Bin b, GeneCaller gcall, BinStats bs) {
@@ -1087,41 +1149,93 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	 * It is safe to remove the static modifier. */
 	static class ProcessThread extends Thread {
 		
-		ProcessThread(ArrayList<String> fnames_, ArrayList<BinStats> bins_, 
-				int tid_, int threads_){
+		ProcessThread(List<String> fnames_, List<? extends Bin> bins_,
+			ArrayList<BinStats> binStats_, int tid_, int threads_,
+			int minSize_, boolean qclade_, boolean call_, boolean annot_){
 			fnames=fnames_;
 			bins=bins_;
+			binStats=binStats_;
 			tid=tid_;
 			threads=threads_;
+			
+			minSize=minSize_;
+			qclade=qclade_;
+			call=call_;
+			annot=annot_;
+			
 			gCallerT=(callGenes ? GeneTools.makeGeneCaller() : null);
 		}
 		
 		@Override
 		public void run() {
-			for(int i=tid; i<fnames.size(); i+=threads) {
-				String fname=fnames.get(i);
-				Cluster clust=loadCluster(fname);
-				calcContam(fname, clust);
-				BinStats bs=new BinStats(clust, ReadWrite.stripToCore(fname));
-				if(runQuickClade) {bs.taxid=callTax(clust);}
-				
-				if(callGenes) {
-					callGenes(clust, gCallerT, bs);
-				}else if(gffMap!=null) {
-					annotate(clust, gffMap, bs);
-				}
-				synchronized(bins) {
-					bins.add(bs);
-				}
+			if(fnames!=null) {
+				processFiles();
+			}else {
+				processBins();
 			}
 			success=true;
 		}
 		
-		private final ArrayList<String> fnames;
-		private final ArrayList<BinStats> bins;
+		private void processFiles() {
+			for(int i=tid; i<fnames.size(); i+=threads) {
+				String fname=fnames.get(i);
+				Cluster clust=loadCluster(fname);
+				BinStats bs=processBin(fname, clust);
+				if(bs!=null) {
+					synchronized(bs) {
+						while(binStats.size()<=i) {binStats.add(null);}
+						binStats.set(i, bs);
+					}
+				}
+			}
+		}
+		
+		private void processBins() {
+			for(int i=tid; i<bins.size(); i+=threads) {
+				Bin b=bins.get(i);
+				BinStats bs=processBin(null, b);
+				if(bs!=null) {
+					synchronized(bs) {
+						while(binStats.size()<=i) {binStats.add(null);}
+						binStats.set(i, bs);
+					}
+				}
+			}
+		}
+		
+		private BinStats processBin(String fname, Bin b) {
+			if(fname!=null) {
+				assert(b==null);
+				b=loadCluster(fname);
+				calcContam(fname, (Cluster)b);
+			}
+			if(b.size()<minSize) {return null;}
+			processed++;
+			if(runQuickClade && qclade) {
+				b.toClade();
+				if(cladeIndex!=null) {cladeIndex.setFromBest(b.clade);}
+			}
+//			assert(false) : runQuickClade+", "+qclade+", "+b.clade;
+			BinStats bs=new BinStats(b, fname==null ? b.name() : ReadWrite.stripToCore(fname));
+
+			if(callGenes && call) {callGenes(b, gCallerT, bs);}
+			else if(gffMap!=null && annot) {annotate(b, gffMap, bs);}
+			return bs;
+		}
+		
+		private final List<String> fnames;
+		private final List<? extends Bin> bins;
+		private final ArrayList<BinStats> binStats;
 		private final int tid;
 		private final int threads;
 		private final GeneCaller gCallerT;
+		
+		private final int minSize;
+		private final boolean qclade;
+		private final boolean call;
+		private final boolean annot;
+		
+		int processed=0;
 		boolean success=false;
 		
 	}
@@ -1168,7 +1282,8 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	private static String cov=null;
 	private static String gffFile=null;
 	private static String imgMapFile=null;
-	private static String spectraFile=null;
+	static boolean cladeServer=false;
+	static String spectraFile=null;
 	private static HashMap<String, ArrayList<GffLine>> gffMap;
 	private static HashMap<String, FloatList> covMap;
 	
@@ -1192,16 +1307,13 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	private static IntHashMap[] levelMapsHQ;
 	private static IntHashMap[] levelMapsMQ;
 
-//	private static ArrayList<HashMap<String, LongM>> levelMaps;
-//	private static ArrayList<HashMap<String, LongM>> levelMapsHQ;
-//	private static ArrayList<HashMap<String, LongM>> levelMapsMQ;
-
-	private static boolean runQuickClade=false;
+	static boolean runQuickClade=false;
 	private static CladeIndex cladeIndex=null;
-	private static boolean useTree=false;
+	static boolean useTree=false;
+	static boolean serverError=false;
 	
-	private static boolean callGenes=false;
-	private static boolean useRNA=false;
+	static boolean callGenes=false;
+	static boolean useRNA=false;
 	
 	/*--------------------------------------------------------------*/
 	
@@ -1210,7 +1322,7 @@ public class GradeBins implements Accumulator<GradeBins.ProcessThread> {
 	private long totalSize=0, totalContigs=0;
 	private long taxIDsIn=0;
 	boolean overwrite=true;
-	boolean success=true;
+	static boolean success=true;
 	
 	/*--------------------------------------------------------------*/
 	

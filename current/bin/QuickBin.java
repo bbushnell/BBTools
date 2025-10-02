@@ -94,11 +94,14 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		checkFileExistence(); //Ensure files can be read and written
 		loader.checkInput();
 		
-		BinObject.tree=(sketchContigs || sketchClusters) ? BinObject.loadTree() : null;
-		sketcher=(sketchContigs || sketchClusters || sketchOutput) ? new BinSketcher(16, 2000) : null;
+		BinObject.tree=(sketchContigs || sketchClusters || sketchOutput || GradeBins.useTree) ? BinObject.loadTree() : null;
+		final int minSketchSize=(sketchContigs || sketchClusters ? 2000 : 50000);
+		sketcher=(sketchContigs || sketchClusters || sketchOutput) ? new BinSketcher(16, minClusterSize) : null;
 		binner.sketcher=loader.sketcher=sketcher;
 		Sketch.defaultParams.format=DisplayParams.FORMAT_JSON;
 		KmerProb.load();
+		
+		GradeBins.loadStuff();
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -160,8 +163,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			
 			else if(a.equals("clusterbytax") || a.equals("clusterbytaxid")){
 				clusterByTaxid=Parse.parseBoolean(b);
-			}else if(a.equals("clusterbytet") || a.equals("clusterbytetramer")){
-				clusterByTetramer=Parse.parseBoolean(b);
 			}else if(a.equals("refine") || a.equals("refineclusters")){
 				refineClusters=Parse.parseBoolean(b);
 			}else if(a.equals("residue") || a.equals("processresidue")){
@@ -180,7 +181,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				SpectraCounter.call16S=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("18S") || a.equalsIgnoreCase("call18S")){
 				SpectraCounter.call18S=Parse.parseBoolean(b);
-			}else if(a.equalsIgnoreCase("ssu")){
+			}else if(a.equalsIgnoreCase("ssu") || a.equalsIgnoreCase("callssu")){
 				SpectraCounter.call16S=SpectraCounter.call18S=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ssuid") || a.equalsIgnoreCase("minssuid")){
 				Oracle.minSSUID=Float.parseFloat(b);
@@ -197,6 +198,18 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			}else if(a.equals("aligner") || a.equals("idaligner")){
 				GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
 				if(GeneCaller.useIDAligner) {aligner.Factory.setType(b);}
+			}
+			
+			else if(a.equalsIgnoreCase("quickclade")){
+				GradeBins.runQuickClade=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("spectra")){
+				GradeBins.spectraFile=b;
+			}else if(a.equalsIgnoreCase("server")){
+				GradeBins.cladeServer=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("callgenes")){
+				GradeBins.callGenes=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("usetree")){
+				GradeBins.useTree=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equalsIgnoreCase("sketchcontigs")){
@@ -569,15 +582,18 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 //			}
 //			if(a.size()<1000 || i>=4) {break;}
 //		}
-		
-		if(report!=null) {GradeBins.printClusterReport(bins, minClusterSize, report);}
+
+		t2.start();
+		ArrayList<BinStats> stats=GradeBins.toBinStats(null, bins, minClusterSize, true, true, true);
+		t2.stop("Analyzing bins:");
+		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report);}
 		outputClusters(outPattern, bins, minClusterSize, minContigsPerCluster);
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
 		
 		//Report timing and results
 		outstream.println();
-		t.stopAndPrint();
+		t.stop("Total Time:");
 
 		long totalComp=binner.slowComparisons.get();
 		fastComp=binner.fastComparisons.get();
@@ -649,8 +665,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 //		}
 //		outstream.println();
 //		
-
-		ArrayList<BinStats> stats=GradeBins.toStats(bins, minClusterSize);
 		
 		if(loud && validation) {
 			outstream.println();
@@ -999,7 +1013,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	private ArrayList<Contig> contigList;
 	
 	boolean clusterByTaxid=false;
-	boolean clusterByTetramer=true;
 	boolean refineClusters=true;
 	boolean processResidue=true;
 	boolean reclusterClusters=false;

@@ -1,5 +1,6 @@
 package bin;
 
+import clade.Clade;
 import json.JsonObject;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -201,6 +202,8 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		taxid=genusTaxid=-1;
 		topHit=secondHit=null;
 		sketchedSize=0;
+		clade=null;
+		lineage=null;
 	}
 	
 	@Override
@@ -227,6 +230,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 			}
 		}
 //		if(labelTaxid>0) {bb.tab().append("TaxID0 ").append(labelTaxid);}
+		if(lineage!=null) {bb.nl().append("Lineage ").append(lineage);}
 		if(topHit!=null) {topHit.appendTo(bb.nl().tab().tab());}
 		if(secondHit!=null) {secondHit.appendTo(bb.nl().tab().tab());}
 		return bb;
@@ -526,6 +530,15 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		return max;
 	}
 	
+	Clade toClade() {
+		clade=new Clade(-1, -1, name());
+		for(Contig c : this) {
+			clade.add(c.bases, null);
+		}
+		clade.finish();
+		return clade;
+	}
+	
 	public FloatList depthList() {
 		return depth;
 	}
@@ -564,6 +577,8 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	public int labelTaxid;//For validation on labeled data
 	SketchRecord topHit;
 	SketchRecord secondHit;
+	public String lineage;
+	public Clade clade;
 	public byte[] r16S;
 	public byte[] r18S;
 	

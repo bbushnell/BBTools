@@ -372,7 +372,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			bb.nl();
 		}
 		bb.append("tid\t").append(taxID).nl();
-		bb.append("level\t").append(level).tab().append(TaxTree.levelToString(level)).nl();
+		bb.append("level\t").append(level).tab().append(TaxTree.levelToString(Math.max(0, level))).nl();
 		bb.append("name\t").append(name).nl();
 		if(writeLineage && taxID>1) {bb.append("lineage\t").append(lineage()).nl();}
 		bb.append("gc\t").append(gc, 4).nl();

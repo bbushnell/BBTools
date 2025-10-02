@@ -2,6 +2,7 @@ package clade;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Collection;
 
 import bin.AdjustEntropy;
 import fileIO.FileFormat;
@@ -9,6 +10,7 @@ import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import server.ServerTools;
 import shared.KillSwitch;
+import shared.LineParserS1;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
@@ -309,7 +311,7 @@ public class SendClade extends CladeObject {
 			//Send batch if buffer is full
 			if(batch.size() >= MAX_CLADES_PER_BATCH){
 				if(verbose){System.err.println("[" + new java.util.Date() + "] Batch full with " + batch.size() + " clades, sending to server");}
-				sendClades(batch, tsw);
+				sendAndPrint(batch, tsw);
 				batch.clear();
 			}
 		}
@@ -317,7 +319,7 @@ public class SendClade extends CladeObject {
 		//Send any remaining clades
 		if(!batch.isEmpty()){
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Sending final batch of " + batch.size() + " clades");}
-			sendClades(batch, tsw);
+			sendAndPrint(batch, tsw);
 		}
 
 		if(verbose){outstream.println("Processed " + cladesProcessed + " clades from " + ff.name());}
@@ -363,7 +365,7 @@ public class SendClade extends CladeObject {
 						if(r.bases==null || r.bases.length<minlen){continue;}
 						assert(r.bases.length >= minlen) : "Sequence shorter than minimum length: " + r.bases.length + " < " + minlen;
 
-						Clade clade=new Clade(0, 0, r.id);
+						Clade clade=new Clade(0, 0, r.id.replace('\t', ' '));
 						assert(clade != null) : "Clade creation failed for " + r.id;
 						clade.add(r.bases, null);
 						clade.finish();
@@ -375,7 +377,7 @@ public class SendClade extends CladeObject {
 						if(clades.size()>=MAX_CLADES_PER_BATCH){
 							assert(clades.size() <= MAX_CLADES_PER_BATCH) : "Clade batch size exceeded maximum: " + clades.size() + " > " + MAX_CLADES_PER_BATCH;
 							if(verbose){System.err.println("[" + new java.util.Date() + "] Batch full with " + clades.size() + " clades, sending to server");}
-							sendClades(clades, tsw);
+							sendAndPrint(clades, tsw);
 							clades.clear();
 							assert(clades.isEmpty()) : "Clade list should be empty after clearing";
 						}
@@ -411,7 +413,7 @@ public class SendClade extends CladeObject {
 		//Send any remaining clades
 		if(!clades.isEmpty()){
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Sending final batch of " + clades.size() + " clades");}
-			sendClades(clades, tsw);
+			sendAndPrint(clades, tsw);
 		}
 
 		ReadWrite.closeStream(cris);
@@ -419,6 +421,12 @@ public class SendClade extends CladeObject {
 		if(verbose){outstream.println("Processed "+sequencesProcessed+" sequences from "+ff.name());}
 
 		return sequencesProcessed;
+	}
+	
+	private void sendAndPrint(ArrayList<Clade> clades, TextStreamWriter tsw) {
+		String s=sendClades(clades);
+		//Write response to unified output
+		tsw.print(s);
 	}
 
 	/**
@@ -429,9 +437,8 @@ public class SendClade extends CladeObject {
 	 * @param clades List of clades to transmit
 	 * @param tsw Unified output writer for server response
 	 */
-	private void sendClades(ArrayList<Clade> clades, TextStreamWriter tsw){
-		if(clades==null || clades.isEmpty()){return;}
-		assert(tsw != null) : "TextStreamWriter cannot be null";
+	private String sendClades(Collection<Clade> clades){
+		if(clades==null || clades.isEmpty()){return null;}
 		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + clades.size() + " clades");}
 
 		//Build message
@@ -449,17 +456,17 @@ public class SendClade extends CladeObject {
 		//Add clades
 		for(Clade clade : clades){clade.toBytes(bb);}
 
-		// Add verbose2 debug output
-		if(verbose2){
-			System.err.println("DEBUG: SENDING TO CLADESERVER - mode=" + (perContig ? "perseq" : "single"));
-			System.err.println("DEBUG: Number of clades being sent: " + clades.size());
-			for(int i = 0; i < clades.size(); i++){
-				Clade c = clades.get(i);
-				System.err.println("DEBUG: Clade " + i + ": name=" + c.name + ", bases=" + c.bases + ", taxID=" + c.taxID);
-			}
-			System.err.println("DEBUG: Request body length: " + bb.length() + " bytes");
-			System.err.println("DEBUG: First 200 chars of request: " + bb.toString().substring(0, Math.min(200, bb.length())));
-		}
+//		// Add verbose2 debug output
+//		if(verbose2){
+//			System.err.println("DEBUG: SENDING TO CLADESERVER - mode=" + (perContig ? "perseq" : "single"));
+//			System.err.println("DEBUG: Number of clades being sent: " + clades.size());
+//			for(int i = 0; i < clades.size(); i++){
+//				Clade c = clades.get(i);
+//				System.err.println("DEBUG: Clade " + i + ": name=" + c.name + ", bases=" + c.bases + ", taxID=" + c.taxID);
+//			}
+//			System.err.println("DEBUG: Request body length: " + bb.length() + " bytes");
+//			System.err.println("DEBUG: First 200 chars of request: " + bb.toString().substring(0, Math.min(200, bb.length())));
+//		}
 
 		//Send to server
 		byte[] message=bb.toBytes();
@@ -494,10 +501,7 @@ public class SendClade extends CladeObject {
 				System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 				KillSwitch.kill();
 			}
-
-			//Write response to unified output
-			tsw.print(result.s);
-
+			return result.s;
 		}catch(Exception e){
 			if(verbose){
 				System.err.println("[" + new java.util.Date() + "] ERROR in sendClades: " + e.getMessage());
@@ -506,6 +510,104 @@ public class SendClade extends CladeObject {
 			e.printStackTrace();
 			errorState=true;
 		}
+		return null;
+	}
+	
+	public static ArrayList<Comparison> responseToComparisons(String s) {
+
+		
+//		#Query1
+//		f_0_c_0_s_0_p_6294_i_40_tid_1002367 1:	0.475	40	1	Cortinarius geophilus var. subauroreus	2764306	0.416	609	1	1	0.059	0.167	0.579	1.000	1.000	sk__Eukaryota;k__Fungi;p__Basidiomycota;c__Agaricomycetes;o__Agaricales;f__Cortinariaceae;g__Cortinarius;s__Cortinarius geophilus
+//		#Query2
+//		f_0_c_0_s_0_p_11130_i_40_tid_1002367 1:	0.475	40	1	Passion fruit yellow mosaic virus	185692	0.540	1115	1	1	0.065	0.013	0.423	1.000	1.000	sk__Viruses;k__Orthornavirae;p__Kitrinoviricota;c__Alsuviricetes;o__Tymovirales;f__Tymoviridae;g__Tymovirus;s__Tymovirus passiflorae;ss__Passion fruit yellow mosaic virus
+//		#Query3
+		String[] lines=s.split("\n");
+		ArrayList<Comparison> list=new ArrayList<Comparison>(lines.length/2+1);
+		LineParserS1 lp=new LineParserS1('\t');
+		for(int i=0; i<lines.length; i++) {
+			String a=lines[i], b=null;
+			Comparison c=null;
+			assert(a.startsWith("#Query")) : "\n"+a+"\n"+b+"\n";
+			if(i+1<lines.length) {b=lines[i+1];}
+			if(b!=null && !b.startsWith("#Query")) {
+				c=new Comparison(b, lp);
+				i++;
+			}
+			list.add(c);
+		}
+		return list;
+	}
+
+	/**
+	 * Transmits a batch of clades to the remote server and processes the response.
+	 * Constructs the request message with all configuration parameters, handles server
+	 * communication with comprehensive error checking, and routes the response through
+	 * the unified output system. Includes detailed timing and debugging information.
+	 * @param clades List of clades to transmit
+	 * @param tsw Unified output writer for server response
+	 */
+	public static String sendClades(Collection<Clade> clades, String address, boolean oneline, int hits, 
+			boolean printQTID, boolean banSelf, boolean banDupes, int heapSize, boolean verbose){
+		if(clades==null || clades.isEmpty()){return null;}
+		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + clades.size() + " clades");}
+		if(address==null) {address=defaultAddress;}
+		//Build message
+		ByteBuilder bb=new ByteBuilder();
+
+		//Add parameters
+		bb.append("format=").append(oneline ? "oneline" : "human").append('/');
+		bb.append("hits=").append(hits).append('/');
+		if(printQTID){bb.append("printqtid=t/");}
+		if(banSelf){bb.append("banself=t/");}
+		if(banDupes){bb.append("bandupes=t/");}
+		bb.append("heap=").append(heapSize).append('/');
+		bb.append('\n');
+
+		//Add clades
+		for(Clade clade : clades){clade.toBytes(bb);}
+
+		//Send to server
+		byte[] message=bb.toBytes();
+		assert(message != null) : "Message creation failed";
+		assert(message.length > 0) : "Empty message created";
+		assert(message.length < 100000000) : "Message too large: " + message.length + " bytes";
+		if(verbose){
+			System.err.println("[" + new java.util.Date() + "] Sending " + clades.size() + " clades (" + message.length + " bytes) to " + address);
+			if(message.length < 500) {
+				System.err.println("[" + new java.util.Date() + "] Message content: " + new String(message));
+			}
+			System.err.println("Sending "+clades.size()+" clades ("+message.length+" bytes) to "+address);
+		}
+
+		try{
+			if(verbose){System.err.println("[" + new java.util.Date() + "] Calling ServerTools.sendAndReceive()");}
+			Timer sendTimer=new Timer();
+			StringNum result=ServerTools.sendAndReceive(message, address);
+			assert(result != null) : "Server returned null result";
+			assert(result.n >= 100 && result.n < 600) : "Invalid HTTP status code: " + result.n;
+			sendTimer.stop();
+			long sendTime=sendTimer.elapsed;
+			assert(sendTime >= 0) : "Invalid timing measurement: " + sendTime;
+			if(verbose){
+				System.err.println("[" + new java.util.Date() + "] Server responded in " + (sendTime/1000000) + "ms with code " + result.n);
+				System.err.println("[" + new java.util.Date() + "] Response length: " + (result.s != null ? result.s.length() : 0) + " chars");
+				if(result.s != null && result.s.length() < 500) {
+					System.err.println("[" + new java.util.Date() + "] Response: " + result.s);
+				}
+			}
+			if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
+				System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
+				KillSwitch.kill();
+			}
+			return result.s;
+		}catch(Exception e){
+			if(verbose){
+				System.err.println("[" + new java.util.Date() + "] ERROR in sendClades: " + e.getMessage());
+				System.err.println("[" + new java.util.Date() + "] Stack trace:");
+			}
+			e.printStackTrace();
+		}
+		return null;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -564,7 +666,7 @@ public class SendClade extends CladeObject {
 	private boolean verbose2=false;
 
 	/** Default server address */
-	private static final String defaultAddress="https://bbmapservers.jgi.doe.gov/quickclade";
+	static final String defaultAddress="https://bbmapservers.jgi.doe.gov/quickclade";
 	/** Local server address */
 	private static final String localAddress="http://localhost:5002";
 	/** Maximum clades to send in one batch */

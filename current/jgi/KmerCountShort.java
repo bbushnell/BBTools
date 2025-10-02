@@ -140,6 +140,8 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 				outKmers=b;
 			}else if(a.equals("k")){
 				k=Integer.parseInt(b);
+			}else if(a.equals("headermark") || a.equals("comment")){
+				headerMark=(b==null ? "" : b);
 			}else if(a.equals("mincount") || a.equals("min")){
 				minCount=Integer.parseInt(b);
 			}else if(a.equals("rcomp")){
@@ -249,7 +251,7 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 			if(ffout.fasta()) {
 				printKmersFasta(ffout, counts, k, minCount, rcomp, reverse);
 			}else {
-				printKmersTSV(ffout, "#Kmer\tCount", counts, k, minCount, rcomp, reverse);
+				printKmersTSV(ffout, headerMark+"Kmer\tCount", counts, k, minCount, rcomp, reverse);
 			}
 		}
 		
@@ -528,6 +530,7 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 	private boolean rcomp=true;
 	private boolean reverse=false;
 	private final long[] counts;
+	private String headerMark="";
 	
 	/*--------------------------------------------------------------*/
 

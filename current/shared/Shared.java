@@ -22,7 +22,6 @@ import java.util.Random;
  * find Brian. He will give you a headpat.
  * 
  * @author Brian Bushnell
- * @contributor Aria NN
  * @contributor Isla
  * @date December 2010
  * @AI friendly

@@ -2,20 +2,16 @@ package bin;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 
-import bin.SpectraCounter.LoadThread;
 import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import structures.IntHashMap;
 import structures.IntHashSet;
-import structures.IntLongHashMap;
 import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;
@@ -239,7 +235,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 	private int mergeWithDest(ArrayList<Contig> contigs, ArrayList<? extends Bin> input){
 		int x=0, y=0, z=0;
-
+		
+//		Oracle oracle=new Oracle(1, 2, 1, 1, 1, 1, 1, 0, 0);//Just for the aligner
 		for(Bin a : input) {
 			if(!a.isCluster() && a.cluster()!=null) {a.dest=-1;continue;}
 			if(a.isCluster() && a.numContigs()==0) {a.dest=-1;continue;}
@@ -251,7 +248,10 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 				y++;
 				Bin b=contigs.get(a.dest);
 				if(b.cluster()!=null) {b=b.cluster();}
-				if(!b.isEmpty() && !a.sameCluster(b)) {
+				if(b==a) {//Don't merge
+				}else if(b.isEmpty() || a.sameCluster(b)) {//Don't merge
+//				}else if(!oracle.ssuCompatible(a, b)){//Don't merge
+				}else {//Expected case
 					if(a.labelTaxid>=0 && b.labelTaxid>=0) {
 						long minSize=Tools.min(a.size(), b.size());
 						addMerge(minSize, a.labelTaxid==b.labelTaxid);
@@ -501,7 +501,9 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 				if(dest>=0 && dest!=a.id()) {
 					Cluster b=map.contigList.get(dest).cluster;
 					synchronized(b) {
-						if(b!=a) {
+						if(b==a) {//Don't merge
+//						}else if(!oracle.ssuCompatible(a, b)){//Don't merge
+						}else {
 							assert(!b.contigSet.contains(a.id));
 							assert(!a.contigSet.contains(b.id));
 							assert(a.id()!=dest && a.id()!=b.id()) : a.id+", "+dest+", "+b.id+", "+(a.id()==dest)+", "+(b.id()==dest)+", "+(a.id()!=b.id());

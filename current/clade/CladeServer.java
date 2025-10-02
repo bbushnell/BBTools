@@ -323,8 +323,6 @@ public class CladeServer {
 	/** Generate usage information */
 	private String usage(){
 		StringBuilder sb=new StringBuilder();
-		sb.append("CladeServer v1.0\n");
-		sb.append("Author: Chloe\n\n");
 		sb.append("Usage:\n");
 		sb.append("  POST to /clade with clade data in request body\n");
 		sb.append("  Parameters in URL: /format=oneline/hits=5/\n\n");
@@ -609,7 +607,7 @@ public class CladeServer {
 		}
 
 
-		/** Parse clades from request body */
+		/** Parse clades from request body - supports both standard Clade and PreClade formats */
 		ArrayList<Clade> parseClades(String data){
 			if(verbose2){
 				System.err.println("[" + new Date() + "] parseClades() ENTRY - parsing " + data.length() + " bytes");
@@ -617,20 +615,55 @@ public class CladeServer {
 			}
 			ArrayList<Clade> list=new ArrayList<Clade>();
 
-			// Skip parameter line (first line) and only process clade data
-			String[] lines=data.split("\n", 2);
-			if(lines.length < 2){
-				if(verbose2){System.err.println("DEBUG: No clade data found after parameter line");}
+			// Format detection: check first and second lines to distinguish PreClade from standard formats
+			String[] allLines = data.split("\n");
+			if(allLines.length == 0) {
+				if(verbose2){System.err.println("DEBUG: No lines found in data");}
 				return list;
 			}
 
-			String cladeData = lines[1]; // Skip first line (parameters)
-			if(verbose2){System.err.println("DEBUG: parsing clade data: " + cladeData.substring(0, Math.min(100, cladeData.length())) + "...");}
-			assert(cladeData != null && cladeData.length() > 0) : "CladeData is null or empty - parsing should not continue";
+			String firstLine = allLines[0].trim();
+			if(firstLine.startsWith("//PreClade")){
+				if(verbose2){System.err.println("DEBUG: Detected PreClade format (first line)");}
+				return parsePreCladeFormat(allLines);
+			} else {
+				// Check if PreClade header is on second line (after parameters)
+				if(allLines.length > 1 && allLines[1].trim().startsWith("//PreClade")){
+					if(verbose2){System.err.println("DEBUG: Detected PreClade format (second line)");}
+					// Skip the parameter line and pass the rest
+					String[] precladeLines = new String[allLines.length - 1];
+					System.arraycopy(allLines, 1, precladeLines, 0, allLines.length - 1);
+					return parsePreCladeFormat(precladeLines);
+				}
+
+				// Standard Clade format or SendClade format - skip parameter line (first line) and only process clade data
+				String[] lines=data.split("\n", 2);
+				if(lines.length < 2){
+					if(verbose2){System.err.println("DEBUG: No clade data found after parameter line");}
+					return list;
+				}
+
+				String cladeData = lines[1]; // Skip first line (parameters)
+				if(verbose2){System.err.println("DEBUG: parsing clade data: " + cladeData.substring(0, Math.min(100, cladeData.length())) + "...");}
+				assert(cladeData != null && cladeData.length() > 0) : "CladeData is null or empty - parsing should not continue";
+
+				String[] cladeLines=cladeData.split("\n");
+				if(cladeLines.length == 0) {
+					if(verbose2){System.err.println("DEBUG: No clade lines found");}
+					return list;
+				}
+
+				if(verbose2){System.err.println("DEBUG: Detected standard Clade format");}
+				return parseStandardCladeFormat(cladeLines);
+			}
+		}
+
+		/** Parse standard Clade format (existing logic) */
+		private ArrayList<Clade> parseStandardCladeFormat(String[] cladeLines){
+			ArrayList<Clade> list=new ArrayList<Clade>();
 
 			//Convert clade data to byte array list
 			ArrayList<byte[]> byteLines=new ArrayList<byte[]>();
-			String[] cladeLines=cladeData.split("\n");
 			for(String line : cladeLines){
 				byteLines.add(line.getBytes());
 			}
@@ -666,9 +699,104 @@ public class CladeServer {
 				}
 			}
 
-			if(verbose2){System.err.println("DEBUG: parseClades() parsed " + list.size() + " total clades");}
+			if(verbose2){System.err.println("DEBUG: parseStandardCladeFormat() parsed " + list.size() + " total clades");}
 			return list;
 		}
+
+		/** Parse PreClade v2.0 format - Brian's idiot-proof 7-line format */
+		private ArrayList<Clade> parsePreCladeFormat(String[] lines){
+			ArrayList<Clade> list=new ArrayList<Clade>();
+
+			try {
+				// PreClade v2.0 format:
+				// Line 0: //PreClade Format 2.0 (only once at beginning)
+				// Then for each sequence:
+				// Line 1: #
+				// Line 2: name
+				// Line 3: 1-mers (5 values: A,C,G,T,N)
+				// Line 4: 2-mers (16 values)
+				// Line 5: 3-mers (64 values)
+				// Line 6: 4-mers (256 values)
+				// Line 7: 5-mers (1024 values)
+
+				int i = 0;
+
+				// Skip the header line if present
+				if(i < lines.length && lines[i].trim().startsWith("//PreClade")){
+					i++; // Skip the header
+				}
+
+				// Now parse entries that start with #
+				while(i < lines.length){
+					String line = lines[i].trim();
+
+					// Skip empty lines
+					if(line.isEmpty()){
+						i++;
+						continue;
+					}
+
+					// Look for entry separator
+					if(line.equals("#")){
+						// Start of a PreClade entry - must have exactly 6 more lines
+						if(i + 6 >= lines.length){
+							if(verbose2){
+								System.err.println("ERROR: Incomplete PreClade v2.0 entry - need exactly 6 lines after #");
+							}
+							break;
+						}
+
+						// Parse the 6 lines after #
+						String name = lines[i+1].trim();       // Sequence name
+						String monomers = lines[i+2].trim();   // 1-mers (5 values)
+						String dimers = lines[i+3].trim();     // 2-mers (16 values)
+						String trimers = lines[i+4].trim();    // 3-mers (64 values)
+						String tetramers = lines[i+5].trim();  // 4-mers (256 values)
+						String pentamers = lines[i+6].trim();  // 5-mers (1024 values)
+
+						// Parse this PreClade entry
+						Clade c = parsePreCladeV2Entry(name, monomers, dimers, trimers, tetramers, pentamers);
+						if(c != null){
+							list.add(c);
+						}
+
+						// Move to next potential record
+						i += 7; // Skip the # and 6 data lines
+					} else {
+						// Skip non-separator lines (shouldn't happen in valid format)
+						i++;
+					}
+				}
+
+			} catch (Exception e) {
+				if(verbose2){
+					System.err.println("ERROR parsing PreClade v2.0 format: " + e.getMessage());
+					e.printStackTrace();
+				}
+			}
+
+			if(verbose2){System.err.println("DEBUG: parsePreCladeFormat() parsed " + list.size() + " PreClade v2.0 entries");}
+			return list;
+		}
+
+		/** Parse a single PreClade v2.0 entry with idiot-proof format */
+		private Clade parsePreCladeV2Entry(String name, String monomersLine, String dimersLine,
+				String trimersLine, String tetramersLine, String pentamersLine) {
+			try {
+				// Use new PreClade class for proper canonical mapping and GC compensation
+				PreClade preClade = new PreClade(name, monomersLine, dimersLine,
+					trimersLine, tetramersLine, pentamersLine);
+				return preClade.toClade();
+
+			} catch (Exception e) {
+				if(verbose2){
+					System.err.println("ERROR parsing PreClade v2.0 entry: " + e.getMessage());
+					e.printStackTrace();
+				}
+				return null;
+			}
+		}
+
 
 		/** Format results for output */
 		void formatResults(Clade query, ArrayList<Comparison> results, ByteBuilder bb, CladeContext ctx, int queryNumber){
@@ -677,9 +805,19 @@ public class CladeServer {
 			if(verbose2){System.err.println("DEBUG: formatResults() parameters - query=" + (query != null ? query.toString() : "null") +
 				" results=" + (results != null ? results.size() : "null") + " bb=" + (bb != null ? "valid" : "null") +
 				" ctx=" + (ctx != null ? ctx.toString() : "null"));}
+			//Filter out null comparisons before calculating maxHits
+			if(verbose2){System.err.println("DEBUG: formatResults() filtering null comparisons from results.size=" + results.size());}
+			ArrayList<Comparison> validResults = new ArrayList<>();
+			for(Comparison comp : results) {
+				if(comp != null && comp.ref != null) {
+					validResults.add(comp);
+				}
+			}
+			if(verbose2){System.err.println("DEBUG: formatResults() after filtering: validResults.size=" + validResults.size());}
+
 			//Limit results to requested hits
-			if(verbose2){System.err.println("DEBUG: formatResults() calculating maxHits - ctx.hits=" + ctx.hits + " results.size=" + results.size());}
-			int maxHits=Math.min(ctx.hits, results.size());
+			if(verbose2){System.err.println("DEBUG: formatResults() calculating maxHits - ctx.hits=" + ctx.hits + " validResults.size=" + validResults.size());}
+			int maxHits=Math.min(ctx.hits, validResults.size());
 			if(verbose2){System.err.println("DEBUG: formatResults() maxHits=" + maxHits);}
 
 			if(verbose2){System.err.println("DEBUG: formatResults() checking format - ctx.format=" + ctx.format + " MACHINE=" + CladeSearcher.MACHINE);}
@@ -688,15 +826,8 @@ public class CladeServer {
 				//One-line format with #Query markers
 				bb.append("#Query").append(queryNumber).append('\n');
 				for(int i=0; i<maxHits; i++){
-					Comparison comp=results.get(i);
-					if(comp == null) {
-						System.err.println("NOTICE: Skipping null Comparison object at index " + i + " of " + results.size());
-						continue;
-					}
-					if(comp.ref == null) {
-						System.err.println("FATAL: comp.ref is null at index " + i + " - comp=" + comp);
-						continue;
-					}
+					Comparison comp=validResults.get(i);
+					// No need for null checks since validResults only contains valid comparisons
 					Clade ref=comp.ref;
 
 					bb.append(query.name).tab();
@@ -728,20 +859,9 @@ public class CladeServer {
 				if(verbose2){System.err.println("DEBUG: formatResults() human format starting loop with maxHits=" + maxHits);}
 				for(int i=0; i<maxHits; i++){
 					if(verbose2){System.err.println("DEBUG: formatResults() human format processing hit " + i + "/" + maxHits);}
-					Comparison comp=results.get(i);
-					if(comp == null) {
-						System.err.println("NOTICE: Skipping null Comparison object at index " + i + " of " + results.size());
-						continue;
-					}
-					if(comp.ref == null) {
-						System.err.println("FATAL: comp.ref is null at index " + i + " - comp=" + comp);
-						return;
-					}
+					Comparison comp=validResults.get(i);
+					// No need for null checks since validResults only contains valid comparisons
 					Clade ref=comp.ref;
-					if(ref == null) {
-						System.err.println("FATAL: Reference Clade is null at index " + i);
-						return;
-					}
 					if(ref.name == null) {
 						System.err.println("NOTICE: ref.name is null for index " + i + " taxID=" + ref.taxID + " - using fallback");
 					}

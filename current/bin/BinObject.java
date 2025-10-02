@@ -4,6 +4,7 @@ import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.Collection;
 
+import clade.CladeObject;
 import dna.AminoAcid;
 import ml.CellNet;
 import shared.Tools;
@@ -373,7 +374,7 @@ public class BinObject {
 	static TaxTree loadTree() {
 		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
 		if(treePath!=null) {
-			tree=TaxTree.loadTaxTree(treePath, System.err, false, false);
+			tree=CladeObject.tree=TaxTree.loadTaxTree(treePath, System.err, false, false);
 		}
 		return tree;
 	}

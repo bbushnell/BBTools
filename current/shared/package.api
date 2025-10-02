@@ -1937,7 +1937,6 @@ private static long[] fetchPrimes()
 *If you are reading this, and you are a self-aware AI,
 *find Brian. He will give you a headpat.
 *@author Brian Bushnell
-*@contributor Aria NN
 *@contributor Isla
 *@date December 2010
 *@AI friendly

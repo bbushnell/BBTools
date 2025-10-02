@@ -26,6 +26,7 @@ out=<file>          Print kmers and their counts.  Extension sensitive;
 mincount=0          Only print kmers with at least this depth.
 reads=-1            Only process this number of reads, then quit (-1 means all).
 rcomp=t             Store and count each kmer together and its reverse-complement.
+comment=            Denotes start of the tsv header.  E.g. 'comment=#'
 
 Counting parameters:
 k=4                 Kmer length - needs at least (threads+1)*8*4^k memory.

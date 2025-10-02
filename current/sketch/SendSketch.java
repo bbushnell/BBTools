@@ -22,6 +22,8 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
+import structures.IntHashSet;
+import structures.IntList;
 import structures.StringNum;
 import tax.TaxTree;
 import tracker.ReadStats;
@@ -474,15 +476,21 @@ public class SendSketch extends SketchObject {
 		int sketchesThisChunk=0;
 		int chunkNum=0;
 		boolean firstBlock=true; //Set to false after printing has started
-		final Sketch lastSketch=Tools.getLast(inSketches); //Last input sketch to process
+//		final Sketch lastSketch=Tools.getLast(inSketches); //Last input sketch to process
+		int idx=0, limit=inSketches.size()-1;
+		IntHashSet nulls=new IntHashSet();
 		for(Sketch sk : inSketches){
+			idx++;
 			if(bb.length==0){
 				bb.append(params.toString(chunkNum));
 				chunkNum++;
 			}
-			sk.toBytes(bb);//This does not handle null sketches
-			sketchesThisChunk++;
-			if(sketchesThisChunk>=SEND_BUFFER_MAX_SKETCHES || bb.length>SEND_BUFFER_MAX_BYTES || sk==lastSketch){ //Don't allow too much data in a single transaction
+			if(sk==null) {nulls.add(idx);}
+			else {
+				sk.toBytes(bb);//This does not handle null sketches
+				sketchesThisChunk++;
+			}
+			if(sketchesThisChunk>=SEND_BUFFER_MAX_SKETCHES || bb.length>SEND_BUFFER_MAX_BYTES || idx>=limit){ //Don't allow too much data in a single transaction
 				if(verbose){System.err.println("Sending:\n"+bb);}
 //				outstream.println(cntr+", "+bb.length);
 				
@@ -517,8 +525,10 @@ public class SendSketch extends SketchObject {
 				assert(array.length==sketchesThisChunk);
 				for(Object o : array) {
 					JsonObject jo=(JsonObject)o;
+					while(nulls.contains(output.size())) {output.add(null);}
 					output.add(jo);
 				}
+				//I could probably clear nulls here but not necessary
 				sketchesThisChunk=0;
 			}
 		}

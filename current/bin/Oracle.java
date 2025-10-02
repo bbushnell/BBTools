@@ -237,6 +237,10 @@ public class Oracle extends BinObject implements Cloneable {
 		return ret;
 	}
 	
+	final boolean ssuCompatible(Bin a, Bin b) {
+		return ssa==null || ssuCompatibility(a, b)>=minSSUID;
+	}
+	
 	final float ssuCompatibility(Bin a, Bin b) {
 		if(a.r16S==null && a.r18S==null) {return 2;}
 		if(b.r16S==null && b.r18S==null) {return 2;}
@@ -576,7 +580,7 @@ public class Oracle extends BinObject implements Cloneable {
 	static boolean printSizeInVector=false;
 	static int printWeightInVector=1;
 	static boolean printNetOutputInVector=false;
-	static float minSSUID=0.98f;
+	static float minSSUID=0.96f;
 	boolean verbose2=false;
 	
 	

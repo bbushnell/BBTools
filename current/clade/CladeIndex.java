@@ -140,6 +140,19 @@ public class CladeIndex implements Cloneable {
 		list.add(c);
 		cladesLoaded++;
 	}
+	
+	public void setFromBest(final Clade clade) {
+		Comparison comp=findSingleBest(clade);
+		if(comp==null) {return;}
+		clade.name=comp.ref.name;
+		clade.taxID=comp.ref.taxID;
+		clade.lineage=comp.ref.lineage;
+	}
+	
+	public Comparison findSingleBest(final Clade c) {
+		ArrayList<Comparison> list=findBest(c, 1);
+		return list==null || list.isEmpty() ? null : list.get(0);
+	}
 
 	/**
 	 * Finds the best match for a given Clade in the index.

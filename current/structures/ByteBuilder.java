@@ -166,6 +166,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return append('\n');
 	}
 	
+	public ByteBuilder appendln(long x){
+		expand(12);
+		append(x);
+		return append('\n');
+	}
+	
 	public ByteBuilder append(int x){
 		expand(11);
 		if(x<0){
@@ -388,6 +394,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	}
 	
 	public ByteBuilder appendln(CharSequence x){
+		if(x==null){return appendln(nullBytes);}
 		expand(x.length()+1);
 		append(x);
 		array[length]='\n';

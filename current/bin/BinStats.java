@@ -1,5 +1,8 @@
 package bin;
 
+import clade.Clade;
+import structures.ByteBuilder;
+
 public class BinStats implements Comparable<BinStats> {
 	
 	BinStats(Bin b, String name_){
@@ -16,6 +19,8 @@ public class BinStats implements Comparable<BinStats> {
 		depth=b.depth();
 		minDepth=b.minContigDepth();
 		maxDepth=b.maxContigDepth();
+		lineage=b.lineage;
+		clade=b.clade;
 
 		assert(b.gc()!=0) : this;
 	}
@@ -60,6 +65,26 @@ public class BinStats implements Comparable<BinStats> {
 		return "LQ";
 	}
 	
+	public String toString() {return toBytes(null).toString();}
+	
+	public ByteBuilder toBytes(ByteBuilder bb) {
+		if(bb==null) {bb=new ByteBuilder();}
+		bb.appendln(name);
+		bb.appendln(id);
+		bb.appendln(taxid);
+		bb.appendln(size);
+		bb.appendln(contigs);
+		bb.appendln(badContigs);
+		bb.append(contam, 4).nl();
+		bb.append(complt, 4).nl();
+		bb.append(gc, 4).nl();
+		bb.append(depth, 4).nl();
+		bb.append(minDepth, 4).nl();
+		bb.append(maxDepth, 4).nl();
+		bb.appendln(lineage);
+		return bb;
+	}
+	
 	final String name;
 	int id;
 	int taxid;
@@ -79,6 +104,7 @@ public class BinStats implements Comparable<BinStats> {
 	int trnaCount=0;
 	int cdsCount=0;
 	long cdsLength=0;
-	public String lineage;
+	Clade clade;
+	String lineage;
 	
 }

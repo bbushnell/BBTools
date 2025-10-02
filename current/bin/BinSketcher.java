@@ -202,10 +202,9 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 			for(int i=from; i<contigs.size() && i<to; i+=threads) {
 				Sketchable c=contigs.get(i);
 				synchronized(c) {
-					assert(c.id()==i);
 					Sketch sketch=c.toSketch(smm, dummy);
-					assert(sketch!=null) : "Handle null sketches.";
-					sketches.add(sketch);//Note:  Could potentially be null?
+//					assert(sketch!=null) : "Handle null sketches.";//Handled!
+					sketches.add(sketch);//Can be null
 				}
 			}
 //			t.stopAndStart("Thread "+tid+" sketch time: ");
@@ -214,7 +213,6 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 			for(int i=from, j=0; i<contigs.size() && i<to; i+=threads, j++) {
 				Sketchable c=contigs.get(i);
 				synchronized(c) {
-					assert(c.id()==i);
 					JsonObject jo=results.get(j);
 					c.setFrom(jo);
 					assert(jo==null || c.sketchedSize()==c.size());
