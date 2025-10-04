@@ -30,7 +30,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @param ref_ The reference Clade
 	 */
 	public Comparison(Clade query_, Clade ref_) {
-		compare(query_, ref_, 1, 1, 1);
+		compare(query_, ref_, 1, 1, 1, 1);
 	}
 	
 	public Comparison(String s, LineParserS1 lp) {
@@ -83,8 +83,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @param k5Limit Maximum allowed 5-mer profile difference
 	 * @return The calculated similarity measure (lower is more similar)
 	 */
-	float compare(Clade q, Clade r, float gcLimit, float strLimit, float k5Limit) {
-		boolean pass=quickCompare(q, r, gcLimit, strLimit);
+	float compare(Clade q, Clade r, float gcLimit, float strLimit, float cagaLimit, float k5Limit) {
+		boolean pass=quickCompare(q, r, gcLimit, strLimit, cagaLimit);
 		if(!pass) {return 4+gcdif;}
 		return slowCompare(q, r, k5Limit);
 	}
@@ -99,7 +99,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @param strLimit Maximum allowed strandedness difference
 	 * @return true if the Clades pass the quick comparison filter
 	 */
-	boolean quickCompare(Clade q, Clade r, float gcLimit, float strLimit) {
+	boolean quickCompare(Clade q, Clade r, float gcLimit, float strLimit, float cagaLimit) {
 		query=q;
 		ref=r;
 		assert(query.finished());
@@ -109,8 +109,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		gcdif=Math.abs(query.gc-ref.gc);
 		strdif=Math.abs(query.strandedness-ref.strandedness);
 		hhdif=Math.abs(query.hh-ref.hh);
+		cagadif=Math.abs(query.caga-ref.caga);
 		entdif=Math.abs(query.gcCompEntropy-ref.gcCompEntropy);
-		return gcdif<=gcLimit && strdif<=strLimit;
+		return gcdif<=gcLimit && strdif<=strLimit && cagadif<cagaLimit;
 	}
 	
 	/**
@@ -228,7 +229,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * Resets all difference measures to their default values.
 	 */
 	void clearDif() {
-		gcdif=entdif=strdif=hhdif=k3dif=k4dif=k5dif=ssudif=1;
+		gcdif=entdif=strdif=hhdif=cagadif=k3dif=k4dif=k5dif=ssudif=1;
 	}
 	
 	/**
@@ -242,6 +243,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		gcdif=b.gcdif;
 		strdif=b.strdif;
 		hhdif=b.hhdif;
+		cagadif=b.cagadif;
 		entdif=b.entdif;
 		k3dif=b.k3dif;
 		k4dif=b.k4dif;
@@ -283,7 +285,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(ref==null) {return bb;}
 		if(bb==null) {bb=new ByteBuilder();}
 		bb.append("tid=").append(ref.taxID).append("\tname=").append(ref.name).nl();
-		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5).append(hhdif, 5);
+		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5);
+		bb.append("\thhdif=").append(hhdif, 5).append("\tcagadif=").append(cagadif, 5);
 		if(calcCladeEntropy || entdif<0.5f) {bb.append("\tedif=").append(entdif, 5);}
 		bb.append("\tk3dif=").append(k3dif, 6).append("\tk4dif=").append(k4dif, 6);
 		bb.append("\tk5dif=").append(k5dif, 6);
@@ -492,6 +495,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	float strdif=1;
 	/** Homo-het difference between query and reference */
 	float hhdif=1;
+	/** caga difference between query and reference */
+	float cagadif=1;
 	/** Entropy difference between query and reference */
 	float entdif=1;
 	/** 3-mer profile difference between query and reference */

@@ -220,6 +220,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 					c.dimers=new int[16];
 					c.strandedness=EntropyTracker.strandedness(c.bases, c.dimers, 2);
 					c.hh=KmerTracker.HH(c.dimers);
+					c.caga=KmerTracker.CAGA(c.dimers);
 				}
 				if(parseDepth) {
 					boolean b=DataLoader.parseAndSetDepth(c, lps, lpt);

@@ -3670,10 +3670,10 @@ public final class Tools {
 		return tempExt;
 	}
 
-	public static final int min(int x, int y){return x<y ? x : y;}
-	public static final int max(int x, int y){return x>y ? x : y;}
-	public static final int min(int x, int y, int z){return x<y ? (x<z ? x : z) : (y<z ? y : z);}
-	public static final int max(int x, int y, int z){return x>y ? (x>z ? x : z) : (y>z ? y : z);}
+	public static final int min(int x, int y){return Math.min(x, y);}
+	public static final int max(int x, int y){return Math.max(x, y);}
+	public static final int min(int x, int y, int z){return Math.min(Math.min(x, y), z);}
+	public static final int max(int x, int y, int z){return Math.max(Math.max(x, y), z);}
 	public static final int min(int x, int y, int z, int z2){return min(min(x,y), min(z,z2));}
 	public static final int max(int x, int y, int z, int z2){return max(max(x,y), max(z,z2));}
 	
@@ -3695,26 +3695,26 @@ public final class Tools {
 
 	public static final byte mid(byte x, byte y, byte z){return x<y ? (x<z ? min(y, z) : x) : (y<z ? min(x, z) : y);}
 	
-	public static final long min(long x, long y){return x<y ? x : y;}
-	public static final long max(long x, long y){return x>y ? x : y;}
-	public static final long min(long x, long y, long z){return x<y ? (x<z ? x : z) : (y<z ? y : z);}
-	public static final long max(long x, long y, long z){return x>y ? (x>z ? x : z) : (y>z ? y : z);}
+	public static final long min(long x, long y){return Math.min(x, y);}
+	public static final long max(long x, long y){return Math.max(x, y);}
+	public static final long min(long x, long y, long z){return Math.min(Math.min(x, y), z);}
+	public static final long max(long x, long y, long z){return Math.max(Math.max(x, y), z);}
 	public static final long min(long x, long y, long z, long z2){return min(min(x,y), min(z,z2));}
 	public static final long max(long x, long y, long z, long z2){return max(max(x,y), max(z,z2));}
 	public static final long mid(long x, long y, long z){return x<y ? (x<z ? min(y, z) : x) : (y<z ? min(x, z) : y);}
 	public static final int longToInt(long x){return x<Integer.MIN_VALUE ? Integer.MIN_VALUE : x>Integer.MAX_VALUE ? Integer.MAX_VALUE : (int)x;}
 	
-	public static final double min(double x, double y){return x<y ? x : y;}
-	public static final double max(double x, double y){return x>y ? x : y;}
-	public static final double min(double x, double y, double z){return x<y ? (x<z ? x : z) : (y<z ? y : z);}
-	public static final double max(double x, double y, double z){return x>y ? (x>z ? x : z) : (y>z ? y : z);}
+	public static final double min(double x, double y){return Math.min(x, y);}
+	public static final double max(double x, double y){return Math.max(x, y);}
+	public static final double min(double x, double y, double z){return Math.min(Math.min(x, y), z);}
+	public static final double max(double x, double y, double z){return Math.max(Math.max(x, y), z);}
 	public static final double max(double w, double x, double y, double z){return max(max(w, x), max(y, z));}
 	public static final double mid(double x, double y, double z){return x<y ? (x<z ? min(y, z) : x) : (y<z ? min(x, z) : y);}
 	
-	public static final float min(float x, float y){return x<y ? x : y;}
-	public static final float max(float x, float y){return x>y ? x : y;}
-	public static final float min(float x, float y, float z){return x<y ? (x<z ? x : z) : (y<z ? y : z);}
-	public static final float max(float x, float y, float z){return x>y ? (x>z ? x : z) : (y>z ? y : z);}
+	public static final float min(float x, float y){return Math.min(x, y);}
+	public static final float max(float x, float y){return Math.max(x, y);}
+	public static final float min(float x, float y, float z){return Math.min(Math.min(x, y), z);}
+	public static final float max(float x, float y, float z){return Math.max(Math.max(x, y), z);}
 	public static final float min(float x, float y, float z, float z2){return min(min(x, y), min(z, z2));}
 	public static final float max(float x, float y, float z, float z2){return max(max(x, y), max(z, z2));}
 	public static final float mid(float x, float y, float z){return x<y ? (x<z ? min(y, z) : x) : (y<z ? min(x, z) : y);}

@@ -185,6 +185,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				SpectraCounter.call16S=SpectraCounter.call18S=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ssuid") || a.equalsIgnoreCase("minssuid")){
 				Oracle.minSSUID=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("hhmult")){
+				Oracle.hhMult=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("cagamult")){
+				Oracle.cagaMult=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("loadthreads")){
 				SpectraCounter.loadThreadsOverride=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("comparethreads")){

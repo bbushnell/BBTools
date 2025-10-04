@@ -116,7 +116,8 @@ public class Oracle extends BinObject implements Cloneable {
 
 		final float gcDif=Math.abs(a.gc()-b.gc());
 		final float hhDif=Math.abs(a.hh-b.hh);
-		final float gchhDif=Math.max(gcDif, hhDif*1.5f);//1.5 optimal in synth testing; 0.25% better than 0.
+		final float cagaDif=Math.abs(a.caga-b.caga);
+		final float gchhDif=Tools.max(gcDif, hhDif*hhMult, cagaDif*cagaMult);
 //		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
 		final float depthRatio=a.depthRatio(b);
 		final long minlen=Math.min(a.size(), b.size());
@@ -584,6 +585,8 @@ public class Oracle extends BinObject implements Cloneable {
 	static int printWeightInVector=1;
 	static boolean printNetOutputInVector=false;
 	static float minSSUID=0.96f;
+	static float hhMult=1.5f;//1.5 optimal in synth testing; 0.25% better than 0.
+	static float cagaMult=1.3f;//1.3 optimal; also 0.25% better.
 	boolean verbose2=false;
 	
 	

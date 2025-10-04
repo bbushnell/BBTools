@@ -238,6 +238,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		gc=calcGC();
 		strandedness=EntropyTracker.strandedness(counts[2], 2);
 		hh=KmerTracker.HH(counts[2]);
+		caga=KmerTracker.CAGA(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		fillTrimers();
 //		fillTetramers();
@@ -305,7 +306,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		name=lineage=null;
 		
 		bases=contigs=0;
-		gc=entropy=gcCompEntropy=strandedness=hh=0;
+		gc=entropy=gcCompEntropy=strandedness=hh=caga=0;
 		Tools.fill(counts, 0);
 	}
 	
@@ -434,6 +435,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public float strandedness;
 	/** Measure of homopolymer tendency */
 	public float hh;
+	/** CA-GA tendency */
+	public float caga;
 	/** Flag indicating whether this Clade has been completed with finish() */
 	private boolean finished=false;
 	

@@ -116,12 +116,16 @@ public class CladeIndex implements Cloneable {
 			strDelta=Float.parseFloat(b);
 		}else if(a.equals("hhdelta") || a.equals("hhdif")){
 			hhDelta=Float.parseFloat(b);
+		}else if(a.equals("cagadelta") || a.equals("cagadif")){
+			cagaDelta=Float.parseFloat(b);
 		}else if(a.equals("gcmult")){
 			gcMult=Float.parseFloat(b);
 		}else if(a.equals("strmult")){
 			strMult=Float.parseFloat(b);
 		}else if(a.equals("hhmult")){
 			hhMult=Float.parseFloat(b);
+		}else if(a.equals("cagamult")){
+			cagaMult=Float.parseFloat(b);
 		}else if(a.equals("abs") || a.equals("absdif")){
 			Comparison.method=Comparison.ABS;
 		}else if(a.equals("abscomp")){
@@ -228,13 +232,14 @@ public class CladeIndex implements Cloneable {
 		float gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
 		float strLimit=worst.strdif+Math.min(strDelta, k5Limit*strMult);
 		float hhLimit=worst.hhdif+Math.min(hhDelta, k5Limit*hhMult);
+		float cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 		//Early exit because GC won't match this list
 		if(Math.abs((gcLevel*0.01f)-a.gc)>gcLimit+0.005f) {return;}
 		for(Clade b : list) {//TODO: binary search using hh
 			if(b==a || (b.taxID==a.taxID && banSelf)) {continue;}
 			//			System.err.println("Comparing to "+b);
 			comparisons++;
-			if(!temp.quickCompare(a, b, gcLimit, strLimit)) {continue;}
+			if(!temp.quickCompare(a, b, gcLimit, strLimit, cagaLimit)) {continue;}
 			slowComparisons++;
 			float ret=temp.slowCompare(a, b, k5Limit);//ret is not currently used
 			//			System.err.println("Comparison: "+temp);
@@ -246,6 +251,7 @@ public class CladeIndex implements Cloneable {
 				gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
 				strLimit=worst.strdif+Math.min(strDelta, k5Limit*strMult);
 				hhLimit=worst.hhdif+Math.min(hhDelta, k5Limit*hhMult);
+				cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 			}
 		}
 	}
@@ -272,6 +278,7 @@ public class CladeIndex implements Cloneable {
 		float gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
 		float strLimit=worst.strdif+Math.min(strDelta, k5Limit*strMult);
 		float hhLimit=worst.hhdif+Math.min(hhDelta, k5Limit*hhMult);
+		float cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 		//Early exit because GC won't match this list
 		if(Math.abs((gcLevel*0.01f)-a.gc)>gcLimit+0.005f) {return;}
 		final int center=binarySearchHH(list, a.hh);
@@ -279,7 +286,7 @@ public class CladeIndex implements Cloneable {
 			Clade b=list.get(i);
 			if(b==a || (b.taxID==a.taxID && banSelf)) {continue;}
 			comparisons++;
-			boolean pass=temp.quickCompare(a, b, gcLimit, strLimit);
+			boolean pass=temp.quickCompare(a, b, gcLimit, strLimit, cagaLimit);
 			if(temp.hhdif>hhLimit && i<center) {break;}//Never break at center
 			if(!pass) {continue;}
 			slowComparisons++;
@@ -291,6 +298,7 @@ public class CladeIndex implements Cloneable {
 				gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
 				strLimit=worst.strdif+Math.min(strDelta, k5Limit*strMult);
 				hhLimit=worst.hhdif+Math.min(hhDelta, k5Limit*hhMult);
+				cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 //				System.err.println("B gcLimit="+gcLimit+", strLimit="+strLimit+", hhLimit="+hhLimit);
 			}
 		}
@@ -298,7 +306,7 @@ public class CladeIndex implements Cloneable {
 			Clade b=list.get(i);
 			if(b==a || (b.taxID==a.taxID && banSelf)) {continue;}
 			comparisons++;
-			boolean pass=temp.quickCompare(a, b, gcLimit, strLimit);
+			boolean pass=temp.quickCompare(a, b, gcLimit, strLimit, cagaLimit);
 			if(temp.hhdif>hhLimit) {break;}
 			if(!pass) {continue;}
 			slowComparisons++;
@@ -310,6 +318,7 @@ public class CladeIndex implements Cloneable {
 				gcLimit=worst.gcdif+Math.min(gcDelta, k5Limit*gcMult);
 				strLimit=worst.strdif+Math.min(strDelta, k5Limit*strMult);
 				hhLimit=worst.hhdif+Math.min(hhDelta, k5Limit*hhMult);
+				cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 //				System.err.println("C gcLimit="+gcLimit+", strLimit="+strLimit+", hhLimit="+hhLimit);
 			}
 		}
@@ -374,14 +383,18 @@ public class CladeIndex implements Cloneable {
 	static float gcDelta=0.05f;
 	/** Maximum allowed strandedness difference (absolute) */
 	static float strDelta=0.12f;
-	/** Maximum allowed strandedness difference (absolute) */
+	/** Maximum allowed hh difference (absolute) */
 	static float hhDelta=0.025f;
+	/** Maximum allowed caga difference (absolute) */
+	static float cagaDelta=0.017f;
 	/** Multiplier for dynamic GC difference threshold based on k-mer similarity */
 	static float gcMult=0.5f; //These are optimized for ABS; higher is safer
 	/** Multiplier for dynamic strandedness difference threshold based on k-mer similarity */
 	static float strMult=1.2f;
-	/** Multiplier for dynamic het-homo difference threshold based on k-mer similarity */
-	static float hhMult=0.5f;//Unknown optimal value - needs testing
+	/** Multiplier for dynamic hh difference threshold based on k-mer similarity */
+	static float hhMult=0.5f;
+	/** Multiplier for dynamic caga difference threshold based on k-mer similarity */
+	static float cagaMult=0.8f;
 	
 	static boolean LINEAR_SEARCH=false;
 
