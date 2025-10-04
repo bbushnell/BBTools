@@ -108,6 +108,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 
 		gcdif=Math.abs(query.gc-ref.gc);
 		strdif=Math.abs(query.strandedness-ref.strandedness);
+		hhdif=Math.abs(query.hh-ref.hh);
 		entdif=Math.abs(query.gcCompEntropy-ref.gcCompEntropy);
 		return gcdif<=gcLimit && strdif<=strLimit;
 	}
@@ -123,8 +124,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	float slowCompare(Clade q, Clade r, float k5Limit) {
 		assert(query==q && ref==r);
-		if(method==ABS) {return compareABS(k5Limit);}
 		if(method==ABSCOMP) {return compareABSCOMP(k5Limit);}
+		if(method==ABS) {return compareABS(k5Limit);}
 		if(method==COS) {return compareCOS(k5Limit);}
 		if(method==HEL) {return compareHEL(k5Limit);}
 		if(method==EUC) {return compareEUC(k5Limit);}
@@ -160,11 +161,16 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	private float compareABSCOMP(float k5Limit) {
 //		k3dif=SimilarityMeasures.absDifComp(query.counts[3], ref.counts[3], 3);
 		k3dif=Vector.absDifFloat(query.trimers, ref.trimers);//Already compensated
-		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*4;}
+		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*k3Mult;}
+		if(query.bases<minK4Bases || ref.bases<minK4Bases || maxK<4) {return k3dif*k3Mult;}
 		k4dif=maxK<4 ? k3dif : SimilarityMeasures.absDifComp(query.counts[4], ref.counts[4], 4);
 //		k4dif=maxK<4 ? k3dif : Vector.absDifComp(query.counts[4], ref.counts[4], 4, BinObject.gcmapMatrix[4]);
 //		k4dif=Vector.absDifFloat(query.tetramers, ref.tetramers);//Already compensated.  This makes it 12% slower for some reason.
-		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*2;}
+		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*k4Mult;}
+		if(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5) {return k4dif*k4Mult;}
+//		final boolean skipK5=(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5);
+//		k5dif=skipK5 ? k4dif*1f : SimilarityMeasures.absDifComp(query.counts[5], ref.counts[5], 5);
+		
 		k5dif=maxK<5 ? k4dif : SimilarityMeasures.absDifComp(query.counts[5], ref.counts[5], 5);
 //		k5dif=maxK<5 ? k4dif : Vector.absDifComp(query.counts[5], ref.counts[5], 5, BinObject.gcmapMatrix[5]);
 		return k5dif;
@@ -222,7 +228,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * Resets all difference measures to their default values.
 	 */
 	void clearDif() {
-		gcdif=entdif=strdif=k3dif=k4dif=k5dif=ssudif=1;
+		gcdif=entdif=strdif=hhdif=k3dif=k4dif=k5dif=ssudif=1;
 	}
 	
 	/**
@@ -234,8 +240,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		query=b.query;
 		ref=b.ref;
 		gcdif=b.gcdif;
-		entdif=b.entdif;
 		strdif=b.strdif;
+		hhdif=b.hhdif;
+		entdif=b.entdif;
 		k3dif=b.k3dif;
 		k4dif=b.k4dif;
 		k5dif=b.k5dif;
@@ -276,7 +283,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(ref==null) {return bb;}
 		if(bb==null) {bb=new ByteBuilder();}
 		bb.append("tid=").append(ref.taxID).append("\tname=").append(ref.name).nl();
-		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5);
+		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5).append(hhdif, 5);
 		if(calcCladeEntropy || entdif<0.5f) {bb.append("\tedif=").append(entdif, 5);}
 		bb.append("\tk3dif=").append(k3dif, 6).append("\tk4dif=").append(k4dif, 6);
 		bb.append("\tk5dif=").append(k5dif, 6);
@@ -443,7 +450,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 				ref.taxID==0 || CladeObject.tree==null) {
 			return TaxTree.LIFE;
 		}
-		return CladeObject.tree.commonAncestorLevel(query.taxID, ref.taxID);
+		return Math.max(0, CladeObject.tree.commonAncestorLevel(query.taxID, ref.taxID));
 	}
 	
 	/**
@@ -481,10 +488,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	
 	/** GC content difference between query and reference */
 	float gcdif=1;
-	/** Entropy difference between query and reference */
-	float entdif=1;
 	/** Strandedness difference between query and reference */
 	float strdif=1;
+	/** Homo-het difference between query and reference */
+	float hhdif=1;
+	/** Entropy difference between query and reference */
+	float entdif=1;
 	/** 3-mer profile difference between query and reference */
 	float k3dif=1;
 	/** 4-mer profile difference between query and reference */
@@ -497,13 +506,18 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	/** Whether to use early exit optimization to avoid unnecessary calculations */
 	static boolean earlyExit=true;
 	/** Multiplier for 4-mer cutoff in early exit tests */
-	private static float comparisonCutoffMult=1f;
+	private static float comparisonCutoffMult=1.2f;
 	/** Multiplier for 3-mer cutoff in early exit tests; 1.0 is better for ABS, 1.5 for ABSCOMP */
-	private static float comparisonCutoffMult2=1.5f;
+	private static float comparisonCutoffMult2=1.6f;
 	/** Constants for different comparison methods */
 	static final int ABS=1, COS=2, HEL=3, EUC=4, ABSCOMP=5;
 	/** The current comparison method (default is ABSCOMP) */
 	static int method=ABSCOMP;
 	/** Maximum k-mer size to use in comparisons */
 	static int maxK=5;
+	static long minK5Bases=3000;
+	static long minK4Bases=600;
+	static float k4Mult=2f;
+	static float k3Mult=4f;
+	
 }

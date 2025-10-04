@@ -37,22 +37,22 @@ public class MutateGenome {
 		Timer t=new Timer();
 		MutateGenome x=new MutateGenome(args);
 		x.process(t);
-		
+
 		//Close the print stream if it was redirected
 		Shared.closeStream(x.outstream);
 	}
-	
+
 	public MutateGenome(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		Shared.setBufferLen(1);
 		FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
-		
+
 		Parser parser=new Parser();
 		parser.overwrite=true;
 		for(int i=0; i<args.length; i++){
@@ -97,12 +97,12 @@ public class MutateGenome {
 			}else if(a.equals("padright")){
 				padRight=Integer.parseInt(b);
 			}else if(a.equals("nohomopolymers") || a.equals("nohomop") || 
-					a.equals("banhomopolymers") || a.equals("banhomop")){
+				a.equals("banhomopolymers") || a.equals("banhomop")){
 				banHomopolymers=Parse.parseBoolean(b);
 			}else if(a.equals("prefix")){
 				prefix=b;
 			}else if(a.equals("vcf") || a.equals("outvcf") || a.equals("vcfout")
-					|| a.equals("vars") || a.equals("varsout") || a.equals("outvars")){
+				|| a.equals("vars") || a.equals("varsout") || a.equals("outvars")){
 				outVcf=b;
 			}else if(a.equals("id") || a.equals("identity")){
 				float x=Float.parseFloat(b);
@@ -123,52 +123,52 @@ public class MutateGenome {
 		float indelRate=insRate+delRate;
 		errorRate=subRate+indelRate;
 		errorRate2=subRate+(indelRate*Math.max(1f, 0.16666f*(maxIndel+1)));
-		
+
 		assert(subRate>=0 && subRate<=1) : "Substitution rate must be between 0 and 1, inclusive.  Invalid value: "+subRate;
 		assert(indelRate>=0 && indelRate<=1) : "Indel rate must be between 0 and 1, inclusive.  Invalid value: "+indelRate;
 		assert(errorRate>=0 && errorRate<=1) : "Total error rate must be between 0 and 1, inclusive.  Invalid value: "+errorRate;
-		
+
 		System.err.println(Tools.format("Target Identity:   \t%.2f%%", (1-errorRate2)*100));
 		System.err.println(Tools.format("Substitution Rate: \t%.2f%%", subRate*100));
 		System.err.println(Tools.format("Ins Rate:          \t%.2f%%", insRate*100));
 		System.err.println(Tools.format("Del Rate:          \t%.2f%%", delRate*100));
-		
+
 		randy=Shared.threadLocalRandom(seed);
-		
+
 		{//Process parser fields
 			Parser.processQuality();
-			
+
 			maxReads=parser.maxReads;
 			in1=parser.in1;
 			out1=parser.out1;
 			overwrite=parser.overwrite;
 			append=parser.append;
 		}
-		
+
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
-		
+
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, outVcf)){
 			outstream.println((out1==null)+", "+(outVcf==null)+", "+out1+", "+outVcf);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+", "+outVcf+"\n");
 		}
-		
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in1)){
 			throw new RuntimeException("\nCan't read some input files.\n");  
 		}
-		
+
 		//Ensure that no file was specified multiple times
 		if(!Tools.testForDuplicateFiles(true, in1, out1, outVcf)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
-		
+
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, null, true, overwrite, append, false);
 		ffoutVcf=FileFormat.testOutput(outVcf, FileFormat.VCF, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, null, true, true);
 	}
-	
+
 	private static int parsePloidy(String[] args){
 		int ploidy=1;
 		for(int i=0; i<args.length; i++){
@@ -183,9 +183,9 @@ public class MutateGenome {
 		}
 		return ploidy;
 	}
-	
+
 	void process(Timer t){
-		
+
 		final ConcurrentReadInputStream cris;
 		{
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
@@ -195,22 +195,22 @@ public class MutateGenome {
 		final ConcurrentReadOutputStream ros;
 		if(out1!=null){
 			final int buff=4;
-			
+
 			if(cris.paired() && (in1==null || !in1.contains(".sam"))){
 				outstream.println("Writing interleaved.");
 			}
 
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
-			
+
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, null, false);
 			ros.start();
 		}else{ros=null;}
 
 		{
-			
+
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			if(reads!=null && !reads.isEmpty()){
 				Read r=reads.get(0);
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
@@ -222,20 +222,20 @@ public class MutateGenome {
 
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
-				
+
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
-					
+
 					readsProcessed++;
 					basesProcessed+=r1.length();
-					
+
 					processRead(r1, bb, varsTemp, headers);
-					
+
 					readsOut++;
 					basesOut+=r1.length();
 					if(vars!=null){vars.addAll(varsTemp);}
 				}
-				
+
 				if(ros!=null){ros.add(reads, ln.id);}
 
 				cris.returnList(ln);
@@ -246,20 +246,20 @@ public class MutateGenome {
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
-			
+
 			writeVars(vars, headers);
 		}
-		
+
 		ReadWrite.closeStreams(cris, ros);
 		if(verbose){outstream.println("Finished.");}
-		
-		
+
+
 		{
 			t.stop();
-			
+
 			//Calculate units per nanosecond
 			double brnano=basesRetained/(double)(t.elapsed);
-			
+
 			//Add "k" and "m" for large numbers
 			long mutationsAdded=subsAdded+insAdded+delsAdded+junctionsAdded;
 			String brstring=(basesRetained<100000 ? ""+basesRetained : basesRetained<100000000 ? (basesRetained/1000)+"k" : (basesRetained/1000000)+"m");
@@ -272,13 +272,13 @@ public class MutateGenome {
 			String dlastring=(delLenAdded<100000 ? ""+delLenAdded : delLenAdded<100000000 ? (delLenAdded/1000)+"k" : (delLenAdded/1000000)+"m");
 			String nlastring=(netLengthAdded<100000 ? ""+netLengthAdded : netLengthAdded<100000000 ? (netLengthAdded/1000)+"k" : (netLengthAdded/1000000)+"m");
 			String jastring=(junctionsAdded<100000 ? ""+junctionsAdded : junctionsAdded<100000000 ? (junctionsAdded/1000)+"k" : (junctionsAdded/1000000)+"m");
-			
+
 			//Format the strings so they have they are right-justified
 			while(rastring.length()<8){rastring=" "+rastring;}
 			while(ilastring.length()<8){ilastring=" "+ilastring;}
 			while(dlastring.length()<8){dlastring=" "+dlastring;}
 			while(nlastring.length()<8){nlastring=" "+nlastring;}
-			
+
 			while(brstring.length()<8){brstring=" "+brstring;}
 			while(mastring.length()<8){mastring=" "+mastring;}
 			while(sastring.length()<8){sastring=" "+sastring;}
@@ -301,10 +301,10 @@ public class MutateGenome {
 			outstream.println("Net Indel Length:   "+nlastring);
 			outstream.println("Junctions Added:    "+jastring);
 		}
-		
+
 		t.stop();
 	}
-	
+
 	public boolean isHomopolymerDel(byte[] bases, int pos, int len){
 		final byte b=bases[pos];
 		for(int i=1; i<len; i++){
@@ -314,13 +314,13 @@ public class MutateGenome {
 		if(pos<bases.length-1 && bases[pos+1]==b){return true;}
 		return false;
 	}
-	
+
 	public boolean isHomopolymerIns(byte[] bases, int pos, byte b){
 		if(b==bases[pos]){return true;}
 		if(pos>0 && b==bases[pos-1]){return true;}
 		return false;
 	}
-	
+
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
 		for(int i=1; i<sb.length(); i++) {
@@ -328,20 +328,20 @@ public class MutateGenome {
 		}
 		return isHomopolymerIns(bases, pos, b);
 	}
-	
+
 	public void processRead(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers){
-		
+
 		if(r.aminoacid()) {
 			processReadAmino(r, bb, vars, headers);
 			return;
 		}
-		
+
 		//Setup
 		bb.clear();
 		r.quality=null;
 		if(headers!=null){headers.add("<ID="+r.id+",length="+r.length()+">");}
 		if(vars!=null){vars.clear();}
-		
+
 		//Handle genomeFraction
 		if(genomeFraction<1){
 			final byte[] bases0=r.bases;
@@ -353,12 +353,12 @@ public class MutateGenome {
 					bb.append(bases0[j]);
 				}
 				j=0;
-				
+
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
 				} //Chimeric junction
-				
+
 				for(; i<retain; i++, j++){
 					bb.append(bases0[j]);
 				}
@@ -366,10 +366,10 @@ public class MutateGenome {
 				bb.clear();
 			}
 		}
-		
+
 		//Handle mutations
 		final byte[] bases=r.bases;
-		
+
 		if(period>-1){
 			int basesSinceMutation=0;
 			char prevChar='N';
@@ -417,112 +417,113 @@ public class MutateGenome {
 				prevChar=(char) b0;
 			}
 		}else{
-			
+
 			ConservationModel conservator=(sinewaves<1 ? null : 
 				new ConservationModel(0.1f, sinewaves, randy));
-			
+
 			//All new code, rewritten from scratch, April 2025
 			char prevChar='N';
 			int lastIndel=-1;
 			for(int i=0; i<bases.length;) {
-			    final byte b0=bases[i];
-			    final boolean defined=AminoAcid.isFullyDefined(b0);
-			    final boolean spaceOK=(i-lastIndel>indelSpacing);
-			    byte b=b0;
-			    
-			    if(conservator!=null && !conservator.shouldMutatePosition(i, randy)){
-			        // Skip mutation, this is a conserved region
-			        refAdded++;
-			        bb.append(b);
-			        i++;
-			        continue;
-			    }
-			    
-			    float x=randy.nextFloat();
-			    boolean addSub=x<=subRate;
-			    boolean addDel=x>subRate && x<=subRate+delRate && spaceOK;
-			    boolean addIns=x>subRate+delRate && x<=errorRate && spaceOK;
-			    boolean addRef=(i==0 || i==bases.length-1 || 
-			    		x>errorRate || !defined || !(addDel || addIns || addSub));
-			    boolean success=false;
-			    if(bb.length()>0) {prevChar=(char) bb.get(bb.length()-1);}
-//			    assert(false) : errorRate+", "+subRate+", "+delRate;
-			    if(addRef) {
-			        refAdded++;
-			        bb.append(b);
-			        success=true;
-			        i++;
-			    }else if(addSub) {
-			    	subsAdded++;
-			    	mutationLengthAdded++;
-			    	b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
-			    	bb.append(b);
-			    	if(vars!=null){
-			    		vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), 
-			    				Character.toString((char)b0), prevChar, r.id, r.numericID));
-			    	}
-			    	success=true;
-			    	i++;
-			    }else if(addIns) {
-			    	int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
+				final byte b0=bases[i];
+				final boolean defined=AminoAcid.isFullyDefined(b0);
+				final boolean spaceOK=(i-lastIndel>indelSpacing);
+				byte b=b0;
+
+				if(conservator!=null && !conservator.shouldMutatePosition(i, randy)){
+					// Skip mutation, this is a conserved region
+					refAdded++;
+					bb.append(b);
+					i++;
+					continue;
+				}
+
+				float x=randy.nextFloat();
+				boolean addSub=x<=subRate;
+				boolean addDel=x>subRate && x<=subRate+delRate && spaceOK;
+				boolean addIns=x>subRate+delRate && x<=errorRate && spaceOK;
+				boolean addRef=(i==0 || i==bases.length-1 || 
+					x>errorRate || !defined || !(addDel || addIns || addSub));
+				boolean success=false;
+				if(bb.length()>0) {prevChar=(char) bb.get(bb.length()-1);}
+				//			    assert(false) : errorRate+", "+subRate+", "+delRate;
+				if(addRef) {
+					refAdded++;
+					bb.append(b);
+					success=true;
+					i++;
+				}else if(addSub) {
+					subsAdded++;
+					mutationLengthAdded++;
+					b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+					bb.append(b);
+					if(vars!=null){
+						vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), 
+							Character.toString((char)b0), prevChar, r.id, r.numericID));
+					}
+					success=true;
+					i++;
+				}else if(addIns) {
+					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
 					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
-//					if(insHomopolymer(r.bases, i, len, prevChar)) {
-//			    		//Skip
-//			    	}else 
-			    	if(len>0) {
+					//					if(insHomopolymer(r.bases, i, len, prevChar)) {
+					//			    		//Skip
+					//			    	}else 
+					if(len>0) {
 						insAdded++;
 						insLenAdded+=len;
 						mutationLengthAdded+=len;
 						netLengthAdded+=len;
 						ByteBuilder bbv=new ByteBuilder(len);
 						for(int j=0; j<len; j++) {
-					    	b=AminoAcid.numberToBase[randy.nextInt(4)];
-					    	//b0 is the current character in the ref, which will be added after the insertion
-					    	//prevChar is the last character in bb, which will come before the insertion
+							b=AminoAcid.numberToBase[randy.nextInt(4)];
+							//b0 is the current character in the ref, which will be added after the insertion
+							//prevChar is the last character in bb, which will come before the insertion
 							while(banHomopolymers && ((j==0 && b==prevChar) || (j==len-1 && b==b0))) {
-						    	b=AminoAcid.numberToBase[randy.nextInt(4)];
+								b=AminoAcid.numberToBase[randy.nextInt(4)];
 							}
-					    	bb.append(b);
-					    	bbv.append(b);
+							bb.append(b);
+							bbv.append(b);
 						}
 						if(vars!=null){vars.add(new SmallVar(INS, i, i, bbv.toString(), "", prevChar, r.id, r.numericID));}
 						success=true;
 						lastIndel=i;
 						//i++; //No i++ for insertions
 					}
-			    }else if(addDel) {
-			    	int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
-			    	if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
-			    	if(banHomopolymers && delHomopolymer(r.bases, i, len, prevChar)) {
-			    		//Skip
-			    	}else if(len>0) {
+				}else if(addDel) {
+					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
+					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
+					if(banHomopolymers && delHomopolymer(r.bases, i, len, prevChar)) {
+						//Skip
+					}else if(len>0) {
 						delsAdded++;
 						delLenAdded+=len;
 						mutationLengthAdded+=len;
 						netLengthAdded-=len;
 						//do nothing
 						if(vars!=null){vars.add(new SmallVar(DEL, i, i+len, "", 
-								new String(bases, i, len), prevChar, r.id, r.numericID));}
+							new String(bases, i, len), prevChar, r.id, r.numericID));}
 						i=i+len;
 						lastIndel=i;
 						success=true;
-			    	}
-			    }
-				
-			    if(!success){
-			    	// Problem encountered; advance
-			    	refAdded++;
-			    	bb.append(b);
+					}
+				}
+
+				if(!success){
+					// Problem encountered; advance
+					refAdded++;
+					bb.append(b);
 					success=true;
-			        i++;
-			    }
-			    
-			    assert(success);
-			    assert(bb.length()==refAdded+subsAdded+insLenAdded);
-			    assert(i==refAdded+subsAdded+delLenAdded) : i+", "+refAdded+", "+subsAdded+", "+delLenAdded;
+					i++;
+				}
+
+				assert(success);
+				assert(bb.length()==refAdded+subsAdded+insLenAdded) : bb.length()+", "+refAdded+", "+
+				subsAdded+", "+insLenAdded+", "+delLenAdded;//TODO: This is firing, claiming len 1.
+				assert(i==refAdded+subsAdded+delLenAdded) : i+", "+refAdded+", "+subsAdded+", "+delLenAdded;
 			}
 		}
-		
+
 		if(padLeft>0) {
 			ByteBuilder bb2=new ByteBuilder(bb.length+padLeft+padRight);
 			for(int i=0; i<padLeft; i++) {bb2.append(AminoAcid.numberToBase[randy.nextInt(4)]);}
@@ -538,43 +539,43 @@ public class MutateGenome {
 		for(int i=0; i<padRight; i++) {
 			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
 		}
-		
+
 		condenseVars(vars);
-		
+
 		//Modify read
 		r.bases=bb.toBytes();
-		
+
 		if(prefix!=null){
 			r.id=prefix+r.numericID;
 		}
 		basesRetained+=r.bases.length;
 	}
-	
+
 	private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar) {
 		return prevChar==bases[i];
 	}
-	
+
 	private boolean delHomopolymer(byte[] bases, int i, int len, char prevChar) {
 		byte a1=(byte)prevChar;
 		byte a2=bases[i];
 		byte b1=bases[i+len-1];
 		byte b2=bases[i+len];
-		
+
 		if(a1==b2) {return true;}//It created a homopolymer (over-restrictive, but safe)
 		if(a2==b1 && (a1==a2 || b1==b2)){return true;}//Partial deletion within a homopolymer
 		return false;
 	}
 
 	public void processReadAmino(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers){
-		
+
 		assert(r.aminoacid());
-		
+
 		//Setup
 		bb.clear();
 		r.quality=null;
 		if(headers!=null){headers.add("<ID="+r.id+",length="+r.length()+">");}
 		if(vars!=null){vars.clear();}
-		
+
 		//Handle genomeFraction
 		if(genomeFraction<1){
 			final byte[] bases0=r.bases;
@@ -586,12 +587,12 @@ public class MutateGenome {
 					bb.append(bases0[j]);
 				}
 				j=0;
-				
+
 				if(i<retain){
 					junctionsAdded++;
 					mutationLengthAdded++;
 				} //Chimeric junction
-				
+
 				for(; i<retain; i++, j++){
 					bb.append(bases0[j]);
 				}
@@ -599,10 +600,10 @@ public class MutateGenome {
 				bb.clear();
 			}
 		}
-		
+
 		//Handle mutations
 		final byte[] bases=r.bases;
-		
+
 		if(period>-1){
 			int basesSinceMutation=0;
 			char prevChar='X';
@@ -679,23 +680,23 @@ public class MutateGenome {
 				prevChar=(char) b0;
 			}
 		}
-		
+
 		condenseVars(vars);
-		
+
 		//Modify read
 		r.bases=bb.toBytes();
-		
+
 		if(prefix!=null){
 			r.id=prefix+r.numericID;
 		}
 		basesRetained+=r.bases.length;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private void condenseVars(ArrayList<SmallVar> vars){
 		if(vars==null || vars.size()<2){return;}
-		
+
 		{//Pass 1: fuse indels into subs
 			SmallVar current=null;
 			for(int i=0; i<vars.size(); i++){
@@ -730,7 +731,7 @@ public class MutateGenome {
 			Tools.condenseStrict(vars);
 			if(vars.size()<2){return;}
 		}
-		
+
 		{//Pass 2: lengthen indels
 			SmallVar current=null;
 			for(int i=0; i<vars.size(); i++){
@@ -762,7 +763,7 @@ public class MutateGenome {
 			Tools.condenseStrict(vars);
 		}
 	}
-	
+
 	void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers){
 		if(ffoutVcf==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffoutVcf);
@@ -784,10 +785,10 @@ public class MutateGenome {
 		bb.appendln("##FORMAT=<ID=SC,Number=1,Type=Float,Description=\"Score\">");
 		bb.appendln("##FORMAT=<ID=PF,Number=1,Type=String,Description=\"Pass Filter\">");
 		bb.appendln("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"+(out1==null ? "sample" : ReadWrite.stripToCore(out1)));
-		
+
 		bsw.print(bb);
 		bb.clear();
-		
+
 		for(SmallVar v : vars){
 			v.toVcf(bb);
 			bb.nl();
@@ -802,11 +803,11 @@ public class MutateGenome {
 		}
 		errorState=bsw.poisonAndWait()|errorState;
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private static class SmallVar{
-		
+
 		SmallVar(int type_, int start_, int stop_, String alt_, String ref_, char prevChar_, String rname_, long scafNum_){
 			type=type_;
 			start=start_;
@@ -817,11 +818,11 @@ public class MutateGenome {
 			rname=rname_;
 			scafNum=scafNum_;
 		}
-		
+
 		boolean valid(){
 			return type!=SUB || !alt.equals(ref);
 		}
-		
+
 		void toVcf(ByteBuilder bb){
 			bb.append(rname).append('\t');
 			if(type==SUB){
@@ -846,7 +847,7 @@ public class MutateGenome {
 			bb.append("60.00").append(':');
 			bb.append("PASS");
 		}
-		
+
 		int type;
 		int start;
 		int stop;
@@ -855,25 +856,25 @@ public class MutateGenome {
 		final char prevChar;
 		final String rname;
 		final long scafNum;
-		
+
 	}
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	private String in1=null;
 	private String out1=null;
 	private String outVcf=null;
 
 	private String prefix=null;
-	
+
 	private final FileFormat ffin1;
 	private final FileFormat ffout1;
 	private final FileFormat ffoutVcf;
-	
+
 	/*--------------------------------------------------------------*/
 
 	private long maxReads=-1;
-//	private long mutationsAdded=0;
+	//	private long mutationsAdded=0;
 
 	private long mutationLengthAdded=0;
 	private long netLengthAdded=0;
@@ -886,9 +887,9 @@ public class MutateGenome {
 	private long junctionsAdded=0;
 
 	int sinewaves=0;
-	
+
 	private int period=-1;
-	
+
 	private float genomeFraction=1;
 	private long basesRetained;
 
@@ -907,22 +908,22 @@ public class MutateGenome {
 	private boolean banHomopolymers=false;
 	private final float errorRate;
 	private final float errorRate2;
-	
+
 	private final Random randy;
 	private long seed=-1;
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	/** Overwrite existing output files */
 	private boolean overwrite=true;
 	/** Append to existing output files */
 	private boolean append=false;
-	
+
 	private static final int SUB=Var.SUB, INS=Var.INS, DEL=Var.DEL;
-	
+
 	private java.io.PrintStream outstream=System.err;
 	public static boolean verbose=false;
-	
+
 }

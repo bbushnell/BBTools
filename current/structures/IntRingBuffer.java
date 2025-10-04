@@ -9,18 +9,17 @@ import shared.Timer;
  * Uses masks for speed, but allows arbitrary logical buffer size.
  * The physical buffer size is rounded up to the next power of two.
  *@author Brian Bushnell
- *@contributor Isla
- *@date May 8, 2025
+ *@date October 2, 2025
  */
-public final class RingBuffer {
+public final class IntRingBuffer {
 	
 	public static void main(String[] args) {
 		int size=Integer.parseInt(args[0]);
 		long iters=Long.parseLong(args[1]), sum=0;
 		Timer t=new Timer();
-		RingBuffer ring=new RingBuffer(size);
+		IntRingBuffer ring=new IntRingBuffer(size);
 		for(long i=0; i<iters; i++) {
-			ring.add(i);
+			ring.add((int)i);
 			sum+=ring.getOldestUnchecked();
 		}
 		t.stop("Sum="+sum);
@@ -34,11 +33,11 @@ public final class RingBuffer {
 	 * Creates a buffer of specified size.
 	 * @param size The fixed capacity of the buffer.
 	 */
-	public RingBuffer(int size_) {
+	public IntRingBuffer(int size_) {
 		size=size_;
 		int bits=1;
 		while(1<<bits<size) {bits++;}
-		array=new long[1<<bits];
+		array=new int[1<<bits];
 		mask=array.length-1;
 	}
 	
@@ -50,7 +49,7 @@ public final class RingBuffer {
 	 * Adds a value to the buffer, overwriting the oldest value if full.
 	 * @param value The value to add.
 	 */
-	public final void add(long value) {
+	public final void add(int value) {
 		count++;
 		array[pos]=value;
 		pos=(pos+1)&mask;
@@ -103,7 +102,7 @@ public final class RingBuffer {
 	 * Fills the entire buffer with a specified value.
 	 * @param value The value to fill the buffer with.
 	 */
-	public final void fill(long value) {
+	public final void fill(int value) {
 		Arrays.fill(array, value);
 	}
 	
@@ -117,6 +116,7 @@ public final class RingBuffer {
 	
 	public void clear() {
 		pos=0;
+		count=0;
 		//fill(0); //Not needed
 	}
 
@@ -124,7 +124,7 @@ public final class RingBuffer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private final long[] array;
+	private final int[] array;
 	private final int mask;
 	private final int size;
 	

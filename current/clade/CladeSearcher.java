@@ -324,15 +324,17 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		ArrayList<Object> results;
 		t.start();
 		
+		final int maxHits=CladeIndex.heapSize;
 		if(index==null || serverMode) {
-			String s=SendClade.sendClades(queries, SendClade.defaultAddress, true || format==MACHINE, 
+			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE, 
 				maxHitsToPrint, true, CladeIndex.banSelf, false, CladeIndex.heapSize, false);
 			outstream.print(s);
 			return;
+//			results=SendClade.responseToComparisons(s);
 		}else if(multithreaded) {
-			results=spawnThreads(queries, index);
+			results=spawnThreads(queries, index, maxHits, maxCompareThreads);
 		}else {
-			results=searchST(queries, index);
+			results=searchST(queries, index, maxHits);
 		}
 		
 		if(printMetrics) {
@@ -367,10 +369,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @param index The CladeIndex to search against
 	 * @return List of Comparison results in the same order as queries
 	 */
-	public ArrayList<Object> searchST(ArrayList<Clade> queries, CladeIndex index) {
+	public static ArrayList<Object> searchST(ArrayList<Clade> queries, CladeIndex index, int maxHits) {
 		ArrayList<Object> results=new ArrayList<Object>();
 		for(Clade query : queries) {
-			Object c=index.findBest(query);
+			Object c=index.findBest(query, maxHits);
 			results.add(c);
 		}
 		return results;
@@ -548,20 +550,23 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * 
 	 * @param queries List of query Clades to process
 	 * @param index The CladeIndex to search against
+	 * @param maxHits Return up to this many results per query
+	 * @param maxThreads Use up to this many threads
 	 * @return List of Comparison results in the same order as queries
 	 */
-	private ArrayList<Object> spawnThreads(final ArrayList<Clade> queries, CladeIndex index){
+	private ArrayList<Object> spawnThreads(final ArrayList<Clade> queries, CladeIndex index, 
+		int maxHits, int maxThreads){
 		
 		//Do anything necessary prior to processing
 		ArrayList<Object> results=new ArrayList<Object>(queries.size());
 		
 		//Determine how many threads may be used
-		final int threads=Tools.mid(1, Shared.threads(), Tools.min(maxCompareThreads, queries.size()/16));
+		final int threads=Tools.mid(1, Shared.threads(), Tools.min(maxThreads, queries.size()/16));
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(queries, index, i, threads));
+			alpt.add(new ProcessThread(queries, index, maxHits, i, threads));
 		}
 		
 		//Start the threads and wait for them to finish
@@ -630,9 +635,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		 * @param tid_ Thread ID
 		 * @param threads_ Total number of threads
 		 */
-		ProcessThread(ArrayList<Clade> queries_, CladeIndex index_, final int tid_, final int threads_){
+		ProcessThread(ArrayList<Clade> queries_, CladeIndex index_, 
+			final int maxHits_, final int tid_, final int threads_){
 			queries=queries_;
 			index=index_.clone(); // Clone to avoid synchronization issues
+			maxHits=maxHits_;
 			tid=tid_;
 			threads=threads_;
 		}
@@ -651,7 +658,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				synchronized(clade) {
 					readsProcessedT+=clade.contigs;
 					basesProcessedT+=clade.bases;
-					ArrayList<Comparison> list=index.findBest(clade);
+					ArrayList<Comparison> list=index.findBest(clade, maxHits);
 					results.add(list);
 					if(list!=null && Clade.callSSU) {
 						for(Comparison comp : list) {comp.align(ssa);}
@@ -679,6 +686,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		private final ArrayList<Clade> queries;
 		/** Clade storage */
 		private final ArrayList<Object> results=new ArrayList<Object>();
+		private final int maxHits;
 		/** Thread ID */
 		final int tid;
 		final int threads;

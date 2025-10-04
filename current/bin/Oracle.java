@@ -113,15 +113,18 @@ public class Oracle extends BinObject implements Cloneable {
 		final boolean sameLabel=(a.labelTaxid>0 && a.labelTaxid==b.labelTaxid);
 //		final boolean diffLabel=(a.labelTaxid<1 || a.labelTaxid!=b.labelTaxid);
 		if(Binner.PERFECT_ORACLE) {return sameLabel ? 1-1f/b.size() : -1;}
-		
+
 		final float gcDif=Math.abs(a.gc()-b.gc());
+		final float hhDif=Math.abs(a.hh-b.hh);
+		final float gchhDif=Math.max(gcDif, hhDif*1.5f);//1.5 optimal in synth testing; 0.25% better than 0.
+//		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
 		final float depthRatio=a.depthRatio(b);
 		final long minlen=Math.min(a.size(), b.size());
 		if(BinObject.verbose || verbose2) {
 			System.err.println("gcdif="+gcDif);
 			System.err.println("depthRatio="+depthRatio);
 		}
-		if(gcDif>maxGCDif*Binner.goodEdgeMult || 
+		if(gchhDif>maxGCDif*Binner.goodEdgeMult || //TODO: Add hh here
 				depthRatio>maxDepthRatio*Binner.goodEdgeMult) {
 			return -1;
 		}//Early exit before edge-tracking
@@ -143,7 +146,7 @@ public class Oracle extends BinObject implements Cloneable {
 		if(BinObject.verbose || verbose2) {
 			System.err.println("B: mult="+mult+", gcdif="+gcDif+", max="+(maxGCDif*mult));
 		}
-		if(gcDif>maxGCDif*mult*Binner.cutoffMultD) {
+		if(gchhDif>maxGCDif*mult*Binner.cutoffMultD) {
 //			assert(!sameLabel) : "gcdif="+gcDif+">"+(maxGCDif*mult*Binner.cutoffMultD);
 			return -1;
 		}

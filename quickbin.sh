@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 29, 2025
+Last modified October 1, 2025
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -113,7 +113,7 @@ validate=f            If contig headers have a term such as 'tid_1234', this
 printcc=f             Print completeness/contam after each step.
 callssu=f             Call 16S and 18S genes; do not merge clusters with
                       incompatible SSU sequence.
-minssuid=0.98         SSUs with identity below this are incompatible.
+minssuid=0.96         SSUs with identity below this are incompatible.
 aligner=quantum       Options include ssa2, glocal, drifting, banded, crosscut.
 threads=auto          Number of threads; default is logical cores.
 flat                  Ignore depth; may still be used with bam files for e.g. MDA.

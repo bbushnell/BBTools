@@ -19,6 +19,7 @@ import structures.ListNum;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.EntropyTracker;
+import tracker.KmerTracker;
 
 public class SpectraCounter extends BinObject implements Accumulator<SpectraCounter.LoadThread> {
 	
@@ -218,6 +219,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 				if(calcStrandedness) {
 					c.dimers=new int[16];
 					c.strandedness=EntropyTracker.strandedness(c.bases, c.dimers, 2);
+					c.hh=KmerTracker.HH(c.dimers);
 				}
 				if(parseDepth) {
 					boolean b=DataLoader.parseAndSetDepth(c, lps, lpt);

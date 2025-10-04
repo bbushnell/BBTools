@@ -16,6 +16,7 @@ import tax.PrintTaxonomy;
 import tax.TaxNode;
 import tax.TaxTree;
 import tracker.EntropyTracker;
+import tracker.KmerTracker;
 
 /**
  * Represents a taxonomic clade with k-mer frequency signatures.
@@ -236,6 +237,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		if(finished) {return;}
 		gc=calcGC();
 		strandedness=EntropyTracker.strandedness(counts[2], 2);
+		hh=KmerTracker.HH(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		fillTrimers();
 //		fillTetramers();
@@ -303,18 +305,19 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		name=lineage=null;
 		
 		bases=contigs=0;
-		gc=entropy=gcCompEntropy=strandedness=0;
+		gc=entropy=gcCompEntropy=strandedness=hh=0;
 		Tools.fill(counts, 0);
 	}
 	
 	/**
-	 * Compares Clades primarily by GC content, then by size, then by taxonomic ID.
+	 * Compares Clades primarily by HH, then by GC content, then by size, then by taxonomic ID.
 	 * 
 	 * @param b The Clade to compare to
 	 * @return Negative if this Clade should be ordered before b, positive if after
 	 */
 	@Override
 	public int compareTo(Clade b) {
+		if(hh!=b.hh) {return hh>b.hh ? 1 : -1;}
 		if(gc!=b.gc) {return gc>b.gc ? 1 : -1;}
 		if(bases!=b.bases) {return bases>b.bases ? 1 : -1;}
 		return taxID-b.taxID;
@@ -429,6 +432,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public float gcCompEntropy;
 	/** Measure of strand bias */
 	public float strandedness;
+	/** Measure of homopolymer tendency */
+	public float hh;
 	/** Flag indicating whether this Clade has been completed with finish() */
 	private boolean finished=false;
 	

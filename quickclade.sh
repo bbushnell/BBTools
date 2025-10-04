@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 29, 2025
+Last modified October 3, 2025
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -25,6 +25,9 @@ quickclade.sh bins
 or
 quickclade.sh contigs.fa percontig out=results.tsv usetree
 
+For accuracy evaluation:
+quickclade.sh printmetrics usetree genomesdir out=null includeself=f
+
 
 File Parameters:
 in=<file,file>  Query files or directories.  Loose file or directory names are
@@ -42,7 +45,7 @@ Basic Parameters:
 percontig       Run one query per contig instead of per file.
 minlen=0        Ignore sequences shorter than this in percontig mode.
 hits=1          Print this many top hits per query.
-steps=7         Only search up to this many GC intervals (of 0.01) away from
+steps=6         Only search up to this many GC intervals (of 0.01) away from
                 the query GC.
 oneline         Print results one line per query, tab-delimited.
 callssu=f       Call 16S and 18S for alignment to reference SSU.
@@ -60,10 +63,10 @@ maxk=5          Can be set to 4 or 3 to restrict kmer frequency comparisons
                 to smaller kmers.  This may improve accuracy for small
                 sequences/bins, but slightly reduces accuracy for large
                 sequences/bins.
-ccm=1.0         Threshold for using pentamers; lower is faster.
-ccm2=1.5        Threshold for using tetramers.
-gcdif=0.07      Initial maximum GC difference.
-strdif=0.10     Initial maximum strandedness difference.
+ccm=1.2         Threshold for using pentamers; lower is faster.
+ccm2=1.6        Threshold for using tetramers.
+gcdif=0.04      Initial maximum GC difference.
+strdif=0.12     Initial maximum strandedness difference.
 gcmult=0.5      Max GC difference as a fraction of best 5-mer difference.
 strmult=1.2     Max strandedness difference as a fraction of best 5-mer diff.
 ee=t            Early exit; increases speed.
@@ -71,6 +74,7 @@ entropy         Calculate entropy for queries.  Slow; negligible utility.
 heap=1          Number of intermediate comparisons to store.
 usetree         Load a taxonomic tree for better grading for labeled data.
 aligner=quantum Options include ssa2, glocal, drifting, banded, crosscut.
+
 Distance Metrics:
 abs             Use absolute difference of kmer frequencies.
 cos             Use 1-cosine similarity of kmer frequencies.

@@ -567,6 +567,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	int badContigs=0;
 	float entropy;
 	float strandedness;
+	float hh;
 	float score;
 	public boolean wasReclustered=false;
 	

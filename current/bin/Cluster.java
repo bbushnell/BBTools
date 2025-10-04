@@ -10,6 +10,7 @@ import stream.Read;
 import structures.IntHashMap;
 import structures.IntHashSet;
 import tracker.EntropyTracker;
+import tracker.KmerTracker;
 
 public class Cluster extends Bin {
 
@@ -113,6 +114,7 @@ public class Cluster extends Bin {
 			if(dimers==null) {dimers=c.dimers.clone();}
 			else {Tools.add(dimers, c.dimers);}
 			strandedness=EntropyTracker.strandedness(dimers, 2);
+			hh=KmerTracker.HH(dimers);
 		}
 		if(c.trimers!=null) {
 			if(trimers==null) {trimers=c.trimers.clone();}
@@ -226,7 +228,7 @@ public class Cluster extends Bin {
 		gcSum=0;
 		sketchedSize=0;
 		clearDepth();
-		completeness=contam=entropy=strandedness=score=0;
+		completeness=contam=entropy=strandedness=hh=score=0;
 		dest=0;
 		taxid=genusTaxid=labelTaxid=0;
 		topHit=secondHit=null;

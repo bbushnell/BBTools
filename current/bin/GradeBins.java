@@ -1205,8 +1205,7 @@ public class GradeBins {
 		
 		private BinStats processBin(String fname, Bin b) {
 			if(fname!=null) {
-				assert(b==null);
-				b=loadCluster(fname);
+				if(b==null) {b=loadCluster(fname);}//Should never happen
 				calcContam(fname, (Cluster)b);
 			}
 			if(b.size()<minSize) {return null;}
