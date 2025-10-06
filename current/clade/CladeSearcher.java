@@ -99,6 +99,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			append=ReadStats.append=parser.append;
 			
 			extin=parser.extin;
+			maxReads=parser.maxReads;
 
 			if(parser.setOut) {out=parser.out1;}
 			extout=parser.extout;
@@ -115,6 +116,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		//Create output FileFormat objects
 		ffout=FileFormat.testOutput(out, FileFormat.TEXT, extout, true, overwrite, append, ordered);
+		Clade.DELETE_COUNTS_ON_FINISH=true;
 	}
 	
 	/**
@@ -341,7 +343,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			evaluate(results);
 		}
 		outstream.println("Made "+index.comparisons+" fast and "+index.slowComparisons+" slow comparisons.");
-		t.stop("Searched "+in.size()+" queries in ");
+		t.stop("Searched "+queries.size()+" queries in ");
 		
 		if(ffout!=null) {
 //			outstream.println();
@@ -400,16 +402,20 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		for(int i=0; i<queries.size(); i++) {
 			Object o=results.get(i);
-			@SuppressWarnings("unchecked")
-			Comparison c=(o.getClass()==Comparison.class ? (Comparison)o : 
-				((ArrayList<Comparison>)o).get(0));
+			final Comparison c;
+			if(o==null || o.getClass()==Comparison.class) {c=(Comparison)o;}
+			else {
+				@SuppressWarnings("unchecked")
+				ArrayList<Comparison> list=((ArrayList<Comparison>)o);
+				c=(list.size()<1 ? null : list.get(0));
+			}
 			if(c==null || c.ref==null) {nohit++;}
 			else if(c.correct()) {correct++;}
 			else if(c.incorrect()) {wrong++;}
 			else {other++;}
 			int level=levels.length-1;
 			
-			if(useTree) {level=c.correctLevel();}
+			if(useTree) {level=(c==null ? 0 : c.correctLevel());}
 			levels[level]++;
 			
 			if(c!=null && c.ref!=null) {
@@ -660,10 +666,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 					basesProcessedT+=clade.bases;
 					ArrayList<Comparison> list=index.findBest(clade, maxHits);
 					results.add(list);
-					if(list!=null && Clade.callSSU) {
-						for(Comparison comp : list) {comp.align(ssa);}
+					if(list!=null) {
+						if(Clade.callSSU) {
+							for(Comparison comp : list) {comp.align(ssa);}
+						}
+						Collections.sort(list);
 					}
-					Collections.sort(list);
 				}
 			}
 			

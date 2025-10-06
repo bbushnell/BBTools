@@ -430,6 +430,13 @@ public class CladeObject {
 	public static TaxTree tree=null;
 	static String treePath="auto";
 	
+	/** Constants for different comparison methods */
+	static final int ABS=1, COS=2, HEL=3, EUC=4, ABSCOMP=5;
+	/** The current comparison method (default is ABSCOMP) */
+	static int method=ABSCOMP;
+	/** Maximum k-mer size to use in comparisons */
+	static int maxK=5;
+	
 	static int minClusterSize=50000;
 	static int minContigsPerCluster=1;
 	static float depthBoost=0.25f;

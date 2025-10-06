@@ -143,7 +143,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	private float compareABS(float k5Limit) {
 //		k3dif=SimilarityMeasures.absDif(query.counts[3], ref.counts[3]);
-		k3dif=Vector.absDifFloat(query.trimers, ref.trimers);
+		k3dif=Vector.absDifFloat(query.frequencies[3], ref.frequencies[3]);
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*4;}
 		k4dif=maxK<4 ? k3dif : SimilarityMeasures.absDif(query.counts[4], ref.counts[4]);
 		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*2;}
@@ -161,10 +161,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	private float compareABSCOMP(float k5Limit) {
 //		k3dif=SimilarityMeasures.absDifComp(query.counts[3], ref.counts[3], 3);
-		k3dif=Vector.absDifFloat(query.trimers, ref.trimers);//Already compensated
+		k3dif=Vector.absDifFloat(query.frequencies[3], ref.frequencies[3]);//Already compensated
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*k3Mult;}
 		if(query.bases<minK4Bases || ref.bases<minK4Bases || maxK<4) {return k3dif*k3Mult;}
-		k4dif=maxK<4 ? k3dif : SimilarityMeasures.absDifComp(query.counts[4], ref.counts[4], 4);
+		k4dif=maxK<4 ? k3dif : difABSCOMP(4);
 //		k4dif=maxK<4 ? k3dif : Vector.absDifComp(query.counts[4], ref.counts[4], 4, BinObject.gcmapMatrix[4]);
 //		k4dif=Vector.absDifFloat(query.tetramers, ref.tetramers);//Already compensated.  This makes it 12% slower for some reason.
 		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*k4Mult;}
@@ -172,9 +172,16 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 //		final boolean skipK5=(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5);
 //		k5dif=skipK5 ? k4dif*1f : SimilarityMeasures.absDifComp(query.counts[5], ref.counts[5], 5);
 		
-		k5dif=maxK<5 ? k4dif : SimilarityMeasures.absDifComp(query.counts[5], ref.counts[5], 5);
+		//TODO: Compensating every time is very slow.  Precompensated vectors are needed.
+		k5dif=maxK<5 ? k4dif : difABSCOMP(5);
 //		k5dif=maxK<5 ? k4dif : Vector.absDifComp(query.counts[5], ref.counts[5], 5, BinObject.gcmapMatrix[5]);
 		return k5dif;
+	}
+	
+	private float difABSCOMP(int k) {
+		final float[] qfreq=query.frequencies[k];
+		if(qfreq!=null) {return Vector.absDifFloat(qfreq, ref.frequencies[k]);}
+		return SimilarityMeasures.absDifComp(query.counts[k], ref.counts[k], k);
 	}
 	
 	/**
@@ -254,6 +261,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	public final boolean align(IDAligner ssa){
 		final byte[] q, r;
 		ssudif=1;
+		if(query==null || ref==null) {return false;}
 		if(query.r16S!=null && ref.r16S!=null) {q=query.r16S; r=ref.r16S;}
 		else if(query.r18S!=null && ref.r18S!=null) {q=query.r18S; r=ref.r18S;}
 		else {return false;}
@@ -514,12 +522,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	private static float comparisonCutoffMult=1.2f;
 	/** Multiplier for 3-mer cutoff in early exit tests; 1.0 is better for ABS, 1.5 for ABSCOMP */
 	private static float comparisonCutoffMult2=1.6f;
-	/** Constants for different comparison methods */
-	static final int ABS=1, COS=2, HEL=3, EUC=4, ABSCOMP=5;
-	/** The current comparison method (default is ABSCOMP) */
-	static int method=ABSCOMP;
-	/** Maximum k-mer size to use in comparisons */
-	static int maxK=5;
+	
 	static long minK5Bases=3000;
 	static long minK4Bases=600;
 	static float k4Mult=2f;

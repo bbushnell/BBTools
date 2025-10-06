@@ -197,18 +197,23 @@ public class CladeIndex implements Cloneable {
 		final ComparisonHeap heap=new ComparisonHeap(maxHits);
 		{
 			Comparison best=new Comparison();
+			best.query=c;
 			heap.offer(best);
 		}
 		synchronized(heap) {
 			synchronized(c) {//Probably unnecessary...
 				findBestBinary(c, gcDex[center], heap, temp, center);
-				for(int i=1; i<=maxSteps; i++) {
+				for(int i=1, lim=maxSteps*2+2; i<=maxSteps || (heap.worst().ref==null && i<lim); i++) {
 					int low=center-i, high=center+i;
 					if(low>=0) {findBestBinary(c, gcDex[low], heap, temp, low);}
 					if(high<gcDex.length) {findBestBinary(c, gcDex[high], heap, temp, high);}
 				}
 			}
 		}
+//		if(heap.worst().ref==null) {//Nothing was found
+//			assert(heap.size()==1) : heap;
+//			return new ArrayList<Comparison>(1);//Could return null but this can be used as a placeholder
+//		}
 		return heap.toList();
 	}
 
@@ -223,7 +228,7 @@ public class CladeIndex implements Cloneable {
 	 * @param temp Temporary comparison object for reuse
 	 * @param gcLevel The GC percentage (0-100) of this bucket
 	 */
-	private void findBest(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
+	private void findBestLinear(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
 		Comparison temp, int gcLevel) {
 		if(list==null || list.isEmpty()) {return;}
 		//		System.err.println("\nSearching a list of size "+list.size());
@@ -271,7 +276,7 @@ public class CladeIndex implements Cloneable {
 	private void findBestBinary(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
 		Comparison temp, int gcLevel) {
 		if(list==null || list.isEmpty()) {return;}
-		if(LINEAR_SEARCH) {findBest(a, list, heap, temp, gcLevel);return;}
+		if(LINEAR_SEARCH) {findBestLinear(a, list, heap, temp, gcLevel);return;}
 		//		System.err.println("\nSearching a list of size "+list.size());
 		Comparison worst=heap.worst();
 		float k5Limit=worst.k5dif;

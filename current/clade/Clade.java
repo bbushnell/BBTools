@@ -240,8 +240,13 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		hh=KmerTracker.HH(counts[2]);
 		caga=KmerTracker.CAGA(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
-		fillTrimers();
-//		fillTetramers();
+		frequencies=new float[6][];
+		frequencies[3]=toFrequencies(counts[3], 3);
+		frequencies[4]=(maxK<4 ? null : toFrequencies(counts[4], 4));
+		frequencies[5]=(maxK<5 ? null : toFrequencies(counts[5], 5));
+		if(DELETE_COUNTS_ON_FINISH && (method==ABSCOMP || method==ABS)) {
+			counts[3]=counts[4]=counts[5]=null;
+		}
 		finished=true;
 	}
 	
@@ -257,41 +262,19 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	}
 	
 	/**
-	 * Fills the normalized trimer (3-mer) frequency array.
+	 * Makes a kmer frequency array with raw or normalized frequencies.
 	 * For ABSCOMP method, groups k-mers by GC content and normalizes within each group.
-	 * This means CCC frequency would be calculated as (count of CCC)/(sum of counts for all 3-mers with 3 GC bases)
-	 * rather than as a fraction of all 3-mers.
+	 * This means for 3-mers, CCC frequency would be calculated as 
+	 * (count of CCC)/(CCC+CCG+CGC+...+GGG) rather than as a fraction of all 3-mers.
+	 * This assumes a canonical count array.  Non-normalized version has no such requirement.
 	 */
-	private synchronized void fillTrimers() {
-		assert(!finished);
-		long[] k3=counts[3];
-		if(Comparison.method==Comparison.ABSCOMP) {
-			trimers=SimilarityMeasures.compensate(k3, 3);
-			return;
-		}
-		long sum=Tools.sum(k3);
+	public static synchronized float[] toFrequencies(long[] counts, final int k) {
+		if(Comparison.method==Comparison.ABSCOMP) {return SimilarityMeasures.compensate(counts, k);}
+		long sum=Tools.sum(counts);
 		float inv=1f/sum;
-		if(trimers==null) {trimers=new float[k3.length];}
-		for(int i=0; i<k3.length; i++) {trimers[i]=k3[i]*inv;}
-	}
-	
-	/**
-	 * Fills the normalized tetramer (4-mer) frequency array.
-	 * For ABSCOMP method, groups k-mers by GC content and normalizes within each group.
-	 * This means CCCC frequency would be calculated as (count of CCCC)/(sum of counts for all 4-mers with 4 GC bases)
-	 * rather than as a fraction of all 4-mers.
-	 */
-	private synchronized void fillTetramers() {
-		assert(!finished);
-		long[] k4=counts[4];
-		if(Comparison.method==Comparison.ABSCOMP) {
-			tetramers=SimilarityMeasures.compensate(k4, 4);
-			return;
-		}
-		long sum=Tools.sum(k4);
-		float inv=1f/sum;
-		if(tetramers==null) {tetramers=new float[k4.length];}
-		for(int i=0; i<k4.length; i++) {tetramers[i]=k4[i]*inv;}
+		float[] freqs=new float[counts.length];
+		for(int i=0; i<counts.length; i++) {freqs[i]=counts[i]*inv;}
+		return freqs;
 	}
 	
 	synchronized boolean hasSSU() {return r16S!=null | r18S!=null;}
@@ -413,10 +396,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public String lineage=null;
 	/** K-mer count arrays - index 1 for 1-mers, 2 for 2-mers, etc. */
 	public final long[][] counts;
-	/** Normalized trimer frequencies or GC-compensated values */
-	public float[] trimers;
-	/** Normalized tetramer frequencies or GC-compensated values */
-	public float[] tetramers;
+	/** Normalized frequencies or GC-compensated values */
+	public float[][] frequencies;
 
 	public byte[] r16S;
 	public byte[] r18S;
@@ -445,5 +426,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static int MAXK=5;
 	public static boolean callSSU=false;
 	public static boolean writeLineage=true;
+	public static boolean DELETE_COUNTS_ON_FINISH=false;
 	
 }

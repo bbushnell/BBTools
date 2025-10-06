@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 3, 2025
+Last modified October 5, 2025
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -66,9 +66,11 @@ maxk=5          Can be set to 4 or 3 to restrict kmer frequency comparisons
 ccm=1.2         Threshold for using pentamers; lower is faster.
 ccm2=1.6        Threshold for using tetramers.
 gcdif=0.04      Initial maximum GC difference.
-strdif=0.12     Initial maximum strandedness difference.
 gcmult=0.5      Max GC difference as a fraction of best 5-mer difference.
+strdif=0.12     Initial maximum strandedness difference.
 strmult=1.2     Max strandedness difference as a fraction of best 5-mer diff.
+hhdif=0.025     Maximum HH metric difference.
+cagadif=0.017   Maximum CAGA metric differece.
 ee=t            Early exit; increases speed.
 entropy         Calculate entropy for queries.  Slow; negligible utility.
 heap=1          Number of intermediate comparisons to store.

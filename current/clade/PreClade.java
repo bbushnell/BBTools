@@ -109,9 +109,6 @@ public class PreClade {
             applyCanonicalMapping(rawCounts[k], clade.counts[k], k);
         }
 
-        // Apply GC compensation to create normalized frequency arrays
-        applyGCCompensation(clade);
-
         // Calculate derived statistics and complete the Clade
         clade.finish();
 
@@ -143,32 +140,6 @@ public class PreClade {
                 canonicalCounts[canonicalIndex] += rawKmerCounts[i];
             }
         }
-    }
-
-    /**
-     * Applies GC compensation to k-mer counts using existing SimilarityMeasures.
-     * This normalizes k-mer frequencies within GC content groups to reduce
-     * GC bias effects, matching the processing applied to standard Clade format.
-     *
-     * @param clade Clade with canonical k-mer counts to be GC compensated
-     */
-    private void applyGCCompensation(Clade clade) {
-        // Apply GC compensation to 3-mers (trimers)
-        // This uses the same algorithm as standard Clade processing
-        if(clade.counts[3] != null) {
-            try {
-                float[] compensated = SimilarityMeasures.compensate(clade.counts[3], 3);
-                if(compensated != null) {
-                    clade.trimers = compensated;
-                }
-            } catch (Exception e) {
-                // GC compensation failed - this is non-fatal, trimers will be calculated by finish()
-                System.err.println("WARNING: GC compensation failed for 3-mers: " + e.getMessage());
-            }
-        }
-
-        // Note: 4-mers and 5-mers GC compensation is handled by the finish() method
-        // in Clade.java, so we don't need to explicitly apply it here
     }
 
     @Override

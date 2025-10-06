@@ -127,6 +127,7 @@ public class CladeServer {
 
 		//Initialize CladeIndex with reference files
 		if(verbose){System.err.println("[" + new Date() + "] Loading reference database from: " + ref_);}
+		Clade.DELETE_COUNTS_ON_FINISH=true;
 		index=CladeIndex.loadIndex(ref_);
 		if(verbose){System.err.println("[" + new Date() + "] Database loaded successfully with " + index.size() + " clades");}
 
