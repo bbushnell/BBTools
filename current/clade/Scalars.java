@@ -1,5 +1,6 @@
-package jgi;
+package clade;
 
+import java.io.File;
 import java.util.ArrayList;
 
 import dna.AminoAcid;
@@ -15,12 +16,13 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
+import structures.FloatList;
 import structures.ListNum;
 import tracker.KmerTracker;
 
 /**
  * Calculates compositional scalar metrics from sequencing data.
- * Computes GC-independent metrics (HH, PP, strandedness, etc.) either globally
+ * Computes GC-independent metrics (HH, CAGA, strandedness, etc.) either globally
  * or using a sliding window to characterize within-genome variance.
  * Outputs mean and standard deviation for each metric.
  *
@@ -81,6 +83,8 @@ public class Scalars {
 				window=Integer.parseInt(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
+			}else if(new File(arg).exists()) {
+				in.add(arg);
 			}else{
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -92,12 +96,13 @@ public class Scalars {
 			Parser.processQuality();
 
 			maxReads=parser.maxReads;
-			in1=parser.in1;
-			out1=parser.out1;
+			if(parser.in1!=null) {in.add(parser.in1);}
+			out=parser.out1;
 		}
-
-		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);
-		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
+		
+		
+		in=Tools.getFileOrFiles(in, true, false, false, false);
+		ffout=FileFormat.testOutput(out, FileFormat.TXT, null, true, true, false, false);
 		dimers=new KmerTracker(2, window);
 	}
 
@@ -108,54 +113,17 @@ public class Scalars {
 	 */
 	void process(Timer t){
 
-		final ConcurrentReadInputStream cris;
-		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
-			cris.start();
+		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
+		for(int i=0; i<in.size(); i++) {
+			String fname=in.get(i);
+			FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
+			processOne(ffin);
+			outputResults(bsw, header && i==0);
+			Tools.fill(hist, 0);
 		}
-		boolean paired=cris.paired();
-
-		long readsProcessed=0, basesProcessed=0;
-		{
-
-			ListNum<Read> ln=cris.nextList();
-			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-
-			if(reads!=null && !reads.isEmpty()){
-				Read r=reads.get(0);
-				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
-			}
-
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
-
-				for(int idx=0; idx<reads.size(); idx++){
-					final Read r1=reads.get(idx);
-					readsProcessed+=r1.pairCount();
-					basesProcessed+=r1.pairLength();
-
-					if(window<1) {
-						dimers.add(r1.bases);
-						if(r1.mate!=null) {dimers.add(r1.mate.bases);}
-					}else {
-						addWindowed(r1.bases);
-						if(r1.mate!=null) {addWindowed(r1.mate.bases);}
-					}
-				}
-
-				cris.returnList(ln);
-				if(verbose){outstream.println("Returned a list.");}
-				ln=cris.nextList();
-				reads=(ln!=null ? ln.list : null);
-			}
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
-		}
-		errorState=ReadWrite.closeStreams(cris) | errorState;
+		errorState=bsw.poisonAndWait() | errorState;
+		
 		if(verbose){outstream.println("Finished reading data.");}
-
-		outputResults();
 
 		t.stop();
 		if(printTime) {
@@ -164,6 +132,47 @@ public class Scalars {
 				Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
 		}
 		assert(!errorState) : "An error was encountered.";
+	}
+
+	/**
+	 * Processes input reads and calculates compositional metrics.
+	 * Either accumulates global dimer counts or builds histograms from sliding windows.
+	 * @param t Timer for performance tracking
+	 */
+	void processOne(FileFormat ffin){
+		final ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin, null);
+		cris.start();
+
+		ListNum<Read> ln=cris.nextList();
+		ArrayList<Read> reads=(ln!=null ? ln.list : null);
+
+		dimers.clearAll();
+		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
+
+			for(int idx=0; idx<reads.size(); idx++){
+				final Read r1=reads.get(idx);
+				readsProcessed+=r1.pairCount();
+				basesProcessed+=r1.pairLength();
+
+				if(window<1) {
+					dimers.add(r1.bases);
+					if(r1.mate!=null) {dimers.add(r1.mate.bases);}
+				}else {
+					addWindowed(r1.bases);
+					if(r1.mate!=null) {addWindowed(r1.mate.bases);}
+				}
+			}
+
+			cris.returnList(ln);
+			if(verbose){outstream.println("Returned a list.");}
+			ln=cris.nextList();
+			reads=(ln!=null ? ln.list : null);
+		}
+		if(ln!=null){
+			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+		}
+		errorState=ReadWrite.closeStreams(cris) | errorState;
 	}
 
 	/**
@@ -198,9 +207,7 @@ public class Scalars {
 	 * For global mode: outputs mean values for each metric.
 	 * For windowed mode: outputs mean and standard deviation across all windows.
 	 */
-	private void outputResults(){
-		ByteStreamWriter bsw=new ByteStreamWriter(ffout1);
-		bsw.start();
+	private void outputResults(ByteStreamWriter bsw, boolean header){
 		ByteBuilder bb=new ByteBuilder();
 		if(rowheader && header) {bb.append("Header\t");}
 		if(raw) {
@@ -254,8 +261,6 @@ public class Scalars {
 			}
 		}
 		bsw.print(bb);
-
-		errorState=bsw.poisonAndWait() | errorState;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -263,14 +268,14 @@ public class Scalars {
 	/*--------------------------------------------------------------*/
 
 	/** Input file path */
-	private String in1=null;
+	private ArrayList<String> in=new ArrayList<String>();
 	/** Output file path */
-	private String out1=null;
+	private String out=null;
 
-	/** Input file format */
-	private final FileFormat ffin1;
+//	/** Input file format */
+//	private final FileFormat ffin;
 	/** Output file format */
-	private final FileFormat ffout1;
+	private final FileFormat ffout;
 
 	/** Window size for sliding window analysis (0 for global analysis) */
 	private int window=0;
@@ -285,13 +290,18 @@ public class Scalars {
 	private boolean raw=false;
 	/** Histograms for each metric in windowed mode (8 metrics, 1025 bins each) */
 	private long[][] hist=new long[14][1025];
-
+	private boolean breakOnContig=false;
+	
 	/*--------------------------------------------------------------*/
 
 	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	/** Whether an error occurred during processing */
 	private boolean errorState=false;
+	
+
+	private long readsProcessed=0;
+	private long basesProcessed=0;
 
 	/*--------------------------------------------------------------*/
 

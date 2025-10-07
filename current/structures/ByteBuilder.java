@@ -561,6 +561,10 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
+	public void replaceLast(char c){array[length-1]=(byte)c;}
+	
+	public void replaceLast(byte b) {array[length-1]=b;}
+	
 	/**
 	 * Append a newline.
 	 * @return This ByteBuilder.

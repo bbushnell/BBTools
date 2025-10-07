@@ -241,12 +241,12 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * Create read streams and process all data 
 	 * @param t Timer for tracking execution time
 	 */
-	void process(Timer t){
+	private void process(Timer t){
 		
 		//Reset counters
 		readsProcessed=basesProcessed=0;
-		
-		ArrayList<Clade> list=loadFiles(in, perContig, minContig, -1);
+		Clade.MAKE_FREQUENCIES=false;
+		ArrayList<Clade> list=loadFiles(in, perContig, minContig, -1, true);
 		
 		if(ffout!=null) {
 			write(ffout, list);
@@ -344,7 +344,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @return List of clades loaded from the file
 	 */
 	public static ArrayList<Clade> loadClades(String fname, EntropyTracker et, 
-			boolean perContig, int minContig, long maxReads) {
+			boolean perContig, int minContig, long maxReads, boolean finish) {
 //		assert(false) : perContig+", "+fname;
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, false);
 		if(ff.clade()) {
@@ -355,7 +355,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			list.add(c);
 			return list;
 		}else {
-			return loadCladesFromSequence(ff, et, minContig, maxReads);
+			return loadCladesFromSequence(ff, et, minContig, maxReads, finish);
 		}
 	}
 	
@@ -417,9 +417,9 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @return List of clades loaded from the file
 	 */
 	private static ArrayList<Clade> loadCladesFromSequence(FileFormat ff, 
-			EntropyTracker et, int minContig, long maxReads) {
+			EntropyTracker et, int minContig, long maxReads, boolean finish) {
 		ConcurrentReadInputStream cris=makeCris(ff, maxReads);
-		ArrayList<Clade> list=processReads(cris, et, minContig);
+		ArrayList<Clade> list=processReads(cris, et, minContig, finish);
 		ReadWrite.closeStream(cris);
 		return list;
 	}
@@ -432,7 +432,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @return List of clades processed from the reads
 	 */
 	private static ArrayList<Clade> processReads(ConcurrentReadInputStream cris, 
-			EntropyTracker et, int minContig) {
+			EntropyTracker et, int minContig, boolean finish) {
 		ArrayList<Clade> out=new ArrayList<Clade>();
 
 		//Grab the first ListNum of reads
@@ -452,7 +452,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 				synchronized(c) {
 					if(tree!=null) {c.level=tree.toLevel(tid);}
 					c.add(r.bases, et);
-					c.finish();
+					if(finish) {c.finish();}
 				}
 				out.add(c);
 			}
@@ -480,8 +480,9 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @param maxReads TODO
 	 * @return List of all clades loaded from the files
 	 */
-	public ArrayList<Clade> loadFiles(ArrayList<String> in, boolean perContig, int minContig, long maxReads){
-		ArrayList<Clade> list=spawnThreads(in, perContig, minContig, maxReads);
+	public ArrayList<Clade> loadFiles(ArrayList<String> in, boolean perContig, 
+			int minContig, long maxReads, boolean finish){
+		ArrayList<Clade> list=spawnThreads(in, perContig, minContig, maxReads, finish);
 		return list;
 	}
 	
@@ -497,7 +498,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 * @return List of all clades loaded from the files
 	 */
 	private ArrayList<Clade> spawnThreads(final ArrayList<String> files, 
-			boolean perContig, int minContig, long maxReads){
+			boolean perContig, int minContig, long maxReads, boolean finish){
 		
 		//Do anything necessary prior to processing
 		ConcurrentHashMap<Integer, ArrayList<Clade>> cladeMap=new ConcurrentHashMap<Integer, ArrayList<Clade>>(files.size());
@@ -508,7 +509,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(files, cladeMap, i, threads, perContig, minContig, maxReads));
+			alpt.add(new ProcessThread(files, cladeMap, i, threads, perContig, minContig, maxReads, finish));
 		}
 		
 		//Start the threads and wait for them to finish
@@ -521,7 +522,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			ArrayList<Clade> list=cladeMap.get(i);
 			for(Clade c : list) {
 				synchronized(c) {
-					assert(c.finished());
+					assert(c.finished()==finish);
 					out.add(c);
 				}
 			}
@@ -574,7 +575,8 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		 * @param minContig_ Minimum contig length to process
 		 */
 		ProcessThread(ArrayList<String> files_, ConcurrentHashMap<Integer, ArrayList<Clade>> cladeMap_, 
-				final int tid_, final int threads_, boolean perContig_, int minContig_, long maxReads_){
+				final int tid_, final int threads_, boolean perContig_, 
+				int minContig_, long maxReads_, boolean finish_){
 			files=files_;
 			cladeMap=cladeMap_;
 			tid=tid_;
@@ -582,6 +584,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			perContig=perContig_;
 			minContig=minContig_;
 			maxReads=maxReads_;
+			finish=finish_;
 		}
 		
 		/**
@@ -594,7 +597,11 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			
 			//Process the reads
 			for(int i=tid; i<files.size(); i+=threads) {
-				ArrayList<Clade> list=loadClades(files.get(i), et, perContig, minContig, maxReads);
+				ArrayList<Clade> list=loadClades(files.get(i), et, perContig, minContig, maxReads, finish);
+//				for(Clade c : list) {//Makes it slow due to caching?
+//					readsProcessedT+=c.contigs;
+//					basesProcessedT+=c.bases;
+//				}
 				cladeMap.put(i, list);
 			}
 			
@@ -616,6 +623,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		private final boolean perContig;
 		private final int minContig;
 		private final long maxReads;
+		private final boolean finish;
 		
 		/** Shared data source */
 		private final ArrayList<String> files;

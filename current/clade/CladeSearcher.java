@@ -116,7 +116,6 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		//Create output FileFormat objects
 		ffout=FileFormat.testOutput(out, FileFormat.TEXT, extout, true, overwrite, append, ordered);
-		Clade.DELETE_COUNTS_ON_FINISH=true;
 	}
 	
 	/**
@@ -164,10 +163,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * Loads query clades from input files.
 	 * Can process individual contigs separately if perContig is true.
 	 */
-	void loadQueries() {
+	void loadQueries(boolean finish) {
+		if(index==null) {Clade.MAKE_FREQUENCIES=false;}
 		Timer t=new Timer(outstream, false);
 		CladeLoaderMF loaderMF=new CladeLoaderMF();
-		queries=loaderMF.loadFiles(in, perContig, minContig, maxReads);
+		queries=loaderMF.loadFiles(in, perContig, minContig, maxReads, finish);
+		readsLoaded+=loaderMF.readsProcessed;
+		basesLoaded+=loaderMF.basesProcessed;
 		t.stopAndStart("Loaded "+queries.size()+" queries in ");
 	}
 	
@@ -235,6 +237,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				useTree=Parse.parseBoolean(b);
 			}else if(a.equals("server")){
 				serverMode=Parse.parseBoolean(b);
+			}else if(a.equals("frequencies")){
+				Clade.MAKE_FREQUENCIES=Boolean.parseBoolean(b);
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
@@ -320,9 +324,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		//Reset counters
 		readsProcessed=basesProcessed=0;
+		readsLoaded=basesLoaded=0;
 		setup();
 		loadIndex();
-		loadQueries();
+		loadQueries(index==null || serverMode);
 		ArrayList<Object> results;
 		t.start();
 		
@@ -374,6 +379,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	public static ArrayList<Object> searchST(ArrayList<Clade> queries, CladeIndex index, int maxHits) {
 		ArrayList<Object> results=new ArrayList<Object>();
 		for(Clade query : queries) {
+			query.finish();
 			Object c=index.findBest(query, maxHits);
 			results.add(c);
 		}
@@ -660,8 +666,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			IDAligner ssa=(Clade.callSSU ? aligner.Factory.makeIDAligner() : null);
 			//Run queries
 			for(int i=tid; i<queries.size(); i+=threads) {
-				Clade clade=queries.get(i);
+				Clade clade=queries.get(i);//TODO: Better to finish them here.
 				synchronized(clade) {
+					clade.finish();
 					readsProcessedT+=clade.contigs;
 					basesProcessedT+=clade.bases;
 					ArrayList<Comparison> list=index.findBest(clade, maxHits);
@@ -745,6 +752,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/*--------------------------------------------------------------*/
 
+	/** Number of reads loaded */
+	protected long readsLoaded=0;
+	/** Number of bases loaded */
+	protected long basesLoaded=0;
+
 	/** Number of reads processed */
 	protected long readsProcessed=0;
 	/** Number of bases processed */
@@ -759,6 +771,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private long maxReads=-1;
 	
 	private int maxHitsToPrint=1;
+	
+	private boolean deleteOnFinish=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

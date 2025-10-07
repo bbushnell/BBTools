@@ -143,11 +143,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	private float compareABS(float k5Limit) {
 //		k3dif=SimilarityMeasures.absDif(query.counts[3], ref.counts[3]);
-		k3dif=Vector.absDifFloat(query.frequencies[3], ref.frequencies[3]);
+		k3dif=difABS(3);
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*4;}
-		k4dif=maxK<4 ? k3dif : SimilarityMeasures.absDif(query.counts[4], ref.counts[4]);
+		k4dif=maxK<4 ? k3dif : difABS(4);
 		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*2;}
-		k5dif=maxK<5 ? k4dif : SimilarityMeasures.absDif(query.counts[5], ref.counts[5]);
+		k5dif=maxK<5 ? k4dif : difABS(5);
 		return k5dif;
 	}
 	
@@ -161,7 +161,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	private float compareABSCOMP(float k5Limit) {
 //		k3dif=SimilarityMeasures.absDifComp(query.counts[3], ref.counts[3], 3);
-		k3dif=Vector.absDifFloat(query.frequencies[3], ref.frequencies[3]);//Already compensated
+		k3dif=difABSCOMP(3);//Already compensated
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*k3Mult;}
 		if(query.bases<minK4Bases || ref.bases<minK4Bases || maxK<4) {return k3dif*k3Mult;}
 		k4dif=maxK<4 ? k3dif : difABSCOMP(4);
@@ -182,6 +182,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		final float[] qfreq=query.frequencies[k];
 		if(qfreq!=null) {return Vector.absDifFloat(qfreq, ref.frequencies[k]);}
 		return SimilarityMeasures.absDifComp(query.counts[k], ref.counts[k], k);
+	}
+	
+	private float difABS(int k) {
+		final float[] qfreq=query.frequencies[k];
+		if(qfreq!=null) {return Vector.absDifFloat(qfreq, ref.frequencies[k]);}
+		return SimilarityMeasures.absDif(query.counts[k], ref.counts[k]);
 	}
 	
 	/**

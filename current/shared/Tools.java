@@ -1189,6 +1189,21 @@ public final class Tools {
 		return maxP2;
 	}
 	
+	public static ArrayList<String> getFileOrFiles(String b, boolean fasta, boolean fastq, boolean sam, boolean any){
+		return (ArrayList<String>)getFileOrFiles(b, (Collection<String>)null, fasta, fastq, sam, any);
+	}
+	
+	public static ArrayList<String> getFileOrFiles(String b, ArrayList<String> list, boolean fasta, boolean fastq, boolean sam, boolean any){
+		return (ArrayList<String>)getFileOrFiles(b, (Collection<String>)list, fasta, fastq, sam, any);
+	}
+	
+	public static ArrayList<String> getFileOrFiles(ArrayList<String> in, boolean fasta, boolean fastq, boolean sam, boolean any){
+		if(in==null) {return null;}
+		ArrayList<String> out=new ArrayList<String>(in.size());
+		for(String path : in) {getFileOrFiles(path, out, fasta, fastq, sam, any);}
+		return out;
+	}
+	
 	
 	/**
 	 * Returns this file name if it is a file, or all the files in the directory if it is a directory.
@@ -1228,7 +1243,7 @@ public final class Tools {
 					}
 				}
 			}else{
-				list.add(s);
+				list.add(s);//Handles things like stdin
 			}
 		}
 		return list;

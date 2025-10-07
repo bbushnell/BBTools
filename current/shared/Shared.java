@@ -34,7 +34,7 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.37";
+	public static String BBTOOLS_VERSION_STRING="39.38";
 	/** Release name */
 	public static String BBMAP_VERSION_NAME="Tenpura Time";
 	/** Main class name for current execution */

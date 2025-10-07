@@ -17,6 +17,8 @@ import structures.IntRingBufferCond;
  * @date October 2, 2025
  */
 public class KmerTracker{
+	
+	public KmerTracker(int k_) {this(k_, 0);}
 
 	/**
 	 * Constructs a k-mer tracker with optional windowed counting.
@@ -49,6 +51,7 @@ public class KmerTracker{
 			kmer=(((kmer<<2)|x)&mask);
 			if(x>=0){
 				len++;
+				count++;
 				if(len>=k) {counts[kmer]++;}
 			}else{len=kmer=0;}
 		}
@@ -64,6 +67,7 @@ public class KmerTracker{
 		kmer=(((kmer<<2)|x)&mask);
 		if(x>=0){
 			len++;
+			count++;
 			if(len>=k) {counts[kmer]++;}
 		}else{len=kmer=0;}
 	}
@@ -79,6 +83,7 @@ public class KmerTracker{
 		kmer=(((kmer<<2)|x)&mask);
 		if(x>=0){
 			len++;
+			count++;
 			if(len>=k) {
 				counts[kmer]++;
 				int old=buffer.add(kmer);
@@ -336,18 +341,24 @@ public class KmerTracker{
 	public void add(KmerTracker tracker){add(tracker.counts);}
 
 	/** Resets rolling k-mer state without clearing accumulated counts */
-	void reset() {kmer=len=0;}
+	public void reset() {len=kmer=0;}
 
 	/** Clears all state and accumulated counts */
-	void clearAll() {
-		kmer=len=0;
+	public void clearAll() {
+		count=len=kmer=0;
 		Arrays.fill(counts, 0);
+		if(buffer!=null) {buffer.clear();}
 	}
+	
+	public long count() {return count;}
+	public void resetCount() {count=0;}
 
 	/** Current rolling k-mer value */
 	private int kmer=0;
 	/** Current run length of valid bases */
-	private int len=0;
+	private long len=0;
+	/** Monotonic counter, not reset by Ns */
+	private long count=0;
 
 	/** K-mer length */
 	public final int k;

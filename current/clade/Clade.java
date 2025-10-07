@@ -242,10 +242,10 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		frequencies=new float[6][];
 		frequencies[3]=toFrequencies(counts[3], 3);
-		frequencies[4]=(maxK<4 ? null : toFrequencies(counts[4], 4));
-		frequencies[5]=(maxK<5 ? null : toFrequencies(counts[5], 5));
-		if(DELETE_COUNTS_ON_FINISH && (method==ABSCOMP || method==ABS)) {
-			counts[3]=counts[4]=counts[5]=null;
+		if(MAKE_FREQUENCIES && (method==ABSCOMP || method==ABS)) {
+			frequencies[4]=(maxK<4 ? null : toFrequencies(counts[4], 4));
+			frequencies[5]=(maxK<5 ? null : toFrequencies(counts[5], 5));
+			if(DELETE_COUNTS) {counts[3]=counts[4]=counts[5]=null;}
 		}
 		finished=true;
 	}
@@ -426,6 +426,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static int MAXK=5;
 	public static boolean callSSU=false;
 	public static boolean writeLineage=true;
-	public static boolean DELETE_COUNTS_ON_FINISH=false;
+	public static boolean MAKE_FREQUENCIES=true;
+	public static boolean DELETE_COUNTS=true;
 	
 }

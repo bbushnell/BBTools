@@ -215,9 +215,10 @@ public class SendClade extends CladeObject {
 	 * and reports comprehensive timing and statistics upon completion.
 	 * @param t Timer for tracking total processing time
 	 */
-	void process(Timer t){
+	private void process(Timer t){
 		assert(t != null) : "Timer cannot be null";
 		if(verbose){System.err.println("[" + new java.util.Date() + "] SendClade.process() starting");}
+		Clade.MAKE_FREQUENCIES=false;
 
 		//Set up unified output stream - always use TextStreamWriter for consistency
 		TextStreamWriter tsw=new TextStreamWriter(ffout);
