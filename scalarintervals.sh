@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 6, 2025
+Last modified October 9, 2025
 
 Description:  Calculates some scalars from nucleotide sequence data.
 Writes them periodically as a tsv.
@@ -72,7 +72,7 @@ intervals() {
 		usage
 		return
 	fi
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.ScalarIntervals $@"
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP scalar.ScalarIntervals $@"
 	#echo $CMD >&2
 	eval $CMD
 }

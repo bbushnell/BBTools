@@ -1,4 +1,4 @@
-package clade;
+package scalar;
 
 import java.io.File;
 import java.util.ArrayList;

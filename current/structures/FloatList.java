@@ -203,10 +203,15 @@ public final class FloatList{
 	}
 	
 	public float max() {
-		if(size<1) {return 0;} //Possible bug: Should return Float.NEGATIVE_INFINITY for empty list?
-		float max=array[0];
-		for(int i=1; i<size; i++) {max=max(max, array[i]);}
+		float max=-Float.MAX_VALUE;
+		for(int i=0; i<size; i++) {max=max(max, array[i]);}
 		return max;
+	}
+	
+	public float min() {
+		float min=Float.MAX_VALUE;
+		for(int i=1; i<size; i++) {min=min(min, array[i]);}
+		return min;
 	}
 	
 	public final float stdev(){
@@ -397,12 +402,14 @@ public final class FloatList{
 		assert(counts.size==size);
 	}
 	
-	public void sort() {
+	public FloatList sort() {
 		if(size>1){Shared.sort(array, 0, size);}
+		return this;
 	}
 	
-	public void reverse() {
+	public FloatList reverse() {
 		if(size>1){Tools.reverseInPlace(array, 0, size);}
+		return this;
 	}
 	
 	public boolean sorted(){
@@ -428,9 +435,10 @@ public final class FloatList{
 		return array.length-size;
 	}
 	
-	private static final int min(int x, int y){return x<y ? x : y;}
-	private static final int max(int x, int y){return x>y ? x : y;}
-	private static final float max(float x, float y){return x>y ? x : y;}
+	private static final int min(int x, int y){return Math.min(x, y);}
+	private static final int max(int x, int y){return Math.max(x, y);}
+	private static final float min(float x, float y){return Math.min(x, y);}
+	private static final float max(float x, float y){return Math.max(x, y);}
 	
 	public float[] array;
 	public int size=0;

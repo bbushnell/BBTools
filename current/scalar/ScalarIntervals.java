@@ -1,4 +1,4 @@
-package clade;
+package scalar;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -14,8 +14,6 @@ import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
-import structures.ByteBuilder;
-import structures.FloatList;
 import structures.ListNum;
 import tracker.KmerTracker;
 
@@ -84,6 +82,10 @@ public class ScalarIntervals {
 				interval=window=Parse.parseIntKMG(b);
 			}else if(a.equals("break")){
 				breakOnContig=Parse.parseBoolean(b);
+			}else if(a.equals("printname") || a.equals("printnames")){
+				printName=Parse.parseBoolean(b);
+			}else if(a.equals("parsetaxid") || a.equals("parsetax") || a.equals("parsetid")){
+				parseTID=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 //				ReadWrite.verbose=verbose;
@@ -127,8 +129,8 @@ public class ScalarIntervals {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
 		for(int i=0; i<in.size(); i++) {
 			FileFormat ffin=FileFormat.testInput(in.get(i), FileFormat.FASTA, null, true, true);
-			FloatList[] data=toIntervals(ffin, window, interval, minlen, breakOnContig, maxReads);
-			print(bsw, data, header && i==0);
+			ScalarData data=toIntervals(ffin, window, interval, minlen, breakOnContig, maxReads);
+			data.print(bsw, parseTID, printName, header && i==0);
 		}
 		if(bsw!=null) {bsw.poison();}
 
@@ -140,51 +142,30 @@ public class ScalarIntervals {
 		assert(!errorState) : "An error was encountered.";
 	}
 	
-	public static final void print(String fname, FloatList[] data, boolean header) {
-		FileFormat ff=FileFormat.testOutput(fname, FileFormat.TXT, null, true, true, false, false);
-		print(ff, data, header);
-	}
-	
-	public static final void print(FileFormat ff, FloatList[] data, boolean header) {
-		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ff);
-		print(bsw, data, header);
-		bsw.poison();
-	}
-	
-	public static final void print(ByteStreamWriter bsw, FloatList[] data, boolean header) {
-		if(bsw==null) {return;}
-		if(header) {bsw.print("#GC\tHH\tCACG\n");}
-		ByteBuilder bb=new ByteBuilder();
-		for(int i=0, len=data[0].size(); i<len; i++) {
-			for(int j=0; j<data.length; j++) {bb.appendt(data[j].get(i), 7);}
-			bb.replaceLast('\n');
-			bsw.print(bb);
-			bb.clear();
-		}
-	}
-	
-	public static FloatList[] toIntervals(String fname, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
+	public static ScalarData toIntervals(String fname, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
 		if(verbose) {System.err.println("callingToIntervals(string)");}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		return toIntervals(ff, window, interval, minlen, breakOnContig, maxReads);
 	}
 	
-	public static FloatList[] toIntervals(FileFormat ff, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
+	public static ScalarData toIntervals(FileFormat ff, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
 		if(verbose) {System.err.println("callingToIntervals(ff)");}
+		int tid=-1;
+		if(parseTID) {tid=bin.BinObject.parseTaxID(ff.name());}
 		final ConcurrentReadInputStream cris;
 		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff, null);
 		cris.start();
-		FloatList[] data=toIntervals(cris, window, interval, minlen, breakOnContig, maxReads);
+		ScalarData data=toIntervals(cris, window, interval, minlen, tid, breakOnContig, maxReads);
 		boolean errorState=ReadWrite.closeStreams(cris);
 		if(verbose){System.err.println("Finished reading data.");}
 		if(errorState){System.err.println("Something went wrong reading "+ff.name());}
 		return data;
 	}
 	
-	public static FloatList[] toIntervals(ConcurrentReadInputStream cris, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
+	public static ScalarData toIntervals(ConcurrentReadInputStream cris, int window, int interval, int minlen, 
+		int tid, boolean breakOnContig, long maxReads) {
 		if(verbose) {System.err.println("callingToIntervals(cris)");}
-		FloatList[] data=new FloatList[3];
-		for(int i=0; i<data.length; i++) {data[i]=new FloatList();}
+		ScalarData data=new ScalarData(parseTID, printName, -1);
 		
 		final KmerTracker dimers=new KmerTracker(2, window);
 //		System.err.println("Made KmerTracker "+2+", "+window);
@@ -197,8 +178,8 @@ public class ScalarIntervals {
 					readsProcessed+=r1.pairCount();
 					basesProcessed+=r1.pairLength();
 
-					toIntervals(r1, dimers, data, interval, minlen, breakOnContig);
-					if(r2!=null) {toIntervals(r2, dimers, data, interval, minlen, breakOnContig);}
+					data.add(r1, dimers, interval, minlen, tid, breakOnContig);
+					if(r2!=null) {data.add(r2, dimers, interval, minlen, tid, breakOnContig);}
 				}
 
 				cris.returnList(ln);
@@ -214,29 +195,38 @@ public class ScalarIntervals {
 		return data;
 	}
 	
-	public static void toIntervals(Read r, KmerTracker dimers, FloatList[] data,
-			int interval, int minlen, boolean breakOnContig) {
-		if(verbose) {System.err.println("calling ToIntervals(read)");}
-		if(r==null || (breakOnContig && r.length()<minlen)) {return;}
-		if(breakOnContig) {dimers.clearAll();}
-		final byte[] bases=r.bases;
-		if(dimers.window>0) {
-			for(byte b : bases) {
-				boolean newValid=dimers.addWindowed(b);
-				if(newValid && interval>0 && dimers.count()>=interval) {toInterval(dimers, data);}
-			}
-		}else {dimers.add(bases);}
-		if(verbose) {System.err.println("dimers.count()="+dimers.count()+", minlen="+minlen);}
-		if(dimers.count()>=minlen) {toInterval(dimers, data);}
-	}
-	
-	private static void toInterval(KmerTracker dimers, FloatList[] data) {
-		if(verbose) {System.err.println("calling toInterval(dimers)");}
-		data[0].add(dimers.GC());
-		data[1].add(dimers.HH());
-		data[2].add(dimers.CAGA());
-		dimers.resetCount();
-	}
+//	public static void toIntervals(Read r, KmerTracker dimers, ScalarData sd, 
+//			int interval, int minlen, int tid, boolean breakOnContig) {
+//		if(verbose) {System.err.println("calling ToIntervals(read)");}
+//		if(r==null || (breakOnContig && r.length()<minlen)) {return;}
+//		if(breakOnContig) {dimers.clearAll();}
+//		final byte[] bases=r.bases;
+//		if(parseTID && tid<0) {tid=bin.BinObject.parseTaxID(r.name());}
+//		if(dimers.window>0) {
+//			for(byte b : bases) {
+//				boolean newValid=dimers.addWindowed(b);
+//				if(newValid && interval>0 && dimers.count()>=interval) {
+//					toInterval(dimers, sd);
+//					if(sd.taxID!=null) {sd.taxID.add(tid);}
+//					if(sd.name!=null) {sd.name.add(r.name());}
+//				}
+//			}
+//		}else {dimers.add(bases);}
+//		if(verbose) {System.err.println("dimers.count()="+dimers.count()+", minlen="+minlen);}
+//		if(dimers.count()>=minlen) {
+//			toInterval(dimers, sd);
+//			if(sd.taxID!=null) {sd.taxID.add(tid);}
+//			if(sd.name!=null) {sd.name.add(r.name());}
+//		}
+//	}
+//	
+//	private static void toInterval(KmerTracker dimers, ScalarData data) {
+//		if(verbose) {System.err.println("calling toInterval(dimers)");}
+//		data.gc.add(dimers.GC());
+//		data.hh.add(dimers.HH());
+//		data.caga.add(dimers.CAGA());
+//		dimers.resetCount();
+//	}
 
 	/*--------------------------------------------------------------*/
 
@@ -251,9 +241,6 @@ public class ScalarIntervals {
 //	private final FileFormat ffin;
 	/** Output file format */
 	private final FileFormat ffout;
-
-	/** Window size for sliding window analysis (0 for global analysis) */
-	private int window=0;
 	/** Whether to print column headers */
 	private boolean header=false;
 	/** Whether to print row headers */
@@ -262,9 +249,14 @@ public class ScalarIntervals {
 	private boolean printTime=false;
 	private boolean raw=false;
 
+
+	/** Window size for sliding window analysis (0 for global analysis) */
+	private int window=0;
 	private int interval=5000;
 	private int minlen=500;
 	private boolean breakOnContig=true;
+	private static boolean printName=false;
+	public static boolean parseTID=false;
 
 	static long readsProcessed=0, basesProcessed=0;
 	

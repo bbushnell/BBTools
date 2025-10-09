@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 6, 2025
+Last modified October 9, 2025
 
 Description:  Calculates some scalars from nucleotide sequence data.
 Prints the averages for each input file.
@@ -68,7 +68,7 @@ scalars() {
 		usage
 		return
 	fi
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.Scalars $@"
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP scalar.Scalars $@"
 	#echo $CMD >&2
 	eval $CMD
 }

@@ -2326,6 +2326,9 @@ public class TaxTree implements Serializable{
 	/** A simpler and probably less safe version of sharedTree(...) */
 	public static TaxTree getTree(){return sharedTree;}
 	
+	/** A simpler and probably less safe version of sharedTree(...) */
+	public static TaxTree sharedTree(){return sharedTree(defaultTreeFile(), true, true, System.err);}
+	
 	/**
 	 * Fetch the shared tree, loading it from file if not present.
 	 * @return A tree.

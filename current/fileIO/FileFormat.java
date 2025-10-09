@@ -366,6 +366,7 @@ public final class FileFormat {
 		else if(ext.equals("bbnet")){r[0]=BBNET;}
 		else if(ext.equals("bbvec") || ext.equals("vec")){r[0]=BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){r[0]=CLADE;}
+		else if(ext.equals("png")){r[0]=PNG;}
 		
 		if(comp!=null){
 			r[1]=Tools.find(comp, COMPRESSION_ARRAY);
@@ -823,6 +824,7 @@ public final class FileFormat {
 		else if(ext.equals("bbnet")){return BBNET;}
 		else if(ext.equals("bbvec") || ext.equals("vec")){return BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){return CLADE;}
+		else if(ext.equals("png")){return PNG;}
 		else if(ext.equals("txt") || ext.equals("text") || ext.equals("tsv") || ext.equals("csv")){return TXT;}
 		return UNKNOWN;
 	}
@@ -892,6 +894,7 @@ public final class FileFormat {
 	public final boolean bbnet(){return format==BBNET;}
 	public final boolean bbvec(){return format==BBVEC;}
 	public final boolean clade(){return format==CLADE;}
+	public final boolean png(){return format==PNG;}
 	
 	public final boolean preferShreds(){
 		return preferShreds;
@@ -1020,6 +1023,7 @@ public final class FileFormat {
 	public static final int BBNET=31;
 	public static final int BBVEC=32;
 	public static final int CLADE=33;
+	public static final int PNG=34;
 	
 	public static final String[] FORMAT_ARRAY=new String[] {
 		"unknown", "fasta", "fastq", "bread", "sam", "csfasta",
@@ -1027,7 +1031,7 @@ public final class FileFormat {
 		"bam", "scarf", "text", "phylip", "header", "int1d",
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
-		"alm", "bbnet", "bbvec", "vec", "clade", "spectra"
+		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png"
 	};
 	
 	public static final String[] EXTENSION_LIST=new String[] {
@@ -1038,7 +1042,7 @@ public final class FileFormat {
 		"gz", "gzip", "bz2", "zip", "xz", "dsrc", "header", "headers",
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
-		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst"
+		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png"
 	};
 	
 	/* Compression */

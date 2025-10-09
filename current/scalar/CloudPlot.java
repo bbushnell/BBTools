@@ -1,7 +1,10 @@
-package clade;
+package scalar;
 
 import java.awt.Color;
 import java.awt.Graphics2D;
+import java.awt.Shape;
+import java.awt.geom.AffineTransform;
+import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.PrintStream;
@@ -19,6 +22,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.FloatList;
+import tax.TaxTree;
 
 /**
  * Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots with color encoding.
@@ -76,14 +80,17 @@ public class CloudPlot {
 
 			in1=parser.in1;
 			out1=parser.out1;
+			maxReads=parser.maxReads;
 		}
 
 		validateParams();
 		fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
 
-		ffout1=FileFormat.testOutput(out1, FileFormat.UNKNOWN, null, true, overwrite, append, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.PNG, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
+		
+		if(useTree) {tree=TaxTree.sharedTree();}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -118,10 +125,55 @@ public class CloudPlot {
 				zmin=Float.parseFloat(b);
 			}else if(a.equals("zmax")){
 				zmax=Float.parseFloat(b);
+			}else if(a.equals("xpct") || a.equals("xpercent")){
+				xPercent=Float.parseFloat(b);
+			}else if(a.equals("ypct") || a.equals("ypercent")){
+				yPercent=Float.parseFloat(b);
+			}else if(a.equals("zpct") || a.equals("zpercent")){
+				zPercent=Float.parseFloat(b);
 			}else if(a.equals("scale")){
-				scale=Integer.parseInt(b);
+				scale=Float.parseFloat(b);
 			}else if(a.equals("pointsize")){
-				pointsize=Integer.parseInt(b);
+				pointsize=Float.parseFloat(b);
+			}else if(a.equals("window")){
+				window=Parse.parseIntKMG(b);
+			}else if(a.equals("interval")){
+				interval=Parse.parseIntKMG(b);
+			}else if(a.equals("shred")){
+				interval=window=Parse.parseIntKMG(b);
+			}else if(a.equals("break")){
+				breakOnContig=Parse.parseBoolean(b);
+			}else if(a.equals("minlen")){
+				minlen=Parse.parseIntKMG(b);
+			}else if(a.equalsIgnoreCase("gcHh") || a.equalsIgnoreCase("hhGc")){
+				gcHhCorrelation=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("gcCaga") || a.equalsIgnoreCase("cagaGc")){
+				gcCagaCorrelation=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("gcHhstrength") || a.equalsIgnoreCase("gcHhs")){
+				gcHhStrength=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("gcCagastrength") || a.equalsIgnoreCase("gcCagas")){
+				gcCagaStrength=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("cagaGcstrength") || a.equalsIgnoreCase("cagaGcs")){
+				cagaGcStrength=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("hhGcstrength") || a.equalsIgnoreCase("hhGcs")){
+				hhGcStrength=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("tree")){
+				useTree=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("tax") || a.equalsIgnoreCase("colorbytax") || 
+				a.equalsIgnoreCase("colorbytid")){
+				colorByTax=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("colorByName")){
+				colorByName=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("level")){
+				level=TaxTree.parseLevelExtended(b);
+			}
+			
+			else if(a.equals("order")){
+				order=new int[3];
+				String[] s=b.split(",");
+				order[0]=Integer.parseInt(s[0]);
+				order[1]=Integer.parseInt(s[1]);
+				order[2]=Integer.parseInt(s[2]);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -180,6 +232,8 @@ public class CloudPlot {
 		// Read input data
 		readData();
 
+		decorrelate();
+
 		// Apply autoscaling if needed
 		autoscale();
 
@@ -212,104 +266,174 @@ public class CloudPlot {
 	/** Read data from input file (TSV or FASTA) */
 	private void readData(){
 		if(ffin1.isSequence()){
-			// TODO: Phase 2 - FASTA input support
-			// Will use: data = Scalars.toIntervals(in1);
-			throw new RuntimeException("FASTA input not yet supported. Use TSV format: <GC>\\t<HH>\\t<CAGA>");
+			// FASTA input - use ScalarIntervals
+			data=ScalarIntervals.toIntervals(in1, window, interval, minlen, breakOnContig, maxReads);
 		}else{
 			// TSV input
-			data=readTSV();
+			data=new ScalarData(true, true, -1).readTSV(ffin1);
 		}
+		bytesProcessed+=data.bytesProcessed;
 	}
-
-	/** Read TSV format input */
-	private FloatList[] readTSV(){
-		FloatList gc=new FloatList();
-		FloatList hh=new FloatList();
-		FloatList caga=new FloatList();
-
-		ByteFile bf=ByteFile.makeByteFile(ffin1);
-		LineParser1 parser=new LineParser1('\t');
-
-		byte[] line;
-		while((line=bf.nextLine())!=null){
-			if(line.length>0 && line[0]!='#'){
-				bytesProcessed+=(line.length+1);
-				parser.set(line);
-				if(parser.terms()>=3){
-					gc.add(parser.parseFloat(0));
-					hh.add(parser.parseFloat(1));
-					caga.add(parser.parseFloat(2));
-					pointsProcessed++;
-				}
-			}
+	
+	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength) {
+		if(strength==0 || correlation==0) {return xList;}
+		return modify(xList, yList, -correlation*strength);
+	}
+	
+	private FloatList modify(FloatList xList, FloatList yList, float mult) {
+		FloatList zList=new FloatList(xList.size());
+		for(int i=0, lim=xList.size(); i<lim; i++) {
+			float x=xList.get(i);
+			float y=yList.get(i);
+			float z=x+(y-0.5f)*mult;
+			zList.add(z);
 		}
-		bf.close();
-
-		return new FloatList[]{gc, hh, caga};
+		return zList;
 	}
-
+	
+	void decorrelate() {
+		System.err.println("decorrelate");
+		final FloatList gc0=data.gc, hh0=data.hh, caga0=data.caga;
+//		printMinMax(gc0, hh0, caga0);
+		
+		FloatList hh=decorrelate(hh0, gc0, gcHhCorrelation, gcHhStrength);
+//		printMinMax(gc0, hh, caga0);
+		FloatList caga=decorrelate(caga0, gc0, gcCagaCorrelation, gcCagaStrength);
+//		printMinMax(gc0, hh, caga);
+		FloatList gc=decorrelate(gc0, caga0, gcCagaCorrelation, cagaGcStrength);
+//		printMinMax(gc, hh, caga);
+		gc=decorrelate(gc, hh0, gcHhCorrelation, hhGcStrength);
+//		printMinMax(gc, hh, caga);
+		
+		data.gc=gc;
+		data.hh=hh;
+		data.caga=caga;
+	}
+	
+	private static final void printMinMax(FloatList...data) {
+		final FloatList gc0=data[0], hh0=data[1], caga0=data[2];
+		System.err.println(gc0.min()+"-"+gc0.max()+", "+hh0.min()+"-"+hh0.max()+", "+caga0.min()+"-"+caga0.max());
+	}
+	
 	/** Apply autoscaling to any axis with negative min/max values */
 	private void autoscale(){
-		if(data==null || data[0].size()<1){
-			throw new RuntimeException("No data points to plot");
-		}
-
+		FloatList[] lists=data.reorder(order);
 		// X-axis (GC)
-		if(xmin<0){xmin=findMin(data[0]);}
-		if(xmax<0){xmax=data[0].max();}
+		if(xmin<0){xmin=min(lists[0], xPercent);}
+		if(xmax<0){xmax=max(lists[0], xPercent);}
 
 		// Y-axis (HH)
-		if(ymin<0){ymin=findMin(data[1]);}
-		if(ymax<0){ymax=data[1].max();}
+		if(ymin<0){ymin=min(lists[1], yPercent);}
+		if(ymax<0){ymax=max(lists[1], yPercent);}
 
 		// Z-axis/Color (CAGA)
-		if(zmin<0){zmin=findMin(data[2]);}
-		if(zmax<0){zmax=data[2].max();}
+		if(zmin<0){zmin=min(lists[2], zPercent);}
+		if(zmax<0){zmax=max(lists[2], zPercent);}
+		System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax);
 	}
-
-	/** Find minimum value in FloatList (FloatList has max() but not min()) */
-	private float findMin(FloatList list){
-		if(list.size()<1){return 0;}
-		float min=list.array[0];
-		for(int i=1; i<list.size(); i++){
-			min=Math.min(min, list.array[i]);
-		}
-		return min;
+	
+	private float min(FloatList list, float percentile){
+		if(percentile>=1 || percentile<=0) {return list.min();}
+		list=list.copy();
+		list.sort();
+		return list.percentile(1-percentile);
+	}
+	
+	private float max(FloatList list, float percentile){
+		if(percentile>=1 || percentile<=0) {return list.max();}
+		list=list.copy();
+		list.sort();
+		return list.percentile(percentile);
 	}
 
 	/** Render the plot to a BufferedImage */
 	private BufferedImage renderPlot(){
-		int width=800*scale;
-		int height=600*scale;
-		int margin=50*scale;
+		int width=(int)Math.round(1024*scale);
+		int height=(int)Math.round(768*scale);
+		int margin=(int)Math.round(50*scale);
 
 		BufferedImage img=new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		Graphics2D g=img.createGraphics();
 
 		// White background
-		g.setColor(Color.WHITE);
+		g.setColor(Color.BLACK);
 		g.fillRect(0, 0, width, height);
 
 		// Draw points
 		int plotWidth=width-2*margin;
 		int plotHeight=height-2*margin;
 
-		int numPoints=data[0].size();
+		final FloatList[] lists=data.reorder(order);
+		final FloatList xlist=lists[0], ylist=lists[1], zlist=lists[2];
+		int numPoints=xlist.size();
+
+//		System.err.println("zmin="+zmin+", zmax="+zmax);
 		for(int i=0; i<numPoints; i++){
-			float gcVal=data[0].array[i];    // X-axis
-			float hhVal=data[1].array[i];    // Y-axis
-			float cagaVal=data[2].array[i];  // Color
+			int tid=data.tid(i);
+			String name=data.name(i);
+			float x=xlist.array[i];    // X-axis
+			float y=ylist.array[i];    // Y-axis
+			float z=zlist.array[i];    // Color
 
 			// Map data coords to pixel coords
-			float normX=(gcVal-xmin)/(xmax-xmin);
-			float normY=(hhVal-ymin)/(ymax-ymin);
+			float normX=(x-xmin)/(xmax-xmin);
+			float normY=(y-ymin)/(ymax-ymin);
+
+			// Normalize CAGA value to 0-1 range for color mapping
+			float normZ;
+			if(zmax-zmin<0.001f){
+				normZ=0.5f;
+			}else{
+				normZ=(z-zmin)/(zmax-zmin);
+			}
+//			System.err.println(cagaVal+" -> "+normZ);
 
 			int px=margin+(int)(normX*plotWidth);
 			int py=height-margin-(int)(normY*plotHeight);  // Flip Y-axis
 
-			Color c=cagaToColor(cagaVal);
+			// Convert normZ (0-1) to radians (0-2π)
+			float angle = normZ * (float)(2 * Math.PI);
+
+			// Create elongated ellipse
+			float pointWidth=pointsize*0.8f;
+			float pointLength=pointsize*(3.2f+0.5f*normY);
+			Ellipse2D ellipse=new Ellipse2D.Float(px - pointWidth/2, py - pointLength/2, pointWidth, pointLength);
+
+			// Rotate around center
+			AffineTransform rotation = AffineTransform.getRotateInstance(angle, px, py);
+			Shape rotatedEllipse = rotation.createTransformedShape(ellipse);
+
+			final Color c;
+			if(colorByTax) {
+				if(tid<1) {c=new Color(200, 200, 200);}
+				else {
+					if(useTree && level>1) {tid=tree.getIdAtLevelExtended(tid, level);}
+					long hash=Tools.hash64shift(tid);
+					float[] rgb=new float[3];
+					for(int color=0; color<3; color++) {
+						rgb[color]=(((hash&1023L)/1024f)*0.9f)+0.1f;
+//						rgb[color]=Math.round(rgb[color]*255);
+						hash>>=10;
+					}
+//					System.err.println()
+					c=new Color(rgb[0], rgb[1], rgb[2]);
+				}
+			}else if(colorByName) {
+					if(useTree && level>1) {tid=tree.getIdAtLevelExtended(tid, level);}
+					int hash=name.hashCode();
+					float[] rgb=new float[3];
+					for(int color=0; color<3; color++) {
+						rgb[color]=(((hash&1023)/1024f)*0.9f)+0.1f;
+//						rgb[color]=Math.round(rgb[color])*255;
+						hash>>=10;
+					}
+					c=new Color(rgb[0], rgb[1], rgb[2]);
+			}else {
+				c=cagaToColor6(normZ);
+			}
 			g.setColor(c);
-			g.fillOval(px-pointsize, py-pointsize, pointsize*2, pointsize*2);
+			g.fill(rotatedEllipse);
+			pointsProcessed++;
 		}
 
 		g.dispose();
@@ -317,15 +441,27 @@ public class CloudPlot {
 	}
 
 	/** Map CAGA value to color: Red(0.0) → Blue(0.5) → Green(1.0) */
-	private Color cagaToColor(float caga){
-		if(caga<=0.5f){
-			// Red (0.0) → Blue (0.5)
-			float t=caga*2.0f;  // Map 0.0-0.5 to 0.0-1.0
-			return interpolateColor(new Color(255, 0, 0), new Color(0, 0, 255), t);
-		}else{
-			// Blue (0.5) → Green (1.0)
-			float t=(caga-0.5f)*2.0f;  // Map 0.5-1.0 to 0.0-1.0
-			return interpolateColor(new Color(0, 0, 255), new Color(0, 255, 0), t);
+	private Color cagaToColor6(float caga){
+		
+		//Handle out of range.
+		if(caga<0) {return new Color(255, 64, 64);}
+		if(caga>1) {return new Color(255, 255, 64);}
+		
+		if(caga<=0.2f){//Red → Purple
+			float t=caga*5.0f;
+			return interpolateColor(new Color(250, 0, 0), new Color(200, 0, 240), t);
+		}else if(caga<=0.4f){//Purple → Blue
+			float t=(caga-0.2f)*5.0f;
+			return interpolateColor(new Color(200, 0, 240), new Color(32, 32, 255), t);
+		}else if(caga<=0.6f){//Blue → Cyan
+			float t=(caga-0.4f)*5.0f;
+			return interpolateColor(new Color(32, 32, 255), new Color(0, 240, 240), t);
+		}else if(caga<=0.8f){//Cyan → Green
+			float t=(caga-0.6f)*5.0f;
+			return interpolateColor(new Color(0, 240, 240), new Color(0, 200, 0), t);
+		}else{//Green → Yellow
+			float t=(caga-0.8f)*5.0f;
+			return interpolateColor(new Color(0, 200, 0), new Color(250, 200, 0), t);
 		}
 	}
 
@@ -356,9 +492,10 @@ public class CloudPlot {
 
 	/** Primary output file path */
 	private String out1=null;
-
-	/** Data storage: [0]=GC, [1]=HH, [2]=CAGA */
-	private FloatList[] data=null;
+	
+	private ScalarData data=null;
+	
+	private int[] order;
 
 	/*--------------------------------------------------------------*/
 
@@ -369,10 +506,34 @@ public class CloudPlot {
 	private float ymax=-1.0f;
 	private float zmin=-1.0f;
 	private float zmax=-1.0f;
-
+	private float xPercent=0.998f;
+	private float yPercent=0.998f;
+	private float zPercent=0.99f;
+	
 	/** Rendering parameters */
-	private int scale=1;
-	private int pointsize=2;
+	private float scale=1.0f;
+	private float pointsize=3.5f;
+
+	/** FASTA processing parameters */
+	private int window=0;
+	private int interval=5000;
+	private int minlen=500;
+	private boolean breakOnContig=true;
+	private long maxReads=-1;
+	
+	private float gcHhCorrelation=-0.5f;
+	private float gcHhStrength=0.20f;
+	private float hhGcStrength=1.40f;
+	
+	private float gcCagaCorrelation=0.5f;
+	private float gcCagaStrength=0.1f;
+	private float cagaGcStrength=0.0f;
+
+	private boolean colorByTax=false;
+	private boolean colorByName=false;
+	private int level=TaxTree.CLASS;
+	private boolean useTree=false;
+	private static TaxTree tree;
 
 	/*--------------------------------------------------------------*/
 
@@ -400,5 +561,7 @@ public class CloudPlot {
 	private boolean overwrite=true;
 	/** Append to existing output files */
 	private boolean append=false;
+	/** Verbose output */
+	private static boolean verbose=false;
 
 }
