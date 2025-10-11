@@ -157,15 +157,21 @@ public class CloudPlot {
 				cagaGcStrength=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("hhGcstrength") || a.equalsIgnoreCase("hhGcs")){
 				hhGcStrength=Float.parseFloat(b);
-			}else if(a.equalsIgnoreCase("tree")){
+			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree")){
 				useTree=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tax") || a.equalsIgnoreCase("colorbytax") || 
 				a.equalsIgnoreCase("colorbytid")){
 				colorByTax=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("parsetid")){
+				ScalarData.parseTID=colorByTax;
 			}else if(a.equalsIgnoreCase("colorByName")){
 				colorByName=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("level")){
 				level=TaxTree.parseLevelExtended(b);
+			}else if(a.equals("sketch") | a.equals("bbsketch")){
+				ScalarData.makeSketch=Parse.parseBoolean(b);
+			}else if(a.equals("clade") || a.equals("quickclade")){
+				ScalarData.makeClade=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equals("order")){
@@ -270,9 +276,9 @@ public class CloudPlot {
 			data=ScalarIntervals.toIntervals(in1, window, interval, minlen, breakOnContig, maxReads);
 		}else{
 			// TSV input
-			data=new ScalarData(true, true, -1).readTSV(ffin1);
+			data=new ScalarData(true, -1).readTSV(ffin1);
 		}
-		bytesProcessed+=data.bytesProcessed;
+		bytesProcessed+=(data.bytesProcessed+data.basesProcessed);
 	}
 	
 	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength) {

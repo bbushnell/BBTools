@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 9, 2025
+Last modified October 10, 2025
 
 Description:  Calculates some scalars from nucleotide sequence data.
 Writes them periodically as a tsv.
@@ -18,16 +18,23 @@ Standard parameters:
 in=<file>       Primary input; fasta or fastq.
                 This can also be a directory or comma-delimited list.
 		Filenames can also be used without in=
-out=stdout      Set to a file to redirect tsv output.
+out=stdout      Set to a file to redirect tsv output.  The mean and stdev
+                will be printed to stderr.
 
 Processing parameters:
 header=f        Print a header line.
-window=0        If nonzero, calculate and average over windows.
-                Otherwise print one line per contig.
-break=t         Set to true to reset data at contig bounds.
-interval=5000   Print a line every this many bp.  Independent of window,
-                but often makes sense to set them to the same size.
+window=50000    If nonzero, calculate metrics over sliding windows.
+                Otherwise calculate per contig.  Larger has lower variance.
+interval=10000  Generate a data point every this many bp.
 shred=-1        If positive, set window and interval to the same size.
+break=t         Reset metrics at contig boundaries.
+minlen=500      Minimum interval length to generate a point.
+maxreads=-1     Maximum number of reads/contigs to process.
+printname=f     Print contig names in output.
+printpos=f      Print contig position in output.
+parsetid=f      Parse TaxIDs from file and sequence headers.
+sketch=f        Use BBSketch (SendSketch) to assign taxonomy per contig.
+clade=f         Use QuickClade to assign taxonomy per contig.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

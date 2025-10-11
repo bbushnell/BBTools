@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 9, 2025
+Last modified October 10, 2025
 
 Description:  Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots.
 Supports both TSV interval data and FASTA input (via ScalarIntervals).
@@ -20,19 +20,47 @@ in=<file>       Primary input; TSV (GC/HH/CAGA columns) or FASTA/FASTQ.
 out=<file>      Output PNG image file.
 
 Rendering parameters:
-scale=1         Image scale multiplier (1=800x600, 2=1600x1200, etc).
-pointsize=2     Radius of plotted points in pixels.
-xmin=-1         X-axis minimum (GC). Negative = autoscale.
-xmax=-1         X-axis maximum (GC). Negative = autoscale.
-ymin=-1         Y-axis minimum (HH). Negative = autoscale.
-ymax=-1         Y-axis maximum (HH). Negative = autoscale.
-zmin=-1         Z-axis/color minimum (CAGA). Negative = autoscale.
-zmax=-1         Z-axis/color maximum (CAGA). Negative = autoscale.
+order=caga,hh,gc  Plotting order of dimensions as x,y,z.
+scale=1         Image scale multiplier (1=1024x768).
+pointsize=3.5   Width of plotted points in pixels.
+autoscale=t     Autoscale dimensions with negative values based on data.
+                If false, they will be scaled to 0-1.
+xmin=-1         X-axis minimum.
+xmax=-1         X-axis maximum.
+ymin=-1         Y-axis minimum.
+ymax=-1         Y-axis maximum.
+zmin=-1         Z-axis (rotation/color) minimum.
+zmax=-1         Z-axis (rotation/color) maximum.
+xpct=0.998      Percentile of x-axis values to use for autoscaling.
+ypct=0.998      Percentile of y-axis values to use for autoscaling.
+zpct=0.99       Percentile of z-axis values to use for autoscaling.
 
-FASTA processing parameters (only used with FASTA input):
-window=0        If nonzero, calculate metrics over sliding windows.
+Taxonomy/Coloring parameters:
+colorbytax=f    Color by taxonomy.  Default coloring is by the 
+colorbyname=f   Color by contig name, so points on the same contig have
+                the same, random color.
+level=genus     Raise taxonomy to this level before assigning color.
+                Set to -1 to color by exact TaxID.  Raising taxonomic level
+		may require a taxonomic tree.
+tree=f          Load the taxonomic tree in BBTools/resources/tree.taxtree.gz
+                See https://sourceforge.net/projects/bbmap/files/Resources/
+parsetid=f      Parse TaxIDs from file and sequence headers.
+sketch=f        Use BBSketch (SendSketch) to assign taxonomy per contig.
+clade=f         Use QuickClade to assign taxonomy per contig.
+
+Decorrelation parameters:
+decorrelate=t   Modify plotted data to reduce inter-dimension correlation.
+GChh=-0.5       Correlation between GC and HH.
+GChhs=0.2       (GChhStrength) Modify HH by -GChhs*GC*GChh.
+hhGCs=1.4       (hhGCStrength) Modify GC by -hhGCs*hh*GChh.
+GCcaga=0.1      Correlation between GC and CAGA.
+GCcagas=0.5     (GCcagaStrength) Modify CAGA by -GCcagas*GC*GCcaga.
+cagaGCs=0.0     (cagaGCStrength) Modify GC by -cagaGCs*caga*GCcaga.
+
+Sequence processing parameters (not used with TSV input):
+window=50000    If nonzero, calculate metrics over sliding windows.
                 Otherwise calculate per contig.
-interval=5000   Generate a data point every this many bp.
+interval=10000  Generate a data point every this many bp.
 shred=-1        If positive, set window and interval to the same size.
 break=t         Reset metrics at contig boundaries.
 minlen=500      Minimum interval length to generate a point.
