@@ -8,6 +8,7 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import shared.LineParser1;
 import sketch.Sketch;
+import sketch.SketchMakerMini;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.FloatList;
@@ -16,8 +17,7 @@ import tracker.KmerTracker;
 
 public class ScalarData{
 
-	ScalarData(boolean storeTIDs, boolean storeNames, long numericID_) {
-		if(storeTIDs) {taxIDs=new IntList();}
+	ScalarData(boolean storeNames, long numericID_) {
 		if(storeNames) {names=new ArrayList<String>();}
 		numericID=numericID_;
 	}
@@ -45,7 +45,7 @@ public class ScalarData{
 				gc.add(parser.parseFloat(0));
 				hh.add(parser.parseFloat(1));
 				caga.add(parser.parseFloat(2));
-				if(parser.terms()>3 && taxIDs!=null) {taxIDs.add(parser.parseInt(3));}
+				if(parser.terms()>3) {taxIDs.add(parser.parseInt(3));}
 				if(parser.terms()>4 && names!=null) {names.add(parser.parseString(4));}
 			}
 		}
@@ -62,17 +62,16 @@ public class ScalarData{
 	public final void print(FileFormat ffout,
 			boolean header, boolean printTID, boolean printName) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
-		print(bsw, header, printTID, printName);
+		print(bsw, header, printName);
 		bsw.poison();
 	}
 	
-	public final void print(ByteStreamWriter bsw,
-			boolean header, boolean printTID, boolean printName) {
+	public final void print(ByteStreamWriter bsw, boolean header, boolean printName) {
 		if(bsw==null) {return;}
 		if(header) {
 			bsw.print("#");
 			bsw.print("GC\tHH\tCAGA");
-			if(printTID) {bsw.print("\tTaxID");}
+			if(true) {bsw.print("\tTaxID");}
 			if(printName) {bsw.print("\tName");}
 			bsw.print('\n');
 		}
@@ -82,7 +81,8 @@ public class ScalarData{
 			for(int j=0; j<fls.length; j++) {
 				bb.appendt(fls[j].get(i), 7);
 			}
-			if(taxIDs!=null && printTID) {bb.appendt(taxIDs.get(i));}
+			if(taxIDs!=null){bb.append(taxIDs.get(i));}
+			bb.tab();
 			if(names!=null && printName) {bb.appendt(names.get(i));}
 			bb.replaceLast('\n');
 			bsw.print(bb);
@@ -90,11 +90,15 @@ public class ScalarData{
 		}
 	}
 
-	public void add(Read r, KmerTracker dimers, 
+	public void add(Read r, KmerTracker dimers, SketchMakerMini smm,
 			int interval, int minlen, int tid, boolean breakOnContig) {
 		if(r==null) {return;}
 		final byte[] bases=r.bases;
-		if(clade!=null) {clade.add(bases, null);}
+		if(makeClade && r.length()>=minCladeSize) {
+			if(clade==null) {clade=new Clade(-1, -1, null);}
+			clade.add(bases, null);
+		}
+		if(makeSketch && r.length()>=minSketchSize) {smm.processRead(r);}
 		if(breakOnContig && r.length()<minlen) {return;}
 		readsProcessed++;
 		basesProcessed+=r.length();
@@ -117,7 +121,7 @@ public class ScalarData{
 		gc.add(dimers.GC());
 		hh.add(dimers.HH());
 		caga.add(dimers.CAGA());
-		if(taxIDs!=null) {taxIDs.add(tid);}
+		taxIDs.add(tid);
 		if(names!=null) {names.add(name);}
 		dimers.resetCount();
 		pointsProcessed++;
@@ -127,7 +131,7 @@ public class ScalarData{
 		gc.append(sd.gc);
 		hh.append(sd.hh);
 		caga.append(sd.caga);
-		if(taxIDs!=null) {taxIDs.addAll(sd.taxIDs);}
+		taxIDs.addAll(sd.taxIDs);
 		if(names!=null) {names.addAll(sd.names);}
 		readsProcessed+=sd.readsProcessed;
 		basesProcessed+=sd.basesProcessed;
@@ -136,13 +140,13 @@ public class ScalarData{
 //		if(clade!=null) {clade.add(sd.clade);}
 	}
 
-	public int tid(int i){return taxIDs==null ? -1 : taxIDs.get(i);}
+	public int tid(int i){return taxIDs.get(i);}
 	public String name(int i){return names==null ? null : names.get(i);}
 
 	public FloatList gc=new FloatList();
 	public FloatList hh=new FloatList();
 	public FloatList caga=new FloatList();
-	public IntList taxIDs;
+	public IntList taxIDs=new IntList();
 	public ArrayList<String> names;
 
 	long readsProcessed=0;
@@ -158,6 +162,8 @@ public class ScalarData{
 	public static boolean parseTID=false;
 	public static boolean makeClade=false;
 	public static boolean makeSketch=false;
+	public static int minCladeSize=2000;
+	public static int minSketchSize=5000;
 
 	public static boolean verbose=false;
 	
