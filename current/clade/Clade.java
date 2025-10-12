@@ -1,6 +1,7 @@
 package clade;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import bin.AdjustEntropy;
 import bin.SimilarityMeasures;
@@ -41,11 +42,11 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		level=level_;
 		name=name_;
 		counts=new long[6][];
-		counts[1]=new long[5];
-		counts[2]=new long[16];
-		counts[3]=new long[canonicalKmers[3]];
-		counts[4]=new long[canonicalKmers[4]];
-		counts[5]=new long[canonicalKmers[5]];
+		counts[1]=new long[arrayLength[1]];
+		counts[2]=new long[arrayLength[2]];
+		counts[3]=new long[arrayLength[3]];
+		counts[4]=new long[arrayLength[4]];
+		counts[5]=new long[arrayLength[5]];//Could be optionally allocated later
 	}
 
 	/**
@@ -55,6 +56,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	 * @return A new Clade with information from the taxonomy tree, or a minimal Clade if ID not found
 	 */
 	public static Clade makeClade(int tid) {
+		if(perSequence) {return new Clade(tid, -1, null);}
 		TaxNode tn=tree.getNode(tid);
 		assert(tn!=null);
 		if(tn==null) {
@@ -132,15 +134,22 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			c.contigs=lp.parseInt(1);
 
 			for(int k=1; k<=maxk; k++) {
+				//TODO: Change to concise packing, skipping k4/k5 depending on #bases, leaving them empty.
 				pos++;
 				lp.set(list.get(pos));
 				assert(lp.startsWith((char)(k+'0')));
-				if(coding==Clade.DECIMAL) {lp.parseLongArray(1, c.counts[k]);}
-				else {
-					lp.parseLongArrayA48(1, c.counts[k]);
+				final int terms=lp.terms(), expected=arrayLength[k]+1;
+				assert(k<2 || terms==1 || terms==canonicalKmers[k]+1) : 
+					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
+				assert(terms==expected || (k>3 && terms==1)) :
+					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
+				
+				if(terms>=expected) {
+					if(coding==Clade.DECIMAL) {lp.parseLongArray(1, c.counts[k]);}
+					else{lp.parseLongArrayA48(1, c.counts[k]);}
+				}else{
+					c.counts[k]=null;
 				}
-				assert(k<2 || lp.terms()==canonicalKmers[k]+1) : 
-					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+lp.terms();
 			}
 			
 			for(pos++; pos<list.size(); pos++) {
@@ -243,8 +252,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		frequencies=new float[6][];
 		frequencies[3]=toFrequencies(counts[3], 3);
 		if(MAKE_FREQUENCIES && (method==ABSCOMP || method==ABS)) {
-			frequencies[4]=(maxK<4 ? null : toFrequencies(counts[4], 4));
-			frequencies[5]=(maxK<5 ? null : toFrequencies(counts[5], 5));
+			frequencies[4]=(maxK<4 || bases<Comparison.minK4Bases ? null : toFrequencies(counts[4], 4));
+			frequencies[5]=(maxK<5 || bases<Comparison.minK5Bases ? null : toFrequencies(counts[5], 5));
 			if(DELETE_COUNTS) {counts[3]=counts[4]=counts[5]=null;}
 		}
 		finished=true;
@@ -350,7 +359,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		final boolean outDEC=(outputCoding==DECIMAL);
 		final byte[] temp=(outDEC ? null : KillSwitch.allocByte1D(12));
 		{//header
-			int lines=8+counts.length-1;
+			int lines=10+counts.length-1;
 			if(r16S!=null) {lines++;}
 			else if(r18S!=null) {lines++;}
 			bb.append('#').tab().append(lines);
@@ -367,12 +376,16 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		bb.append("strandedness\t").append(strandedness, 8).nl();
 		bb.append("bases\t").append(bases).nl();
 		bb.append("contigs\t").append(contigs).nl();
+		int maxK=Math.min(MAXK, bases<Comparison.minK4Bases ? 3 : bases<Comparison.minK5Bases ? 4 : 5);
+//		assert(false) : MAXK+", "+bases+", "+outDEC+", "+Arrays.toString(counts);
 		for(int k=1; k<counts.length && k<=MAXK; k++) {
-			if(counts[k]!=null) {
-				bb.append(k).append("mers\t");
-				if(outDEC) {bb.append(counts[k], '\t').nl();}
-				else {bb.appendA48(counts[k], '\t', temp).nl();}
+			bb.append(k).append("mers");
+			if(counts[k]!=null && (k<=maxK || !CONCISE)) {
+				bb.tab();
+				if(outDEC) {bb.append(counts[k], '\t');}
+				else {bb.appendA48(counts[k], '\t', temp);}
 			}
+			bb.nl();
 		}
 		if(r16S!=null) {bb.append("16S\t").append(r16S).nl();}
 		else if(r18S!=null) {bb.append("18S\t").append(r18S).nl();}
@@ -427,6 +440,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static boolean callSSU=false;
 	public static boolean writeLineage=true;
 	public static boolean MAKE_FREQUENCIES=true;
-	public static boolean DELETE_COUNTS=true;
+	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.
+	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
 	
 }

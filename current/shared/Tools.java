@@ -2399,6 +2399,12 @@ public final class Tools {
 		}
 	}
 
+	public static void multiplyBy(float[] array, float mult) {
+		for(int i=0; i<array.length; i++){
+			array[i]=array[i]*mult;
+		}
+	}
+
 	public static void multiplyBy(long[] array, double mult) {
 		for(int i=0; i<array.length; i++){
 			array[i]=Math.round(array[i]*mult);

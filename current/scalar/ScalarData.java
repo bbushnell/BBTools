@@ -15,9 +15,9 @@ import structures.FloatList;
 import structures.IntList;
 import tracker.KmerTracker;
 
-public class ScalarData{
+public class ScalarData implements Comparable<ScalarData>{
 
-	ScalarData(boolean storeNames, long numericID_) {
+	ScalarData(boolean storeNames, long numericID_){
 		if(storeNames) {names=new ArrayList<String>();}
 		numericID=numericID_;
 	}
@@ -37,6 +37,7 @@ public class ScalarData{
 		LineParser1 parser=new LineParser1('\t');
 
 		byte[] line;
+		String prev=null;
 		while((line=bf.nextLine())!=null){
 			if(line.length>0 && line[0]!='#'){
 				bytesProcessed+=(line.length+1);
@@ -46,44 +47,86 @@ public class ScalarData{
 				hh.add(parser.parseFloat(1));
 				caga.add(parser.parseFloat(2));
 				if(parser.terms()>3) {taxIDs.add(parser.parseInt(3));}
-				if(parser.terms()>4 && names!=null) {names.add(parser.parseString(4));}
+				if(parser.terms()>4 && names!=null) {
+					String name=parser.parseString(4);
+					names.add(name!=null && name.equals(prev) ? prev : name);
+					prev=name;
+				}
 			}
 		}
 		bf.close();
 		return this;
 	}
 	
-	public final void print(String outname,
-			boolean header, boolean printTID, boolean printName) {
+	public final void print(String outname, boolean header,
+			boolean printName, boolean printPos, int interval) {
 		FileFormat ffout=FileFormat.testOutput(outname, FileFormat.TXT, null, true, true, false, false);
-		print(ffout, header, printTID, printName);
+		print(ffout, header, printName, printPos, interval);
 	}
 	
-	public final void print(FileFormat ffout,
-			boolean header, boolean printTID, boolean printName) {
+	public final void print(FileFormat ffout, boolean header, 
+			boolean printName, boolean printPos, int interval) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
-		print(bsw, header, printName);
+		print(bsw, header, printName, printPos, interval);
 		bsw.poison();
 	}
 	
-	public final void print(ByteStreamWriter bsw, boolean header, boolean printName) {
+	public static String header(boolean sideHeader, boolean printName) {
+		ByteBuilder bb=new ByteBuilder();
+		bb.append("#");
+		if(sideHeader) {bb.appendt("Header");}
+		bb.append("GC\tHH\tCAGA");
+		if(true) {bb.append("\tTaxID");}
+		if(printName) {bb.append("\tName");}
+		return bb.nl().toString();
+	}
+	
+	public ByteBuilder mean(boolean sideHeader, String name) {		
+		ByteBuilder bb=new ByteBuilder();
+		if(sideHeader) {bb.appendt("Mean");}
+		bb.appendt(gc.mean(),5);
+		bb.appendt(hh.mean(),5);
+		bb.appendt(caga.mean(),5);
+		int tid=(taxIDs==null ? 0 : taxIDs.modeUnsorted());
+		bb.appendt(tid);
+		if(name!=null) {bb.appendt(name);}
+		bb.replaceLast('\n');
+		return bb;
+	}
+	
+	public ByteBuilder stdev(boolean sideHeader, String name) {		
+		ByteBuilder bb=new ByteBuilder();
+		if(sideHeader) {bb.appendt("STDev");}
+		bb.appendt(gc.stdev(),5);
+		bb.appendt(hh.stdev(),5);
+		bb.appendt(caga.stdev(),5);
+		int tid=(taxIDs==null ? 0 : taxIDs.modeUnsorted());
+		bb.appendt(tid);
+		if(name!=null) {bb.appendt(name);}
+		bb.replaceLast('\n');
+		return bb;
+	}
+	
+	public final void print(ByteStreamWriter bsw, boolean header, 
+			boolean printName, boolean printPos, int interval) {
 		if(bsw==null) {return;}
-		if(header) {
-			bsw.print("#");
-			bsw.print("GC\tHH\tCAGA");
-			if(true) {bsw.print("\tTaxID");}
-			if(printName) {bsw.print("\tName");}
-			bsw.print('\n');
-		}
+		if(header) {bsw.print(header(false, printName));}
 		ByteBuilder bb=new ByteBuilder();
 		FloatList[] fls=data();
+		String prevName=null;
+		int pos=0;
 		for(int i=0, len=fls[0].size(); i<len; i++) {
-			for(int j=0; j<fls.length; j++) {
-				bb.appendt(fls[j].get(i), 7);
-			}
+			for(int j=0; j<fls.length; j++) {bb.appendt(fls[j].get(i), 6);}
 			if(taxIDs!=null){bb.append(taxIDs.get(i));}
 			bb.tab();
-			if(names!=null && printName) {bb.appendt(names.get(i));}
+			if(names!=null && printName) {
+				String name=names.get(i);
+				boolean match=(name!=null && name.equals(prevName));
+				prevName=name;
+				pos=match ? pos+interval : 0;
+				if(printPos) {bb.appendt(pos);}
+				if(printName) {bb.appendt(names.get(i));}
+			}
 			bb.replaceLast('\n');
 			bsw.print(bb);
 			bb.clear();
@@ -128,6 +171,7 @@ public class ScalarData{
 	}
 	
 	public void add(ScalarData sd) {
+		assert(sd!=this);
 		gc.append(sd.gc);
 		hh.append(sd.hh);
 		caga.append(sd.caga);
@@ -142,6 +186,11 @@ public class ScalarData{
 
 	public int tid(int i){return taxIDs.get(i);}
 	public String name(int i){return names==null ? null : names.get(i);}
+
+	@Override
+	public int compareTo(ScalarData o){
+		return numericID<o.numericID ? -1 : numericID>o.numericID ? 1 : o.gc.size-gc.size;
+	}
 
 	public FloatList gc=new FloatList();
 	public FloatList hh=new FloatList();

@@ -203,6 +203,10 @@ public final class IntList{
 		size=0;
 	}
 	
+	public void fill(int value){
+		Arrays.fill(array, 0, size, value);
+	}
+	
 	/** 
 	 * Sets value at specified location, expanding array if necessary.
 	 * @param loc Index to set
@@ -348,6 +352,93 @@ public final class IntList{
 		if(size==array.length){return this;}
 		array=KillSwitch.copyOf(array, size);
 		return this;
+	}
+	
+	public int maxIdx() {
+		if(size<1) {return -1;}
+		int max=array[0];
+		int maxIdx=0;
+		for(int i=1; i<size; i++) {
+			if(array[i]>max) {
+				max=array[i];
+				maxIdx=i;
+			}
+			max=max(max, array[i]);
+		}
+		return maxIdx;
+	}
+	
+	public int max() {
+		int max=-Integer.MAX_VALUE;
+		for(int i=0; i<size; i++) {max=max(max, array[i]);}
+		return max;
+	}
+	
+	public int min() {
+		int min=Integer.MAX_VALUE;
+		for(int i=1; i<size; i++) {min=min(min, array[i]);}
+		return min;
+	}
+	
+	public final float stdev(){
+		if(size<2){return 0;}
+		double sum=sum();
+		double avg=sum/size;
+		double sumdev2=0;
+		for(int i=0; i<size; i++){
+			double x=array[i];
+			double dev=avg-x;
+			sumdev2+=(dev*dev);
+		}
+		return (float)Math.sqrt(sumdev2/size);
+	}
+	
+	public final double mean(){
+		return size<1 ? 0 : sum()/size;
+	}
+	
+	/** Assumes list is sorted */
+	public final double median(){
+		if(size<1){return 0;}
+		int idx=percentileIndex(0.5f);
+		return array[idx];
+	}
+	
+	/** Assumes list is sorted */
+	public final int mode(){
+		assert(sorted());
+		return mode(array, size);
+	}
+	
+	public final int modeUnsorted(){
+		int[] copy=toArray();
+		Shared.sort(copy);
+		return mode(copy, copy.length);
+	}
+	
+	/** Assumes list is sorted */
+	public static final int mode(int[] array, int size){
+		if(size<1){return 0;}
+		int streak=1, bestStreak=0;
+		int prev=array[0];
+		int best=prev;
+		for(int i=0; i<size; i++){
+			int x=array[i];
+			if(x==prev){streak++;}
+			else{
+				if(streak>bestStreak){
+					bestStreak=streak;
+					best=prev;
+				}
+				streak=1;
+				prev=x;
+			}
+		}
+		if(streak>bestStreak){
+			bestStreak=streak;
+			best=prev;
+		}
+		return best;
 	}
 	
 	/** 

@@ -154,7 +154,8 @@ public class CladeServer {
 		for(int i=0; i<1000; i++){
 			Exception ee=tryInitialize(2000);
 			if(ee==null){
-				server.setExecutor(null); // creates a default executor
+				int handlerThreads=Tools.max(2, Shared.threads());
+				server.setExecutor(java.util.concurrent.Executors.newFixedThreadPool(handlerThreads));
 				server.start();
 				serverStartTime=System.currentTimeMillis();
 				return;
@@ -473,7 +474,7 @@ public class CladeServer {
 
 			if(verbose2){System.err.println("DEBUG: Starting clade processing loop with " + clades.size() + " clades");}
 			int queryNumber = 1;
-			for(Clade clade : clades){
+			for(Clade clade : clades){//TODO - multithread this, at least 4 threads.
 				if(verbose2){System.err.println("DEBUG: Processing clade " + queryNumber + ": " + (clade != null ? clade.toString() : "null"));}
 				// Use thread-safe findBest method with context-specific hits parameter
 				if(verbose2){

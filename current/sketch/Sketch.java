@@ -6,8 +6,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import bin.SketchRecord;
 import dna.AminoAcid;
 import fileIO.ReadWrite;
+import json.JsonObject;
 import shared.KillSwitch;
 import shared.Tools;
 import structures.AbstractBitSet;
@@ -1176,5 +1178,23 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	}
 	
 	private static AtomicInteger nextSketch=new AtomicInteger(1);
+	
+
+	/*--------------------------------------------------------------*/
+	
+	/** TODO: Move up */
+	public final void setFrom(JsonObject all) {
+		JsonObject top=null;
+		if(all!=null && all.jmapSize()>0) {
+			for(String key : all.jmap.keySet()){
+				JsonObject hit=all.jmap.get(key);
+				if(top==null) {top=hit;}
+			}
+		}
+		if(top!=null) {
+			taxID=top.getLong("TaxID").intValue();
+			taxName=top.getString("taxName");
+		}
+	}
 	
 }

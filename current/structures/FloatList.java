@@ -119,6 +119,7 @@ public final class FloatList{
 	}
 	
 	public final void append(FloatList b){
+		assert(b!=this);
 		for(int i=0; i<b.size; i++){
 			add(b.get(i));
 		}

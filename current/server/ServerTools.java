@@ -686,10 +686,11 @@ public class ServerTools {
 
 			ExecutorService executor = Executors.newFixedThreadPool(4, daemonThreadFactory);
 //			ExecutorService executor = Executors.newFixedThreadPool(8);
-	        client = HttpClient.newBuilder()
-	                .version(HttpClient.Version.HTTP_2)
-	                .executor(executor)
-	                .build();
+			client = HttpClient.newBuilder()
+				.version(HttpClient.Version.HTTP_2)
+//				.version(HttpClient.Version.HTTP_1_1)
+				.executor(executor)
+				.build();
 			
 //			client=HttpClient.newHttpClient();
 		} catch (Throwable e) {

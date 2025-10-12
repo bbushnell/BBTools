@@ -171,6 +171,8 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 				Comparison.maxK=Clade.MAXK=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("callSSU")){
 				Clade.callSSU=Parse.parseBoolean(b);
+			}else if(a.equals("concise")){
+				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(b==null && new File(arg).isFile()){
 				in.add(arg);
 			}else if(b==null && new File(arg).isDirectory()){

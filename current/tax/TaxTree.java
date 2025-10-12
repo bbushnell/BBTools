@@ -2615,7 +2615,7 @@ public class TaxTree implements Serializable{
 					Shared.IGBVM ? defaultTaxPathIGBVM : 
 						Shared.DORI ? defaultTaxPathDori : 
 							(Shared.PERLMUTTER || Shared.NERSC) ? defaultTaxPathNersc :
-								Data.ROOT()+"/resources/";
+								Data.ROOT().replace("/current/", "/resources/");//TODO:  Need replacelast.
 	}
 
 	/** 16S consensus sequences per TaxID */

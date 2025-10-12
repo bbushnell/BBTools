@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 4, 2025
+Last modified October 11, 2025
 
 Description:  Loads fasta files and writes clade files.
 
@@ -70,7 +70,7 @@ calcXmx () {
 calcXmx "$@"
 
 vector() {
-	local CMD="java $EA $EOOM $z -cp $CP bin.CladeLoader $@"
+	local CMD="java $EA $EOOM $z -cp $CP clade.CladeLoader $@"
 	echo $CMD >&2
 	eval $CMD
 }
