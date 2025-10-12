@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -23,7 +25,6 @@ import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.IntHashSet;
-import structures.IntList;
 import structures.StringNum;
 import tax.TaxTree;
 import tracker.ReadStats;
@@ -376,7 +377,7 @@ public class SendSketch extends SketchObject {
 				bb.clear();
 				try {
 //					outstream.println("Sending to "+address+"\n"+message+"\n"); //123
-					StringNum result=ServerTools.sendAndReceive(message, address);
+					StringNum result=sendAndReceive(message, address);
 					if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
 						System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 						KillSwitch.kill();
@@ -419,7 +420,7 @@ public class SendSketch extends SketchObject {
 			byte[] message=bb.toBytes();
 			bb.clear();
 			try {
-				StringNum result=ServerTools.sendAndReceive(message, address);
+				StringNum result=sendAndReceive(message, address);
 				if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
 					System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 					KillSwitch.kill();
@@ -457,8 +458,27 @@ public class SendSketch extends SketchObject {
 		if(!silent){outstream.println("Total Time: \t"+ttotal);}
 	}
 	
+	public static boolean sendAndLabel(List<Sketch> inSketches, String address) {
+		try{
+			DisplayParams params=new DisplayParams();
+			params.format=DisplayParams.FORMAT_JSON;
+			params.taxLevel=TaxTree.GENUS;
+			params.maxRecords=2;
+			ArrayList<JsonObject> results=sendSketches(inSketches, address, params);
+			for(int i=0; i<inSketches.size(); i++) {
+				Sketch sk=inSketches.get(i);
+				JsonObject jo=results.get(i);
+				if(jo!=null && sk!=null) {sk.setFrom(jo);}
+			}
+		}catch(Exception e){
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+			return false;
+		}
+		return true;
+	}
 
-	public static ArrayList<JsonObject> sendSketches(ArrayList<Sketch> inSketches, String address, DisplayParams params){
+	public static ArrayList<JsonObject> sendSketches(List<Sketch> inSketches, String address, DisplayParams params){
 		address=toAddress(address);
 		final int numLoaded=(inSketches.size());
 		assert(numLoaded<=MAX_ALLOWED_SKETCHES) : "\nSendSketch is configured to send at most "+MAX_ALLOWED_SKETCHES+" to prevent overwhelming the server.\n"
@@ -500,7 +520,7 @@ public class SendSketch extends SketchObject {
 				for(int i=0; i<10 && (array==null || array.length<sketchesThisChunk); i++) {
 					String result=null;
 					try {
-						StringNum sn=ServerTools.sendAndReceive(message, address);
+						StringNum sn=sendAndReceive(message, address);
 						if(sn.n<200 || sn.n>299){
 							if(ServerTools.suppressErrors || i<9) {
 								System.err.println("Unexpected server return code "+sn.n+"; retrying...");
@@ -536,6 +556,24 @@ public class SendSketch extends SketchObject {
 		return output;
 	}
 	
+	private static StringNum sendAndReceive(byte[] message, String address) {
+		StringNum sn=null;
+		if(sync) {
+			synchronized(SendSketch.class) {
+				sn=ServerTools.sendAndReceive(message, address);
+			}
+		}else {
+			while(concurrency.addAndGet(1)>maxConcurrency) {
+				concurrency.addAndGet(-1);
+				try{Thread.sleep(20);}
+				catch(InterruptedException e){}
+			}
+			sn=ServerTools.sendAndReceive(message, address);
+			concurrency.addAndGet(-1);
+		}
+		return sn;
+	}
+	
 	@Deprecated
 	public static String sendSketch(Sketch sk, String address, int format, int chunkNum){
 		DisplayParams params=defaultParams;
@@ -558,7 +596,7 @@ public class SendSketch extends SketchObject {
 		byte[] message=bb.toBytes();
 		try {
 //			System.err.println("Sending to "+address+"\n"+new String(message)+"\n"); //123
-			StringNum result=ServerTools.sendAndReceive(message, address);
+			StringNum result=sendAndReceive(message, address);
 			if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
 				System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 				KillSwitch.kill();
@@ -592,7 +630,7 @@ public class SendSketch extends SketchObject {
 			if(verbose){outstream.println("Sending:\n"+message+"\nto "+address2);}
 			try {
 //				outstream.println("Sending to "+address2+"\n"+message+"\n"); //123
-				StringNum result=ServerTools.sendAndReceive(message.getBytes(), address2);
+				StringNum result=sendAndReceive(message.getBytes(), address2);
 				if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
 					System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 					KillSwitch.kill();
@@ -632,7 +670,7 @@ public class SendSketch extends SketchObject {
 			if(verbose){outstream.println("Sending:\n"+message+"\nto "+address2);}
 			try {
 //				outstream.println("Sending to "+address2+"\n"+message+"\n"); //123
-				StringNum result=ServerTools.sendAndReceive(message.getBytes(), address2);
+				StringNum result=sendAndReceive(message.getBytes(), address2);
 				if(!ServerTools.suppressErrors && (result.n<200 || result.n>299)){
 					System.err.println("ERROR: Server returned code "+result.n+" and this message:\n"+result.s);
 					KillSwitch.kill();
@@ -759,6 +797,10 @@ public class SendSketch extends SketchObject {
 	public int SEND_BUFFER_MAX_BYTES=8000000;
 	public int SEND_BUFFER_MAX_SKETCHES=400;
 	private static final int MAX_ALLOWED_SKETCHES=100000;
+	
+	private static AtomicInteger concurrency=new AtomicInteger(0);
+	public static boolean sync=false;
+	public static int maxConcurrency=4;
 	
 	/** Don't print caught exceptions */
 	public static boolean suppressErrors=false;

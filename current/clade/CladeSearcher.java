@@ -239,6 +239,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				serverMode=Parse.parseBoolean(b);
 			}else if(a.equals("frequencies")){
 				Clade.MAKE_FREQUENCIES=Boolean.parseBoolean(b);
+			}else if(a.equals("concise")){
+				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){

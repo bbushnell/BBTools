@@ -168,6 +168,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				if(GeneCaller.useIDAligner) {aligner.Factory.setType(b);}
 			}else if(a.equalsIgnoreCase("useTree")){
 				useTree=Parse.parseBoolean(b);
+			}else if(a.equals("concise")){
+				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("16S")){
 				r16sFile.clear();
 				Tools.getFileOrFiles(b, r16sFile, true, false, false, false);
@@ -178,6 +180,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 //				assert(false): r18sFile;
 			}else if(a.equalsIgnoreCase("replaceribo")){
 				replaceRibo=Parse.parseBoolean(b);
+			}else if(a.equals("percontig") || a.equals("persequence")){
+				perSequence=Parse.parseBoolean(b);
 			}
 			
 			else if(b==null && new File(arg).isFile()){
@@ -321,7 +325,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			if(tree==null && treePath!=null && useTree) {tree=loadTree();}
 			map=loadFromClade(ff, map);
 		}else {
-			if(tree==null && treePath!=null) {tree=loadTree();}
+			if(tree==null && treePath!=null && useTree) {tree=loadTree();}
 			map=loadFromSequence(ff, map);
 		}
 		return map;
@@ -612,12 +616,6 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 
-			//Check to ensure pairing is as expected
-			if(ln!=null && !ln.isEmpty()){
-				Read r=ln.get(0);
-//				assert(ffin1.samOrBam() || (r.mate!=null)==cris.paired()); //Disabled due to non-static access
-			}
-
 			//As long as there is a nonempty read list...
 			while(ln!=null && ln.size()>0){
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
@@ -672,7 +670,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		 */
 		boolean processContig(final Read r){
 			if(useDummy) {return processContigDummy(r);}
-			int tid=resolveTaxID(r.id);
+			int tid=resolveTaxID(r);
 			if(tid<1) {return false;}
 			Clade c=getOrMakeClade(tid);
 			assert(c.taxID==tid);
@@ -686,7 +684,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		 * @return True if successfully processed
 		 */
 		boolean processContigDummy(final Read r){
-			int tid=resolveTaxID(r.id);
+			int tid=resolveTaxID(r);
 			if(tid<1) {return false;}
 			
 			if(tid!=dummy.taxID) {

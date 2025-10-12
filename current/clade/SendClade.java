@@ -3,8 +3,11 @@ package clade;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import bin.AdjustEntropy;
+import bin.GradeBins;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
@@ -17,6 +20,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import sketch.SendSketch;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
@@ -115,8 +119,6 @@ public class SendClade extends CladeObject {
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("verbose2")){
-				verbose2=Parse.parseBoolean(b);
 			}else if(a.equals("local")){
 				local=Parse.parseBoolean(b);
 				if(local){address=localAddress;}
@@ -147,6 +149,8 @@ public class SendClade extends CladeObject {
 			}else if(a.equals("minlen") || a.equals("mincontig")){
 				minlen=Integer.parseInt(b);
 				assert(minlen >= 0) : "Minimum length cannot be negative: " + minlen;
+			}else if(a.equals("concise")){
+				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(parser.parse(arg, a, b)){
@@ -457,18 +461,6 @@ public class SendClade extends CladeObject {
 		//Add clades
 		for(Clade clade : clades){clade.toBytes(bb);}
 
-//		// Add verbose2 debug output
-//		if(verbose2){
-//			System.err.println("DEBUG: SENDING TO CLADESERVER - mode=" + (perContig ? "perseq" : "single"));
-//			System.err.println("DEBUG: Number of clades being sent: " + clades.size());
-//			for(int i = 0; i < clades.size(); i++){
-//				Clade c = clades.get(i);
-//				System.err.println("DEBUG: Clade " + i + ": name=" + c.name + ", bases=" + c.bases + ", taxID=" + c.taxID);
-//			}
-//			System.err.println("DEBUG: Request body length: " + bb.length() + " bytes");
-//			System.err.println("DEBUG: First 200 chars of request: " + bb.toString().substring(0, Math.min(200, bb.length())));
-//		}
-
 		//Send to server
 		byte[] message=bb.toBytes();
 		assert(message != null) : "Message creation failed";
@@ -485,7 +477,7 @@ public class SendClade extends CladeObject {
 		try{
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Calling ServerTools.sendAndReceive()");}
 			Timer sendTimer=new Timer();
-			StringNum result=ServerTools.sendAndReceive(message, address);
+			StringNum result=sendAndReceive(message, address);
 			assert(result != null) : "Server returned null result";
 			assert(result.n >= 100 && result.n < 600) : "Invalid HTTP status code: " + result.n;
 			sendTimer.stop();
@@ -512,6 +504,29 @@ public class SendClade extends CladeObject {
 			errorState=true;
 		}
 		return null;
+	}
+	
+	public static boolean sendAndLabel(List<Clade> clades) {
+		String response=sendClades(clades, null, true, 
+			1, true, false, false, 1, false);
+		ArrayList<Comparison> comps=null;
+		try{
+			comps=SendClade.responseToComparisons(response);
+			assert(comps.size()==clades.size());
+			for(int i=0; i<clades.size(); i++) {
+				Clade clade=clades.get(i);
+				Comparison comp=comps.get(i);
+				if(clade!=null && comp!=null) {
+					clade.name=comp.ref.name;
+					clade.taxID=comp.ref.taxID;
+					clade.lineage=comp.ref.lineage;
+				}
+			}
+		}catch(Throwable e){
+			e.printStackTrace();
+			return false;
+		}
+		return true;
 	}
 	
 	public static ArrayList<Comparison> responseToComparisons(String s) {
@@ -552,6 +567,34 @@ public class SendClade extends CladeObject {
 		if(clades==null || clades.isEmpty()){return null;}
 		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + clades.size() + " clades");}
 		if(address==null) {address=defaultAddress;}
+		
+		//Send to server
+		Timer t=new Timer();
+		byte[] message=toMessage(clades, oneline, hits, printQTID, banSelf, banDupes, heapSize, verbose);
+		if(verbose){
+			t.stopAndStart("toMessage bytes: "+message.length+", time:");
+			System.err.println("[" + new java.util.Date() + "] Sending " + clades.size() + " clades (" + message.length + " bytes) to " + address);
+			if(message.length < 500) {
+				System.err.println("[" + new java.util.Date() + "] Message content: " + new String(message));
+			}
+			System.err.println("Sending "+clades.size()+" clades ("+message.length+" bytes) to "+address);
+		}
+		String response=sendClades(message, address, verbose);
+		if(verbose) {t.stopAndStart("sendClades time:");}
+		return response;
+	}
+
+	/**
+	 * Transmits a batch of clades to the remote server and processes the response.
+	 * Constructs the request message with all configuration parameters, handles server
+	 * communication with comprehensive error checking, and routes the response through
+	 * the unified output system. Includes detailed timing and debugging information.
+	 * @param clades List of clades to transmit
+	 * @param tsw Unified output writer for server response
+	 */
+	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits, 
+			boolean printQTID, boolean banSelf, boolean banDupes, int heapSize, boolean verbose){
+		if(clades==null || clades.isEmpty()){return null;}
 		//Build message
 		ByteBuilder bb=new ByteBuilder();
 
@@ -572,18 +615,26 @@ public class SendClade extends CladeObject {
 		assert(message != null) : "Message creation failed";
 		assert(message.length > 0) : "Empty message created";
 		assert(message.length < 100000000) : "Message too large: " + message.length + " bytes";
-		if(verbose){
-			System.err.println("[" + new java.util.Date() + "] Sending " + clades.size() + " clades (" + message.length + " bytes) to " + address);
-			if(message.length < 500) {
-				System.err.println("[" + new java.util.Date() + "] Message content: " + new String(message));
-			}
-			System.err.println("Sending "+clades.size()+" clades ("+message.length+" bytes) to "+address);
-		}
+		return message;
+	}
+
+	/**
+	 * Transmits a batch of clades to the remote server and processes the response.
+	 * Constructs the request message with all configuration parameters, handles server
+	 * communication with comprehensive error checking, and routes the response through
+	 * the unified output system. Includes detailed timing and debugging information.
+	 * @param clades List of clades to transmit
+	 * @param tsw Unified output writer for server response
+	 */
+	public static String sendClades(byte[] message, String address, boolean verbose){
+		if(message==null || message.length==0){return null;}
+		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + message.length + " bytes");}
+		if(address==null) {address=defaultAddress;}
 
 		try{
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Calling ServerTools.sendAndReceive()");}
 			Timer sendTimer=new Timer();
-			StringNum result=ServerTools.sendAndReceive(message, address);
+			StringNum result=sendAndReceive(message, address);
 			assert(result != null) : "Server returned null result";
 			assert(result.n >= 100 && result.n < 600) : "Invalid HTTP status code: " + result.n;
 			sendTimer.stop();
@@ -609,6 +660,24 @@ public class SendClade extends CladeObject {
 			e.printStackTrace();
 		}
 		return null;
+	}
+	
+	private static StringNum sendAndReceive(byte[] message, String address) {
+		StringNum sn=null;
+		if(sync) {
+			synchronized(SendSketch.class) {
+				sn=ServerTools.sendAndReceive(message, address);
+			}
+		}else {
+			while(concurrency.addAndGet(1)>maxConcurrency) {
+				concurrency.addAndGet(-1);
+				try{Thread.sleep(20);}
+				catch(InterruptedException e){}
+			}
+			sn=ServerTools.sendAndReceive(message, address);
+			concurrency.addAndGet(-1);
+		}
+		return sn;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -663,8 +732,10 @@ public class SendClade extends CladeObject {
 
 	/** Display verbose output */
 	private boolean verbose=false;
-	/** Display extra verbose output */
-	private boolean verbose2=false;
+	
+	private static AtomicInteger concurrency=new AtomicInteger(0);
+	public static boolean sync=false;
+	public static int maxConcurrency=8;
 
 	/** Default server address */
 	static final String defaultAddress="https://bbmapservers.jgi.doe.gov/quickclade";

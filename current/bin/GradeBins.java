@@ -1068,30 +1068,9 @@ public class GradeBins {
 				if(c!=null) {cladeIndex.setFromBest(c);}
 			}
 		}else {
-//			new Exception().printStackTrace();
-//			System.err.println(clades.size());
-//			System.err.println(clades.get(0));
-			String response=SendClade.sendClades(clades, null, true, 
-				1, true, false, false, 1, false);
-			ArrayList<Comparison> comps=null;
-			try{
-				comps=SendClade.responseToComparisons(response);
-				assert(comps.size()==clades.size());
-				for(int i=0; i<clades.size(); i++) {
-					Clade clade=clades.get(i);
-					Comparison comp=comps.get(i);
-					if(clade!=null && comp!=null) {
-						clade.name=comp.ref.name;
-						clade.taxID=comp.ref.taxID;
-						clade.lineage=comp.ref.lineage;
-					}
-				}
-			}catch(Throwable e){
-				// TODO Auto-generated catch block
-				synchronized(GradeBins.class) {
-					if(!serverError) {e.printStackTrace();}
-					serverError=true;
-				}
+			boolean success=SendClade.sendAndLabel(clades);
+			if(!success) {
+				synchronized(GradeBins.class) {serverError=true;}
 			}
 		}
 	}

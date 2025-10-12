@@ -32,6 +32,7 @@ minlen=500      Minimum interval length to generate a point.
 maxreads=-1     Maximum number of reads/contigs to process.
 printname=f     Print contig names in output.
 printpos=f      Print contig position in output.
+printtime=t     Print timing information to screen.
 parsetid=f      Parse TaxIDs from file and sequence headers.
 sketch=f        Use BBSketch (SendSketch) to assign taxonomy per contig.
 clade=f         Use QuickClade to assign taxonomy per contig.

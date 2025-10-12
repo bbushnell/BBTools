@@ -8,19 +8,21 @@ import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.PrintStream;
+import java.util.HashMap;
 
 import javax.imageio.ImageIO;
 
-import fileIO.ByteFile;
+import clade.Clade;
+import clade.SendClade;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.LineParser1;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import sketch.SendSketch;
 import structures.FloatList;
 import tax.TaxTree;
 
@@ -157,13 +159,17 @@ public class CloudPlot {
 				cagaGcStrength=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("hhGcstrength") || a.equalsIgnoreCase("hhGcs")){
 				hhGcStrength=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("decorrelate")){
+				decorrelate=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("autoscale")){
+				autoscale=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree")){
 				useTree=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tax") || a.equalsIgnoreCase("colorbytax") || 
 				a.equalsIgnoreCase("colorbytid")){
 				colorByTax=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("parsetid")){
-				ScalarData.parseTID=colorByTax;
+				ScalarData.parseTID=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("colorByName")){
 				colorByName=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("level")){
@@ -172,15 +178,19 @@ public class CloudPlot {
 				ScalarData.makeSketch=Parse.parseBoolean(b);
 			}else if(a.equals("clade") || a.equals("quickclade")){
 				ScalarData.makeClade=Parse.parseBoolean(b);
+			}else if(a.equals("mt")){
+				ScalarIntervals.mt=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("sendInThread")){
+				ScalarIntervals.sendInThread=Parse.parseBoolean(b);
+			}else if(a.equals("concurrency")){
+				SendClade.maxConcurrency=SendSketch.maxConcurrency=Integer.parseInt(b);
+			}else if(a.equals("order")){
+				order=parseOrder(b);
+			}else if(a.equals("concise")){
+				Clade.CONCISE=Parse.parseBoolean(b);
 			}
 			
-			else if(a.equals("order")){
-				order=new int[3];
-				String[] s=b.split(",");
-				order[0]=Integer.parseInt(s[0]);
-				order[1]=Integer.parseInt(s[1]);
-				order[2]=Integer.parseInt(s[2]);
-			}else if(parser.parse(arg, a, b)){
+			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
@@ -227,6 +237,20 @@ public class CloudPlot {
 		}
 		return true;
 	}
+	
+	public static int[] parseOrder(String b) {
+		HashMap<String, Integer> map=new HashMap<String, Integer>();
+		map.put("0", 0);
+		map.put("1", 1);
+		map.put("2", 2);
+		map.put("gc", 0);
+		map.put("hh", 1);
+		map.put("caga", 2);
+		String[] s=b.toLowerCase().split(",");
+		int[] order=new int[b.length()];
+		for(int i=0; i<order.length; i++) {order[i]=map.get(s[i]);}
+		return order;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
@@ -238,7 +262,7 @@ public class CloudPlot {
 		// Read input data
 		readData();
 
-		decorrelate();
+		if(decorrelate) {decorrelate();}
 
 		// Apply autoscaling if needed
 		autoscale();
@@ -298,7 +322,7 @@ public class CloudPlot {
 	}
 	
 	void decorrelate() {
-		System.err.println("decorrelate");
+		//System.err.println("decorrelate");
 		final FloatList gc0=data.gc, hh0=data.hh, caga0=data.caga;
 //		printMinMax(gc0, hh0, caga0);
 		
@@ -318,24 +342,31 @@ public class CloudPlot {
 	
 	private static final void printMinMax(FloatList...data) {
 		final FloatList gc0=data[0], hh0=data[1], caga0=data[2];
-		System.err.println(gc0.min()+"-"+gc0.max()+", "+hh0.min()+"-"+hh0.max()+", "+caga0.min()+"-"+caga0.max());
+		System.err.println(gc0.min()+"-"+gc0.max()+", "+
+			hh0.min()+"-"+hh0.max()+", "+caga0.min()+"-"+caga0.max());
 	}
 	
 	/** Apply autoscaling to any axis with negative min/max values */
 	private void autoscale(){
-		FloatList[] lists=data.reorder(order);
-		// X-axis (GC)
-		if(xmin<0){xmin=min(lists[0], xPercent);}
-		if(xmax<0){xmax=max(lists[0], xPercent);}
-
-		// Y-axis (HH)
-		if(ymin<0){ymin=min(lists[1], yPercent);}
-		if(ymax<0){ymax=max(lists[1], yPercent);}
-
-		// Z-axis/Color (CAGA)
-		if(zmin<0){zmin=min(lists[2], zPercent);}
-		if(zmax<0){zmax=max(lists[2], zPercent);}
-		System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax);
+		if(!autoscale) {
+			xmin=Tools.mid(xmin, 0, 1);
+			xmax=Tools.mid(xmax, 0, 1);
+			ymin=Tools.mid(ymin, 0, 1);
+			ymax=Tools.mid(ymax, 0, 1);
+			zmin=Tools.mid(zmin, 0, 1);
+			zmax=Tools.mid(zmax, 0, 1);
+		}else{
+			FloatList[] lists=data.reorder(order);
+			if(xmin<0){xmin=min(lists[0], xPercent);}
+			if(xmax<0){xmax=max(lists[0], xPercent);}
+			
+			if(ymin<0){ymin=min(lists[1], yPercent);}
+			if(ymax<0){ymax=max(lists[1], yPercent);}
+			
+			if(zmin<0){zmin=min(lists[2], zPercent);}
+			if(zmax<0){zmax=max(lists[2], zPercent);}
+			System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax);
+		}
 	}
 	
 	private float min(FloatList list, float percentile){
@@ -417,11 +448,13 @@ public class CloudPlot {
 					long hash=Tools.hash64shift(tid);
 					float[] rgb=new float[3];
 					for(int color=0; color<3; color++) {
-						rgb[color]=(((hash&1023L)/1024f)*0.9f)+0.1f;
-//						rgb[color]=Math.round(rgb[color]*255);
+						rgb[color]=(((hash&1023L)/1024f)*0.95f)+0.05f;
 						hash>>=10;
 					}
-//					System.err.println()
+					float max=Tools.max(rgb);
+					float mult=1f/max;
+					mult=1+0.6f*(mult-1);
+					Tools.multiplyBy(rgb, mult);
 					c=new Color(rgb[0], rgb[1], rgb[2]);
 				}
 			}else if(colorByName) {
@@ -429,10 +462,13 @@ public class CloudPlot {
 					int hash=name.hashCode();
 					float[] rgb=new float[3];
 					for(int color=0; color<3; color++) {
-						rgb[color]=(((hash&1023)/1024f)*0.9f)+0.1f;
-//						rgb[color]=Math.round(rgb[color])*255;
+						rgb[color]=(((hash&1023)/1024f)*0.95f)+0.05f;
 						hash>>=10;
 					}
+					float max=Tools.max(rgb);
+					float mult=1f/max;
+					mult=1+0.6f*(mult-1);
+					Tools.multiplyBy(rgb, mult);
 					c=new Color(rgb[0], rgb[1], rgb[2]);
 			}else {
 				c=cagaToColor6(normZ);
@@ -501,7 +537,7 @@ public class CloudPlot {
 	
 	private ScalarData data=null;
 	
-	private int[] order;
+	private int[] order={2, 1, 0};
 
 	/*--------------------------------------------------------------*/
 
@@ -521,23 +557,25 @@ public class CloudPlot {
 	private float pointsize=3.5f;
 
 	/** FASTA processing parameters */
-	private int window=0;
-	private int interval=5000;
+	private int window=50000;
+	private int interval=10000;
 	private int minlen=500;
 	private boolean breakOnContig=true;
 	private long maxReads=-1;
 	
+	boolean autoscale=true;
+	boolean decorrelate=true;
 	private float gcHhCorrelation=-0.5f;
 	private float gcHhStrength=0.20f;
 	private float hhGcStrength=1.40f;
 	
-	private float gcCagaCorrelation=0.5f;
-	private float gcCagaStrength=0.1f;
+	private float gcCagaCorrelation=0.1f;
+	private float gcCagaStrength=0.5f;
 	private float cagaGcStrength=0.0f;
 
 	private boolean colorByTax=false;
 	private boolean colorByName=false;
-	private int level=TaxTree.CLASS;
+	private int level=TaxTree.GENUS;
 	private boolean useTree=false;
 	private static TaxTree tree;
 

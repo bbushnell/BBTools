@@ -7,6 +7,7 @@ import java.util.Collection;
 import dna.AminoAcid;
 import ml.CellNet;
 import shared.Tools;
+import stream.Read;
 import structures.FloatList;
 import structures.IntHashMap;
 import structures.IntHashSet;
@@ -400,6 +401,11 @@ public class CladeObject {
 		return (int)id;
 	}
 	
+	public static int resolveTaxID(Read r) {
+		if(perSequence) {return (int)(r.numericID+1);}
+		return resolveTaxID(r.name());
+	}
+	
 	public static int resolveTaxID(String s) {
 		int tid=parseTaxID(s);
 		if(tid<1 || tree==null) {return tid;}
@@ -422,6 +428,8 @@ public class CladeObject {
 	public static float[] invCanonicalKmers=makeInvCanonicalKmers();
 	/** Maps a kmer to index in gc content array */
 	public static int[][] gcmapMatrix=makeGCMapMatrix();
+	public static int[] arrayLength=
+		new int[] {1, 5, 16, canonicalKmers[3], canonicalKmers[4], canonicalKmers[5]};
 	
 	private static final int[] masks={0, 3, 15, 63, 255, 1023, 4095};
 	
@@ -464,12 +472,7 @@ public class CladeObject {
 	static boolean verbose;
 	static boolean printStepwiseCC=false;
 	
-	static float sketchDensity=1/100f;
-	static boolean sketchContigs=false;
-	static boolean sketchClusters=false;
-	static boolean sketchOutput=false;
-	static boolean sketchInBulk=true;
-	static int sketchSize=20000;
+	static boolean perSequence=false;
 	
 	static boolean validation=false;
 	static boolean grading=false;

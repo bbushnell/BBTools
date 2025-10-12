@@ -316,7 +316,7 @@ public class SketchObject {
 		taxtree=TaxTree.loadTaxTree(taxTreeFile, outstream, hashNames, false);
 	}
 	
-	public static void reset(){
+	public static synchronized void reset(){
 		postparsed=false;
 		blacklist=null;
 		useWhitelist=false;
@@ -326,7 +326,7 @@ public class SketchObject {
 		sixframes=false;
 	}
 	
-	public static void postParse(){
+	public static synchronized void postParse(){
 		if(postparsed){return;}
 		postparsed=true;
 		IntList3.defaultMode=IntList3.UNIQUE; //Not really safe, if Seal uses Sketch...
