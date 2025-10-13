@@ -26,7 +26,6 @@ public class CladeContext {
 		this.heap = other.heap;
 		this.printQTID = other.printQTID;
 		this.banSelf = other.banSelf;
-		this.banDupes = other.banDupes;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -47,7 +46,4 @@ public class CladeContext {
 
 	/** Ban self-matches */
 	public boolean banSelf = false;
-
-	/** Ban duplicate matches */
-	public boolean banDupes = false;
 }

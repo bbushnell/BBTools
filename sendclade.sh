@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 19, 2025
+Last modified October 12, 2025
 
 Description:  Sends taxonomic queries to a remote QuickClade server for
 classification.  This client-server architecture allows users to classify
@@ -53,9 +53,6 @@ oneline=f       Print results in tab-delimited format with one line per query.
                 Oneline format includes: QueryName, Q_GC, Q_Bases, Q_Contigs,
                 RefName, R_TaxID, R_GC, R_Bases, R_Contigs, R_Level, GCdif,
                 STRdif, k3dif, k4dif, k5dif, lineage.
-mode=single     Processing mode. 'single' combines all sequences per file for
-                one classification (default). 'perseq' classifies each sequence
-                individually (equivalent to percontig=true).
 percontig=f     Process each contig/sequence separately instead of combining
                 all sequences from each file into a single query.  When true,
                 each contig gets its own taxonomic classification.  When false,
@@ -73,9 +70,6 @@ printqtid=f     Print query TaxID if present in sequence headers.  Useful for
 banself=f       Ban self-matches by ignoring records with the same TaxID as
                 the query.  Makes the program behave as if that organism is
                 not in the reference database.  Useful for testing accuracy.
-bandupes=f      Ban duplicate matches to prevent the same reference from
-                appearing multiple times in the results.  Ensures all returned
-                hits represent distinct taxonomic classifications.
 verbose=f       Enable detailed progress reporting and timing information.
                 Shows batch processing, server communication details, and
                 performance metrics.

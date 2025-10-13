@@ -322,10 +322,10 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		//Process the reads in separate threads
 //		assert(ff.clade()) : ff.rawExtension()+", "+ff.type();
 		if(ff.clade() || ff.extensionEquals("tsv")) {
-			if(tree==null && treePath!=null && useTree) {tree=loadTree();}
+			loadTree();
 			map=loadFromClade(ff, map);
 		}else {
-			if(tree==null && treePath!=null && useTree) {tree=loadTree();}
+			loadTree();
 			map=loadFromSequence(ff, map);
 		}
 		return map;
@@ -798,7 +798,6 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	static boolean mergeDuplicateTaxIDs=false;
 	
 	static boolean replaceRibo=false;
-	static boolean useTree=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

@@ -560,8 +560,6 @@ public class CladeServer {
 					ctx.printQTID=Parse.parseBoolean(value);
 				}else if(key.equals("banself")){
 					ctx.banSelf=Parse.parseBoolean(value);
-				}else if(key.equals("bandupes")){
-					ctx.banDupes=Parse.parseBoolean(value);
 				}
 			}
 		}
@@ -601,8 +599,6 @@ public class CladeServer {
 					ctx.printQTID=Parse.parseBoolean(value);
 				}else if(key.equals("banself")){
 					ctx.banSelf=Parse.parseBoolean(value);
-				}else if(key.equals("bandupes")){
-					ctx.banDupes=Parse.parseBoolean(value);
 				}
 			}
 		}

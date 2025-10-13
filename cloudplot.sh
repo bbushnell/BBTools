@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 10, 2025
+Last modified October 12, 2025
 
 Description:  Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots.
 Supports both TSV interval data and FASTA input (via ScalarIntervals).

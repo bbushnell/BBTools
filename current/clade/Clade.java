@@ -1,8 +1,6 @@
 package clade;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-
 import bin.AdjustEntropy;
 import bin.SimilarityMeasures;
 import prok.CallGenes;
@@ -56,7 +54,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	 * @return A new Clade with information from the taxonomy tree, or a minimal Clade if ID not found
 	 */
 	public static Clade makeClade(int tid) {
-		if(perSequence) {return new Clade(tid, -1, null);}
+		if(perSequence || !useTree) {return new Clade(tid, -1, null);}
 		TaxNode tn=tree.getNode(tid);
 		assert(tn!=null);
 		if(tn==null) {
@@ -435,7 +433,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	private boolean finished=false;
 	
 	public static final int DECIMAL=0, A48=1;
-	public static int outputCoding=DECIMAL;
+	public static int outputCoding=DECIMAL; //A48 breaks Cloudflare
 	public static int MAXK=5;
 	public static boolean callSSU=false;
 	public static boolean writeLineage=true;

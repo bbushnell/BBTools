@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Chloe
-Last modified September 19, 2025
+Last modified October 12, 2025
 
 Description:  Starts a CladeServer for taxonomic classification using QuickClade
 architecture.  CladeServer is a high-performance HTTP server that loads a
