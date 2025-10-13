@@ -336,7 +336,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		final int maxHits=CladeIndex.heapSize;
 		if(index==null || serverMode) {
 			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE, 
-				maxHitsToPrint, true, CladeIndex.banSelf, false, CladeIndex.heapSize, false);
+				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
 			outstream.print(s);
 			return;
 //			results=SendClade.responseToComparisons(s);

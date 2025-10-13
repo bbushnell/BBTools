@@ -377,6 +377,7 @@ public class CladeObject {
 	}
 	
 	static TaxTree loadTree() {
+		if(!useTree || tree!=null) {return null;}
 		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
 		if(treePath!=null) {
 			tree=TaxTree.loadTaxTree(treePath, System.err, false, false);
@@ -437,6 +438,7 @@ public class CladeObject {
 	static PrintStream outstream=System.err;
 	public static TaxTree tree=null;
 	static String treePath="auto";
+	static boolean useTree=true;
 	
 	/** Constants for different comparison methods */
 	static final int ABS=1, COS=2, HEL=3, EUC=4, ABSCOMP=5;
