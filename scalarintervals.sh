@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 12, 2025
+Last modified October 13, 2025
 
 Description:  Calculates some scalars from nucleotide sequence data.
 Writes them periodically as a tsv.

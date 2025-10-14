@@ -209,6 +209,7 @@ public class Scalars {
 	 */
 	private void outputResults(ByteStreamWriter bsw, boolean header){
 		ByteBuilder bb=new ByteBuilder();
+		final int decimals=ScalarData.decimals;
 		if(rowheader && header) {bb.append("Header\t");}
 		if(raw) {
 			if(header){
@@ -220,9 +221,9 @@ public class Scalars {
 			for(int i=0; i<dimers.counts.length; i++) {
 				int r=AminoAcid.reverseComplementBinary(i, 2);
 				if(i<r) {
-					bb.appendt((dimers.counts[i]+dimers.counts[r])*mult, 5);
+					bb.appendt((dimers.counts[i]+dimers.counts[r])*mult, decimals);
 				}else if(i==r) {
-					bb.appendt((dimers.counts[i])*mult, 5);
+					bb.appendt((dimers.counts[i])*mult, decimals);
 				}
 			}
 			bb.set(bb.length()-1, '\n');
@@ -232,30 +233,30 @@ public class Scalars {
 			}
 			if(window<1) {
 				if(rowheader) {bb.append("Mean\t");}
-				bb.appendt(dimers.GC(), 5);
-				bb.appendt(dimers.strandedness(), 5);
-				bb.appendt(dimers.HH(), 5);
-				bb.appendt(dimers.PP(), 5);
-				bb.appendt(dimers.AAAT(), 5);
-				bb.appendt(dimers.CCCG(), 5);
-				bb.appendt(dimers.HMH(), 5);
-				bb.appendt(dimers.HHPP(), 5);
-				bb.appendt(dimers.ACTG(), 5);
-				bb.appendt(dimers.ACAG(), 5);
-				bb.appendt(dimers.CAGA(), 5);
-				bb.appendt(dimers.CCMCG(), 5);
-				bb.appendt(dimers.ATMTA(), 5);
-				bb.append(dimers.AT(), 5);
+				bb.appendt(dimers.GC(), decimals);
+				bb.appendt(dimers.strandedness(), decimals);
+				bb.appendt(dimers.HH(), decimals);
+				bb.appendt(dimers.PP(), decimals);
+				bb.appendt(dimers.AAAT(), decimals);
+				bb.appendt(dimers.CCCG(), decimals);
+				bb.appendt(dimers.HMH(), decimals);
+				bb.appendt(dimers.HHPP(), decimals);
+				bb.appendt(dimers.ACTG(), decimals);
+				bb.appendt(dimers.ACAG(), decimals);
+				bb.appendt(dimers.CAGA(), decimals);
+				bb.appendt(dimers.CCMCG(), decimals);
+				bb.appendt(dimers.ATMTA(), decimals);
+				bb.append(dimers.AT(), decimals);
 				bb.nl();
 			}else {
 				if(rowheader) {bb.append("Mean\t");}
 				for(int i=0; i<hist.length; i++) {
-					bb.appendt(Tools.averageHistogram(hist[i])/1024, 5);
+					bb.appendt(Tools.averageHistogram(hist[i])/1024, decimals);
 				}
 				bb.set(bb.length()-1, '\n');
 				if(rowheader) {bb.append("STDev\t");}
 				for(int i=0; i<hist.length; i++) {
-					bb.appendt(Tools.standardDeviationHistogram(hist[i])/1024, 5);
+					bb.appendt(Tools.standardDeviationHistogram(hist[i])/1024, decimals);
 				}
 				bb.set(bb.length()-1, '\n');
 			}

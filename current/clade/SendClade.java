@@ -1,5 +1,6 @@
 package clade;
 
+import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -155,6 +156,8 @@ public class SendClade extends CladeObject {
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
+			}else if(new File(arg).canRead()){
+				Tools.getFileOrFiles(arg, in, true, false, false, false);
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -717,6 +720,6 @@ public class SendClade extends CladeObject {
 	/** Local server address */
 	private static final String localAddress="http://localhost:5002";
 	/** Maximum clades to send in one batch */
-	private static final int MAX_CLADES_PER_BATCH=2000;
+	private static final int MAX_CLADES_PER_BATCH=4000;
 
 }

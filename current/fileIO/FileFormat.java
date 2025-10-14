@@ -659,6 +659,18 @@ public final class FileFormat {
 		return isFastaExt(ext);
 	}
 	
+	public static boolean isSequence(String fname){
+		if(fname==null){return false;}
+		int code=rawExtensionCode(fname);
+		String ext=ReadWrite.rawExtension(fname);
+		return isFastaExt(ext);
+	}
+	
+	public static boolean isSequence(int code){
+		return code==FASTA || code==FASTQ || code==FASTR || code==BREAD || code==SAM || code==BAM
+			|| code==CSFASTA || code==SCARF || code==HEADER || code==ONELINE || code==GBK || code==EMBL;
+	}
+	
 	public static boolean isPgmFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
@@ -789,11 +801,17 @@ public final class FileFormat {
 		return ReadWrite.rawExtension(name);
 	}
 	public int rawExtensionCode() {
+		return rawExtensionCode(name);
+	}
+	public static String rawExtension(String name) {
+		return ReadWrite.rawExtension(name);
+	}
+	public static int rawExtensionCode(String name) {
 		String ext=ReadWrite.rawExtension(name);
 		String comp=ReadWrite.compressionType(name);
 		return rawExtensionCode(ext, comp);
 	}
-	private int rawExtensionCode(String ext, String comp) {
+	private static int rawExtensionCode(String ext, String comp) {
 		if(ext==null){return UNKNOWN;}
 		else if(ext.equals("fq") || ext.equals("fastq") || (comp!=null && comp.equals("fqz"))){return FASTQ;}
 		else if(isFastaExt(ext)){return FASTA;}
@@ -829,6 +847,7 @@ public final class FileFormat {
 		return UNKNOWN;
 	}
 
+	public boolean isSequence() {return isSequence(name);}
 	public final String name(){return name;}
 	public final String simpleName(){return simpleName;}
 	public final int format(){return format;}
@@ -896,11 +915,7 @@ public final class FileFormat {
 	public final boolean clade(){return format==CLADE;}
 	public final boolean png(){return format==PNG;}
 	
-	public final boolean preferShreds(){
-		return preferShreds;
-	}
-	
-	public boolean isSequence() {return fasta() || fastq() || fastr() || bread() || samOrBam() || csfasta() || scarf() || header() || oneline() || gbk() || embl();}
+	public final boolean preferShreds(){return preferShreds;}
 
 	public final boolean unknownCompression(){return compression<=UNKNOWN;}
 	public final boolean raw(){return compression==RAW;}

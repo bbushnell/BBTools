@@ -159,7 +159,7 @@ calcXmx () {
 
 calcXmx "$@"
 cladeserver() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP clade.CladeServer $@"
+	local CMD="java $EA $EOOM $SIMD $z $z2 -cp $CP clade.CladeServer $@"
 	echo $CMD >&2
 	eval $CMD
 }

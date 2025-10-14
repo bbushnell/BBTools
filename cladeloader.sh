@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 11, 2025
+Last modified October 13, 2025
 
 Description:  Loads fasta files and writes clade files.
 

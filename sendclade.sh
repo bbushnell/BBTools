@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 12, 2025
+Last modified October 14, 2025
 
 Description:  Sends taxonomic queries to a remote QuickClade server for
 classification.  This client-server architecture allows users to classify

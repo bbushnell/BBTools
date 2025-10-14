@@ -2393,39 +2393,50 @@ public final class Tools {
 		return (int)x;
 	}
 
-	public static void multiplyBy(int[] array, double mult) {
+	public static int[] multiplyBy(int[] array, double mult) {
 		for(int i=0; i<array.length; i++){
 			array[i]=(int)Math.round(array[i]*mult);
 		}
+		return array;
 	}
 
-	public static void multiplyBy(float[] array, float mult) {
+	public static float[] multiplyBy(float[] array, float mult) {
 		for(int i=0; i<array.length; i++){
 			array[i]=array[i]*mult;
 		}
+		return array;
 	}
 
-	public static void multiplyBy(long[] array, double mult) {
+	public static long[] multiplyBy(long[] array, double mult) {
 		for(int i=0; i<array.length; i++){
 			array[i]=Math.round(array[i]*mult);
 		}
+		return array;
 	}
 
-	public static void multiplyBy(long[][] matrix, double mult) {
+	public static long[][] multiplyBy(long[][] matrix, double mult) {
 		for(long[] array : matrix){
 			multiplyBy(array, mult);
 		}
+		return matrix;
 	}
 
-	public static void multiplyBy(long[][][] matrix, double mult) {
+	public static long[][][] multiplyBy(long[][][] matrix, double mult) {
 		for(long[][] array : matrix){
 			multiplyBy(array, mult);
 		}
+		return matrix;
 	}
 
 	public static void add(int[] array, int[] incr) {
 		for(int i=0; i<array.length; i++){
 			array[i]+=incr[i];
+		}
+	}
+
+	public static void add(float[] array,float incr) {
+		for(int i=0; i<array.length; i++){
+			array[i]+=incr;
 		}
 	}
 
@@ -4106,6 +4117,13 @@ public final class Tools {
 	public static boolean looksLikeInputStream(String arg) {
 		if(arg==null || arg.indexOf('=')>=0) {return false;}
 		return arg.toLowerCase().startsWith("stdin") || isReadableFile(arg);
+	}
+	
+	public static boolean looksLikeOutputStream(String arg) {
+		if(arg==null || arg.indexOf('=')>=0) {return false;}
+		String lc=arg.toLowerCase();
+		int dot=lc.indexOf('.');
+		return lc.startsWith("stdout") || lc.startsWith("stderr") || (dot>0 && dot<lc.length()-1);
 	}
 
     public static void sleep(int millis){
