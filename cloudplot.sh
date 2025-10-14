@@ -39,10 +39,8 @@ Taxonomy/Coloring parameters:
 colorbytax=f    Color by taxonomy.  Default coloring is by the 
 colorbyname=f   Color by contig name, so points on the same contig have
                 the same, random color.
-level=genus     Raise taxonomy to this level before assigning color.
-                Set to -1 to color by exact TaxID.  Raising taxonomic level
-		may require a taxonomic tree.
-tree=f          Load the taxonomic tree in BBTools/resources/tree.taxtree.gz
+level=          Raise taxonomy to this level before assigning color.
+                Requires a taxonomic tree.  e.g. 'level=genus'
                 See https://sourceforge.net/projects/bbmap/files/Resources/
 parsetid=f      Parse TaxIDs from file and sequence headers.
 sketch=f        Use BBSketch (SendSketch) to assign taxonomy per contig.

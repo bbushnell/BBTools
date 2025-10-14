@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 10, 2025
+Last modified October 12, 2025
 
 Description:  Calculates some scalars from nucleotide sequence data.
 Prints the averages for each input file.

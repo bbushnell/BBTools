@@ -2,6 +2,7 @@ package scalar;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 
 import bin.AdjustEntropy;
@@ -73,7 +74,8 @@ public class ScalarIntervals {
 		}
 
 		Parser parser=new Parser();
-		parser.out1="stdout.txt";
+		String stdout="stdout.txt";
+		parser.out1=stdout;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			String[] split=arg.split("=");
@@ -93,6 +95,8 @@ public class ScalarIntervals {
 				interval=Parse.parseIntKMG(b);
 			}else if(a.equals("shred")){
 				interval=window=Parse.parseIntKMG(b);
+			}else if(a.equals("minlen")){
+				minlen=Parse.parseIntKMG(b);
 			}else if(a.equals("break")){
 				breakOnContig=Parse.parseBoolean(b);
 			}else if(a.equals("sketch") | a.equals("bbsketch")){
@@ -101,7 +105,7 @@ public class ScalarIntervals {
 				ScalarData.makeClade=Parse.parseBoolean(b);
 			}else if(a.equals("printname") || a.equals("printnames")){
 				printName=Parse.parseBoolean(b);
-			}else if(a.equals("printPos") || a.equals("pos")){
+			}else if(a.equalsIgnoreCase("printPos") || a.equals("pos")){
 				printPos=Parse.parseBoolean(b);
 			}else if(a.equals("parsetaxid") || a.equals("parsetax") || a.equals("parsetid")){
 				ScalarData.parseTID=Parse.parseBoolean(b);
@@ -117,8 +121,10 @@ public class ScalarIntervals {
 				printTime=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
-			}else if(new File(arg).exists()) {
+			}else if(new File(arg).exists() && FileFormat.isSequence(arg)) {
 				in.add(arg);
+			}else if(parser.out1==stdout && i>0 && Tools.looksLikeOutputStream(arg) && !FileFormat.isSequence(arg)){
+				parser.out1=arg;
 			}else{
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -152,7 +158,7 @@ public class ScalarIntervals {
 		
 		if(verbose){outstream.println("Finished reading data; printing to "+out);}
 		
-		if(header && true) {System.err.print(ScalarData.header(true, printName));}
+		if(header && true) {System.err.print(ScalarData.header(true, printName, false));}
 		
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
 		for(int i=0; i<in.size(); i++) {
@@ -360,11 +366,20 @@ public class ScalarIntervals {
 
 		ArrayList<ScalarData> sdlist=spawnThreads(cris, params,  window, 
 			interval, minlen, tid, breakOnContig);
-
-		String fname=(cris.fname.replace(",null", ""));
-		t.stopAndStart("Processed "+cris.readsIn()+" sequences from "+fname);
-
-		if(!sendInThread) {
+		
+		if(sendInThread && sdlist!=null) {
+			int s=0, c=0;
+			for(ScalarData sd : sdlist) {
+				s+=(sd.sketch==null ? 0 : 1);
+				c+=(sd.clade==null ? 0 : 1);
+			}
+			if(printTime && (ScalarData.makeClade || ScalarData.makeSketch)) {
+				if(c>0){t.stopAndStart("Sent "+c+" clades.");}
+				else if(s>0){t.stopAndStart("Sent "+s+" sketches.");}
+			}
+		}else{
+			String fname=(cris.fname.replace(",null", ""));
+			t.stopAndStart("Processed "+cris.readsIn()+" sequences from "+fname);
 			boolean success=sendAndLabel(sdlist);
 			if(!success) {new Exception().printStackTrace();}
 		}
@@ -391,8 +406,9 @@ public class ScalarIntervals {
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
+		final AtomicInteger active=new AtomicInteger(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, params, window, interval, minlen, taxID, breakOnContig, i));
+			alpt.add(new ProcessThread(cris, params, window, interval, minlen, taxID, breakOnContig, i, active));
 		}
 		
 		//Start the threads and wait for them to finish
@@ -442,7 +458,8 @@ public class ScalarIntervals {
 		
 		//Constructor
 		ProcessThread(final ConcurrentReadInputStream cris_, final DisplayParams params_, 
-			int window_, int interval_, int minlen_, int taxID_, boolean breakOnContig_, final int tid_){
+			int window_, int interval_, int minlen_, int taxID_, boolean breakOnContig_, final int tid_,
+			AtomicInteger active_){
 			cris=cris_;
 			tid=tid_;
 
@@ -452,6 +469,7 @@ public class ScalarIntervals {
 			minlen=minlen_;
 			taxID=taxID_;
 			breakOnContig=breakOnContig_;
+			active=active_;
 		}
 		
 		//Called by start()
@@ -493,6 +511,11 @@ public class ScalarIntervals {
 			//Notify the input stream that the final list was used
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+			}
+			
+			if(active.decrementAndGet()<1){
+				String fname=(cris.fname.replace(",null", ""));
+				t.stopAndStart("Processed "+cris.readsIn()+" sequences from "+fname);
 			}
 			
 			if(sdlist.isEmpty()) {return true;}
@@ -571,6 +594,8 @@ public class ScalarIntervals {
 		ArrayList<ScalarData> sdlist=new ArrayList<ScalarData>();
 		/** Thread ID */
 		final int tid;
+		final AtomicInteger active;
+		final Timer t=new Timer();
 	}
 	
 	
@@ -593,11 +618,11 @@ public class ScalarIntervals {
 
 
 	/** Window size for sliding window analysis (0 for global analysis) */
-	private int window=0;
+	private int window=50000;
 	private int interval=10000;
 	private int minlen=500;
 	private boolean breakOnContig=true;
-	private static boolean printName=false;
+	static boolean printName=false;
 	private static boolean printPos=false;
 	/** Whether to print timing information */
 	private static boolean printTime=true;

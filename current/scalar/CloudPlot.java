@@ -171,9 +171,10 @@ public class CloudPlot {
 			}else if(a.equalsIgnoreCase("parsetid")){
 				ScalarData.parseTID=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("colorByName")){
-				colorByName=Parse.parseBoolean(b);
+				colorByName=ScalarIntervals.printName=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("level")){
 				level=TaxTree.parseLevelExtended(b);
+				useTree=level>1;
 			}else if(a.equals("sketch") | a.equals("bbsketch")){
 				ScalarData.makeSketch=Parse.parseBoolean(b);
 			}else if(a.equals("clade") || a.equals("quickclade")){
@@ -192,6 +193,10 @@ public class CloudPlot {
 			
 			else if(parser.parse(arg, a, b)){
 				//do nothing
+			}else if(parser.in1==null && i==0 && Tools.looksLikeInputStream(arg)){
+				parser.in1=arg;
+			}else if(parser.out1==null && i>0 && Tools.looksLikeOutputStream(arg) && arg.endsWith(".png")){
+				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -458,7 +463,6 @@ public class CloudPlot {
 					c=new Color(rgb[0], rgb[1], rgb[2]);
 				}
 			}else if(colorByName) {
-					if(useTree && level>1) {tid=tree.getIdAtLevelExtended(tid, level);}
 					int hash=name.hashCode();
 					float[] rgb=new float[3];
 					for(int color=0; color<3; color++) {
@@ -575,7 +579,7 @@ public class CloudPlot {
 
 	private boolean colorByTax=false;
 	private boolean colorByName=false;
-	private int level=TaxTree.GENUS;
+	private int level=1;
 	private boolean useTree=false;
 	private static TaxTree tree;
 

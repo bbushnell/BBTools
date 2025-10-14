@@ -433,7 +433,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	private boolean finished=false;
 	
 	public static final int DECIMAL=0, A48=1;
-	public static int outputCoding=DECIMAL; //A48 breaks Cloudflare
+	public static int outputCoding=A48; //A48 breaks Cloudflare...  now bypassed
 	public static int MAXK=5;
 	public static boolean callSSU=false;
 	public static boolean writeLineage=true;

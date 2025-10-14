@@ -71,12 +71,13 @@ public class ScalarData implements Comparable<ScalarData>{
 		bsw.poison();
 	}
 	
-	public static String header(boolean sideHeader, boolean printName) {
+	public static String header(boolean sideHeader, boolean printName, boolean printPos) {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("#");
 		if(sideHeader) {bb.appendt("Header");}
 		bb.append("GC\tHH\tCAGA");
 		if(true) {bb.append("\tTaxID");}
+		if(printPos) {bb.append("\tPos");}
 		if(printName) {bb.append("\tName");}
 		return bb.nl().toString();
 	}
@@ -110,13 +111,13 @@ public class ScalarData implements Comparable<ScalarData>{
 	public final void print(ByteStreamWriter bsw, boolean header, 
 			boolean printName, boolean printPos, int interval) {
 		if(bsw==null) {return;}
-		if(header) {bsw.print(header(false, printName));}
+		if(header) {bsw.print(header(false, printName, printPos));}
 		ByteBuilder bb=new ByteBuilder();
 		FloatList[] fls=data();
 		String prevName=null;
 		int pos=0;
 		for(int i=0, len=fls[0].size(); i<len; i++) {
-			for(int j=0; j<fls.length; j++) {bb.appendt(fls[j].get(i), 6);}
+			for(int j=0; j<fls.length; j++) {bb.appendt(fls[j].get(i), decimals);}
 			if(taxIDs!=null){bb.append(taxIDs.get(i));}
 			bb.tab();
 			if(names!=null && printName) {
@@ -213,6 +214,7 @@ public class ScalarData implements Comparable<ScalarData>{
 	public static boolean makeSketch=false;
 	public static int minCladeSize=2000;
 	public static int minSketchSize=5000;
+	public static int decimals=5;
 
 	public static boolean verbose=false;
 	

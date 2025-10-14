@@ -32,6 +32,21 @@ public class PreClade {
     public final long bases;
 
     /**
+     * Constructs a PreClade from pre-parsed k-mer count arrays.
+     * This constructor avoids String operations for maximum efficiency.
+     *
+     * @param name_ Sequence name
+     * @param countsArray Pre-parsed k-mer counts [1-5][counts]
+     *                    Index 0 unused, 1=1-mers(5), 2=2-mers(16), 3=3-mers(64), 4=4-mers(256), 5=5-mers(1024)
+     */
+    public PreClade(String name_, long[][] countsArray) {
+        this.name = name_;
+        this.rawCounts = countsArray;
+        // Calculate total bases from 1-mers (A,C,G,T only, exclude N)
+        this.bases = countsArray[1][0] + countsArray[1][1] + countsArray[1][2] + countsArray[1][3];
+    }
+
+    /**
      * Constructs a PreClade from parsed data lines.
      *
      * @param name_ Sequence name

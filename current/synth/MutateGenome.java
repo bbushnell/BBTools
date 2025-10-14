@@ -1,9 +1,14 @@
 package synth;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 
+import bin.AdjustEntropy;
 import bin.ConservationModel;
+import clade.Clade;
+import clade.CladeLoaderMF;
+import clade.CladeObject;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -99,7 +104,24 @@ public class MutateGenome {
 			}else if(a.equals("nohomopolymers") || a.equals("nohomop") || 
 				a.equals("banhomopolymers") || a.equals("banhomop")){
 				banHomopolymers=Parse.parseBoolean(b);
-			}else if(a.equals("prefix")){
+			}
+			
+			else if(a.equals("mod3")){
+				mod3=Parse.parseBoolean(b);
+			}else if(a.equals("k")){
+				k=Integer.parseInt(b);
+			}
+			
+			else if(a.equals("rcomp")){//Doesn't do anything since it gets replaced.
+				rcomp=Parse.parseBoolean(b);
+			}else if(a.equals("counts")){//Doesn't do anything since it gets replaced.
+				long[] counts=Parse.parseLongArray(b);
+				kmerFreq=new float[counts.length];
+				float mult=1f/Tools.sum(counts);
+				for(int j=0; j<counts.length; k++) {kmerFreq[j]=counts[j]*mult;}
+			}
+			
+			else if(a.equals("prefix")){
 				prefix=b;
 			}else if(a.equals("vcf") || a.equals("outvcf") || a.equals("vcfout")
 				|| a.equals("vars") || a.equals("varsout") || a.equals("outvars")){
@@ -167,6 +189,12 @@ public class MutateGenome {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, null, true, overwrite, append, false);
 		ffoutVcf=FileFormat.testOutput(outVcf, FileFormat.VCF, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, null, true, true);
+		if(k>0) {
+			AdjustEntropy.load();//TODO: Annoying, should not be needed.
+			Clade c=CladeLoaderMF.loadOneClade(in1, null, maxReads);
+			kmerFreq=c.frequencies[k];
+			rcomp=k>2;
+		}
 	}
 
 	private static int parsePloidy(String[] args){
@@ -335,6 +363,16 @@ public class MutateGenome {
 			processReadAmino(r, bb, vars, headers);
 			return;
 		}
+		
+		long mutationLengthAdded=0;
+		long netLengthAdded=0;
+		long subsAdded=0;
+		long refAdded=0;
+		long insAdded=0;
+		long delsAdded=0;
+		long insLenAdded=0;
+		long delLenAdded=0;
+		long junctionsAdded=0;
 
 		//Setup
 		bb.clear();
@@ -380,7 +418,7 @@ public class MutateGenome {
 					basesSinceMutation=0;
 					float x=randy.nextFloat()*errorRate;
 					if(x<subRate){
-						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+						b=mutate(bases, i, randy);
 						bb.append(b);
 						if(vars!=null){vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), Character.toString((char)b0), prevChar, r.id, r.numericID));}
 						subsAdded++;
@@ -455,7 +493,7 @@ public class MutateGenome {
 				}else if(addSub) {
 					subsAdded++;
 					mutationLengthAdded++;
-					b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+					b=mutate(bases, i, randy);
 					bb.append(b);
 					if(vars!=null){
 						vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), 
@@ -466,9 +504,10 @@ public class MutateGenome {
 				}else if(addIns) {
 					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
 					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
-					//					if(insHomopolymer(r.bases, i, len, prevChar)) {
-					//			    		//Skip
-					//			    	}else 
+					if(mod3) {
+						len=(len+2)%3;
+						len=lim>len ? 0 : len;//TODO: Check if this is actually necessary
+					}
 					if(len>0) {
 						insAdded++;
 						insLenAdded+=len;
@@ -493,6 +532,10 @@ public class MutateGenome {
 				}else if(addDel) {
 					int lim=Tools.min(maxIndel, bases.length-i-2), len=1;
 					if(lim>=1){len=1+(Tools.min(randy.nextInt(lim), randy.nextInt(lim), randy.nextInt(lim)));}
+					if(mod3) {
+						len=(len+2)%3;
+						len=lim>len ? 0 : len;//TODO: Check if this is actually necessary
+					}
 					if(banHomopolymers && delHomopolymer(r.bases, i, len, prevChar)) {
 						//Skip
 					}else if(len>0) {
@@ -523,6 +566,16 @@ public class MutateGenome {
 				assert(i==refAdded+subsAdded+delLenAdded) : i+", "+refAdded+", "+subsAdded+", "+delLenAdded;
 			}
 		}
+		
+		this.mutationLengthAdded+=mutationLengthAdded;
+		this.netLengthAdded+=netLengthAdded;
+		this.subsAdded+=subsAdded;
+		this.refAdded+=refAdded;
+		this.insAdded+=insAdded;
+		this.delsAdded+=delsAdded;
+		this.insLenAdded+=insLenAdded;
+		this.delLenAdded+=delLenAdded;
+		this.junctionsAdded+=junctionsAdded;
 
 		if(padLeft>0) {
 			ByteBuilder bb2=new ByteBuilder(bb.length+padLeft+padRight);
@@ -549,6 +602,57 @@ public class MutateGenome {
 			r.id=prefix+r.numericID;
 		}
 		basesRetained+=r.bases.length;
+	}
+	
+	private byte mutate(final byte[] bases, final int pos, Random randy) {
+		if(kmerFreq==null) {return AminoAcid.numberToBase[((AminoAcid.baseToNumber[bases[pos]]+randy.nextInt(3)+1)&3)];}
+		return mutate(bases, pos, k, kmerFreq, rcomp, randy);
+	}
+	
+	public static byte mutate(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp, Random randy) {
+		float[] probs=calcPrefixProb(bases, pos, k, freq, rcomp);
+		float f=randy.nextFloat();
+		int x=0;
+		for(float sum=0; x<3; x++) {
+			sum+=probs[x];
+			if(sum>=f) {break;}
+		}
+		final byte b=AminoAcid.numberToBase[x];
+		//This assertion can happen in rare cases like Ns or array ends or weird probability
+		assert(b!=bases[pos]) : ((char)b)+", "+((char)bases[pos])+", "+f+", "+Arrays.toString(probs);
+		return b;
+	}
+	
+	public static float[] calcPrefixProb(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp) {
+		float[] prob=new float[] {1, 1, 1, 1};
+		final byte b0=bases[pos];
+		final byte x0=AminoAcid.baseToNumber[b0];
+		if(x0<0 || pos<k-1) {return prob;}
+		int kmer=0;
+		for(int i=0; i<k; i++) {
+			final byte b=bases[pos-k+i+1];
+			final byte x=AminoAcid.baseToNumber[b];
+			if(x<0) {return prob;}
+			kmer=((kmer<<2)|x);
+		}
+		kmer&=(~3);
+		for(int i=0; i<4; i++) {
+			int key=kmer|i;
+			if(rcomp) {key=CladeObject.remapMatrix[k][key];}
+			prob[i]=freq[key];
+		}
+		prob[x0]=0;
+		return normalize(prob);
+	}
+	
+	public static float[] normalize(float[] prob) {
+		float sum=(float)Tools.sum(prob);
+		if(sum==0) {
+			Arrays.fill(prob, 1);
+			sum=prob.length;
+		}
+		assert(sum!=0);
+		return Tools.multiplyBy(prob, 1/sum);
 	}
 
 	private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar) {
@@ -874,7 +978,6 @@ public class MutateGenome {
 	/*--------------------------------------------------------------*/
 
 	private long maxReads=-1;
-	//	private long mutationsAdded=0;
 
 	private long mutationLengthAdded=0;
 	private long netLengthAdded=0;
@@ -908,6 +1011,11 @@ public class MutateGenome {
 	private boolean banHomopolymers=false;
 	private final float errorRate;
 	private final float errorRate2;
+	
+	private boolean mod3=false;
+	private float[] kmerFreq;
+	private int k=-1;
+	private boolean rcomp=false;
 
 	private final Random randy;
 	private long seed=-1;

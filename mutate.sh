@@ -3,10 +3,11 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 25, 2025
+Last modified October 13, 2025
 
 Description:  Creates a mutant version of a genome.
 Also produces a VCF listing the added mutations.
+To create a mutant from a vcf, see applyvariants.sh.
 
 Usage:  mutate.sh in=<input file> out=<output file> id=<identity>
 
@@ -45,9 +46,14 @@ nohomopolymers=f  If true, prevent indels in homopolymers that lead to
                 AC or deleting T from TTTT.  This is mainly for grading 
                 purposes.  It does not fully solve the problem, but greatly
                 improves concordance (reducing disagreements by 70%).
-                NOTE! nohomopolymers is temporarily disabled.
 pad=0           Add this many random bases to the ends of input sequences.
                 Padleft and padright may also be specified independently.
+sinewaves=0     Vary mutation rate across the genome, yielding more- and
+                less-mutated areas, when >1.  More sinewaves will give
+		a more complicated conservation pattern.
+mod3=f		Forbid indels that are not a multiple of 3 in length.
+k=0             If positive, conserve kmer frequencies through substitutions.
+                Values are 1-5.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
