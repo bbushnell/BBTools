@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 29, 2025
+Last modified October 14, 2025
 
 Description:  Counts the number of unique kmers in a file.
 Prints a fasta or tsv file containing all kmers and their counts.
@@ -27,6 +27,7 @@ mincount=0          Only print kmers with at least this depth.
 reads=-1            Only process this number of reads, then quit (-1 means all).
 rcomp=t             Store and count each kmer together and its reverse-complement.
 comment=            Denotes start of the tsv header.  E.g. 'comment=#'
+skip=1              Count every Nth kmer.  If skip=2, count every 2nd kmer, etc.
 
 Counting parameters:
 k=4                 Kmer length - needs at least (threads+1)*8*4^k memory.

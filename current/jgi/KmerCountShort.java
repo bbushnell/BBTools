@@ -146,6 +146,8 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 				minCount=Integer.parseInt(b);
 			}else if(a.equals("rcomp")){
 				rcomp=Parse.parseBoolean(b);
+			}else if(a.equals("skip") || a.equals("rskip") || a.equals("advance")){
+				skip=Integer.parseInt(b);
 			}else if(a.equals("reverse")){
 				reverse=Parse.parseBoolean(b);
 			}else if(a.equals("out") || a.equals("out1") || a.equals("outkmers") || a.equals("outk") || a.equals("dump")){
@@ -352,6 +354,26 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 //		assert(false) : bits+", "+mask+", "+Arrays.toString(counts);
 	}
 	
+	public static void addKmers(final byte[] bases, final long[] counts, final int k, final int skip){
+		if(bases==null || bases.length<k){return;}
+		assert(k<=15);
+		final int bits=2*k;
+		final int mask=~((-1)<<bits);
+		
+		int kmer=0;
+		int len=0;
+		for(int i=0; i<bases.length; i++){
+			final byte b=bases[i];
+			final int x=AminoAcid.baseToNumber[b];
+			kmer=((kmer<<2)|x)&mask;
+			
+			if(x>=0){
+				len++;
+				counts[kmer]+=(len>=k && len%skip==0 ? 1 : 0);
+			}else{len=kmer=0;}
+		}
+	}
+	
 	public static void printKmersTSV(FileFormat ff, String header, long[] counts, int k, int minCount, boolean rcomp, boolean reverse) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ff);
 		if(header!=null) {bsw.println(header);}
@@ -484,8 +506,13 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 		 * @param r2 Read 2 (may be null)
 		 */
 		void processReadPair(final Read r1, final Read r2){
-			addKmers(r1.bases, countsT, k);
-			if(r2!=null) {addKmers(r2.bases, countsT, k);}
+			if(skip<2) {
+				addKmers(r1.bases, countsT, k);
+				if(r2!=null) {addKmers(r2.bases, countsT, k);}
+			}else {
+				addKmers(r1.bases, countsT, k, skip);
+				if(r2!=null) {addKmers(r2.bases, countsT, k, skip);}
+			}
 		}
 
 		/** Number of reads processed by this thread */
@@ -525,6 +552,7 @@ public class KmerCountShort implements Accumulator<KmerCountShort.ProcessThread>
 	
 	/*--------------------------------------------------------------*/
 
+	private static int skip=1;
 	private int k=4;
 	private int minCount=0;
 	private boolean rcomp=true;
