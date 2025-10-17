@@ -329,9 +329,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		Clade c=new Clade(tid, -1, ff.simpleName());
 		if(tree!=null) {c.level=tree.toLevel(tid);}
 		synchronized(c) {
-			for(Read r : list) {
-				c.add(r, et, caller);
-			}
+			for(Read r : list) {c.add(r, et, caller);}
 			c.finish();
 		}
 		return c;
@@ -350,7 +348,9 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 //		assert(false) : perContig+", "+fname;
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, false);
 		if(ff.clade()) {
-			return loadCladesFromClade(ff, maxReads);
+			ArrayList<Clade> list=loadCladesFromClade(ff, maxReads);
+//			for(Clade c : list) {c.finish();}//Unncessary
+			return list;
 		}else if(!perContig) {
 			ArrayList<Clade> list=new ArrayList<Clade>(1);
 			Clade c=loadOneCladeFromSequence(ff, et, maxReads);
@@ -524,7 +524,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			ArrayList<Clade> list=cladeMap.get(i);
 			for(Clade c : list) {
 				synchronized(c) {
-					assert(c.finished()==finish);
+					assert(c.finished() || !finish) : c.finished()+", "+finish+"\n"+c.name+"\n"+files.get(i);
 					out.add(c);
 				}
 			}

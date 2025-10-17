@@ -339,7 +339,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
 			outstream.print(s);
 			return;
-//			results=SendClade.responseToComparisons(s);
+//			results=SendClade.responseToComparisons(s); //TODO: Need to split into records.
 		}else if(multithreaded) {
 			results=spawnThreads(queries, index, maxHits, maxCompareThreads);
 		}else {
