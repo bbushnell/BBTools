@@ -26,10 +26,17 @@ import structures.ByteBuilder;
 
 /**
  * HTTP server for taxonomic classification using QuickClade.
- * Loads reference database once and handles multiple client requests.
+ * Refactored with clean handler architecture supporting multiple request types.
+ *
+ * Supports:
+ * - Standard Clade format classification
+ * - PreClade format classification (privacy-preserving)
+ * - FetchClade by taxID/organism name
+ * - FetchSSU (16S/18S) by taxID/organism name
+ * - CompareSSU alignment
  *
  * @author Chloe
- * @date September 14, 2025
+ * @date October 14, 2025
  */
 public class CladeServer {
 
@@ -158,7 +165,7 @@ public class CladeServer {
 		KillSwitch.kill("Failed to bind to port "+port);
 	}
 
-	/** Try to bind to the port */
+	/** Try to bind to the port and create handler instances */
 	private Exception tryInitialize(int millis){
 		InetSocketAddress isa=new InetSocketAddress(port);
 		Exception ee=null;
@@ -179,9 +186,14 @@ public class CladeServer {
 			throw new RuntimeException(e);
 		}
 
-		//Add handlers
+		//Create permanent handler instances
+		cladeClassificationHandler=new CladeClassificationHandler();
+		fetchCladeHandler=new FetchCladeHandler();
+		fetchSSUHandler=new FetchSSUHandler();
+		compareSSUHandler=new CompareSSUHandler();
+
+		//Add handlers to server
 		server.createContext("/", new UniversalHandler());
-		server.createContext("/clade", new CladeHandler());
 		server.createContext("/kill", new KillHandler());
 		server.createContext("/stats", new StatsHandler());
 		server.createContext("/favicon.ico", new IconHandler());
@@ -199,42 +211,65 @@ public class CladeServer {
 		public void handle(HttpExchange t) throws IOException {
 			if(verbose2){System.err.println("Icon handler");}
 			iconQueries.incrementAndGet();
-			ServerTools.reply("", "text/plain", t, verbose2, 404, true);
+			reply(t, "".getBytes(), 404);
 		}
 	}
 
-	/** Handles both GET (help) and POST (clade processing) at root */
+	/** Routes requests based on body content */
 	class UniversalHandler implements HttpHandler {
 
 		@Override
 		public void handle(HttpExchange t) throws IOException {
-			String method = t.getRequestMethod();
+			String method=t.getRequestMethod();
 			if(verbose2){System.err.println("Universal handler - method: " + method);}
 
-			if("POST".equals(method)) {
-				// Route POST requests to CladeHandler
-				new CladeHandler().handle(t);
-			} else {
-				// Route GET requests to help
-				if(verbose2){System.err.println("Help handler");}
+			//GET returns usage
+			if("GET".equals(method)) {
 				final long startTime=System.nanoTime();
-				String response = usage();
-				ServerTools.reply(response, "text/plain", t, verbose2, 200, true);
-				logQuery(t, null, System.nanoTime()-startTime, null);
+				reply(t, usage().getBytes(), 200);
+				logQuery(t, "help", System.nanoTime()-startTime, null);
+				return;
 			}
-		}
-	}
 
-	/** Handles queries that fall through other handlers */
-	class HelpHandler implements HttpHandler {
-
-		@Override
-		public void handle(HttpExchange t) throws IOException {
-			if(verbose2){System.err.println("Help handler");}
+			//POST - route by request type
 			final long startTime=System.nanoTime();
-			String response = usage();
-			ServerTools.reply(response, "text/plain", t, verbose2, 200, true);
-			logQuery(t, null, System.nanoTime()-startTime, null);
+			String address=t.getRemoteAddress().toString();
+			if(!hasPermission(t, address)){return;}
+
+			ByteBuilder request=getRequest(t);
+			if(request==null){
+				reply(t, "Failed to read request".getBytes(), 400);
+				return;
+			}
+
+			int type=queryType(request);
+			byte[] response=null;
+
+			switch(type) {
+				case CLADE:
+				case PRECLADE:
+					response=cladeClassificationHandler.getResponse(request);
+					cladeQueries.incrementAndGet();
+					break;
+				case FETCH_CLADE:
+					response=fetchCladeHandler.getResponse(request);
+					break;
+				case FETCH_SSU:
+					response=fetchSSUHandler.getResponse(request);
+					break;
+				case COMPARE_SSU:
+					response=compareSSUHandler.getResponse(request);
+					break;
+				default:
+					response="Invalid request type".getBytes();
+			}
+
+			if(response!=null){
+				reply(t, response, 200);
+			}else{
+				reply(t, "Handler returned null response".getBytes(), 500);
+			}
+			logQuery(t, "request", System.nanoTime()-startTime, null);
 		}
 	}
 
@@ -253,9 +288,8 @@ public class CladeServer {
 			bb.append("Clade queries: ").append(cladeQueries.get()).append('\n');
 			bb.append("Icon queries: ").append(iconQueries.get()).append('\n');
 			bb.append("Reference clades: ").append(index.size()).append('\n');
-			String response = bb.toString();
-			ServerTools.reply(response, "text/plain", t, verbose2, 200, true);
-			logQuery(t, null, System.nanoTime()-startTime, null);
+			reply(t, bb.toBytes(), 200);
+			logQuery(t, "stats", System.nanoTime()-startTime, null);
 		}
 	}
 
@@ -267,8 +301,7 @@ public class CladeServer {
 			if(verbose2){System.err.println("Kill handler");}
 
 			if(killCode==null){
-				String response = "Kill code not enabled.";
-				ServerTools.reply(response, "text/plain", t, verbose2, 403, true);
+				reply(t, "Kill code not enabled.".getBytes(), 403);
 				return;
 			}
 
@@ -279,48 +312,454 @@ public class CladeServer {
 			String code=(parts.length>2 ? parts[2] : null);
 
 			if(code!=null && code.equals(killCode)){
-				String response = "Shutting down server.";
-				ServerTools.reply(response, "text/plain", t, verbose2, 200, true);
+				reply(t, "Shutting down server.".getBytes(), 200);
 				System.exit(0);
 			}else{
-				String response = "Invalid kill code.";
-				ServerTools.reply(response, "text/plain", t, verbose2, 403, true);
+				reply(t, "Invalid kill code.".getBytes(), 403);
 			}
 		}
 	}
 
-	/** Handles clade classification requests */
-	class CladeHandler implements HttpHandler {
+	/*--------------------------------------------------------------*/
+	/*----------------    Request Type Handlers     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Handles Clade and PreClade classification requests.
+	 * Parses incoming k-mer signatures and classifies against reference database.
+	 */
+	class CladeClassificationHandler implements HttpHandler {
+
+		/**
+		 * Standard HTTP handler interface - checks permission, gets request, processes, replies.
+		 */
+		@Override
+		public void handle(HttpExchange t) throws IOException {
+			String address=t.getRemoteAddress().toString();
+			if(!hasPermission(t, address)){return;}
+
+			ByteBuilder request=getRequest(t);
+			if(request==null){
+				reply(t, "Failed to read request".getBytes(), 400);
+				return;
+			}
+
+			byte[] response=getResponse(request);
+			if(response!=null){
+				reply(t, response, 200);
+			}else{
+				reply(t, "Classification failed".getBytes(), 500);
+			}
+		}
+
+		/**
+		 * Processes Clade or PreClade request and returns classification results.
+		 *
+		 * @param request ByteBuilder containing request body
+		 * @return byte[] classification results, or null on error
+		 */
+		byte[] getResponse(ByteBuilder request) {
+			try {
+				//Parse URL parameters into context
+				CladeContext context=new CladeContext();
+				//TODO: Parse URL parameters if needed
+
+				//Parse request body parameters
+				context.parseRequestBody(request.toBytes());
+
+				//Parse clades from request body - byte[] parsing for efficiency
+				ArrayList<Clade> clades=parseClades(request.toBytes());
+
+				if(clades==null || clades.isEmpty()){
+					return "No valid clades found in request".getBytes();
+				}
+
+				//Process clades and generate response
+				ByteBuilder response=new ByteBuilder();
+
+				int queryNumber=1;
+				for(Clade clade : clades){
+					//Use thread-safe findBest method with context-specific hits parameter
+					ArrayList<Comparison> results=index.findBest(clade, context.hits);
+					formatResults(clade, results, response, context, queryNumber);
+					queryNumber++;
+				}
+
+				return response.toBytes();
+
+			} catch (Exception e) {
+				if(verbose || verbose2){
+					System.err.println("[" + new Date() + "] ERROR in CladeClassificationHandler: " + e.getMessage());
+					e.printStackTrace(System.err);
+				}
+				return ("Internal server error: "+e.getMessage()).getBytes();
+			}
+		}
+
+		/**
+		 * Parse clades from request body - supports both standard Clade and PreClade formats.
+		 * Uses LineParser1 for efficient byte[] parsing without String conversion.
+		 */
+		private ArrayList<Clade> parseClades(byte[] data){
+			if(verbose2){
+				System.err.println("[" + new Date() + "] parseClades() ENTRY - parsing " + data.length + " bytes");
+			}
+			ArrayList<Clade> list=new ArrayList<Clade>();
+
+			//Use LineParser1 to split by newlines - NO String conversion
+			LineParser1 newlineParser=new LineParser1('\n');
+			newlineParser.set(data);
+
+			if(newlineParser.terms()==0) {
+				if(verbose2){System.err.println("DEBUG: No lines found in data");}
+				return list;
+			}
+
+			//Format detection: check first line for PreClade header
+			if(newlineParser.termStartsWith("//PreClade", 0)){
+				if(verbose2){System.err.println("DEBUG: Detected PreClade format (first line)");}
+				return parsePreCladeFormat(newlineParser);
+			} else {
+				//Check if PreClade header is on second line (after parameters)
+				if(newlineParser.terms()>1 && newlineParser.termStartsWith("//PreClade", 1)){
+					if(verbose2){System.err.println("DEBUG: Detected PreClade format (second line)");}
+					return parsePreCladeFormat(newlineParser);
+				}
+
+				//Standard Clade format - skip first line (parameters), process rest as Clade data
+				if(verbose2){System.err.println("DEBUG: Detected standard Clade format");}
+				return parseStandardCladeFormat(newlineParser);
+			}
+		}
+
+		/**
+		 * Parse standard Clade format - optimized with byte[] parsing.
+		 * Collects lines between '#' markers and passes to Clade.parseClade().
+		 */
+		private ArrayList<Clade> parseStandardCladeFormat(LineParser1 newlineParser){
+			ArrayList<Clade> list=new ArrayList<Clade>();
+
+			//Create LineParser for parsing individual clade lines (tab-delimited)
+			LineParser1 lp=new LineParser1('\t');
+
+			//Use CladeLoader parsing approach: collect lines from one '#' to the next
+			//Skip first term (parameter line)
+			ArrayList<byte[]> currentClade=new ArrayList<byte[]>(20);
+			for(int term=1; term<newlineParser.terms(); term++){
+				byte[] line=newlineParser.parseByteArray(term);
+
+				if(newlineParser.termStartsWith("#", term) && !currentClade.isEmpty()){
+					//Found new clade header and we have collected lines - process previous clade
+					Clade c=Clade.parseClade(currentClade, lp);
+					if(c!=null){
+						c.finish();
+						list.add(c);
+					}
+					currentClade.clear();
+				}
+				//Always add current line to collection
+				currentClade.add(line);
+			}
+
+			//Process final clade if any lines remain
+			if(currentClade.size()>1){
+				Clade c=Clade.parseClade(currentClade, lp);
+				if(c!=null){
+					c.finish();
+					list.add(c);
+				}
+			}
+
+			if(verbose2){System.err.println("DEBUG: parseStandardCladeFormat() parsed " + list.size() + " total clades");}
+			return list;
+		}
+
+		/**
+		 * Parse PreClade v2.0 format - optimized with byte[] and LineParser1.
+		 * PreClade format contains 7 lines per sequence (header, name, 5 k-mer count lines).
+		 */
+		private ArrayList<Clade> parsePreCladeFormat(LineParser1 newlineParser){
+			ArrayList<Clade> list=new ArrayList<Clade>();
+
+			try {
+				int term=0;
+
+				//Skip the header line if present
+				if(term<newlineParser.terms() && newlineParser.termStartsWith("//PreClade", term)){
+					term++; //Skip the header
+				}
+
+				//Parse entries that start with #
+				while(term<newlineParser.terms()){
+					//Skip empty lines
+					if(newlineParser.length(term)==0){
+						term++;
+						continue;
+					}
+
+					//Look for entry separator
+					if(newlineParser.termEquals("#", term)){
+						//Start of a PreClade entry - must have exactly 6 more lines
+						if(term+6>=newlineParser.terms()){
+							if(verbose2){
+								System.err.println("ERROR: Incomplete PreClade v2.0 entry - need exactly 6 lines after #");
+							}
+							break;
+						}
+
+						//Extract the 6 byte[] lines after #
+						byte[] nameLine=newlineParser.parseByteArray(term+1);     //Sequence name
+						byte[] line1=newlineParser.parseByteArray(term+2);        //1-mers (5 values)
+						byte[] line2=newlineParser.parseByteArray(term+3);        //2-mers (16 values)
+						byte[] line3=newlineParser.parseByteArray(term+4);        //3-mers (64 values)
+						byte[] line4=newlineParser.parseByteArray(term+5);        //4-mers (256 values)
+						byte[] line5=newlineParser.parseByteArray(term+6);        //5-mers (1024 values)
+
+						//Parse this PreClade entry using byte[] parsing
+						Clade c=parsePreCladeV2Entry(nameLine, line1, line2, line3, line4, line5);
+						if(c!=null){
+							list.add(c);
+						}
+
+						//Move to next potential record
+						term+=7; //Skip the # and 6 data lines
+					} else {
+						//Skip non-separator lines (shouldn't happen in valid format)
+						term++;
+					}
+				}
+
+			} catch (Exception e) {
+				if(verbose2){
+					System.err.println("ERROR parsing PreClade v2.0 format: " + e.getMessage());
+					e.printStackTrace();
+				}
+			}
+
+			if(verbose2){System.err.println("DEBUG: parsePreCladeFormat() parsed " + list.size() + " PreClade v2.0 entries");}
+			return list;
+		}
+
+		/**
+		 * Parse a single PreClade v2.0 entry - optimized with byte[] and LineParser1.
+		 * Uses LineParser1.parseLongArray() which automatically detects comma delimiter.
+		 */
+		private Clade parsePreCladeV2Entry(byte[] nameLine, byte[] line1, byte[] line2,
+				byte[] line3, byte[] line4, byte[] line5) {
+			try {
+				//Parse name from byte[] - only String we need
+				String name=new String(nameLine).trim();
+
+				//Use LineParser1 to parse comma-delimited count lines
+				LineParser1 lp=new LineParser1(',');
+
+				//Build k-mer counts array [1-5]
+				long[][] counts=new long[6][]; //Index 0 unused, 1-5 for k=1 through k=5
+
+				//Parse each k-mer line using LineParser1.parseLongArray()
+				lp.set(line1);
+				counts[1]=lp.parseLongArray(0);  //1-mers (5 values)
+
+				lp.set(line2);
+				counts[2]=lp.parseLongArray(0);  //2-mers (16 values)
+
+				lp.set(line3);
+				counts[3]=lp.parseLongArray(0);  //3-mers (64 values)
+
+				lp.set(line4);
+				counts[4]=lp.parseLongArray(0);  //4-mers (256 values)
+
+				lp.set(line5);
+				counts[5]=lp.parseLongArray(0);  //5-mers (1024 values)
+
+				//Use byte[]-optimized PreClade constructor
+				PreClade preClade=new PreClade(name, counts);
+				return preClade.toClade();
+
+			} catch (Exception e) {
+				if(verbose2){
+					System.err.println("ERROR parsing PreClade v2.0 entry: " + e.getMessage());
+					e.printStackTrace();
+				}
+				return null;
+			}
+		}
+
+		/**
+		 * Format classification results for output.
+		 * Supports both HUMAN and MACHINE formats.
+		 */
+		void formatResults(Clade query, ArrayList<Comparison> results, ByteBuilder bb, CladeContext ctx, int queryNumber){
+			//Filter out null comparisons before calculating maxHits
+			ArrayList<Comparison> validResults=new ArrayList<>();
+			for(Comparison comp : results) {
+				if(comp!=null && comp.ref!=null) {
+					validResults.add(comp);
+				}
+			}
+
+			//Limit results to requested hits
+			int maxHits=Math.min(ctx.hits, validResults.size());
+
+			if(ctx.format==CladeSearcher.MACHINE){
+				//One-line format with #Query markers
+				bb.append("#Query").append(queryNumber).append('\n');
+				for(int i=0; i<maxHits; i++){
+					Comparison comp=validResults.get(i);
+					Clade ref=comp.ref;
+
+					bb.append(query.name).tab();
+					bb.append(String.format("%.3f", query.gc)).tab();
+					bb.append(query.bases).tab();
+					bb.append(query.contigs).tab();
+					bb.append(ref.name!=null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();
+					bb.append(ref.taxID).tab();
+					bb.append(String.format("%.3f", ref.gc)).tab();
+					bb.append(ref.bases).tab();
+					bb.append(ref.contigs).tab();
+					bb.append(ref.level).tab();
+					bb.append(String.format("%.3f", comp.gcdif)).tab();
+					bb.append(String.format("%.3f", comp.strdif)).tab();
+					bb.append(String.format("%.3f", comp.k3dif)).tab();
+					bb.append(String.format("%.3f", comp.k4dif)).tab();
+					bb.append(String.format("%.3f", comp.k5dif)).tab();
+					bb.append(ref.lineage()).nl();
+				}
+			}else{
+				//Human-readable format
+				bb.append("Query: ").append(query.name).nl();
+				bb.append("GC: ").append(String.format("%.3f", query.gc)).nl();
+				bb.append("Bases: ").append(query.bases).nl();
+				bb.append("Contigs: ").append(query.contigs).nl();
+				bb.nl();
+
+				for(int i=0; i<maxHits; i++){
+					Comparison comp=validResults.get(i);
+					Clade ref=comp.ref;
+
+					bb.append("Hit ").append(i+1).append(":\n");
+					bb.append("  Name: ").append(ref.name!=null ? ref.name : "Unknown_TaxID_" + ref.taxID).nl();
+					bb.append("  TaxID: ").append(ref.taxID).nl();
+					bb.append("  Level: ").append(ref.level).nl();
+					bb.append("  k5dif: ").append(String.format("%.3f", comp.k5dif)).nl();
+					bb.append("  Lineage: ").append(ref.lineage()).nl();
+					bb.nl();
+				}
+			}
+		}
+	}
+
+	/**
+	 * Handles FetchClade requests - fetches Clade file by taxID or organism name.
+	 * Format: //FetchClade\nE.coli\nH.sapiens\n562
+	 * Returns Clade file data for requested organisms.
+	 */
+	class FetchCladeHandler implements HttpHandler {
 
 		@Override
 		public void handle(HttpExchange t) throws IOException {
-			final long handlerStart = System.nanoTime();
-			if(verbose2){
-				System.err.println("[" + new Date() + "] CladeHandler.handle() - New request from " + t.getRemoteAddress());
-				System.err.println("[" + new Date() + "]   Method: " + t.getRequestMethod());
-				System.err.println("[" + new Date() + "]   URI: " + t.getRequestURI());
-				System.err.println("[" + new Date() + "]   Headers: " + t.getRequestHeaders().entrySet());
-			}
-			if(verbose){outstream.println("CladeHandler.handle() called");}
-			
-			//Security checks
 			String address=t.getRemoteAddress().toString();
-			if(addressPrefix!=null && !address.startsWith(addressPrefix)){
-				if(!address.startsWith("/127.0.0.1")){
-					String response="Access denied from "+address;
-					ServerTools.reply(response, "text/plain", t, verbose2, 403, true);
-					return;
-				}
-			}
+			if(!hasPermission(t, address)){return;}
+
 			ByteBuilder request=getRequest(t);
-			
-			if(verbose2){outstream.println("Got a clade request.");}
-			CladeInstance ci=new CladeInstance(t);
-			ci.respond(request.toBytes());
-			if(verbose2){System.err.println("[" + new Date() + "] CladeHandler completed in " + ((System.nanoTime() - handlerStart) / 1000000) + "ms");}
+			byte[] response=getResponse(request);
+			reply(t, response, 200);
+		}
+
+		/**
+		 * Process FetchClade request and return Clade file data.
+		 * TODO: Implementation pending - returns null stub for now.
+		 */
+		byte[] getResponse(ByteBuilder request) {
+			//TODO: Parse taxID/organism names from request
+			//TODO: Lookup Clade objects from index
+			//TODO: Format as Clade file
+			return null; //Stub
 		}
 	}
 
+	/**
+	 * Handles FetchSSU requests - fetches 16S/18S sequences by taxID or organism name.
+	 * Format: //FetchSSU\nE.coli\nH.sapiens\n562
+	 * Returns FASTA format SSU sequences.
+	 */
+	class FetchSSUHandler implements HttpHandler {
+
+		@Override
+		public void handle(HttpExchange t) throws IOException {
+			String address=t.getRemoteAddress().toString();
+			if(!hasPermission(t, address)){return;}
+
+			ByteBuilder request=getRequest(t);
+			byte[] response=getResponse(request);
+			reply(t, response, 200);
+		}
+
+		/**
+		 * Process FetchSSU request and return FASTA sequences.
+		 * TODO: Implementation pending - returns null stub for now.
+		 */
+		byte[] getResponse(ByteBuilder request) {
+			//TODO: Parse taxID/organism names from request
+			//TODO: Lookup Clade objects from index
+			//TODO: Extract r16S or r18S sequences
+			//TODO: Format as FASTA
+			return null; //Stub
+		}
+	}
+
+	/**
+	 * Handles CompareSSU requests - aligns query SSU to reference and finds best match.
+	 * Format: //CompareSSU\n>query\nACGT...
+	 * Returns alignment results.
+	 */
+	class CompareSSUHandler implements HttpHandler {
+
+		@Override
+		public void handle(HttpExchange t) throws IOException {
+			String address=t.getRemoteAddress().toString();
+			if(!hasPermission(t, address)){return;}
+
+			ByteBuilder request=getRequest(t);
+			byte[] response=getResponse(request);
+			reply(t, response, 200);
+		}
+
+		/**
+		 * Process CompareSSU request and return alignment results.
+		 * TODO: Implementation pending - returns null stub for now.
+		 */
+		byte[] getResponse(ByteBuilder request) {
+			//TODO: Parse query SSU sequence
+			//TODO: Align against reference SSUs
+			//TODO: Find best matches
+			//TODO: Format results
+			return null; //Stub
+		}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Helper Methods         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Check if requester has permission to access server.
+	 * Sends 403 response if permission denied.
+	 */
+	private static boolean hasPermission(HttpExchange t, String address) {
+		if(addressPrefix!=null && !address.startsWith(addressPrefix)){
+			if(!address.startsWith("/127.0.0.1")){
+				String response="Access denied from "+address;
+				reply(t, response.getBytes(), 403);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
+	 * Read request body from HttpExchange into ByteBuilder.
+	 */
 	private static final ByteBuilder getRequest(HttpExchange t) {
 		//Read request body
 		if(verbose2){System.err.println("[" + new Date() + "] Reading request body...");}
@@ -329,15 +768,14 @@ public class CladeServer {
 		ByteBuilder bb=new ByteBuilder();
 		byte[] buffer=new byte[8192];
 		int len;
-		int totalBytes = 0;
+		int totalBytes=0;
 		try{
 			while((len=is.read(buffer))!=-1){
 				bb.append(buffer, 0, len);
-				totalBytes += len;
+				totalBytes+=len;
 			}
 			is.close();
 		}catch(IOException e){
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 			return null;
 		}
@@ -345,18 +783,41 @@ public class CladeServer {
 		if(verbose){outstream.println("Read "+bb.length()+" bytes from body");}
 		return bb;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Helper Methods         ----------------*/
-	/*--------------------------------------------------------------*/
 
-	/** Generate usage information */
+	/**
+	 * Send reply to client.
+	 */
+	private static final void reply(HttpExchange t, byte[] response, int code) {
+		ServerTools.reply(response, "text/plain", t, verbose2, code, true);
+	}
+
+	/**
+	 * Detect request type from message body format.
+	 * Checks header line for format markers.
+	 */
+	private static final int queryType(ByteBuilder data) {
+		if(data==null || data.length()<1) {return INVALID;}
+		if(!data.startsWith("//") || data.startsWith("//Clade")) {return CLADE;}
+		if(data.startsWith("//PreClade")) {return PRECLADE;}
+		if(data.startsWith("//FetchClade")) {return FETCH_CLADE;}
+		if(data.startsWith("//FetchSSU")) {return FETCH_SSU;}
+		if(data.startsWith("//CompareSSU")) {return COMPARE_SSU;}
+		return INVALID;
+	}
+
+	/**
+	 * Generate usage/help information.
+	 */
 	private String usage(){
 		StringBuilder sb=new StringBuilder();
-		sb.append("Usage:\n");
-		sb.append("  POST to /clade with clade data in request body\n");
-		sb.append("  Parameters in URL: /format=oneline/hits=5/\n\n");
-		sb.append("Available parameters:\n");
+		sb.append("CladeServer - Taxonomic Classification Server\n\n");
+		sb.append("Supported request types:\n");
+		sb.append("  Standard Clade format - Taxonomic classification\n");
+		sb.append("  //PreClade - Privacy-preserving classification\n");
+		sb.append("  //FetchClade - Fetch Clade file by taxID/organism\n");
+		sb.append("  //FetchSSU - Fetch 16S/18S sequence by taxID/organism\n");
+		sb.append("  //CompareSSU - Align query SSU to references\n\n");
+		sb.append("Parameters in URL: /format=oneline/hits=5/\n");
 		sb.append("  format={human|oneline} - Output format\n");
 		sb.append("  hits=<int> - Number of results per query\n");
 		sb.append("  printqtid={t|f} - Print query TaxID\n");
@@ -366,7 +827,9 @@ public class CladeServer {
 		return sb.toString();
 	}
 
-	/** Log query information */
+	/**
+	 * Log query information for monitoring.
+	 */
 	static void logQuery(HttpExchange t, String type, long nanos, String response){
 		queryCount.incrementAndGet();
 
@@ -382,17 +845,6 @@ public class CladeServer {
 			outstream.println(bb);
 		}
 	}
-	
-	private static final int queryType(ByteBuilder data) {
-		if(data==null || data.length()<1) {return INVALID;}
-		if(!data.startsWith("//") || data.startsWith("//Clade")) {return CLADE;}
-		if(data.startsWith("//Clade")) {return PRECLADE;}
-		if(data.startsWith("//PreClade")) {return PRECLADE;}
-		if(data.startsWith("//CompareSSU")) {return COMPARE_SSU;}
-		if(data.startsWith("//FetchClade")) {return FETCH_CLADE;}
-		if(data.startsWith("//FetchSSU")) {return FETCH_SSU;}
-		return INVALID;
-	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
@@ -406,6 +858,12 @@ public class CladeServer {
 
 	/** Server start time */
 	private long serverStartTime;
+
+	/** Permanent handler instances */
+	private CladeClassificationHandler cladeClassificationHandler;
+	private FetchCladeHandler fetchCladeHandler;
+	private FetchSSUHandler fetchSSUHandler;
+	private CompareSSUHandler compareSSUHandler;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Final Fields          ----------------*/
@@ -439,526 +897,7 @@ public class CladeServer {
 	private static final AtomicLong queryCount=new AtomicLong();
 	private static final AtomicLong cladeQueries=new AtomicLong();
 	private static final AtomicLong iconQueries=new AtomicLong();
-	
+
+	/** Request type constants */
 	private static final int INVALID=0, CLADE=1, PRECLADE=2, FETCH_CLADE=3, COMPARE_SSU=4, FETCH_SSU=5;
-
-	/*--------------------------------------------------------------*/
-	/*----------------        Inner Classes         ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Inner class that handles individual clade requests */
-	static class CladeInstance {
-
-		CladeInstance(HttpExchange t_){
-			t=t_;
-			startTime=System.nanoTime();
-			// Create connection-specific context
-			context=new CladeContext();
-		}
-
-//		void respond(byte[] request) throws IOException {
-//			final long respondStart = System.nanoTime();
-////			if(verbose2){System.err.println("[" + new Date() + "] CladeInstance.respond() ENTRY");}
-////			if(verbose2){System.err.println("DEBUG: respond() called - new HTTP request " + System.currentTimeMillis());}
-//			try {
-//				if(verbose){outstream.println("CladeInstance.respond() called");}
-//
-//				//Parse URL parameters
-//				String query=t.getRequestURI().toString();
-//				if(verbose){outstream.println("Query: "+query);}
-//				parseParams(query, context);
-//
-//				//Parse parameters and clades from request body
-//				String requestBody = new String(request);
-////				if(verbose2){System.err.println("[" + new Date() + "] Request body (first 200 chars): " + requestBody.substring(0, Math.min(200, requestBody.length())));}
-//				parseRequestBody(requestBody, context);
-////				if(verbose2){System.err.println("[" + new Date() + "] Context after parsing: format=" + context.format + ", hits=" + context.hits + ", heap=" + context.heap);}
-//
-//				// Parse clades from request body (standard Clade format from SendClade)
-//				ArrayList<Clade> clades = parseClades(requestBody);
-//
-////				if(verbose2){System.err.println("DEBUG: Parsing returned " + (clades != null ? clades.size() : "null") + " clades");}
-//				if(clades==null || clades.isEmpty()){
-//					String response="No valid clades found in request";
-////					if(verbose2){System.err.println("DEBUG: Sending 'no clades' response");}
-//					ServerTools.reply(response, "text/plain", t, verbose2, 400, true);
-//					return;
-//				}
-////				if(verbose2){System.err.println("DEBUG: Proceeding with " + clades.size() + " clades - starting analysis");}
-//
-//				//Process clades and generate response
-//				ByteBuilder response=new ByteBuilder();
-//
-////				if(verbose2){System.err.println("DEBUG: Starting clade processing loop with " + clades.size() + " clades");}
-//				int queryNumber = 1;
-//				for(Clade clade : clades){//TODO - multithread this, at least 4 threads.
-////					if(verbose2){System.err.println("DEBUG: Processing clade " + queryNumber + ": " + (clade != null ? clade.toString() : "null"));}
-//					// Use thread-safe findBest method with context-specific hits parameter
-////					if(verbose2){
-////						System.err.println("[" + new Date() + "] Searching for clade: " + clade.name + " (taxID=" + clade.taxID + ", bases=" + clade.bases + ")");
-////						System.err.println("DEBUG: Calling index.findBest() with hits=" + context.hits);
-////					}
-//					final long searchStart = System.nanoTime();
-//					ArrayList<Comparison> results=index.findBest(clade, context.hits);
-//					final long searchTime = (System.nanoTime() - searchStart) / 1000000;
-////					if(verbose2){
-////						System.err.println("[" + new Date() + "] Search completed in " + searchTime + "ms, found " + (results != null ? results.size() : 0) + " results");
-////						System.err.println("DEBUG: findBest() returned " + (results != null ? results.size() : "null") + " results");
-////					}
-////					if(verbose2){System.err.println("DEBUG: Calling formatResults() for query " + queryNumber);}
-//					formatResults(clade, results, response, context, queryNumber);
-////					if(verbose2){System.err.println("DEBUG: formatResults() completed for query " + queryNumber);}
-//					queryNumber++;
-//				}
-////				if(verbose2){System.err.println("DEBUG: Clade processing loop completed");}
-//
-//				//Send response
-//				String responseStr=response.toString();
-////				if(verbose2){
-////					System.err.println("[" + new Date() + "] Sending response: " + responseStr.length() + " bytes");
-////					if(responseStr.length() < 500) {
-////						System.err.println("[" + new Date() + "] Response content: " + responseStr);
-////					}
-////				}
-//				ServerTools.reply(responseStr, "text/plain", t, verbose2, 200, true);
-//				if(verbose){System.err.println("[" + new Date() + "] Response sent successfully, total time: " + ((System.nanoTime() - respondStart) / 1000000) + "ms");}
-//
-//				cladeQueries.incrementAndGet();
-//				logQuery(t, "clade", System.nanoTime()-startTime, null);
-//
-//			} catch (Exception e) {
-//				if(verbose || verbose2){
-//					System.err.println("[" + new Date() + "] ERROR in CladeInstance.respond(): " + e.getMessage());
-//					System.err.println("[" + new Date() + "] Stack trace:");
-//					e.printStackTrace(System.err);
-//				}
-//				outstream.println("ERROR in CladeInstance.respond(): "+e.getMessage());
-//				e.printStackTrace(outstream);
-//				String errorResponse = "Internal server error: "+e.getMessage();
-//				try {
-//					ServerTools.reply(errorResponse, "text/plain", t, verbose2, 500, true);
-//				} catch (Exception ioe) {
-//					outstream.println("ERROR sending error response: "+ioe.getMessage());
-//				}
-//			}
-//		}
-		
-		void respond(byte[] request) {
-			final long respondStart = System.nanoTime();
-			try {
-				if(verbose){outstream.println("CladeInstance.respond() called");}
-
-				//Parse URL parameters
-				String query=t.getRequestURI().toString();
-				if(verbose){outstream.println("Query: "+query);}
-				parseParams(query, context);
-
-				//Parse parameters and clades from request body
-				context.parseRequestBody(request);
-
-				// Parse clades from request body - byte[] parsing for efficiency
-				ArrayList<Clade> clades = parseClades(request);
-				
-				if(clades==null || clades.isEmpty()){
-					String response="No valid clades found in request";
-					ServerTools.reply(response, "text/plain", t, verbose2, 400, true);
-					return;
-				}
-
-				//Process clades and generate response
-				ByteBuilder response=new ByteBuilder();
-
-				int queryNumber = 1;
-				for(Clade clade : clades){//TODO - multithread this, at least 4 threads.
-					// Use thread-safe findBest method with context-specific hits parameter
-					final long searchStart = System.nanoTime();
-					ArrayList<Comparison> results=index.findBest(clade, context.hits);
-					final long searchTime = (System.nanoTime() - searchStart) / 1000000;
-					formatResults(clade, results, response, context, queryNumber);
-					queryNumber++;
-				}
-
-				//Send response
-				String responseStr=response.toString();
-				ServerTools.reply(responseStr, "text/plain", t, verbose2, 200, true);
-				if(verbose){System.err.println("[" + new Date() + "] Response sent successfully, total time: " + ((System.nanoTime() - respondStart) / 1000000) + "ms");}
-
-				cladeQueries.incrementAndGet();
-				logQuery(t, "clade", System.nanoTime()-startTime, null);
-
-			} catch (Exception e) {
-				if(verbose || verbose2){
-					System.err.println("[" + new Date() + "] ERROR in CladeInstance.respond(): " + e.getMessage());
-					System.err.println("[" + new Date() + "] Stack trace:");
-					e.printStackTrace(System.err);
-				}
-				outstream.println("ERROR in CladeInstance.respond(): "+e.getMessage());
-				e.printStackTrace(outstream);
-				String errorResponse = "Internal server error: "+e.getMessage();
-				try {
-					ServerTools.reply(errorResponse, "text/plain", t, verbose2, 500, true);
-				} catch (Exception ioe) {
-					outstream.println("ERROR sending error response: "+ioe.getMessage());
-				}
-			}
-		}
-
-		/** Parse parameters from URL into context */
-		void parseParams(String query, CladeContext ctx){
-			if(verbose2){System.err.println("[" + new Date() + "] Parsing URL parameters: " + query);}
-			if(query==null || query.length()<2){return;}
-
-			//Remove leading /clade
-			if(query.startsWith("/clade")){
-				query=query.substring(6);
-			}
-
-			//Parse parameters
-			String[] parts=query.split("/");
-			for(String part : parts){
-				if(part.isEmpty()){continue;}
-				String[] kv=part.split("=");
-				if(kv.length!=2){continue;}
-
-				String key=kv[0].toLowerCase();
-				String value=kv[1];
-
-				if(key.equals("format")){
-					if(value.equals("oneline") || value.equals("machine")){
-						ctx.format=CladeSearcher.MACHINE;
-					}else{
-						ctx.format=CladeSearcher.HUMAN;
-					}
-				}else if(key.equals("hits")){
-					ctx.hits=Integer.parseInt(value);
-				}else if(key.equals("heap")){
-					ctx.heap=Integer.parseInt(value);
-				}else if(key.equals("printqtid")){
-					ctx.printQTID=Parse.parseBoolean(value);
-				}else if(key.equals("banself")){
-					ctx.banSelf=Parse.parseBoolean(value);
-				}
-			}
-		}
-
-//		/** Parse parameters from request body (SendClade format) */
-//		void parseRequestBody(String requestBody, CladeContext ctx){
-//			if(verbose2){System.err.println("[" + new Date() + "] Parsing request body parameters");}
-//			if(requestBody==null || requestBody.isEmpty()){return;}
-//
-//			// SendClade sends parameters in first line: format=oneline/hits=10/heap=1/
-//			String[] lines = requestBody.split("\n", 2);
-//			if(lines.length < 1){return;}
-//
-//			String paramLine = lines[0];
-//
-//			//Parse parameters from the parameter line
-//			String[] parts=paramLine.split("/");
-//			for(String part : parts){
-//				if(part.isEmpty()){continue;}
-//				String[] kv=part.split("=");
-//				if(kv.length!=2){continue;}
-//
-//				String key=kv[0].toLowerCase();
-//				String value=kv[1];
-//
-//				if(key.equals("format")){
-//					if(value.equals("oneline") || value.equals("machine")){
-//						ctx.format=CladeSearcher.MACHINE;
-//					}else{
-//						ctx.format=CladeSearcher.HUMAN;
-//					}
-//				}else if(key.equals("hits")){
-//					ctx.hits=Integer.parseInt(value);
-//				}else if(key.equals("heap")){
-//					ctx.heap=Integer.parseInt(value);
-//				}else if(key.equals("printqtid")){
-//					ctx.printQTID=Parse.parseBoolean(value);
-//				}else if(key.equals("banself")){
-//					ctx.banSelf=Parse.parseBoolean(value);
-//				}
-//			}
-//		}
-
-		/** Parse clades from request body - supports both standard Clade and PreClade formats */
-		private ArrayList<Clade> parseClades(byte[] data){
-			if(verbose2){
-				System.err.println("[" + new Date() + "] parseClades() ENTRY - parsing " + data.length + " bytes");
-			}
-			ArrayList<Clade> list=new ArrayList<Clade>();
-
-			// Use LineParser1 to split by newlines - NO String conversion
-			LineParser1 newlineParser = new LineParser1('\n');
-			newlineParser.set(data);
-
-			if(newlineParser.terms() == 0) {
-				if(verbose2){System.err.println("DEBUG: No lines found in data");}
-				return list;
-			}
-
-			// Format detection: check first line for PreClade header
-			if(newlineParser.termStartsWith("//PreClade", 0)){
-				if(verbose2){System.err.println("DEBUG: Detected PreClade format (first line)");}
-				return parsePreCladeFormat(newlineParser);
-			} else {
-				// Check if PreClade header is on second line (after parameters)
-				if(newlineParser.terms() > 1 && newlineParser.termStartsWith("//PreClade", 1)){
-					if(verbose2){System.err.println("DEBUG: Detected PreClade format (second line)");}
-					return parsePreCladeFormat(newlineParser);
-				}
-
-				// Standard Clade format - skip first line (parameters), process rest as Clade data
-				if(verbose2){System.err.println("DEBUG: Detected standard Clade format");}
-				return parseStandardCladeFormat(newlineParser);
-			}
-		}
-
-		/** Parse standard Clade format - optimized with byte[] parsing */
-		private ArrayList<Clade> parseStandardCladeFormat(LineParser1 newlineParser){
-			ArrayList<Clade> list=new ArrayList<Clade>();
-
-			//Create LineParser for parsing individual clade lines (tab-delimited)
-			LineParser1 lp=new LineParser1('\t');
-
-			//Use CladeLoader parsing approach: collect lines from one '#' to the next
-			//Skip first term (parameter line)
-			ArrayList<byte[]> currentClade = new ArrayList<byte[]>(20);
-			for(int term=1; term<newlineParser.terms(); term++){
-				byte[] line=newlineParser.parseByteArray(term);
-
-				if(newlineParser.termStartsWith("#", term) && !currentClade.isEmpty()){
-					//Found new clade header and we have collected lines - process previous clade
-					Clade c=Clade.parseClade(currentClade, lp);
-					if(c!=null){
-						c.finish();
-						list.add(c);
-					}
-					currentClade.clear();
-				}
-				//Always add current line to collection
-				currentClade.add(line);
-			}
-
-			//Process final clade if any lines remain
-			if(currentClade.size() > 1){
-				Clade c=Clade.parseClade(currentClade, lp);
-				if(c!=null){
-					c.finish();
-					list.add(c);
-				}
-			}
-
-			if(verbose2){System.err.println("DEBUG: parseStandardCladeFormat() parsed " + list.size() + " total clades");}
-			return list;
-		}
-
-		/** Parse PreClade v2.0 format - optimized with byte[] and LineParser1 */
-		private ArrayList<Clade> parsePreCladeFormat(LineParser1 newlineParser){
-			ArrayList<Clade> list=new ArrayList<Clade>();
-
-			try {
-				// PreClade v2.0 format:
-				// Line 0: //PreClade Format 2.0 (only once at beginning)
-				// Then for each sequence:
-				// Line 1: #
-				// Line 2: name
-				// Line 3: 1-mers (5 values: A,C,G,T,N)
-				// Line 4: 2-mers (16 values)
-				// Line 5: 3-mers (64 values)
-				// Line 6: 4-mers (256 values)
-				// Line 7: 5-mers (1024 values)
-
-				int term = 0;
-
-				// Skip the header line if present
-				if(term < newlineParser.terms() && newlineParser.termStartsWith("//PreClade", term)){
-					term++; // Skip the header
-				}
-
-				// Now parse entries that start with #
-				while(term < newlineParser.terms()){
-					// Skip empty lines
-					if(newlineParser.length(term) == 0){
-						term++;
-						continue;
-					}
-
-					// Look for entry separator
-					if(newlineParser.termEquals("#", term)){
-						// Start of a PreClade entry - must have exactly 6 more lines
-						if(term + 6 >= newlineParser.terms()){
-							if(verbose2){
-								System.err.println("ERROR: Incomplete PreClade v2.0 entry - need exactly 6 lines after #");
-							}
-							break;
-						}
-
-						// Extract the 6 byte[] lines after #
-						byte[] nameLine = newlineParser.parseByteArray(term+1);     // Sequence name
-						byte[] line1 = newlineParser.parseByteArray(term+2);        // 1-mers (5 values)
-						byte[] line2 = newlineParser.parseByteArray(term+3);        // 2-mers (16 values)
-						byte[] line3 = newlineParser.parseByteArray(term+4);        // 3-mers (64 values)
-						byte[] line4 = newlineParser.parseByteArray(term+5);        // 4-mers (256 values)
-						byte[] line5 = newlineParser.parseByteArray(term+6);        // 5-mers (1024 values)
-
-						// Parse this PreClade entry using byte[] parsing
-						Clade c = parsePreCladeV2Entry(nameLine, line1, line2, line3, line4, line5);
-						if(c != null){
-							list.add(c);
-						}
-
-						// Move to next potential record
-						term += 7; // Skip the # and 6 data lines
-					} else {
-						// Skip non-separator lines (shouldn't happen in valid format)
-						term++;
-					}
-				}
-
-			} catch (Exception e) {
-				if(verbose2){
-					System.err.println("ERROR parsing PreClade v2.0 format: " + e.getMessage());
-					e.printStackTrace();
-				}
-			}
-
-			if(verbose2){System.err.println("DEBUG: parsePreCladeFormat() parsed " + list.size() + " PreClade v2.0 entries");}
-			return list;
-		}
-
-		/** Parse a single PreClade v2.0 entry - optimized with byte[] and LineParser1 */
-		private Clade parsePreCladeV2Entry(byte[] nameLine, byte[] line1, byte[] line2,
-				byte[] line3, byte[] line4, byte[] line5) {
-			try {
-				// Parse name from byte[] - only String we need
-				String name = new String(nameLine).trim();
-
-				// Use LineParser1 to parse comma-delimited count lines
-				// parseLongArray() automatically finds the delimiter, no need for explicit comma parser
-				LineParser1 lp = new LineParser1(',');
-
-				// Build k-mer counts array [1-5]
-				long[][] counts = new long[6][]; // Index 0 unused, 1-5 for k=1 through k=5
-
-				// Parse each k-mer line using LineParser1.parseLongArray()
-				lp.set(line1);
-				counts[1] = lp.parseLongArray(0);  // 1-mers (5 values)
-
-				lp.set(line2);
-				counts[2] = lp.parseLongArray(0);  // 2-mers (16 values)
-
-				lp.set(line3);
-				counts[3] = lp.parseLongArray(0);  // 3-mers (64 values)
-
-				lp.set(line4);
-				counts[4] = lp.parseLongArray(0);  // 4-mers (256 values)
-
-				lp.set(line5);
-				counts[5] = lp.parseLongArray(0);  // 5-mers (1024 values)
-
-				// Use new byte[]-optimized PreClade constructor
-				PreClade preClade = new PreClade(name, counts);
-				return preClade.toClade();
-
-			} catch (Exception e) {
-				if(verbose2){
-					System.err.println("ERROR parsing PreClade v2.0 entry: " + e.getMessage());
-					e.printStackTrace();
-				}
-				return null;
-			}
-		}
-
-
-		/** Format results for output */
-		void formatResults(Clade query, ArrayList<Comparison> results, ByteBuilder bb, CladeContext ctx, int queryNumber){
-			// Version check to verify we're running the fixed code
-			if(verbose2){System.err.println("DEBUG: formatResults() ENTRY - Sept 16 2025 version with null pointer fix active");}
-			if(verbose2){System.err.println("DEBUG: formatResults() parameters - query=" + (query != null ? query.toString() : "null") +
-				" results=" + (results != null ? results.size() : "null") + " bb=" + (bb != null ? "valid" : "null") +
-				" ctx=" + (ctx != null ? ctx.toString() : "null"));}
-			//Filter out null comparisons before calculating maxHits
-			if(verbose2){System.err.println("DEBUG: formatResults() filtering null comparisons from results.size=" + results.size());}
-			ArrayList<Comparison> validResults = new ArrayList<>();
-			for(Comparison comp : results) {
-				if(comp != null && comp.ref != null) {
-					validResults.add(comp);
-				}
-			}
-			if(verbose2){System.err.println("DEBUG: formatResults() after filtering: validResults.size=" + validResults.size());}
-
-			//Limit results to requested hits
-			if(verbose2){System.err.println("DEBUG: formatResults() calculating maxHits - ctx.hits=" + ctx.hits + " validResults.size=" + validResults.size());}
-			int maxHits=Math.min(ctx.hits, validResults.size());
-			if(verbose2){System.err.println("DEBUG: formatResults() maxHits=" + maxHits);}
-
-			if(verbose2){System.err.println("DEBUG: formatResults() checking format - ctx.format=" + ctx.format + " MACHINE=" + CladeSearcher.MACHINE);}
-			if(ctx.format==CladeSearcher.MACHINE){
-				if(verbose2){System.err.println("DEBUG: formatResults() using MACHINE format - entering loop with maxHits=" + maxHits);}
-				//One-line format with #Query markers
-				bb.append("#Query").append(queryNumber).append('\n');
-				for(int i=0; i<maxHits; i++){
-					Comparison comp=validResults.get(i);
-					// No need for null checks since validResults only contains valid comparisons
-					Clade ref=comp.ref;
-
-					bb.append(query.name).tab();
-					bb.append(String.format("%.3f", query.gc)).tab();
-					bb.append(query.bases).tab();
-					bb.append(query.contigs).tab();
-					bb.append(ref.name != null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();
-					bb.append(ref.taxID).tab();
-					bb.append(String.format("%.3f", ref.gc)).tab();
-					bb.append(ref.bases).tab();
-					bb.append(ref.contigs).tab();
-					bb.append(ref.level).tab();
-					bb.append(String.format("%.3f", comp.gcdif)).tab();
-					bb.append(String.format("%.3f", comp.strdif)).tab();
-					bb.append(String.format("%.3f", comp.k3dif)).tab();
-					bb.append(String.format("%.3f", comp.k4dif)).tab();
-					bb.append(String.format("%.3f", comp.k5dif)).tab();
-					bb.append(ref.lineage()).nl();
-				}
-			}else{
-				if(verbose2){System.err.println("DEBUG: formatResults() using HUMAN format - entering human-readable section");}
-				//Human-readable format
-				bb.append("Query: ").append(query.name).nl();
-				bb.append("GC: ").append(String.format("%.3f", query.gc)).nl();
-				bb.append("Bases: ").append(query.bases).nl();
-				bb.append("Contigs: ").append(query.contigs).nl();
-				bb.nl();
-
-				if(verbose2){System.err.println("DEBUG: formatResults() human format starting loop with maxHits=" + maxHits);}
-				for(int i=0; i<maxHits; i++){
-					if(verbose2){System.err.println("DEBUG: formatResults() human format processing hit " + i + "/" + maxHits);}
-					Comparison comp=validResults.get(i);
-					// No need for null checks since validResults only contains valid comparisons
-					Clade ref=comp.ref;
-					if(ref.name == null) {
-						System.err.println("NOTICE: ref.name is null for index " + i + " taxID=" + ref.taxID + " - using fallback");
-					}
-					if(verbose2){System.err.println("DEBUG: formatResults() human format hit " + i + " validated - formatting output");}
-
-					bb.append("Hit ").append(i+1).append(":\n");
-					bb.append("  Name: ").append(ref.name != null ? ref.name : "Unknown_TaxID_" + ref.taxID).nl();
-					bb.append("  TaxID: ").append(ref.taxID).nl();
-					bb.append("  Level: ").append(ref.level).nl();
-					bb.append("  k5dif: ").append(String.format("%.3f", comp.k5dif)).nl();
-					bb.append("  Lineage: ").append(ref.lineage()).nl();
-					bb.nl();
-				}
-			}
-			if(verbose2){System.err.println("DEBUG: formatResults() COMPLETED SUCCESSFULLY");}
-		}
-
-		/** HTTP exchange */
-		private final HttpExchange t;
-
-		/** Request start time */
-		private final long startTime;
-
-		/** Connection-specific context containing all parameters */
-		private final CladeContext context;
-	}
-
 }

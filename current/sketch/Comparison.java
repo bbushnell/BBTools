@@ -701,7 +701,7 @@ public final class Comparison extends SketchObject implements Comparable<Compari
 	
 	/*--------------------------------------------------------------*/
 	
-	int hits(){return hits;}
+	public int hits(){return hits;}
 	int multiHits(){return multiHits;}
 	int noHits(){return noHits;}
 	int unique2(){return unique2;}

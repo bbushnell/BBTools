@@ -78,7 +78,7 @@ public class CompareBuffer extends SketchObject{
 	
 	/*--------------------------------------------------------------*/
 	
-	final float wkid(){
+	public final float wkid(){
 		final int div=minDivisor();
 		return hits/(float)div;
 	}
@@ -91,7 +91,7 @@ public class CompareBuffer extends SketchObject{
 		final float ani=wkidToAni(wkid);
 		return ani;
 	}
-	final float ani(){
+	public final float ani(){
 		final float ani;
 		if(k2>0 && useToValue2){
 			float ani1=ani1();
@@ -158,7 +158,7 @@ public class CompareBuffer extends SketchObject{
 	
 	/*--------------------------------------------------------------*/
 	
-	int hits(){return hits;}
+	public int hits(){return hits;}
 	int multiHits(){return multiHits;}
 	int noHits(){return noHits;}
 	int unique2(){return unique2;}

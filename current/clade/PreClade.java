@@ -1,7 +1,5 @@
 package clade;
 
-import bin.SimilarityMeasures;
-
 /**
  * Represents PreClade v2.0 format data and converts it to proper Clade objects.
  * PreClade format contains raw k-mer counts from k=1 through k=5 that need

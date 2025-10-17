@@ -453,11 +453,11 @@ public class BinObject {
 	static boolean verbose;
 	static boolean printStepwiseCC=false;
 	
-	static float sketchDensity=1/100f;
+	public static float sketchDensity=1/100f;
 	static boolean sketchContigs=false;
 	static boolean sketchClusters=false;
 	static boolean sketchOutput=false;
-	static boolean sketchInBulk=true;
+	public static boolean sketchInBulk=true;
 	static int sketchSize=20000;
 	
 	static boolean validation=false;

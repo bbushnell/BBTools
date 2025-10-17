@@ -1168,7 +1168,7 @@ public class SketchObject {
 	public static boolean AUTOSIZE_LINEAR=false;
 	public static double AUTOSIZE_LINEAR_DENSITY=0.001;
 	public static float maxGenomeFraction=0.04f;//Was 0.015, but that is often too sparse
-	public static float maxGenomeFractionSmall=0.10f;
+	public static float maxGenomeFractionSmall=0.125f;
 	public static int smallSketchSize=150;
 	public static boolean makeIndex=true;
 	public static float prealloc=0;
