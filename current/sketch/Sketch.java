@@ -148,7 +148,7 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		meta=list;
 	}
 	
-	private static String fix(String s){
+	public static String fix(String s){
 		if(s==null){return null;}
 		return s.replace('\t', ' ');
 	}
@@ -1128,6 +1128,16 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return (r16S!=null && b.r16S!=null) || (r18S!=null && b.r18S!=null);
 	}
 	
+	public void set16S(byte[] seq) {
+		assert(r16S==null || r16S.length<seq.length) : this+"\n"+new String(seq);
+		r16S=seq;
+	}
+	
+	public void set18S(byte[] seq) {
+		assert(r18S==null || r18S.length<seq.length) : this+"\n"+new String(seq);
+		r18S=seq;
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1148,8 +1158,8 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	public final long genomeSizeKmers;
 	public final float probCorrect;
 //	public final int k1Count; //Number of keys made from k1 rather than k2
-	private String taxName;
-	private String name0;
+	public String taxName;
+	public String name0;
 	private String fname;
 	ArrayList<String> meta;
 	

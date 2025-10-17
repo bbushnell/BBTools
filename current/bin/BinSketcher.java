@@ -44,7 +44,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 			SketchObject.AUTOSIZE_LINEAR=true;
 			SketchObject.AUTOSIZE=false;
 			SketchObject.SET_AUTOSIZE=true;
-			SketchObject.minSketchSize=5;
+			SketchObject.minSketchSize=3;
 			
 //			SketchObject.AUTOSIZE=false;
 //			SketchObject.defaultParams.minKeyOccuranceCount=2;
@@ -68,7 +68,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		sketch(input, force);
 //	}
 	
-	void sketch(ArrayList<? extends Sketchable> input, boolean force) {
+	public void sketch(ArrayList<? extends Sketchable> input, boolean force) {
 		ArrayList<Sketchable> updateList=new ArrayList<Sketchable>();
 		float mult=(force ? 1 : 2);
 		for(Sketchable s : input) {
@@ -178,12 +178,13 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 				synchronized(c) {
 					assert(c.id()==i);
 					Sketch sketch=c.toSketch(smm, dummy);
+					if(send) {
+						String results=SendSketch.sendSketch(sketch, "refseq", params, 0);
+						if(results==null) {continue;}
 
-					String results=SendSketch.sendSketch(sketch, "refseq", params, 0);
-					if(results==null) {continue;}
-
-					JsonObject all=jp.parseJsonObject(results);
-					c.setFrom(all);
+						JsonObject all=jp.parseJsonObject(results);
+						c.setFrom(all);
+					}
 					assert(c.sketchedSize()==c.size());
 				}
 			}
@@ -208,6 +209,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 				}
 			}
 //			t.stopAndStart("Thread "+tid+" sketch time: ");
+			if(!send) {return;}
 			ArrayList<JsonObject> results=SendSketch.sendSketches(sketches, "refseq", params);
 			assert(results.size() == sketches.size()) : results.size()+", "+sketches.size();
 			for(int i=from, j=0; i<contigs.size() && i<to; i+=threads, j++) {
@@ -290,5 +292,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	public static boolean verbose=false;
 	/** True if an error was encountered */
 	public boolean errorState=false;
+	
+	public static boolean send=true;
 	
 }

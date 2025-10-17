@@ -128,13 +128,15 @@ public class SendClade extends CladeObject {
 			}else if(a.equals("percontig") || a.equals("persequence")){
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equals("mode")){
-				if("perseq".equals(b) || "persequence".equals(b) || "percontig".equals(b)){
+				if("perseq".equals(b) || "persequence".equals(b) || "percontig".equals(b) || "sequence".equals(b)){
 					perContig=true;
 				}else{
 					perContig=false;
 				}
 			}else if(a.equals("oneline") || a.equals("machine")){
 				oneline=Parse.parseBoolean(b);
+			}else if(a.equals("format")){
+				oneline="oneline".equals(b) || "machine".equals(b);
 			}else if(a.equals("hits")){
 				hits=Integer.parseInt(b);
 				assert(hits > 0) : "Hits must be positive: " + hits;
