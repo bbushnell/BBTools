@@ -50,6 +50,8 @@ steps=6         Only search up to this many GC intervals (of 0.01) away from
 oneline         Print results one line per query, tab-delimited.
 callssu=f       Call 16S and 18S for alignment to reference SSU.
                 This will affect the top hit ordering only if hits>1.
+server=f        Send spectra to server instead of using a local reference.
+                Enabled automatically if there is no local reference.
 
 Advanced Parameters (mainly for benchmarking):
 printmetrics    Output accuracy statistics; mainly useful for labeled data.

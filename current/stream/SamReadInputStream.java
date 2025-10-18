@@ -197,7 +197,7 @@ public class SamReadInputStream extends ReadInputStream {
 		SamReadInputStream.class.notifyAll();
 	}
 	
-	static byte[] trimHeaderSQ(byte[] line){
+	public static byte[] trimHeaderSQ(byte[] line){
 		if(line==null || !Tools.startsWith(line, "@SQ")){return line;}
 		
 		final int idx=Tools.indexOfDelimited(line, "SN:", 2, (byte)'\t');
