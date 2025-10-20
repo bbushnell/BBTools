@@ -34,6 +34,20 @@ public class BamWriterHelper {
 	}
 
 	/**
+	 * Write a 64-bit unsigned integer in little-endian format.
+	 */
+	public void writeUint64(long val) throws IOException {
+		out.write((int)(val & 0xFF));
+		out.write((int)((val >> 8) & 0xFF));
+		out.write((int)((val >> 16) & 0xFF));
+		out.write((int)((val >> 24) & 0xFF));
+		out.write((int)((val >> 32) & 0xFF));
+		out.write((int)((val >> 40) & 0xFF));
+		out.write((int)((val >> 48) & 0xFF));
+		out.write((int)((val >> 56) & 0xFF));
+	}
+
+	/**
 	 * Write a 16-bit signed integer in little-endian format.
 	 */
 	public void writeInt16(int val) throws IOException {

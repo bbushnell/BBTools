@@ -12,6 +12,8 @@ import shared.KillSwitch;
 import stream.bam.BamReader;
 import stream.bam.BamToSamConverter;
 import stream.bam.BgzfInputStream;
+import stream.bam.BgzfInputStreamMT;
+import stream.bam.BgzfSettings;
 import structures.ListNum;
 
 /**
@@ -143,7 +145,13 @@ public class BamLineStreamer extends SamStreamer {
 		void processBamBytes() {
 			try {
 				FileInputStream fis = new FileInputStream(fname);
-				BgzfInputStream bgzf = new BgzfInputStream(fis);
+				java.io.InputStream bgzf;
+				if (BgzfSettings.USE_MULTITHREADED_BGZF) {
+					int threads = Math.max(1, BgzfSettings.READ_THREADS);
+					bgzf = new BgzfInputStreamMT(fis, threads);
+				} else {
+					bgzf = new BgzfInputStream(fis);
+				}
 				BamReader reader = new BamReader(bgzf);
 
 				// Read BAM magic

@@ -24,6 +24,14 @@ public class BgzfInputStream extends InputStream {
 		this.inflater = new Inflater(true); // true = nowrap mode for raw deflate
 	}
 
+	/**
+	 * Return the current BGZF virtual offset.
+	 * Upper 48 bits represent the compressed block offset; lower 16 bits represent the in-block position.
+	 */
+	public long getVirtualOffset() {
+		return (blockCompressedStart << 16) | (bufferPos & 0xFFFFL);
+	}
+
 	@Override
 	public int read() throws IOException {
 		if (bufferPos >= bufferLimit) {
@@ -70,6 +78,7 @@ public class BgzfInputStream extends InputStream {
 	private boolean readBlock() throws IOException {
 		// Read gzip header (minimum 10 bytes)
 		byte[] header = new byte[12];
+		long blockStart = filePointer;
 		int bytesRead = readFully(header, 0, 10);
 		if (bytesRead == 0) {
 			return false; // EOF
@@ -77,6 +86,7 @@ public class BgzfInputStream extends InputStream {
 		if (bytesRead < 10) {
 			throw new EOFException("Truncated BGZF block header");
 		}
+		blockCompressedStart = blockStart;
 
 		// Verify gzip signature
 		if ((header[0] & 0xFF) != 31 || (header[1] & 0xFF) != 139) {
@@ -204,6 +214,7 @@ public class BgzfInputStream extends InputStream {
 			if (n < 0) {
 				return total;
 			}
+			filePointer += n;
 			total += n;
 		}
 		return total;
@@ -220,4 +231,6 @@ public class BgzfInputStream extends InputStream {
 	private final byte[] uncompressedBuffer = new byte[65536];
 	private int bufferPos = 0;
 	private int bufferLimit = 0;
+	private long filePointer = 0L;
+	private long blockCompressedStart = 0L;
 }
