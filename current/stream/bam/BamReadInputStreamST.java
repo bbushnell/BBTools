@@ -5,6 +5,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.io.InputStream;
 
 import fileIO.FileFormat;
 import shared.Shared;
@@ -56,9 +57,14 @@ public class BamReadInputStreamST extends ReadInputStream {
 		header=new ArrayList<byte[]>();
 
 		try {
-			fis=new FileInputStream(fname);
-			bgzf=new BgzfInputStream(fis);
-			reader=new BamReader(bgzf);
+            fis=new FileInputStream(fname);
+			if(BgzfSettings.USE_MULTITHREADED_BGZF) {
+				int threads = Math.max(1, BgzfSettings.READ_THREADS);
+				bgzf=new BgzfInputStreamMT(fis, threads);
+			} else {
+				bgzf=new BgzfInputStream(fis);
+			}
+            reader=new BamReader(bgzf);
 
 			// Read BAM magic
 			byte[] magic=reader.readBytes(4);
@@ -208,8 +214,8 @@ public class BamReadInputStreamST extends ReadInputStream {
 	private ArrayList<byte[]> header=null;
 	private int next=0;
 
-	private final FileInputStream fis;
-	private final BgzfInputStream bgzf;
+    private final FileInputStream fis;
+	private final InputStream bgzf;
 	private final BamReader reader;
 	private final BamToSamConverter converter;
 	private final String[] refNames;

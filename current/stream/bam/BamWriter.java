@@ -2,6 +2,7 @@ package stream.bam;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,10 +20,16 @@ import structures.ListNum;
  */
 public class BamWriter {
 
-	private BgzfOutputStream bgzf;
+	private static final boolean DEBUG = false;
+
+	private final OutputStream bgzf;
+	private final String filename;
+	private final BgzfOutputStream singleThreadedBgzf;
+	private final BgzfOutputStreamMT multiThreadedBgzf;
 	private BamWriterHelper writer;
 	private SamToBamConverter converter;
 	private boolean headerWritten = false;
+	private boolean closed = false;
 	private String[] refNames;
 	private int[] refLengths;
 
@@ -30,8 +37,19 @@ public class BamWriter {
 	 * Create a BAM writer for the specified file.
 	 */
 	public BamWriter(String filename) throws IOException {
+		this.filename = filename;
 		FileOutputStream fos = new FileOutputStream(filename);
-		bgzf = new BgzfOutputStream(fos);
+		if (BgzfSettings.USE_MULTITHREADED_BGZF) {
+			int threads = Math.max(1, BgzfSettings.WRITE_THREADS);
+			int blockSize = Math.max(1, BgzfSettings.WRITE_BLOCK_SIZE);
+			multiThreadedBgzf = new BgzfOutputStreamMT(fos, threads, BgzfSettings.WRITE_COMPRESSION_LEVEL, blockSize);
+			singleThreadedBgzf = null;
+			bgzf = multiThreadedBgzf;
+		} else {
+			singleThreadedBgzf = new BgzfOutputStream(fos, BgzfSettings.WRITE_COMPRESSION_LEVEL);
+			multiThreadedBgzf = null;
+			bgzf = singleThreadedBgzf;
+		}
 		writer = new BamWriterHelper(bgzf);
 	}
 
@@ -89,7 +107,7 @@ public class BamWriter {
 
 		// Write header text section
 		byte[] textBytes = textBuilder.toString().getBytes("US-ASCII");
-		if (System.getProperty("bam.debug") != null) {
+		if (DEBUG) {
 			System.err.println("Header: textBytes.length=" + textBytes.length + ", n_ref=" + refNames.length);
 		}
 		writer.writeUint32(textBytes.length);
@@ -121,6 +139,9 @@ public class BamWriter {
 		if (!headerWritten) {
 			throw new RuntimeException("Must write header first");
 		}
+		if (closed) {
+			throw new IOException("BamWriter already closed");
+		}
 
 		for (SamLine sl : alignments) {
 			byte[] bamRecord = converter.convertAlignment(sl);
@@ -134,9 +155,40 @@ public class BamWriter {
 	 * Close the BAM file, writing the EOF marker.
 	 */
 	public void close() throws IOException {
-		bgzf.flush();
-		bgzf.writeEOF();
-		bgzf.close();
+		if (closed) {
+			return;
+		}
+		if (multiThreadedBgzf != null) {
+			multiThreadedBgzf.close();
+		} else if (singleThreadedBgzf != null) {
+			singleThreadedBgzf.flush();
+			singleThreadedBgzf.writeEOF();
+			singleThreadedBgzf.close();
+		}
+		closed = true;
+	}
+
+	/**
+	 * Generate a BAI index for the written BAM file, using default filename.
+	 * Close the writer first to ensure all data is flushed.
+	 */
+	public void writeIndex() throws IOException {
+		writeIndex(null);
+	}
+
+	/**
+	 * Generate a BAI index for the written BAM file.
+	 * @param baiPath Optional explicit index path; defaults to <bam>.bai
+	 */
+	public void writeIndex(String baiPath) throws IOException {
+		if (!closed) {
+			throw new IOException("Close BamWriter before writing index");
+		}
+		if (filename == null) {
+			throw new IOException("BamWriter cannot create index without backing filename");
+		}
+		String target = (baiPath != null && !baiPath.isEmpty()) ? baiPath : filename + ".bai";
+		BamIndexWriter.writeIndex(filename, target);
 	}
 
 	/**

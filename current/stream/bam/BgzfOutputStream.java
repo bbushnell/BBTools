@@ -15,6 +15,8 @@ import java.util.zip.Deflater;
  */
 public class BgzfOutputStream extends OutputStream {
 
+	private static final boolean DEBUG = false;
+
 	public BgzfOutputStream(OutputStream out) {
 		this(out, 6); // Default compression level 6
 	}
@@ -117,7 +119,7 @@ public class BgzfOutputStream extends OutputStream {
 		int uncompressedSize = bufferPos;
 		writeInt32(uncompressedSize);
 
-		if (System.getProperty("bgzf.debug") != null) {
+		if (DEBUG) {
 			System.err.println("BGZF block: uncompressed=" + uncompressedSize + ", compressed=" + compressedSize + ", bsize=" + bsize);
 		}
 
