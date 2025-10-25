@@ -39,7 +39,7 @@ public final class ByteFile1 extends ByteFile {
 		}
 		if(args.length>3){
 			if(args[3].equalsIgnoreCase("native")){
-				ReadWrite.USE_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
+				ReadWrite.ALLOW_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
 			}
 		}
 		ByteFile1 tf=new ByteFile1(args.length>0 ? args[0] : "stdin", true);

@@ -421,7 +421,7 @@ public class ReadWrite {
 	public static OutputStream getBamOutputStream(String fname, boolean append) {
 		int zl=Tools.min(ZIPLEVEL, 6);
 		int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
-		if(USE_NATIVE_BAM_OUT) {
+		if(nativeBamOut()) {
 			try{
 				return new BamOutputStream(fname, zl, threads);
 			}catch(IOException e){
@@ -559,7 +559,7 @@ public class ReadWrite {
 	
 	public static OutputStream getGZipOutputStream(String fname, boolean append, boolean allowSubprocess){
 		if(verbose){System.err.println("getGZipOutputStream("+fname+", "+append+", "+allowSubprocess+"); "+FORCE_BGZIP+", "+USE_BGZIP+", "+Data.BGZIP()+", "+USE_PIGZ+", "+USE_GZIP+", "+RAWMODE);}
-		final boolean bgzip=(USE_BGZIP && (USE_NATIVE_BGZF || Data.BGZIP()));
+		final boolean bgzip=(USE_BGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP()));
 		if(bgzip && (FORCE_BGZIP || (PREFER_BGZIP && ZIPLEVEL<10))){return getBgzipStream(fname, append);}
 		if(FORCE_PIGZ || (allowSubprocess && Shared.threads()>=2)){
 			if((fname.endsWith(".vcf.gz") || fname.endsWith(".sam.gz") || (PREFER_BGZIP && ZIPLEVEL<10)) && bgzip){return getBgzipStream(fname, append);}
@@ -647,7 +647,7 @@ public class ReadWrite {
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
 		
-		if(USE_NATIVE_BGZF && (ZIPLEVEL<5 || PREFER_NATIVE_BGZF_OUT || !Data.BGZIP())) {
+		if(nativeBgzfOut()) {
 			if(ALLOW_ZIPLEVEL_CHANGE){
 				if(zl>5) {zl=5;}
 				else if(zl<4 && zl>0 && threads>=16) {zl=4;}
@@ -950,7 +950,7 @@ public class ReadWrite {
 	}
 	
 	public static InputStream getBamInputStream(String fname, boolean ordered) {
-		if(USE_NATIVE_BAM_IN) {
+		if(nativeBamIn()) {
 			return new BamInputStream(fname, ordered);
 		}else if(SAMBAMBA()){
 			String command="sambamba -q view -h";
@@ -1119,7 +1119,7 @@ public class ReadWrite {
 				if(verbose){
 					System.err.println("Fetching gzip input stream: "+fname+", allowSubprocess="+allowSubprocess+", USE_UNPIGZ="+USE_UNPIGZ+", Data.PIGZ()="+Data.PIGZ());
 				}
-				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (USE_NATIVE_BGZF || Data.BGZIP())){
+				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())){
 					if(!fname.contains("stdin") && new File(fname).exists()){
 						int magicNumber=getMagicNumber(fname);
 						if(magicNumber==529205252){return getUnbgzipStream(fname);}
@@ -1162,7 +1162,7 @@ public class ReadWrite {
 	public static InputStream getUnbgzipStream(String fname){
 		if(verbose){System.err.println("getUnbgzipStream("+fname+")");}
 		int threads=Tools.mid(4, 1, Shared.threads());
-		if(USE_NATIVE_BGZF && (PREFER_NATIVE_BGZF_OUT || !Data.BGZIP())) {
+		if(nativeBgzfIn()) {
 //			System.err.println("Native BGZF");
 			InputStream raw=getRawInputStream(fname, true);
 			InputStream in;
@@ -1976,6 +1976,22 @@ public class ReadWrite {
 		return x;
 	}
 	
+	public static boolean nativeBamIn() {
+		return ALLOW_NATIVE_BAM_IN && (PREFER_NATIVE_BAM_IN || (!Data.SAMBAMBA() && !Data.SAMTOOLS()));
+	}
+	
+	public static boolean nativeBamOut() {
+		return ALLOW_NATIVE_BAM_OUT && (PREFER_NATIVE_BAM_OUT || (!Data.SAMBAMBA() && !Data.SAMTOOLS()));
+	}
+	
+	public static boolean nativeBgzfIn() {
+		return ALLOW_NATIVE_BGZF && (PREFER_NATIVE_BGZF_IN || !Data.BGZIP());
+	}
+	
+	public static boolean nativeBgzfOut() {
+		return ALLOW_NATIVE_BGZF && ((PREFER_NATIVE_BGZF_OUT && ZIPLEVEL<=5) || !Data.BGZIP());
+	}
+	
 	/** {active, waiting, running} <br>
 	 * Active means running or waiting.
 	 */
@@ -1996,13 +2012,13 @@ public class ReadWrite {
 	public static boolean USE_UNBGZIP=true;
 	public static boolean USE_UNPIGZ=true;
 	
-	public static boolean USE_NATIVE_BGZF=true;
+	public static boolean ALLOW_NATIVE_BGZF=true;
 	public static boolean PREFER_NATIVE_BGZF_IN=false;
 	public static boolean PREFER_NATIVE_BGZF_OUT=false;
-	
+
 	public static boolean USE_READ_STREAM_BAM_WRITER=true;
-	public static boolean USE_NATIVE_BAM_IN=true;
-	public static boolean USE_NATIVE_BAM_OUT=true;
+	public static boolean ALLOW_NATIVE_BAM_IN=true;
+	public static boolean ALLOW_NATIVE_BAM_OUT=true;
 	public static boolean PREFER_NATIVE_BAM_IN=true;
 	public static boolean PREFER_NATIVE_BAM_OUT=false;
 	
