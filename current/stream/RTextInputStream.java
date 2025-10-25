@@ -71,12 +71,6 @@ public class RTextInputStream extends ReadInputStream {
 		tf.close();
 		return "#INTERLEAVED".equals(s);
 	}
-
-	@Override
-	public void start() {
-		assert(false); //Not fully implemented everywhere...
-		if(cris!=null){cris.start();}
-	}
 	
 //	@Override
 //	public synchronized Read[] nextBlock(){
@@ -252,29 +246,6 @@ public class RTextInputStream extends ReadInputStream {
 		if(buffer!=null && next<buffer.size()){return true;}
 		return !finished;
 	}
-	
-	
-	@Override
-	/** ONLY CALL FROM A SINGLE THREAD! */
-	public Read next() {
-		if(buffer==null || next>=buffer.size()){
-			buffer=null;
-			next=0;
-			if(!finished){
-				buffer=nextList();
-			}
-		}
-		
-		if(buffer==null || next>=buffer.size()){
-			assert(finished);
-			return null;
-		}
-		Read r=buffer.get(next);
-		buffer.set(next, null);
-		next++;
-		return r;
-	}
-	
 	
 	@Override
 	public synchronized void restart() {

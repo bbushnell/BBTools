@@ -240,9 +240,11 @@ public class AddAdapters {
 		ArrayList<byte[]> list=new ArrayList<byte[]>();
 		if(ffa!=null){
 			FastaReadInputStream fris=new FastaReadInputStream(ffa, false, false, -1);
-			for(Read r=fris.next(); r!=null; r=fris.next()){
-				if(r.bases!=null){
-					list.add(r.bases);
+			for(ArrayList<Read> reads=fris.nextList(); reads!=null; reads=fris.nextList()){
+				for(Read r : reads) {
+					if(r.bases!=null){
+						list.add(r.bases);
+					}
 				}
 			}
 			fris.close();

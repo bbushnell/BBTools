@@ -117,6 +117,10 @@ public class JobQueue<K extends HasID>{
 		}
 		return job;
 	}
+	
+	public boolean hasMore(){
+		synchronized(heap){return !lastSeen;}
+	}
 
 	/** Comparator for sorting jobs */
 	private static class HasIDComparator<K extends HasID> implements Comparator<K> {

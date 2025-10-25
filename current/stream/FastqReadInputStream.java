@@ -14,7 +14,7 @@ public class FastqReadInputStream extends ReadInputStream {
 		
 		FastqReadInputStream fris=new FastqReadInputStream(args[0], true);
 		
-		Read r=fris.next();
+		Read r=fris.nextList().get(0);
 		System.out.println(r.toText(false));
 		
 	}
@@ -62,11 +62,6 @@ public class FastqReadInputStream extends ReadInputStream {
 		tf=ByteFile.makeByteFile(ff);
 //		assert(false) : interleaved;
 	}
-
-	@Override
-	public void start() {
-//		if(cris!=null){cris.start();}
-	}
 	
 	
 	@Override
@@ -79,15 +74,6 @@ public class FastqReadInputStream extends ReadInputStream {
 			}
 		}
 		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){return null;}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 	
 	@Override

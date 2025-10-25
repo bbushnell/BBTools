@@ -51,12 +51,8 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	public void run() {
 //		producer.start();
 		threads=new Thread[] {Thread.currentThread()};
-
-		if(producer.preferLists()){
-			readLists();
-		}else{
-			readSingles();
-		}
+		
+		readLists();
 		
 		addPoison();
 		
@@ -90,34 +86,6 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 			if(list!=null){depot.full.add(list);}
 		}
 		//System.err.println("Added poison.");
-	}
-	
-	private final void readSingles(){
-		
-		long bases=0;
-		while(!shutdown && producer.hasMore() && generated<maxReads && bases<MAX_DATA){
-			ArrayList<Read> list=null;
-			while(list==null){
-				try {
-					list=depot.empty.take();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-					if(shutdown){break;}
-				}
-			}
-			if(shutdown || list==null){break;}
-			
-			for(int i=0; i<depot.bufferSize && generated<maxReads && bases<MAX_DATA; i++){
-				Read r=producer.next();
-				if(r==null){break;}
-				list.add(r);
-				bases+=r.length();
-				bases+=(r.mate==null || r.mate.bases==null ? 0 : r.mateLength());
-				generated++;
-			}
-			depot.full.add(list);
-		}
 	}
 	
 	private final void readLists(){

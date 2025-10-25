@@ -3,6 +3,7 @@ package stream;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
+import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.ListNum;
@@ -23,34 +24,37 @@ import structures.ListNum;
 public class SamReadInputStream extends ReadInputStream {
 	
 	public static void main(String[] args){
-		SamReadInputStream sris=new SamReadInputStream(args[0], false, false, true, 
-			SamStreamer.DEFAULT_THREADS);
+		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, 
+			SamStreamer.DEFAULT_THREADS, -1);
 		
-		Read r=sris.next();
-		System.out.println(r.toText(false));
-		System.out.println();
-		System.out.println(r.obj.toString());
-		System.out.println();
+		Timer t=new Timer();
+		long reads=0, bases=0;
+		for(ArrayList<Read> ln=sris.nextList(); ln!=null; ln=sris.nextList()) {
+			for(Read r : ln) {bases+=r.pairLength();}
+			reads+=ln.size();
+		}
+		t.stop();
+		System.err.println();
+		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
 	
 	/** Constructor with default thread count. */
-	public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, 
+	public SamReadInputStream(String fname, boolean loadHeader_, 
 			boolean allowSubprocess_, long maxReads_){
-		this(fname, loadHeader_, interleaved_, allowSubprocess_, SamStreamer.DEFAULT_THREADS, maxReads_);
+		this(fname, loadHeader_, allowSubprocess_, SamStreamer.DEFAULT_THREADS, maxReads_);
 	}
 	
 	/** Constructor with explicit thread count. */
-	public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, 
+	public SamReadInputStream(String fname, boolean loadHeader_, 
 			boolean allowSubprocess_, int threads_, long maxReads_){
 		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false), 
-			loadHeader_, interleaved_, threads_, maxReads_);
+			loadHeader_, threads_, maxReads_);
 	}
 	
 	/** Main constructor - creates and starts SamStreamer. */
-	public SamReadInputStream(FileFormat ff, boolean loadHeader_, boolean interleaved_, 
+	public SamReadInputStream(FileFormat ff, boolean loadHeader_, 
 			int threads_, long maxReads_){
 		loadHeader=loadHeader_;
-		interleaved=interleaved_;
 		stdin=ff.stdio();
 		
 		if(!ff.samOrBam()){
@@ -69,66 +73,16 @@ public class SamReadInputStream extends ReadInputStream {
 		}
 		streamer.start();
 	}
-
-	@Override
-	public void start(){
-//		streamer.start(); //Start streamer threads
-	}
 	
 	@Override
 	public boolean hasMore(){
-		if(buffer==null || next>=buffer.size()){
-			fillBuffer();
-		}
-		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next(){
-		if(!hasMore()){return null;}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
+		return streamer.hasMore();
 	}
 	
 	@Override
-	public synchronized ArrayList<Read> nextList(){
-		if(next!=0){
-			throw new RuntimeException("'next' should not be used when doing blockwise access.");
-		}
-		if(buffer==null || next>=buffer.size()){fillBuffer();}
-		ArrayList<Read> list=buffer;
-		buffer=null;
-		if(list!=null && list.size()==0){list=null;}
-		consumed+=(list==null ? 0 : list.size());
-		return list;
-	}
-	
-	/** Fill buffer from streamer. */
-	private synchronized void fillBuffer(){
-		assert(buffer==null || next>=buffer.size());
-		
-		buffer=null;
-		next=0;
-		
-		//Get next list from streamer
+	public ArrayList<Read> nextList(){
 		ListNum<Read> ln=streamer.nextReads();
-		if(ln==null || ln.list==null){
-			buffer=new ArrayList<Read>(); //Empty buffer signals EOF
-			return;
-		}
-		
-		buffer=ln.list;
-		
-		//Assign numeric IDs if not already set
-		for(Read r : buffer){
-			if(r.numericID<0){
-				r.numericID=nextReadID++;
-			}
-		}
-		
-		generated+=buffer.size();
+		return ln==null || ln.isEmpty() ? null : ln.list;
 	}
 
 	@Override
@@ -200,7 +154,7 @@ public class SamReadInputStream extends ReadInputStream {
 	public String fname(){return streamer.fname;}
 	
 	@Override
-	public boolean paired(){return interleaved;}
+	public boolean paired(){return false;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -208,27 +162,14 @@ public class SamReadInputStream extends ReadInputStream {
 
 	/** Shared header across all SamReadInputStream instances */
 	private static volatile ArrayList<byte[]> SHARED_HEADER;
-
-	/** Current buffer of reads */
-	private ArrayList<Read> buffer=null;
+	
 	/** Header lines from SAM/BAM file */
 	private ArrayList<byte[]> header=null;
-	/** Position in current buffer */
-	private int next=0;
 	
 	/** Underlying multithreaded streamer */
 	private final SamStreamer streamer;
-	/** True if reads are interleaved paired-end */
-	private final boolean interleaved;
 	/** True if header should be loaded and shared */
 	private final boolean loadHeader;
-	
-	/** Total reads generated */
-	public long generated=0;
-	/** Total reads consumed */
-	public long consumed=0;
-	/** Next numeric ID to assign */
-	private long nextReadID=0;
 	
 	/** True if reading from stdin */
 	public final boolean stdin;

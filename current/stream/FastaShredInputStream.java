@@ -27,7 +27,7 @@ public class FastaShredInputStream extends ReadInputStream {
 		Timer t=new Timer();
 		
 		FastaShredInputStream fris=new FastaShredInputStream(args[0], false, false, Shared.bufferData());
-		Read r=fris.next();
+		Read r=fris.nextList().get(0);
 		int i=0;
 		
 		while(r!=null){
@@ -63,9 +63,8 @@ public class FastaShredInputStream extends ReadInputStream {
 		assert(settingsOK());
 	}
 	
-	@Override
 	public Read next() {
-		throw new RuntimeException("Unsupported");
+		return nextList().get(0);
 	}
 	
 	@Override
@@ -125,9 +124,6 @@ public class FastaShredInputStream extends ReadInputStream {
 	
 	@Override
 	public boolean paired() {return false;}
-	
-	@Override
-	public void start() {}
 	
 	private final boolean fillList(){
 //		assert(open);

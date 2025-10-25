@@ -59,7 +59,6 @@ public final class TestBamBgzfRoundTrip {
 
 	private static void copyBam(String input, String output) throws IOException {
 		BamReadInputStreamST reader = new BamReadInputStreamST(input, true, false, true);
-		reader.start();
 
 		List<byte[]> headerCopy = null;
 		ArrayList<byte[]> header = SamReadInputStream.getSharedHeader(true);
@@ -94,7 +93,6 @@ public final class TestBamBgzfRoundTrip {
 	private static String digestForBam(String path) throws IOException, NoSuchAlgorithmException {
 		MessageDigest md = MessageDigest.getInstance("SHA-256");
 		BamReadInputStreamST reader = new BamReadInputStreamST(path, true, false, true);
-		reader.start();
 		ArrayList<Read> reads;
 		while ((reads = reader.nextList()) != null && reads.size() > 0) {
 			for (Read r : reads) {

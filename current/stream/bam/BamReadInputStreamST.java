@@ -27,9 +27,8 @@ public class BamReadInputStreamST extends ReadInputStream {
 
 	public static void main(String[] args){
 		BamReadInputStreamST bris=new BamReadInputStreamST(args[0], false, false, true);
-		bris.start();
 
-		Read r=bris.next();
+		Read r=bris.nextList().get(0);
 		System.out.println(r.toText(false));
 		System.out.println();
 		if(r.samline!=null){
@@ -115,12 +114,6 @@ public class BamReadInputStreamST extends ReadInputStream {
 	}
 
 	@Override
-	public void start() {
-		// No threads to start - everything is synchronous
-	}
-
-
-	@Override
 	public boolean hasMore() {
 		if(buffer==null || next>=buffer.size()){
 			if(!finished){
@@ -130,15 +123,6 @@ public class BamReadInputStreamST extends ReadInputStream {
 			}
 		}
 		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){return null;}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 
 	@Override
