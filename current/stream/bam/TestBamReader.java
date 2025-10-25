@@ -25,7 +25,7 @@ public class TestBamReader {
 		System.err.println("Testing BamLineStreamer on: " + bamFile);
 		System.err.println("Reading up to " + maxReads + " records");
 
-		BamLineStreamer streamer = new BamLineStreamer(bamFile, 2, true, maxReads);
+		BamLineStreamer streamer = new BamLineStreamer(bamFile, 2, true, true, maxReads, false);
 		streamer.start();
 
 		long count = 0;

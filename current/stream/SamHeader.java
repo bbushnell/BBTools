@@ -38,7 +38,7 @@ public class SamHeader {
 		return sb;
 	}
 
-	static ArrayList<String> scaffolds(int minChrom, int maxChrom, boolean sort){
+	static ArrayList<String> scaffolds(int minChrom, int maxChrom, boolean sort, boolean newline){
 		final ArrayList<String> list=new ArrayList<String>(4000);
 		final StringBuilder sb=new StringBuilder(1000);
 		for(int i=minChrom; i<=maxChrom && i<=Data.numChroms; i++){
@@ -56,7 +56,7 @@ public class SamHeader {
 				//				sb.append("\tLN:"+Tools.min(Integer.MAX_VALUE, (Data.scaffoldLengths[i][j]+1000L)));
 				//				sb.append("\tAS:"+((Data.name==null ? "" : Data.name+" ")+"b"+Data.GENOME_BUILD).replace('\t', ' '));
 
-				sb.append('\n');
+				if(newline) {sb.append('\n');}
 				list.add(sb.toString());
 				sb.setLength(0);
 			}
@@ -68,7 +68,7 @@ public class SamHeader {
 	public static StringBuilder header1(int minChrom, int maxChrom){
 		StringBuilder sb=new StringBuilder(20000);
 		if(SamLine.SORT_SCAFFOLDS){
-			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true);
+			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
 			for(int i=0; i<scaffolds.size(); i++){
 				sb.append(scaffolds.get(i));
 				scaffolds.set(i, null);
@@ -101,7 +101,7 @@ public class SamHeader {
 
 	public static void printHeader1(int minChrom, int maxChrom, PrintWriter pw){
 		if(SamLine.SORT_SCAFFOLDS){
-			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true);
+			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
 			for(int i=0; i<scaffolds.size(); i++){
 				pw.print(scaffolds.set(i, null));
 			}
@@ -138,7 +138,7 @@ public class SamHeader {
 
 		if(SamLine.SORT_SCAFFOLDS){
 			if(verbose){System.err.println("Sorting scaffolds");}
-			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true);
+			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
 			for(int i=0; i<scaffolds.size(); i++){
 				String s=scaffolds.set(i, null);
 				bb.append(s);
@@ -194,7 +194,7 @@ public class SamHeader {
 
 	public static void printHeader1(int minChrom, int maxChrom, TextStreamWriter tsw){
 		if(SamLine.SORT_SCAFFOLDS){
-			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true);
+			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
 			for(int i=0; i<scaffolds.size(); i++){
 				tsw.print(scaffolds.set(i, null));
 			}
@@ -353,6 +353,69 @@ public class SamHeader {
 		}
 
 		return sb;
+	}
+	
+
+
+	private static ArrayList<byte[]> header1B(int minChrom, int maxChrom){
+		if(verbose){System.err.println("printHeader1B("+minChrom+", "+maxChrom+")");}
+		
+		if(SamLine.SORT_SCAFFOLDS){
+			if(verbose){System.err.println("Sorting scaffolds");}
+			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, false);
+			ArrayList<byte[]> list=new ArrayList<byte[]>(scaffolds.size());
+			for(int i=0; i<scaffolds.size(); i++){
+				String s=scaffolds.set(i, null);
+				list.add(s.getBytes());
+			}
+			return list;
+		}
+
+		if(verbose){System.err.println("Iterating over chroms");}
+		ByteBuilder bb=new ByteBuilder();
+		ArrayList<byte[]> list=new ArrayList<byte[]>();
+		for(int chrom=minChrom; chrom<=maxChrom && chrom<=Data.numChroms; chrom++){
+			final byte[][] inames=Data.scaffoldNames[chrom];
+			final int numScafs=Data.chromScaffolds[chrom];
+			assert(inames.length==numScafs) : "Mismatch between number of scaffolds and names for chrom "+chrom+": "+inames.length+" != "+numScafs;
+			for(int scaf=0; scaf<numScafs; scaf++){
+				final byte[] scafName=inames[scaf];
+				bb.clear();
+				bb.append("@SQ\tSN:");//+Data.scaffoldNames[i][j]);
+				if(scafName==null){
+					assert(false) : "scaffoldName["+chrom+"]["+scaf+"] = null";
+					bb.append(scafName); //Possible bug: appending null byte array may cause issues
+				}else{
+					appendScafName(bb, scafName);
+				}
+				bb.append("\tLN:");
+				bb.append(Tools.min(Integer.MAX_VALUE, (Data.scaffoldLengths[chrom][scaf])));
+				list.add(bb.toBytes());
+			}
+		}
+		return list;
+	}
+	
+	public static ArrayList<byte[]> makeHeaderList(boolean supressHeaderSequences, int MINCHROM, int MAXCHROM) {
+		
+		ArrayList<byte[]> list=new ArrayList<byte[]>(32);
+		
+		ByteBuilder bb=new ByteBuilder(4096);
+		header0B(bb);
+		list.add(bb.toBytes());
+		bb.clear();
+		int a=(MINCHROM==-1 ? 1 : MINCHROM);
+		int b=(MAXCHROM==-1 ? Data.numChroms : MAXCHROM);
+		if(!supressHeaderSequences){
+			for(int chrom=a; chrom<=b; chrom++){
+				ArrayList<byte[]> list2=header1B(chrom, chrom);
+				list.addAll(list2);
+			}
+		}
+		header2B(bb);
+		byte[][] h2b=bb.split('\n');
+		for(byte[] line : h2b) {list.add(line);}
+		return list;
 	}
 	
 	public static String PN="BBMap";

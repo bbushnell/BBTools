@@ -3,8 +3,10 @@ import java.io.InputStream;
 import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 
+import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.bam.BgzfSettings;
 
 
 /**
@@ -18,7 +20,6 @@ public final class ByteFile2 extends ByteFile {
 	
 	
 	public static void main(String[] args){
-		ByteFile2 tf=new ByteFile2(args.length>0 ? args[0] : "stdin", true);
 		long first=0, last=100;
 		boolean speedtest=false;
 		if(args.length>1){
@@ -32,8 +33,18 @@ public final class ByteFile2 extends ByteFile {
 			}
 		}
 		if(args.length>2){
-			last=Integer.parseInt(args[2]);
+			if(args[2].equalsIgnoreCase("simd")){
+				Shared.SIMD=true;
+			}else {
+				last=Integer.parseInt(args[2]);
+			}
 		}
+		if(args.length>3){
+			if(args[3].equalsIgnoreCase("native")){
+				ReadWrite.USE_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
+			}
+		}
+		ByteFile2 tf=new ByteFile2(args.length>0 ? args[0] : "stdin", true);
 		speedtest(tf, first, last, !speedtest);
 		
 		tf.close();

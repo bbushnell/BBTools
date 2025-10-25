@@ -25,7 +25,7 @@ import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadStreamer;
+import stream.SamStreamer;
 import stream.SamStreamer;
 import stream.SamStreamerMF;
 import structures.ListNum;
@@ -594,7 +594,7 @@ public class CallVariants {
 	/**
 	 * Performs prefiltering using single-file processing mode.
 	 * Processes each input file sequentially using multithreaded read processing.
-	 * Creates either SamReadStreamer or ConcurrentReadInputStream based on useStreamer setting,
+	 * Creates either SamStreamer or ConcurrentReadInputStream based on useStreamer setting,
 	 * then spawns worker threads that extract variants and increment counters in the KCountArray7MTA.
 	 * 
 	 * This mode is used for smaller datasets or when memory/threading constraints prevent
@@ -606,15 +606,15 @@ public class CallVariants {
 		// Process each input file individually
 		for(FileFormat ff : ffin){
 
-			/** Optional SamReadStreamer for high throughput */
-			final SamReadStreamer ss;
+			/** Optional SamStreamer for high throughput */
+			final SamStreamer ss;
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
 			
 			// Set up input stream (either streamer or standard concurrent reader)
 			if(useStreamer){
 				cris=null;
-				ss=new SamReadStreamer(ff, streamerThreads, false, maxReads);
+				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
@@ -925,15 +925,15 @@ public class CallVariants {
 	void processInput_SF(FileFormat ff, KCountArray7MTA kca){
 		assert(ff.samOrBam());
 
-		/** Optional SamReadStreamer for high throughput */
-		final SamReadStreamer ss;
+		/** Optional SamStreamer for high throughput */
+		final SamStreamer ss;
 		/** Shared input stream */
 		final ConcurrentReadInputStream cris;
 		
 		// Set up appropriate input stream based on configuration
 		if(useStreamer){
 			cris=null;
-			ss=new SamReadStreamer(ff, streamerThreads, false, maxReads);
+			ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
 			ss.start();
 			if(verbose){outstream.println("Started streamer");}
 		}else{
@@ -998,7 +998,7 @@ public class CallVariants {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final SamReadStreamer ss, final SamStreamerMF ssmf, final KCountArray7MTA kca){
+	private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss, final SamStreamerMF ssmf, final KCountArray7MTA kca){
 		
 		//Do anything necessary prior to processing
 		
@@ -1082,7 +1082,7 @@ public class CallVariants {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final ConcurrentReadInputStream cris_, final SamReadStreamer ss_, final SamStreamerMF ssmf_,
+		ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final SamStreamerMF ssmf_,
 				final int tid_, final KCountArray7MTA kca_, final boolean prefilterOnly_, final CellNet net0_){
 			cris=cris_;
 			ss=ss_;
@@ -1371,8 +1371,8 @@ public class CallVariants {
 		
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Optional SamReadStreamer for high throughput */
-		private final SamReadStreamer ss;
+		/** Optional SamStreamer for high throughput */
+		private final SamStreamer ss;
 		/** Optional SamStreamerMF for very high throughput */
 		private final SamStreamerMF ssmf;
 		/** For realigning reads */

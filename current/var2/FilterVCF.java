@@ -870,7 +870,7 @@ public class FilterVCF {
 	/*--------------------------------------------------------------*/
 
 	/** Poison pill for ending thread processing */
-	static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null, -1);
+	static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null, Long.MAX_VALUE, true, false);
 	/** Output stream for messages */
 	private PrintStream outstream=System.err;
 	/** Verbose output flag */

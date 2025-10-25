@@ -30,7 +30,7 @@ import shared.Tools;
 import shared.TrimRead;
 import stream.Read;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import stream.SamReadInputStream;
 import structures.CoverageArray;
 import structures.ListNum;
@@ -1432,7 +1432,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		private void processViaStreamer(String fname){
 			final boolean processHeader=false;
 //			assert(false) : processHeader+", "+fname;//Should be 
-			SamLineStreamer ss=new SamLineStreamer(fname, streamerThreads, processHeader, maxReads);
+			SamStreamer ss=SamStreamer.makeStreamer(fname, streamerThreads, processHeader, false, maxReads, false);
 			ss.start();
 			ListNum<SamLine> ln=ss.nextLines();
 			

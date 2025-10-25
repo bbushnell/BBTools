@@ -17,7 +17,7 @@ import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadStreamer;
+import stream.SamStreamer;
 import stream.SamStreamer;
 import structures.ListNum;
 import tracker.ReadStats;
@@ -245,12 +245,12 @@ public class FilterSam {
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
 		
-		final SamReadStreamer ss;
+		final SamStreamer ss;
 		//Create a read input stream
 		final ConcurrentReadInputStream cris;
 		if(useStreamer){
 			cris=null;
-			ss=new SamReadStreamer(ffin1, streamerThreads, true, maxReads);
+			ss=SamStreamer.makeStreamer(ffin1, streamerThreads, true, ordered, maxReads, true);
 			ss.start();
 			if(verbose){outstream.println("Started streamer");}
 		}else{

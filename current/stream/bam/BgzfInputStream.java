@@ -8,6 +8,7 @@ import java.nio.ByteOrder;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
+import java.util.zip.GZIPInputStream;
 
 /**
  * Reads BGZF (Blocked GZIP Format) compressed data.
@@ -76,106 +77,114 @@ public class BgzfInputStream extends InputStream {
 	 * @throws IOException on read error or malformed BGZF
 	 */
 	private boolean readBlock() throws IOException {
-		// Read gzip header (minimum 10 bytes)
-		byte[] header = new byte[12];
-		long blockStart = filePointer;
-		int bytesRead = readFully(header, 0, 10);
-		if (bytesRead == 0) {
-			return false; // EOF
+		while (true) {
+			if (plainGzipMode) {
+				if (fillPlainGzipBuffer()) {
+					bufferPos = 0;
+					return true;
+				}
+				exitPlainGzipMode();
+				continue;
+			}
+
+			// Read gzip header (minimum 10 bytes)
+			byte[] header = new byte[10];
+			long blockStart = filePointer;
+			int bytesRead = readFully(header, 0, header.length);
+			if (bytesRead == 0) {
+				return false; // EOF
+			}
+			if (bytesRead < header.length) {
+				throw new EOFException("Truncated BGZF block header");
+			}
+			blockCompressedStart = blockStart;
+
+			// Verify gzip signature
+			if ((header[0] & 0xFF) != 31 || (header[1] & 0xFF) != 139) {
+				throw new IOException("Not a gzip file");
+			}
+
+			// Check compression method (should be 8 = DEFLATE)
+			if (header[2] != 8) {
+				throw new IOException("Unsupported compression method: " + header[2]);
+			}
+
+			// Check flags
+			int flags = header[3] & 0xFF;
+			boolean fextra = (flags & 0x04) != 0;
+
+			if (!fextra) {
+				enterPlainGzip(header, null, null);
+				continue;
+			}
+
+			// Read XLEN (2 bytes, little-endian)
+			byte[] xlenBytes = new byte[2];
+			if (readFully(xlenBytes, 0, 2) < 2) {
+				throw new EOFException("Truncated XLEN");
+			}
+			int xlen = ((xlenBytes[1] & 0xFF) << 8) | (xlenBytes[0] & 0xFF);
+
+			// Read extra field and find BC subfield
+			byte[] extra = new byte[xlen];
+			if (readFully(extra, 0, xlen) < xlen) {
+				throw new EOFException("Truncated extra field");
+			}
+
+			int bsize = findBsizeInExtra(extra, xlen);
+			if (bsize < 0) {
+				enterPlainGzip(header, xlenBytes, extra);
+				continue;
+			}
+
+			// Calculate compressed data length
+			int alreadyRead = 10 + 2 + xlen;
+			int remaining = (bsize + 1) - alreadyRead;
+
+			if (remaining < 8) {
+				throw new IOException("Invalid BSIZE: " + bsize);
+			}
+
+			int compressedSize = remaining - 8; // Subtract CRC32 and ISIZE
+			byte[] compressed = new byte[compressedSize];
+			if (readFully(compressed, 0, compressedSize) < compressedSize) {
+				throw new EOFException("Truncated compressed data");
+			}
+
+			// Read CRC32 and ISIZE (8 bytes total)
+			byte[] trailer = new byte[8];
+			if (readFully(trailer, 0, 8) < 8) {
+				throw new EOFException("Truncated block trailer");
+			}
+
+			ByteBuffer bb = ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
+			long crc32 = bb.getInt() & 0xFFFFFFFFL;
+			int isize = bb.getInt();
+
+			// Decompress
+			inflater.reset();
+			inflater.setInput(compressed);
+
+			try {
+				bufferLimit = inflater.inflate(uncompressedBuffer);
+			} catch (DataFormatException e) {
+				throw new IOException("Decompression failed", e);
+			}
+
+			if (bufferLimit != isize) {
+				throw new IOException("Uncompressed size mismatch: expected " + isize + ", got " + bufferLimit);
+			}
+
+			// Verify CRC32
+			CRC32 crc = new CRC32();
+			crc.update(uncompressedBuffer, 0, bufferLimit);
+			if (crc.getValue() != crc32) {
+				throw new IOException("CRC32 mismatch");
+			}
+
+			bufferPos = 0;
+			return true;
 		}
-		if (bytesRead < 10) {
-			throw new EOFException("Truncated BGZF block header");
-		}
-		blockCompressedStart = blockStart;
-
-		// Verify gzip signature
-		if ((header[0] & 0xFF) != 31 || (header[1] & 0xFF) != 139) {
-			throw new IOException("Not a gzip file");
-		}
-
-		// Check compression method (should be 8 = DEFLATE)
-		if (header[2] != 8) {
-			throw new IOException("Unsupported compression method: " + header[2]);
-		}
-
-		// Check flags
-		int flags = header[3] & 0xFF;
-		boolean fextra = (flags & 0x04) != 0;
-
-		if (!fextra) {
-			throw new IOException("BGZF block missing FEXTRA flag");
-		}
-
-		// Skip MTIME (4 bytes), XFL, OS
-		// Already read, just validate positions
-
-		// Read XLEN (2 bytes, little-endian)
-		if (readFully(header, 0, 2) < 2) {
-			throw new EOFException("Truncated XLEN");
-		}
-		int xlen = ((header[1] & 0xFF) << 8) | (header[0] & 0xFF);
-
-		// Read extra field and find BC subfield
-		byte[] extra = new byte[xlen];
-		if (readFully(extra, 0, xlen) < xlen) {
-			throw new EOFException("Truncated extra field");
-		}
-
-		int bsize = findBsizeInExtra(extra, xlen);
-		if (bsize < 0) {
-			throw new IOException("BGZF block missing BC subfield");
-		}
-
-		// Calculate compressed data length
-		// bsize is total block size - 1
-		// Already read: 10 (header) + 2 (xlen) + xlen (extra)
-		// Still need: compressed_data + 8 (CRC32 + ISIZE)
-		int alreadyRead = 10 + 2 + xlen;
-		int remaining = (bsize + 1) - alreadyRead;
-
-		if (remaining < 8) {
-			throw new IOException("Invalid BSIZE: " + bsize);
-		}
-
-		int compressedSize = remaining - 8; // Subtract CRC32 and ISIZE
-		byte[] compressed = new byte[compressedSize];
-		if (readFully(compressed, 0, compressedSize) < compressedSize) {
-			throw new EOFException("Truncated compressed data");
-		}
-
-		// Read CRC32 and ISIZE (8 bytes total)
-		byte[] trailer = new byte[8];
-		if (readFully(trailer, 0, 8) < 8) {
-			throw new EOFException("Truncated block trailer");
-		}
-
-		ByteBuffer bb = ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
-		long crc32 = bb.getInt() & 0xFFFFFFFFL;
-		int isize = bb.getInt();
-
-		// Decompress
-		inflater.reset();
-		inflater.setInput(compressed);
-
-		try {
-			bufferLimit = inflater.inflate(uncompressedBuffer);
-		} catch (DataFormatException e) {
-			throw new IOException("Decompression failed", e);
-		}
-
-		if (bufferLimit != isize) {
-			throw new IOException("Uncompressed size mismatch: expected " + isize + ", got " + bufferLimit);
-		}
-
-		// Verify CRC32
-		CRC32 crc = new CRC32();
-		crc.update(uncompressedBuffer, 0, bufferLimit);
-		if (crc.getValue() != crc32) {
-			throw new IOException("CRC32 mismatch");
-		}
-
-		bufferPos = 0;
-		return true;
 	}
 
 	/**
@@ -223,7 +232,14 @@ public class BgzfInputStream extends InputStream {
 	@Override
 	public void close() throws IOException {
 		inflater.end();
-		in.close();
+		try {
+			if (plainGzipStream != null) {
+				plainGzipStream.close();
+			}
+		} finally {
+			plainGzipStream = null;
+			in.close();
+		}
 	}
 
 	private final InputStream in;
@@ -233,4 +249,98 @@ public class BgzfInputStream extends InputStream {
 	private int bufferLimit = 0;
 	private long filePointer = 0L;
 	private long blockCompressedStart = 0L;
+	private boolean plainGzipMode = false;
+	private GZIPInputStream plainGzipStream = null;
+
+	private void enterPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra) throws IOException {
+		if (plainGzipMode) {
+			return;
+		}
+		byte[] prefix = buildPrefix(header, xlenBytes, extra);
+		plainGzipStream = new GZIPInputStream(new PrefixedInputStream(prefix, in), uncompressedBuffer.length);
+		plainGzipMode = true;
+		bufferPos = 0;
+		bufferLimit = 0;
+	}
+
+	private boolean fillPlainGzipBuffer() throws IOException {
+		if (plainGzipStream == null) {
+			return false;
+		}
+		int n = 0;
+		while (n == 0) {
+			n = plainGzipStream.read(uncompressedBuffer, 0, uncompressedBuffer.length);
+			if (n < 0) {
+				return false;
+			}
+		}
+		bufferLimit = n;
+		return true;
+	}
+
+	private void exitPlainGzipMode() throws IOException {
+		if (plainGzipStream != null) {
+			plainGzipStream.close();
+		}
+		plainGzipStream = null;
+		plainGzipMode = false;
+	}
+
+	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra) {
+		int prefixLen = header.length;
+		if (xlenBytes != null) {
+			prefixLen += xlenBytes.length;
+		}
+		if (extra != null) {
+			prefixLen += extra.length;
+		}
+
+		byte[] prefix = new byte[prefixLen];
+		int pos = 0;
+		System.arraycopy(header, 0, prefix, pos, header.length);
+		pos += header.length;
+		if (xlenBytes != null) {
+			System.arraycopy(xlenBytes, 0, prefix, pos, xlenBytes.length);
+			pos += xlenBytes.length;
+		}
+		if (extra != null && extra.length > 0) {
+			System.arraycopy(extra, 0, prefix, pos, extra.length);
+		}
+		return prefix;
+	}
+
+	private static final class PrefixedInputStream extends InputStream {
+		private final byte[] prefix;
+		private int position = 0;
+		private final InputStream tail;
+
+		PrefixedInputStream(byte[] prefix, InputStream tail) {
+			this.prefix = prefix;
+			this.tail = tail;
+		}
+
+		@Override
+		public int read() throws IOException {
+			if (position < prefix.length) {
+				return prefix[position++] & 0xFF;
+			}
+			return tail.read();
+		}
+
+		@Override
+		public int read(byte[] b, int off, int len) throws IOException {
+			if (position < prefix.length) {
+				int toCopy = Math.min(len, prefix.length - position);
+				System.arraycopy(prefix, position, b, off, toCopy);
+				position += toCopy;
+				return toCopy;
+			}
+			return tail.read(b, off, len);
+		}
+
+		@Override
+		public void close() {
+			// Do not close the tail stream; caller manages lifecycle.
+		}
+	}
 }

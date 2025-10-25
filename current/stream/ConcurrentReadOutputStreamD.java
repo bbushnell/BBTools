@@ -84,7 +84,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 			}
 			dest.close();
 		}else{
-			unicast(new ListNum<Read>(new ArrayList<Read>(1), -1), 0);
+			unicast(new ListNum<Read>(new ArrayList<Read>(1), Long.MAX_VALUE), 0);
 		}
 	}
 

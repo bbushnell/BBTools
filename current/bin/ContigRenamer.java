@@ -23,7 +23,7 @@ import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import stream.SamReadInputStream;
 import stream.SamStreamer;
 import structures.ByteBuilder;
@@ -340,7 +340,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 	
 	private SamStreamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
-		SamStreamer ss=new SamLineStreamer(ff, streamerThreads, true, maxReads);
+		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, false);
 		ss.start(); //Start the stream
 		if(verbose){outstream.println("Started Streamer");}
 		return ss;

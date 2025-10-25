@@ -6,9 +6,11 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import fileIO.ReadWrite;
+import shared.Shared;
+import shared.Tools;
 import stream.SamLine;
-import stream.SamLineStreamer;
-import stream.SamToBamConverter;
+import stream.SamStreamer;
 import structures.ListNum;
 
 /**
@@ -39,14 +41,35 @@ public class BamWriter {
 	public BamWriter(String filename) throws IOException {
 		this.filename = filename;
 		FileOutputStream fos = new FileOutputStream(filename);
-		if (BgzfSettings.USE_MULTITHREADED_BGZF) {
-			int threads = Math.max(1, BgzfSettings.WRITE_THREADS);
-			int blockSize = Math.max(1, BgzfSettings.WRITE_BLOCK_SIZE);
-			multiThreadedBgzf = new BgzfOutputStreamMT(fos, threads, BgzfSettings.WRITE_COMPRESSION_LEVEL, blockSize);
+		int zl=Tools.min(ReadWrite.ZIPLEVEL, 6);
+		int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
+		int blockSize = Math.max(1, BgzfSettings.WRITE_BLOCK_SIZE);
+		if (BgzfSettings.USE_MULTITHREADED_BGZF && threads>1) {
+			multiThreadedBgzf = new BgzfOutputStreamMT(fos, threads, zl, blockSize);
 			singleThreadedBgzf = null;
 			bgzf = multiThreadedBgzf;
 		} else {
-			singleThreadedBgzf = new BgzfOutputStream(fos, BgzfSettings.WRITE_COMPRESSION_LEVEL);
+			singleThreadedBgzf = new BgzfOutputStream(fos, zl);
+			multiThreadedBgzf = null;
+			bgzf = singleThreadedBgzf;
+		}
+		writer = new BamWriterHelper(bgzf);
+	}
+
+	/**
+	 * Create a BAM writer for the specified file.
+	 */
+	public BamWriter(OutputStream os) throws IOException {
+		this.filename = "os";
+		int zl=Tools.min(ReadWrite.ZIPLEVEL, 6);
+		int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
+		int blockSize = Math.max(1, BgzfSettings.WRITE_BLOCK_SIZE);
+		if (BgzfSettings.USE_MULTITHREADED_BGZF && threads>1) {
+			multiThreadedBgzf = new BgzfOutputStreamMT(os, threads, zl, blockSize);
+			singleThreadedBgzf = null;
+			bgzf = multiThreadedBgzf;
+		} else {
+			singleThreadedBgzf = new BgzfOutputStream(os, zl);
 			multiThreadedBgzf = null;
 			bgzf = singleThreadedBgzf;
 		}
@@ -158,6 +181,7 @@ public class BamWriter {
 		if (closed) {
 			return;
 		}
+//		System.err.println("Called close");
 		if (multiThreadedBgzf != null) {
 			multiThreadedBgzf.close();
 		} else if (singleThreadedBgzf != null) {
@@ -208,8 +232,8 @@ public class BamWriter {
 		System.err.println("  Input:  " + samFile);
 		System.err.println("  Output: " + bamFile);
 
-		// Read SAM with SamLineStreamer
-		SamLineStreamer sls = new SamLineStreamer(samFile, 4, true, -1);
+		// Read SAM with SamStreamer
+		SamStreamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
 		sls.start();
 
 		// Wait for header to be populated

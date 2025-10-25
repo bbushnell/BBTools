@@ -598,7 +598,7 @@ public final class SketchTool extends SketchObject {
 		if(verbose2){System.err.println("Loading sketches from text.");}
 		ArrayList<Sketch> sketches=new ArrayList<Sketch>();
 		
-		InputStream is=ReadWrite.getInputStream(ff.name(), BUFFERED_READER, false);
+		InputStream is=ReadWrite.getInputStream(ff.name(), BUFFERED_READER, false, false);
 		byte[] buffer=new byte[BUFLEN];
 		int start, limit=0;
 		try {

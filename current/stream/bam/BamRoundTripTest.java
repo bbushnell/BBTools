@@ -5,7 +5,6 @@ import java.util.*;
 
 import stream.BamLineStreamer;
 import stream.SamLine;
-import stream.SamToBamConverter;
 
 /**
  * Minimal test case for BAM round-trip bug.
@@ -59,7 +58,7 @@ public class BamRoundTripTest {
 		// Read back with BamLineStreamer
 		System.out.println("Reading back from BAM...");
 		try {
-			BamLineStreamer bls = new BamLineStreamer(bamFile, 1, true, -1);
+			BamLineStreamer bls = new BamLineStreamer(bamFile, 1, true, true, -1, false);
 			bls.start();
 
 			structures.ListNum<SamLine> list = bls.nextLines();

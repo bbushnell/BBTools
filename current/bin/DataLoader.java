@@ -29,7 +29,7 @@ import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import structures.ByteBuilder;
 import structures.FloatList;
 import structures.IntHashMap;
@@ -701,11 +701,11 @@ public class DataLoader extends BinObject {
 	
 	@Deprecated
 	void calcDepthFromSam(FileFormat ff, final int sample, HashMap<String, Contig> contigMap) {
-		SamLineStreamer ss=null;
+		SamStreamer ss=null;
 		outstream.print("Loading sam file: \t");
 		phaseTimer.start();
 		final int streamerThreads=Tools.min(4, Shared.threads());
-		ss=new SamLineStreamer(ff, streamerThreads, false, maxReads);
+		ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, false);
 		ss.start();
 		processSam(ss, sample, contigMap);
 		for(Entry<String, Contig> e : contigMap.entrySet()) {
@@ -718,7 +718,7 @@ public class DataLoader extends BinObject {
 	}
 
 	@Deprecated
-	private void processSam(SamLineStreamer ss, final int sample, HashMap<String, Contig> contigMap) {
+	private void processSam(SamStreamer ss, final int sample, HashMap<String, Contig> contigMap) {
 		ListNum<SamLine> ln=ss.nextLines();
 		ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 

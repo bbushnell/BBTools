@@ -36,6 +36,13 @@ import shared.Tools;
 import stream.ConcurrentReadOutputStream;
 import stream.ConcurrentReadStreamInterface;
 import stream.MultiCros;
+import stream.bam.BamInputStream;
+import stream.bam.BamOutputStream;
+import stream.bam.BgzfInputStream;
+import stream.bam.BgzfInputStreamMT;
+import stream.bam.BgzfOutputStream;
+import stream.bam.BgzfOutputStreamMT;
+import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 
 public class ReadWrite {
@@ -411,6 +418,24 @@ public class ReadWrite {
 		return getRawOutputStream(fname, append, buffered);
 	}
 	
+	public static OutputStream getBamOutputStream(String fname, boolean append) {
+		int zl=Tools.min(ZIPLEVEL, 6);
+		int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
+		if(USE_NATIVE_BAM_OUT) {
+			try{
+				return new BamOutputStream(fname, zl, threads);
+			}catch(IOException e){
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}else if(Data.SAMTOOLS()){
+			return getOutputStreamFromProcess(fname, "samtools view -@ "+threads+" -S -b -h - ", true, append, true, true);
+		}else if(false && Data.SAMBAMBA()){
+			return ReadWrite.getOutputStreamFromProcess(fname, "sambamba view -S -f bam -h ", true, append, true, true); //Sambamba does not support stdin
+		}
+		throw new RuntimeException("No bam output support available");
+	}
+	
 	public static OutputStream getRawOutputStream(String fname, boolean append, boolean buffered){
 		
 		if(verbose){System.err.println("getRawOutputStream("+fname+", "+append+", "+buffered+")");}
@@ -533,11 +558,11 @@ public class ReadWrite {
 	}
 	
 	public static OutputStream getGZipOutputStream(String fname, boolean append, boolean allowSubprocess){
-		if(verbose){System.err.println("getGZipOutputStream("+fname+", "+append+", "+allowSubprocess+"); "+USE_BGZIP+", "+Data.BGZIP()+", "+USE_PIGZ+", "+USE_GZIP+", "+RAWMODE);}
-//		assert(false) : ReadWrite.ZIPLEVEL+", "+Shared.threads()+", "+MAX_ZIP_THREADS+", "+ZIP_THREAD_MULT+", "+allowSubprocess+", "+USE_PIGZ+", "+Data.PIGZ();
-		if(FORCE_BGZIP && USE_BGZIP && Data.BGZIP()){return getBgzipStream(fname, append);}
+		if(verbose){System.err.println("getGZipOutputStream("+fname+", "+append+", "+allowSubprocess+"); "+FORCE_BGZIP+", "+USE_BGZIP+", "+Data.BGZIP()+", "+USE_PIGZ+", "+USE_GZIP+", "+RAWMODE);}
+		final boolean bgzip=(USE_BGZIP && (USE_NATIVE_BGZF || Data.BGZIP()));
+		if(bgzip && (FORCE_BGZIP || (PREFER_BGZIP && ZIPLEVEL<10))){return getBgzipStream(fname, append);}
 		if(FORCE_PIGZ || (allowSubprocess && Shared.threads()>=2)){
-			if((fname.endsWith(".vcf.gz") || fname.endsWith(".sam.gz") || (PREFER_BGZIP && ZIPLEVEL<10)) && USE_BGZIP && Data.BGZIP()){return getBgzipStream(fname, append);}
+			if((fname.endsWith(".vcf.gz") || fname.endsWith(".sam.gz") || (PREFER_BGZIP && ZIPLEVEL<10)) && bgzip){return getBgzipStream(fname, append);}
 			if(USE_PIGZ && Data.PIGZ()){return getPigzStream(fname, append);}
 			if(USE_BGZIP && Data.BGZIP()){return getBgzipStream(fname, append);}
 			if(USE_GZIP && Data.GZIP()/* && (Data.SH() /*|| fname.equals("stdout") || fname.startsWith("stdout."))*/){return getGzipStream(fname, append);}
@@ -619,10 +644,25 @@ public class ReadWrite {
 		if(verbose){System.err.println("getBgzipStream("+fname+")");}
 		
 		int threads=Tools.min(MAX_ZIP_THREADS, Tools.max((int)((Shared.threads()+1)*ZIP_THREAD_MULT), 1));
-//		System.err.println(threads); //123
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
-//		System.err.println(threads); //123
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
+		
+		if(USE_NATIVE_BGZF && (ZIPLEVEL<5 || !Data.BGZIP())) {
+			if(ALLOW_ZIPLEVEL_CHANGE){
+				if(zl>5) {zl=5;}
+				else if(zl<4 && zl>0 && threads>=16) {zl=4;}
+				if(zl<3){threads=Tools.min(threads, 16);}
+				else if(zl<5){threads=Tools.min(threads, 24);}
+				else if(zl<6){threads=Tools.min(threads, 64);}
+			}
+			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
+			if(RAWMODE){return raw;}
+			OutputStream out;
+			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {out=new BgzfOutputStream(raw);}
+			else {out=new BgzfOutputStreamMT(raw, Tools.mid(1, 64, threads), zl);}
+			return out;
+		}
+
 		if(ALLOW_ZIPLEVEL_CHANGE && threads>=4 && zl>0 && zl<4){zl=4;}
 		if(zl<3){threads=Tools.min(threads, 12);}
 		else if(zl<5){threads=Tools.min(threads, 16);}
@@ -874,13 +914,18 @@ public class ReadWrite {
 	}
 	
 	public static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess){
+		return getInputStream(fname, buffer, allowSubprocess, true);
+	}
+	
+	public static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess, 
+			boolean ordered){
 		if(verbose){System.err.println("getInputStream("+fname+", "+buffer+", "+allowSubprocess+")");}
 		boolean xz=fname.endsWith(".xz");
 		boolean gzipped=fname.endsWith(".gz") || fname.endsWith(".gzip");
 		boolean zipped=fname.endsWith(".zip");
 		boolean bzipped=PROCESS_BZ2 && fname.endsWith(".bz2");
 		boolean dsrced=fname.endsWith(".dsrc");
-		boolean bam=fname.endsWith(".bam") && (SAMBAMBA() || Data.SAMTOOLS());
+		boolean bam=fname.endsWith(".bam") && Data.BAM_SUPPORT_IN();
 		boolean fqz=fname.endsWith(".fqz");
 		boolean alapy=fname.endsWith(".ac");
 		boolean zst=fname.endsWith(".zst");
@@ -893,46 +938,7 @@ public class ReadWrite {
 			if(bzipped){return getBZipInputStream(fname, allowSubprocess);}
 			if(dsrced){return getDsrcInputStream(fname);}
 			if(zst) {return getUnzstdStream(fname);}
-			if(bam){
-				if(SAMBAMBA()){
-					String command="sambamba -q view -h";
-//					new Exception().printStackTrace(); //123
-					if(SAMTOOLS_IGNORE_FLAG!=0){
-						command=command+" --num-filter=0/"+SAMTOOLS_IGNORE_FLAG;
-					}
-					return getInputStreamFromProcess(fname, command, false, true, true);
-				}else{
-					String command="samtools view -h";
-//					new Exception().printStackTrace(); //123
-					if(SAMTOOLS_IGNORE_FLAG!=0){
-						//					command=command+" -F 4";
-						command=command+" -F 0x"+Integer.toHexString(SAMTOOLS_IGNORE_FLAG);
-					}
-					String version=Data.SAMTOOLS_VERSION;
-					if(Shared.threads()>1 && version!=null && version.startsWith("1.") && version.length()>2){
-						try {
-							String[] split=version.split("\\.");
-							int number=-1;
-							try {
-								number=Integer.parseInt(split[1]);
-							} catch (Exception e) {}
-							if(number<0){
-								try {
-									number=Integer.parseInt(split[1].substring(0, 1));
-								} catch (Exception e1) {}
-							}
-							if(number>3){
-								command=command+" -@ 2";
-							}
-						} catch (NumberFormatException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-					}
-					//				System.err.println(command);
-					return getInputStreamFromProcess(fname, command, false, true, true);
-				}
-			}
+			if(bam){return getBamInputStream(fname, ordered);}
 
 			if(fqz){return getInputStreamFromProcess(fname, "fqz_comp -d ", false, true, true);}
 			if(alapy){
@@ -941,6 +947,49 @@ public class ReadWrite {
 		}
 		
 		return getRawInputStream(fname, buffer);
+	}
+	
+	public static InputStream getBamInputStream(String fname, boolean ordered) {
+		if(USE_NATIVE_BAM_IN) {
+			return new BamInputStream(fname, ordered);
+		}else if(SAMBAMBA()){
+			String command="sambamba -q view -h";
+//			new Exception().printStackTrace(); //123
+			if(SAMTOOLS_IGNORE_FLAG!=0){
+				command=command+" --num-filter=0/"+SAMTOOLS_IGNORE_FLAG;
+			}
+			return getInputStreamFromProcess(fname, command, false, true, true);
+		}else{
+			String command="samtools view -h";//Adding -@ 4 or 16 did not change speed
+//			new Exception().printStackTrace(); //123
+			if(SAMTOOLS_IGNORE_FLAG!=0){
+				//					command=command+" -F 4";
+				command=command+" -F 0x"+Integer.toHexString(SAMTOOLS_IGNORE_FLAG);
+			}
+			String version=Data.SAMTOOLS_VERSION;
+			if(Shared.threads()>1 && version!=null && version.startsWith("1.") && version.length()>2){
+				try {
+					String[] split=version.split("\\.");
+					int number=-1;
+					try {
+						number=Integer.parseInt(split[1]);
+					} catch (Exception e) {}
+					if(number<0){
+						try {
+							number=Integer.parseInt(split[1].substring(0, 1));
+						} catch (Exception e1) {}
+					}
+					if(number>3){
+						command=command+" -@ 2";
+					}
+				} catch (NumberFormatException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			//				System.err.println(command);
+			return getInputStreamFromProcess(fname, command, false, true, true);
+		}
 	}
 	
 	public static InputStream getRawInputStream(String fname, boolean buffer){
@@ -1070,7 +1119,7 @@ public class ReadWrite {
 				if(verbose){
 					System.err.println("Fetching gzip input stream: "+fname+", allowSubprocess="+allowSubprocess+", USE_UNPIGZ="+USE_UNPIGZ+", Data.PIGZ()="+Data.PIGZ());
 				}
-				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && Data.BGZIP()){
+				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (Data.BGZIP() || USE_NATIVE_BGZF)){
 					if(!fname.contains("stdin") && new File(fname).exists()){
 						int magicNumber=getMagicNumber(fname);
 						if(magicNumber==529205252){return getUnbgzipStream(fname);}
@@ -1113,6 +1162,15 @@ public class ReadWrite {
 	public static InputStream getUnbgzipStream(String fname){
 		if(verbose){System.err.println("getUnbgzipStream("+fname+")");}
 		int threads=Tools.mid(4, 1, Shared.threads());
+		if(USE_NATIVE_BGZF) {
+//			System.err.println("Native BGZF");
+			InputStream raw=getRawInputStream(fname, true);
+			InputStream in;
+			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {in=new BgzfInputStream(raw);}
+			else {in=new BgzfInputStreamMT(raw, Tools.mid(1, 32, threads));}
+			return in;
+		}
+//		System.err.println("BGZIP");
 		return getInputStreamFromProcess(fname, "bgzip -c -d"+(Data.BGZIP_VERSION_threadsFlag ? " -@ "+threads : ""), false, true, true);
 	}
 	
@@ -1747,7 +1805,7 @@ public class ReadWrite {
 		}
 		boolean errorState=false;
 		if(cris!=null){
-			if(verbose){System.err.println("Closing cris; error="+errorState);}
+			if(verbose){System.err.println("Closing cris; error="+errorState+"; c.error="+cris.errorState());}
 			cris.close();
 			errorState|=cris.errorState();
 //			Object[] prods=cris.producers();
@@ -1937,6 +1995,11 @@ public class ReadWrite {
 	public static boolean USE_GUNZIP=false;
 	public static boolean USE_UNBGZIP=true;
 	public static boolean USE_UNPIGZ=true;
+
+	public static boolean USE_NATIVE_BGZF=true;
+	public static boolean USE_READ_STREAM_BAM_WRITER=true;
+	public static boolean USE_NATIVE_BAM_OUT=false;
+	public static boolean USE_NATIVE_BAM_IN=false;
 	
 	public static boolean FORCE_PIGZ=false;
 	public static boolean FORCE_BGZIP=false;

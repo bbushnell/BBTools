@@ -20,18 +20,22 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public ReadStreamBamWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean useSharedHeader){
-		super(ff, qfname_, read1_, bufferSize, header, false, true, useSharedHeader);
+	public ReadStreamBamWriter(FileFormat ff, int bufferSize, CharSequence header, boolean useSharedHeader){
+		super(ff, null, true, bufferSize, header, false, true, useSharedHeader);
 		assert(OUTPUT_BAM) : "ReadStreamBamWriter requires BAM output format";
 		assert(read1) : "BAM output requires read1=true (cannot write paired reads to separate files)";
-
+		
+		supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
+		supressHeaderSequences=(NO_HEADER_SEQUENCES || supressHeader);
 		try {
+//			System.err.println("header="+header+"\nuseSharedHeader="+useSharedHeader);
 			bamWriter=new BamWriter(fname);
 			headerWritten=false;
 			this.useSharedHeader=useSharedHeader;
 		} catch(IOException e){
 			throw new RuntimeException("Error creating BamWriter for "+fname, e);
 		}
+		
 	}
 
 	/*--------------------------------------------------------------*/
@@ -40,12 +44,15 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 
 	@Override
 	public void run() {
+//		System.err.println("ReadStreamBamWriter started.");
 		try {
 			run2();
 		} catch (IOException e) {
 			finishedSuccessfully=false;
+			System.err.println("ReadStreamBamWriter failed: "+finishedSuccessfully);
 			throw new RuntimeException(e);
 		}
+//		System.err.println("ReadStreamBamWriter finished: "+finishedSuccessfully);
 	}
 
 	private void run2() throws IOException{
@@ -59,26 +66,22 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 	/*--------------------------------------------------------------*/
 
 	private void writeHeader() throws IOException {
-		if(!headerWritten){
-			ArrayList<byte[]> headerLines;
-			if(useSharedHeader){
-				headerLines=SamReadInputStream.getSharedHeader(true);
-				if(headerLines==null){
-					System.err.println("Warning: Header was null, creating empty header");
-					headerLines=new ArrayList<byte[]>();
-				}
-			}else{
-				// Generate header from Data.scaffoldNames
+		if(headerWritten){return;}
+		ArrayList<byte[]> headerLines;
+		if(useSharedHeader){
+			headerLines=SamReadInputStream.getSharedHeader(true);
+			if(headerLines==null){
+				System.err.println("Warning: Header was null, creating empty header");
 				headerLines=new ArrayList<byte[]>();
-				// Add @HD line
-				headerLines.add("@HD\tVN:1.6\tSO:unsorted".getBytes());
-				// Could add @SQ lines here if needed
 			}
-			bamWriter.writeHeader(headerLines);
-			headerWritten=true;
+		}else{
+			// Generate header from Data.scaffoldNames
+			headerLines=SamHeader.makeHeaderList(supressHeaderSequences, MINCHROM, MAXCHROM);
 		}
+		bamWriter.writeHeader(headerLines);
+		headerWritten=true;
 	}
-
+	
 	private void processJobs() throws IOException{
 		Job job=null;
 		while(job==null){
@@ -88,10 +91,16 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 				e.printStackTrace();
 			}
 		}
-
+		
 		while(job!=null && !job.poison){
+//			System.err.println("A: job: poison="+job.poison+", close="+job.close);
 			if(!job.isEmpty()){
 				writeBam(job);
+			}
+			
+			if(job.close){//Doesn't seem to help.
+				assert(job.outstream!=null && job.outstream!=myOutstream);
+				ReadWrite.finishWriting(null, job.outstream, fname, allowSubprocess); //TODO:  This should be job.fname
 			}
 
 			job=null;
@@ -103,6 +112,7 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 				}
 			}
 		}
+//		System.err.println("B: job: poison="+job.poison+", close="+job.close);
 	}
 
 	private void finishWriting() throws IOException {
@@ -171,5 +181,7 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 	private final BamWriter bamWriter;
 	private boolean headerWritten;
 	private final boolean useSharedHeader;
+	private final boolean supressHeader;
+	private final boolean supressHeaderSequences;
 
 }

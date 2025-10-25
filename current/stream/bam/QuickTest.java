@@ -1,6 +1,6 @@
-package stream;
+package stream.bam;
 
-import stream.bam.BamToSamConverter;
+import stream.SamLine;
 
 /**
  * Quick test of the BAM converter fix

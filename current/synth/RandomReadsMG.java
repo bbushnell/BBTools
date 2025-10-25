@@ -215,14 +215,6 @@ public class RandomReadsMG{
 			}else if(a.equalsIgnoreCase("maxPeriod")){
 				maxPeriod=Parse.parseIntKMG(b);
 
-			}else if(a.equals("mode") || a.equals("depthmode")){
-				depthMode=Tools.find(b.toUpperCase(), modes);
-				assert(depthMode>=0) : depthMode;
-			}else if(a.equals("platform")){
-				String upper=b.toUpperCase();
-				if(upper.equals("PB")){upper="PACBIO";}
-				platform=Tools.find(upper, platforms);
-				assert(platform>=0) : platform;
 			}else if(a.equals("insert") || a.equals("avginsert")){
 				avgInsert=Float.parseFloat(b);
 			}else if(a.equals("paired") || a.equals("int") || a.equals("interleaved")){
@@ -310,11 +302,18 @@ public class RandomReadsMG{
 				String name=ReadWrite.stripPath(split[0]);
 				System.err.println("Setting custom depth "+f+" for "+name);
 				depthMap.put(name, f);
+			}else if(a.equals("mode") || a.equals("depthmode")){
+				depthMode=Tools.find(b.toUpperCase(), modes);
+				assert(depthMode>=0) : depthMode;
+			}else if(a.equals("platform")){
+				String upper=b.toUpperCase();
+				platform=Tools.find(upper, platforms)%3;
+				assert(platform>=0) : platform;
 			}else if(b==null && Tools.find(arg.toUpperCase(), modes)>=0){
 				depthMode=Tools.find(arg.toUpperCase(), modes);
 				assert(depthMode>=0) : depthMode;
 			}else if(b==null && Tools.find(arg.toUpperCase(), platforms)>=0){
-				platform=Tools.find(arg.toUpperCase(), platforms);
+				platform=Tools.find(arg.toUpperCase(), platforms)%3;
 				assert(platform>=0) : platform;
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
@@ -1519,7 +1518,7 @@ public class RandomReadsMG{
 	/** Selected coverage depth distribution mode */
 	int depthMode=MIN4;
 	/** Available sequencing platform types */
-	static final String[] platforms={"ILLUMINA", "ONT", "PACBIO"};
+	static final String[] platforms={"ILLUMINA", "ONT", "PACBIO", "ILL", "NANOPORE", "PB"};
 	static final int ILLUMINA=0, ONT=1, PACBIO=2;
 	/** Selected sequencing platform */
 	int platform=ILLUMINA;

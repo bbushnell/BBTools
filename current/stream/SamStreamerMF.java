@@ -90,7 +90,7 @@ public class SamStreamerMF {
 		synchronized(activeStreamers){
 			if(activeStreamers.isEmpty()){return null;}
 			while(list==null && !activeStreamers.isEmpty()){
-				SamReadStreamer srs=activeStreamers.poll();
+				SamStreamer srs=activeStreamers.poll();
 				list=srs.nextReads();
 				if(list!=null){activeStreamers.add(srs);}
 				else{
@@ -119,14 +119,14 @@ public class SamStreamerMF {
 	/** Spawn process threads */
 	void spawnThreads(){
 		final int maxActive=Tools.max(2, Tools.min((Shared.threads()+4)/5, ffin.length, MAX_FILES));
-		streamerSource=new ArrayDeque<SamReadStreamer>(ffin.length);
-		activeStreamers=new ArrayDeque<SamReadStreamer>(maxActive);
+		streamerSource=new ArrayDeque<SamStreamer>(ffin.length);
+		activeStreamers=new ArrayDeque<SamStreamer>(maxActive);
 		for(int i=0; i<ffin.length; i++){
-			SamReadStreamer srs=new SamReadStreamer(ffin[i], threads, saveHeader, maxReads);
+			SamStreamer srs=SamStreamer.makeStreamer(ffin[i], threads, saveHeader, false, maxReads, true);
 			streamerSource.add(srs);
 		}
 		while(activeStreamers.size()<maxActive && !streamerSource.isEmpty()){
-			SamReadStreamer srs=streamerSource.poll();
+			SamStreamer srs=streamerSource.poll();
 			srs.start();
 			activeStreamers.add(srs);
 		}
@@ -159,9 +159,9 @@ public class SamStreamerMF {
 	final FileFormat[] ffin;
 	
 	/** Readers */
-//	final SamReadStreamer[] streamers;
-	private ArrayDeque<SamReadStreamer> streamerSource;
-	private ArrayDeque<SamReadStreamer> activeStreamers;
+//	final SamStreamer[] streamers;
+	private ArrayDeque<SamStreamer> streamerSource;
+	private ArrayDeque<SamStreamer> activeStreamers;
 	
 	final int threads;
 	

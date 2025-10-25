@@ -37,7 +37,7 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import structures.AtomicStringNum;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -535,12 +535,12 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
 		
-		SamLineStreamer ss=null;
+		SamStreamer ss=null;
 		if(samInput!=null && processSamMT) {
 			outstream.println("Loading sam file.");
 			FileFormat ff=FileFormat.testInput(samInput, FileFormat.SAM, null, true, false);
 			final int streamerThreads=Tools.min(4, Shared.threads());
-			ss=new SamLineStreamer(ff, streamerThreads, false, maxReads);
+			ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, false);
 			ss.start();
 		}
 		
@@ -933,7 +933,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	}
 	
 	/** Iterate through the reads */
-	public void fillTilesInner(final ConcurrentReadInputStream cris, final SamLineStreamer ss){
+	public void fillTilesInner(final ConcurrentReadInputStream cris, final SamStreamer ss){
 		Timer t2=new Timer();
 		
 		if(merge && loadKmers) {fillThreads=Tools.max(fillThreads, fillThreadsM);}
@@ -1243,7 +1243,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*--------------------------------------------------------------*/
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final SamLineStreamer ss){
+	private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss){
 		
 		//Do anything necessary prior to processing
 		
@@ -1316,7 +1316,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final ConcurrentReadInputStream cris_, final SamLineStreamer ss_, final int tid_, final FlowCell flowcell_){
+		ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final int tid_, final FlowCell flowcell_){
 			cris=cris_;
 			ss=ss_;
 			tid=tid_;
@@ -1631,7 +1631,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
 		/** Optional sam input stream */
-		private final SamLineStreamer ss;
+		private final SamStreamer ss;
 		/** Thread ID */
 		final int tid;
 		final FlowCell flowcellT;

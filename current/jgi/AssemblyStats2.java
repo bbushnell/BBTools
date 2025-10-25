@@ -267,7 +267,7 @@ public final class AssemblyStats2 {
 //			assert(ff==null || (!ff.fastq())) : "AssemblyStats only supports fasta files.  To override this message, use the -da flag.";
 		}
 		
-		if(is==null){is=ReadWrite.getInputStream(in, false, true);}
+		if(is==null){is=ReadWrite.getInputStream(in, false, true, false);}
 		try {
 			if(benchmark){sum=bench(is);}
 			else{

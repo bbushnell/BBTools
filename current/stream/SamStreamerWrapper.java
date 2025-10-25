@@ -118,7 +118,7 @@ public class SamStreamerWrapper {
 		}
 		
 		boolean useSharedHeader=(ffout1!=null && ffout1.samOrBam());
-		final SamReadStreamer ss=new SamReadStreamer(ffin1, ordered ? 1 : SamStreamer.DEFAULT_THREADS, useSharedHeader, maxReads);
+		final SamStreamer ss=SamStreamer.makeStreamer(ffin1, SamStreamer.DEFAULT_THREADS, useSharedHeader, ordered, maxReads, true);
 		ss.start();
 
 		final ConcurrentReadOutputStream ros;
@@ -127,9 +127,7 @@ public class SamStreamerWrapper {
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, null, useSharedHeader);
 			ros.start();
 		}else{ros=null;}
-
-		long readsProcessed=0, readsOut=0;
-		long basesProcessed=0, basesOut=0;
+		
 		for(ListNum<Read> ln=ss.nextReads(); ln!=null && ln.size()>0; ln=ss.nextReads()){
 			ArrayList<Read> list=ln.list;
 			if(verbose){outstream.println("Got list of size "+ln.size());}
@@ -201,6 +199,9 @@ public class SamStreamerWrapper {
 	
 	private final FileFormat ffin1;
 	private final FileFormat ffout1;
+
+	long readsProcessed=0, readsOut=0;
+	long basesProcessed=0, basesOut=0;
 	
 	/*--------------------------------------------------------------*/
 

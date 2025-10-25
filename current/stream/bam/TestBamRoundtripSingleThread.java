@@ -4,7 +4,7 @@ import structures.ListNum;
 import fileIO.ByteStreamWriter;
 import stream.BamLineStreamer;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import stream.SamReadInputStream;
 
 public class TestBamRoundtripSingleThread {
@@ -14,7 +14,7 @@ public class TestBamRoundtripSingleThread {
 		String outFile = "mapped_st_roundtrip.sam";
 
 		System.err.println("=== Phase 1: Convert SAM to BAM (single thread) ===");
-		SamLineStreamer sls = new SamLineStreamer(samFile, 0, true, -1);
+		SamStreamer sls = SamStreamer.makeStreamer(samFile, 1, true, true, -1, false);
 		sls.start();
 		java.util.ArrayList<byte[]> header = SamReadInputStream.getSharedHeader(true);
 
@@ -30,7 +30,7 @@ public class TestBamRoundtripSingleThread {
 		System.err.println("Wrote " + count + " alignments");
 
 		System.err.println("\n=== Phase 2: Read BAM back (single thread) ===");
-		BamLineStreamer bls = new BamLineStreamer(bamFile, 0, true, -1);
+		BamLineStreamer bls = new BamLineStreamer(bamFile, 1, true, true, -1, false);
 		bls.start();
 
 		ByteStreamWriter bsw = new ByteStreamWriter(outFile, true, false, false);

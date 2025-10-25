@@ -32,6 +32,7 @@ import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.bam.BgzfSettings;
 import structures.IntList;
 import tax.TaxTree;
 import tracker.EntropyTracker;
@@ -1042,6 +1043,10 @@ public class Parser {
 			ReadWrite.USE_UNPIGZ=Parse.parseBoolean(b);
 		}else if(a.equals("useunbgzip") || a.equals("unbgzip")){
 			ReadWrite.USE_UNBGZIP=ReadWrite.PREFER_UNBGZIP=Parse.parseBoolean(b);
+		}else if(a.equals("nativebgzip") || a.equals("nativebgzf")){
+			ReadWrite.USE_NATIVE_BGZF=Parse.parseBoolean(b);
+		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
+			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
 		}else if(a.equals("preferunbgzip")){
 			ReadWrite.PREFER_UNBGZIP=Parse.parseBoolean(b);
 		}else if(a.equals("usebzip2") || a.equals("bzip2")){
@@ -1062,6 +1067,16 @@ public class Parser {
 			SamLine.VERSION=Float.parseFloat(b);
 		}else if(a.equals("sambamba")){
 			Data.USE_SAMBAMBA=Parse.parseBoolean(b);
+		}else if(a.equals("samtools")){
+			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
+		}else if(a.equals("nativebam") || a.equals("usenativebam")){
+			ReadWrite.USE_NATIVE_BAM_OUT=ReadWrite.USE_NATIVE_BAM_IN=Parse.parseBoolean(b);
+		}else if(a.equals("nativebamout") || a.equals("usenativebamout")){
+			ReadWrite.USE_NATIVE_BAM_OUT=Parse.parseBoolean(b);
+		}else if(a.equals("nativebamin") || a.equals("usenativebamin")){
+			ReadWrite.USE_NATIVE_BAM_IN=Parse.parseBoolean(b);
+		}else if(a.equals("attachedsamline") || a.equals("useattachedsamline")){
+			ReadStreamWriter.USE_ATTACHED_SAMLINE=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
 		}else if(a.equals("streamerthreads")){

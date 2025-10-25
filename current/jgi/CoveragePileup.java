@@ -28,7 +28,7 @@ import shared.Tools;
 import shared.TrimRead;
 import stream.Read;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import stream.ScaffoldCoordinates;
 import stream.SiteScore;
 import structures.ByteBuilder;
@@ -470,7 +470,7 @@ public class CoveragePileup {
 	}
 	
 	private void processViaStreamer(ByteStreamWriter tsw){
-		SamLineStreamer ss=new SamLineStreamer(in1, streamerThreads, false, maxReads);
+		SamStreamer ss=SamStreamer.makeStreamer(in1, streamerThreads, false, false, maxReads, false);
 		ss.start();
 		ByteBuilder bb=new ByteBuilder(33000);
 		for(ListNum<SamLine> ln=ss.nextLines(); ln!=null && ln.size()>0; ln=ss.nextLines()){

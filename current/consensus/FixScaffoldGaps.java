@@ -23,7 +23,6 @@ import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadStreamer;
 import stream.SamStreamer;
 import structures.ByteBuilder;
 import structures.ListNum;
@@ -321,7 +320,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	
 	private SamStreamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
-		SamStreamer ss=new SamReadStreamer(ff, streamerThreads, true, maxReads);
+		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){outstream.println("Started Streamer");}
 		return ss;

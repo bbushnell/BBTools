@@ -1,5 +1,7 @@
 package stream.bam;
 
+import stream.HasID;
+
 /**
  * Data shuttle for multithreaded BGZF compression/decompression.
  *
@@ -13,7 +15,7 @@ package stream.bam;
  * @author Chloe
  * @date October 18, 2025
  */
-public class BgzfJob implements Comparable<BgzfJob> {
+public class BgzfJob implements HasID, Comparable<BgzfJob> {
 
 	/** Compressed BGZF block data (with header/footer for reading, without for writing) */
 	public byte[] compressed;
@@ -22,7 +24,7 @@ public class BgzfJob implements Comparable<BgzfJob> {
 	public byte[] decompressed;
 
 	/** Sequential job ID for maintaining output order */
-	public long id;
+	public final long id;
 
 	/** Actual bytes used in compressed array */
 	public int compressedSize;
@@ -34,27 +36,31 @@ public class BgzfJob implements Comparable<BgzfJob> {
 	public Exception error;
 
 	/** Flag indicating this is the last job (no more jobs will be produced) */
-	public boolean lastJob = false;
+	public final boolean lastJob;
 
 	/** Poison pill marker for worker shutdown */
-	public static final BgzfJob POISON_PILL = new BgzfJob();
+	public static final BgzfJob POISON_PILL = new BgzfJob(Long.MAX_VALUE, null, null, false);
 
-	static {
-		POISON_PILL.id = Long.MAX_VALUE; // Poison sorts to end
-	}
-
-	public BgzfJob() {
-		// Default constructor
-	}
-
-	public BgzfJob(long id) {
+	public BgzfJob(long id, byte[] raw, byte[] comp, boolean last) {
 		this.id = id;
+		decompressed=raw;
+		compressed=comp;
+		lastJob=last;
 	}
 
 	@Override
 	public int compareTo(BgzfJob other) {
-		return Long.compare(this.id, other.id);
+		return Long.compare(this.id(), other.id());
 	}
+	
+	@Override
+	public long id() {return id;}
+	
+	@Override
+	public boolean poison() {return this==POISON_PILL;}
+	
+	@Override
+	public boolean last() {return lastJob;}
 
 	/**
 	 * Check if this job is the poison pill marker.
