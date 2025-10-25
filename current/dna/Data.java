@@ -1675,10 +1675,10 @@ public class Data {
 		return LBZIP2>0;
 	}
 	public static boolean BAM_SUPPORT_OUT() {
-		return ReadWrite.USE_NATIVE_BAM_OUT || SAMTOOLS();
+		return ReadWrite.ALLOW_NATIVE_BAM_OUT || SAMTOOLS();
 	}
 	public static boolean BAM_SUPPORT_IN() {
-		return ReadWrite.USE_NATIVE_BAM_IN || SAMTOOLS() || SAMBAMBA();
+		return ReadWrite.ALLOW_NATIVE_BAM_IN || SAMTOOLS() || SAMBAMBA();
 	}
 	public static boolean SAMTOOLS(){
 		if(SAMTOOLS==0 && !Shared.WINDOWS){

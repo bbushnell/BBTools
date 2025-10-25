@@ -1043,11 +1043,30 @@ public class Parser {
 			ReadWrite.USE_UNPIGZ=Parse.parseBoolean(b);
 		}else if(a.equals("useunbgzip") || a.equals("unbgzip")){
 			ReadWrite.USE_UNBGZIP=ReadWrite.PREFER_UNBGZIP=Parse.parseBoolean(b);
-		}else if(a.equals("nativebgzip") || a.equals("nativebgzf")){
-			ReadWrite.USE_NATIVE_BGZF=Parse.parseBoolean(b);
+		}
+		
+		else if(a.equals("nativebgzip") || a.equals("nativebgzf")){
+			ReadWrite.ALLOW_NATIVE_BGZF=Parse.parseBoolean(b);
+			ReadWrite.PREFER_NATIVE_BGZF_IN=ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(b);
+		}else if(a.equals("usenativebgzip") || a.equals("usenativebgzf") ||
+				a.equals("allownativebgzip") || a.equals("allownativebgzf")){
+			ReadWrite.ALLOW_NATIVE_BGZF=Parse.parseBoolean(b);
+		}else if(a.equals("nativebgzipin") || a.equals("nativebgzfin")){
+			ReadWrite.PREFER_NATIVE_BGZF_IN=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BGZF|=ReadWrite.PREFER_NATIVE_BGZF_IN;
+		}else if(a.equals("nativebgzipout") || a.equals("nativebgzfout")){
+			ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BGZF|=ReadWrite.PREFER_NATIVE_BGZF_OUT;
+		}else if(a.equals("prefernativebgzip") || a.equals("prefernativebgzf")){
+			ReadWrite.PREFER_NATIVE_BGZF_IN=ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BGZF|=ReadWrite.PREFER_NATIVE_BGZF_IN;
 		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
 			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
-		}else if(a.equals("preferunbgzip")){
+		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
+			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
+		}
+		
+		else if(a.equals("preferunbgzip")){
 			ReadWrite.PREFER_UNBGZIP=Parse.parseBoolean(b);
 		}else if(a.equals("usebzip2") || a.equals("bzip2")){
 			ReadWrite.USE_BZIP2=Parse.parseBoolean(b);
@@ -1069,13 +1088,30 @@ public class Parser {
 			Data.USE_SAMBAMBA=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
-		}else if(a.equals("nativebam") || a.equals("usenativebam")){
-			ReadWrite.USE_NATIVE_BAM_OUT=ReadWrite.USE_NATIVE_BAM_IN=Parse.parseBoolean(b);
+		}
+
+		else if(a.equals("nativebam")){
+			ReadWrite.ALLOW_NATIVE_BAM_OUT=ReadWrite.ALLOW_NATIVE_BAM_IN=Parse.parseBoolean(b);
+			ReadWrite.PREFER_NATIVE_BAM_OUT=ReadWrite.PREFER_NATIVE_BAM_IN=Parse.parseBoolean(b);
+		}else if(a.equals("usenativebam") || a.equals("allownativebam")){
+			ReadWrite.ALLOW_NATIVE_BAM_OUT=ReadWrite.ALLOW_NATIVE_BAM_IN=Parse.parseBoolean(b);
 		}else if(a.equals("nativebamout") || a.equals("usenativebamout")){
-			ReadWrite.USE_NATIVE_BAM_OUT=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BAM_OUT=ReadWrite.PREFER_NATIVE_BAM_OUT=Parse.parseBoolean(b);
 		}else if(a.equals("nativebamin") || a.equals("usenativebamin")){
-			ReadWrite.USE_NATIVE_BAM_IN=Parse.parseBoolean(b);
-		}else if(a.equals("attachedsamline") || a.equals("useattachedsamline")){
+			ReadWrite.ALLOW_NATIVE_BAM_IN=ReadWrite.PREFER_NATIVE_BAM_IN=Parse.parseBoolean(b);
+		}else if(a.equals("prefernativebamout")){
+			ReadWrite.PREFER_NATIVE_BAM_OUT=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BAM_OUT|=ReadWrite.PREFER_NATIVE_BAM_OUT;
+		}else if(a.equals("prefernativebamin")){
+			ReadWrite.PREFER_NATIVE_BAM_IN=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BAM_IN|=ReadWrite.PREFER_NATIVE_BAM_IN;
+		}else if(a.equals("prefernativebam")){
+			ReadWrite.PREFER_NATIVE_BAM_IN=ReadWrite.PREFER_NATIVE_BAM_OUT=Parse.parseBoolean(b);
+			ReadWrite.ALLOW_NATIVE_BAM_IN|=ReadWrite.PREFER_NATIVE_BAM_IN;
+			ReadWrite.ALLOW_NATIVE_BAM_OUT|=ReadWrite.PREFER_NATIVE_BAM_OUT;
+		}
+
+		else if(a.equals("attachedsamline") || a.equals("useattachedsamline")){
 			ReadStreamWriter.USE_ATTACHED_SAMLINE=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);

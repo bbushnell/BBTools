@@ -36,7 +36,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			if(ff2!=null){assert(!ff1.name().equals(ff2.name())) : ff1.name()+"=="+ff2.name();}
 		}
 		
-		if(ff1.bam() && ReadWrite.USE_NATIVE_BAM_OUT && ReadWrite.USE_READ_STREAM_BAM_WRITER) {
+		if(ff1.bam() && ReadWrite.nativeBamOut() && ReadWrite.USE_READ_STREAM_BAM_WRITER) {
 			readstream1=new ReadStreamBamWriter(ff1, rswBuffers, header, useSharedHeader);
 			readstream2=null;
 		}else {

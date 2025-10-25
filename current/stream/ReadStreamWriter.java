@@ -63,7 +63,7 @@ public abstract class ReadStreamWriter extends Thread {
 		final boolean supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
 		final boolean supressHeaderSequences=(NO_HEADER_SEQUENCES || supressHeader);
 		if(header==null){header=HEADER;} //Legacy.  Used by BBMerge and FindPrimers - should be deprecated.
-		final boolean RSBamWriter=ff.bam() && ReadWrite.USE_NATIVE_BAM_OUT && 
+		final boolean RSBamWriter=ff.bam() && ReadWrite.nativeBamOut() && 
 			ReadWrite.USE_READ_STREAM_BAM_WRITER;
 		
 		if(fname==null && !OUTPUT_STANDARD_OUT){

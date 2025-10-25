@@ -4,6 +4,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
+import dna.Data;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -50,8 +51,9 @@ public abstract class SamStreamer {
 	}
 	
 	public static SamStreamer makeStreamer(FileFormat ffin, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
-		if(ReadWrite.USE_NATIVE_BAM_IN && ffin.bam()) {return new BamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);}
-		else {return new SamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);}
+		if(ffin.bam() && ReadWrite.nativeBamIn()) {
+			return new BamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);
+		}else {return new SamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);}
 	}
 	
 	/**
