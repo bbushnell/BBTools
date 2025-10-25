@@ -82,7 +82,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 
 		if(reads!=null && !reads.isEmpty()){
 			Read r=reads.get(0);
-			assert((r.mate!=null)==paired);
+			assert((r.mate!=null)==paired) : paired;
 		}
 		
 		long readCount=0;
@@ -713,7 +713,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 						if(verbose){System.err.println(getClass().getName()+" broke loop on null list.");}
 						break;
 					}
-					assert(list.size()>0);
+					assert(list.size()>0) : list.size();
 					assert(list.size()<=BUF_LEN); //Although this is not really necessary.
 //					System.out.println("crisG:    I");
 					if(list.size()+generatedLocal>maxReads){

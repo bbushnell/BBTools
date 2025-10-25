@@ -19,7 +19,7 @@ public class HeaderInputStream extends ReadInputStream {
 		
 		HeaderInputStream his=new HeaderInputStream(args[0], true);
 		
-		Read r=his.next();
+		Read r=his.nextList().get(0);
 		System.out.println(r.toText(false));
 		his.close();
 		
@@ -37,10 +37,6 @@ public class HeaderInputStream extends ReadInputStream {
 		
 		tf=new ByteFile1(ff);
 	}
-
-	@Override
-	public void start() {}
-	
 	
 	@Override
 	public boolean hasMore() {
@@ -52,15 +48,6 @@ public class HeaderInputStream extends ReadInputStream {
 			}
 		}
 		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){return null;}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 	
 	@Override

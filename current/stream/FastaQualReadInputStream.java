@@ -15,11 +15,11 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		
 		FastaQualReadInputStream fris=new FastaQualReadInputStream(args[0], args[1], true);
 		
-		Read r=fris.next();
+		Read r=fris.nextList().get(0);
 		int i=0;
 		while(r!=null){
 			System.out.println(r.toText(false));
-			r=fris.next();
+			r=fris.nextList().get(0);
 			if(i++>3){break;}
 		}
 		
@@ -38,14 +38,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		btf=ByteFile.makeByteFile(ff);
 		qtf=ByteFile.makeByteFile(FileFormat.testInput(qfname, FileFormat.QUAL, null, ff.allowSubprocess(), false));
 		interleaved=false;
-		
 	}
-
-	@Override
-	public void start() {
-//		if(cris!=null){cris.start();}
-	}
-	
 	
 	@Override
 	public boolean hasMore() {
@@ -57,18 +50,6 @@ public class FastaQualReadInputStream extends ReadInputStream {
 			}
 		}
 		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){
-			if(verbose){System.err.println("hasMore() returned false;  buffer="+(buffer==null ? null : buffer.size())+", next="+next+", consumed="+consumed);}
-			return null;
-		}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 	
 	@Override

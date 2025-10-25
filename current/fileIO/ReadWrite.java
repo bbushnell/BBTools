@@ -647,7 +647,7 @@ public class ReadWrite {
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
 		
-		if(USE_NATIVE_BGZF && (ZIPLEVEL<5 || !Data.BGZIP())) {
+		if(USE_NATIVE_BGZF && (ZIPLEVEL<5 || PREFER_NATIVE_BGZF_OUT || !Data.BGZIP())) {
 			if(ALLOW_ZIPLEVEL_CHANGE){
 				if(zl>5) {zl=5;}
 				else if(zl<4 && zl>0 && threads>=16) {zl=4;}
@@ -1119,7 +1119,7 @@ public class ReadWrite {
 				if(verbose){
 					System.err.println("Fetching gzip input stream: "+fname+", allowSubprocess="+allowSubprocess+", USE_UNPIGZ="+USE_UNPIGZ+", Data.PIGZ()="+Data.PIGZ());
 				}
-				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (Data.BGZIP() || USE_NATIVE_BGZF)){
+				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (USE_NATIVE_BGZF || Data.BGZIP())){
 					if(!fname.contains("stdin") && new File(fname).exists()){
 						int magicNumber=getMagicNumber(fname);
 						if(magicNumber==529205252){return getUnbgzipStream(fname);}
@@ -1162,7 +1162,7 @@ public class ReadWrite {
 	public static InputStream getUnbgzipStream(String fname){
 		if(verbose){System.err.println("getUnbgzipStream("+fname+")");}
 		int threads=Tools.mid(4, 1, Shared.threads());
-		if(USE_NATIVE_BGZF) {
+		if(USE_NATIVE_BGZF && (PREFER_NATIVE_BGZF_OUT || !Data.BGZIP())) {
 //			System.err.println("Native BGZF");
 			InputStream raw=getRawInputStream(fname, true);
 			InputStream in;
@@ -1995,11 +1995,16 @@ public class ReadWrite {
 	public static boolean USE_GUNZIP=false;
 	public static boolean USE_UNBGZIP=true;
 	public static boolean USE_UNPIGZ=true;
-
+	
 	public static boolean USE_NATIVE_BGZF=true;
+	public static boolean PREFER_NATIVE_BGZF_IN=false;
+	public static boolean PREFER_NATIVE_BGZF_OUT=false;
+	
 	public static boolean USE_READ_STREAM_BAM_WRITER=true;
-	public static boolean USE_NATIVE_BAM_OUT=false;
-	public static boolean USE_NATIVE_BAM_IN=false;
+	public static boolean USE_NATIVE_BAM_IN=true;
+	public static boolean USE_NATIVE_BAM_OUT=true;
+	public static boolean PREFER_NATIVE_BAM_IN=true;
+	public static boolean PREFER_NATIVE_BAM_OUT=false;
 	
 	public static boolean FORCE_PIGZ=false;
 	public static boolean FORCE_BGZIP=false;

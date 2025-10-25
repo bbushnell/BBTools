@@ -38,6 +38,9 @@ public class SamLineStreamer extends SamStreamer {
 	/*--------------------------------------------------------------*/
 	
 	@Override
+	public boolean hasMore() {return outq.hasMore();}
+	
+	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=outq.take();
 		if(verbose && list!=null){outstream.println("Got list size "+list.size());}
@@ -167,6 +170,7 @@ public class SamLineStreamer extends SamStreamer {
 				if(verbose || verbose2){outstream.println("tid "+tid+" grabbed blist "+list.id);}
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
+				long readID=list.id*200;//TODO: Should be part of the listNum
 				for(byte[] line : list){
 					if(line[0]=='@'){
 						//Ignore header lines
@@ -177,6 +181,8 @@ public class SamLineStreamer extends SamStreamer {
 							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 							sl.obj=r;
 							r.samline=sl;
+							r.numericID=readID++;
+							if(!r.validated()){r.validate(true);}
 						}
 						readsProcessedT++;
 						basesProcessedT+=(sl.seq==null ? 0 : sl.length());

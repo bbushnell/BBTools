@@ -43,18 +43,6 @@ public abstract class ReadInputStream {
 		return list;
 	}
 	
-	@Deprecated
-	public abstract Read next();//TODO: Remove.  Unused and complicated
-	
-//	public final ArrayList<Read> fetchAll(){
-//		ArrayList<Read> out=new ArrayList<Read>();
-//		for(ArrayList<Read> list=nextList(); list!=null && list.size()>0; list=nextList()){
-//			out.addAll(list);
-//		}
-//		close();
-//		return out;
-//	}
-	
 	public abstract ArrayList<Read> nextList();
 	
 	public abstract boolean hasMore();
@@ -77,11 +65,6 @@ public abstract class ReadInputStream {
 	public boolean errorState(){return errorState;}
 	/** TODO */
 	protected boolean errorState=false;
-	
-	public final boolean preferLists(){return true;}
-
-	@Deprecated
-	public abstract void start();//TODO:  Never used, should be removed.
 	
 	public abstract String fname();
 	

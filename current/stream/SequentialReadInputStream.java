@@ -28,9 +28,6 @@ public class SequentialReadInputStream extends ReadInputStream {
 	}
 	
 	@Override
-	public void start(){}
-	
-	@Override
 	public void restart(){
 		position=0;
 		chrom=1;
@@ -67,17 +64,6 @@ public class SequentialReadInputStream extends ReadInputStream {
 		if(position<=maxPosition){return true;}
 		if(buffer==null || next>=buffer.size()){return false;}
 		return true;
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){return null;}
-		if(buffer==null || next>=buffer.size()){fillBuffer();}
-		Read r=buffer.get(next);
-		buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 	
 	@Override

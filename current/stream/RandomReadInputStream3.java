@@ -69,23 +69,8 @@ public class RandomReadInputStream3 extends ReadInputStream {
 	}
 	
 	@Override
-	public void start() {}
-	
-	
-	@Override
 	public boolean hasMore() {
 		return number>consumed;
-	}
-
-	@Override
-	public Read next() {
-		if(consumed>=number){return null;}
-		if(buffer==null || next>=buffer.size()){fillBuffer();}
-		Read r=buffer.get(next);
-		buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 	
 	@Override

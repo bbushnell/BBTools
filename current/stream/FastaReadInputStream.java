@@ -36,15 +36,15 @@ public class FastaReadInputStream extends ReadInputStream {
 		Timer t=new Timer();
 		
 		FastaReadInputStream fris=new FastaReadInputStream(args[0], false, false, false, Shared.bufferData());
-		Read r=fris.next();
+		Read r=fris.nextList().get(0);
 		int i=0;
 		
 		while(r!=null){
 			if(i<a){System.out.println("'"+r.toText(false)+"'");}
-			r=fris.next();
+			r=fris.nextList().get(0);
 			if(++i>=a){break;}
 		}
-		while(r!=null && i++<b){r=fris.next();}
+		while(r!=null && i++<b){r=fris.nextList().get(0);}
 		t.stop();
 		System.out.println("Time: \t"+t);
 	}
@@ -71,19 +71,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		ins=open();
 		
 		assert(settingsOK());
-	}
-	
-	@Override
-	public Read next() {
-		if(!hasMore()){
-			if(verbose){System.err.println("hasMore() returned false;  currentList="+
-					(currentList==null ? null : currentList.size())+", nextReadIndex="+nextReadIndex+", consumed="+consumed);}
-			return null;
-		}
-		Read r=currentList.set(nextReadIndex, null);
-		nextReadIndex++;
-		consumed++;
-		return r;
 	}
 	
 	@Override
@@ -158,9 +145,6 @@ public class FastaReadInputStream extends ReadInputStream {
 	
 	@Override
 	public boolean paired() {return interleaved;}
-	
-	@Override
-	public void start() {}
 	
 	private final boolean fillList(){
 //		assert(open);

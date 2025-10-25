@@ -24,7 +24,7 @@ public class BamReadInputStream extends ReadInputStream {
 		BamReadInputStream bris=new BamReadInputStream(args[0], false, false, false, true);
 		bris.start();
 
-		Read r=bris.next();
+		Read r=bris.nextList().get(0);
 		System.out.println(r.toText(false));
 		System.out.println();
 		if(r.samline!=null){
@@ -60,13 +60,11 @@ public class BamReadInputStream extends ReadInputStream {
 		// Create BamLineStreamer with maxReads - will populate SHARED_HEADER
 		bls=new BamLineStreamer(ff, Shared.threads(), loadHeader, ordered_, maxReads, false);
 	}
-
-	@Override
+	
 	public void start() {
 		if(bls!=null){bls.start();}
 	}
-
-
+	
 	@Override
 	public boolean hasMore() {
 		if(buffer==null || next>=buffer.size()){
@@ -77,15 +75,6 @@ public class BamReadInputStream extends ReadInputStream {
 			}
 		}
 		return (buffer!=null && next<buffer.size());
-	}
-
-	@Override
-	public Read next() {
-		if(!hasMore()){return null;}
-		Read r=buffer.set(next, null);
-		next++;
-		consumed++;
-		return r;
 	}
 
 	@Override

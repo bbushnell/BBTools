@@ -203,6 +203,8 @@ public abstract class SamStreamer {
 	/** Spawn process threads */
 	abstract void spawnThreads();
 	
+	public abstract boolean hasMore();
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/

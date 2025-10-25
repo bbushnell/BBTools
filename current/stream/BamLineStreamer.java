@@ -48,6 +48,9 @@ public class BamLineStreamer extends SamStreamer {
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	@Override
+	public boolean hasMore() {return outq.hasMore();}
 
 	@Override
 	public ListNum<SamLine> nextLines(){
@@ -280,6 +283,7 @@ public class BamLineStreamer extends SamStreamer {
 			while(list!=null && !list.poison()){
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
+				long readID=list.id*200;//TODO: Should be part of the listNum
 				for(byte[] bamRecord : list){
 					byte[] line=converter.convertAlignment(bamRecord);
 					if(line[0]=='@'){
@@ -290,6 +294,8 @@ public class BamLineStreamer extends SamStreamer {
 							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 							sl.obj=r;
 							r.samline=sl;
+							r.numericID=readID++;
+							if(!r.validated()){r.validate(true);}
 						}
 						reads.add(sl);
 

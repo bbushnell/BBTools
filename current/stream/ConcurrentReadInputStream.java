@@ -156,10 +156,11 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			
 		}else if(ff1.samOrBam()){
 			int threads=Tools.mid(1, SamStreamer.DEFAULT_THREADS, Shared.threads());
-			ReadInputStream ris1=new SamReadInputStream(ff1, keepSamHeader, FASTQ.FORCE_INTERLEAVED, threads, maxReads);
-			ReadInputStream ris2=(ff2==null ? null : new SamReadInputStream(ff2, false, false, threads, maxReads));
-			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
-			
+			ReadInputStream ris1=new SamReadInputStream(ff1, keepSamHeader, threads, maxReads);
+			cris=new ConcurrentGenericReadInputStream(ris1, null, maxReads);
+			assert(!cris.paired()) : "\nff1="+ff1+"\nff2="+ff2+
+				"\nris1="+ris1+"\nris2"+null+"\nris1paired"+ris1.paired()+
+				"\np1="+cris.producers()[0]+"\np2"+cris.producers()[2];
 		}else if(ff1.bread()){
 //			assert(false) : ff1;
 			RTextInputStream rtis=new RTextInputStream(ff1, ff2, maxReads);
