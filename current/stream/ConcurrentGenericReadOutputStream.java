@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 
 /**
  * @author Brian Bushnell
@@ -35,8 +36,13 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			if(ff2!=null){assert(!ff1.name().equals(ff2.name())) : ff1.name()+"=="+ff2.name();}
 		}
 		
-		readstream1=new ReadStreamByteWriter(ff1, qf1, true, rswBuffers, header, useSharedHeader);
-		readstream2=ff1.stdio() || ff2==null ? null : new ReadStreamByteWriter(ff2, qf2, false, rswBuffers, header, useSharedHeader);
+		if(ff1.bam() && ReadWrite.USE_NATIVE_BAM_OUT && ReadWrite.USE_READ_STREAM_BAM_WRITER) {
+			readstream1=new ReadStreamBamWriter(ff1, rswBuffers, header, useSharedHeader);
+			readstream2=null;
+		}else {
+			readstream1=new ReadStreamByteWriter(ff1, qf1, true, rswBuffers, header, useSharedHeader);
+			readstream2=ff1.stdio() || ff2==null ? null : new ReadStreamByteWriter(ff2, qf2, false, rswBuffers, header, useSharedHeader);
+		}
 		
 		if(readstream2==null && readstream1!=null){
 //			System.out.println("ConcurrentReadOutputStream detected interleaved output.");

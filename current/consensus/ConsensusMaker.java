@@ -25,7 +25,6 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadStreamer;
 import stream.SamStreamer;
 import structures.ByteBuilder;
 import structures.ListNum;
@@ -453,7 +452,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	
 	private SamStreamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
-		SamStreamer ss=new SamReadStreamer(ff, streamerThreads, true, maxReads);
+		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){outstream.println("Started Streamer");}
 		return ss;

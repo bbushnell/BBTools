@@ -10,7 +10,7 @@ import fileIO.FileFormat;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import structures.IntHashMap;
 import structures.ListNum;
 import template.Accumulator;
@@ -94,11 +94,11 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		
 		private void runInner() {
 			long[] depthArray=new long[contigs.size()];
-			SamLineStreamer ss=null;
+			SamStreamer ss=null;
 			outstream.println("Loading "+fname);
 			final int streamerThreads=Tools.min(3, Shared.threads());
 			FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
-			ss=new SamLineStreamer(ff, streamerThreads, false, -1);
+			ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, -1, false);
 			ss.start();
 			processSam_Thread(ss, depthArray);
 			
@@ -115,7 +115,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			}
 		}
 		
-		void processSam_Thread(SamLineStreamer ss, long[] depthArray) {
+		void processSam_Thread(SamStreamer ss, long[] depthArray) {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 

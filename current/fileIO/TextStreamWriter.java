@@ -51,11 +51,10 @@ public class TextStreamWriter extends Thread {
 		assert(ff.canWrite()) : "File "+fname+" exists and overwrite=="+overwrite;
 		if(append && !(ff.raw() || ff.gzip())){throw new RuntimeException("Can't append to compressed files.");}
 		
-		if(!BAM || !Data.SAMTOOLS() || !Data.SH()){
+		if(!BAM || !Data.BAM_SUPPORT_OUT()){
 			myOutstream=ReadWrite.getOutputStream(fname, append, true, allowSubprocess);
-			if(verbose){System.err.println("Created output stream for "+fname+", "+append+", "+true+", "+allowSubprocess);}
 		}else{
-			myOutstream=ReadWrite.getOutputStreamFromProcess(fname, "samtools view -S -b -h - ", true, append, true, true);
+			myOutstream=ReadWrite.getBamOutputStream(fname, append);
 		}
 		myWriter=new PrintWriter(myOutstream);
 		if(verbose){System.err.println("Created PrintWriter for "+myOutstream);}

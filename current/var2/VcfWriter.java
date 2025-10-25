@@ -492,7 +492,7 @@ public class VcfWriter {
 	/** Output format constants */
 	public static final int VARMODE=0, VCFMODE=1, GFFMODE=2;
 	/** Poison pill for ending processing */
-	private static final ListNum<Var> POISON_VARS=new ListNum<Var>(null, -1);
+	private static final ListNum<Var> POISON_VARS=new ListNum<Var>(null, Long.MAX_VALUE, true, false);
 	
 	/** Verbose output flag */
 	private static boolean verbose=false;

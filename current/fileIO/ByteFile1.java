@@ -7,6 +7,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.bam.BgzfSettings;
 
 
 /**
@@ -17,7 +18,6 @@ public final class ByteFile1 extends ByteFile {
 	
 	
 	public static void main(String[] args){
-		ByteFile1 tf=new ByteFile1(args.length>0 ? args[0] : "stdin", true);
 		long first=0, last=100;
 		boolean speedtest=false;
 		if(args.length>1){
@@ -37,6 +37,12 @@ public final class ByteFile1 extends ByteFile {
 				last=Integer.parseInt(args[2]);
 			}
 		}
+		if(args.length>3){
+			if(args[3].equalsIgnoreCase("native")){
+				ReadWrite.USE_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
+			}
+		}
+		ByteFile1 tf=new ByteFile1(args.length>0 ? args[0] : "stdin", true);
 		speedtest(tf, first, last, !speedtest);
 		
 		tf.close();
@@ -333,7 +339,7 @@ public final class ByteFile1 extends ByteFile {
 			throw new RuntimeException("Attempt to open already-opened TextFile "+name());
 		}
 		open=true;
-		is=ReadWrite.getInputStream(name(), BUFFERED, allowSubprocess());
+		is=ReadWrite.getInputStream(name(), BUFFERED, allowSubprocess(), true);
 		bstart=-1;
 		bstop=-1;
 		return is;

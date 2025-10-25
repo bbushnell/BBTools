@@ -21,7 +21,7 @@ import structures.ListNum;
 public class BamReadInputStream extends ReadInputStream {
 
 	public static void main(String[] args){
-		BamReadInputStream bris=new BamReadInputStream(args[0], false, false, true);
+		BamReadInputStream bris=new BamReadInputStream(args[0], false, false, false, true);
 		bris.start();
 
 		Read r=bris.next();
@@ -35,16 +35,17 @@ public class BamReadInputStream extends ReadInputStream {
 		bris.close();
 	}
 
-	public BamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, boolean allowSubprocess_){
-		this(FileFormat.testInput(fname, FileFormat.BAM, null, allowSubprocess_, false), loadHeader_, interleaved_, -1);
+	public BamReadInputStream(String fname, boolean loadHeader_, boolean ordered_, boolean interleaved_, boolean allowSubprocess_){
+		this(FileFormat.testInput(fname, FileFormat.BAM, null, allowSubprocess_, false), loadHeader_, ordered_, interleaved_, -1);
 	}
 
-	public BamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, boolean allowSubprocess_, long maxReads_){
-		this(FileFormat.testInput(fname, FileFormat.BAM, null, allowSubprocess_, false), loadHeader_, interleaved_, maxReads_);
+	public BamReadInputStream(String fname, boolean loadHeader_, boolean ordered_, boolean interleaved_, boolean allowSubprocess_, long maxReads_){
+		this(FileFormat.testInput(fname, FileFormat.BAM, null, allowSubprocess_, false), loadHeader_, ordered_, interleaved_, maxReads_);
 	}
 
-	public BamReadInputStream(FileFormat ff, boolean loadHeader_, boolean interleaved_, long maxReads_){
+	public BamReadInputStream(FileFormat ff, boolean loadHeader_, boolean ordered_, boolean interleaved_, long maxReads_){
 		loadHeader=loadHeader_;
+		ordered=ordered_;
 		interleaved=interleaved_;
 		maxReads=maxReads_;
 
@@ -57,7 +58,7 @@ public class BamReadInputStream extends ReadInputStream {
 		header=new ArrayList<byte[]>();
 
 		// Create BamLineStreamer with maxReads - will populate SHARED_HEADER
-		bls=new BamLineStreamer(ff, Shared.threads(), loadHeader, maxReads);
+		bls=new BamLineStreamer(ff, Shared.threads(), loadHeader, ordered_, maxReads, false);
 	}
 
 	@Override
@@ -173,6 +174,7 @@ public class BamReadInputStream extends ReadInputStream {
 	private final BamLineStreamer bls;
 	private final boolean interleaved;
 	private final boolean loadHeader;
+	private final boolean ordered;
 	private final String fname;
 	private final long maxReads;
 	private boolean finished=false;

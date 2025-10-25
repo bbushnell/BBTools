@@ -2,7 +2,6 @@ package stream.bam;
 
 import dna.AminoAcid;
 import stream.SamLine;
-import stream.SamToBamConverter;
 
 /**
  * Minimal test to verify sequence reversal bug.

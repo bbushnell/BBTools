@@ -5,6 +5,7 @@ import java.io.Serializable;
 import dna.AminoAcid;
 import shared.KillSwitch;
 import shared.LineParser;
+import shared.LineParser1;
 import shared.Tools;
 import ukmer.Kmer;
 
@@ -804,6 +805,15 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		assert(x>=0 && x<=array.length);
 		length=x;
 		return this;
+	}
+
+	public byte[][] split(char c){
+		LineParser1 lp=new LineParser1(c);
+		lp.set(toBytes());
+		final int terms=lp.terms();
+		byte[][] out=new byte[terms][];
+		for(int i=0; i<terms; i++) {out[i]=lp.parseByteArray(i);}
+		return out;
 	}
 	
 	/** something */

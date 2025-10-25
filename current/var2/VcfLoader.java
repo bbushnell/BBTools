@@ -435,7 +435,7 @@ public class VcfLoader {
 	/*--------------------------------------------------------------*/
 	
 	/** Poison pill to signal end of processing */
-	static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null, -1);
+	static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null, Long.MAX_VALUE, true, false);
 	/** Batch size for line processing */
 	static final int LIST_SIZE=200;
 	/** Default number of threads */

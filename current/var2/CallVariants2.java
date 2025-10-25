@@ -24,7 +24,7 @@ import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadStreamer;
+import stream.SamStreamer;
 import stream.SamStreamer;
 import structures.ListNum;
 
@@ -797,14 +797,14 @@ public class CallVariants2 {
 				ScafMap.loadSamHeader(ff, scafMap);
 			}
 
-			/** Optional SamReadStreamer for high throughput */
-			final SamReadStreamer ss;
+			/** Optional SamStreamer for high throughput */
+			final SamStreamer ss;
 			//Create a read input stream
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;
-				ss=new SamReadStreamer(ff, streamerThreads, false, maxReads);
+				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
@@ -863,7 +863,7 @@ public class CallVariants2 {
 
 		/**
 		 * Creates read input streams and processes all aligned reads for variant discovery.
-		 * Handles both standard ConcurrentReadInputStream and high-throughput SamReadStreamer.
+		 * Handles both standard ConcurrentReadInputStream and high-throughput SamStreamer.
 		 * Distributes read processing across multiple threads for optimal performance.
 		 * Optionally calculates scaffold coverage statistics during processing.
 		 * 
@@ -879,14 +879,14 @@ public class CallVariants2 {
 				ScafMap.loadSamHeader(ff, scafMap);
 			}
 			
-			/** Optional SamReadStreamer for high throughput */
-			final SamReadStreamer ss;
+			/** Optional SamStreamer for high throughput */
+			final SamStreamer ss;
 			//Create a read input stream
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;
-				ss=new SamReadStreamer(ff, streamerThreads, false, maxReads);
+				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
@@ -923,16 +923,16 @@ public class CallVariants2 {
 		/**
 		 * Spawns multiple processing threads for parallel read analysis and variant discovery.
 		 * Creates worker threads that process reads independently and accumulate results.
-		 * Handles both CRIS and SamReadStreamer input modes for optimal throughput.
+		 * Handles both CRIS and SamStreamer input modes for optimal throughput.
 		 * Coordinates thread completion and aggregates per-thread statistics.
 		 * 
 		 * @param cris ConcurrentReadInputStream for standard read processing, or null if using streamer
-		 * @param ss SamReadStreamer for high-throughput processing, or null if using CRIS
+		 * @param ss SamStreamer for high-throughput processing, or null if using CRIS
 		 * @param kca K-mer counting array for prefiltering, or null to disable prefiltering
 		 * @param forced Forced variants to include regardless of quality filters
 		 * @param calcCoverage Whether threads should calculate scaffold coverage statistics
 		 */
-		private void spawnThreads(final ConcurrentReadInputStream cris, final SamReadStreamer ss,
+		private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss,
 				final KCountArray7MTA kca, final VarMap forced, final boolean calcCoverage){
 			
 			//Do anything necessary prior to processing
@@ -1112,14 +1112,14 @@ public class CallVariants2 {
 			 * Configures thread for either prefilter-only mode or full variant calling mode.
 			 * 
 			 * @param cris_ ConcurrentReadInputStream for standard read processing
-			 * @param ss_ SamReadStreamer for high-throughput processing
+			 * @param ss_ SamStreamer for high-throughput processing
 			 * @param tid_ Unique thread identifier for debugging and statistics
 			 * @param kca_ K-mer counting array for prefiltering, or null to disable
 			 * @param forced_ Forced variants to include regardless of filters
 			 * @param prefilterOnly_ Whether to run in prefilter-only mode
 			 * @param calcCoverage_ Whether to calculate scaffold coverage statistics
 			 */
-			ProcessThread(final ConcurrentReadInputStream cris_, final SamReadStreamer ss_, final int tid_,
+			ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final int tid_,
 					final KCountArray7MTA kca_, final VarMap forced_, final boolean prefilterOnly_,
 					final boolean calcCoverage_){
 				cris=cris_;
@@ -1371,8 +1371,8 @@ public class CallVariants2 {
 			
 			/** Shared input stream */
 			private final ConcurrentReadInputStream cris;
-			/** Optional SamReadStreamer for high throughput */
-			private final SamReadStreamer ss;
+			/** Optional SamStreamer for high throughput */
+			private final SamStreamer ss;
 			/** For realigning reads */
 			final Realigner realigner;
 			
@@ -1543,9 +1543,9 @@ public class CallVariants2 {
 	/** Whether to trim whitespace from read names and comments */
 	static boolean trimWhitespace=true;
 	
-	/** Whether to use SamReadStreamer for high-throughput read processing */
+	/** Whether to use SamStreamer for high-throughput read processing */
 	static boolean useStreamer=true;
-	/** Number of threads to use for SamReadStreamer processing */
+	/** Number of threads to use for SamStreamer processing */
 	static int streamerThreads=SamStreamer.DEFAULT_THREADS;
 	
 	/*--------------------------------------------------------------*/

@@ -1,10 +1,7 @@
 package stream;
 
 import java.util.ArrayList;
-import java.util.concurrent.ArrayBlockingQueue;
-
 import fileIO.FileFormat;
-import shared.KillSwitch;
 import structures.ListNum;
 
 /**
@@ -20,19 +17,20 @@ public class SamLineStreamer extends SamStreamer {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructor.
-	 */
-	public SamLineStreamer(String fname_, int threads_, boolean saveHeader_, long maxReads_){
-		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, saveHeader_, maxReads_);
+	/** Constructor. */
+	SamLineStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, 
+			long maxReads_, boolean makeReads_){
+		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, 
+			saveHeader_, ordered_, maxReads_, makeReads_);
 	}
 	
-	/**
-	 * Constructor.
-	 */
-	public SamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, long maxReads_){
-		super(ffin_, threads_, saveHeader_, maxReads_);
-		outq=new ArrayBlockingQueue<ListNum<SamLine>>(threads+2);
+	/** Constructor. */
+	SamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, 
+			long maxReads_, boolean makeReads_){
+		super(ffin_, threads_, saveHeader_, ordered_, maxReads_, makeReads_);
+		int queueSize=2*threads+1;
+		outq=new JobQueue<ListNum<SamLine>>(queueSize, ordered, true, 0);
+		if(verbose){outstream.println("Made sls-"+threads);}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -41,47 +39,34 @@ public class SamLineStreamer extends SamStreamer {
 	
 	@Override
 	public ListNum<SamLine> nextLines(){
-		ListNum<SamLine> list=null;
-		while(list==null){
-			try {
-				list=outq.take();
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			if(verbose){outstream.println("a. Got list size "+list.size());}
-		}
-		while(list==POISON_LINES){
-			if(verbose){outstream.println("b. Got poison.");}
-			try {
-				outq.put(list);
-				list=null;
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-		}
-		if(verbose){outstream.println("c. done.");}
+		ListNum<SamLine> list=outq.take();
+		if(verbose && list!=null){outstream.println("Got list size "+list.size());}
 		return list;
 	}
-	
+
 	@Override
 	public ListNum<Read> nextReads(){
-		KillSwitch.kill("Unsupported.");
-		return null;
+		assert(makeReads);
+		ListNum<SamLine> lines=nextLines();
+		if(lines==null){return null;}
+		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
+		if(!lines.isEmpty()) {
+			for(SamLine line : lines){
+				assert(line.obj!=null);
+				reads.add((Read)line.obj);
+			}
+		}
+		ListNum<Read> ln=new ListNum<Read>(reads, lines.id);
+		return ln;
 	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	
 	/** Spawn process threads */
 	@Override
 	void spawnThreads(){
-		
-		//Do anything necessary prior to processing
-		
 		//Determine how many threads may be used
 		final int threads=this.threads+1;
 		
@@ -97,9 +82,6 @@ public class SamLineStreamer extends SamStreamer {
 			pt.start();
 		}
 		if(verbose){outstream.println("Started threads.");}
-		
-		//Do anything necessary after processing
-		
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -110,17 +92,15 @@ public class SamLineStreamer extends SamStreamer {
 	 * It is safe to remove the static modifier. */
 	private class ProcessThread extends Thread {
 		
-		//Constructor
+		/** Constructor */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			alpt=(tid==0 ? alpt_ : null);
 		}
 		
-		//Called by start()
+		/** Called by start() */
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
 			//Process the reads
 			if(tid==0){
 				processBytes();
@@ -134,6 +114,7 @@ public class SamLineStreamer extends SamStreamer {
 		
 		void processBytes(){
 			processBytes0(tid);
+			if(verbose || verbose2){outstream.println("tid "+tid+" done with processBytes0.");}
 			
 			success=true;
 			
@@ -145,42 +126,35 @@ public class SamLineStreamer extends SamStreamer {
 				if(pt!=this){
 					if(verbose){outstream.println("Waiting for thread "+pt.tid);}
 					while(pt.getState()!=Thread.State.TERMINATED){
-						try {
-							//Attempt a join operation
-							pt.join();
-						} catch (InterruptedException e) {
-							//Potentially handle this, if it is expected to occur
+						try{
+							pt.join(); //Attempt a join operation
+						}catch(InterruptedException e){
 							e.printStackTrace();
 						}
 					}
+					if(verbose || verbose2){outstream.println("tid "+tid+" joined tid "+pt.tid);}
 
 					//Accumulate per-thread statistics
 					readsProcessed+=pt.readsProcessedT;
 					basesProcessed+=pt.basesProcessedT;
 					allSuccess&=pt.success;
+//					assert(pt.success) : pt.tid;
 				}
 			}
+			if(verbose || verbose2){outstream.println("tid "+tid+" noted all process threads finished.");}
 			
-			putReads(POISON_LINES);
+			ListNum<byte[]> list=takeBytes();//Poison
+			putReads(new ListNum<SamLine>(null, list.id(), false, true));//Last
 			if(verbose || verbose2){outstream.println("tid "+tid+" done poisoning reads.");}
 			
 			//Track whether any threads failed
 			if(!allSuccess){errorState=true;}
-			if(verbose || verbose2){outstream.println("tid "+tid+" finished!");}
-			
+			if(verbose || verbose2){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
 		
 		void putReads(ListNum<SamLine> list){
-			if(verbose){outstream.println("tid "+tid+" putting rlist size "+list.size());}
-			while(list!=null){
-				try {
-					outq.put(list);
-					list=null;
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-			}
+			if(verbose){outstream.println("tid "+tid+" putting rlist "+list.id+" size "+list.size());}
+			outq.add(list);
 			if(verbose){outstream.println("tid "+tid+" done putting rlist");}
 		}
 		
@@ -189,39 +163,41 @@ public class SamLineStreamer extends SamStreamer {
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
 			ListNum<byte[]> list=takeBytes();
-			while(list!=POISON_BYTES){
-				ListNum<SamLine> reads=new ListNum<SamLine>(new ArrayList<SamLine>(list.size()), list.id);
+			while(!list.poison()){
+				if(verbose || verbose2){outstream.println("tid "+tid+" grabbed blist "+list.id);}
+				ListNum<SamLine> reads=new ListNum<SamLine>(
+					new ArrayList<SamLine>(list.size()), list.id);
 				for(byte[] line : list){
 					if(line[0]=='@'){
-						//ignore;
+						//Ignore header lines
 					}else{
 						SamLine sl=new SamLine(line);
 						reads.add(sl);
-						
+						if(makeReads){
+							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
+							sl.obj=r;
+							r.samline=sl;
+						}
 						readsProcessedT++;
 						basesProcessedT+=(sl.seq==null ? 0 : sl.length());
 					}
 				}
-				if(reads.size()>0){putReads(reads);}
+//				if(reads.size()>0){putReads(reads);}
+				putReads(reads);//Must put them no matter what
 				list=takeBytes();
 			}
 			if(verbose || verbose2){outstream.println("tid "+tid+" done making reads.");}
 
-			putBytes(POISON_BYTES);
+			putBytes(list);
 			if(verbose || verbose2){outstream.println("tid "+tid+" done poisoning bytes.");}
-			
-//			putReads(POISON_LINES);
-//			if(verbose || verbose2){outstream.println("tid "+tid+" done poisoning reads.");}
 		}
 
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		
 		/** True only if this thread has completed successfully */
 		boolean success=false;
-		
 		/** Thread ID */
 		final int tid;
 		
@@ -232,6 +208,6 @@ public class SamLineStreamer extends SamStreamer {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	final ArrayBlockingQueue<ListNum<SamLine>> outq;
+	final JobQueue<ListNum<SamLine>> outq;
 	
 }

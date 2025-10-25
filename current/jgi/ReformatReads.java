@@ -1206,16 +1206,16 @@ public class ReformatReads {
 				cris.returnList(ln.id, true);
 			}
 		}
-		
+		assert(!errorState);
 		errorState|=ReadStats.writeAll();
-		
+		assert(!errorState);
 		{
 			//Prevent a spurious error message in the event of a race condition when maxReads is set.
 			boolean b=ReadWrite.closeStream(cris);
 			if(maxReads<1 || maxReads==Long.MAX_VALUE || (maxReads!=readsProcessed && maxReads*2!=readsProcessed && samplerate<1)){errorState|=b;}
-		}
+		}assert(!errorState);
 		errorState|=ReadWrite.closeOutputStreams(ros, rosb);
-		
+		assert(!errorState);
 		if(deleteEmptyFiles){
 			deleteEmpty(readsOut1, readsOut2, readsOutSingle);
 		}

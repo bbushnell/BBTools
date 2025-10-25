@@ -6,6 +6,7 @@ import java.util.Arrays;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
+import shared.Tools;
 import structures.ListNum;
 
 /**
@@ -154,9 +155,9 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
 			
 		}else if(ff1.samOrBam()){
-			
-			ReadInputStream ris1=new SamReadInputStream(ff1, keepSamHeader, FASTQ.FORCE_INTERLEAVED);
-			ReadInputStream ris2=(ff2==null ? null : new SamReadInputStream(ff2, false, false));
+			int threads=Tools.mid(1, SamStreamer.DEFAULT_THREADS, Shared.threads());
+			ReadInputStream ris1=new SamReadInputStream(ff1, keepSamHeader, FASTQ.FORCE_INTERLEAVED, threads, maxReads);
+			ReadInputStream ris2=(ff2==null ? null : new SamReadInputStream(ff2, false, false, threads, maxReads));
 			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
 			
 		}else if(ff1.bread()){

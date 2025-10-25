@@ -88,14 +88,10 @@ public class ByteStreamWriter extends Thread {
 					"and is read-only.");
 		if(append && !(ff.raw() || ff.gzip())){throw new RuntimeException("Can't append to compressed files.");}
 		
-		if(!BAM || !(Data.SAMTOOLS() /*|| Data.SAMBAMBA()*/) /*|| !Data.SH()*/){
+		if(!BAM || !Data.BAM_SUPPORT_OUT()){
 			outstream=ReadWrite.getOutputStream(fname, append, true, allowSubprocess);
 		}else{
-			if(Data.SAMTOOLS()){
-				outstream=ReadWrite.getOutputStreamFromProcess(fname, "samtools view -S -b -h - ", true, append, true, true);
-			}else{
-				outstream=ReadWrite.getOutputStreamFromProcess(fname, "sambamba view -S -f bam -h ", true, append, true, true); //Sambamba does not support stdin
-			}
+			outstream=ReadWrite.getBamOutputStream(fname, append);
 		}
 		
 		queue=new ArrayBlockingQueue<ByteBuilder>(5);

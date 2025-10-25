@@ -632,7 +632,7 @@ public class MergeSamples {
 	/*--------------------------------------------------------------*/
 	
 	/** Poison pill sentinel for terminating thread processing loops */
-	final ListNum<VCFLine[]> POISON_LIST=new ListNum<VCFLine[]>(null, -1);
+	final ListNum<VCFLine[]> POISON_LIST=new ListNum<VCFLine[]>(null, Long.MAX_VALUE, true, false);
 	/** Thread-safe queue for distributing variant row batches to worker threads */
 	private final ArrayBlockingQueue<ListNum<VCFLine[]>> inq;
 	/** Number of worker threads for parallel processing (matches CPU count) */

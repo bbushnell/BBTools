@@ -9,7 +9,7 @@ import shared.Parse;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
-import stream.SamReadStreamer;
+import stream.SamStreamer;
 import stream.SamStreamer;
 import structures.ListNum;
 
@@ -76,8 +76,8 @@ public class ZMWStreamer implements Runnable {
 		return cris;
 	}
 	
-	private SamReadStreamer makeStreamer(FileFormat ff){
-		SamReadStreamer ss=new SamReadStreamer(ff, streamerThreads, true, maxReads);
+	private SamStreamer makeStreamer(FileFormat ff){
+		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, ordered, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){System.err.println("Started sam streamer");}
 		return ss;
@@ -241,6 +241,7 @@ public class ZMWStreamer implements Runnable {
 	private final long maxReads;
 	private final long maxZMWs;
 	public boolean errorState=false;
+	public boolean ordered=true;
 	
 	private final ArrayBlockingQueue<ZMW> queue;
 	private static final ZMW POISON=new ZMW(0);

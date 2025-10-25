@@ -73,7 +73,7 @@ public class ConcatenateFiles {
 				String fname=f.getAbsolutePath();
 				System.err.println("Processing "+fname);
 				
-				InputStream is=ReadWrite.getInputStream(fname, false, false);
+				InputStream is=ReadWrite.getInputStream(fname, false, false, true);
 				
 				for(int lim=is.read(buf); lim>0; lim=is.read(buf)){
 					os.write(buf, 0, lim);

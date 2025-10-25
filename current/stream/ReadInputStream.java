@@ -43,8 +43,8 @@ public abstract class ReadInputStream {
 		return list;
 	}
 	
-
-	public abstract Read next();
+	@Deprecated
+	public abstract Read next();//TODO: Remove.  Unused and complicated
 	
 //	public final ArrayList<Read> fetchAll(){
 //		ArrayList<Read> out=new ArrayList<Read>();
@@ -80,7 +80,8 @@ public abstract class ReadInputStream {
 	
 	public final boolean preferLists(){return true;}
 
-	public abstract void start();
+	@Deprecated
+	public abstract void start();//TODO:  Never used, should be removed.
 	
 	public abstract String fname();
 	

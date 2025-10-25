@@ -82,7 +82,7 @@ public class CopyFile {
 		}
 
 		try{
-			InputStream in=ReadWrite.getInputStream(source, false, true);
+			InputStream in=ReadWrite.getInputStream(source, false, true, true);
 			OutputStream out=ReadWrite.getOutputStream(dest, false, false, true);
 
 			final byte[] buffer=new byte[16384];

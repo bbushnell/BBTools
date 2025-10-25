@@ -31,7 +31,7 @@ public class Bam2Sam {
 			PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter(outFile)));
 
 			// Create BAM reader with 4 threads, save header
-			BamLineStreamer bls = new BamLineStreamer(inFile, 4, true, -1);
+			BamLineStreamer bls = new BamLineStreamer(inFile, 4, true, false, -1, false);
 
 			// Start reading
 			bls.start();

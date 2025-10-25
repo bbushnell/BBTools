@@ -2,17 +2,29 @@ package stream;
 
 import java.util.ArrayList;
 
-import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
+import structures.ListNum;
 
+/**
+ * Multithreaded SAM/BAM input stream using SamStreamer.
+ * 
+ * Provides ReadInputStream interface for SAM and BAM files with automatic format detection
+ * and multithreaded parsing. Delegates to SamStreamer for efficient parallel processing
+ * while maintaining the familiar ReadInputStream API.
+ * 
+ * Supports both single-read and interleaved paired-read modes.
+ * 
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date Original, refactored October 23, 2025
+ */
 public class SamReadInputStream extends ReadInputStream {
 	
 	public static void main(String[] args){
-		
-		SamReadInputStream sris=new SamReadInputStream(args[0], false, false, true);
+		SamReadInputStream sris=new SamReadInputStream(args[0], false, false, true, 
+			SamStreamer.DEFAULT_THREADS);
 		
 		Read r=sris.next();
 		System.out.println(r.toText(false));
@@ -21,46 +33,58 @@ public class SamReadInputStream extends ReadInputStream {
 		System.out.println();
 	}
 	
-	public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, boolean allowSubprocess_){
-		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false), loadHeader_, interleaved_);
+	/** Constructor with default thread count. */
+	public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, 
+			boolean allowSubprocess_, long maxReads_){
+		this(fname, loadHeader_, interleaved_, allowSubprocess_, SamStreamer.DEFAULT_THREADS, maxReads_);
 	}
-		
-	public SamReadInputStream(FileFormat ff, boolean loadHeader_, boolean interleaved_){
+	
+	/** Constructor with explicit thread count. */
+	public SamReadInputStream(String fname, boolean loadHeader_, boolean interleaved_, 
+			boolean allowSubprocess_, int threads_, long maxReads_){
+		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false), 
+			loadHeader_, interleaved_, threads_, maxReads_);
+	}
+	
+	/** Main constructor - creates and starts SamStreamer. */
+	public SamReadInputStream(FileFormat ff, boolean loadHeader_, boolean interleaved_, 
+			int threads_, long maxReads_){
 		loadHeader=loadHeader_;
-//		assert(loadHeader);
-//		interleaved=((tf.is==System.in || stdin) ? FASTQ.FORCE_INTERLEAVED : true);
 		interleaved=interleaved_;
-		
 		stdin=ff.stdio();
+		
 		if(!ff.samOrBam()){
-			System.err.println("Warning: Did not find expected sam file extension for filename "+ff.name());
+			System.err.println("Warning: Did not find expected sam file extension for filename "+
+				ff.name());
 		}
 		
-		tf=ByteFile.makeByteFile(ff);
-		header=new ArrayList<byte[]>();
+		//Create streamer with appropriate thread count
+		int threads=(threads_<=0 ? SamStreamer.DEFAULT_THREADS : threads_);
+		streamer=SamStreamer.makeStreamer(ff, threads, loadHeader_, true, maxReads_, true);
 		
+		//Extract header if requested
+		if(loadHeader){
+			header=streamer.header;
+			if(header!=null){setSharedHeader(header);}
+		}
+		streamer.start();
 	}
 
 	@Override
-	public void start() {
-//		if(cris!=null){cris.start();}
+	public void start(){
+//		streamer.start(); //Start streamer threads
 	}
 	
-	
 	@Override
-	public boolean hasMore() {
+	public boolean hasMore(){
 		if(buffer==null || next>=buffer.size()){
-			if(tf.isOpen()){
-				fillBuffer();
-			}else{
-				assert(generated>0) : "Was the file empty?";
-			}
+			fillBuffer();
 		}
 		return (buffer!=null && next<buffer.size());
 	}
 
 	@Override
-	public Read next() {
+	public Read next(){
 		if(!hasMore()){return null;}
 		Read r=buffer.set(next, null);
 		next++;
@@ -69,134 +93,76 @@ public class SamReadInputStream extends ReadInputStream {
 	}
 	
 	@Override
-	public synchronized ArrayList<Read> nextList() {
-		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
+	public synchronized ArrayList<Read> nextList(){
+		if(next!=0){
+			throw new RuntimeException("'next' should not be used when doing blockwise access.");
+		}
 		if(buffer==null || next>=buffer.size()){fillBuffer();}
 		ArrayList<Read> list=buffer;
 		buffer=null;
 		if(list!=null && list.size()==0){list=null;}
 		consumed+=(list==null ? 0 : list.size());
-//		System.err.println(hashCode()+" produced "+r[0].numericID);
 		return list;
 	}
 	
+	/** Fill buffer from streamer. */
 	private synchronized void fillBuffer(){
-		
 		assert(buffer==null || next>=buffer.size());
 		
 		buffer=null;
 		next=0;
 		
-		buffer=toReadList(tf, BUF_LEN, nextReadID, FASTQ.PARSE_CUSTOM);
-		nextReadID+=buffer.size();
-		generated+=buffer.size();
-		
-		if(buffer.size()<BUF_LEN){tf.close();}
-	}
-	
-	/**
-	 * @param tf2
-	 * @param bUF_LEN2
-	 * @param nextReadID2
-	 * @param interleaved2
-	 * @return
-	 */
-	private final ArrayList<Read> toReadList(ByteFile tf2, int buflen, long nextReadID2, boolean parseCustom) {
-		ArrayList<Read> list=new ArrayList<Read>(buflen);
-		while(list.size()<buflen){
-			byte[] line=tf2.nextLine();
-//			System.out.println("A: Read line "+new String(line));
-			while(line!=null && line[0]=='@'){
-//				System.out.println(">"+new String(line));
-				if(Shared.TRIM_RNAME){line=trimHeaderSQ(line);}
-				if(loadHeader){header.add(line);}
-				line=tf2.nextLine();
-//				assert(false) : new String(line)+"\n"+header.size()+", "+SHARED_HEADER;
-//				System.out.println("B: Read line "+new String(line));
-			}
-			if(loadHeader && nextReadID2==0){setSharedHeader(header);}
-			if(line==null){return list;}
-			SamLine sl1=new SamLine(line);
-			
-			Read r1=sl1.toRead(parseCustom);
-			r1.samline=sl1;
-			r1.numericID=nextReadID2;
-			list.add(r1);
-			if(interleaved && (sl1.flag&0x1)!=0){
-				assert((sl1.flag&0x40)!=0) : r1+"\n\n"+sl1;
-				byte[] line2=tf2.nextLine();
-				SamLine sl2=null;
-				Read r2=null;
-				if(line2!=null){
-					sl2=new SamLine(line2);
-					r2=sl2.toRead(parseCustom);
-					r2.numericID=nextReadID2;
-				}else{
-					assert(false) : r1+"\n\n"+sl1;
-				}
-				if(sl2!=null){
-					assert((sl2.flag&0x1)!=0);
-					assert((sl2.flag&0x80)!=0) : r2+"\n\n"+sl2+"\nflag="+Integer.toBinaryString(sl2.flag)+"\n";
-					r1.mate=r2;
-					r2.mate=r1;
-					
-					int lim=Tools.min(sl1.qname.length(), sl2.qname.length());
-					for(int i=0; i<lim; i++){
-						char a=sl1.qname.charAt(i);
-						char b=sl2.qname.charAt(i);
-						if(a=='/' || b=='/' || Character.isWhitespace(a) || Character.isWhitespace(b)){break;}
-						assert(a==b) : "Name mismatch for paired reads: '"+sl1.qname+"' != '"+sl2.qname+"'\n\n"+sl1+"\n\n"+sl2;
-					}
-					
-				}
-			}
-			nextReadID2++;
+		//Get next list from streamer
+		ListNum<Read> ln=streamer.nextReads();
+		if(ln==null || ln.list==null){
+			buffer=new ArrayList<Read>(); //Empty buffer signals EOF
+			return;
 		}
-		return list;
+		
+		buffer=ln.list;
+		
+		//Assign numeric IDs if not already set
+		for(Read r : buffer){
+			if(r.numericID<0){
+				r.numericID=nextReadID++;
+			}
+		}
+		
+		generated+=buffer.size();
 	}
 
 	@Override
 	public boolean close(){
-		return tf.close();
+		//Streamer cleanup handled automatically
+		return errorState;
 	}
 	
 	@Override
-	public synchronized void restart() {
-		generated=0;
-		consumed=0;
-		next=0;
-		nextReadID=0;
-		buffer=null;
-		header=new ArrayList<byte[]>();
-		tf.reset();
+	public synchronized void restart(){
+		throw new RuntimeException("SamReadInputStream does not support restart.");
 	}
 	
+	/** Get shared header, optionally waiting for it to be read. */
 	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
 		System.err.println("Waiting on header to be read from a sam file.");
 		while(SHARED_HEADER==null){
-			try {
+			try{
 				SamReadInputStream.class.wait(100);
-			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
+			}catch(InterruptedException e){
 				e.printStackTrace();
 			}
 		}
 		return SHARED_HEADER;
 	}
 	
+	/** Set shared header for all SamReadInputStream instances. */
 	public static synchronized void setSharedHeader(ArrayList<byte[]> list){
-//		assert(false) : list.size();
-//		if(list!=null && Shared.TRIM_RNAME){
-//			for(int i=0; i<list.size(); i++){
-//				byte[] line=list.get(i);
-//				list.set(i, trimHeaderSQ(line));
-//			}
-//		}
 		SHARED_HEADER=list;
 		SamReadInputStream.class.notifyAll();
 	}
 	
+	/** Trim whitespace and annotations from SQ header reference names. */
 	public static byte[] trimHeaderSQ(byte[] line){
 		if(line==null || !Tools.startsWith(line, "@SQ")){return line;}
 		
@@ -224,34 +190,47 @@ public class SamReadInputStream extends ReadInputStream {
 		if(trimStop>=0){
 			for(int i=trimStop; i<line.length; i++){bb.append(line[i]);}
 		}
-		assert(bb.length==bbLen) : bbLen+", "+bb.length+", idx="+idx+", trimStart="+trimStart+", trimStop="+trimStop+"\n\n"+new String(line)+"\n\n"+bb+"\n\n";
+		assert(bb.length==bbLen) : bbLen+", "+bb.length+", idx="+idx+", trimStart="+
+			trimStart+", trimStop="+trimStop+"\n\n"+new String(line)+"\n\n"+bb+"\n\n";
 		
 		return bb.array;
 	}
 	
 	@Override
-	public String fname(){return tf.name();}
-	
-	private static volatile ArrayList<byte[]> SHARED_HEADER;
-//	private static boolean SET_SHARED_HEADER;
+	public String fname(){return streamer.fname;}
 	
 	@Override
-	public boolean paired() {return interleaved;}
+	public boolean paired(){return interleaved;}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Shared header across all SamReadInputStream instances */
+	private static volatile ArrayList<byte[]> SHARED_HEADER;
+
+	/** Current buffer of reads */
 	private ArrayList<Read> buffer=null;
+	/** Header lines from SAM/BAM file */
 	private ArrayList<byte[]> header=null;
+	/** Position in current buffer */
 	private int next=0;
 	
-	private final ByteFile tf;
+	/** Underlying multithreaded streamer */
+	private final SamStreamer streamer;
+	/** True if reads are interleaved paired-end */
 	private final boolean interleaved;
+	/** True if header should be loaded and shared */
 	private final boolean loadHeader;
-
-	private final int BUF_LEN=Shared.bufferLen();;
 	
+	/** Total reads generated */
 	public long generated=0;
+	/** Total reads consumed */
 	public long consumed=0;
+	/** Next numeric ID to assign */
 	private long nextReadID=0;
 	
+	/** True if reading from stdin */
 	public final boolean stdin;
 
 }

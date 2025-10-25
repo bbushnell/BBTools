@@ -271,7 +271,7 @@ public class DiskBench {
 		private void runBis(FileFormat ffin, boolean bufferedStream){
 			
 			final byte[] buffer=new byte[bufferlen];
-			InputStream is=ReadWrite.getInputStream(ffin.name(), bufferedStream, false);
+			InputStream is=ReadWrite.getInputStream(ffin.name(), bufferedStream, false, false);
 			
 			for(int r=1; r>0; ){
 				r=0;
@@ -306,7 +306,7 @@ public class DiskBench {
 		private void runBis2(FileFormat ffin, boolean bufferedStream){
 			
 			final byte[] buffer=new byte[bufferlen];
-			InputStream is=ReadWrite.getInputStream(ffin.name(), bufferedStream, false);
+			InputStream is=ReadWrite.getInputStream(ffin.name(), bufferedStream, false, false);
 			
 			list=new ArrayList<byte[]>(800);
 			for(int r=1; r>0; ){

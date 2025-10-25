@@ -2,7 +2,7 @@ package stream.bam;
 
 import stream.BamLineStreamer;
 import stream.SamLine;
-import stream.SamLineStreamer;
+import stream.SamStreamer;
 import stream.SamReadInputStream;
 import structures.ListNum;
 
@@ -14,7 +14,7 @@ public class TestBamRoundtrip {
 		System.err.println("=== Phase 1: Convert SAM to BAM ===");
 
 		// Read SAM
-		SamLineStreamer sls = new SamLineStreamer(samFile, 4, true, -1);
+		SamStreamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
 		sls.start();
 
 		// Wait for header to be populated in SHARED_HEADER
@@ -35,7 +35,7 @@ public class TestBamRoundtrip {
 		System.err.println("\n=== Phase 2: Read BAM back ===");
 
 		// Read BAM back
-		BamLineStreamer bls = new BamLineStreamer(bamFile, 4, true, -1);
+		BamLineStreamer bls = new BamLineStreamer(bamFile, 4, true, true, -1, false);
 		bls.start();
 
 		System.err.println("Header lines: " + bls.header.size());

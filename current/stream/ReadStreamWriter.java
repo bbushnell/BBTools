@@ -11,7 +11,6 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.KillSwitch;
 import shared.Shared;
-import shared.Tools;
 import structures.ByteBuilder;
 
 public abstract class ReadStreamWriter extends Thread {
@@ -49,6 +48,7 @@ public abstract class ReadStreamWriter extends Thread {
 		qfname=qfname_;
 		read1=read1_;
 		allowSubprocess=ff.allowSubprocess();
+		boolean append=ff.append();
 //		assert(fname==null || (fname.contains(".sam") || fname.contains(".bam"))==OUTPUT_SAM) : "Outfile name and sam output mode flag disagree: "+fname;
 		assert(read1 || !OUTPUT_SAM) : "Attempting to output paired reads to different sam files.";
 		
@@ -59,38 +59,29 @@ public abstract class ReadStreamWriter extends Thread {
 			myQOutstream=ReadWrite.getOutputStream(qfname, (ff==null ? false : ff.append()), buffered, allowSubprocess);
 			myQWriter=(makeWriter ? new PrintWriter(myQOutstream) : null);
 		}
-		
-		if(header==null){header=HEADER;} //new line; test.
-		
+
+		final boolean supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
+		final boolean supressHeaderSequences=(NO_HEADER_SEQUENCES || supressHeader);
+		if(header==null){header=HEADER;} //Legacy.  Used by BBMerge and FindPrimers - should be deprecated.
+		final boolean RSBamWriter=ff.bam() && ReadWrite.USE_NATIVE_BAM_OUT && 
+			ReadWrite.USE_READ_STREAM_BAM_WRITER;
 		
 		if(fname==null && !OUTPUT_STANDARD_OUT){
 			myOutstream=null;
 			myWriter=null;
+		}else if(RSBamWriter) {
+			myOutstream=null;
+			myWriter=null;
 		}else{
 			if(OUTPUT_STANDARD_OUT){myOutstream=System.out;}
-			else if(!OUTPUT_BAM || !(Data.SAMTOOLS() /*|| Data.SAMBAMBA()*/) /*|| !Data.SH()*/){
-				myOutstream=ReadWrite.getOutputStream(ff, buffered);
+			
+			else if(!ff.bam() || !Data.BAM_SUPPORT_OUT()){
+				myOutstream=ReadWrite.getOutputStream(fname, append, buffered, allowSubprocess);
 			}else{
-				if(!allowSubprocess){System.err.println("Warning! Spawning a samtools process when allowSubprocess="+allowSubprocess);}
-				String command;
-				if(Data.SAMTOOLS()){
-					command="samtools view -S -b -h - ";
-					int threads=Tools.min(ReadWrite.MAX_ZIP_THREADS(), Shared.threads(), ReadWrite.MAX_SAMTOOLS_THREADS);
-					if(threads>1){
-						command="samtools view -S -b -h -@ "+threads+" - ";
-					}
-				}else{
-					command= "sambamba view -S -f bam -h "; //Sambamba does not support stdin
-				}
-				myOutstream=ReadWrite.getOutputStreamFromProcess(fname, command, true, ff.append(), true, true);
+				myOutstream=ReadWrite.getBamOutputStream(fname, append);
 			}
 			
-			
-			
 			myWriter=(makeWriter ? new PrintWriter(myOutstream) : null);
-			
-			final boolean supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
-			final boolean supressHeaderSequences=(NO_HEADER_SEQUENCES);
 //			assert(false) : ff.append()+", "+ff.exists();
 			
 			if(header!=null && !supressHeader){
@@ -336,6 +327,7 @@ public abstract class ReadStreamWriter extends Thread {
 	
 	public static int MINCHROM=-1; //For generating sam header
 	public static int MAXCHROM=-1; //For generating sam header
+	@Deprecated
 	public static CharSequence HEADER;
 	public static boolean NUMERIC_QUAL=true;
 	public static boolean OUTPUT_SAM_SECONDARY_ALIGNMENTS=false;

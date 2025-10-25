@@ -598,8 +598,10 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(verbose){System.err.println("crisG:    Called shutdown for "+producer1+"; "+threads[0].getState());}
 //		if(verbose){System.err.println(((FastqReadInputStream)producer1).tf.isOpen());}
 		shutdown();
+		if(verbose){System.err.println("crisG:    shutdown exited; errorState="+errorState);}
 		errorState|=producer1.close();
 		if(producer2!=null){errorState|=producer2.close();}
+		if(verbose){System.err.println("crisG:    producers closed; errorState="+errorState);}
 		if(threads!=null && threads[0]!=null && threads[0].isAlive()){
 			
 			while(threads[0].isAlive()){
@@ -643,7 +645,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //		threads=null;
 //		System.out.println("crisG:    C");
 
-		if(verbose){System.err.println("crisG:    shutdown exited; errorState="+errorState);}
+		if(verbose){System.err.println("crisG:    threads joined; errorState="+errorState);}
 	}
 
 	@Override

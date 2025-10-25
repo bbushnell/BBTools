@@ -1,4 +1,4 @@
-package stream;
+package stream.bam;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -7,7 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import dna.AminoAcid;
-import stream.bam.BamWriterHelper;
+import stream.SamLine;
 
 /**
  * Converts SAM text/SamLine to BAM binary format.
