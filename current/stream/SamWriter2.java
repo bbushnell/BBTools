@@ -1,184 +1,170 @@
 package stream;
 
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
+
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Timer;
-import shared.Tools;
-import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
  * Multithreaded SAM/BAM writer using parallel conversion and ordered output.
  * 
  * Abstract base class for writing SAM/BAM files with parallel Read-to-SamLine
- * conversion and ordered output via OrderedQueueSystem. Workers convert reads 
- * to formatted bytes in parallel while a single writer thread outputs ordered blocks.
+ * conversion and ordered output via JobQueue. Workers convert reads to formatted
+ * bytes in parallel while a single writer thread outputs ordered blocks.
  * 
  * @author Brian Bushnell
  * @contributor Isla
  * @date October 25, 2025
  */
-public abstract class SamWriter {
-
-	public static void main(String[] args){
-		Timer t=new Timer(), t2=new Timer();
-		String in=args[0];
-		String out=args[1];
-		ReadWrite.PREFER_NATIVE_BAM_OUT=ReadWrite.ALLOW_NATIVE_BAM_OUT=args.length>2;
-		ReadWrite.PREFER_NATIVE_BGZF_OUT=ReadWrite.ALLOW_NATIVE_BGZF=(args.length>3);
-
-		//Create input streamer
-		FileFormat ffin=FileFormat.testInput(in, FileFormat.SAM, null, true, false);
-		SamStreamer ss=SamStreamer.makeStreamer(ffin, DEFAULT_THREADS, true, true, -1, false);
-		t.stopAndStart("Made streamer");
-
-		//Start streamer
-		ss.start();
-		t.stopAndStart("Started streamer");
-
-		//Create output writer with header from streamer
-		FileFormat ffout=FileFormat.testOutput(out, FileFormat.SAM, null, true, false, false, true);
-		SamWriter writer=SamWriter.makeWriter(ffout, DEFAULT_THREADS, null, true);
-		t.stopAndStart("Made writer - "+writer.getClass());
-
-		//Start writer
-		writer.start();
-		t.stopAndStart("Started writer");
-
-		//Copy data
-		for(ListNum<SamLine> list=ss.nextLines(); list!=null; list=ss.nextLines()){
-			writer.addLines(list);
-		}
-		t.stopAndStart("Finished streamer");
-
-		//Finish
-		writer.poisonAndWait();
-		t.stopAndStart("Closed writer");
-
-		t2.stop();
-		System.err.println();
-		System.err.println(Tools.timeReadsBasesProcessed(t2, writer.readsWritten, writer.basesWritten, 8));
-		System.err.println(Tools.readsBasesOut(t2.elapsed, writer.readsWritten, writer.basesWritten, 8));
-//		if(verbose) {
-//			System.err.println("Main finished.");
-//			try {
-//				// Wait for 1000 milliseconds (1 second)
-//				Thread.sleep(1000);
-//			} catch (InterruptedException e) {
-//				// Handle the interruption if the thread is interrupted while sleeping
-//				e.printStackTrace();
-//			}
-//			Set<Thread> threads = Thread.getAllStackTraces().keySet();
-//			for(Thread th : threads){
-//				System.err.println("Thread: " + th.getName() + 
-//					" daemon=" + th.isDaemon() + " state=" + th.getState());
-//			}
-//		}
-	}
-
+public abstract class SamWriter2 {
+	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	/** Factory method to create appropriate writer type. */
-	public static SamWriter makeWriter(String out, int threads, 
-		ArrayList<byte[]> header, boolean useSharedHeader, boolean ordered){
+	public static SamWriter2 makeWriter(String out, int threads, 
+			ArrayList<byte[]> header, boolean useSharedHeader, boolean ordered){
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.SAM, null, true, false, false, ordered);
-		return new SamLineWriter(ffout, threads, header, useSharedHeader);
+		return new SamLineWriter2(ffout, threads, header, useSharedHeader);
 	}
-
+	
 	/** Factory method to create appropriate writer type. */
-	public static SamWriter makeWriter(FileFormat ffout, int threads,
-		ArrayList<byte[]> header, boolean useSharedHeader){
+	public static SamWriter2 makeWriter(FileFormat ffout, int threads,
+			ArrayList<byte[]> header, boolean useSharedHeader){
 		if(ffout.bam() && ReadWrite.nativeBamOut()) {
-			return new BamLineWriter(ffout, threads, header, useSharedHeader);
+			throw new RuntimeException("TODO");
 		}else {
-			return new SamLineWriter(ffout, threads, header, useSharedHeader);
+			return new SamLineWriter2(ffout, threads, header, useSharedHeader);
 		}
 	}
-
+	
 	/** Constructor. */
-	public SamWriter(FileFormat ffout_, int threads_, 
-		ArrayList<byte[]> header_, boolean useSharedHeader_){
+	public SamWriter2(FileFormat ffout_, int threads_, 
+			ArrayList<byte[]> header_, boolean useSharedHeader_){
 		ffout=ffout_;
 		fname=ffout.name();
+		ordered=ffout.ordered();
 		threads=threads_;
 		header=header_;
 		useSharedHeader=useSharedHeader_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
-		final boolean nativeBam=(ffout.bam() && ReadWrite.nativeBamOut());
-		assert(nativeBam==(getClass()==BamLineWriter.class));
-
-		int queueSize=1+2*threads;
-
-		//Create prototype jobs for OrderedQueueSystem
-		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
-		SamWriterOutputJob outputProto=new SamWriterOutputJob(-1, null, ListNum.PROTO);
-
-		oqs=new OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob>(
-			queueSize, ffout.ordered(), inputProto, outputProto);
 		
-		if(nativeBam) {
-			outstream=ReadWrite.getBgzipStream(fname, false);
-//			try{//To see raw bam
-//				outstream=new FileOutputStream(fname);
-//			}catch(FileNotFoundException e){
-//				throw new RuntimeException(e);
-//			}
-		}else if(ffout.bam()){
-			outstream=ReadWrite.getBamOutputStream(fname, ffout.append());
-		}else {
+		int queueSize=1+2*threads;
+		inq=new ArrayBlockingQueue<SamWriterInputJob>(queueSize);
+		outq=new JobQueue<SamWriterOutputJob>(queueSize, ordered, true, 0);
+		
+		try{
 			outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, ffout.allowSubprocess());
+		}catch(Exception e){
+			throw new RuntimeException("Error opening output stream for "+fname, e);
 		}
-		System.err.println(outstream.getClass());
 	}
-
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	/** Start worker threads. */
 	public abstract void start();
-
+	
 	/** Add reads for writing (will be converted to SamLines). */
 	public final void addReads(ListNum<Read> reads){
 		if(reads==null){return;}
+		assert(!reads.poison() && !reads.last()) : "Use poison() to terminate";
 		SamWriterInputJob job=new SamWriterInputJob(reads, null, ListNum.NORMAL, reads.id);
-		oqs.addInput(job);
+		putJob(job);
 	}
-
+	
 	/** Add already-formatted SamLines for writing. */
 	public final void addLines(ListNum<SamLine> lines){
 		if(lines==null){return;}
+		assert(!lines.poison() && !lines.last()) : "Use poison() to terminate";
 		SamWriterInputJob job=new SamWriterInputJob(null, lines, ListNum.NORMAL, lines.id);
-		oqs.addInput(job);
+		putJob(job);
 	}
-
-	/** Signal end of input. */
-	public final void poison(){
-		oqs.poison();
+	
+	/** Signal end of input - creates LAST job and returns immediately. */
+	public final synchronized void poison(){
+		if(verbose) {System.err.println("Producer called poison().");}
+		if(lastSeen){return;} //Prevent multiple calls
+		SamWriterInputJob job=new SamWriterInputJob(null, null, ListNum.LAST, maxSeenId+1);
+		if(verbose) {System.err.println("Producer adding LAST.");}
+		putJob(job);
+		if(verbose) {System.err.println("Producer added LAST.");}
+		lastSeen=true;
 	}
-
-	/** Wait for all writes to complete. */
-	public final void waitForFinish(){
-		oqs.waitForFinish();
+	
+	/** Wait for all writes to complete and all threads to terminate. */
+	public final synchronized void waitForFinish(){
+		if(verbose) {System.err.println("Producer waiting for finish.");}
+		while(!finished){
+			try{this.wait();}
+			catch(InterruptedException e){e.printStackTrace();}
+		}
+		if(verbose) {System.err.println("Producer wait for finish ended.");}
 	}
-
+	
 	/** Convenience method - poison and wait. */
 	public final void poisonAndWait(){
-		oqs.poisonAndWait();
+		poison();
+		waitForFinish();
 	}
-
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Put job in input queue. */
+	final void putJob(SamWriterInputJob job){
+		if(verbose) {System.err.println("addJob "+job.id);}
+		synchronized(this) {
+			assert(!lastSeen || job.poison());
+			assert(!job.last() || job.id>maxSeenId);
+			assert(!job.poison() || job.id>=maxSeenId);
+			maxSeenId=Math.max(job.id, maxSeenId);
+		}
+		while(job!=null){
+			try{
+				inq.put(job);
+				job=null;
+			}catch(InterruptedException e){
+				e.printStackTrace();
+			}
+		}
+		if(verbose) {System.err.println("inq now size "+inq.size());}
+	}
+	
+	/** Take job from input queue. */
+	final SamWriterInputJob takeJob(){
+		if(verbose) {System.err.println("takeJob "+inq.size());}
+		SamWriterInputJob job=null;
+		while(job==null){
+			try{
+				job=inq.take();
+				assert(job!=null);
+			}catch(InterruptedException e){
+				e.printStackTrace();
+			}
+		}
+		if(verbose) {System.err.println("took job "+job.id()+": "+inq.size());}
+		return job;
+	}
+	
+	/** Set finished flag (synchronized). */
+	final synchronized void setFinished(boolean b){
+		finished=b;
+		this.notifyAll();
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
@@ -186,12 +172,12 @@ public abstract class SamWriter {
 			Read r2=(r1==null ? null : r1.mate);
 
 			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
-				&& r1.samline!=null ? r1.samline : new SamLine(r1, 0)));
+					&& r1.samline!=null ? r1.samline : new SamLine(r1, 0)));
 			SamLine sl2=(r2==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
-				&& r2.samline!=null ? r2.samline : new SamLine(r2, 1)));
-
+					&& r2.samline!=null ? r2.samline : new SamLine(r2, 1)));
+			
 			if(!SamLine.KEEP_NAMES && sl1!=null && sl2!=null && ((sl2.qname==null) || 
-				!sl2.qname.equals(sl1.qname))){
+					!sl2.qname.equals(sl1.qname))){
 				sl2.qname=sl1.qname;
 			}
 
@@ -225,133 +211,89 @@ public abstract class SamWriter {
 		}
 	}
 	
-	ArrayList<byte[]> getHeader(){
-		ArrayList<byte[]> headerLines;
-		if(useSharedHeader){
-			headerLines=SamReadInputStream.getSharedHeader(true);
-		}else if(header!=null){
-			headerLines=header;
-		}else {
-			headerLines=SamHeader.makeHeaderList(supressHeaderSequences, 
-				ReadStreamWriter.MINCHROM, ReadStreamWriter.MAXCHROM);
-		}
-		if(headerLines==null) {
-			System.err.println("Warning: Header was null, creating empty header");
-			headerLines=new ArrayList<byte[]>();
-		}
-		return headerLines;
-	}
-
-	protected synchronized void writeHeader(){
-		if(headerWritten || supressHeader){return;}
-		ArrayList<byte[]> headerLines=getHeader();
-		
-		ByteBuilder bb=new ByteBuilder();
-		try{
-			for(byte[] line : headerLines) {
-				bb.append(line).nl();
-				if(bb.length()>=16384) {
-					outstream.write(bb.toBytes());
-					bb.clear();
-				}
-			}
-			if(bb.length()>=1) {
-				outstream.write(bb.toBytes());
-				bb.clear();
-			}
-		}catch(IOException e){
-			throw new RuntimeException(e);
-		}
-		headerWritten=true;
-	}
-
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	/** Input job for workers - contains either reads or lines. */
 	static class SamWriterInputJob implements HasID {
-
+		
 		public SamWriterInputJob(ListNum<Read> reads_, ListNum<SamLine> lines_, int type_, long id_){
 			reads=reads_;
 			lines=lines_;
 			type=type_;
 			id=id_;
 			assert(type!=ListNum.NORMAL || ((reads==null) != (lines==null))) : 
-				"Exactly one must be non-null for NORMAL jobs";
-			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.POISON || type==ListNum.PROTO);
+				"Exactly one must be non-null for non-LAST jobs: "+type+", "+(reads==null);
+			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.POISON);
 			assert(reads==null || id==reads.id);
 			assert(lines==null || id==lines.id);
 		}
-
+		
 		@Override
 		public long id(){return id;}
-
 		@Override
 		public boolean poison(){return type==ListNum.POISON;}
-
 		@Override
 		public boolean last(){return type==ListNum.LAST;}
-
 		@Override
 		public SamWriterInputJob makePoison(long id_) {
 			return new SamWriterInputJob(null, null, ListNum.POISON, id_);
 		}
-
 		@Override
 		public SamWriterInputJob makeLast(long id_){
 			return new SamWriterInputJob(null, null, ListNum.LAST, id_);
 		}
-
+		
 		public final ListNum<Read> reads;
 		public final ListNum<SamLine> lines;
 		public final int type;
 		public final long id;
 	}
-
+	
 	/** Output job for writer - ordered formatted bytes. */
 	static class SamWriterOutputJob implements HasID {
-
+		
 		public SamWriterOutputJob(long id_, byte[] bytes_, int type_){
 			id=id_;
 			bytes=bytes_;
 			type=type_;
 			assert((type==ListNum.NORMAL) == (bytes!=null));
-			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.PROTO);
+			assert(type==ListNum.NORMAL || type==ListNum.LAST);
 		}
-
+		
 		@Override
 		public long id(){return id;}
-
+		
 		@Override
-		public boolean poison(){return false;}
-
+		public boolean poison(){return false;} //Never poison in output queue
+		
 		@Override
 		public boolean last(){return type==ListNum.LAST;}
-
 		@Override
 		public SamWriterOutputJob makePoison(long id_) {
 			return new SamWriterOutputJob(id_, null, ListNum.POISON);
 		}
-
 		@Override
 		public SamWriterOutputJob makeLast(long id_){
 			return new SamWriterOutputJob(id_, null, ListNum.LAST);
 		}
-
+		
 		public final long id;
 		public final byte[] bytes;
 		public final int type;
 	}
-
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	/** Output file name. */
 	final String fname;
 	/** Output file format. */
 	final FileFormat ffout;
+	/** True if output should be ordered. */
+	final boolean ordered;
 	/** Number of worker threads. */
 	final int threads;
 	/** True if header should be pulled from shared input. */
@@ -364,24 +306,30 @@ public abstract class SamWriter {
 	boolean headerWritten=false;
 	/** Header lines to write. */
 	final ArrayList<byte[]> header;
-	/** Ordered queue system for coordination. */
-	final OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob> oqs;
+	/** Input queue for worker threads. */
+	final ArrayBlockingQueue<SamWriterInputJob> inq;
+	/** Output queue for ordered writing. */
+	final JobQueue<SamWriterOutputJob> outq;
 	/** Output stream. */
 	final OutputStream outstream;
-
+	/** True when writing is complete. */
+	private volatile boolean finished=false;
+	/** True when poison has been called. */
+	private volatile boolean lastSeen=false;
 	/** Total reads written. */
 	public long readsWritten=0;
 	/** Total bases written. */
 	public long basesWritten=0;
 	/** Were any errors encountered */
 	public boolean errorState=false;
-
+	private long maxSeenId=-1;
+	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-
-	public static int DEFAULT_THREADS=8;
-
+	
+	public static int DEFAULT_THREADS=4; //TODO: Test, likely input limited at >3.
+	
 	public static final boolean verbose=false;
-
+	
 }

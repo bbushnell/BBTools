@@ -110,7 +110,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 			"Invalid offset/length: off="+off+", len="+len+", buf.length="+b.length;
 		assert(!closed) : "Stream closed";
 
-		if(DEBUG && len>0){
+		if(verbose && len>0){
 			System.err.println("write(): writing "+len+" bytes (bufferPos="+bufferPos+")");
 		}
 
@@ -131,7 +131,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 			len-=toWrite;
 
 			if(bufferPos>=maxBlockSize){
-				if(DEBUG){
+				if(verbose){
 					System.err.println("write(): buffer full, calling flushBlock(false)");
 				}
 				flushBlock(false); // Not the last block
@@ -144,7 +144,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/** Submit current buffer as a job for compression. */
 	private void flushBlock(boolean isLast) throws IOException{
 		if(bufferPos==0){
-			if(DEBUG){
+			if(verbose){
 				System.err.println("flushBlock(isLast="+isLast+"): bufferPos=0, nothing to flush");
 			}
 			return;
@@ -153,7 +153,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		assert(bufferPos>0 && bufferPos<=maxBlockSize) : 
 			"Invalid buffer position: "+bufferPos;
 
-		if(DEBUG){
+		if(verbose){
 			System.err.println("flushBlock(isLast="+isLast+"): flushing "+bufferPos+
 				" bytes as job "+nextJobId);
 		}
@@ -165,12 +165,12 @@ public class BgzfOutputStreamMT extends OutputStream {
 		BgzfJob job=new BgzfJob(nextJobId++, buffer, null, isLast);
 		synchronized(job){job.decompressedSize=bufferPos;}
 
-		assert(!DEBUG || job.repOK()) : "flushBlock created invalid job";
+		assert(!verbose || job.repOK()) : "flushBlock created invalid job";
 
 		// Submit to input queue (blocks if queue full)
 		try{
 			inputQueue.put(job);
-			if(DEBUG){
+			if(verbose){
 				System.err.println("flushBlock: submitted job "+job.id+" to inputQueue");
 			}
 		}catch(InterruptedException e){
@@ -195,14 +195,14 @@ public class BgzfOutputStreamMT extends OutputStream {
 				BgzfJob job=inputQueue.take();
 
 				if(job.isPoisonPill()){
-					if(DEBUG){
+					if(verbose){
 						System.err.println("Worker: received POISON, re-injecting and exiting");
 					}
 					inputQueue.put(BgzfJob.POISON_PILL); // Re-inject for other workers
 					break;
 				}
 
-				if(DEBUG){
+				if(verbose){
 					System.err.println("Worker: processing job "+job.id+
 						(job.lastJob ? " (LAST JOB)" : "")+" ("+job.decompressedSize+
 						" bytes)");
@@ -210,7 +210,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 				// If this is the last job, inject poison for other workers
 				if(job.lastJob){
-					if(DEBUG){
+					if(verbose){
 						System.err.println("Worker: saw LAST JOB, injecting POISON");
 					}
 					inputQueue.put(BgzfJob.POISON_PILL);
@@ -222,7 +222,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 				synchronized(job){
 					// Handle empty lastJob marker
 					if(job.decompressedSize==0){
-						if(DEBUG){
+						if(verbose){
 							System.err.println("Worker: received empty lastJob marker, "+
 								"adding to queue without compressing");
 						}
@@ -230,14 +230,14 @@ public class BgzfOutputStreamMT extends OutputStream {
 						job.compressedSize=0;
 
 						if(!jobQueue.add(job)){break;}
-						if(DEBUG){
+						if(verbose){
 							System.err.println("Worker: added empty lastJob to queue");
 						}
 						break; // Exit worker loop
 					}
 
 					assert(job.decompressedSize>0) : "Worker received job with zero size";
-					assert(!DEBUG || job.repOK()) : "Worker received invalid job";
+					assert(!verbose || job.repOK()) : "Worker received invalid job";
 
 					// Compress the data
 					deflater.reset();
@@ -299,7 +299,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 					job.decompressed=null;
 					job.decompressedSize=0;
 
-					assert(!DEBUG || job.repOK()) : "Worker produced invalid job";
+					assert(!verbose || job.repOK()) : "Worker produced invalid job";
 
 					// Add to job queue
 					if(!jobQueue.add(job)){break;}
@@ -318,20 +318,20 @@ public class BgzfOutputStreamMT extends OutputStream {
 			while(true){
 				BgzfJob job=jobQueue.take();
 				if(job==null){
-					if(DEBUG){
+					if(verbose){
 						System.err.println("Writer: JobQueue returned null, exiting");
 					}
 					break;
 				}
 
 				if(job.isPoisonPill()){//Should never happen
-					if(DEBUG){
+					if(verbose){
 						System.err.println("Writer: received poison pill, exiting");
 					}
 					break;
 				}
 
-				if(DEBUG){
+				if(verbose){
 					System.err.println("Writer: received job "+job.id+
 						(job.lastJob ? " (LAST JOB)" : "")+" (size="+job.compressedSize+
 						" bytes)");
@@ -348,7 +348,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 				// If this was the last job, write EOF marker, close stream, and exit
 				if(job.lastJob){
-					if(DEBUG){
+					if(verbose){
 						System.err.println("Writer: lastJob written, writing EOF marker");
 					}
 					writeEOFMarker();
@@ -356,7 +356,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 					// Close underlying stream - writer owns this
 					try{
 						out.close();
-						if(DEBUG){
+						if(verbose){
 							System.err.println("Writer: closed underlying stream, exiting");
 						}
 					}catch(IOException e){
@@ -379,14 +379,14 @@ public class BgzfOutputStreamMT extends OutputStream {
 	private void flush(boolean isLast) throws IOException{
 		if(closed && !isLast){return;}
 
-		if(DEBUG){
+		if(verbose){
 			System.err.println("flush(isLast="+isLast+"): bufferPos="+bufferPos);
 		}
 
 		// Flush current buffer
 		if(bufferPos>0){
 			flushBlock(isLast);
-			if(DEBUG){
+			if(verbose){
 				System.err.println("flush: flushed buffer as job "+(nextJobId-1)+
 					(isLast ? " (LAST)" : ""));
 			}
@@ -394,7 +394,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 			// Buffer empty but this is close() - create empty lastJob marker
 			BgzfJob emptyJob=new BgzfJob(nextJobId++, new byte[0], null, true);
 
-			if(DEBUG){
+			if(verbose){
 				System.err.println("flush: created empty lastJob (id="+emptyJob.id+")");
 			}
 
@@ -414,7 +414,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	public void close() throws IOException{
 		if(closed){return;} // Already closed - idempotent
 
-		if(DEBUG){System.err.println("close(): starting shutdown");}
+		if(verbose){System.err.println("close(): starting shutdown");}
 
 		// Flush with lastJob=true - this submits the lastJob marker
 		flush(true);
@@ -422,7 +422,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		// Mark as closed
 		closed=true;
 
-		if(DEBUG){System.err.println("close(): waiting for writer thread to finish");}
+		if(verbose){System.err.println("close(): waiting for writer thread to finish");}
 
 		// Wait for writer thread to complete (ensures EOF is written and stream closed)
 		if(writer!=null){
@@ -438,7 +438,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		// Check for errors
 		if(workerError!=null){throw workerError;}
 
-		if(DEBUG){System.err.println("close(): writer finished, close complete");}
+		if(verbose){System.err.println("close(): writer finished, close complete");}
 	}
 
 	/** Write BGZF EOF marker (28-byte empty block). */
@@ -514,7 +514,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/** Stream closed flag (only accessed by main thread) */
 	private boolean closed=false;
 	/** Debug flag (enable with -Dbgzf.debug=true) */
-	private static final boolean DEBUG=false;//Boolean.getBoolean("bgzf.debug");
+	private static final boolean verbose=false;//Boolean.getBoolean("bgzf.debug");
 	/** Default maximum uncompressed block size (64KB) */
 	public static final int DEFAULT_BLOCK_SIZE=65536;
 }

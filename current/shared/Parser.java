@@ -32,7 +32,7 @@ import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
 import stream.SamLine;
 import stream.SamStreamer;
-import stream.SamWriter;
+import stream.SamWriter2;
 import stream.bam.BgzfSettings;
 import structures.IntList;
 import tax.TaxTree;
@@ -1119,7 +1119,7 @@ public class Parser {
 		}else if(a.equals("streamerthreads")){
 			SamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("samwriterthreads") || a.equals("writerthreads")){
-			SamWriter.DEFAULT_THREADS=Integer.parseInt(b);
+			SamWriter2.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("prefermd") || a.equals("prefermdtag")){
 			SamLine.PREFER_MDTAG=Parse.parseBoolean(b);
 		}else if(a.equals("notags")){

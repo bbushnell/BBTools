@@ -855,4 +855,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 	}
 	
+	public ByteBuilder appendUint32(long val) {
+	    append((byte)(val & 0xFF));
+	    append((byte)((val >> 8) & 0xFF));
+	    append((byte)((val >> 16) & 0xFF));
+	    append((byte)((val >> 24) & 0xFF));
+	    return this;
+	}
+	
 }
