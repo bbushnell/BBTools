@@ -178,6 +178,8 @@ public final class ListNum<K extends Serializable> implements Serializable, Iter
 	/** Job type. */
 	public final int type;
 
+	/** Prototype, for reflection. */
+	public static final int PROTO=-1;
 	/** Normal job. */
 	public static final int NORMAL=0;
 	/** True if this is the last job in the sequence. */

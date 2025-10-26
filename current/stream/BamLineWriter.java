@@ -1,33 +1,33 @@
 package stream;
 
+import java.io.IOException;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Timer;
-import shared.Tools;
+import stream.bam.SamToBamConverter;
 import structures.ByteBuilder;
 import structures.ListNum;
 import template.ThreadWaiter;
 
 /**
- * Writes SAM text files with parallel conversion and ordered output.
+ * Writes BAM binary files with parallel conversion and ordered output.
  * 
- * Workers convert Read/SamLine objects to SAM text in parallel.
+ * Workers convert Read/SamLine objects to BAM binary in parallel.
  * OrderedQueueSystem ensures output blocks are written in order.
  * 
  * @author Brian Bushnell
  * @contributor Isla
  * @date October 25, 2025
  */
-public class SamLineWriter extends SamWriter {
+public class BamLineWriter extends SamWriter {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Constructor. */
-	SamLineWriter(FileFormat ffout_, int threads_,
+	BamLineWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
 		super(ffout_, threads_, header_, useSharedHeader_);
 	}
@@ -53,16 +53,62 @@ public class SamLineWriter extends SamWriter {
 		for(ProcessThread pt : alpt){pt.start();}
 	}
 
+	@Override
+	protected synchronized void writeHeader(){
+		if(headerWritten){return;}
+
+		ArrayList<byte[]> headerLines=getHeader();
+
+		// Extract reference names for converter
+		ArrayList<String> refNames=new ArrayList<String>();
+		for(byte[] line : headerLines) {
+			if(line.length > 3 && line[0] == '@' && line[1] == 'S' && line[2] == 'Q') {
+				String lineStr = new String(line);
+				String[] fields = lineStr.split("\\t");
+				for(int i = 1; i < fields.length; i++) {
+					if(fields[i].startsWith("SN:")) {
+						refNames.add(fields[i].substring(3));
+						break;
+					}
+				}
+			}
+		}
+		// Write BAM header using helper
+		stream.bam.BamWriterHelper writer = new stream.bam.BamWriterHelper(outstream);
+		try{
+			writer.writeHeaderFromLines(headerLines, supressHeader, supressHeaderSequences);
+		}catch(IOException e){
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		// Create converter for workers
+		sharedConverter=new SamToBamConverter(refNames.toArray(new String[0]));
+		headerWritten=true;
+		this.notifyAll();
+	}
+	
+	private SamToBamConverter getConverter() {
+		synchronized(this) {
+			while(sharedConverter==null) {
+				try{this.wait();}
+				catch(InterruptedException e){e.printStackTrace();}
+			}
+		}
+		return sharedConverter;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Processing thread - converts reads/lines to SAM text or writes output. */
+	/** Processing thread - converts reads/lines to BAM binary or writes output. */
 	private class ProcessThread extends Thread {
 
 		/** Constructor. */
 		ProcessThread(final int tid_){
 			tid=tid_;
+			if(verbose) {System.err.println("tid "+tid+" created.");}
 		}
 
 		/** Called by start(). */
@@ -70,8 +116,10 @@ public class SamLineWriter extends SamWriter {
 		public void run(){
 			if(tid==0){
 				writeOutput(); //Writer thread
+				if(verbose) {System.err.println("Consumer "+tid+" finished.");}
 			}else{
 				processJobs(); //Worker thread
+				if(verbose) {System.err.println("Worker "+tid+" finished.");}
 			}
 			success=true;
 		}
@@ -95,7 +143,7 @@ public class SamLineWriter extends SamWriter {
 
 			//Wait for other threads and accumulate statistics
 			ThreadWaiter.waitForThreadsToFinish(alpt);
-			synchronized(SamLineWriter.this) {
+			synchronized(BamLineWriter.this) {
 				for(ProcessThread pt : alpt){
 					synchronized(pt) {
 						readsWritten+=pt.readsWrittenT;
@@ -118,6 +166,7 @@ public class SamLineWriter extends SamWriter {
 			final ByteBuilder bb=new ByteBuilder();
 
 			SamWriterInputJob job=oqs.getInput();
+			final SamToBamConverter converter=getConverter();
 			while(!job.poison()){
 				//Convert to SamLines if needed
 				ArrayList<SamLine> lines;
@@ -127,12 +176,18 @@ public class SamLineWriter extends SamWriter {
 					lines=toSamLines(job.reads.list);
 				}
 
-				//Format SamLines to bytes and count
+				//Format SamLines to BAM bytes and count
 				for(SamLine sl : lines){
-					sl.toBytes(bb);
-					bb.nl();
-					readsWrittenT++;
-					basesWrittenT+=sl.length();
+					try{
+						byte[] bamRecord = converter.convertAlignment(sl);
+						// Write block_size followed by the record
+						bb.appendUint32(bamRecord.length);
+						bb.append(bamRecord);
+						readsWrittenT++;
+						basesWrittenT+=sl.length();
+					}catch(Exception e){
+						throw new RuntimeException("Error converting to BAM", e);
+					}
 				}
 
 				//Create output job
@@ -163,5 +218,7 @@ public class SamLineWriter extends SamWriter {
 
 	/** Thread list for accumulation. */
 	private ArrayList<ProcessThread> alpt;
+	/** Converter for SamLine to BAM binary. */
+	private volatile SamToBamConverter sharedConverter;
 
 }
