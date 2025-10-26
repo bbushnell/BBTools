@@ -15,7 +15,7 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*--------------------------------------------------------------*/
 
 	public ReadStreamByteWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean useSharedHeader){
-		super(ff, qfname_, read1_, bufferSize, header, false, buffered, useSharedHeader);
+		super(ff, qfname_, read1_, bufferSize, header, buffered, useSharedHeader);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -82,7 +82,7 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 		
 		while(job!=null && !job.poison){
 
-			final OutputStream os=job.outstream;
+			final OutputStream os=myOutstream;
 			
 			if(!job.isEmpty()){
 				if(myQOutstream!=null){
@@ -114,8 +114,7 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 					os.write(bb.array, 0, bb.length);
 					bb.setLength(0);
 				}
-				assert(job.outstream!=null && job.outstream!=myOutstream);
-				ReadWrite.finishWriting(null, job.outstream, fname, allowSubprocess); //TODO:  This should be job.fname
+				ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
 			}
 			
 			job=null;

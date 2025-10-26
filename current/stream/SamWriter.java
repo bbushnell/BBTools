@@ -136,7 +136,7 @@ public abstract class SamWriter {
 		}else {
 			outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, ffout.allowSubprocess());
 		}
-		System.err.println(outstream.getClass());
+		if(verbose) {System.err.println("outstream="+outstream.getClass());}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -166,13 +166,15 @@ public abstract class SamWriter {
 	}
 
 	/** Wait for all writes to complete. */
-	public final void waitForFinish(){
+	public final boolean waitForFinish(){
 		oqs.waitForFinish();
+		return errorState();
 	}
 
 	/** Convenience method - poison and wait. */
-	public final void poisonAndWait(){
-		oqs.poisonAndWait();
+	public final boolean poisonAndWait(){
+		poison();
+		return waitForFinish();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -345,6 +347,15 @@ public abstract class SamWriter {
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------     Getters and Setters      ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	synchronized void setErrorState(boolean b){
+		errorState|=b;//Can never be unset
+	}
+	public synchronized boolean errorState() {return errorState;}
+
+	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -374,7 +385,7 @@ public abstract class SamWriter {
 	/** Total bases written. */
 	public long basesWritten=0;
 	/** Were any errors encountered */
-	public boolean errorState=false;
+	private boolean errorState=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

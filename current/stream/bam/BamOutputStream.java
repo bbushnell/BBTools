@@ -37,12 +37,12 @@ public class BamOutputStream extends OutputStream {
 			mtOut = new BgzfOutputStreamMT(out, threads, compression, blockSize);
 			stOut = null;
 			bgzf = mtOut;
-			System.err.println("MT: compression="+compression+", threads="+threads+", blockSize="+blockSize);
+//			System.err.println("MT: compression="+compression+", threads="+threads+", blockSize="+blockSize);
 		} else {
 			stOut = new BgzfOutputStream(out, compression);
 			mtOut = null;
 			bgzf = stOut;
-			System.err.println("ST: compression="+compression+", threads="+threads);
+//			System.err.println("ST: compression="+compression+", threads="+threads);
 		}
 		helper = new BamWriterHelper(bgzf);
 	}

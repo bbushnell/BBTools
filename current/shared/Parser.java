@@ -1110,6 +1110,10 @@ public class Parser {
 			ReadWrite.PREFER_NATIVE_BAM_IN=ReadWrite.PREFER_NATIVE_BAM_OUT=Parse.parseBoolean(b);
 			ReadWrite.ALLOW_NATIVE_BAM_IN|=ReadWrite.PREFER_NATIVE_BAM_IN;
 			ReadWrite.ALLOW_NATIVE_BAM_OUT|=ReadWrite.PREFER_NATIVE_BAM_OUT;
+		}else if(a.equals("userssw")){
+			ReadWrite.USE_READ_STREAM_SAM_WRITER=Parse.parseBoolean(b);
+		}else if(a.equals("usersbw")){
+			ReadWrite.USE_READ_STREAM_BAM_WRITER=Parse.parseBoolean(b);
 		}
 
 		else if(a.equals("attachedsamline") || a.equals("useattachedsamline")){

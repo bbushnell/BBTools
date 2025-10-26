@@ -10,6 +10,7 @@ import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 import ml.Cell;
+import structures.IntList;
 
 /**
  * Holds SIMD methods.
@@ -722,6 +723,54 @@ public final class SIMD{
 			c=(x>c ? x : c);
 		}
 		return c;
+	}
+
+	/**
+	 * Find positions of the given symbol in a byte array using SIMD.
+	 * @param buffer The byte array to search
+	 * @param from Starting position (inclusive)
+	 * @param to Ending position (exclusive)
+	 * @param symbol Character to find
+	 * @param positions IntList to store newline positions
+	 * @return Number of symbols found, including pre-existing ones
+	 */
+	@SuppressWarnings("restriction")
+	public static final int findSymbols(final byte[] buffer, final int from, 
+			final int to, final byte symbol, final IntList positions){
+		final int limit=BSPECIES.loopBound(to-from);
+		final ByteVector newlineVec=ByteVector.broadcast(BSPECIES, symbol);
+
+		int i=from;
+
+		// SIMD loop
+		for(; i<from+limit; i+=BWIDTH){
+			ByteVector vec=ByteVector.fromArray(BSPECIES, buffer, i);
+			VectorMask<Byte> mask=vec.eq(newlineVec);
+//			if(!mask.anyTrue()) {continue;}//Hopefully common case - Not faster, maybe 1% slower
+			// Convert mask to long bitmask
+			long bits=mask.toLong();
+
+			// Extract set bit positions using bit manipulation
+			//Brian version
+//			for(int lane=0; bits!=0; lane++){//Looks strange but lane needs to be incremented
+//				int zeros=Long.numberOfTrailingZeros(bits);
+//				lane+=zeros;
+//				positions.add(lane+i);
+//				bits>>>=(zeros+1);
+//			}
+			while(bits!=0){//Isla version - 5% faster
+				int lane=Long.numberOfTrailingZeros(bits);
+				positions.add(i+lane);
+				bits&=(bits-1); // Clear lowest set bit
+			}
+		}
+
+		// Residual scalar loop
+		for(; i<to; i++){
+			if(buffer[i]==symbol){positions.add(i);}
+		}
+
+		return positions.size();
 	}
 
 }

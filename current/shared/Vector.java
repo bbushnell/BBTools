@@ -1,6 +1,9 @@
 package shared;
 
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.VectorMask;
 import ml.Cell;
+import structures.IntList;
 
 /** 
  * Protects normal classes from seeing SIMD in case it doesn't compile or is absent.
@@ -420,6 +423,28 @@ public final class Vector {
 			max=(x>max ? x : max);
 		}
 		return max;
+	}
+	
+	/**
+	 * Find positions of the given symbol in a byte array.
+	 * @param buffer The byte array to search
+	 * @param from Starting position (inclusive)
+	 * @param to Ending position (exclusive)
+	 * @param symbol Character to find
+	 * @param positions IntList to store newline positions
+	 * @return Number of symbols found, including pre-existing ones
+	 */
+	public static final int findSymbols(final byte[] array, 
+			final int from, final int to, final byte symbol, final IntList positions){
+		if(array==null){return positions.size();}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.findSymbols(array, from, to, symbol, positions);
+		}
+		final byte nl=(byte)'\n';
+		for(int i=from; i<to; i++){
+			if(array[i]==nl){positions.add(i);}
+		}
+		return positions.size();
 	}
 	
 	public static final int MINLEN8=32;

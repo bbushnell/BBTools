@@ -2,7 +2,6 @@ package stream;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
@@ -12,6 +11,7 @@ import fileIO.ReadWrite;
 import shared.KillSwitch;
 import shared.Shared;
 import structures.ByteBuilder;
+import structures.ListNum;
 
 public abstract class ReadStreamWriter extends Thread {
 	
@@ -21,8 +21,8 @@ public abstract class ReadStreamWriter extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	
-	protected ReadStreamWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header,
-			boolean makeWriter, boolean buffered, boolean useSharedHeader){
+	protected ReadStreamWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, 
+			CharSequence header, boolean buffered, boolean useSharedHeader){
 //		assert(false) : useSharedHeader+", "+header;
 		assert(ff!=null);
 		assert(ff.write()) : "FileFormat is not in write mode for "+ff.name();
@@ -54,24 +54,20 @@ public abstract class ReadStreamWriter extends Thread {
 		
 		if(qfname==null){
 			myQOutstream=null;
-			myQWriter=null;
 		}else{
 			myQOutstream=ReadWrite.getOutputStream(qfname, (ff==null ? false : ff.append()), buffered, allowSubprocess);
-			myQWriter=(makeWriter ? new PrintWriter(myQOutstream) : null);
 		}
 
 		final boolean supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
 		final boolean supressHeaderSequences=(NO_HEADER_SEQUENCES || supressHeader);
-		if(header==null){header=HEADER;} //Legacy.  Used by BBMerge and FindPrimers - should be deprecated.
 		final boolean RSBamWriter=ff.bam() && ReadWrite.nativeBamOut() && 
 			ReadWrite.USE_READ_STREAM_BAM_WRITER;
+		final boolean RSSamWriter=ff.samOrBam() && ReadWrite.USE_READ_STREAM_SAM_WRITER;
 		
 		if(fname==null && !OUTPUT_STANDARD_OUT){
 			myOutstream=null;
-			myWriter=null;
-		}else if(RSBamWriter) {
+		}else if(RSBamWriter || RSSamWriter) {
 			myOutstream=null;
-			myWriter=null;
 		}else{
 			if(OUTPUT_STANDARD_OUT){myOutstream=System.out;}
 			
@@ -81,13 +77,7 @@ public abstract class ReadStreamWriter extends Thread {
 				myOutstream=ReadWrite.getBamOutputStream(fname, append);
 			}
 			
-			myWriter=(makeWriter ? new PrintWriter(myOutstream) : null);
-//			assert(false) : ff.append()+", "+ff.exists();
-			
 			if(header!=null && !supressHeader){
-				if(myWriter!=null){
-					myWriter.println(header);
-				}else{
 					byte[] temp=new byte[header.length()];
 					for(int i=0; i<temp.length; i++){temp[i]=(byte)header.charAt(i);}
 					try {
@@ -96,7 +86,6 @@ public abstract class ReadStreamWriter extends Thread {
 						// TODO Auto-generated catch block
 						e.printStackTrace();
 					}
-				}
 			}else if(OUTPUT_SAM && !supressHeader){
 				if(useSharedHeader){
 //					assert(false);
@@ -117,7 +106,6 @@ public abstract class ReadStreamWriter extends Thread {
 								for(byte[] line : list){
 									myOutstream.write(line);
 									myOutstream.write('\n');
-									//myWriter.println(new String(line));
 								}
 							}
 						} catch (IOException e) {
@@ -126,16 +114,6 @@ public abstract class ReadStreamWriter extends Thread {
 						}
 					}
 				}else{
-					if(myWriter!=null){
-						myWriter.println(SamHeader.header0());
-						int a=(MINCHROM==-1 ? 1 : MINCHROM);
-						int b=(MAXCHROM==-1 ? Data.numChroms : MAXCHROM);
-						for(int chrom=a; chrom<=b; chrom++){
-							//					myWriter.print(SamHeader.header1(chrom, chrom));
-							SamHeader.printHeader1(chrom, chrom, myWriter);
-						}
-						myWriter.println(SamHeader.header2());
-					}else{
 						ByteBuilder bb=new ByteBuilder(4096);
 						SamHeader.header0B(bb);
 						bb.nl();
@@ -155,18 +133,13 @@ public abstract class ReadStreamWriter extends Thread {
 						} catch (IOException e) {
 							KillSwitch.exceptionKill(e);
 						}
-					}
 				}
 			}else if(ff.bread() && !supressHeader){
-				if(myWriter!=null){
-					myWriter.println("#"+Read.header());
-				}else{
 					try {
 						myOutstream.write(("#"+Read.header()).getBytes());
 					} catch (IOException e) {
 						KillSwitch.exceptionKill(e);
 					}
-				}
 			}
 		}
 		
@@ -174,36 +147,30 @@ public abstract class ReadStreamWriter extends Thread {
 		queue=new ArrayBlockingQueue<Job>(bufferSize);
 	}
 	
-	
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-
 	@Override
 	public abstract void run();
 
-	/** Uses this thread to transform reads to text, and the ReadStreamWriter thread to write text to disk */
-	public final synchronized void addListAsText(ArrayList<Read> list){
-		assert(false) : "TODO";
-		addList(list, myWriter, myOutstream, false);
+	public final synchronized void poison(){
+		addJob(new Job(null, false, true, nextID++));
 	}
 
-	public final synchronized void poison(){
-		addJob(new Job(null, null, null, false, true));
+	public final synchronized void addList(ListNum<Read> ln){
+		assert(ln.id==nextID) : ln.id+", "+nextID;
+		Job j=new Job(ln.list, ln.last(), ln.poison(), ln.id);
+		nextID=ln.id+1;
+		addJob(j);
 	}
 
 	public final synchronized void addList(ArrayList<Read> list){
-		addList(list, myWriter, myOutstream, false);
-	}
-
-	public final synchronized void addList(ArrayList<Read> l, PrintWriter w, OutputStream o, boolean c){
-		boolean poison=(c && w!=null && w==myWriter);
-		Job j=new Job(l, w, o, c, poison);
+		Job j=new Job(list, false, false, nextID++);
 		addJob(j);
 	}
 	
-	public final synchronized void addJob(Job j){
+	private final synchronized void addJob(Job j){
 //		System.err.println("Got job "+(j.list==null ? "null" : j.list.size()));
 		boolean success=false;
 		while(!success){
@@ -223,7 +190,8 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	protected static final ByteBuilder toQualityB(final byte[] quals, final int len, final int wrap, final ByteBuilder bb){
+	protected static final ByteBuilder toQualityB(final byte[] quals, final int len, 
+			final int wrap, final ByteBuilder bb){
 		if(quals==null){return fakeQualityB(30, len, wrap, bb);}
 		assert(quals.length==len);
 		bb.ensureExtra(NUMERIC_QUAL ? len*3+1 : len+1);
@@ -247,10 +215,10 @@ public abstract class ReadStreamWriter extends Thread {
 		return bb;
 	}
 	
-	protected static final ByteBuilder fakeQualityB(final int q, final int len, final int wrap, final ByteBuilder bb){
+	protected static final ByteBuilder fakeQualityB(final int q, final int len, 
+			final int wrap, final ByteBuilder bb){
 		bb.ensureExtra(NUMERIC_QUAL ? len*3+1 : len+1);
 		if(NUMERIC_QUAL){
-			int c=(q+FASTQ.ASCII_OFFSET_OUT);
 			if(len>0){bb.append(q);}
 			for(int i=1, w=1; i<len; i++, w++){
 				if(w>=wrap){
@@ -312,13 +280,12 @@ public abstract class ReadStreamWriter extends Thread {
 	protected final String fname;
 	protected final String qfname;
 	protected final OutputStream myOutstream;
-	protected final PrintWriter myWriter;
 	protected final OutputStream myQOutstream;
-	protected final PrintWriter myQWriter;
 	protected final ArrayBlockingQueue<Job> queue;
 	
 	protected long readsWritten=0;
 	protected long basesWritten=0;
+	protected long nextID=0;
 	
 	
 	/*--------------------------------------------------------------*/
@@ -327,8 +294,6 @@ public abstract class ReadStreamWriter extends Thread {
 	
 	public static int MINCHROM=-1; //For generating sam header
 	public static int MAXCHROM=-1; //For generating sam header
-	@Deprecated
-	public static CharSequence HEADER;
 	public static boolean NUMERIC_QUAL=true;
 	public static boolean OUTPUT_SAM_SECONDARY_ALIGNMENTS=false;
 	
@@ -343,29 +308,34 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	
-	protected static class Job{
+	//TODO: Should be replaced with ListNum
+	protected static class Job implements HasID{
 		
-		public Job(ArrayList<Read> list_, PrintWriter writer_, OutputStream outstream_, boolean closeWhenDone_,
-				boolean shutdownThread_){
+		public Job(ArrayList<Read> list_, boolean closeWhenDone_,
+				boolean poisonThread_, long id_){
 			list=list_;
-			writer=writer_;
-			outstream=outstream_;
 			close=closeWhenDone_;
-			poison=shutdownThread_;
-		}
-		public Job(ArrayList<Read> list_, PrintWriter writer_){
-			this(list_, writer_, null, false, false);
+			poison=poisonThread_;
+			id=id_;
 		}
 		
 		/*--------------------------------------------------------------*/
 		
 		public boolean isEmpty(){return list==null || list.isEmpty();}
 		public final ArrayList<Read> list;
-		public final PrintWriter writer;
-		public final OutputStream outstream;
 		public final boolean close;
 		public final boolean poison;
+		public final long id;
+		@Override
+		public long id(){return id;}
+		@Override
+		public boolean poison(){return poison;}
+		@Override
+		public boolean last(){return close;}
+		@Override
+		public Job makePoison(long id_){return new Job(null, false, true, id_);}
+		@Override
+		public Job makeLast(long id_){return new Job(null, true, false, id_);}
 		
 	}
 	

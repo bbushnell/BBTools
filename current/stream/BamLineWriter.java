@@ -114,14 +114,16 @@ public class BamLineWriter extends SamWriter {
 		/** Called by start(). */
 		@Override
 		public void run(){
-			if(tid==0){
-				writeOutput(); //Writer thread
-				if(verbose) {System.err.println("Consumer "+tid+" finished.");}
-			}else{
-				processJobs(); //Worker thread
-				if(verbose) {System.err.println("Worker "+tid+" finished.");}
+			synchronized(this) {
+				if(tid==0){
+					writeOutput(); //Writer thread
+					if(verbose) {System.err.println("Consumer "+tid+" finished.");}
+				}else{
+					processJobs(); //Worker thread
+					if(verbose) {System.err.println("Worker "+tid+" finished.");}
+				}
+				success=true;
 			}
-			success=true;
 		}
 
 		/** Writer thread - outputs ordered blocks to disk. */
@@ -145,10 +147,12 @@ public class BamLineWriter extends SamWriter {
 			ThreadWaiter.waitForThreadsToFinish(alpt);
 			synchronized(BamLineWriter.this) {
 				for(ProcessThread pt : alpt){
-					synchronized(pt) {
-						readsWritten+=pt.readsWrittenT;
-						basesWritten+=pt.basesWrittenT;
-						errorState=errorState || !pt.success;
+					if(pt!=this) {
+						synchronized(pt) {
+							readsWritten+=pt.readsWrittenT;
+							basesWritten+=pt.basesWrittenT;
+							setErrorState(!pt.success);
+						}
 					}
 				}
 			}

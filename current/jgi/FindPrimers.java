@@ -27,6 +27,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import stream.ReadStreamWriter;
 import stream.SamLine;
+import stream.SamReadInputStream;
 import stream.SiteScore;
 import structures.ByteBuilder;
 import structures.ListNum;
@@ -120,9 +121,8 @@ public class FindPrimers implements Accumulator<FindPrimers.ProcessThread> {
 		}
 		cutoff=cutoff_;
 		
-//		ArrayList<byte[]> sharedHeader=new ArrayList<byte[]>();
-		ByteBuilder sharedHeader=new ByteBuilder();
-		sharedHeader.append("@HD\tVN:1.4\tSO:unsorted\n");
+		ArrayList<byte[]> sharedHeader=new ArrayList<byte[]>();
+		sharedHeader.add("@HD\tVN:1.4\tSO:unsorted".getBytes());
 		if(ref_!=null){
 			ArrayList<Read> list=FastaReadInputStream.toReads(ref_, FileFormat.FASTA, -1);
 			int max=0;
@@ -132,7 +132,7 @@ public class FindPrimers implements Accumulator<FindPrimers.ProcessThread> {
 				Read r=list.get(i);
 				max=Tools.max(max, r.length());
 				if(swapQuery){
-					sharedHeader.append("@SQ\tSN:"+r.name()+"\tLN:"+r.length()).nl();
+					sharedHeader.add(("@SQ\tSN:"+r.name()+"\tLN:"+r.length()).getBytes());
 				}
 				queries.add(r);
 //				if(rcomp){
@@ -153,7 +153,7 @@ public class FindPrimers implements Accumulator<FindPrimers.ProcessThread> {
 				max=Tools.max(max, r.length());
 				queries.add(r);
 				if(swapQuery){
-					sharedHeader.append("@SQ\tSN:"+r.name()+"\tLN:"+r.length()).nl();
+					sharedHeader.add(("@SQ\tSN:"+r.name()+"\tLN:"+r.length()).getBytes());
 				}
 			}
 			maxqlen=max;
@@ -162,9 +162,7 @@ public class FindPrimers implements Accumulator<FindPrimers.ProcessThread> {
 			maxqlen=0;
 		}
 		
-		if(sharedHeader.length()>0) {
-			ReadStreamWriter.HEADER=sharedHeader;
-		}
+		SamReadInputStream.setSharedHeader(sharedHeader);
 		
 		if(replicateAmbiguous){
 			queries=Tools.replicateAmbiguous(queries, 1);

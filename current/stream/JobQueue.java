@@ -143,7 +143,7 @@ public class JobQueue<K extends HasID>{
 	/** Maximum jobs allowed in queue before blocking */
 	private final int capacity;
 	/** Half of capacity, used for lazy notification optimization */
-	private final int half;
+	private final int half;//TODO: Change so high numbers can only add under half
 	/** Enable debug output */
 	private static final boolean verbose=false;
 	

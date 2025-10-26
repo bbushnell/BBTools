@@ -1151,9 +1151,8 @@ public class BBMerge {
 
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1));
 			
-			ReadStreamWriter.HEADER=header();
 			final FileFormat ff=FileFormat.testOutput(out1, FileFormat.ATTACHMENT, ".info", true, overwrite, append, ordered);
-			rosinsert=ConcurrentReadOutputStream.getStream(ff, null, null, null, buff, null, false);
+			rosinsert=ConcurrentReadOutputStream.getStream(ff, null, null, null, buff, header(), false);
 			rosinsert.start();
 		}
 		
