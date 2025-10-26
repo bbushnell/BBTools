@@ -19,5 +19,8 @@ public interface HasID {
 	
 	/** Returns true if this is the last job in the sequence */
 	public boolean last();
+
+	public HasID makePoison(long id);
+	public HasID makeLast(long id);
 	
 }

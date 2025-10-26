@@ -69,7 +69,7 @@ public class JobQueue<K extends HasID>{
 				}
 			}
 			heap.add(job);
-			if(DEBUG){
+			if(verbose){
 				System.err.println("Worker: added job " + id +
 					" to heap (heap size now " + heap.size() + ")");
 			}
@@ -89,12 +89,12 @@ public class JobQueue<K extends HasID>{
 	 */
 	public K take(){
 		K job=null;
-		if(DEBUG){System.err.println("Consumer waiting for "+nextID);}
+		if(verbose){System.err.println("Consumer waiting for "+nextID);}
 		synchronized(heap){
 			while(job==null && !lastSeen){
 				// Wait if heap is empty or (in ordered mode) next job isn't ready yet
 				while(heap.isEmpty() || (ordered && heap.peek().id()>nextID)){
-					if(DEBUG){System.err.println("Consumer waiting; heap.size()="+heap.size());}
+					if(verbose){System.err.println("Consumer waiting; heap.size()="+heap.size());}
 					try {
 						heap.wait();
 					} catch (InterruptedException e){
@@ -103,7 +103,7 @@ public class JobQueue<K extends HasID>{
 					}
 				}
 				job=heap.poll();
-				if(DEBUG){System.err.println("Consumer fetched "+job.id());}
+				if(verbose){System.err.println("Consumer fetched "+job.id());}
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
@@ -145,6 +145,6 @@ public class JobQueue<K extends HasID>{
 	/** Half of capacity, used for lazy notification optimization */
 	private final int half;
 	/** Enable debug output */
-	private static final boolean DEBUG=false;
+	private static final boolean verbose=false;
 	
 }

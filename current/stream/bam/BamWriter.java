@@ -10,6 +10,7 @@ import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
+import stream.SamReadInputStream;
 import stream.SamStreamer;
 import structures.ListNum;
 
@@ -236,29 +237,14 @@ public class BamWriter {
 		SamStreamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
 		sls.start();
 
-		// Wait for header to be populated
-		while (sls.header != null && sls.header.isEmpty()) {
-			try {
-				Thread.sleep(10);
-			} catch (InterruptedException e) {
-				break;
-			}
-		}
-
-		// Make header copy
-		List<byte[]> headerCopy = null;
-		if (sls.header != null) {
-			synchronized (sls.header) {
-				headerCopy = new ArrayList<byte[]>(sls.header);
-			}
-		}
+		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
 
 		// Create BAM writer
 		BamWriter bw = new BamWriter(bamFile);
 
 		// Write header
-		if (headerCopy != null) {
-			bw.writeHeader(headerCopy);
+		if (header != null) {
+			bw.writeHeader(header);
 		} else {
 			throw new RuntimeException("No header found in SAM file");
 		}
