@@ -24,8 +24,9 @@ public class ThreadWaiter {
 
 		//Wait for completion of all threads
 		boolean success=true;
+		final Thread self=Thread.currentThread();
 		for(T t : iter){
-
+			if(t==self) {continue;}
 			//Wait until this thread has terminated
 			while(t.getState()!=Thread.State.TERMINATED){
 				try {

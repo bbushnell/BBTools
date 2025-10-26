@@ -55,6 +55,11 @@ public class BamLineStreamer extends SamStreamer {
 	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=outq.take();
+		if(list==null || list.last()) {
+			assert(list==null || list.isEmpty());
+			assert(!outq.hasMore());
+			return null;
+		}
 		if(verbose && list!=null){outstream.println("Got list size "+list.size());}
 		return list;
 	}

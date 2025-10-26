@@ -1,5 +1,7 @@
 package stream.bam;
 
+import java.util.ArrayList;
+
 import stream.BamLineStreamer;
 import stream.SamLine;
 import stream.SamStreamer;
@@ -38,8 +40,9 @@ public class TestBamRoundtrip {
 		BamLineStreamer bls = new BamLineStreamer(bamFile, 4, true, true, -1, false);
 		bls.start();
 
-		System.err.println("Header lines: " + bls.header.size());
-		for (byte[] line : bls.header) {
+		ArrayList<byte[]> header2=SamReadInputStream.getSharedHeader(true);
+		System.err.println("Header lines: " + header2.size());
+		for (byte[] line : header2) {
 			System.err.println(new String(line));
 		}
 

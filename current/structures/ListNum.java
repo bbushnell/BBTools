@@ -8,6 +8,7 @@ import java.util.Random;
 import shared.Shared;
 import stream.HasID;
 import stream.Read;
+import stream.bam.BgzfJob;
 
 /**
  * Numbered list wrapper for multithreaded producer-consumer patterns.
@@ -123,6 +124,12 @@ public final class ListNum<K extends Serializable> implements Serializable, Iter
 	
 	/** Any terminal type */
 	public final boolean finished(){return type>=LAST;}
+	
+	@Override
+	public ListNum<K> makePoison(long id_) {return new ListNum<K>(null, id_, POISON);}
+	
+	@Override
+	public ListNum<K> makeLast(long id_){return new ListNum<K>(null, id_, LAST);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Random            ----------------*/

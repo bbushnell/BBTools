@@ -4,7 +4,6 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
-import dna.Data;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -243,7 +242,7 @@ public abstract class SamStreamer {
 	
 	final int threads;
 	
-	public ArrayList<byte[]> header;
+	ArrayList<byte[]> header;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

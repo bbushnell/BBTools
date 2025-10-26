@@ -61,6 +61,16 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 	
 	@Override
 	public boolean last() {return lastJob;}
+	
+	@Override
+	public BgzfJob makePoison(long id_) {
+		return new BgzfJob(id_, null, null, false);
+	}
+	
+	@Override
+	public BgzfJob makeLast(long id_){
+		return new BgzfJob(id_, null, null, true);
+	}
 
 	/**
 	 * Check if this job is the poison pill marker.
