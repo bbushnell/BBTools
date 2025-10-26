@@ -68,12 +68,14 @@ public class SamLineWriter extends SamWriter {
 		/** Called by start(). */
 		@Override
 		public void run(){
-			if(tid==0){
-				writeOutput(); //Writer thread
-			}else{
-				processJobs(); //Worker thread
+			synchronized(this) {
+				if(tid==0){
+					writeOutput(); //Writer thread
+				}else{
+					processJobs(); //Worker thread
+				}
+				success=true;
 			}
-			success=true;
 		}
 
 		/** Writer thread - outputs ordered blocks to disk. */
@@ -97,10 +99,12 @@ public class SamLineWriter extends SamWriter {
 			ThreadWaiter.waitForThreadsToFinish(alpt);
 			synchronized(SamLineWriter.this) {
 				for(ProcessThread pt : alpt){
-					synchronized(pt) {
-						readsWritten+=pt.readsWrittenT;
-						basesWritten+=pt.basesWrittenT;
-						errorState=errorState || !pt.success;
+					if(pt!=this) {//This is not successful yet!
+						synchronized(pt) {
+							readsWritten+=pt.readsWrittenT;
+							basesWritten+=pt.basesWrittenT;
+							setErrorState(!pt.success);
+						}
 					}
 				}
 			}

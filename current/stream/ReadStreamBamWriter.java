@@ -21,7 +21,7 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 	/*--------------------------------------------------------------*/
 
 	public ReadStreamBamWriter(FileFormat ff, int bufferSize, CharSequence header, boolean useSharedHeader){
-		super(ff, null, true, bufferSize, header, false, true, useSharedHeader);
+		super(ff, null, true, bufferSize, header, true, useSharedHeader);
 		assert(OUTPUT_BAM) : "ReadStreamBamWriter requires BAM output format";
 		assert(read1) : "BAM output requires read1=true (cannot write paired reads to separate files)";
 		
@@ -98,9 +98,10 @@ public class ReadStreamBamWriter extends ReadStreamWriter {
 				writeBam(job);
 			}
 			
-			if(job.close){//Doesn't seem to help.
-				assert(job.outstream!=null && job.outstream!=myOutstream);
-				ReadWrite.finishWriting(null, job.outstream, fname, allowSubprocess); //TODO:  This should be job.fname
+			if(job.close){
+//				//Never happens.
+//				ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
+				bamWriter.close();
 			}
 
 			job=null;

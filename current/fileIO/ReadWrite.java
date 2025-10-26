@@ -420,8 +420,8 @@ public class ReadWrite {
 	
 	public static OutputStream getBamOutputStream(String fname, boolean append) {
 		int zl=Tools.min(ZIPLEVEL, 6);
-		int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
 		if(nativeBamOut()) {
+			int threads=Tools.mid(1, Shared.threads(), zl>6 ? 16 : zl>4 ? 16 : zl>3 ? 8 : 4);
 			try{
 				return new BamOutputStream(fname, zl, threads);
 			}catch(IOException e){
@@ -429,6 +429,7 @@ public class ReadWrite {
 				e.printStackTrace();
 			}
 		}else if(Data.SAMTOOLS()){
+			int threads=Tools.mid(1, Shared.threads(), zl>4 ? 16 : zl>3 ? 8 : 4);
 			return getOutputStreamFromProcess(fname, "samtools view -@ "+threads+" -S -b -h - ", true, append, true, true);
 		}else if(false && Data.SAMBAMBA()){
 			return ReadWrite.getOutputStreamFromProcess(fname, "sambamba view -S -f bam -h ", true, append, true, true); //Sambamba does not support stdin
@@ -2016,6 +2017,7 @@ public class ReadWrite {
 	public static boolean PREFER_NATIVE_BGZF_IN=false;
 	public static boolean PREFER_NATIVE_BGZF_OUT=false;
 
+	public static boolean USE_READ_STREAM_SAM_WRITER=true;
 	public static boolean USE_READ_STREAM_BAM_WRITER=true;
 	public static boolean ALLOW_NATIVE_BAM_IN=true;
 	public static boolean ALLOW_NATIVE_BAM_OUT=true;

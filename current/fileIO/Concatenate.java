@@ -3,16 +3,12 @@ package fileIO;
 import java.io.File;
 import java.util.ArrayList;
 
-import fileIO.FileFormat;
-import fileIO.ReadWrite;
+import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
-import stream.Read;
 import structures.ListNum;
 
 /**
@@ -59,6 +55,8 @@ public class Concatenate {
 
 			if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
+			}else if(a.equals("verbose")){
+				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("in")){
 				in.clear();
 				String[] b2=(b==null) ? null : (new File(b).exists() ? new String[] {b} : b.split(","));
@@ -104,7 +102,10 @@ public class Concatenate {
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();
-		Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 12);
+		if(verbose) {
+			outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 12));
+			outstream.println(bytesProcessed);
+		}
 	}
 	
 	void processInner(String fname, ByteStreamWriter bsw) {

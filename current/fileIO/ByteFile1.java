@@ -7,7 +7,9 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.bam.BgzfSettings;
+import structures.IntList;
 
 
 /**
@@ -78,7 +80,7 @@ public final class ByteFile1 extends ByteFile {
 				if(s==null){break;}
 
 				lines++;
-				bytes+=s.length;
+				bytes+=s.length+1;
 				System.out.println(new String(s));
 			}
 			
@@ -90,13 +92,14 @@ public final class ByteFile1 extends ByteFile {
 				byte[] s=tf.nextLine();
 				if(s==null){break;}
 				lines++;
-				bytes+=s.length;
+				bytes+=s.length+1;
 			}
 		}
 		t.stop();
 		
 		if(!reprint){
 			System.err.println(Tools.timeLinesBytesProcessed(t, lines, bytes, 8));
+			System.err.println("Bytes: "+bytes);
 		}
 	}
 	
@@ -133,14 +136,68 @@ public final class ByteFile1 extends ByteFile {
 		return errorState;
 	}
 	
+//	@Override
+//	public final byte[] nextLine(){
+////		if(pushBack!=null){//This was making the massive post-Meltdown-patch performance problem more common
+////			byte[] temp=pushBack;
+////			pushBack=null;
+////			return temp;
+////		}
+//		
+//		if(verbose){System.err.println("Reading line "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
+//		
+//		if(!open || is==null){
+//			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
+//			return null;
+//		}
+//
+////		System.out.println("\nCalled nextLine() for line "+lineNum);
+////		System.out.println("A: bstart="+bstart+", bstop="+bstop);
+//		
+//		//if(bstart<bstop && lasteol==slasher && buffer[bstart]==slashn){bstart++;}
+////		assert(bstart>=bstop || (buffer[bstart]!=slashn)/*buffer[bstart]>slasher || buffer[bstart]==slashn*/);
+//		int nlpos=bstart;
+//		
+////		System.out.println("B: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
+////		while(nlpos<bstop && (buffer[nlpos]>slasher || buffer[nlpos]==tab)){nlpos++;}
+//		while(nlpos<bstop && buffer[nlpos]!=slashn){nlpos++;}//Another vectorization place
+////		System.out.println("C: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
+//		if(nlpos>=bstop){
+//			nlpos=fillBuffer();
+////			System.out.println("Filled buffer.");
+//		}
+////		System.out.println("D: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
+//		
+//		if(nlpos<0 || bstop<1){
+//			close();
+//			return null;
+//		}
+//
+//		lineNum++;
+//		//Limit is the position after the last position to copy.
+//		//Limit equals nlpos unless there was a \r before the \n.
+//		final int limit=(nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+//		if(bstart==limit){//Empty line.
+//			bstart=nlpos+1;
+////			System.out.println("E: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos+", returning='"+printNL(blankLine)+"'");
+//			return blankLine;
+//		}
+//		
+//		byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
+////		byte[] line=Arrays.copyOfRange(buffer, bstart, limit);
+////		byte[] line=new String(buffer, bstart, limit-bstart).getBytes();
+////		byte[] line=new byte[limit-bstart];
+////		byte[] line=dummy;
+//		
+//		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
+//		bstart=nlpos+1;
+////		System.out.println("F: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos+", returning='"+printNL(line)+"'");
+//		return line;
+//	}
+	
 	@Override
 	public final byte[] nextLine(){
-//		if(pushBack!=null){//This was making the massive post-Meltdown-patch performance problem more common
-//			byte[] temp=pushBack;
-//			pushBack=null;
-//			return temp;
-//		}
-		
+		if(Shared.SIMD) {return nextLineList();}
 		if(verbose){System.err.println("Reading line "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		
 		if(!open || is==null){
@@ -148,51 +205,104 @@ public final class ByteFile1 extends ByteFile {
 			return null;
 		}
 
-//		System.out.println("\nCalled nextLine() for line "+lineNum);
-//		System.out.println("A: bstart="+bstart+", bstop="+bstop);
-		
-		//if(bstart<bstop && lasteol==slasher && buffer[bstart]==slashn){bstart++;}
-//		assert(bstart>=bstop || (buffer[bstart]!=slashn)/*buffer[bstart]>slasher || buffer[bstart]==slashn*/);
 		int nlpos=bstart;
 		
-//		System.out.println("B: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
-//		while(nlpos<bstop && (buffer[nlpos]>slasher || buffer[nlpos]==tab)){nlpos++;}
-		while(nlpos<bstop && buffer[nlpos]!=slashn){nlpos++;}//Another vectorization place
-//		System.out.println("C: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
-		if(nlpos>=bstop){
-			nlpos=fillBuffer();
-//			System.out.println("Filled buffer.");
-		}
-//		System.out.println("D: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos);
+		while(nlpos<bstop && buffer[nlpos]!=slashn){nlpos++;}//TODO: Vectorize with IntList
 		
-		if(nlpos<0 || bstop<1){
+		if(nlpos>=bstop){//At this point we are at the last character which may or may not be a newline
+			nlpos=fillBuffer();
+		}
+		
+		// Check if buffer is empty after fill attempt
+		if(bstop<1){
 			close();
 			return null;
 		}
 
 		lineNum++;
-		//Limit is the position after the last position to copy.
-		//Limit equals nlpos unless there was a \r before the \n.
-		final int limit=(nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+		
+		// Determine the limit for copying
+		// If nlpos >= bstop, we have data but no newline (EOF case) - use bstop
+		// Otherwise, nlpos points to the newline
+		final int limit;
+		if(nlpos >= bstop){
+			// No newline found, but we have data - use everything remaining
+			limit = bstop;
+		} else {
+			// Found newline - exclude it (and any preceding \r)
+			limit = (nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+		}
+		
 		if(bstart==limit){//Empty line.
-			bstart=nlpos+1;
-//			System.out.println("E: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos+", returning='"+printNL(blankLine)+"'");
+			bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 			return blankLine;
 		}
 		
 		byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
-//		byte[] line=Arrays.copyOfRange(buffer, bstart, limit);
-//		byte[] line=new String(buffer, bstart, limit-bstart).getBytes();
-//		byte[] line=new byte[limit-bstart];
-//		byte[] line=dummy;
 		
 		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
-		bstart=nlpos+1;
-//		System.out.println("F: bstart="+bstart+", bstop="+bstop+", nlpos="+nlpos+", returning='"+printNL(line)+"'");
+		
+		// Advance bstart past the newline (if there was one)
+		bstart = (nlpos < bstop) ? nlpos+1 : bstop;
+		
 		return line;
 	}
 	
-	final byte[] dummy=new byte[100];
+	public final byte[] nextLineList(){
+		
+		if(!open || is==null){
+			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
+			return null;
+		}
+
+		if(listPos>=positions.size()) {
+			listPos=0;
+			positions.clear();
+			fillBuffer();
+			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
+		}
+		
+		final int nlpos;
+		if(listPos>=positions.size()) {//No newlines
+			nlpos=bstop;
+		}else {
+			nlpos=positions.get(listPos++);
+		}
+		
+		// Check if buffer is empty after fill attempt
+		if(bstop<1){
+			close();
+			return null;
+		}
+
+		lineNum++;
+		
+		// Determine the limit for copying
+		// If nlpos >= bstop, we have data but no newline (EOF case) - use bstop
+		// Otherwise, nlpos points to the newline
+		final int limit;
+		if(nlpos >= bstop){
+			// No newline found, but we have data - use everything remaining
+			limit = bstop;
+		} else {
+			// Found newline - exclude it (and any preceding \r)
+			limit = (nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+		}
+		
+		if(bstart==limit){//Empty line.
+			bstart = (nlpos < bstop) ? nlpos+1 : bstop;
+			return blankLine;
+		}
+		
+		byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
+		
+		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
+		
+		// Advance bstart past the newline (if there was one)
+		bstart = (nlpos < bstop) ? nlpos+1 : bstop;
+		
+		return line;
+	}
 	
 	private static final String printNL(byte[] b){
 		StringBuilder sb=new StringBuilder();
@@ -360,6 +470,8 @@ public final class ByteFile1 extends ByteFile {
 	private int bstart=0, bstop=0;
 	public InputStream is;
 	public long lineNum=-1;
+	private IntList positions=new IntList();
+	private int listPos=0;
 	
 	public static boolean verbose=false;
 	public static boolean BUFFERED=false;
