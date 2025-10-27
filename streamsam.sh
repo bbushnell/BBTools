@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified March 21, 2018
+Last modified October 26, 2025
 
 Description:  Converts sam/bam to fastq rapidly with multiple threads.
 bam files require samtools or sambamba in the path.
@@ -20,14 +20,13 @@ contigs=        Comma-delimited list of contig names to include. These
 mapped=t        Include mapped reads.
 unmapped=t      Include unmapped reads.
 secondary=f     Include secondary alignments.
-supplimentary=t Include supplementary alignments.
+supplimentary=t Include supplimentary alignments.
 lengthzero=f    Include alignments without bases.
 invert=f        Invert sam filters.
 ordered=t       Keep reads in input order.  False is faster.
 ref=<file>      Optional reference file.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
-For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
@@ -61,7 +60,7 @@ calcXmx () {
 calcXmx "$@"
 
 streamsam() {
-	local CMD="java $EA $EOOM $z -cp $CP stream.SamStreamerWrapper $@"
+	local CMD="java $EA $EOOM $z $SIMD -cp $CP stream.SamStreamerWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }

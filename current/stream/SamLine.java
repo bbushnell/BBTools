@@ -2059,6 +2059,10 @@ public class SamLine implements Serializable {
 		return seq==null ? calcCigarBases(cigar, true, false) : seq.length;
 	}
 	
+	public int estimateBamLength() {
+		return 40+(seq==null ? 1 : seq.length)+qname.length()+(cigar==null ? 1 : cigar.length()*2);
+	}
+	
 //	public int length(boolean includeSoftClip){
 //		assert((seq!=null && (seq.length!=1 || seq[0]!='*')) || cigar!=null) :
 //			"This program requires bases or a cigar string for every sam line.  Problem line:\n"+this+"\n";

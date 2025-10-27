@@ -176,6 +176,11 @@ public final class LineParser1 implements LineParser {
 		return Arrays.copyOfRange(line, a, b);
 	}
 	
+	public byte[] parseByteArray(int term, int offset) {
+		final int len=setBounds(term);
+		return Arrays.copyOfRange(line, a+offset, b);
+	}
+	
 	@Override
 	public byte[] parseByteArrayFromCurrentField() {
 		return Arrays.copyOfRange(line, a, b);

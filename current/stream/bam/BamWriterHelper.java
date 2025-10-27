@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import shared.LineParser;
 import shared.LineParser1;
 import structures.ByteBuilder;
+import structures.IntList;
 
 /**
  * Helper class for writing BAM binary structures with little-endian byte order.
@@ -20,19 +21,24 @@ public class BamWriterHelper {
 	public BamWriterHelper(OutputStream out) {
 		this.out = out;
 	}
-
+	
 	/**
 	 * Write BAM header from SAM header lines.
 	 * Uses efficient binary operations with ByteBuilder and LineParser.
 	 * 
 	 * @param headerLines SAM header lines (as byte arrays)
+	 * @param supressHeader If true, skip writing header
+	 * @param supressSequences If true, skip writing reference sequences
 	 * @throws IOException
 	 */
 	public void writeHeaderFromLines(ArrayList<byte[]> headerLines, 
-			boolean supressHeader, boolean supressSequences) throws IOException {
+		boolean supressHeader, boolean supressSequences) throws IOException {
+
+		if(supressHeader) {return;}
+
 		// Extract reference names and lengths using LineParser
-		ArrayList<String> refNames = new ArrayList<String>();
-		ArrayList<Integer> refLengths = new ArrayList<Integer>();
+		ArrayList<byte[]> refNames = new ArrayList<byte[]>();
+		IntList refLengths = new IntList();
 		LineParser1 lp = new LineParser1('\t');
 
 		ByteBuilder textBuilder = new ByteBuilder();
@@ -44,15 +50,14 @@ public class BamWriterHelper {
 			// Parse @SQ lines for reference info
 			if(line.length > 3 && line[0] == '@' && line[1] == 'S' && line[2] == 'Q') {
 				lp.set(line);
-				String sn = null;
+				byte[] sn = null;
 				int ln = 0;
 
 				for(int i = 1; i < lp.terms(); i++) {
-					byte first = lp.parseByte(i, 0);
-					if(first == 'S' && lp.parseByte(i, 1) == 'N' && lp.parseByte(i, 2) == ':') {
-						sn = lp.parseString(i).substring(3);
-					} else if(first == 'L' && lp.parseByte(i, 1) == 'N' && lp.parseByte(i, 2) == ':') {
-						ln = lp.parseInt(i, 3);
+					if(lp.termStartsWith("SN:", i)) {
+						sn = lp.parseByteArray(i, 3);  // Skip "SN:" prefix
+					} else if(lp.termStartsWith("LN:", i)) {
+						ln = lp.parseInt(i, 3);  // Skip "LN:" prefix
 					}
 				}
 
@@ -72,13 +77,17 @@ public class BamWriterHelper {
 		writeBytes(textBytes);
 
 		// Write reference dictionary section
-		writeInt32(refNames.size());
-		for(int i = 0; i < refNames.size(); i++) {
-			byte[] nameBytes = refNames.get(i).getBytes("US-ASCII");
-			writeUint32(nameBytes.length + 1);
-			writeBytes(nameBytes);
-			writeUint8(0);
-			writeUint32(refLengths.get(i));
+		if(supressSequences) {
+			writeInt32(0);
+		} else {
+			writeInt32(refNames.size());
+			for(int i = 0; i < refNames.size(); i++) {
+				byte[] nameBytes = refNames.get(i);
+				writeUint32(nameBytes.length + 1);
+				writeBytes(nameBytes);
+				writeUint8(0);
+				writeUint32(refLengths.get(i));
+			}
 		}
 	}
 

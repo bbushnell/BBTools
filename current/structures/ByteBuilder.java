@@ -121,14 +121,26 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	
 	public ByteBuilder append(char x){
 		if(length>=array.length){expand();}
-		array[length]=(byte)x;
-		length++;
+		array[length++]=(byte)x;
 		return this;
 	}
 	public ByteBuilder append(byte x){
 		if(length>=array.length){expand();}
-		array[length]=x;
-		length++;
+		array[length++]=x;
+		return this;
+	}
+	/** For sam/bam */
+	public ByteBuilder appendColon(char x){
+		if(length+1>=array.length){expand();}
+		array[length++]=(byte)x;
+		array[length++]=(byte)':';
+		return this;
+	}
+	/** For sam/bam */
+	public ByteBuilder appendColon(byte x){
+		if(length+1>=array.length){expand();}
+		array[length++]=x;
+		array[length++]=(byte)':';
 		return this;
 	}
 	

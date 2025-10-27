@@ -56,7 +56,7 @@ public class SamToBamConverter {
 	 * @return Complete BAM record including block_size prefix
 	 */
 	public byte[] convertAlignment(SamLine sl) throws IOException {
-		ByteArrayOutputStream baos = new ByteArrayOutputStream();
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(64/*sl.estimateBamLength()*/);
 		BamWriterHelper writer = new BamWriterHelper(baos);
 
 		// Get reference IDs

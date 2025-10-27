@@ -3,6 +3,8 @@ package stream.bam;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
+import structures.ByteBuilder;
+
 /**
  * Converts BAM binary alignment records to SAM text format.
  * Handles all BAM field encodings including 4-bit SEQ, packed CIGAR, and auxiliary tags.
@@ -14,12 +16,12 @@ public class BamToSamConverter {
 
 	private final String[] refNames;
 
-	// Lookup tables for decoding
-	private static final char[] SEQ_LOOKUP = "=ACMGRSVTWYHKDBN".toCharArray();
-	private static final char[] CIGAR_OPS = "MIDNSHP=X".toCharArray();
+	//Lookup tables for decoding
+	private static final byte[] SEQ_LOOKUP_B="=ACMGRSVTWYHKDBN".getBytes();
+	private static final byte[] CIGAR_OPS_B="MIDNSHP=X".getBytes();
 
-	public BamToSamConverter(String[] refNames) {
-		this.refNames = refNames;
+	public BamToSamConverter(String[] refNames){
+		this.refNames=refNames;
 	}
 
 	/**
@@ -27,269 +29,185 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Tab-delimited SAM line as byte array
 	 */
-	public byte[] convertAlignment(byte[] bamRecord) {
-		ByteBuffer bb = ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+	public byte[] convertAlignment(byte[] bamRecord){
+		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+		ByteBuilder sam=new ByteBuilder(16+bamRecord.length*2); //Estimate SAM is ~2x BAM size
 
-		// Read fixed-length fields
-		int refID = bb.getInt();
-		int pos = bb.getInt();
-		int l_read_name = bb.get() & 0xFF;
-		int mapq = bb.get() & 0xFF;
-		int bin = bb.getShort() & 0xFFFF; // Ignore bin
-		int n_cigar_op = bb.getShort() & 0xFFFF;
-		int flag = bb.getShort() & 0xFFFF;
-		long l_seq = bb.getInt() & 0xFFFFFFFFL;
-		int next_refID = bb.getInt();
-		int next_pos = bb.getInt();
-		int tlen = bb.getInt();
+		//Read fixed-length fields
+		int refID=bb.getInt();
+		int pos=bb.getInt();
+		int l_read_name=bb.get()&0xFF;
+		int mapq=bb.get()&0xFF;
+		int bin=bb.getShort()&0xFFFF; //Ignore bin
+		int n_cigar_op=bb.getShort()&0xFFFF;
+		int flag=bb.getShort()&0xFFFF;
+		long l_seq=bb.getInt()&0xFFFFFFFFL;
+		int next_refID=bb.getInt();
+		int next_pos=bb.getInt();
+		int tlen=bb.getInt();
 
-		// Read variable-length fields
-		byte[] readNameBytes = new byte[l_read_name];
+		//Read variable-length fields
+		byte[] readNameBytes=new byte[l_read_name];
 		bb.get(readNameBytes);
-		String qname = new String(readNameBytes, 0, l_read_name - 1); // Exclude NUL terminator
 
-		// Decode CIGAR
-		StringBuilder cigar = new StringBuilder();
-		if (n_cigar_op == 0) {
-			cigar.append('*');
-		} else {
-			for (int i = 0; i < n_cigar_op; i++) {
-				int cigOp = bb.getInt();
-				int opLen = cigOp >>> 4;
-				int op = cigOp & 0xF;
-				cigar.append(opLen).append(CIGAR_OPS[op]);
+		//QNAME (exclude NUL terminator)
+		sam.append(readNameBytes, 0, l_read_name-1).tab();
+
+		//FLAG
+		sam.append(flag).tab();
+
+		//RNAME
+		if(refID<0 || refID>=refNames.length){sam.append('*');}
+		else{sam.append(refNames[refID]);}
+		sam.tab();
+
+		//POS (BAM is 0-based, SAM is 1-based)
+		sam.append(pos+1).tab();
+
+		//MAPQ
+		sam.append(mapq).tab();
+
+		//CIGAR
+		if(n_cigar_op==0){sam.append('*');}
+		else{
+			for(int i=0; i<n_cigar_op; i++){
+				int cigOp=bb.getInt();
+				int opLen=cigOp>>>4;
+				int op=cigOp&0xF;
+				sam.append(opLen).append(CIGAR_OPS_B[op]);
+			}
+		}
+		sam.tab();
+
+		//RNEXT
+		if(next_refID<0){sam.append('*');}
+		else if(next_refID==refID){sam.append('=');}
+		else if(next_refID<refNames.length){sam.append(refNames[next_refID]);}
+		else{sam.append('*');}
+		sam.tab();
+
+		//PNEXT (BAM is 0-based, SAM is 1-based)
+		sam.append(next_pos+1).tab();
+
+		//TLEN
+		sam.append(tlen).tab();
+
+		//SEQ (4-bit encoded, 2 bases per byte)
+		if(l_seq==0){sam.append('*');}
+		else{
+			int pairs=(int)(l_seq/2);  // Number of complete pairs
+			for(int i=0; i<pairs; i++){
+				int packed=bb.get()&0xFF;
+				sam.append(SEQ_LOOKUP_B[packed>>>4]);
+				sam.append(SEQ_LOOKUP_B[packed&0xF]);
+			}
+			// Handle odd length - last nibble
+			if((l_seq&1)==1){
+				int packed=bb.get()&0xFF;
+				sam.append(SEQ_LOOKUP_B[packed>>>4]);
+			}
+		}
+		sam.tab();
+
+		//QUAL (raw phred scores, add 33 for SAM)
+		if(l_seq==0){sam.append('*');}
+		else{
+			//Peek first byte to check if QUAL is missing (all 0xFF)
+			byte firstByte=bb.get();
+			if(firstByte == (byte)0xFF){ // Comparing -1 to -1
+				//Skip remaining bytes and output '*'
+				bb.position(bb.position()+(int)l_seq-1);
+				sam.append('*');
+			}else{
+				//Read remaining bytes into array
+				byte[] qualBytes=new byte[(int)l_seq];
+				qualBytes[0]=(byte)firstByte;
+				bb.get(qualBytes, 1, (int)l_seq-1);
+
+				//Convert to ASCII (phred+33) and append directly
+				for(int i=0; i<qualBytes.length; i++){
+					sam.append((byte)(qualBytes[i]+33));
+				}
 			}
 		}
 
-		// Decode SEQ (4-bit encoded, 2 bases per byte)
-		String seq;
-		if (l_seq == 0) {
-			seq = "*";
-		} else {
-			StringBuilder seqBuilder = new StringBuilder((int)l_seq);
-			int numBytes = (int)((l_seq + 1) / 2);
-			for (int i = 0; i < numBytes; i++) {
-				int packed = bb.get() & 0xFF;
-				seqBuilder.append(SEQ_LOOKUP[packed >>> 4]);
-				if (i * 2 + 1 < l_seq) {
-					seqBuilder.append(SEQ_LOOKUP[packed & 0xF]);
-				}
-			}
-			seq = seqBuilder.toString();
-		}
+		//Decode auxiliary tags
+		boolean firstTag=true;
+		while(bb.hasRemaining()){
+			if(firstTag){
+				sam.tab();
+				firstTag=false;
+			}else{sam.tab();}
 
-		// Decode QUAL (raw phred scores, add 33 for SAM)
-		String qual;
-		if (l_seq == 0) {
-			qual = "*";
-		} else {
-			byte[] qualBytes = new byte[(int)l_seq];
-			bb.get(qualBytes);
+			//Tag name (2 bytes)
+			sam.append(bb.get()).appendColon(bb.get());
 
-			// Check if QUAL is missing (all 0xFF)
-			boolean allFF = true;
-			for (int i = 0; i < qualBytes.length; i++) {
-				if (qualBytes[i] != (byte)0xFF) {
-					allFF = false;
+			char type=(char)(bb.get()&0xFF);
+			switch (type){
+				case 'A': //Printable character
+					sam.appendColon('A').append((char)(bb.get()&0xFF));
 					break;
-				}
-			}
-
-			if (allFF) {
-				qual = "*";
-			} else {
-				// Convert to ASCII (phred + 33)
-				for (int i = 0; i < qualBytes.length; i++) {
-					qualBytes[i] = (byte)(qualBytes[i] + 33);
-				}
-				try {
-					qual = new String(qualBytes, 0, qualBytes.length, "US-ASCII");
-				} catch (java.io.UnsupportedEncodingException e) {
-					throw new RuntimeException("US-ASCII not supported", e); // Should never happen
-				}
-			}
-		}
-
-		// Decode auxiliary tags
-		StringBuilder tags = new StringBuilder();
-		while (bb.hasRemaining()) {
-			byte[] tagBytes = new byte[2];
-			bb.get(tagBytes);
-			String tag = new String(tagBytes, 0, 2);
-			char type = (char)(bb.get() & 0xFF);
-
-			if (tags.length() > 0) {
-				tags.append('\t');
-			}
-			tags.append(tag).append(':');
-
-			switch (type) {
-				case 'A': // Printable character
-					tags.append("A:").append((char)(bb.get() & 0xFF));
+				case 'c': //int8_t
+					sam.appendColon('i').append((int)bb.get());
 					break;
-				case 'c': // int8_t
-					tags.append("i:").append((int)bb.get());
+				case 'C': //uint8_t
+					sam.appendColon('i').append(bb.get()&0xFF);
 					break;
-				case 'C': // uint8_t
-					tags.append("i:").append(bb.get() & 0xFF);
+				case 's': //int16_t
+					sam.appendColon('i').append((int)bb.getShort());
 					break;
-				case 's': // int16_t
-					tags.append("i:").append((int)bb.getShort());
+				case 'S': //uint16_t
+					sam.appendColon('i').append(bb.getShort()&0xFFFF);
 					break;
-				case 'S': // uint16_t
-					tags.append("i:").append(bb.getShort() & 0xFFFF);
+				case 'i': //int32_t
+					sam.appendColon('i').append(bb.getInt());
 					break;
-				case 'i': // int32_t
-					tags.append("i:").append(bb.getInt());
+				case 'I': //uint32_t
+					long uintVal=bb.getInt()&0xFFFFFFFFL;
+					sam.appendColon('i').append(uintVal);
 					break;
-				case 'I': // uint32_t
-					long uintVal = bb.getInt() & 0xFFFFFFFFL;
-					tags.append("i:").append(uintVal);
+				case 'f': //float
+					sam.appendColon('f').append(bb.getFloat(), 6);
 					break;
-				case 'f': // float
-					tags.append("f:").append(bb.getFloat());
-					break;
-				case 'Z': // Null-terminated string
-					StringBuilder str = new StringBuilder();
+				case 'Z': //Null-terminated string
+					sam.appendColon('Z');
 					byte b;
-					while ((b = bb.get()) != 0) {
-						str.append((char)(b & 0xFF));
-					}
-					tags.append("Z:").append(str);
+					while((b=bb.get())!=0){sam.append(b);}
 					break;
-				case 'H': // Hex string
-					StringBuilder hex = new StringBuilder();
-					while ((b = bb.get()) != 0) {
-						hex.append((char)(b & 0xFF));
-					}
-					tags.append("H:").append(hex);
+				case 'H': //Hex string
+					sam.appendColon('H');
+					while((b=bb.get())!=0){sam.append(b);}
 					break;
-				case 'B': // Array
-					char arrayType = (char)(bb.get() & 0xFF);
-					int count = bb.getInt();
-					tags.append("B:").append(arrayType);
-					for (int i = 0; i < count; i++) {
-						tags.append(',');
-						switch (arrayType) {
+				case 'B': //Array
+					char arrayType=(char)(bb.get()&0xFF);
+					int count=bb.getInt();
+					sam.appendColon('B').append(arrayType);
+					for(int i=0; i<count; i++){
+						sam.comma();
+						switch (arrayType){
 							case 'c':
-								tags.append((int)bb.get());
-								break;
+								sam.append((int)bb.get()); break;
 							case 'C':
-								tags.append(bb.get() & 0xFF);
-								break;
+								sam.append(bb.get()&0xFF); break;
 							case 's':
-								tags.append((int)bb.getShort());
-								break;
+								sam.append((int)bb.getShort()); break;
 							case 'S':
-								tags.append(bb.getShort() & 0xFFFF);
-								break;
+								sam.append(bb.getShort()&0xFFFF); break;
 							case 'i':
-								tags.append(bb.getInt());
-								break;
+								sam.append(bb.getInt()); break;
 							case 'I':
-								tags.append(bb.getInt() & 0xFFFFFFFFL);
-								break;
+								sam.append(bb.getInt()&0xFFFFFFFFL); break;
 							case 'f':
-								tags.append(bb.getFloat());
-								break;
+								sam.append(bb.getFloat(), 6); break;
 							default:
-								throw new RuntimeException("Unknown array type: " + arrayType);
+								throw new RuntimeException("Unknown array type: "+arrayType);
 						}
 					}
 					break;
 				default:
-					throw new RuntimeException("Unknown tag type: " + type);
+					throw new RuntimeException("Unknown tag type: "+type);
 			}
 		}
-
-		// Build SAM line
-		// QNAME FLAG RNAME POS MAPQ CIGAR RNEXT PNEXT TLEN SEQ QUAL [TAGS]
-		StringBuilder sam = new StringBuilder();
-
-		// QNAME
-		sam.append(qname).append('\t');
-
-		// FLAG
-		sam.append(flag).append('\t');
-
-		// RNAME
-		if (refID < 0 || refID >= refNames.length) {
-			sam.append('*');
-		} else {
-			sam.append(refNames[refID]);
-		}
-		sam.append('\t');
-
-		// POS (BAM is 0-based, SAM is 1-based)
-		sam.append(pos + 1).append('\t');
-
-		// MAPQ
-		sam.append(mapq).append('\t');
-
-		// CIGAR
-		sam.append(cigar).append('\t');
-
-		// RNEXT
-		if (next_refID < 0) {
-			sam.append('*');
-		} else if (next_refID == refID) {
-			sam.append('=');
-		} else if (next_refID < refNames.length) {
-			sam.append(refNames[next_refID]);
-		} else {
-			sam.append('*');
-		}
-		sam.append('\t');
-
-		// PNEXT (BAM is 0-based, SAM is 1-based)
-		sam.append(next_pos + 1).append('\t');
-
-		// TLEN
-		sam.append(tlen).append('\t');
-
-		// SEQ
-		sam.append(seq).append('\t');
-
-		// QUAL
-		sam.append(qual);
-
-		// Tags (if any)
-		if (tags.length() > 0) {
-			sam.append('\t').append(tags);
-		}
-
-		// SAM format requires US-ASCII encoding (SAM spec page 1)
-		try {
-			return sam.toString().getBytes("US-ASCII");
-		} catch (java.io.UnsupportedEncodingException e) {
-			throw new RuntimeException("US-ASCII not supported", e); // Should never happen
-		}
-	}
-
-	/**
-	 * Reverse-complement a DNA sequence string.
-	 * Used to restore original sequence orientation for reverse-strand reads.
-	 */
-	private static String reverseComplement(String seq) {
-		StringBuilder rc = new StringBuilder(seq.length());
-		for (int i = seq.length() - 1; i >= 0; i--) {
-			char base = seq.charAt(i);
-			char comp;
-			switch (base) {
-				case 'A': comp = 'T'; break;
-				case 'T': comp = 'A'; break;
-				case 'G': comp = 'C'; break;
-				case 'C': comp = 'G'; break;
-				case 'a': comp = 't'; break;
-				case 't': comp = 'a'; break;
-				case 'g': comp = 'c'; break;
-				case 'c': comp = 'g'; break;
-				case 'N': comp = 'N'; break;
-				case 'n': comp = 'n'; break;
-				default: comp = base; // Keep ambiguity codes as-is
-			}
-			rc.append(comp);
-		}
-		return rc.toString();
+		return sam.toBytes();
 	}
 }
