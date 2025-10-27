@@ -629,12 +629,17 @@ public class BamToSamConverter {
 				}
 			}
 		}
+		
+		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
+			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
+			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+		}
 
 		sl.trimNames();
 		return sl;
 	}
 	
 	private static final byte[] bytestar=new byte[] {(byte)'*'};
-	private static final byte[] byteequals=new byte[] {(byte)'-'};
+	private static final byte[] byteequals=new byte[] {(byte)'='};
 	
 }
