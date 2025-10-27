@@ -242,7 +242,7 @@ calcXmx () {
 calcXmx "$@"
 
 function reformat() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.ReformatReads $@"
+	local CMD="java $EA $EOOM $z $z2 $SIMD -cp $CP jgi.ReformatReads $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -393,7 +393,7 @@ calcXmx () {
 calcXmx "$@"
 
 bbduk() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP jgi.BBDuk $@"
+	local CMD="java $EA $EOOM $z $z2 $SIMD $JNI -cp $CP jgi.BBDuk $@"
 	if [[ $silent == 0 ]] && [[ $json == 0 ]]; then
 		echo $CMD >&2
 	fi
