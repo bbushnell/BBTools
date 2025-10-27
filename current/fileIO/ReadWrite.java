@@ -954,7 +954,7 @@ public class ReadWrite {
 		if(nativeBamIn()) {
 			return new BamInputStream(fname, ordered);
 		}else if(SAMBAMBA()){
-			String command="sambamba -q view -h";
+			String command="sambamba -q view -h";//Adding -t 8 did not change speed
 //			new Exception().printStackTrace(); //123
 			if(SAMTOOLS_IGNORE_FLAG!=0){
 				command=command+" --num-filter=0/"+SAMTOOLS_IGNORE_FLAG;
@@ -2022,7 +2022,7 @@ public class ReadWrite {
 	public static boolean ALLOW_NATIVE_BAM_IN=true;
 	public static boolean ALLOW_NATIVE_BAM_OUT=true;
 	public static boolean PREFER_NATIVE_BAM_IN=true;
-	public static boolean PREFER_NATIVE_BAM_OUT=false;
+	public static boolean PREFER_NATIVE_BAM_OUT=true;
 	
 	public static boolean FORCE_PIGZ=false;
 	public static boolean FORCE_BGZIP=false;
