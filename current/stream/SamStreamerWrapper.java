@@ -65,6 +65,8 @@ public class SamStreamerWrapper {
 				forceParse=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				ref=b;
+			}else if(a.equals("rnameasbytes")){
+				SamLine.RNAME_AS_BYTES=Parse.parseBoolean(b);
 			}else if(a.equals("reads") || a.equals("maxreads")){
 				maxReads=Long.parseLong(b);
 			}else if(a.equals("samversion") || a.equals("samv") || a.equals("sam")){

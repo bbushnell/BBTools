@@ -283,18 +283,24 @@ public class BamLineStreamer extends SamStreamer {
 			}
 
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
-
+			final boolean parseToSamLine=true;
 			ListNum<byte[]> list=takeBytes();
 			while(list!=null && !list.poison()){
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
 				long readID=list.id*200;//TODO: Should be part of the listNum
 				for(byte[] bamRecord : list){
-					byte[] line=converter.convertAlignment(bamRecord);
-					if(line[0]=='@'){
-						//Ignore header lines
-					}else{
-						SamLine sl=new SamLine(line);
+					
+					final SamLine sl;
+					if(parseToSamLine) {
+						sl=converter.convertAlignmentToSamLineSimple(bamRecord);
+					}else {
+						byte[] line=converter.convertAlignment(bamRecord);
+//						if(line[0]=='@'){sl=null;}//Ignore header lines - should be impossible though
+						sl=new SamLine(line);
+					}
+					assert(sl!=null);
+					if(sl!=null){
 						if(makeReads){
 							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 							sl.obj=r;
