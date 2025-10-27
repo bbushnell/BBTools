@@ -853,8 +853,8 @@ public class RandomReadsMG{
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
 
-		int padding=r.bases.length-desiredLength;
-		int indels=0;
+		final int padding0=r.bases.length-desiredLength;
+		int padding=padding0, inss=0, dels=0;
 
 		//Create arrays that can accommodate insertions
 		ByteBuilder newBases=new ByteBuilder(desiredLength);
@@ -878,13 +878,14 @@ public class RandomReadsMG{
 						int q=baseQ+randy.nextInt(fullRange);
 						newQuals.append((byte)q);
 					}
-					indels++;
 					padding++;
+					inss++;
 				}else if(padding>0){
 					//Deletion-skip this base
 					padding--;
-					indels++;
-					continue; // Skip to next base
+					dels++;
+				}else {
+					i--;// Retry
 				}
 			}else{
 				//No indel-keep base as is
@@ -892,12 +893,22 @@ public class RandomReadsMG{
 				if(newQuals!=null){newQuals.append(quals[i]);}
 			}
 		}
-
+		assert(newBases.length()>=desiredLength) : 
+			"newBases="+newBases.length+", desiredLength="+desiredLength+
+			", padding="+padding+", inss="+inss+", dels="+dels;
+		assert(quals==null || newQuals.length()==newBases.length);
+		newBases.setLength(desiredLength);
+		
 		//Create right-sized result arrays
-		assert(newBases.length==desiredLength && newBases.array.length==desiredLength);
-		r.bases=newBases.array;
-		if(newQuals!=null){r.quality=newQuals.array;}
-		return indels;
+		assert(newBases.length==desiredLength) : 
+			"newBases="+newBases.length+", desiredLength="+desiredLength+
+			", padding0="+padding0+", padding="+padding+", inss="+inss+", dels="+dels;
+		r.bases=newBases.toBytes();
+		if(newQuals!=null){
+			newQuals.setLength(desiredLength);
+			r.quality=newQuals.toBytes();
+		}
+		return inss+dels;
 	}
 
 	/**
