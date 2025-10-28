@@ -45,7 +45,7 @@ if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 fi
 
 function gradesam() {
-	local CMD="java $EA $EOOM -Xmx200m -cp $CP align2.GradeSamFile $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx200m -cp $CP align2.GradeSamFile $@"
 #	echo $CMD >&2
 	eval $CMD
 }

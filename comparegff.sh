@@ -55,7 +55,7 @@ calcXmx () {
 calcXmx "$@"
 
 comparegff() {
-	local CMD="java $EA $EOOM $z -cp $CP gff.CompareGff $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP gff.CompareGff $@"
 	echo $CMD >&2
 	eval $CMD
 }

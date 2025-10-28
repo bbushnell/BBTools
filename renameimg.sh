@@ -58,7 +58,7 @@ calcXmx () {
 calcXmx "$@"
 
 function rename() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.RenameIMG $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.RenameIMG $@"
 	echo $CMD >&2
 	eval $CMD
 }

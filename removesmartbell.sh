@@ -53,7 +53,7 @@ calcXmx () {
 calcXmx "$@"
 
 removesmartbell() {
-	local CMD="java $EA $EOOM $z -cp $CP pacbio.RemoveAdapters2 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP pacbio.RemoveAdapters2 $@"
 	echo $CMD >&2
 	eval $CMD
 }

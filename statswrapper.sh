@@ -66,7 +66,7 @@ calcXmx () {
 calcXmx "$@"
 
 stats() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.AssemblyStatsWrapper format=3 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.AssemblyStatsWrapper format=3 $@"
 	echo $CMD >&2
 	eval $CMD
 }

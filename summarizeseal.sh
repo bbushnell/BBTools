@@ -67,7 +67,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarizeseal() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.SummarizeSealStats $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.SummarizeSealStats $@"
 #	echo $CMD >&2
 	eval $CMD
 }

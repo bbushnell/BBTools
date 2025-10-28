@@ -54,7 +54,7 @@ calcXmx () {
 calcXmx "$@"
 
 function mergepgm() {
-	local CMD="java $EA $EOOM $z -cp $CP prok.PGMTools $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP prok.PGMTools $@"
 	echo $CMD >&2
 	eval $CMD
 }

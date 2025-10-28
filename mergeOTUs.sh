@@ -45,7 +45,7 @@ calcXmx () {
 calcXmx "$@"
 
 function mergeOTUs() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.MergeCoverageOTU $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.MergeCoverageOTU $@"
 	echo $CMD >&2
 	eval $CMD
 }

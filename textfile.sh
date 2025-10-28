@@ -44,7 +44,7 @@ calcXmx () {
 calcXmx "$@"
 
 function tf() {
-	local CMD="java $EA $EOOM -Xmx120m -cp $CP fileIO.TextFile $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx120m -cp $CP fileIO.TextFile $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -55,7 +55,7 @@ calcXmx () {
 calcXmx "$@"
 
 function analyze() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP prok.AnalyzeGenes $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP prok.AnalyzeGenes $@"
 	#echo $CMD >&2
 	eval $CMD
 }

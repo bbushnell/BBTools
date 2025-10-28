@@ -51,7 +51,7 @@ calcXmx () {
 calcXmx "$@"
 
 function merge() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP jgi.BBMerge $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP jgi.BBMerge $@"
 	echo $CMD >&2
 	eval $CMD
 }

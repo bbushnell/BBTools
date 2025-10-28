@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 function removemicrobes() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP align2.BBMap strictmaxindel=4 bwr=0.16 bw=12 ef=0.001 minhits=2 path=/global/cfs/cdirs/bbtools/commonMicrobes pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag printunmappedcount ztd=2 kfilter=25 maxsites=1 k=13 minid=0.95 idfilter=0.95 minhits=2 build=1 bloomfilter $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP align2.BBMap strictmaxindel=4 bwr=0.16 bw=12 ef=0.001 minhits=2 path=/global/cfs/cdirs/bbtools/commonMicrobes pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag printunmappedcount ztd=2 kfilter=25 maxsites=1 k=13 minid=0.95 idfilter=0.95 minhits=2 build=1 bloomfilter $@"
 	echo $CMD >&2
 	eval $CMD
 }

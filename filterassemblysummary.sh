@@ -88,7 +88,7 @@ calcXmx () {
 calcXmx "$@"
 
 filterassemblysummary() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.FilterAssemblySummary $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.FilterAssemblySummary $@"
 	echo $CMD >&2
 	eval $CMD
 }

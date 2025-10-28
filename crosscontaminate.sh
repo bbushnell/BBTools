@@ -86,7 +86,7 @@ calcXmx () {
 calcXmx "$@"
 
 crosscontaminate() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.CrossContaminate $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.CrossContaminate $@"
 	echo $CMD >&2
 	eval $CMD
 }

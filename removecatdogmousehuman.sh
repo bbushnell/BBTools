@@ -69,7 +69,7 @@ calcXmx () {
 calcXmx "$@"
 
 function removecatdogmousehuman() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP align2.BBMap minratio=0.9 maxindel=3 bwr=0.16 bw=12 quickmatch fast minhits=2 path=/global/cfs/cdirs/bbtools/mousecatdoghuman/ pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 kfilter=25 maxsites=1 k=14 bloomfilter $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP align2.BBMap minratio=0.9 maxindel=3 bwr=0.16 bw=12 quickmatch fast minhits=2 path=/global/cfs/cdirs/bbtools/mousecatdoghuman/ pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 kfilter=25 maxsites=1 k=14 bloomfilter $@"
 	echo $CMD >&2
 	eval $CMD
 }

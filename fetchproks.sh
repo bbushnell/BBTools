@@ -63,7 +63,7 @@ calcXmx () {
 calcXmx "$@"
 
 fetchproks() {
-	local CMD="java $EA $EOOM $z -cp $CP prok.FetchProks $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP prok.FetchProks $@"
 	echo $CMD >&2
 	eval $CMD
 }

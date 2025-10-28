@@ -68,7 +68,7 @@ mapPacBio() {
 		module load samtools/1.4
 		module load pigz
 	fi
-	local CMD="java $EA $EOOM $z -cp $CP align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 ambiguous=best minscaf=100 startpad=10000 stoppad=10000 midpad=6000 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP align2.BBMapPacBio build=1 overwrite=true minratio=0.40 fastareadlen=6000 ambiguous=best minscaf=100 startpad=10000 stoppad=10000 midpad=6000 $@"
 	echo $CMD >&2
 	eval $CMD
 }

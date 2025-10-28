@@ -69,7 +69,7 @@ calcXmx () {
 calcXmx "$@"
 
 makechimeras() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.MakeChimeras $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.MakeChimeras $@"
 	echo $CMD >&2
 	eval $CMD
 }

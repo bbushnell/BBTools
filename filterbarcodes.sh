@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 filterbarcodes() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CorrelateBarcodes $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CorrelateBarcodes $@"
 	echo $CMD >&2
 	eval $CMD
 }

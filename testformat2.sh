@@ -139,7 +139,7 @@ calcXmx () {
 calcXmx "$@"
 
 testformat() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.TestFormat $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.TestFormat $@"
 #	echo $CMD >&2
 	eval $CMD
 }

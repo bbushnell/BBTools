@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 function loglog() {
-	local CMD="java $EA $EOOM $z -cp $CP cardinality.LogLogWrapper $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP cardinality.LogLogWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }

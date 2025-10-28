@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 sendsketch() {
-	local CMD="java $EA $EOOM $z -cp $CP sketch.SubSketch $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sketch.SubSketch $@"
 #	echo $CMD >&2
 	eval $CMD
 }

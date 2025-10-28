@@ -127,7 +127,7 @@ calcXmx () {
 calcXmx "$@"
 
 reformatpb() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP icecream.ReformatPacBio $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP icecream.ReformatPacBio $@"
 	if [[ $silent != 1 ]]; then
 		echo $CMD >&2
 	fi

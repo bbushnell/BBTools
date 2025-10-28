@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 adjusthomopolymers() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.AdjustHomopolymers $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.AdjustHomopolymers $@"
 	echo $CMD >&2
 	eval $CMD
 }

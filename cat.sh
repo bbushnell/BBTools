@@ -65,7 +65,7 @@ calcXmx () {
 calcXmx "$@"
 
 catFiles() {
-	local CMD="java $EA $EOOM $z -cp $CP fileIO.Concatenate $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP fileIO.Concatenate $@"
 	echo $CMD >&2
 	eval $CMD
 }

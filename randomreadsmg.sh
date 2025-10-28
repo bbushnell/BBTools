@@ -152,7 +152,7 @@ calcXmx () {
 calcXmx "$@"
 
 generate() {
-	local CMD="java $EA $EOOM $XMX $XMS -cp $CP synth.RandomReadsMG $@"
+	local CMD="java $EA $SIMD $EOOM $XMX $XMS -cp $CP synth.RandomReadsMG $@"
 	echo $CMD >&2
 	eval $CMD
 }

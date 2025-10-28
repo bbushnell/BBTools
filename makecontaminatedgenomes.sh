@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 makecontaminatedgenomes() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.MakeContaminatedGenomes $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.MakeContaminatedGenomes $@"
 	echo $CMD >&2
 	eval $CMD
 }

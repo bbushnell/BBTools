@@ -71,7 +71,7 @@ calcXmx () {
 calcXmx "$@"
 
 plotgc() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP driver.PlotGC $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP driver.PlotGC $@"
 	echo $CMD >&2
 	eval $CMD
 }

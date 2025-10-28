@@ -51,7 +51,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarizequast() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.SummarizeQuast $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.SummarizeQuast $@"
 #	echo $CMD >&2
 	eval $CMD
 }

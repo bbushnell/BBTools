@@ -54,7 +54,7 @@ calcXmx () {
 calcXmx "$@"
 
 stats() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.MakeLengthHistogram $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.MakeLengthHistogram $@"
 #	echo $CMD >&2
 	eval $CMD
 }

@@ -80,7 +80,7 @@ calcXmx () {
 calcXmx "$@"
 
 mergebarcodes() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.MergeBarcodes $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.MergeBarcodes $@"
 	echo $CMD >&2
 	eval $CMD
 }

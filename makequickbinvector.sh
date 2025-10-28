@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 vector() {
-	local CMD="java $EA $EOOM $z -cp $CP bin.AllToAllVectorMaker $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP bin.AllToAllVectorMaker $@"
 	echo $CMD >&2
 	eval $CMD
 }

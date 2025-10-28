@@ -71,7 +71,7 @@ calcXmx () {
 calcXmx "$@"
 
 tiledump() {
-	local CMD="java $EA $EOOM $z -cp $CP hiseq.TileDump $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP hiseq.TileDump $@"
 	echo $CMD >&2
 	eval $CMD
 }

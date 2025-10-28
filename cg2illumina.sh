@@ -66,7 +66,7 @@ calcXmx () {
 calcXmx "$@"
 
 function bgi2ill() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP hiseq.BGI2Illumina $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP hiseq.BGI2Illumina $@"
 	echo $CMD >&2
 	eval $CMD
 }

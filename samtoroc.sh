@@ -60,7 +60,7 @@ calcXmx () {
 calcXmx "$@"
 
 samtoroc() {
-	local CMD="java $EA $EOOM $z -cp $CP align2.MakeRocCurve $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP align2.MakeRocCurve $@"
 #	echo $CMD >&2
 	eval $CMD
 }

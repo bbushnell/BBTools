@@ -49,7 +49,7 @@ calcXmx () {
 calcXmx "$@"
 
 testformat() {
-	local CMD="java $EA $EOOM $z -cp $CP fileIO.FileFormat $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP fileIO.FileFormat $@"
 #	echo $CMD >&2
 	eval $CMD
 }

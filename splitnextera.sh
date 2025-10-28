@@ -95,7 +95,7 @@ calcXmx () {
 calcXmx "$@"
 
 function splitnextera() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.SplitNexteraLMP $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.SplitNexteraLMP $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -110,7 +110,7 @@ calcXmx () {
 calcXmx "$@"
 
 taxserver() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP tax.TaxServer $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.TaxServer $@"
 	echo $CMD >&2
 	eval $CMD
 }

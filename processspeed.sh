@@ -44,7 +44,7 @@ calcXmx () {
 calcXmx "$@"
 
 processspeed() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.ProcessSpeed2 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.ProcessSpeed2 $@"
 #	echo $CMD >&2
 	eval $CMD
 }

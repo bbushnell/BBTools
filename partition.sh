@@ -70,7 +70,7 @@ calcXmx () {
 calcXmx "$@"
 
 function partition() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.PartitionReads $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.PartitionReads $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -101,7 +101,7 @@ calcXmx () {
 calcXmx "$@"
 
 bbrealign() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP var2.Realign $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.Realign $@"
 	echo $CMD >&2
 	eval $CMD
 }

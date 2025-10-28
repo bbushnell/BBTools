@@ -52,7 +52,7 @@ calcXmx () {
 calcXmx "$@"
 
 parsebloom() {
-	local CMD="java $EA $EOOM $z -cp $CP bloom.ParseBloomFilter $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP bloom.ParseBloomFilter $@"
 	echo $CMD >&2
 	eval $CMD
 }

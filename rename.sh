@@ -99,7 +99,7 @@ calcXmx () {
 calcXmx "$@"
 
 function rename() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.RenameReads $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.RenameReads $@"
 	echo $CMD >&2
 	eval $CMD
 }

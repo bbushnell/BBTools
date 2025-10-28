@@ -69,7 +69,7 @@ calcXmx () {
 calcXmx "$@"
 
 idtree() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.IDTree $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.IDTree $@"
 	echo $CMD >&2
 	eval $CMD
 }

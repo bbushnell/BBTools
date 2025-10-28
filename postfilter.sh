@@ -87,7 +87,7 @@ calcXmx () {
 calcXmx "$@"
 
 function postfilter() {
-	local CMD="java $EA $EOOM $z -cp $CP assemble.Postfilter $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP assemble.Postfilter $@"
 	echo $CMD >&2
 	eval $CMD
 }

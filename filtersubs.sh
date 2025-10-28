@@ -57,7 +57,7 @@ calcXmx () {
 calcXmx "$@"
 
 filtersubs() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.FilterReadsWithSubs $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.FilterReadsWithSubs $@"
 #	echo $CMD >&2
 	eval $CMD
 }

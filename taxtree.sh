@@ -64,7 +64,7 @@ calcXmx "$@"
 
 
 taxtree() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP tax.TaxTree $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.TaxTree $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -66,7 +66,7 @@ calcXmx () {
 calcXmx "$@"
 
 diskbench() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP fun.DiskBench $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP fun.DiskBench $@"
 	echo $CMD >&2
 	eval $CMD
 }

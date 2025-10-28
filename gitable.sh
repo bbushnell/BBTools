@@ -65,7 +65,7 @@ calcXmx "$@"
 
 
 gitable() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP tax.GiToTaxid $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.GiToTaxid $@"
 	echo $CMD >&2
 	eval $CMD
 }

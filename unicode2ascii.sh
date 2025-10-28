@@ -46,7 +46,7 @@ calcXmx () {
 calcXmx "$@"
 
 function unicode2ascii() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.UnicodeToAscii $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.UnicodeToAscii $@"
 	echo $CMD >&2
 	eval $CMD
 }

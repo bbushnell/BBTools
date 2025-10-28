@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 function filterbycoverage() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.FilterByCoverage $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.FilterByCoverage $@"
 	echo $CMD >&2
 	eval $CMD
 }

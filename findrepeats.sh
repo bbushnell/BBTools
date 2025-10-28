@@ -114,7 +114,7 @@ calcXmx () {
 calcXmx "$@"
 
 findrepeats() {
-	local CMD="java $EA $EOOM $z -cp $CP repeat.RepeatFinder $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP repeat.RepeatFinder $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -70,7 +70,7 @@ calcXmx () {
 calcXmx "$@"
 
 countbarcodes() {
-	local CMD="java $EA $EOOM $z -cp $CP barcode.CountBarcodes $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP barcode.CountBarcodes $@"
 	echo $CMD >&2
 	eval $CMD
 }

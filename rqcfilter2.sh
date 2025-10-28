@@ -273,7 +273,7 @@ rqcfilter() {
 		module load java/1.8.0_144
 		module load pigz
 	fi
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP jgi.RQCFilter2 jni=t $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP jgi.RQCFilter2 jni=t $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -90,7 +90,7 @@ calcXmx () {
 calcXmx "$@"
 
 countDupes() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CountDuplicates $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CountDuplicates $@"
 	echo $CMD >&2
 	eval $CMD
 }

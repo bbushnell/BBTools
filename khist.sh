@@ -48,7 +48,7 @@ calcXmx () {
 calcXmx "$@"
 
 khist() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.KmerNormalize bits=32 ecc=f passes=1 keepall dr=f prefilter hist=stdout minprob=0 minqual=0 mindepth=0 minkmers=1 hashes=3 $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.KmerNormalize bits=32 ecc=f passes=1 keepall dr=f prefilter hist=stdout minprob=0 minqual=0 mindepth=0 minkmers=1 hashes=3 $@"
 	echo $CMD >&2
 	eval $CMD
 }

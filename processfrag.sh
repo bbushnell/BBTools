@@ -57,7 +57,7 @@ calcXmx () {
 calcXmx "$@"
 
 processfrags() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.ProcessFragMerging $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.ProcessFragMerging $@"
 	echo $CMD >&2
 	eval $CMD
 }

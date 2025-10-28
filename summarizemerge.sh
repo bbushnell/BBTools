@@ -48,7 +48,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarizemerge() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.ProcessSpeed $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.ProcessSpeed $@"
 #	echo $CMD >&2
 	eval $CMD
 }

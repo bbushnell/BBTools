@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 dedupebymapping() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.DedupeByMapping $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.DedupeByMapping $@"
 	echo $CMD >&2
 	eval $CMD
 }

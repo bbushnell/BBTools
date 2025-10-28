@@ -65,7 +65,7 @@ calcXmx () {
 calcXmx "$@"
 
 kmerposition3() {
-	local CMD="java $EA $EOOM $z -cp $CP jasper.KmerPosition3 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jasper.KmerPosition3 $@"
 	echo $CMD >&2
 	eval $CMD
 }

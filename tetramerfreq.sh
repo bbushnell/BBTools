@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 tetramerfreq() {
-	local CMD="java $EA $EOOM $XMX -cp $CP jgi.TetramerFrequencies $@"
+	local CMD="java $EA $SIMD $EOOM $XMX -cp $CP jgi.TetramerFrequencies $@"
 	echo $CMD >&2
 	eval $CMD
 }

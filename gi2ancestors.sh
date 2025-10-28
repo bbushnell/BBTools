@@ -68,7 +68,7 @@ calcXmx () {
 calcXmx "$@"
 
 gi2ancestors() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.FindAncestor $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.FindAncestor $@"
 	echo $CMD >&2
 	eval $CMD
 }

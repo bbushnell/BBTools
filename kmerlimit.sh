@@ -78,7 +78,7 @@ calcXmx () {
 calcXmx "$@"
 
 kmerlimit() {
-	local CMD="java $EA $EOOM $z -cp $CP sketch.KmerLimit $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sketch.KmerLimit $@"
 	echo $CMD >&2
 	eval $CMD
 }

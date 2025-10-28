@@ -72,7 +72,7 @@ calcXmx () {
 calcXmx "$@"
 
 cutprimers() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CutPrimers $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CutPrimers $@"
 	echo $CMD >&2
 	eval $CMD
 }

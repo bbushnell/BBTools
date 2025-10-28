@@ -45,7 +45,7 @@ calcXmx () {
 calcXmx "$@"
 
 function plot() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP hiseq.PlotReadPosition $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP hiseq.PlotReadPosition $@"
 	echo $CMD >&2
 	eval $CMD
 }

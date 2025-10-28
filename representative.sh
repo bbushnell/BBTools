@@ -93,7 +93,7 @@ calcXmx () {
 calcXmx "$@"
 
 a_sample_mt() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.RepresentativeSet $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.RepresentativeSet $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -95,7 +95,7 @@ calcXmx () {
 calcXmx "$@"
 
 kcompress() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP assemble.KmerCompressor $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP assemble.KmerCompressor $@"
 	echo $CMD >&2
 	eval $CMD
 }

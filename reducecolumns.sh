@@ -49,7 +49,7 @@ calcXmx () {
 calcXmx "$@"
 
 reduce() {
-	local CMD="java $EA $EOOM $z -cp $CP ml.ReduceColumns $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP ml.ReduceColumns $@"
 	echo $CMD >&2
 	eval $CMD
 }

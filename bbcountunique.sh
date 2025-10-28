@@ -86,7 +86,7 @@ calcXmx () {
 calcXmx "$@"
 
 bbcountunique() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.CalcUniqueness $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.CalcUniqueness $@"
 	echo $CMD >&2
 	eval $CMD
 }

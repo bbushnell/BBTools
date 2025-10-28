@@ -54,7 +54,7 @@ calcXmx () {
 calcXmx "$@"
 
 function bbest() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.SamToEst $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.SamToEst $@"
 #	echo $CMD >&2
 	eval $CMD
 }

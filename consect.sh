@@ -67,7 +67,7 @@ calcXmx () {
 calcXmx "$@"
 
 consect() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.Consect $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.Consect $@"
 	echo $CMD >&2
 	eval $CMD
 }

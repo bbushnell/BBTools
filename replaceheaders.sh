@@ -72,7 +72,7 @@ calcXmx () {
 calcXmx "$@"
 
 function reheader() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.ReplaceHeaders $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.ReplaceHeaders $@"
 	echo $CMD >&2
 	eval $CMD
 }

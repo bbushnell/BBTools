@@ -60,7 +60,7 @@ calcXmx () {
 calcXmx "$@"
 
 matrixtocolumns() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.CorrelateIdentity $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.CorrelateIdentity $@"
 	echo $CMD >&2
 	eval $CMD
 }

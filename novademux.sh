@@ -217,7 +217,7 @@ calcXmx () {
 calcXmx "$@"
 
 function demux() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP barcode.NovaDemux $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP barcode.NovaDemux $@"
 	echo $CMD >&2
 	eval $CMD
 }

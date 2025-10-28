@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 fixgaps() {
-	local CMD="java $EA $EOOM $z -cp $CP consensus.FixScaffoldGaps $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP consensus.FixScaffoldGaps $@"
 	echo $CMD >&2
 	eval $CMD
 }

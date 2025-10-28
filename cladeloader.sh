@@ -70,7 +70,7 @@ calcXmx () {
 calcXmx "$@"
 
 vector() {
-	local CMD="java $EA $EOOM $z -cp $CP clade.CladeLoader $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP clade.CladeLoader $@"
 	echo $CMD >&2
 	eval $CMD
 }

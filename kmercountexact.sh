@@ -138,7 +138,7 @@ calcXmx () {
 calcXmx "$@"
 
 kmercountexact() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.KmerCountExact $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.KmerCountExact $@"
 	echo $CMD >&2
 	eval $CMD
 }

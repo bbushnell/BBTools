@@ -59,7 +59,7 @@ calcXmx () {
 calcXmx "$@"
 
 function explodetree() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.ExplodeTree $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.ExplodeTree $@"
 	echo $CMD >&2
 	eval $CMD
 }

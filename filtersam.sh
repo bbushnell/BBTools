@@ -80,7 +80,7 @@ calcXmx () {
 calcXmx "$@"
 
 filtersam() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP var2.FilterSam $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.FilterSam $@"
 #	echo $CMD >&2
 	eval $CMD
 }

@@ -44,7 +44,7 @@ calcXmx () {
 calcXmx "$@"
 
 function splitsam() {
-	local CMD="java $EA $EOOM -Xmx128m -cp $CP jgi.SplitSamFile $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx128m -cp $CP jgi.SplitSamFile $@"
 	echo $CMD
 	eval $CMD
 }
