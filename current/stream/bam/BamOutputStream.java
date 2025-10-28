@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import shared.LineParser1;
+
 /**
  * {@link OutputStream} facade that accepts SAM text and emits BAM output.
  * Each newline-terminated SAM line written to this stream is parsed into a
@@ -126,7 +128,7 @@ public class BamOutputStream extends OutputStream {
 		if (!headerWritten) {
 			writeHeader();
 		}
-		SamLine sam = new SamLine(line);
+		SamLine sam = new SamLine(new LineParser1('\t').set(line));
 		samBuffer.add(sam);
 		if (samBuffer.size() >= FLUSH_THRESHOLD) {
 			flushSamBuffer();

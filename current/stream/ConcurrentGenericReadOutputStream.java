@@ -114,7 +114,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			errorState=true;
 			System.err.println("Error: An unfinished ReadOutputStream was closed.");
 		}
-		//assert(table==null || table.isEmpty()); //Seems like a race condition.  Probably, I should wait at this point until the condition is true before proceeding.
+		//assert(table==null || table.isEmpty()); //TODO Seems like a race condition.  Probably, I should wait at this point until the condition is true before proceeding.
 		
 //		readstream1.addList(null);
 //		if(readstream2!=null){readstream2.addList(null);}
@@ -212,7 +212,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			readstream1.addList(list);
 		}
 		if(readstream2!=null){
-			if(readstream1.getState()==State.TERMINATED){throw new RuntimeException("Writing to a terminated thread.");}
+			if(readstream2.getState()==State.TERMINATED){throw new RuntimeException("Writing to a terminated thread.");}
 			readstream2.addList(list);
 		}
 	}

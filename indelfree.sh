@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 15, 2025
+Last modified October 28, 2025
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
@@ -21,6 +21,8 @@ in=<file>       Query input.  These will be stored in memory.
 ref=<file>      Reference input.  These will be streamed.
 out=<file>      Sam output.
 subs=5          Maximum allowed substitutions.
+minid=0.0       Minimum allowed identity.  Actual substitions allowed will be
+                max(subs, (int)(qlen*(1-minid)))
 simd            Enable SIMD alignment.  Only accelerates brute force mode.
 threads=        Set the max number of threads; default is logical cores.
 

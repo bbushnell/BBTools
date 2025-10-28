@@ -440,9 +440,8 @@ public final class Vector {
 		if(Shared.SIMD && array.length>=MINLEN8) {
 			return SIMD.findSymbols(array, from, to, symbol, positions);
 		}
-		final byte nl=(byte)'\n';
 		for(int i=from; i<to; i++){
-			if(array[i]==nl){positions.add(i);}
+			if(array[i]==symbol){positions.add(i);}
 		}
 		return positions.size();
 	}

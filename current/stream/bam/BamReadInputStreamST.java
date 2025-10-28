@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.io.InputStream;
 
 import fileIO.FileFormat;
+import shared.LineParser1;
 import shared.Shared;
 import stream.FASTQ;
 import stream.Read;
@@ -150,9 +151,7 @@ public class BamReadInputStreamST extends ReadInputStream {
 			while(buffer.size()<BUF_LEN){
 				long block_size=reader.readUint32();
 				byte[] bamRecord=reader.readBytes((int)block_size);
-				byte[] samBytes=converter.convertAlignment(bamRecord);
-
-				SamLine sl=new SamLine(samBytes);
+				SamLine sl=converter.convertAlignmentToSamLine(bamRecord);
 				Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 				r.samline=sl;
 				r.numericID=nextReadID;

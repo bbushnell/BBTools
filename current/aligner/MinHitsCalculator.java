@@ -28,9 +28,10 @@ public class MinHitsCalculator {
 	 * @param minProb_ Minimum probability of detecting valid alignments (0.0-1.0)
 	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
 	 */
-	public MinHitsCalculator(int k_, int maxSubs_, int midMaskLen_, float minProb_, float maxClip_){
+	public MinHitsCalculator(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_){
 		k=k_;
-		maxSubs=maxSubs_;
+		maxSubs0=maxSubs_;
+		minid=minid_;
 		midMaskLen=midMaskLen_;
 		minProb=minProb_;
 		maxClipFraction=maxClip_;
@@ -101,12 +102,13 @@ public class MinHitsCalculator {
 	private int simulate(int validKmers){
 		// Calculate effective clipping limit for this query length
 		int queryLen=validKmers+k-1;
+		final int maxSubs=Math.min(maxSubs0, (int)(queryLen*(1-minid)));
 		int maxClips=(maxClipFraction<1 ? (int)(maxClipFraction*queryLen) : (int)maxClipFraction);
 		
 		// Deterministic case: require all possible hits
 		if(minProb>=1){
 			int unmasked=(Tools.max(2, k-midMaskLen));// Number of kmers impacted by a sub
-			return Math.max(1, validKmers-(unmasked*maxSubs)-maxClips);
+			return Math.max(1, validKmers-(unmasked*maxSubs0)-maxClips);
 		}else if(minProb==0){
 			return validKmers;
 		}else if(minProb<0){
@@ -122,7 +124,7 @@ public class MinHitsCalculator {
 			errors.clear();
 
 			// Place maxSubs random errors in query
-			for(int i=0; i<maxSubs; i++){
+			for(int i=0; i<maxSubs0; i++){
 				int pos=randy.nextInt(queryLen);
 				errors.set(pos);
 			}
@@ -141,11 +143,11 @@ public class MinHitsCalculator {
 			cumulative+=histogram[hits];
 			if(cumulative>=targetCount){
 				// Don't exceed theoretical maximum after clipping
-				return Math.min(hits, validKmers-maxSubs-maxClips);
+				return Math.min(hits, validKmers-maxSubs0-maxClips);
 			}
 		}
 
-		return Math.max(1, validKmers-maxSubs-maxClips); // Fallback
+		return Math.max(1, validKmers-maxSubs0-maxClips); // Fallback
 	}
 
 	/**
@@ -176,7 +178,9 @@ public class MinHitsCalculator {
 	/** K-mer length */
 	private final int k;
 	/** Maximum allowed substitutions in alignment */
-	private final int maxSubs;
+	private final int maxSubs0;
+	/** Minimum allowed identity */
+	private final float minid;
 	/** Number of wildcard bases in middle of k-mer */
 	private final int midMaskLen;
 	/** Maximum clipping allowed as fraction or absolute value */

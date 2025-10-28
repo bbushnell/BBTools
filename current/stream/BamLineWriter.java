@@ -78,8 +78,7 @@ public class BamLineWriter extends SamWriter {
 		try{
 			writer.writeHeaderFromLines(headerLines, supressHeader, supressHeaderSequences);
 		}catch(IOException e){
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			throw new RuntimeException(e);
 		}
 
 		// Create converter for workers

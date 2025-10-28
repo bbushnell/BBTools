@@ -44,33 +44,13 @@ public class SamLine implements Serializable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = -4180486051387471116L;
 
 	public SamLine() {}
-	
-	public SamLine(String s){//TODO: Change to LineParser version
-		this(s.split("\t"));
-	}
 
 	public SamLine(SamLine sl){
 		setFrom(sl);
 	}
-	
-//	/** Prevents references to original string, in case of e.g. very long MD tags. */
-//	public SamLine toSamLine(String s){
-//		String[] split=s.split("\t");
-//		split[0]=new String(split[0]);
-//		split[5]=new String(split[5]);
-//		split[9]=new String(split[9]);
-//		split[10]=new String(split[10]);
-//		for(int i=11; i<split.length; i++){
-//			split[i]=new String(split[i]);
-//		}
-//		return new SamLine(split);
-//	}
 	
 	private void setFrom(SamLine sl){
 		qname=sl.qname;
@@ -87,7 +67,6 @@ public class SamLine implements Serializable {
 		qual=sl.qual;
 		optional=sl.optional;
 	}
-	
 	
 	public SamLine(Read r1, int fragNum){
 		
@@ -420,90 +399,42 @@ public class SamLine implements Serializable {
 //		assert(r.pairnum()==1) : "\n"+r.toText(false)+"\n"+this+"\n"+r2;
 	}
 	
-	public SamLine(String[] s){
-		assert(!s[0].startsWith("@")) : "Tried to make a SamLine from a header: "+s[0];
-		assert(s.length>=11) : "\nNot all required fields are present: "+s.length+"\nline='"+Arrays.toString(s)+"'\n";
-		if(s.length<11){
-			System.err.println("Invalid SamLine: "+Arrays.toString(s));
-			return;
-		}
-		qname=s[0];
-		flag=Integer.parseInt(s[1]);
-		if(RNAME_AS_BYTES){
-			rname=s[2].getBytes();
-		}else{
-			rnameS=s[2];
-		}
-		pos=Integer.parseInt(s[3]);
-//		try {
-//			Integer.parseInt(s[4]);
-//		} catch (NumberFormatException e) {
-//			System.err.println(Arrays.toString(s));
-//		}
-		mapq=Tools.isDigit(s[4].charAt(0)) ? Integer.parseInt(s[4]) : 99; //Added for non-compliant mappers that put * here
-		cigar=s[5];
-		rnext=s[6].getBytes();
-		pnext=(s[7].charAt(0)=='*' ? 0 : Integer.parseInt(s[7]));
-		tlen=Tools.isDigit(s[8].charAt(0)) ? Integer.parseInt(s[8]) : 0; //Added for non-compliant mappers that put * here
-//		seq=s[9];
-//		qual=s[10];
-		seq=(s[9].equals(stringstar) ? null : s[9].getBytes());
-		qual=(s[10].equals(stringstar) ? null : s[10].getBytes());
-		
-		if(mapped() && strand()==Shared.MINUS){
-			if(seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(seq);}
-			if(qual!=bytestar){Tools.reverseInPlace(qual);}
-		}
-		
-		if(qual!=null && qual!=bytestar){
-			for(int i=0; i<qual.length; i++){qual[i]-=33;}
-		}
-		
-		if(!PARSE_OPTIONAL || s.length<=11){return;}
-		
-		if(PARSE_OPTIONAL_MD_ONLY){
-			optional=new ArrayList<String>(1);
-			for(int i=11; i<s.length; i++){
-				if(s[i].startsWith("MD:")){
-					mdTag=s[i].substring(3).getBytes();
-					optional.add(s[i]);
-					break;
-				}
-			}
-		}else{
-			optional=new ArrayList<String>(s.length-11);
-			for(int i=11; i<s.length; i++){
-				if(s[i].startsWith("MD:")){
-					mdTag=s[i].substring(3).getBytes();
-				}
-				optional.add(s[i]);
-			}
-		}
-		
-		trimNames();
-	}
-	
 	public SamLine(LineParser1 lp){
 		assert(!lp.startsWith('@')) : "Tried to make a SamLine from a header: "+lp.toString();
 		
 		if(PARSE_0){qname=lp.parseString(0);}
 		flag=lp.parseInt(1);
 		if(PARSE_2){
+			lp.setBounds(2);
+			boolean isStar=lp.currentTermEquals(star);
 			if(RNAME_AS_BYTES){
-				rname=(lp.termEquals('*', 2)) ? null : lp.parseByteArray(2);
+				rname=(isStar) ? null : lp.parseByteArray(2);
 			}else {
-				rnameS=(lp.termEquals('*', 2)) ? null : lp.parseString(2);
+				rnameS=(isStar) ? null : lp.parseString(2);
 			}
 		}
 		pos=lp.parseInt(3);
 		mapq=lp.parseInt(4);
 		if(PARSE_5){cigar=lp.parseString(5);}
-		if(PARSE_6){rnext=lp.parseByteArray(6);}
-		if(PARSE_7){pnext=lp.parseInt(7);}
+		if(PARSE_6){
+			int len=lp.setBounds(6);
+			rnext=lp.currentTermEquals(star) ? null : lp.parseByteArrayFromCurrentField();
+		}
+		
+		if(PARSE_7){
+			int len=lp.setBounds(7);
+			pnext=(len<1 || lp.currentTermEquals(star)) ? 0 : lp.parseIntFromCurrentField();
+		}
 		if(PARSE_8){tlen=lp.parseInt(8);}
-		seq=lp.parseByteArray(9);
-		if(PARSE_10){qual=lp.parseByteArray(10);}
-
+		{
+			int len=lp.setBounds(9);
+			seq=(len<1 || lp.currentTermEquals(star)) ? null : lp.parseByteArrayFromCurrentField();
+		}
+		if(PARSE_10){
+			int len=lp.setBounds(10);
+			qual=(len<1 || lp.currentTermEquals(star)) ? null : lp.parseByteArrayFromCurrentField();
+		}
+		
 		assert((seq==bytestar)==(Tools.equals(seq, bytestar)));
 		assert((qual==bytestar)==(Tools.equals(qual, bytestar)));
 		
@@ -523,8 +454,16 @@ public class SamLine implements Serializable {
 					if(lp.termStartsWith("MD:", i)){
 						String s=lp.parseString(i);
 						optional.add(s);
-						lp.incrementA(3);
-						mdTag=lp.parseByteArrayFromCurrentField();
+//						lp.incrementA(5);
+//						mdTag=lp.parseByteArrayFromCurrentField();//Not really needed
+					}
+				}
+			}else if(PARSE_OPTIONAL_MATEQ_ONLY) {
+				optional=new ArrayList<String>(1);
+				for(int i=11, terms=lp.terms(); i<terms; i++) {
+					if(lp.termStartsWith("YQ:", i)){
+						String s=lp.parseString(i);
+						optional.add(s);
 					}
 				}
 			}else{
@@ -532,150 +471,6 @@ public class SamLine implements Serializable {
 				for(int i=11, terms=lp.terms(); i<terms; i++) {
 					String s=lp.parseString(i);
 					optional.add(s);
-				}
-			}
-		}
-		
-		trimNames();
-	}
-	
-	//TODO: Should be replaced by LineParser
-	public SamLine(byte[] s){
-		assert(s[0]!='@') : "Tried to make a SamLine from a header: "+new String(s);
-		
-		int a=0, b=0;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 0: "+new String(s);
-		if(PARSE_0){qname=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a));}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 1: "+new String(s);
-		flag=Parse.parseInt(s, a, b);
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 2: "+new String(s);
-		if(PARSE_2){
-			if(RNAME_AS_BYTES){
-				rname=(b==a+1 && s[a]=='*' ? null : KillSwitch.copyOfRange(s, a, b));
-			}else{
-				rnameS=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a));
-			}
-		}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 3: "+new String(s);
-		pos=Parse.parseInt(s, a, b);
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 4: "+new String(s);
-		mapq=Parse.parseInt(s, a, b);
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 5: "+new String(s);
-		if(PARSE_5){cigar=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a));}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 6: "+new String(s);
-		if(PARSE_6){rnext=(b==a+1 && s[a]=='*' ? null : KillSwitch.copyOfRange(s, a, b));}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 7: "+new String(s);
-		if(PARSE_7){pnext=(b==a+1 && s[a]=='*' ? 0 :Parse.parseInt(s, a, b));}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 8: "+new String(s);
-		if(PARSE_8){tlen=Parse.parseInt(s, a, b);}
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 9: "+new String(s);
-//		seq=new String(s, a, b-a);
-		seq=(b==a+1 && s[a]=='*' ? null : KillSwitch.copyOfRange(s, a, b));
-		b++;
-		a=b;
-		
-		while(b<s.length && s[b]!='\t'){b++;}
-		assert(b>a) : "Missing field 10: "+new String(s);
-//		qual=new String(s, a, b-a);
-		if(PARSE_10){qual=(b==a+1 && s[a]=='*' ? null : KillSwitch.copyOfRange(s, a, b));}
-		b++;
-		a=b;
-
-		assert((seq==bytestar)==(Tools.equals(seq, bytestar)));
-		assert((qual==bytestar)==(Tools.equals(qual, bytestar)));
-		
-		if(mapped() && strand()==Shared.MINUS && FLIP_ON_LOAD){
-			if(seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(seq);}
-			if(qual!=bytestar){Tools.reverseInPlace(qual);}
-		}
-		
-		if(qual!=null && qual!=bytestar){
-			for(int i=0; i<qual.length; i++){qual[i]-=33;}
-		}
-
-		if(PARSE_OPTIONAL && b<s.length) {
-			if(PARSE_OPTIONAL_MD_ONLY) {
-				optional=new ArrayList<String>(1);
-				while(b<s.length){
-					while(b<s.length && s[b]!='\t'){b++;}
-					if(b>a){
-						if(b>=a+3 && s[a]=='M' && s[a+1]=='D' && s[a+2]==':'){
-							String x=new String(s, a, b-a);
-							optional.add(x);
-							return;
-						}
-					}else{
-						//Empty field
-					}
-					b++;
-					a=b;
-				}
-			}else if(PARSE_OPTIONAL_MATEQ_ONLY) {
-				optional=new ArrayList<String>(1);
-				while(b<s.length){
-					while(b<s.length && s[b]!='\t'){b++;}
-					if(b>a){
-						if(b>=a+3 && s[a]=='Y' && s[a+1]=='Q' && s[a+2]==':'){
-							String x=new String(s, a, b-a);
-							optional.add(x);
-							return;
-						}
-					}else{
-						//Empty field
-					}
-					b++;
-					a=b;
-				}
-			}else{
-				optional=new ArrayList<String>(4);
-				while(b<s.length){
-					while(b<s.length && s[b]!='\t'){b++;}
-					if(b>a){
-						String x=new String(s, a, b-a);
-						optional.add(x);
-					}else{
-						//Empty field
-					}
-					b++;
-					a=b;
 				}
 			}
 		}
@@ -2807,6 +2602,8 @@ public class SamLine implements Serializable {
 	private static final String stringequals="=";
 	private static final byte[] bytestar=new byte[] {(byte)'*'};
 	private static final byte[] byteequals=new byte[] {(byte)'='};
+	private static final byte star=(byte)'*';
+	private static final byte equals=(byte)'=';
 	private static final String XSPLUS="XS:A:+", XSMINUS="XS:A:-";
 //	private static final double inv100=0.01d;
 //	private static float minratio=0.4f;
@@ -2898,8 +2695,6 @@ public class SamLine implements Serializable {
 	public static boolean setxs=false;
 	public static boolean setintron=false;
 	
-//	/** SSAHA2 incorrectly calculates the start position of reads with soft-clipped starts, and needs this enabled. */
-//	public static boolean SUBTRACT_LEADING_SOFT_CLIP=true;
 	/** Sort header scaffolds in alphabetical order to be more compatible with Tophat */
 	public static boolean SORT_SCAFFOLDS=false;
 

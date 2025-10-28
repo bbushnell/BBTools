@@ -1,8 +1,10 @@
 package driver;
 
+import fileIO.ByteFile;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import fileIO.TextStreamWriter;
+import fileIO.ByteStreamWriter;
+import shared.LineParser1;
 import shared.Parse;
 import shared.Shared;
 import shared.Tools;
@@ -43,16 +45,17 @@ public final class SelectReads {
 		final int index=Tools.indexOf(new char[] {'M','S','D','I','C'}, symbol);
 		assert(index>=0) : "Symbol (3rd argument) must be M, S, D, I, C (for match string symbols) or M, =, X, D, N, I, S, H, P (for cigar symbols).";
 		
-		TextFile tf=new TextFile(args[0], true);
-		TextStreamWriter tsw=new TextStreamWriter(args[1], false, false, true);
+		ByteFile tf=ByteFile.makeByteFile(args[0], true);
+		LineParser1 lp=new LineParser1('\t');
+		ByteStreamWriter tsw=new ByteStreamWriter(args[1], false, false, true);
 		tsw.start();
 		
-		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
-			if(line.charAt(0)=='@'){
+		for(byte[] line=tf.nextLine(); line!=null; line=tf.nextLine()){
+			if(line[0]=='@'){
 				tsw.println(line);
 			}else{
 				if((reads=reads-1)<0){break;}
-				SamLine sl=new SamLine(line);
+				SamLine sl=new SamLine(lp.set(line));
 				if(testLine(sl, minlen, index)){
 					tsw.println(line);
 				}

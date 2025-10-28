@@ -4,8 +4,9 @@ import java.io.File;
 import java.util.BitSet;
 
 import fileIO.FileFormat;
-import fileIO.TextFile;
+import fileIO.ByteFile;
 import fileIO.TextStreamWriter;
+import shared.LineParser1;
 import shared.Parse;
 import shared.PreParser;
 import shared.Tools;
@@ -95,14 +96,15 @@ public class GradeSamFile {
 			System.err.println("Warning - number of expected reads was not specified.");
 		}
 		
-		TextFile tf=new TextFile(in, false);
+		ByteFile tf=ByteFile.makeByteFile(in, false);
+		LineParser1 lp=new LineParser1('\t');
 		
-		String s=null;
+		byte[] s=null;
 		for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-			char c=s.charAt(0);
+			byte c=s[0];
 //			System.out.println(s);
 			if(c!='@'/* && c!=' ' && c!='\t'*/){
-				SamLine sl=new SamLine(s);
+				SamLine sl=new SamLine(lp.set(s));
 				lines++;
 				
 				int id=(parsecustom && seen!=null ? ((((int)sl.parseNumericId())<<1)|sl.pairnum()) : (int)lines);

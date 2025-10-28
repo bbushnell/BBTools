@@ -151,6 +151,11 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				refFile=b;
 			}else if(a.equals("subs") || a.equals("maxsubs")){
 				maxSubs=Integer.parseInt(b);
+			}else if(a.equals("ani") || a.equals("minani") || a.equals("identity")
+					|| a.equals("id") || a.equals("minid")){
+				minid=Float.parseFloat(b);
+				if(minid>1) {minid/=100f;}
+				assert(minid>=0 && minid<=1);
 			}else if(a.equals("hits") || a.equals("minhits") || a.equals("seedhits")){
 				minSeedHits=Math.max(1, Integer.parseInt(b));
 			}else if(a.equals("minprob") || a.equals("minhitsprob")){
@@ -166,6 +171,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				useSeedMap=Parse.parseBoolean(b);
 			}else if(a.equals("seedlist") || a.equals("list")){
 				useSeedMap=!Parse.parseBoolean(b);
+			}else if(a.equals("header") || a.equals("headerout")){
+				headerOut=b;
 			}else if(a.equals("k")){
 				k=Integer.parseInt(b);
 				assert(k<16) : "0<=k<16 : "+k;
@@ -221,16 +228,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
 	}
-
-	/**
-	* Performs comprehensive alignment testing all possible positions.
-	* Uses SIMD optimization when available and appropriate.
-	* @param query Query sequence bases
-	* @param ref Reference sequence bases
-	* @param maxSubs Maximum allowed substitutions
-	* @param maxClips Maximum allowed clipped bases
-	* @return List of all alignment positions with ≤maxSubs substitutions, or null if none found
-	*/
+	
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -361,7 +359,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, qList, maxSubs, i));
+			alpt.add(new ProcessThread(cris, bsw, qList, maxSubs, minid, i));
 		}
 
 		//Start the threads and wait for them to finish
@@ -433,7 +431,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		ArrayList<Read> reads=ConcurrentReadInputStream.getReads(maxReads, false, ff1, ff2, null, null);
 		ArrayList<Query> queries=new ArrayList<Query>(reads.size());
 		if(indexQueries){
-			Query.mhc=new MinHitsCalculator(k, maxSubs, midMaskLen, minHitsProb, Query.maxClip); // Initialize hit calculator
+			Query.mhc=new MinHitsCalculator(k, maxSubs, minid, midMaskLen, minHitsProb, Query.maxClip); // Initialize hit calculator
 		}
 		for(Read r : reads){ //TODO: Could be multithreaded.
 			readsProcessed+=r.pairCount();
@@ -596,7 +594,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	IntListHashMap buildReferenceIndex(byte[] ref){
 		if(!indexQueries || k<=0){return null;}
 
-		final int defined=Math.max(k-maxSubs, 2);
+		final int defined=Math.max(k-midMaskLen, 2);
 		final int kSpace=(1<<(2*defined));
 		final long maxKmers=Math.min(kSpace, (ref.length-k+1)*2L);
 		final int initialSize=(int)Math.min(4000000, ((maxKmers*3)/2));
@@ -723,11 +721,12 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		 * @param tid_ Unique thread identifier for debugging and coordination
 		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
-				ArrayList<Query> qList, final int maxSubs_, final int tid_){
+				ArrayList<Query> qList, final int maxSubs_, final float minid_, final int tid_){
 			cris=cris_;
 			bsw=bsw_;
 			queries=qList;
 			maxSubs=maxSubs_;
+			minid=minid_;
 			tid=tid_;
 		}
 
@@ -960,18 +959,20 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 //			Shared.printMemory();
 
 			long sum=0;
+			final float subrate=1-minid;
 			for(Query q : queries){
 				int count=0;
 
+				int maxSubsQ=Math.min(maxSubs, (int)(q.length()*subrate));
 				// Forward strand alignment
 				IntList seedHits=getSeedHits(q, refIndex, false, seedMap, ref.name());
-				IntList hits=alignSparse(q.bases, ref.bases, maxSubs, q.maxClips, seedHits);
+				IntList hits=alignSparse(q.bases, ref.bases, maxSubsQ, q.maxClips, seedHits);
 				count+=processHits(q, ref, hits, false, 0, bsw);
 //				System.err.println("seedHits+:"+(seedHits==null ? 0 : seedHits.size()));
 
 				// Reverse strand alignment
 				seedHits=getSeedHits(q, refIndex, true, seedMap, ref.name());
-				hits=alignSparse(q.rbases, ref.bases, maxSubs, q.maxClips, seedHits);
+				hits=alignSparse(q.rbases, ref.bases, maxSubsQ, q.maxClips, seedHits);
 				count+=processHits(q, ref, hits, true, count, bsw);
 //				System.err.println("seedHits-:"+(seedHits==null ? 0 : seedHits.size()));
 
@@ -992,15 +993,17 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		*/
 		long processRefSequenceBrute(final Read ref){
 			long sum=0;
+			final float subrate=1-minid;
 			for(Query q : queries){
 				int count=0;
 
+				int maxSubsQ=Math.min(maxSubs, (int)(q.length()*subrate));
 				// Forward strand alignment - test all positions
-				IntList hits=alignAllPositions(q.bases, ref.bases, maxSubs, q.maxClips);
+				IntList hits=alignAllPositions(q.bases, ref.bases, maxSubsQ, q.maxClips);
 				count+=processHits(q, ref, hits, false, 0, bsw);
 
 				// Reverse strand alignment using pre-computed reverse complement query
-				hits=alignAllPositions(q.rbases, ref.bases, maxSubs, q.maxClips);
+				hits=alignAllPositions(q.rbases, ref.bases, maxSubsQ, q.maxClips);
 				count+=processHits(q, ref, hits, true, count, bsw);
 
 				readsOutT+=count;
@@ -1036,6 +1039,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		private final ArrayList<Query> queries;
 		/** Maximum substitutions threshold for alignment acceptance */
 		final int maxSubs;
+		/** Minimum identity allowed; actual min is the less permissive of minid and maxSubs */
+		final float minid;
 		/** Unique identifier for this worker thread */
 		final int tid;
 	}
@@ -1051,6 +1056,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 	/** Output file path for SAM format alignment results */
 	private String out1=null;
+	
+	private String headerOut=null;
 
 	/** Extension override for input file format detection (.fq, .fa, .sam, etc.) */
 	private String extin=null;
@@ -1061,6 +1068,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	String refFile=null;
 	/** Maximum substitutions allowed per alignment (includes mismatches and N's) */
 	int maxSubs=5;
+	/** Minimum identity allowed; actual min is the less permissive of minid and maxSubs */
+	float minid=0;
 	/** K-mer length for seed matching and indexing (1-15, affects sensitivity vs speed) */
 	int k=13;
 	/** Length of middle region to mask in k-mers for fuzzy matching tolerance */

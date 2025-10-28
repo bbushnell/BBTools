@@ -241,6 +241,21 @@ public class TextStreamWriter extends Thread {
 		}
 	}
 	
+
+	public void print(byte[] cs){
+		if(cs==null){cs="null".getBytes();}
+//		System.err.println("Added line '"+cs+"'");
+//		System.err.println("Adding "+cs.length()+" chars.");
+		assert(open) : cs;
+		buffer.add(new ByteBuilder(cs));
+		bufferLen+=cs.length;
+		if(buffer.size()>=buffersize || bufferLen>=maxBufferLen){
+			addJob(buffer);
+			buffer=new ArrayList<CharSequence>(buffersize);
+			bufferLen=0;
+		}
+	}
+	
 	public void print(long number){
 		print(Long.toString(number));
 	}
@@ -276,6 +291,11 @@ public class TextStreamWriter extends Thread {
 	}
 	
 	public void println(CharSequence cs){
+		print(cs);
+		print("\n");
+	}
+	
+	public void println(byte[] cs){
 		print(cs);
 		print("\n");
 	}
