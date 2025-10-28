@@ -64,7 +64,7 @@ calcXmx () {
 calcXmx "$@"
 
 process() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.FindHiCJunctions $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.FindHiCJunctions $@"
 	echo $CMD >&2
 	eval $CMD
 }

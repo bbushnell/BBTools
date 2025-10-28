@@ -56,7 +56,7 @@ calcXmx () {
 calcXmx "$@"
 
 a_sample_mt() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.AnalyzeAccession $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.AnalyzeAccession $@"
 	echo $CMD >&2
 	eval $CMD
 }

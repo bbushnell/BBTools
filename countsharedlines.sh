@@ -69,7 +69,7 @@ calcXmx () {
 calcXmx "$@"
 
 function countsharedlines() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.CountSharedLines $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.CountSharedLines $@"
 	echo $CMD >&2
 	eval $CMD
 }

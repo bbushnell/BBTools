@@ -238,7 +238,7 @@ calcXmx () {
 calcXmx "$@"
 
 seal() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.Seal $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.Seal $@"
 	echo $CMD >&2
 	eval $CMD
 }

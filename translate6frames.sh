@@ -87,7 +87,7 @@ calcXmx () {
 calcXmx "$@"
 
 translate6frames() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.TranslateSixFrames $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.TranslateSixFrames $@"
 	echo $CMD >&2
 	eval $CMD
 }

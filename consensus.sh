@@ -94,7 +94,7 @@ calcXmx "$@"
 
 #Note that this needs -Xss flag to prevent serialization stack overflow
 consensus() {
-	local CMD="java $EA $EOOM $z -Xss8m -cp $CP consensus.ConsensusMaker $@"
+	local CMD="java $EA $SIMD $EOOM $z -Xss8m -cp $CP consensus.ConsensusMaker $@"
 	echo $CMD >&2
 	eval $CMD
 }

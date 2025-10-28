@@ -68,7 +68,7 @@ calcXmx () {
 calcXmx "$@"
 
 function analyzesketchresults() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP sketch.AnalyzeSketchResults $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP sketch.AnalyzeSketchResults $@"
 	echo $CMD >&2
 	eval $CMD
 }

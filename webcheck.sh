@@ -64,7 +64,7 @@ calcXmx () {
 calcXmx "$@"
 
 webcheck() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.ProcessWebcheck $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.ProcessWebcheck $@"
 	echo $CMD >&2
 	eval $CMD
 }

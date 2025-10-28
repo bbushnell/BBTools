@@ -121,7 +121,7 @@ calcXmx () {
 calcXmx "$@"
 
 function bbsplit() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP align2.BBSplitter ow=t fastareadlen=500 minhits=1 minratio=0.56 maxindel=20 qtrim=rl untrim=t trimq=6 $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP align2.BBSplitter ow=t fastareadlen=500 minhits=1 minratio=0.56 maxindel=20 qtrim=rl untrim=t trimq=6 $@"
 	echo $CMD >&2
 	eval $CMD
 }

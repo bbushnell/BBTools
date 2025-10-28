@@ -64,7 +64,7 @@ calcXmx "$@"
 
 
 removebadbarcodes() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.RemoveBadBarcodes $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.RemoveBadBarcodes $@"
 	echo $CMD >&2
 	eval $CMD
 }

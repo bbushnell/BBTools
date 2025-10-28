@@ -95,7 +95,7 @@ calcXmx () {
 calcXmx "$@"
 
 sketchblacklist() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP sketch.BlacklistMaker $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP sketch.BlacklistMaker $@"
 	echo $CMD >&2
 	eval $CMD
 }

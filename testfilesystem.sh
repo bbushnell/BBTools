@@ -48,7 +48,7 @@ calcXmx () {
 calcXmx "$@"
 
 function testfs() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.TestFilesystem $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.TestFilesystem $@"
 	echo $CMD >&2
 	eval $CMD
 }

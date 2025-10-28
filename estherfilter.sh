@@ -53,7 +53,7 @@ calcXmx () {
 calcXmx "$@"
 
 estherfilter() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.EstherFilter $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.EstherFilter $@"
 	echo $CMD >&2
 	eval $CMD
 }

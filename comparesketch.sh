@@ -287,7 +287,7 @@ calcXmx () {
 calcXmx "$@"
 
 comparesketch() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP sketch.CompareSketch $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP sketch.CompareSketch $@"
 #	echo $CMD >&2
 	eval $CMD
 }

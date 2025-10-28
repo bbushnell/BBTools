@@ -42,7 +42,7 @@ calcXmx () {
 calcXmx "$@"
 
 function split() {
-	local CMD="java $EA $EOOM -Xmx128m -Xms128m -cp $CP jgi.SplitSam6Way $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx128m -Xms128m -cp $CP jgi.SplitSam6Way $@"
 	echo $CMD >&2
 	eval $CMD
 }

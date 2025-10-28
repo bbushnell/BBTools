@@ -71,7 +71,7 @@ calcXmx () {
 calcXmx "$@"
 
 function addadapters() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.AddAdapters $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.AddAdapters $@"
 	echo $CMD >&2
 	eval $CMD
 }

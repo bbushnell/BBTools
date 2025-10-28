@@ -42,7 +42,7 @@ calcXmx () {
 calcXmx "$@"
 
 function printtime() {
-	local CMD="java $EA $EOOM -Xmx8m -cp $CP align2.PrintTime $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx8m -cp $CP align2.PrintTime $@"
 	echo $CMD >&2
 	eval $CMD
 }

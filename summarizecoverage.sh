@@ -53,7 +53,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarize() {
-	local CMD="java $EA $EOOM $z -cp $CP covid.SummarizeCoverage $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP covid.SummarizeCoverage $@"
 #	echo $CMD >&2
 	eval $CMD
 }

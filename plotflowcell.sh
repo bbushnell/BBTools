@@ -87,7 +87,7 @@ calcXmx () {
 calcXmx "$@"
 
 plotflowcell() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP hiseq.PlotFlowCell $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP hiseq.PlotFlowCell $@"
 	echo $CMD >&2
 	eval $CMD
 }

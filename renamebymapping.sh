@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 rename() {
-	local CMD="java $EA $EOOM $z -cp $CP bin.ContigRenamer $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP bin.ContigRenamer $@"
 	echo $CMD >&2
 	eval $CMD
 }

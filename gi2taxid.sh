@@ -90,7 +90,7 @@ calcXmx "$@"
 
 
 gi2taxid() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP tax.RenameGiToTaxid $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.RenameGiToTaxid $@"
 	echo $CMD >&2
 	eval $CMD
 }

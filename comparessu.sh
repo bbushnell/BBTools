@@ -82,7 +82,7 @@ calcXmx () {
 calcXmx "$@"
 
 comparessu() {
-	local CMD="java $EA $EOOM $z -cp $CP sketch.CompareSSU $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sketch.CompareSSU $@"
 	echo $CMD >&2
 	eval $CMD
 }

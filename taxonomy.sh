@@ -92,7 +92,7 @@ calcXmx () {
 calcXmx "$@"
 
 taxonomy() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.PrintTaxonomy $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.PrintTaxonomy $@"
 	echo $CMD >&2
 	eval $CMD
 }

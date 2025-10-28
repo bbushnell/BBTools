@@ -146,7 +146,7 @@ calcXmx () {
 calcXmx "$@"
 
 calctruequality() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.CalcTrueQuality $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.CalcTrueQuality $@"
 	echo $CMD >&2
 	eval $CMD
 }

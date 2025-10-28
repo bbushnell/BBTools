@@ -45,7 +45,7 @@ calcXmx () {
 calcXmx "$@"
 
 gff() {
-	local CMD="java $EA $EOOM $z -cp $CP gff.GffLine $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP gff.GffLine $@"
 #	echo $CMD >&2
 	eval $CMD
 }

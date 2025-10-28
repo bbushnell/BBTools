@@ -39,7 +39,7 @@ if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 fi
 
 function grademerge() {
-	local CMD="java $EA $EOOM -Xmx200m -cp $CP jgi.GradeMergedReads $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx200m -cp $CP jgi.GradeMergedReads $@"
 #	echo $CMD >&2
 	eval $CMD
 }

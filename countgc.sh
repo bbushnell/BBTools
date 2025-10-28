@@ -52,7 +52,7 @@ calcXmx () {
 calcXmx "$@"
 
 countgc() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CountGC $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CountGC $@"
 	echo $CMD >&2
 	eval $CMD
 }

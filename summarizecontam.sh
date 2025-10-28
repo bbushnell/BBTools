@@ -73,7 +73,7 @@ calcXmx () {
 calcXmx "$@"
 
 process() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.SummarizeContamReport $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.SummarizeContamReport $@"
 	echo $CMD >&2
 	eval $CMD
 }

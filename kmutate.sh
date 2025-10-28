@@ -112,7 +112,7 @@ calcXmx () {
 calcXmx "$@"
 
 kmutate() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.KExpand $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.KExpand $@"
 	echo $CMD >&2
 	eval $CMD
 }

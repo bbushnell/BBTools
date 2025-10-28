@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 function callgenes() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP prok.CallGenes $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP prok.CallGenes $@"
 	#Too long to echo sometimes since wildcards can be expanded
 	#echo $CMD >&2
 	eval $CMD

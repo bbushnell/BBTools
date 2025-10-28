@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 tadpipe() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP assemble.TadPipe $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP assemble.TadPipe $@"
 	echo $CMD >&2
 	eval $CMD
 }

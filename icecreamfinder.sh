@@ -139,7 +139,7 @@ calcXmx () {
 calcXmx "$@"
 
 icecream() {
-	local CMD="java $EA $EOOM $z $z2 $z3 $JNI -cp $CP icecream.IceCreamFinder $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $z3 $JNI -cp $CP icecream.IceCreamFinder $@"
 	if [[ $silent != 1 ]]; then
 		echo $CMD >&2
 	fi

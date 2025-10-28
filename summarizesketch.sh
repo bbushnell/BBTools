@@ -53,7 +53,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarizesketch() {
-	local CMD="java $EA $EOOM $z -cp $CP sketch.SummarizeSketchStats $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sketch.SummarizeSketchStats $@"
 #	echo $CMD >&2
 	eval $CMD
 }

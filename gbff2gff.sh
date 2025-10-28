@@ -42,7 +42,7 @@ calcXmx () {
 calcXmx "$@"
 
 gff() {
-	local CMD="java $EA $EOOM $z -cp $CP gff.GbffFile $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP gff.GbffFile $@"
 	echo $CMD >&2
 	eval $CMD
 }

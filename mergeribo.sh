@@ -97,7 +97,7 @@ calcXmx () {
 calcXmx "$@"
 
 mergeribo() {
-	local CMD="java $EA $EOOM $z -cp $CP prok.MergeRibo $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP prok.MergeRibo $@"
 	echo $CMD >&2
 	eval $CMD
 }

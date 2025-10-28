@@ -265,7 +265,7 @@ calcXmx () {
 calcXmx "$@"
 
 sendsketch() {
-	local CMD="java $EA $EOOM $z -cp $CP sketch.SendSketch $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sketch.SendSketch $@"
 #	echo $CMD >&2
 	eval $CMD
 }

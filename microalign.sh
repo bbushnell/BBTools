@@ -81,7 +81,7 @@ calcXmx () {
 calcXmx "$@"
 
 align() {
-	local CMD="java $EA $EOOM $z -cp $CP aligner.MicroWrapper $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP aligner.MicroWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }

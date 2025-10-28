@@ -74,7 +74,7 @@ calcXmx () {
 calcXmx "$@"
 
 keepbest() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.KeepBestCopy $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.KeepBestCopy $@"
 	echo $CMD >&2
 	eval $CMD
 }

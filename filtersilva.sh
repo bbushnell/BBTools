@@ -66,7 +66,7 @@ calcXmx () {
 calcXmx "$@"
 
 filtersilva() {
-	local CMD="java $EA $EOOM $z -cp $CP prok.FilterSilva $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP prok.FilterSilva $@"
 	echo $CMD >&2
 	eval $CMD
 }

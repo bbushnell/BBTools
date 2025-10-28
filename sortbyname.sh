@@ -106,7 +106,7 @@ calcXmx () {
 calcXmx "$@"
 
 sortbyname() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP sort.SortByName $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP sort.SortByName $@"
 	echo $CMD >&2
 	eval $CMD
 }

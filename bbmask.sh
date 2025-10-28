@@ -103,7 +103,7 @@ calcXmx () {
 calcXmx "$@"
 
 bbmask() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.BBMask $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.BBMask $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -71,7 +71,7 @@ calcXmx () {
 calcXmx "$@"
 
 muxbyname() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.RenameAndMux $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.RenameAndMux $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -104,7 +104,7 @@ calcXmx () {
 calcXmx "$@"
 
 filtervcf() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP var2.FilterVCF $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.FilterVCF $@"
 	echo $CMD >&2
 	eval $CMD
 }

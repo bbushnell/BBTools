@@ -98,7 +98,7 @@ calcXmx () {
 calcXmx "$@"
 
 function filterbyname() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.FilterReadsByName $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.FilterReadsByName $@"
 	echo $CMD >&2
 	eval $CMD
 }

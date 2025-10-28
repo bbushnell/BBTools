@@ -79,7 +79,7 @@ calcXmx () {
 calcXmx "$@"
 
 comparevcf() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP var2.CompareVCF $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.CompareVCF $@"
 	echo $CMD >&2
 	eval $CMD
 }

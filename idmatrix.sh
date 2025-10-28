@@ -77,7 +77,7 @@ calcXmx () {
 calcXmx "$@"
 
 idmatrix() {
-	local CMD="java $EA $EOOM $z $z2 $JNI -cp $CP jgi.IdentityMatrix $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP jgi.IdentityMatrix $@"
 	echo $CMD >&2
 	eval $CMD
 }

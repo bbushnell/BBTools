@@ -64,7 +64,7 @@ calcXmx () {
 calcXmx "$@"
 
 function tagandmerge() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP barcode.TagAndMerge $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP barcode.TagAndMerge $@"
 	echo $CMD >&2
 	eval $CMD
 }

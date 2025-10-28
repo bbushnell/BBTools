@@ -104,7 +104,7 @@ calcXmx () {
 calcXmx "$@"
 
 filterbytaxa() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.FilterByTaxa $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.FilterByTaxa $@"
 	echo $CMD >&2
 	eval $CMD
 }

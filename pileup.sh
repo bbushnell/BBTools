@@ -150,7 +150,7 @@ calcXmx () {
 calcXmx "$@"
 
 pileup() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CoveragePileup $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CoveragePileup $@"
 	echo $CMD >&2
 	eval $CMD
 }

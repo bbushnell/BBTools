@@ -61,7 +61,7 @@ calcXmx () {
 calcXmx "$@"
 
 function shrinkaccession() {
-	local CMD="java $EA $EOOM $z -cp $CP tax.ShrinkAccession $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.ShrinkAccession $@"
 	echo $CMD >&2
 	eval $CMD
 }

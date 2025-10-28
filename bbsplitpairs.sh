@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 splitpairs() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.SplitPairsAndSingles $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.SplitPairsAndSingles $@"
 	echo $CMD >&2
 	eval $CMD
 }

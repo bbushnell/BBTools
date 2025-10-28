@@ -105,7 +105,7 @@ calcXmx () {
 calcXmx "$@"
 
 mutate() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP synth.MutateGenome $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP synth.MutateGenome $@"
 	echo $CMD >&2
 	eval $CMD
 }

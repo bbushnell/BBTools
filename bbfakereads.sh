@@ -77,7 +77,7 @@ calcXmx () {
 calcXmx "$@"
 
 function fakereads() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.FakeReads $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.FakeReads $@"
 	echo $CMD >&2
 	eval $CMD
 }

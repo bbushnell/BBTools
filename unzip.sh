@@ -54,7 +54,7 @@ calcXmx () {
 calcXmx "$@"
 
 unzip() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.Unzip $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.Unzip $@"
 #	echo $CMD >&2
 	eval $CMD
 }

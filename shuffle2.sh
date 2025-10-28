@@ -73,7 +73,7 @@ calcXmx () {
 calcXmx "$@"
 
 shuffle() {
-	local CMD="java $EA $EOOM $z -cp $CP sort.Shuffle2 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP sort.Shuffle2 $@"
 	echo $CMD >&2
 	eval $CMD
 }

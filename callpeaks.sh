@@ -69,7 +69,7 @@ calcXmx () {
 calcXmx "$@"
 
 stats() {
-	local CMD="java $EA $EOOM -Xmx120m -cp $CP jgi.CallPeaks $@"
+	local CMD="java $EA $SIMD $EOOM -Xmx120m -cp $CP jgi.CallPeaks $@"
 #	echo $CMD >&2
 	eval $CMD
 }

@@ -68,7 +68,7 @@ calcXmx () {
 calcXmx "$@"
 
 convert() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.PhylipToFasta $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.PhylipToFasta $@"
 	echo $CMD >&2
 	eval $CMD
 }

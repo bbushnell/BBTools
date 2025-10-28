@@ -57,7 +57,7 @@ calcXmx () {
 calcXmx "$@"
 
 summarizescafstats() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.SummarizeCoverage $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.SummarizeCoverage $@"
 #	echo $CMD >&2
 	eval $CMD
 }

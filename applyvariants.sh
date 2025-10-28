@@ -84,7 +84,7 @@ calcXmx () {
 calcXmx "$@"
 
 applyvariants() {
-	local CMD="java $EA $EOOM $z -cp $CP var2.ApplyVariants $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP var2.ApplyVariants $@"
 	echo $CMD >&2
 	eval $CMD
 }

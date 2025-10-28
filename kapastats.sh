@@ -60,7 +60,7 @@ calcXmx () {
 calcXmx "$@"
 
 kapastats() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.GatherKapaStats $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.GatherKapaStats $@"
 	echo $CMD >&2
 	eval $CMD
 }

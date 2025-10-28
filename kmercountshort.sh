@@ -80,7 +80,7 @@ calcXmx () {
 calcXmx "$@"
 
 kmercountshort() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.KmerCountShort $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.KmerCountShort $@"
 	echo $CMD >&2
 	eval $CMD
 }

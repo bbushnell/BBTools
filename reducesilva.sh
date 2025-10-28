@@ -65,7 +65,7 @@ calcXmx () {
 calcXmx "$@"
 
 function reducesilva() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.ReduceSilva $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.ReduceSilva $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -186,7 +186,7 @@ calcXmx () {
 calcXmx "$@"
 
 checkstrand() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.CheckStrand2 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.CheckStrand2 $@"
 	echo $CMD >&2
 	eval $CMD
 }

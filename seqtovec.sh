@@ -81,7 +81,7 @@ calcXmx () {
 calcXmx "$@"
 
 seqtovec() {
-	local CMD="java $EA $EOOM $z -cp $CP ml.SequenceToVector $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP ml.SequenceToVector $@"
 	echo $CMD >&2
 	eval $CMD
 }

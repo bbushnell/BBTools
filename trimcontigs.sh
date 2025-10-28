@@ -76,7 +76,7 @@ calcXmx () {
 calcXmx "$@"
 
 function trimcontigs() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.TrimContigs $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.TrimContigs $@"
 	echo $CMD >&2
 	eval $CMD
 }

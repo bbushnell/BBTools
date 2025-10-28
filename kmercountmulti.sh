@@ -77,7 +77,7 @@ calcXmx () {
 calcXmx "$@"
 
 function kmercountmulti() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.KmerCountMulti $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.KmerCountMulti $@"
 	echo $CMD >&2
 	eval $CMD
 }

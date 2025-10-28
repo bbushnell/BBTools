@@ -72,7 +72,7 @@ calcXmx () {
 calcXmx "$@"
 
 picksubset() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.PickSubset $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.PickSubset $@"
 	echo $CMD >&2
 	eval $CMD
 }

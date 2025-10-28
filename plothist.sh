@@ -61,7 +61,7 @@ calcXmx () {
 calcXmx "$@"
 
 plothist() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP hiseq.PlotHist $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP hiseq.PlotHist $@"
 	echo $CMD >&2
 	eval $CMD
 }

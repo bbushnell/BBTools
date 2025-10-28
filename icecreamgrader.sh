@@ -49,7 +49,7 @@ calcXmx () {
 calcXmx "$@"
 
 icecreamgrader() {
-	local CMD="java $EA $EOOM $z -cp $CP icecream.IceCreamGrader $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP icecream.IceCreamGrader $@"
 	echo $CMD >&2
 	eval $CMD
 }

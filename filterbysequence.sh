@@ -81,7 +81,7 @@ calcXmx () {
 calcXmx "$@"
 
 function filterbysequence() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.FilterBySequence $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.FilterBySequence $@"
 	echo $CMD >&2
 	eval $CMD
 }

@@ -75,7 +75,7 @@ calcXmx () {
 calcXmx "$@"
 
 function filterlines() {
-	local CMD="java $EA $EOOM $z -cp $CP driver.FilterLines $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP driver.FilterLines $@"
 	echo $CMD >&2
 	eval $CMD
 }

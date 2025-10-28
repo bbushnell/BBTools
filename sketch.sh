@@ -149,7 +149,7 @@ calcXmx () {
 calcXmx "$@"
 
 sketch() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP sketch.SketchMaker $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP sketch.SketchMaker $@"
 	echo $CMD >&2
 	eval $CMD
 }

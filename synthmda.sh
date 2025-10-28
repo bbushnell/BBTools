@@ -79,7 +79,7 @@ calcXmx () {
 calcXmx "$@"
 
 synthmda() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.SynthMDA $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.SynthMDA $@"
 	echo $CMD >&2
 	eval $CMD
 }

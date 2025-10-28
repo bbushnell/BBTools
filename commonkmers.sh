@@ -63,7 +63,7 @@ calcXmx () {
 calcXmx "$@"
 
 function commonkmers() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.SmallKmerFrequency $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.SmallKmerFrequency $@"
 	echo $CMD >&2
 	eval $CMD
 }

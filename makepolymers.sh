@@ -73,7 +73,7 @@ calcXmx () {
 calcXmx "$@"
 
 makepolymers() {
-	local CMD="java $EA $EOOM $z $z2 -cp $CP jgi.MakePolymers $@"
+	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.MakePolymers $@"
 	echo $CMD >&2
 	eval $CMD
 }

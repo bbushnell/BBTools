@@ -167,7 +167,7 @@ calcXmx () {
 calcXmx "$@"
 
 randomreads() {
-	local CMD="java $EA $EOOM $z -cp $CP synth.RandomReads3 build=1 $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP synth.RandomReads3 build=1 $@"
 	echo $CMD >&2
 	eval $CMD
 }

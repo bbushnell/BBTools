@@ -648,7 +648,7 @@ public class ReadWrite {
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
 		
-		if(nativeBgzfOut()) {
+		if(nativeBgzfOut() || !Data.BGZIP()) {
 			if(ALLOW_ZIPLEVEL_CHANGE){
 				if(zl>5) {zl=5;}
 				else if(zl<4 && zl>0 && threads>=16) {zl=4;}

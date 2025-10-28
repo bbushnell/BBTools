@@ -52,7 +52,7 @@ calcXmx () {
 calcXmx "$@"
 
 function tf() {
-	local CMD="java $EA $EOOM $z -cp $CP jgi.GetReads $@"
+	local CMD="java $EA $SIMD $EOOM $z -cp $CP jgi.GetReads $@"
 	echo $CMD >&2
 	eval $CMD
 }
