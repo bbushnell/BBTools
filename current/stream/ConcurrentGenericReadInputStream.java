@@ -562,10 +562,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		return removed;
 	}
 	
-	private boolean shutdown=false;
-	
 	@Override
-	public void shutdown(){
+	public synchronized void shutdown(){
 //		System.err.println("crisG:    Called shutdown.");
 		shutdown=true;
 		if(!shutdown){//???
@@ -753,7 +751,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				//TODO Note that this could cause a deadlock if there was a premature shutdown, so the consumer died while the queue was full.
 				try {
 //					pq.offer(poison, 10000, TimeUnit.SECONDS);
-					pq.put(poison);
+					pq.put(poison); //Possible bug
 					b=false;
 				} catch (InterruptedException e) {
 					// TODO Auto-generated catch block
@@ -812,6 +810,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			(producer1==null ? false : producer1.errorState()) || (producer2==null ? false : producer2.errorState());}
 	/** TODO */
 	private boolean errorState=false;
+	
+	private boolean shutdown=false;
 	
 	private boolean[] running=new boolean[] {false};
 	

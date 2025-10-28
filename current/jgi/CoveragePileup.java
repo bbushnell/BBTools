@@ -997,7 +997,7 @@ public class CoveragePileup {
 				}
 			}
 		}else{
-			SamLine sl=new SamLine(line);
+			SamLine sl=new SamLine(lp.set(line));
 			return processSamLine(sl);
 		}
 		return false;

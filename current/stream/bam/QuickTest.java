@@ -1,5 +1,6 @@
 package stream.bam;
 
+import shared.LineParser1;
 import stream.SamLine;
 
 /**
@@ -17,7 +18,7 @@ public class QuickTest {
 		System.out.println();
 
 		// Parse to SamLine
-		SamLine sl = new SamLine(originalLine.getBytes());
+		SamLine sl = new SamLine(new LineParser1('\t').set(originalLine.getBytes()));
 		System.out.println("Parsed SamLine:");
 		System.out.println("  QNAME: " + sl.qname);
 		System.out.println("  FLAG: " + sl.flag + " (reverse=" + ((sl.flag & 0x10) != 0) + ")");

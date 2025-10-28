@@ -53,7 +53,7 @@ public class SamToBamConverter {
 
 	/**
 	 * Convert a SamLine to BAM binary format.
-	 * @return Complete BAM record including block_size prefix
+	 * @return Complete BAM record, excluding block_size prefix
 	 */
 	public byte[] convertAlignment(SamLine sl) throws IOException {
 		ByteArrayOutputStream baos = new ByteArrayOutputStream(64/*sl.estimateBamLength()*/);

@@ -11,9 +11,10 @@ import dna.Data;
 import dna.Scaffold;
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
-import fileIO.TextFile;
+import fileIO.ByteFile;
 import fileIO.TextStreamWriter;
 import shared.KillSwitch;
+import shared.LineParser1;
 import shared.LineParserS1;
 import shared.Parse;
 import shared.Parser;
@@ -115,17 +116,17 @@ public class SamToEst {
 	
 	public void process(){
 		HashMap<String, EST> table=new HashMap<String, EST>(initialSize);
-		TextFile tf=new TextFile(in, true);
-		String line=null;
+		ByteFile tf=ByteFile.makeByteFile(in, true);
+		LineParser1 lp=new LineParser1('\t');
+		byte[] line=null;
 		
 		String program=null;
 		String version=null;
 		
 		boolean bbmap=false;
 		float bbversion=-1;
-		LineParserS1 lp=new LineParserS1('\t');
 		
-		for(line=tf.nextLine(); line!=null && line.startsWith("@"); line=tf.nextLine()){
+		for(line=tf.nextLine(); line!=null && line[0]=='@'; line=tf.nextLine()){
 			lp.set(line);
 			final String a=lp.parseString(1);
 			
@@ -163,9 +164,9 @@ public class SamToEst {
 		boolean err=false;
 		for(; line!=null; line=tf.nextLine()){
 			
-			if(line.length()==0){
+			if(line.length==0){
 				
-			}else if(line.charAt(0)=='@'){
+			}else if(line[0]=='@'){
 				if(!err){
 					outstream.println("Unexpected header line: "+line);
 					outstream.println("This should not cause problems, and is probably due to concatenated sam files.\n" +
@@ -173,9 +174,8 @@ public class SamToEst {
 					err=true;
 				}
 				
-				if(line.startsWith("@SQ")){
-					String[] split=line.split("\t");
-					Scaffold sc=new Scaffold(split);
+				if(Tools.startsWith(line, "@SQ")){
+					Scaffold sc=new Scaffold(lp.set(line));
 //					if(!table.containsKey(sc.name)){
 //						table.put(sc.name, sc);
 //						refBases+=sc.length;
@@ -184,7 +184,7 @@ public class SamToEst {
 				}
 			}else{
 				
-				SamLine sl=new SamLine(line);
+				SamLine sl=new SamLine(lp.set(line));
 				if(USE_SECONDARY || sl.primary()){
 					
 					if(sl.mapped() && sl.cigar!=null){

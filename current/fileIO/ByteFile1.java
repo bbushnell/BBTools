@@ -207,7 +207,7 @@ public final class ByteFile1 extends ByteFile {
 
 		int nlpos=bstart;
 		
-		while(nlpos<bstop && buffer[nlpos]!=slashn){nlpos++;}//TODO: Vectorize with IntList
+		while(nlpos<bstop && buffer[nlpos]!=slashn){nlpos++;}
 		
 		if(nlpos>=bstop){//At this point we are at the last character which may or may not be a newline
 			nlpos=fillBuffer();
@@ -302,21 +302,6 @@ public final class ByteFile1 extends ByteFile {
 		bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 		
 		return line;
-	}
-	
-	private static final String printNL(byte[] b){
-		StringBuilder sb=new StringBuilder();
-		for(int i=0; i<b.length; i++){
-			char c=(char)b[i];
-			if(c=='\n'){
-				sb.append("\\n");
-			}else if(c==slashr){
-				sb.append("\\r");
-			}else{
-				sb.append(c);
-			}
-		}
-		return sb.toString();
 	}
 	
 	private final void printBuffer(){

@@ -2,6 +2,7 @@ package stream;
 
 import java.util.ArrayList;
 import fileIO.FileFormat;
+import shared.LineParser1;
 import structures.ListNum;
 
 /**
@@ -170,6 +171,7 @@ public class SamLineStreamer extends SamStreamer {
 		void makeReads(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
+			final LineParser1 lp=new LineParser1('\t');
 			ListNum<byte[]> list=takeBytes();
 			while(!list.poison()){
 				if(verbose || verbose2){outstream.println("tid "+tid+" grabbed blist "+list.id);}
@@ -180,7 +182,7 @@ public class SamLineStreamer extends SamStreamer {
 					if(line[0]=='@'){
 						//Ignore header lines
 					}else{
-						SamLine sl=new SamLine(line);
+						SamLine sl=new SamLine(lp.set(line));
 						reads.add(sl);
 						if(makeReads){
 							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);

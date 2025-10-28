@@ -5,8 +5,11 @@ import java.util.Arrays;
 import java.util.BitSet;
 
 import dna.Data;
-import fileIO.TextFile;
+import fileIO.ByteFile;
+import fileIO.ByteFile1;
+import fileIO.ByteFile;
 import shared.KillSwitch;
+import shared.LineParser1;
 import shared.Parse;
 import shared.PreParser;
 import shared.Tools;
@@ -74,24 +77,25 @@ public class CompareSamFiles {
 			System.err.println("Warning - number of expected reads was not specified.");
 		}
 
-		TextFile tf1=new TextFile(in1, false);
-		TextFile tf2=null;
-		if(in2!=null){tf2=new TextFile(in2, false);}
+		ByteFile tf1=ByteFile.makeByteFile(in1, false);
+		ByteFile tf2=null;
+		if(in2!=null){tf2=ByteFile.makeByteFile(in2, false);}
 
 		BitSet truePos1=new BitSet((int)reads);
 		BitSet falsePos1=new BitSet((int)reads);
 		BitSet truePos2=new BitSet((int)reads);
 		BitSet falsePos2=new BitSet((int)reads);
 		
-		String s=null;
+		byte[] s=null;
 		
-		TextFile tf;
+		ByteFile tf;
+		LineParser1 lp=new LineParser1('\t');
 		{
 			tf=tf1;
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-				char c=s.charAt(0);
+				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
-					SamLine sl=new SamLine(s);
+					SamLine sl=new SamLine(lp.set(s));
 					if(sl.primary()){
 						Read r=sl.toRead(parsecustom);
 						if(parsecustom && r.originalSite==null){
@@ -112,9 +116,9 @@ public class CompareSamFiles {
 		if(tf2!=null){
 			tf=tf2;
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-				char c=s.charAt(0);
+				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
-					SamLine sl=new SamLine(s);
+					SamLine sl=new SamLine(lp.set(s));
 					if(sl.primary()){
 						Read r=sl.toRead(parsecustom);
 						if(parsecustom && r.originalSite==null){
@@ -140,9 +144,9 @@ public class CompareSamFiles {
 			tf=tf1;
 			tf.reset();
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-				char c=s.charAt(0);
+				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
-					SamLine sl=new SamLine(s);
+					SamLine sl=new SamLine(lp.set(s));
 //					assert(false) : s+", "+truePos1.cardinality()+", "+truePos2.cardinality()+", "+falsePos1.cardinality()+", "+falsePos2.cardinality()+", ";
 					if(sl.primary()){
 						Read r=sl.toRead(parsecustom);
@@ -170,9 +174,9 @@ public class CompareSamFiles {
 			tf=tf2;
 			tf.reset();
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-				char c=s.charAt(0);
+				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
-					SamLine sl=new SamLine(s);
+					SamLine sl=new SamLine(lp.set(s));
 					if(sl.primary()){
 						Read r=sl.toRead(parsecustom);
 						int id=(int)r.numericID;

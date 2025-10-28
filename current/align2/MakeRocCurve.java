@@ -3,7 +3,9 @@ package align2;
 import java.io.File;
 import java.util.BitSet;
 
+import fileIO.ByteFile;
 import fileIO.TextFile;
+import shared.LineParser1;
 import shared.Parse;
 import shared.PreParser;
 import shared.Timer;
@@ -81,13 +83,12 @@ public class MakeRocCurve {
 	}
 	
 	public static void process(String samfile){
-		TextFile tf=new TextFile(samfile, false);
-		
-		String s=null;
-		for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-			char c=s.charAt(0);
+		ByteFile tf=ByteFile.makeByteFile(samfile, false);
+		LineParser1 lp=new LineParser1('\t');
+		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
+			byte c=s[0];
 			if(c!='@'/* && c!=' ' && c!='\t'*/){
-				SamLine sl=new SamLine(s);
+				SamLine sl=new SamLine(lp.set(s));
 				final int id=((((int)sl.parseNumericId())<<1)|sl.pairnum());
 				assert(sl!=null);
 				Read r=sl.toRead(true);

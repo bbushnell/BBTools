@@ -589,7 +589,9 @@ public class FASTQ {
 							int trueStop=Integer.parseInt(answer[4]);
 							r=new Read(bases, quals, id, numericID, trueStrand, trueChrom, trueLoc, trueStop);
 							r.setSynthetic(true);
-						} catch (NumberFormatException e) {}
+						} catch (NumberFormatException e) {
+							throw new RuntimeException(e);
+						}
 					}
 				}
 				if(r==null){

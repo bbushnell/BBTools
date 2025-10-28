@@ -32,9 +32,15 @@ public final class LineParser1 implements LineParser {
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
 	public static void main(String[] args) {
-		assert(args.length==2);
+		assert(args.length==2 || args.length==3 || args.length==4);
 		String fname=args[0];
-		String dstring=args[1];
+		String dstring=Parse.parseSymbol(args[1]);
+		final boolean benchmark=args.length>2;
+		Shared.SIMD=args.length<4 ? false : 
+			(args[3].equalsIgnoreCase("simd") || args[3].equalsIgnoreCase("simd=t"));
+		if(benchmark) {
+			System.err.println("Benchmark - SIMD="+Shared.SIMD);
+		}
 		assert(dstring.length()==1);
 		
 		final ArrayList<byte[]> lines;
@@ -44,12 +50,18 @@ public final class LineParser1 implements LineParser {
 			lines=new ArrayList<byte[]>(1);
 			lines.add(fname.getBytes());
 		}
-		
-		LineParser lp=new LineParser1(dstring.charAt(0));
+		Timer t=new Timer();
+		long bytes=0, terms=0;
+		LineParser1 lp=new LineParser1(dstring.charAt(0));
 		for(byte[] line : lines) {
 			lp.set(line);
-			System.out.println(lp);
+			bytes+=line.length;
+			terms+=lp.terms();
+			if(!benchmark) {System.out.println(lp);}
 		}
+		t.stop();
+		System.err.println(Tools.timeLinesBytesProcessed(t, lines.size(), bytes, 8));
+		System.err.println(Tools.thingsProcessed(t.elapsed, terms, 8, "Terms"));
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -71,10 +83,13 @@ public final class LineParser1 implements LineParser {
 	public LineParser1 set(byte[] line_) {
 		clear();
 		line=line_;
-		for(int len=advance(); b<line.length; len=advance()) {
-			bounds.add(b);
-		}
-		bounds.add(b);
+//		for(int len=advance(); b<line.length; len=advance()) {
+//			bounds.add(b);
+//		}
+//		bounds.add(b);
+		Vector.findSymbols(line, 0, line.length, delimiter, bounds);
+		bounds.add(line.length);
+		b=bounds.get(0);
 		return this;
 	}
 	
@@ -170,6 +185,11 @@ public final class LineParser1 implements LineParser {
 		return line[index];
 	}
 	
+	public byte parseByteFromCurrentField(int offset) {
+		assert(a<b);
+		return line[a];
+	}
+	
 	@Override
 	public byte[] parseByteArray(int term) {
 		final int len=setBounds(term);
@@ -262,6 +282,10 @@ public final class LineParser1 implements LineParser {
 	public boolean termEquals(byte c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line[a]==c;
+	}
+	
+	public boolean currentTermEquals(byte c) {
+		return b-a==1 && line[a]==c;
 	}
 
 	@Override

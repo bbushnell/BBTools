@@ -1,6 +1,7 @@
 package stream.bam;
 
 import dna.AminoAcid;
+import shared.LineParser1;
 import stream.SamLine;
 
 /**
@@ -49,7 +50,7 @@ public class TestSeqReverse {
 		System.out.println();
 
 		// Parse into SamLine
-		SamLine sl = new SamLine(samLine.getBytes());
+		SamLine sl = new SamLine(new LineParser1('\t').set(samLine.getBytes()));
 
 		// Check what's stored in SamLine.seq
 		String storedSeq = new String(sl.seq);

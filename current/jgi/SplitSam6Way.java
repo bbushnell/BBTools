@@ -6,6 +6,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.LineParser1;
 import shared.Parse;
 import shared.PreParser;
 import shared.Shared;
@@ -82,6 +83,7 @@ public class SplitSam6Way {
 		if(r2minus!=null){r2minus.start();}
 		if(r2unmapped!=null){r2unmapped.start();}
 		
+		final LineParser1 lp=new LineParser1('\t');
 		for(byte[] line=tf.nextLine(); line!=null; line=tf.nextLine()){
 			if(line[0]=='@'){
 				if(r1plus!=null){r1plus.println(line);}
@@ -93,7 +95,7 @@ public class SplitSam6Way {
 			}else{
 				if(reads>=maxReads){break;}
 				
-				SamLine sl=new SamLine(line);
+				SamLine sl=new SamLine(lp.set(line));
 				reads++;
 				bases+=sl.seq.length;
 				

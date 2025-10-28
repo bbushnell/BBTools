@@ -3,6 +3,7 @@ package stream.bam;
 import java.io.*;
 import java.util.*;
 
+import shared.LineParser1;
 import stream.BamLineStreamer;
 import stream.SamLine;
 
@@ -31,7 +32,7 @@ public class BamRoundTripTest {
 		System.out.println();
 
 		// Parse to SamLine
-		SamLine sl = new SamLine(samLine.getBytes());
+		SamLine sl = new SamLine(new LineParser1('\t').set(samLine.getBytes()));
 
 		// Write to BAM
 		String bamFile = "test_minimal.bam";

@@ -3,10 +3,12 @@ package jgi;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 
+import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
 import shared.KillSwitch;
+import shared.LineParser1;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
@@ -196,11 +198,12 @@ public class CutPrimers {
 	}
 	
 	public static LinkedHashMap<String, SamLine> toSamLines(String fname){
-		TextFile tf=new TextFile(fname);
+		ByteFile tf=ByteFile.makeByteFile(fname, false);
+		LineParser1 lp=new LineParser1('\t');
 		LinkedHashMap<String, SamLine> list=new LinkedHashMap<String, SamLine>();
-		for(String s=tf.nextLine(); s!=null; s=tf.nextLine()){
-			if(!s.startsWith("@")){
-				SamLine sl=new SamLine(s);
+		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
+			if(s[0]!='@'){
+				SamLine sl=new SamLine(lp.set(s));
 				list.put(new String(sl.rname()), sl);
 			}
 		}
