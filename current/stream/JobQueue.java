@@ -44,6 +44,7 @@ public class JobQueue<K extends HasID>{
 		ordered=ordered_;
 		bounded=bounded_;
 		nextID=firstID;
+		maxSeen=firstID-1;
 		heap=new PriorityQueue<K>(Tools.mid(1, capacity, 96), new HasIDComparator<K>());
 	}
 	
@@ -69,6 +70,7 @@ public class JobQueue<K extends HasID>{
 				}
 			}
 			heap.add(job);
+			maxSeen=Math.max(maxSeen, job.id());
 			if(verbose){
 				System.err.println("Worker: added job " + id +
 					" to heap (heap size now " + heap.size() + ")");
@@ -107,10 +109,12 @@ public class JobQueue<K extends HasID>{
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
+				if(job.last()) {heap.add((K)job.makePoison(job.id()+1));}
+				else if(job.poison()) {heap.add(job);}
 				final int size=heap.size();
 				// Lazy notify: wake producers only when necessary to reduce overhead
 				// Skip notification when heap is mostly full (more jobs coming soon anyway)
-				if(size==half || size==0 || (ordered && heap.peek().id()!=nextID)){
+				if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
 					heap.notifyAll();
 				}
 			}
@@ -121,6 +125,14 @@ public class JobQueue<K extends HasID>{
 	public boolean hasMore(){
 		synchronized(heap){return !lastSeen;}
 	}
+	
+	public long nextID(){
+		synchronized(heap){return nextID;}
+	}
+	
+	public long maxSeen(){
+		synchronized(heap){return maxSeen;}
+	}
 
 	/** Comparator for sorting jobs */
 	private static class HasIDComparator<K extends HasID> implements Comparator<K> {
@@ -129,9 +141,11 @@ public class JobQueue<K extends HasID>{
 		public int compare(K a, K b){return Long.compare(a.id(), b.id());}
 
 	}
-	
+
 	/** Next expected job ID in ordered mode */
 	private long nextID;
+	/** Highest ID seen */
+	private long maxSeen;
 	/** True once a job marked last() has been seen */
 	private boolean lastSeen=false;
 	/** Priority queue storing jobs, ordered by ID */

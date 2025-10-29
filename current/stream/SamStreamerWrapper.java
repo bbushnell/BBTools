@@ -68,7 +68,7 @@ public class SamStreamerWrapper {
 			}else if(a.equals("rnameasbytes")){
 				SamLine.RNAME_AS_BYTES=Parse.parseBoolean(b);
 			}else if(a.equals("reads") || a.equals("maxreads")){
-				maxReads=Long.parseLong(b);
+				maxReads=Parse.parseKMG(b);
 			}else if(a.equals("samversion") || a.equals("samv") || a.equals("sam")){
 				Parser.parseSam(arg, a, b);
 				fixCigar=true;
@@ -93,8 +93,7 @@ public class SamStreamerWrapper {
 
 		{//Process parser fields
 			Parser.processQuality();
-
-			maxReads=parser.maxReads;
+			
 			in1=parser.in1;
 			out1=parser.out1;
 		}
@@ -110,6 +109,12 @@ public class SamStreamerWrapper {
 			SamLine.PARSE_8=false;
 			SamLine.PARSE_OPTIONAL=false;
 		}
+		//TODO: Normal sanity-checking, like in template.A_Sample
+//		doPoundReplacement(); //Replace # with 1 and 2
+//		adjustInterleaving(); //Make sure interleaving agrees with number of input and output files
+//		fixExtensions(); //Add or remove .gz or .bz2 as needed
+//		checkFileExistence(); //Ensure files can be read and written
+//		checkStatics(); //Adjust file-related static fields as needed for this program 
 	}
 	
 	void process(Timer t){

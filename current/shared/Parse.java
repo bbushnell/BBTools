@@ -3,7 +3,7 @@ package shared;
 import structures.ByteBuilder;
 import structures.LongList;
 
-public class Parse {
+public final class Parse {
 	
 
 	public static int parseIntKMG(String b){
@@ -163,6 +163,25 @@ public class Parse {
 		
 		throw new RuntimeException(s);
 	}
+	
+	public static boolean eic(String a, String b) {//False when both null
+		return a==null ? false : a.equalsIgnoreCase(b);
+	}
+	
+	public static boolean equalsIgnoreCase(String a, String b) {//false when both null
+		return a==null ? false : a.equalsIgnoreCase(b);
+	}
+	
+	public static boolean equalsIgnoreCase(byte[] a, String b) {//false when both null
+		if(a==null || b==null || a.length!=b.length()) {return false;}
+		for(int i=0; i<a.length; i++) {
+			char c=b.charAt(i);
+			if(a[i]!=c) {return false;}
+		}
+		return true;
+	}
+	
+	public static boolean equalsIgnoreCase(String a, byte[] b) {return equalsIgnoreCase(b, a);}
 	
 	public static float[] parseFloatArray(String s, String regex){return parseFloatArray(s, regex, null);}
 	

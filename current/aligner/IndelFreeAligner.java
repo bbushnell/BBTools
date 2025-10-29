@@ -21,12 +21,14 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
+import stream.SamHeaderWriter;
 import stream.SamLine;
 import structures.ByteBuilder;
 import structures.IntHashMap;
 import structures.IntList;
 import structures.IntListHashMap;
 import structures.ListNum;
+import structures.StringNum;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
@@ -109,17 +111,18 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		checkStatics(); //Adjust file-related static fields as needed for this program 
 
 		//Create output FileFormat objects
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.SAM, extout, true, overwrite, append, false);
+		ffheader=FileFormat.testOutput(out1, FileFormat.SAM, extout, true, overwrite, false, true);
 
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
-
+	
 	/*--------------------------------------------------------------*/
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
-
+	
 	/**
 	 * Parses command line arguments using key=value format and configures alignment parameters.
 	 * Processes specialized arguments like ref, subs, k, hits, and delegates standard arguments
@@ -231,7 +234,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, headerOut)){
 			outstream.println((out1==null)+", "+out1);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
 		}
@@ -242,7 +245,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		}
 
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, in2, out1)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, headerOut)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -313,9 +316,10 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 		//Optionally create a read output stream
 		final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout1);
+		final SamHeaderWriter shw=(ffheader==null ? null : new SamHeaderWriter(ffheader));
 
 		//Process the reads in separate threads
-		spawnThreads(cris, bsw, queries);
+		spawnThreads(cris, bsw, shw, queries);
 
 		if(verbose){outstream.println("Finished; closing streams.");}
 
@@ -325,6 +329,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		errorState|=ReadWrite.closeStreams(cris);
 
 		if(bsw!=null){bsw.poisonAndWait();}
+		if(shw!=null) {shw.poisonAndWait();}
 
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
@@ -349,7 +354,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 	/** Spawn process threads */
 	private void spawnThreads(final ConcurrentReadInputStream cris, 
-			final ByteStreamWriter bsw, final ArrayList<Query> qList){
+			final ByteStreamWriter bsw, final SamHeaderWriter shw, final ArrayList<Query> qList){
 
 		//Do anything necessary prior to processing
 
@@ -359,7 +364,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, qList, maxSubs, minid, i));
+			alpt.add(new ProcessThread(cris, bsw, shw, qList, maxSubs, minid, i));
 		}
 
 		//Start the threads and wait for them to finish
@@ -720,10 +725,11 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		 * @param maxSubs_ Maximum substitutions threshold for alignment acceptance
 		 * @param tid_ Unique thread identifier for debugging and coordination
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
+		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, final SamHeaderWriter shw_, 
 				ArrayList<Query> qList, final int maxSubs_, final float minid_, final int tid_){
 			cris=cris_;
 			bsw=bsw_;
+			shw=shw_;
 			queries=qList;
 			maxSubs=maxSubs_;
 			minid=minid_;
@@ -782,12 +788,14 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		 */
 		void processList(ListNum<Read> ln){
 			final ArrayList<Read> refList=ln.list;
+			final ArrayList<StringNum> alsn=(shw==null ? null : new ArrayList<StringNum>(refList.size()));
 
 			//Process each reference sequence in the batch
 			for(int idx=0; idx<refList.size(); idx++){
 				final Read ref=refList.get(idx);
 
 				if(!ref.validated()){ref.validate(true);} // Validate in worker threads for speed
+				if(alsn!=null) {alsn.add(new StringNum(ref.name(), ref.length()));}
 
 				//Track statistics
 				final int initialLength1=ref.length();
@@ -798,6 +806,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				//Align all queries against this reference sequence
 				processRefSequence(ref);
 			}
+			if(shw!=null) {shw.add(new ListNum<StringNum>(alsn, ln.id));}
 		}
 
 		/**
@@ -1035,6 +1044,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		private final ConcurrentReadInputStream cris;
 		/** Thread-safe output writer for SAM format alignment results */
 		private final ByteStreamWriter bsw;
+		/** Thread-safe output writer for SAM format alignment results */
+		private final SamHeaderWriter shw;
 		/** Shared list of preprocessed Query objects to align against references */
 		private final ArrayList<Query> queries;
 		/** Maximum substitutions threshold for alignment acceptance */
@@ -1119,6 +1130,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 	/** File format configuration for SAM/BAM output stream */
 	private final FileFormat ffout1;
+	/** File format configuration for SAM/BAM header stream */
+	private final FileFormat ffheader;
 
 	/**
 	 * Provides read-write lock for thread-safe access to shared resources.
