@@ -662,8 +662,7 @@ public final class FileFormat {
 	public static boolean isSequence(String fname){
 		if(fname==null){return false;}
 		int code=rawExtensionCode(fname);
-		String ext=ReadWrite.rawExtension(fname);
-		return isFastaExt(ext);
+		return isSequence(code);
 	}
 	
 	public static boolean isSequence(int code){
