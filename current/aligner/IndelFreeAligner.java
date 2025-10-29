@@ -21,6 +21,7 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
+import stream.SamHeader;
 import stream.SamHeaderWriter;
 import stream.SamLine;
 import structures.ByteBuilder;
@@ -104,6 +105,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 			extout=parser.extout;
 		}
 
+		Shared.BBMAP_CLASS=" "+this.getClass().getName();
+		SamHeader.PN="IndelFreeAligner";
 		validateParams();
 		doPoundReplacement(); //Replace # with 1 and 2
 		fixExtensions(); //Add or remove .gz or .bz2 as needed
@@ -112,11 +115,12 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.SAM, extout, true, overwrite, append, false);
-		ffheader=FileFormat.testOutput(out1, FileFormat.SAM, extout, true, overwrite, false, true);
+		ffheader=FileFormat.testOutput(headerOut, FileFormat.SAM, extout, true, overwrite, false, true);
 
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -174,7 +178,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				useSeedMap=Parse.parseBoolean(b);
 			}else if(a.equals("seedlist") || a.equals("list")){
 				useSeedMap=!Parse.parseBoolean(b);
-			}else if(a.equals("header") || a.equals("headerout")){
+			}else if(a.equals("header") || a.equals("headerout") ||  
+					a.equals("outheader") || a.equals("outh")){
 				headerOut=b;
 			}else if(a.equals("k")){
 				k=Integer.parseInt(b);
