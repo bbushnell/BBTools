@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 28, 2025
+Last modified October 29, 2025
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
@@ -20,6 +20,9 @@ Parameters:
 in=<file>       Query input.  These will be stored in memory.
 ref=<file>      Reference input.  These will be streamed.
 out=<file>      Sam output.
+outh=<file>     Sam header output (optional).  Due to the streaming nature,
+                primary sam output is headerless, but this can be concatenated
+		with the main sam file.
 subs=5          Maximum allowed substitutions.
 minid=0.0       Minimum allowed identity.  Actual substitions allowed will be
                 max(subs, (int)(qlen*(1-minid)))

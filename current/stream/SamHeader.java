@@ -328,7 +328,7 @@ public class SamHeader {
 			sb.append('\n');
 		}
 
-		sb.append("@PG\tID:BBMap\tPN:"+PN+"\tVN:");
+		sb.append("@PG\tID:BBTools\tPN:"+PN+"\tVN:");
 		sb.append(Shared.BBTOOLS_VERSION_STRING);
 //		assert(false) : sb+"\n"+PN;
 		if(Shared.BBMAP_CLASS!=null){
@@ -343,7 +343,8 @@ public class SamHeader {
 					}
 				}
 			}
-			sb.append(" align2."+Shared.BBMAP_CLASS);
+			if(!Shared.BBMAP_CLASS.startsWith(" ")) {sb.append(" align2.");}
+			sb.append(Shared.BBMAP_CLASS);
 			if(Shared.COMMAND_LINE!=null){
 				for(String s : Shared.COMMAND_LINE){
 					sb.append(' ');
