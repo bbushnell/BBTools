@@ -902,12 +902,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 
-			//Check to ensure pairing is as expected
-			if(ln!=null && !ln.isEmpty()){
-				Read r=ln.get(0);
-//				assert(ffin1.samOrBam() || (r.mate!=null)==cris.paired()); //Disabled due to non-static access
-			}
-
 			//As long as there is a nonempty read list...
 			while(ln!=null && ln.size()>0){
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access

@@ -99,7 +99,7 @@ public class SamReadInputStream extends ReadInputStream {
 	/** Get shared header, optionally waiting for it to be read. */
 	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
-		System.err.println("Waiting on header to be read from a sam file.");
+		if(printHeaderWait) {System.err.println("Waiting on header to be read from a sam file.");}
 		while(SHARED_HEADER==null){
 			try{
 				SamReadInputStream.class.wait(100);
@@ -162,6 +162,7 @@ public class SamReadInputStream extends ReadInputStream {
 
 	/** Shared header across all SamReadInputStream instances */
 	private static volatile ArrayList<byte[]> SHARED_HEADER;
+	public static boolean printHeaderWait=false;
 	
 	/** Header lines from SAM/BAM file */
 	private ArrayList<byte[]> header=null;

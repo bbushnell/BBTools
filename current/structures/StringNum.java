@@ -1,7 +1,11 @@
 package structures;
 
-public class StringNum implements Comparable<StringNum> {
+import java.io.Serializable;
 
+public class StringNum implements Comparable<StringNum>, Serializable {
+
+	private static final long serialVersionUID=1L;
+	
 	public StringNum(String s_, long n_){
 		s=s_;
 		n=n_;

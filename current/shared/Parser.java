@@ -31,6 +31,7 @@ import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
 import stream.SamLine;
+import stream.SamReadInputStream;
 import stream.SamStreamer;
 import stream.SamWriter2;
 import stream.bam.BgzfSettings;
@@ -1089,6 +1090,8 @@ public class Parser {
 			Data.USE_SAMBAMBA=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("printHeaderWait")) {
+			SamReadInputStream.printHeaderWait=Parse.parseBoolean(b);
 		}
 
 		else if(a.equals("nativebam")){

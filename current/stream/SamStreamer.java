@@ -54,17 +54,13 @@ public abstract class SamStreamer {
 			return new BamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);
 		}else {return new SamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);}
 	}
-	
-	/**
-	 * Constructor.
-	 */
+
+	/** Constructor. */
 	public SamStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
 		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, saveHeader_, ordered_, maxReads_, makeReads_);
 	}
 	
-	/**
-	 * Constructor.
-	 */
+	/** Constructor. */
 	public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
 		fname=ffin_.name();
 		ordered=ordered_;
@@ -211,7 +207,7 @@ public abstract class SamStreamer {
 	/*--------------------------------------------------------------*/
 
 	/** Primary input file path */
-	protected String fname;
+	public final String fname;
 	
 	/*--------------------------------------------------------------*/
 
