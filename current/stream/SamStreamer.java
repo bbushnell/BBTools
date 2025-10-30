@@ -221,7 +221,7 @@ public abstract class SamStreamer {
 //	}
 	
 	/** Quit after processing this many input reads */
-	private final long maxReads;
+	final long maxReads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

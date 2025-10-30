@@ -60,13 +60,11 @@ public abstract class ReadStreamWriter extends Thread {
 
 		final boolean supressHeader=(NO_HEADER || (ff.append() && ff.exists()));
 		final boolean supressHeaderSequences=(NO_HEADER_SEQUENCES || supressHeader);
-		final boolean RSBamWriter=ff.bam() && ReadWrite.nativeBamOut() && 
-			ReadWrite.USE_READ_STREAM_BAM_WRITER;
 		final boolean RSSamWriter=ff.samOrBam() && ReadWrite.USE_READ_STREAM_SAM_WRITER;
 		
 		if(fname==null && !OUTPUT_STANDARD_OUT){
 			myOutstream=null;
-		}else if(RSBamWriter || RSSamWriter) {
+		}else if(RSSamWriter) {
 			myOutstream=null;
 		}else{
 			if(OUTPUT_STANDARD_OUT){myOutstream=System.out;}

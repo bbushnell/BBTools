@@ -199,9 +199,8 @@ public class BamLineStreamer extends SamStreamer {
 
 				//Read alignment records
 				ArrayList<byte[]> list=new ArrayList<byte[]>(LIST_SIZE);
-
 				try{
-					while(true){
+					for(long reads=0; reads<maxReads; reads++){
 						long block_size=reader.readUint32();
 						byte[] bamRecord=reader.readBytes((int)block_size);
 						list.add(bamRecord);

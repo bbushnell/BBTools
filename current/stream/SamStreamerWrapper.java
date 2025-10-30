@@ -118,6 +118,10 @@ public class SamStreamerWrapper {
 	}
 	
 	void process(Timer t){
+		if(ffout1==null || ffout1.samOrBam()) {
+			processToSam(t);
+			return;
+		}
 		
 		if(ref!=null){
 			ScafMap.loadReference(ref, true);
@@ -125,7 +129,8 @@ public class SamStreamerWrapper {
 		}
 		
 		boolean useSharedHeader=(ffout1!=null && ffout1.samOrBam());
-		final SamStreamer ss=SamStreamer.makeStreamer(ffin1, SamStreamer.DEFAULT_THREADS, useSharedHeader, ordered, maxReads, true);
+		final SamStreamer ss=SamStreamer.makeStreamer(ffin1, SamStreamer.DEFAULT_THREADS,
+			useSharedHeader, ordered, maxReads, true);
 		ss.start();
 
 		final ConcurrentReadOutputStream ros;
@@ -177,6 +182,80 @@ public class SamStreamerWrapper {
 		}
 		errorState|=ss.errorState;
 		errorState|=ReadWrite.closeStream(ros);
+		if(verbose){outstream.println("Finished.");}
+		
+		t.stop();
+		outstream.println("Time:                         \t"+t);
+		outstream.println("Reads Processed:    "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
+		outstream.println("Bases Processed:    "+basesProcessed+" \t"+Tools.format("%.2f Mbp/sec", (basesProcessed/(double)(t.elapsed))*1000));
+		outstream.println("Reads Out:          "+readsOut);
+		outstream.println("Bases Out:          "+basesOut);
+		
+		/* Throw an exception if errors were detected */
+		if(errorState){
+			throw new RuntimeException(getClass().getSimpleName()+" terminated in an error state; the output may be corrupt.");
+		}
+	}
+	
+	void processToSam(Timer t){
+		
+		if(ref!=null){
+			ScafMap.loadReference(ref, true);
+			SamLine.RNAME_AS_BYTES=false;
+		}
+		
+		boolean useSharedHeader=(ffout1!=null && ffout1.samOrBam());
+		final SamStreamer ss=SamStreamer.makeStreamer(ffin1, SamStreamer.DEFAULT_THREADS, 
+			useSharedHeader, ordered, maxReads, false);
+		ss.start();
+
+		final SamWriter sw;
+		if(ffout1!=null){
+			sw=SamWriter.makeWriter(ffout1, SamWriter.DEFAULT_THREADS, null, useSharedHeader);
+			sw.start();
+		}else{sw=null;}
+		for(ListNum<SamLine> ln=ss.nextLines(); ln!=null && ln.size()>0; ln=ss.nextLines()){
+			ArrayList<SamLine> list=ln.list;
+			if(verbose){outstream.println("Got list of size "+ln.size());}
+			ArrayList<SamLine> out=new ArrayList<SamLine>(list.size());
+			for(SamLine sl : list){
+				final int len=sl.length();
+				readsProcessed++;
+				basesProcessed+=len;
+				boolean keep=filter==null || filter.passesFilter(sl);
+				if(keep){
+					if(sl.cigar!=null){
+						if(fixCigar){
+							if(SamLine.VERSION==1.3f){
+								sl.cigar=SamLine.toCigar13(sl.cigar);
+							}else{//TODO: Validate
+								byte[] shortMatch=sl.toShortMatch(true);
+								byte[] longMatch=Read.toLongMatchString(shortMatch);
+								int start=sl.pos-1;
+								int stop=start+Read.calcMatchLength(longMatch)-1;
+								sl.cigar=SamLine.toCigar14(longMatch, start, stop, Integer.MAX_VALUE, sl.seq);
+							}
+						}
+//						if(SamLine.MAKE_MD_TAG){
+//							//No code for this currently except from ChromArray
+//							if(sl.optional==null){sl.optional=new ArrayList<String>(1);}
+//							for(int i=0; i<sl.optional.size(); i++){
+//								if(sl.optional.get(i).startsWith("MD:")){sl.optional.remove(i);}
+//							}
+//							String md=makeMdTag(r.chrom, r.start, r.match, r.bases, scafloc, scaflen);
+//							if(md!=null){sl.optional.add(md);}
+//						}
+					}
+					
+					out.add(sl);
+					readsOut++;
+					basesOut+=len;
+				}
+			}
+			if(sw!=null){sw.addLines(new ListNum<SamLine>(out, ln.id));}
+		}
+		errorState|=ss.errorState;
+		if(sw!=null) {errorState|=sw.poisonAndWait();}
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();

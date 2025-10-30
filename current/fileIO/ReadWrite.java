@@ -2018,7 +2018,6 @@ public class ReadWrite {
 	public static boolean PREFER_NATIVE_BGZF_OUT=false;
 
 	public static boolean USE_READ_STREAM_SAM_WRITER=true;
-	public static boolean USE_READ_STREAM_BAM_WRITER=true;
 	public static boolean ALLOW_NATIVE_BAM_IN=true;
 	public static boolean ALLOW_NATIVE_BAM_OUT=true;
 	public static boolean PREFER_NATIVE_BAM_IN=true;
