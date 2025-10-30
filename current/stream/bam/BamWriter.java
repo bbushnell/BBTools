@@ -17,10 +17,12 @@ import structures.ListNum;
 /**
  * Writes BAM files from SAM data.
  * BAM is the binary compressed version of SAM format.
- *
+ * 
+ * @deprecated Replaced by SamWriter
  * @author Chloe
  * @date October 18, 2025
  */
+@Deprecated
 public class BamWriter {
 
 	private static final boolean DEBUG = false;
@@ -36,9 +38,7 @@ public class BamWriter {
 	private String[] refNames;
 	private int[] refLengths;
 
-	/**
-	 * Create a BAM writer for the specified file.
-	 */
+	/** Create a BAM writer for the specified file. */
 	public BamWriter(String filename) throws IOException {
 		this.filename = filename;
 		FileOutputStream fos = new FileOutputStream(filename);
@@ -57,9 +57,7 @@ public class BamWriter {
 		writer = new BamWriterHelper(bgzf);
 	}
 
-	/**
-	 * Create a BAM writer for the specified file.
-	 */
+	/** Create a BAM writer for the specified file. */
 	public BamWriter(OutputStream os) throws IOException {
 		this.filename = "os";
 		int zl=Tools.min(ReadWrite.ZIPLEVEL, 6);

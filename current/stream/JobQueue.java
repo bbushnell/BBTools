@@ -62,7 +62,7 @@ public class JobQueue<K extends HasID>{
 		synchronized(heap){
 			// Block if bounded, at capacity, and this isn't the job the consumer is waiting for
 			// The id>heap.peek().id() check prevents deadlock by letting nextID through
-			while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id()){
+			while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
 				try {
 					heap.wait();
 				} catch (InterruptedException e){
@@ -133,6 +133,10 @@ public class JobQueue<K extends HasID>{
 	public long maxSeen(){
 		synchronized(heap){return maxSeen;}
 	}
+	
+	public void poison() {
+		synchronized(heap){poisoned=true;}
+	}
 
 	/** Comparator for sorting jobs */
 	private static class HasIDComparator<K extends HasID> implements Comparator<K> {
@@ -148,6 +152,8 @@ public class JobQueue<K extends HasID>{
 	private long maxSeen;
 	/** True once a job marked last() has been seen */
 	private boolean lastSeen=false;
+	/** Threads interacting with this should shut down */
+	private boolean poisoned=false;
 	/** Priority queue storing jobs, ordered by ID */
 	private final PriorityQueue<K> heap;
 	/** If true, jobs are released in strict ID order */

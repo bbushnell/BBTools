@@ -10,7 +10,6 @@ import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 import java.util.zip.GZIPInputStream;
-
 import stream.JobQueue;
 
 /**
@@ -92,7 +91,21 @@ public class BgzfInputStreamMT extends InputStream {
 					if(!lastJobQueued){
 						BgzfJob eofJob=new BgzfJob(nextJobId++, new byte[0], null, true);
 						eofJob.decompressedSize=0;
-						inputQueue.put(eofJob);
+						while(eofJob!=null) {
+							try{
+								inputQueue.put(eofJob);
+								eofJob=null;
+							}catch(InterruptedException e){
+								// If closing, stop trying to enqueue and exit
+								synchronized(BgzfInputStreamMT.this) {
+									if(closed) {
+										inputQueue.offer(eofJob);
+										producerFinished=true;
+										return;
+									}
+								}
+							}
+						}
 						lastJobQueued=true;
 					}
 					break;
@@ -109,20 +122,30 @@ public class BgzfInputStreamMT extends InputStream {
 				}
 				assert(!DEBUG || job.repOK()) : "Producer created invalid job";
 
-				inputQueue.put(job); //Submit to input queue (blocks if queue full)
+				// Submit to input queue (be robust to interrupts during close)
+				while(job!=null) {
+					try{
+						inputQueue.put(job);
+						job=null;
+					}catch(InterruptedException e){
+						// If we are closing, stop trying to enqueue and exit loop
+						synchronized(BgzfInputStreamMT.this) {
+							if(closed) {
+								job=null;
+								producerFinished=true;
+								return;
+							}
+						}
+					}
+				}
 			}
 		}catch(IOException e){
 			workerError=e;
-		}catch(InterruptedException e){
-			Thread.currentThread().interrupt();
 		}finally{
 			producerFinished=true;
 			if(!lastJobQueued){
-				try{
-					inputQueue.put(BgzfJob.POISON_PILL);
-				}catch(InterruptedException e){
-					Thread.currentThread().interrupt();
-				}
+				// Best-effort poison without blocking during shutdown
+				inputQueue.offer(BgzfJob.POISON_PILL);
 			}
 		}
 	}
@@ -350,9 +373,9 @@ public class BgzfInputStreamMT extends InputStream {
 
 				if(job.isPoisonPill()){
 					if(DEBUG){
-						System.err.println("Worker: got POISON, re-injecting and terminating");
+						System.err.println("Worker: got POISON, terminating");
 					}
-					inputQueue.put(BgzfJob.POISON_PILL);
+					// Do not re-inject poison to avoid potential blocking; close() interrupts others
 					break;
 				}
 
@@ -436,9 +459,15 @@ public class BgzfInputStreamMT extends InputStream {
 				if(job.lastJob){
 					if(DEBUG){
 						System.err.println("Worker: job "+job.id+
-							" marked LAST, injecting POISON");
+							" marked LAST, injecting POISON to wake others");
 					}
-					inputQueue.put(BgzfJob.POISON_PILL);
+					// Try to wake remaining workers without blocking
+					final int toSignal=Math.max(1, workerThreads-1);
+					int signaled=0;
+					while(signaled<toSignal){
+						if(inputQueue.offer(BgzfJob.POISON_PILL)) {signaled++;}
+						else {Thread.yield();}
+					}
 				}
 			}
 		}catch(InterruptedException e){
@@ -556,24 +585,28 @@ public class BgzfInputStreamMT extends InputStream {
 
 		closed=true;
 
-		//Interrupt threads
+		// Close streams early to unblock any I/O
+		try {closePlainStream();} catch(IOException ignore) {}
+		try {in.close();} catch(IOException ignore) {}
+
+		// Best-effort: nudge workers via poison without blocking
+		inputQueue.offer(BgzfJob.POISON_PILL);
+
+		// Interrupt threads to break out of take()/put()
 		if(producer!=null){producer.interrupt();}
 		if(workers!=null){
 			for(Thread worker : workers){worker.interrupt();}
 		}
 
-		//Wait for threads to finish
+		// Wait briefly for threads to notice and exit
 		try{
-			if(producer!=null){producer.join(1000);}
+			if(producer!=null){producer.join(10);} // target ~10ms shutdown
 			if(workers!=null){
-				for(Thread worker : workers){worker.join(1000);}
+				for(Thread worker : workers){worker.join(10);} // short joins; threads are daemon
 			}
 		}catch(InterruptedException e){
 			Thread.currentThread().interrupt();
 		}
-
-		closePlainStream();
-		in.close(); //Close underlying stream
 	}
 
 	/** Validate internal state for debugging. */
