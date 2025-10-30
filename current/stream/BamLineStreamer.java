@@ -291,7 +291,7 @@ public class BamLineStreamer extends SamStreamer {
 				for(byte[] bamRecord : list){
 
 //					final SamLine sl=new SamLine(converter.convertAlignment(bamRecord));//Obsolete - reparse
-					final SamLine sl=converter.convertAlignmentToSamLineSimple(bamRecord);
+					final SamLine sl=converter.toSamLine(bamRecord);
 					assert(sl!=null);
 					if(sl!=null){
 						if(makeReads){

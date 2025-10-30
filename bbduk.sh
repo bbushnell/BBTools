@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 18, 2024
+Last modified October 29, 2025
 
 Description:  Compares reads to the kmers in a reference dataset, optionally 
 allowing an edit distance. Splits the reads into two outputs - those that 
@@ -110,7 +110,7 @@ vcf=<file>          Ignore substitution errors listed in this VCF file
 ignorevcfindels=t   Also ignore indels listed in the VCF.
 
 Processing parameters:
-k=27                Kmer length used for finding contaminants.  Contaminants 
+k=31                Kmer length used for finding contaminants.  Contaminants 
                     shorter than k will not be found.  k must be at least 1.
 rcomp=t             Look for reverse-complements of kmers in addition to 
                     forward kmers.

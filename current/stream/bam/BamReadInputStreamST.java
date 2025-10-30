@@ -151,7 +151,7 @@ public class BamReadInputStreamST extends ReadInputStream {
 			while(buffer.size()<BUF_LEN){
 				long block_size=reader.readUint32();
 				byte[] bamRecord=reader.readBytes((int)block_size);
-				SamLine sl=converter.convertAlignmentToSamLine(bamRecord);
+				SamLine sl=converter.toSamLine(bamRecord);
 				Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 				r.samline=sl;
 				r.numericID=nextReadID;
