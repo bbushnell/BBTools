@@ -420,7 +420,7 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Populated SamLine object, or null if header
 	 */
-	public SamLine toSamLine(byte[] bamRecord){
+	public SamLine toSamLineOld(byte[] bamRecord){
 //		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
 		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
 		SamLine sl=new SamLine();
@@ -475,7 +475,7 @@ public class BamToSamConverter {
 			if(SamLine.PARSE_5) {sl.cigar=cigar.toString();}
 		}
 		
-		//TODO: Use bb.skip() for skipped fields, ByteBuilder instead of StrngBuilder
+		//TODO: Use bb.skip() for skipped fields, ByteBuilder instead of StringBuilder
 		//TODO: Use direct array access, not array copies to byte[]
 
 		//RNEXT
@@ -607,6 +607,209 @@ public class BamToSamConverter {
 			}
 		}
 		
+		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
+			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
+			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+		}
+
+		sl.trimNames();
+		return sl;
+	}
+	
+	public SamLine toSamLine(byte[] bamRecord){
+		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
+		SamLine sl=new SamLine();
+
+		//Read fixed-length fields
+		int refID=bb.getInt();
+		int pos=bb.getInt();
+		int l_read_name=bb.get()&0xFF;
+		int mapq=bb.get()&0xFF;
+		int bin=bb.getShort()&0xFFFF; //Ignore
+		int n_cigar_op=bb.getShort()&0xFFFF;
+		int flag=bb.getShort()&0xFFFF;
+		long l_seq=bb.getInt()&0xFFFFFFFFL;
+		int next_refID=bb.getInt();
+		int next_pos=bb.getInt();
+		int tlen=bb.getInt();
+
+		//QNAME - SamLine.PARSE_0
+		if(SamLine.PARSE_0){
+			int qnameStart=bb.position();
+			bb.skip(l_read_name);
+			sl.qname=new String(bamRecord, qnameStart, l_read_name-1); //Exclude NUL
+		}else{
+			bb.skip(l_read_name);
+		}
+
+		//FLAG
+		sl.flag=flag;
+
+		//RNAME - SamLine.PARSE_2
+		if(refID<0 || refID>=refNames.length || !SamLine.PARSE_2){
+			//do nothing
+		}else if(SamLine.RNAME_AS_BYTES){
+			sl.setRname(refNames[refID].getBytes());
+		}else{
+			sl.setRname(refNames[refID]);
+		}
+
+		//POS (BAM is 0-based, SAM is 1-based)
+		sl.pos=pos+1;
+
+		//MAPQ
+		sl.mapq=mapq;
+
+		//CIGAR - SamLine.PARSE_5
+		if(n_cigar_op==0){
+			sl.cigar="*";
+			//No skip needed - 0 cigar ops
+		}else if(SamLine.PARSE_5){
+			ByteBuilder cigar=new ByteBuilder(n_cigar_op*4);
+			for(int i=0; i<n_cigar_op; i++){
+				int cigOp=bb.getInt();
+				int opLen=cigOp>>>4;
+				int op=cigOp&0xF;
+				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
+			}
+			sl.cigar=cigar.toString();
+		}else{
+			bb.skip(n_cigar_op*4);
+		}
+
+		//RNEXT
+		if(next_refID<0){
+			sl.setRnext(bytestar);
+		}else if(next_refID==refID){
+			sl.setRnext(byteequals);
+		}else if(next_refID<refNames.length && SamLine.PARSE_6){
+			sl.setRnext(refNames[next_refID].getBytes());
+		}else{
+			sl.setRnext(bytestar);
+		}
+
+		//PNEXT (BAM is 0-based, SAM is 1-based) - SamLine.PARSE_7
+		sl.pnext=next_pos+1;
+
+		//TLEN - SamLine.PARSE_8
+		sl.tlen=tlen;
+
+		//SEQ
+		int numSeqBytes=(int)((l_seq+1)/2);
+		if(l_seq==0){
+			sl.seq=bytestar;
+		}else{
+			int seqStart=bb.position();
+			byte[] seq=new byte[(int)l_seq];
+			int seqIdx=0;
+			for(int i=0; i<numSeqBytes; i++){
+				int packed=bamRecord[seqStart+i]&0xFF;
+				seq[seqIdx++]=SEQ_LOOKUP_B[packed>>>4];
+				if(seqIdx<l_seq){
+					seq[seqIdx++]=SEQ_LOOKUP_B[packed&0xF];
+				}
+			}
+			sl.seq=seq;
+			bb.skip(numSeqBytes);
+		}
+
+		//QUAL - SamLine.PARSE_10
+		if(l_seq==0){
+			sl.qual=bytestar;
+		}else{
+			int qualStart=bb.position();
+			byte firstByte=bamRecord[qualStart];
+			if(firstByte==(byte)0xFF){
+				bb.skip((int)l_seq);
+				sl.qual=bytestar;
+			}else if(SamLine.PARSE_10){
+				byte[] qual=new byte[(int)l_seq];
+				System.arraycopy(bamRecord, qualStart, qual, 0, (int)l_seq);
+				bb.skip((int)l_seq);
+				sl.qual=qual;
+			}else{
+				bb.skip((int)l_seq);
+			}
+		}
+
+		//Auxiliary tags - SamLine.PARSE_OPTIONAL
+		if(SamLine.PARSE_OPTIONAL && bb.hasRemaining()){
+			sl.optional=new ArrayList<String>();
+			ByteBuilder tag=new ByteBuilder(64);
+
+			while(bb.hasRemaining()){
+				tag.clear();
+
+				//Tag name (2 bytes)
+				tag.append(bb.get()).appendColon(bb.get());
+
+				char type=(char)(bb.get()&0xFF);
+				switch(type){
+					case 'A':
+						tag.appendColon('A').append((char)(bb.get()&0xFF));
+						break;
+					case 'c':
+						tag.appendColon('i').append((int)bb.get());
+						break;
+					case 'C':
+						tag.appendColon('i').append(bb.get()&0xFF);
+						break;
+					case 's':
+						tag.appendColon('i').append((int)bb.getShort());
+						break;
+					case 'S':
+						tag.appendColon('i').append(bb.getShort()&0xFFFF);
+						break;
+					case 'i':
+						tag.appendColon('i').append(bb.getInt());
+						break;
+					case 'I':
+						tag.appendColon('i').append(bb.getInt()&0xFFFFFFFFL);
+						break;
+					case 'f':
+						tag.appendColon('f').append(bb.getFloat(), 6);
+						break;
+					case 'Z':
+						tag.appendColon('Z');
+						byte b;
+						while((b=bb.get())!=0){tag.append(b);}
+						break;
+					case 'H':
+						tag.appendColon('H');
+						while((b=bb.get())!=0){tag.append(b);}
+						break;
+					case 'B':
+						char arrayType=(char)(bb.get()&0xFF);
+						int count=bb.getInt();
+						tag.appendColon('B').append(arrayType);
+						for(int i=0; i<count; i++){
+							tag.comma();
+							switch(arrayType){
+								case 'c': tag.append((int)bb.get()); break;
+								case 'C': tag.append(bb.get()&0xFF); break;
+								case 's': tag.append((int)bb.getShort()); break;
+								case 'S': tag.append(bb.getShort()&0xFFFF); break;
+								case 'i': tag.append(bb.getInt()); break;
+								case 'I': tag.append(bb.getInt()&0xFFFFFFFFL); break;
+								case 'f': tag.append(bb.getFloat(), 6); break;
+								default:
+									throw new RuntimeException("Unknown array type: "+arrayType);
+							}
+						}
+						break;
+					default:
+						throw new RuntimeException("Unknown tag type: "+type);
+				}
+
+				String tagString=tag.toString();
+				sl.optional.add(tagString);
+
+				if(tagString.startsWith("MD:")){
+					sl.mdTag=tagString.substring(5).getBytes();
+				}
+			}
+		}
+
 		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
 			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
 			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}

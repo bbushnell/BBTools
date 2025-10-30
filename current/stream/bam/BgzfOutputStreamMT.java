@@ -2,9 +2,11 @@ package stream.bam;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
+import java.util.concurrent.TimeUnit;
 
 import stream.JobQueue;
 
@@ -167,15 +169,31 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 		assert(!verbose || job.repOK()) : "flushBlock created invalid job";
 
-		// Submit to input queue (blocks if queue full)
-		try{
-			inputQueue.put(job);
-			if(verbose){
-				System.err.println("flushBlock: submitted job "+job.id+" to inputQueue");
+		// Submit to input queue
+		if(isLast){
+			// For the last job, avoid blocking: try briefly, then signal writer directly
+			boolean enqueued=false;
+			for(int attempts=0; attempts<16 && !enqueued; attempts++){
+				if(inputQueue.offer(job)) {enqueued=true; break;}
+				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
 			}
-		}catch(InterruptedException e){
-			Thread.currentThread().interrupt();
-			throw new IOException("Interrupted while submitting job");
+			if(!enqueued){
+				// Fallback: inject an empty last marker directly to writer with next expected ID
+				BgzfJob lastDirect=new BgzfJob(jobQueue.nextID(), new byte[0], null, true);
+				lastDirect.decompressedSize=0;
+				jobQueue.add(lastDirect);
+				if(verbose){System.err.println("flushBlock: direct last marker to writer");}
+			}
+		}else{
+			try{
+				inputQueue.put(job);
+				if(verbose){
+					System.err.println("flushBlock: submitted job "+job.id+" to inputQueue");
+				}
+			}catch(InterruptedException e){
+				Thread.currentThread().interrupt();
+				throw new IOException("Interrupted while submitting job");
+			}
 		}
 
 		// Allocate new buffer
@@ -189,16 +207,23 @@ public class BgzfOutputStreamMT extends OutputStream {
 	private void workerLoop(){
 		Deflater deflater=new Deflater(compressionLevel, true); // true=nowrap mode
 		CRC32 crc=new CRC32();
-
+		final byte[] template=Arrays.copyOf(GZIP_HEADER_TEMPLATE, GZIP_HEADER_TEMPLATE.length);
+		
 		try{
 			while(true){
-				BgzfJob job=inputQueue.take();
+				BgzfJob job;
+				try{
+					job=inputQueue.take();
+				}catch(InterruptedException ie){
+					// Graceful exit on interrupt during shutdown
+					Thread.currentThread().interrupt();
+					break;
+				}
 
 				if(job.isPoisonPill()){
 					if(verbose){
-						System.err.println("Worker: received POISON, re-injecting and exiting");
+						System.err.println("Worker: received POISON, exiting");
 					}
-					inputQueue.put(BgzfJob.POISON_PILL); // Re-inject for other workers
 					break;
 				}
 
@@ -208,18 +233,20 @@ public class BgzfOutputStreamMT extends OutputStream {
 						" bytes)");
 				}
 
-				// If this is the last job, inject poison for other workers
+				// If this is the last job, inject poison for other workers (nonblocking)
 				if(job.lastJob){
 					if(verbose){
 						System.err.println("Worker: saw LAST JOB, injecting POISON");
 					}
-					inputQueue.put(BgzfJob.POISON_PILL);
+					for(int s=0, toSignal=Math.max(1, workerThreads-1); s<toSignal; s++){
+						if(!inputQueue.offer(BgzfJob.POISON_PILL)) {Thread.yield();}
+					}
 				}
 
 				assert(job.decompressed!=null) : 
 					"Worker received job with null decompressed data";
 
-				synchronized(job){
+                synchronized(job){
 					// Handle empty lastJob marker
 					if(job.decompressedSize==0){
 						if(verbose){
@@ -239,13 +266,15 @@ public class BgzfOutputStreamMT extends OutputStream {
 					assert(job.decompressedSize>0) : "Worker received job with zero size";
 					assert(!verbose || job.repOK()) : "Worker received invalid job";
 
-					// Compress the data
+					// Compress the data directly into the final output buffer (avoid intermediate copy)
 					deflater.reset();
 					deflater.setInput(job.decompressed, 0, job.decompressedSize);
 					deflater.finish();
 
-					byte[] compressed=new byte[maxBlockSize+1024];
-					int compressedSize=deflater.deflate(compressed);
+					final int cap=18 + (maxBlockSize+1024) + 8; // header + max comp + footer
+					job.compressed=new byte[cap];
+					// Deflate into buffer starting after header (reserve 18), leave room for footer (8)
+					int compressedSize=deflater.deflate(job.compressed, 18, cap-18-8);
 
 					assert(compressedSize>0) : "Deflate produced zero bytes";
 					assert(deflater.finished()) : "Deflate not finished";
@@ -262,36 +291,18 @@ public class BgzfOutputStreamMT extends OutputStream {
 					assert(bsize>=27) : "BSIZE too small: "+bsize;
 					assert(bsize<=65535) : "BSIZE exceeds uint16 max: "+bsize;
 
-					// Build complete BGZF block
-					job.compressed=new byte[bsize+1];
-					int pos=0;
 
-					// Write gzip header with BC subfield
-					job.compressed[pos++]=31;          // ID1
-					job.compressed[pos++]=(byte)139;   // ID2
-					job.compressed[pos++]=8;           // CM (DEFLATE)
-					job.compressed[pos++]=4;           // FLG (FEXTRA)
-					pos=writeInt32(job.compressed, pos, 0);      // MTIME
-					job.compressed[pos++]=0;           // XFL
-					job.compressed[pos++]=(byte)255;   // OS (unknown)
-					pos=writeInt16(job.compressed, pos, 6);      // XLEN
-					job.compressed[pos++]=66;          // SI1 'B'
-					job.compressed[pos++]=67;          // SI2 'C'
-					pos=writeInt16(job.compressed, pos, 2);      // SLEN
-					pos=writeInt16(job.compressed, pos, bsize);  // BSIZE
+					// Write gzip header from template and patch BSIZE
+					writeHeaderWithBsize(template, job.compressed, bsize);
 
-					assert(pos==18) : "Header size wrong: "+pos;
-
-					// Write compressed data
-					System.arraycopy(compressed, 0, job.compressed, pos, compressedSize);
-					pos+=compressedSize;
+					// Position after header+compressed data
+					int pos=18+compressedSize;
 
 					// Write footer (CRC32+ISIZE)
 					pos=writeInt32(job.compressed, pos, (int)crcValue);
 					pos=writeInt32(job.compressed, pos, job.decompressedSize);
 
-					assert(pos==bsize+1) : "Total size wrong: expected "+(bsize+1)+
-						", got "+pos;
+					assert(pos==bsize+1) : "Total size wrong: expected "+(bsize+1)+", got "+pos;
 
 					job.compressedSize=pos;
 
@@ -398,11 +409,11 @@ public class BgzfOutputStreamMT extends OutputStream {
 				System.err.println("flush: created empty lastJob (id="+emptyJob.id+")");
 			}
 
-			try{
-				inputQueue.put(emptyJob);
-			}catch(InterruptedException e){
-				Thread.currentThread().interrupt();
-				throw new IOException("Interrupted submitting empty lastJob");
+			// Best-effort, non-blocking enqueue of last marker
+			boolean enqueued=false;
+			for(int attempts=0; attempts<16 && !enqueued; attempts++){
+				if(inputQueue.offer(emptyJob)) {enqueued=true; break;}
+				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
 			}
 		}
 
@@ -411,35 +422,32 @@ public class BgzfOutputStreamMT extends OutputStream {
 	}
 
 	@Override
-	public void close() throws IOException{
-		if(closed){return;} // Already closed - idempotent
+    public void close() throws IOException{
+        if(closed){return;} // Already closed - idempotent
 
-		if(verbose){System.err.println("close(): starting shutdown");}
+        if(verbose){System.err.println("close(): starting shutdown");}
 
-		// Flush with lastJob=true - this submits the lastJob marker
-		flush(true);
+        // Submit last marker before marking closed, so in-flight jobs are still processed
+        flush(true);
+        
+        // Now mark closed and nudge workers
+        closed=true;
+        inputQueue.offer(BgzfJob.POISON_PILL);
+        for(Thread t : workers){ if(t!=null) t.interrupt(); }
 
-		// Mark as closed
-		closed=true;
-
-		if(verbose){System.err.println("close(): waiting for writer thread to finish");}
-
-		// Wait for writer thread to complete (ensures EOF is written and stream closed)
+		// Wait briefly for writer thread to finish
 		if(writer!=null){
-			while(writer.getState()!=Thread.State.TERMINATED){
-				try{
-					writer.join(1000);
-				}catch(InterruptedException e){
-					e.printStackTrace();
-				}
-			}
+			try{writer.join(10);}catch(InterruptedException ie){Thread.currentThread().interrupt();}
 		}
 
-		// Check for errors
-		if(workerError!=null){throw workerError;}
+		// If still alive, keep nudging but do not block
+		if(writer!=null && writer.isAlive()){
+			inputQueue.offer(BgzfJob.POISON_PILL);
+		}
 
-		if(verbose){System.err.println("close(): writer finished, close complete");}
-	}
+		// If any error captured, surface it
+		if(workerError!=null){throw workerError;}
+}
 
 	/** Write BGZF EOF marker (28-byte empty block). */
 	private void writeEOFMarker() throws IOException{
@@ -469,6 +477,23 @@ public class BgzfOutputStreamMT extends OutputStream {
 		buf[pos++]=(byte)((val>>16) & 0xFF);
 		buf[pos++]=(byte)((val>>24) & 0xFF);
 		return pos;
+	}
+
+	/** Precomputed 18-byte gzip header template with BC subfield; BSIZE patched per block. */
+	private static final byte[] GZIP_HEADER_TEMPLATE=new byte[]{
+		31, (byte)139, 8, 4, // ID1, ID2, CM, FLG(FEXTRA)
+		0, 0, 0, 0,          // MTIME (0)
+		0, (byte)255,        // XFL=0, OS=255
+		6, 0,                // XLEN=6
+		66, 67,              // SI1='B', SI2='C'
+		2, 0,                // SLEN=2
+		0, 0                 // BSIZE (patched)
+	};
+
+	private static void writeHeaderWithBsize(byte[] template, byte[] dest, int bsize){
+		System.arraycopy(template, 0, dest, 0, 18);
+		dest[16]=(byte)(bsize & 0xFF);
+		dest[17]=(byte)((bsize>>8) & 0xFF);
 	}
 
 	/** Validate internal state for debugging. */
@@ -512,7 +537,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/** Error state from worker threads */
 	private volatile IOException workerError=null;
 	/** Stream closed flag (only accessed by main thread) */
-	private boolean closed=false;
+	private volatile boolean closed=false;
 	/** Debug flag (enable with -Dbgzf.debug=true) */
 	private static final boolean verbose=false;//Boolean.getBoolean("bgzf.debug");
 	/** Default maximum uncompressed block size (64KB) */
