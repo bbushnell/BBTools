@@ -34,6 +34,7 @@ import stream.SamLine;
 import stream.SamReadInputStream;
 import stream.SamStreamer;
 import stream.SamWriter;
+import stream.bam.BgzfOutputStreamMT;
 import stream.bam.BgzfSettings;
 import structures.IntList;
 import tax.TaxTree;
@@ -1066,6 +1067,8 @@ public class Parser {
 			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
 		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
 			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
+		}else if(a.equals("filteredbgzf")){
+			BgzfOutputStreamMT.FILTERED_BGZF=Parse.parseBoolean(b);
 		}
 		
 		else if(a.equals("preferunbgzip")){

@@ -2,11 +2,11 @@ package stream.bam;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
 import java.util.concurrent.TimeUnit;
-import java.util.Arrays;
 
 import stream.JobQueue;
 
@@ -25,24 +25,24 @@ import stream.JobQueue;
  * @contributor Isla
  * @date October 18, 2025
  */
-public class BgzfOutputStreamMT extends OutputStream {
-
+public class BgzfOutputStreamMT_old extends OutputStream {
+	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Create a BGZF output stream with default thread count (1) and 64KB block size. */
-	public BgzfOutputStreamMT(OutputStream out){
+	public BgzfOutputStreamMT_old(OutputStream out){
 		this(out, 1, 6, DEFAULT_BLOCK_SIZE); // 1 worker, compression level 6
 	}
 
 	/** Create a BGZF output stream with custom thread count and compression level. */
-	public BgzfOutputStreamMT(OutputStream out, int threads, int compressionLevel){
+	public BgzfOutputStreamMT_old(OutputStream out, int threads, int compressionLevel){
 		this(out, threads, compressionLevel, DEFAULT_BLOCK_SIZE);
 	}
 
 	/** Create a BGZF output stream with fully custom threading and block size. */
-	public BgzfOutputStreamMT(OutputStream out, int threads, int compressionLevel, int blockSize){
+	public BgzfOutputStreamMT_old(OutputStream out, int threads, int compressionLevel, int blockSize){
 		assert(out!=null) : "Null output stream";
 		assert(threads>0 && threads<=32) : "Invalid thread count: "+threads;
 		assert(compressionLevel>=0 && compressionLevel<=9) : 
@@ -66,7 +66,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 		assert(repOK()) : "Constructor postcondition failed";
 	}
-
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
@@ -206,9 +206,9 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/** Worker thread: Compress BGZF blocks. */
 	private void workerLoop(){
 		Deflater deflater=new Deflater(compressionLevel, true); // true=nowrap mode
-		if(FILTERED_BGZF) {deflater.setStrategy(Deflater.FILTERED);}
 		CRC32 crc=new CRC32();
-
+		final byte[] template=Arrays.copyOf(GZIP_HEADER_TEMPLATE, GZIP_HEADER_TEMPLATE.length);
+		
 		try{
 			while(true){
 				BgzfJob job;
@@ -246,7 +246,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 				assert(job.decompressed!=null) : 
 					"Worker received job with null decompressed data";
 
-				synchronized(job){
+                synchronized(job){
 					// Handle empty lastJob marker
 					if(job.decompressedSize==0){
 						if(verbose){
@@ -266,53 +266,49 @@ public class BgzfOutputStreamMT extends OutputStream {
 					assert(job.decompressedSize>0) : "Worker received job with zero size";
 					assert(!verbose || job.repOK()) : "Worker received invalid job";
 
-					// Compress into a payload buffer (no header/footer), writer will assemble
+					// Compress the data directly into the final output buffer (avoid intermediate copy)
 					deflater.reset();
 					deflater.setInput(job.decompressed, 0, job.decompressedSize);
 					deflater.finish();
 
-					int cap=(maxBlockSize+1024);
+					final int cap=18 + (maxBlockSize+1024) + 8; // header + max comp + footer
 					job.compressed=new byte[cap];
-					int compressedSize=0;
-					int guard=0;
-					while(!deflater.finished()){
-						int n=deflater.deflate(job.compressed, compressedSize, cap-compressedSize);
-						if(n==0){
-							// If no progress and not finished, avoid spinning forever
-							if(deflater.needsInput()) {break;}
-							guard++;
-							if(guard>4){break;}
-							continue;
-						}
-						compressedSize+=n;
-						// Grow buffer if extremely compressed output exceeds our conservative cap
-						if(compressedSize==cap && !deflater.finished()){
-							int newCap=cap*2;
-							byte[] bigger=new byte[newCap];
-							System.arraycopy(job.compressed, 0, bigger, 0, compressedSize);
-							job.compressed=bigger;
-							cap=newCap;
-						}
-					}
+					// Deflate into buffer starting after header (reserve 18), leave room for footer (8)
+					int compressedSize=deflater.deflate(job.compressed, 18, cap-18-8);
 
 					assert(compressedSize>0) : "Deflate produced zero bytes";
 					assert(deflater.finished()) : "Deflate not finished";
 
-					// Calculate CRC32 for footer
+					// Calculate CRC32
 					crc.reset();
 					crc.update(job.decompressed, 0, job.decompressedSize);
 					long crcValue=crc.getValue();
 
-					// Store footer metadata (CRC32 + ISIZE) for writer
-					byte[] meta=new byte[8];
-					int mpos=0;
-					mpos=writeInt32(meta, mpos, (int)crcValue);
-					mpos=writeInt32(meta, mpos, job.decompressedSize);
-					job.decompressed=meta;
-					job.decompressedSize=mpos; // 8
+					// Calculate BSIZE (total block size minus 1)
+					// Total=header(18)+compressed+footer(8)
+					int bsize=18+compressedSize+8-1;
 
-					// Set compressed payload size
-					job.compressedSize=compressedSize;
+					assert(bsize>=27) : "BSIZE too small: "+bsize;
+					assert(bsize<=65535) : "BSIZE exceeds uint16 max: "+bsize;
+
+
+					// Write gzip header from template and patch BSIZE
+					writeHeaderWithBsize(template, job.compressed, bsize);
+
+					// Position after header+compressed data
+					int pos=18+compressedSize;
+
+					// Write footer (CRC32+ISIZE)
+					pos=writeInt32(job.compressed, pos, (int)crcValue);
+					pos=writeInt32(job.compressed, pos, job.decompressedSize);
+
+					assert(pos==bsize+1) : "Total size wrong: expected "+(bsize+1)+", got "+pos;
+
+					job.compressedSize=pos;
+
+					// Clear decompressed data to free memory
+					job.decompressed=null;
+					job.decompressedSize=0;
 
 					assert(!verbose || job.repOK()) : "Worker produced invalid job";
 
@@ -357,21 +353,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 					if(job.compressedSize>0){
 						assert(job.compressed!=null) : 
 							"Writer received job with null compressed data";
-						// Compute BSIZE and write header
-						final int bsize=18+job.compressedSize+8-1;
-						assert(bsize>=27 && bsize<=65535);
-						if(writerHeader==null){writerHeader=new byte[18];}
-						System.arraycopy(GZIP_HEADER_TEMPLATE, 0, writerHeader, 0, 18);
-						writerHeader[16]=(byte)(bsize & 0xFF);
-						writerHeader[17]=(byte)((bsize>>8) & 0xFF);
-						out.write(writerHeader, 0, 18);
-						// Write compressed payload
 						out.write(job.compressed, 0, job.compressedSize);
-						// Write footer from meta (CRC32 + ISIZE)
-						if(writerFooter==null){writerFooter=new byte[8];}
-						assert(job.decompressed!=null && job.decompressedSize==8);
-						System.arraycopy(job.decompressed, 0, writerFooter, 0, 8);
-						out.write(writerFooter, 0, 8);
 					}
 				}
 
@@ -440,18 +422,18 @@ public class BgzfOutputStreamMT extends OutputStream {
 	}
 
 	@Override
-	public void close() throws IOException{
-		if(closed){return;} // Already closed - idempotent
+    public void close() throws IOException{
+        if(closed){return;} // Already closed - idempotent
 
-		if(verbose){System.err.println("close(): starting shutdown");}
+        if(verbose){System.err.println("close(): starting shutdown");}
 
-		// Submit last marker before marking closed, so in-flight jobs are still processed
-		flush(true);
-
-		// Now mark closed and nudge workers
-		closed=true;
-		inputQueue.offer(BgzfJob.POISON_PILL);
-		for(Thread t : workers){ if(t!=null) t.interrupt(); }
+        // Submit last marker before marking closed, so in-flight jobs are still processed
+        flush(true);
+        
+        // Now mark closed and nudge workers
+        closed=true;
+        inputQueue.offer(BgzfJob.POISON_PILL);
+        for(Thread t : workers){ if(t!=null) t.interrupt(); }
 
 		// Wait briefly for writer thread to finish
 		if(writer!=null){
@@ -465,7 +447,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 
 		// If any error captured, surface it
 		if(workerError!=null){throw workerError;}
-	}
+}
 
 	/** Write BGZF EOF marker (28-byte empty block). */
 	private void writeEOFMarker() throws IOException{
@@ -508,12 +490,10 @@ public class BgzfOutputStreamMT extends OutputStream {
 		0, 0                 // BSIZE (patched)
 	};
 
-	private static void writeHeaderWithBsize(byte[] dest, int bsize){
-		// NUMA-friendly: allocate a local header copy in the calling thread
-		final byte[] header = Arrays.copyOf(GZIP_HEADER_TEMPLATE, GZIP_HEADER_TEMPLATE.length);
-		header[16]=(byte)(bsize & 0xFF);
-		header[17]=(byte)((bsize>>8) & 0xFF);
-		System.arraycopy(header, 0, dest, 0, 18);
+	private static void writeHeaderWithBsize(byte[] template, byte[] dest, int bsize){
+		System.arraycopy(template, 0, dest, 0, 18);
+		dest[16]=(byte)(bsize & 0xFF);
+		dest[17]=(byte)((bsize>>8) & 0xFF);
 	}
 
 	/** Validate internal state for debugging. */
@@ -527,7 +507,7 @@ public class BgzfOutputStreamMT extends OutputStream {
 		if(maxBlockSize<=0 || maxBlockSize>DEFAULT_BLOCK_SIZE){return false;}
 		return true;
 	}
-
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -556,15 +536,10 @@ public class BgzfOutputStreamMT extends OutputStream {
 	private final OutputStream out;
 	/** Error state from worker threads */
 	private volatile IOException workerError=null;
-	/** Per-writer small reusable header buffer (18B) */
-	private byte[] writerHeader;
-	/** Per-writer small reusable footer buffer (8B) */
-	private byte[] writerFooter;
 	/** Stream closed flag (only accessed by main thread) */
 	private volatile boolean closed=false;
 	/** Debug flag (enable with -Dbgzf.debug=true) */
 	private static final boolean verbose=false;//Boolean.getBoolean("bgzf.debug");
 	/** Default maximum uncompressed block size (64KB) */
 	public static final int DEFAULT_BLOCK_SIZE=65536;
-	public static boolean FILTERED_BGZF=false;
 }
