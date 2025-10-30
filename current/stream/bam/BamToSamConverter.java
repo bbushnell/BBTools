@@ -8,6 +8,7 @@ import dna.AminoAcid;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
+import structures.BinaryByteWrapperLE;
 import structures.ByteBuilder;
 
 /**
@@ -25,8 +26,8 @@ public class BamToSamConverter {
 	private static final byte[] SEQ_LOOKUP_B="=ACMGRSVTWYHKDBN".getBytes();
 	private static final byte[] CIGAR_OPS_B="MIDNSHP=X".getBytes();
 
-	public BamToSamConverter(String[] refNames){
-		this.refNames=refNames;
+	public BamToSamConverter(String[] refNames_){
+		refNames=refNames_;
 	}
 
 	/**
@@ -215,15 +216,15 @@ public class BamToSamConverter {
 		}
 		return sam.toBytes();
 	}
-
+	
 	/**
 	 * Convert a BAM alignment record directly to a SamLine object.
-	 * Much faster than converting to SAM text then parsing.
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
-	 * @return Populated SamLine object
+	 * @return Populated SamLine object, or null if header
 	 */
-	public SamLine convertAlignmentToSamLine(byte[] bamRecord){
-		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+	public SamLine toSamLine_slim(byte[] bamRecord){
+//		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
 		SamLine sl=new SamLine();
 
 		//Read fixed-length fields
@@ -231,7 +232,7 @@ public class BamToSamConverter {
 		int pos=bb.getInt();
 		int l_read_name=bb.get()&0xFF;
 		int mapq=bb.get()&0xFF;
-		int bin=bb.getShort()&0xFFFF; //Ignore bin
+		int bin=bb.getShort()&0xFFFF; //Ignore
 		int n_cigar_op=bb.getShort()&0xFFFF;
 		int flag=bb.getShort()&0xFFFF;
 		long l_seq=bb.getInt()&0xFFFFFFFFL;
@@ -239,80 +240,61 @@ public class BamToSamConverter {
 		int next_pos=bb.getInt();
 		int tlen=bb.getInt();
 
-		//Read QNAME
-		if(SamLine.PARSE_0){
-			byte[] readNameBytes=new byte[l_read_name-1]; //Exclude NUL
-			bb.get(readNameBytes);
-			bb.get(); //Skip NUL terminator
-			sl.qname=new String(readNameBytes, 0, readNameBytes.length);
-		}else{
-			bb.position(bb.position()+l_read_name); //Skip
-		}
+		//QNAME - SamLine.PARSE_0
+		byte[] readNameBytes=new byte[l_read_name];
+		bb.get(readNameBytes);
+		sl.qname=new String(readNameBytes, 0, l_read_name-1); //Exclude NUL
 
-		//Set FLAG
+		//FLAG
 		sl.flag=flag;
 
-		//Set RNAME
-		if(SamLine.PARSE_2){
-			if(refID<0 || refID>=refNames.length){
-				//Do nothing
-			}else{
-				if(SamLine.RNAME_AS_BYTES){
-					sl.setRname(refNames[refID].getBytes());
-				}else{
-					sl.setRname(refNames[refID]);
-				}
-			}
+		//RNAME - SamLine.PARSE_2
+		if(refID<0 || refID>=refNames.length){
+			//do nothing
+		}else if(SamLine.RNAME_AS_BYTES){
+			sl.setRname(refNames[refID].getBytes());
+		}else {
+			sl.setRname(refNames[refID]);
 		}
 
-		//Set POS (BAM is 0-based, SAM is 1-based)
+		//POS (BAM is 0-based, SAM is 1-based)
 		sl.pos=pos+1;
 
-		//Set MAPQ
+		//MAPQ
 		sl.mapq=mapq;
 
-		//Decode CIGAR
-		if(SamLine.PARSE_5){
-			if(n_cigar_op==0){
-				sl.cigar="*";
-			}else{
-				StringBuilder cigar=new StringBuilder(n_cigar_op*4);
-				for(int i=0; i<n_cigar_op; i++){
-					int cigOp=bb.getInt();
-					int opLen=cigOp>>>4;
-					int op=cigOp&0xF;
-					cigar.append(opLen).append(CIGAR_OPS_B[op]);
-				}
-				sl.cigar=cigar.toString();
-			}
+		//CIGAR - SamLine.PARSE_5
+		if(n_cigar_op==0){
+			sl.cigar="*";
 		}else{
-			bb.position(bb.position()+n_cigar_op*4); //Skip CIGAR
-		}
-
-		//Set RNEXT
-		if(SamLine.PARSE_6){
-			if(next_refID<0){
-				sl.setRnext(bytestar);
-			}else if(next_refID==refID){
-				sl.setRnext(byteequals);
-			}else if(next_refID<refNames.length){
-				sl.setRnext(refNames[next_refID].getBytes());
-			}else{
-				sl.setRnext(bytestar);
+			StringBuilder cigar=new StringBuilder(n_cigar_op*4);
+			for(int i=0; i<n_cigar_op; i++){
+				int cigOp=bb.getInt();
+				int opLen=cigOp>>>4;
+				int op=cigOp&0xF;
+				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
 			}
+			sl.cigar=cigar.toString();
 		}
 
-		//Set PNEXT (BAM is 0-based, SAM is 1-based)
-		if(SamLine.PARSE_7){
-			sl.pnext=next_pos+1;
+		//RNEXT
+		if(next_refID<0){
+			sl.setRnext(bytestar);
+		}else if(next_refID==refID){
+			sl.setRnext(byteequals);
+		}else if(next_refID<refNames.length){
+			sl.setRnext(refNames[next_refID].getBytes());
+		}else{
+			sl.setRnext(bytestar);
 		}
 
-		//Set TLEN
-		if(SamLine.PARSE_8){
-			sl.tlen=tlen;
-		}
+		//PNEXT (BAM is 0-based, SAM is 1-based) - SamLine.PARSE_7
+		sl.pnext=next_pos+1;
 
-		//Decode SEQ
+		//TLEN - SamLine.PARSE_8
+		sl.tlen=tlen;
+
+		//SEQ
 		if(l_seq==0){
 			sl.seq=bytestar;
 		}else{
@@ -329,81 +311,70 @@ public class BamToSamConverter {
 			sl.seq=seq;
 		}
 
-		//Decode QUAL
-		if(SamLine.PARSE_10){
-			if(l_seq==0){
+		//QUAL - SamLine.PARSE_10
+		if(l_seq==0){
+			sl.qual=bytestar;
+		}else{
+			byte firstByte=bb.get();
+			if(firstByte==(byte)0xFF){
+				bb.position(bb.position()+(int)l_seq-1);
 				sl.qual=bytestar;
 			}else{
-				byte firstByte=bb.get();
-				if(firstByte==(byte)0xFF){
-					//Skip remaining bytes, QUAL is missing
-					bb.position(bb.position()+(int)l_seq-1);
-					sl.qual=bytestar;
-				}else{
-					//Read QUAL (already as phred scores, don't add 33)
-					byte[] qual=new byte[(int)l_seq];
-					qual[0]=firstByte;
-					bb.get(qual, 1, (int)l_seq-1);
-					sl.qual=qual;
-				}
+				byte[] qual=new byte[(int)l_seq];
+				qual[0]=firstByte;
+				bb.get(qual, 1, (int)l_seq-1);
+				//Don't add 33 - keep as phred scores
+				sl.qual=qual;
 			}
-		}else{
-			bb.position(bb.position()+(int)l_seq); //Skip QUAL
 		}
 
-		//Handle reverse complement if needed
-		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
-			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
-			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
-		}
-
-		//Decode auxiliary tags
-		if(SamLine.PARSE_OPTIONAL && bb.hasRemaining()){
+		//Auxiliary tags - SamLine.PARSE_OPTIONAL
+		if(bb.hasRemaining()){
 			sl.optional=new ArrayList<String>();
+			ByteBuilder tag=new ByteBuilder(64);
 
 			while(bb.hasRemaining()){
-				//Build tag as String (tag:type:value)
-				ByteBuilder tag=new ByteBuilder(32);
-
+				tag.clear();
+				
 				//Tag name (2 bytes)
 				tag.append(bb.get()).appendColon(bb.get());
 
 				char type=(char)(bb.get()&0xFF);
 				switch(type){
-					case 'A': //Printable character
+					case 'A':
 						tag.appendColon('A').append((char)(bb.get()&0xFF));
 						break;
-					case 'c': //int8_t
+					case 'c':
 						tag.appendColon('i').append((int)bb.get());
 						break;
-					case 'C': //uint8_t
+					case 'C':
 						tag.appendColon('i').append(bb.get()&0xFF);
 						break;
-					case 's': //int16_t
+					case 's':
 						tag.appendColon('i').append((int)bb.getShort());
 						break;
-					case 'S': //uint16_t
+					case 'S':
 						tag.appendColon('i').append(bb.getShort()&0xFFFF);
 						break;
-					case 'i': //int32_t
+					case 'i':
 						tag.appendColon('i').append(bb.getInt());
 						break;
-					case 'I': //uint32_t
+					case 'I':
 						tag.appendColon('i').append(bb.getInt()&0xFFFFFFFFL);
 						break;
-					case 'f': //float
+					case 'f':
 						tag.appendColon('f').append(bb.getFloat(), 6);
 						break;
-					case 'Z': //Null-terminated string
+					case 'Z':
 						tag.appendColon('Z');
 						byte b;
 						while((b=bb.get())!=0){tag.append(b);}
 						break;
-					case 'H': //Hex string
+					case 'H':
 						tag.appendColon('H');
 						while((b=bb.get())!=0){tag.append(b);}
 						break;
-					case 'B': //Array
+					case 'B':
 						char arrayType=(char)(bb.get()&0xFF);
 						int count=bb.getInt();
 						tag.appendColon('B').append(arrayType);
@@ -429,16 +400,18 @@ public class BamToSamConverter {
 				String tagString=tag.toString();
 				sl.optional.add(tagString);
 
-				//Check for MD tag
 				if(tagString.startsWith("MD:")){
 					sl.mdTag=tagString.substring(5).getBytes();
 				}
 			}
 		}
+		
+		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
+			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
+			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+		}
 
-		//Trim names (if needed by SamLine)
 		sl.trimNames();
-
 		return sl;
 	}
 	
@@ -447,8 +420,9 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Populated SamLine object, or null if header
 	 */
-	public SamLine convertAlignmentToSamLineSimple(byte[] bamRecord){
-		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+	public SamLine toSamLine(byte[] bamRecord){
+//		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
+		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
 		SamLine sl=new SamLine();
 
 		//Read fixed-length fields
@@ -464,16 +438,16 @@ public class BamToSamConverter {
 		int next_pos=bb.getInt();
 		int tlen=bb.getInt();
 
-		//QNAME
+		//QNAME - SamLine.PARSE_0
 		byte[] readNameBytes=new byte[l_read_name];
 		bb.get(readNameBytes);
-		sl.qname=new String(readNameBytes, 0, l_read_name-1); //Exclude NUL
+		if(SamLine.PARSE_0) {sl.qname=new String(readNameBytes, 0, l_read_name-1);} //Exclude NUL
 
 		//FLAG
 		sl.flag=flag;
 
-		//RNAME
-		if(refID<0 || refID>=refNames.length){
+		//RNAME - SamLine.PARSE_2
+		if(refID<0 || refID>=refNames.length || !SamLine.PARSE_2){
 			//do nothing
 		}else if(SamLine.RNAME_AS_BYTES){
 			sl.setRname(refNames[refID].getBytes());
@@ -487,7 +461,7 @@ public class BamToSamConverter {
 		//MAPQ
 		sl.mapq=mapq;
 
-		//CIGAR
+		//CIGAR - SamLine.PARSE_5
 		if(n_cigar_op==0){
 			sl.cigar="*";
 		}else{
@@ -498,7 +472,7 @@ public class BamToSamConverter {
 				int op=cigOp&0xF;
 				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
 			}
-			sl.cigar=cigar.toString();
+			if(SamLine.PARSE_5) {sl.cigar=cigar.toString();}
 		}
 
 		//RNEXT
@@ -506,16 +480,16 @@ public class BamToSamConverter {
 			sl.setRnext(bytestar);
 		}else if(next_refID==refID){
 			sl.setRnext(byteequals);
-		}else if(next_refID<refNames.length){
+		}else if(next_refID<refNames.length && SamLine.PARSE_6){
 			sl.setRnext(refNames[next_refID].getBytes());
 		}else{
 			sl.setRnext(bytestar);
 		}
 
-		//PNEXT (BAM is 0-based, SAM is 1-based)
+		//PNEXT (BAM is 0-based, SAM is 1-based) - SamLine.PARSE_7
 		sl.pnext=next_pos+1;
 
-		//TLEN
+		//TLEN - SamLine.PARSE_8
 		sl.tlen=tlen;
 
 		//SEQ
@@ -535,7 +509,7 @@ public class BamToSamConverter {
 			sl.seq=seq;
 		}
 
-		//QUAL
+		//QUAL - SamLine.PARSE_10
 		if(l_seq==0){
 			sl.qual=bytestar;
 		}else{
@@ -548,12 +522,12 @@ public class BamToSamConverter {
 				qual[0]=firstByte;
 				bb.get(qual, 1, (int)l_seq-1);
 				//Don't add 33 - keep as phred scores
-				sl.qual=qual;
+				if(SamLine.PARSE_10) {sl.qual=qual;}
 			}
 		}
 
-		//Auxiliary tags
-		if(bb.hasRemaining()){
+		//Auxiliary tags - SamLine.PARSE_OPTIONAL
+		if(SamLine.PARSE_OPTIONAL && bb.hasRemaining()){
 			sl.optional=new ArrayList<String>();
 			ByteBuilder tag=new ByteBuilder(64);
 

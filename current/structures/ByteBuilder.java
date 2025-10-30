@@ -828,6 +828,87 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return out;
 	}
 	
+
+	/*--------------------------------------------------------------*/
+	
+	/** Ensures capacity for at least n more bytes */
+	private void ensureCapacity(int n){
+		if(length+n>array.length){expand();}
+	}
+	
+	/** Appends unsigned 8-bit value */
+	public ByteBuilder appendU8(int value){
+		ensureCapacity(1);
+		array[length++]=(byte)(value&0xFF);
+		return this;
+	}
+	
+	/** Appends unsigned 16-bit little-endian value */
+	public ByteBuilder appendU16LE(int value){
+		ensureCapacity(2);
+		array[length++]=(byte)(value&0xFF);
+		array[length++]=(byte)((value>>>8)&0xFF);
+		return this;
+	}
+	
+	/** Appends signed 32-bit little-endian value */
+	public ByteBuilder setI32LE(int value, int offset){
+		array[offset++]=(byte)(value&0xFF);
+		array[offset++]=(byte)((value>>>8)&0xFF);
+		array[offset++]=(byte)((value>>>16)&0xFF);
+		array[offset++]=(byte)((value>>>24)&0xFF);
+		return this;
+	}
+	
+	/** Appends signed 32-bit little-endian value */
+	public ByteBuilder appendI32LE(int value){
+		ensureCapacity(4);
+		array[length++]=(byte)(value&0xFF);
+		array[length++]=(byte)((value>>>8)&0xFF);
+		array[length++]=(byte)((value>>>16)&0xFF);
+		array[length++]=(byte)((value>>>24)&0xFF);
+		return this;
+	}
+	
+	/** Appends unsigned 32-bit little-endian value */
+	public ByteBuilder appendU32LE(long value){
+		return appendI32LE((int)(value&0xFFFFFFFFL));
+	}
+	
+	/** Appends signed 64-bit little-endian value */
+	public ByteBuilder appendI64LE(long value){
+		ensureCapacity(8);
+		array[length++]=(byte)(value&0xFF);
+		array[length++]=(byte)((value>>>8)&0xFF);
+		array[length++]=(byte)((value>>>16)&0xFF);
+		array[length++]=(byte)((value>>>24)&0xFF);
+		array[length++]=(byte)((value>>>32)&0xFF);
+		array[length++]=(byte)((value>>>40)&0xFF);
+		array[length++]=(byte)((value>>>48)&0xFF);
+		array[length++]=(byte)((value>>>56)&0xFF);
+		return this;
+	}
+	
+	/** Appends 32-bit little-endian float */
+	public ByteBuilder appendFloatLE(float value){
+		return appendI32LE(Float.floatToRawIntBits(value));
+	}
+	
+	/** Appends 64-bit little-endian double */
+	public ByteBuilder appendDoubleLE(double value){
+		return appendI64LE(Double.doubleToRawLongBits(value));
+	}
+	
+	/** Appends null-terminated string */
+	public ByteBuilder appendNullTerminated(String s){
+		byte[] bytes=s.getBytes();
+		append(bytes);
+		append((byte)0);
+		return this;
+	}
+	
+	/*--------------------------------------------------------------*/
+	
 	/** something */
 	public byte[] array;
 	/** something else */

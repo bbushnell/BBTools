@@ -38,6 +38,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
 			ArrayList<Contig> contigs, IntHashMap[] graph){
 		final int files=fnames.size();
+		SamLine.RNAME_AS_BYTES=false;
 		//Do anything necessary prior to processing
 		
 		FileFormat ff0=FileFormat.testInput(fnames.get(0), FileFormat.SAM, null, false, false);
@@ -228,7 +229,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			if(!sl.mapped()) {return false;}
 			if(maxSubs<999 && sl.countSubs()>maxSubs) {return false;}
 			if(minID>0 && sl.calcIdentity()<minID) {return false;}
-			final String rname=ContigRenamer.toShortName(sl.rname());
+			final String rname=ContigRenamer.toShortName(sl.rnameS());
 			final Contig c1=contigMap.get(rname);
 			if(c1==null) {return false;}//Contig not found; possibly too short
 			assert(c1!=null) : "Can't find contig for rname "+rname;

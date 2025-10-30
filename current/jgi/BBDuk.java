@@ -117,7 +117,7 @@ public class BBDuk {
 		boolean rcomp_=true;
 		boolean forbidNs_=false;
 		boolean useForest_=false, useTable_=false, useArray_=true, prealloc_=false;
-		int k_=27, kbig_=-1;
+		int k_=31, kbig_=-1;
 		int mink_=-1;
 		int ways_=-1; //Currently disabled for speed
 		int maxBadKmers_=0;

@@ -182,10 +182,11 @@ public class BamLineWriter extends SamWriter {
 				//Format SamLines to BAM bytes and count
 				for(SamLine sl : lines){
 					try{
-						byte[] bamRecord = converter.convertAlignment(sl);
-						// Write block_size followed by the record
-						bb.appendUint32(bamRecord.length);
-						bb.append(bamRecord);
+//						byte[] bamRecord = converter.convertAlignment(sl);
+//						// Write block_size followed by the record
+//						bb.appendUint32(bamRecord.length);
+//						bb.append(bamRecord);
+						converter.appendAlignment(sl, bb);
 						readsWrittenT++;
 						basesWrittenT+=sl.length();
 					}catch(Exception e){

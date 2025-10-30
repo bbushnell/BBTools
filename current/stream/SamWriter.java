@@ -319,7 +319,7 @@ public abstract class SamWriter {
 			bytes=bytes_;
 			type=type_;
 			assert((type==ListNum.NORMAL) == (bytes!=null));
-			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.PROTO);
+			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.PROTO || type==ListNum.POISON) : type;
 		}
 
 		@Override
