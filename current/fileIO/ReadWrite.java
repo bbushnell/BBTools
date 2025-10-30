@@ -647,15 +647,16 @@ public class ReadWrite {
 		int threads=Tools.min(MAX_ZIP_THREADS, Tools.max((int)((Shared.threads()+1)*ZIP_THREAD_MULT), 1));
 		threads=Tools.max(1, Tools.min(Shared.threads(), threads));
 		int zl=Tools.mid(ZIPLEVEL, 1, 9);
-		
+//		System.err.println("A: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 		if(nativeBgzfOut() || !Data.BGZIP()) {
+			if(zl>5) {zl=5;}//Required for native bgzip.
 			if(ALLOW_ZIPLEVEL_CHANGE){
-				if(zl>5) {zl=5;}
-				else if(zl<4 && zl>0 && threads>=16) {zl=4;}
-				if(zl<3){threads=Tools.min(threads, 16);}
-				else if(zl<5){threads=Tools.min(threads, 24);}
-				else if(zl<6){threads=Tools.min(threads, 64);}
+				if(zl<4 && zl>0 && threads>=16) {zl=4;}
 			}
+			if(zl<3){threads=Tools.min(threads, 16);}
+			else if(zl<5){threads=Tools.min(threads, 24);}
+			else if(zl<6){threads=Tools.min(threads, 64);}
+//			System.err.println("B: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			OutputStream out;
@@ -668,6 +669,8 @@ public class ReadWrite {
 		if(zl<3){threads=Tools.min(threads, 12);}
 		else if(zl<5){threads=Tools.min(threads, 16);}
 		else if(zl<7){threads=Tools.min(threads, 32);}//Was 40, but even BBDuk can only sustain ~16
+
+//		System.err.println("C: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 		
 //		assert(false) : Data.BGZIP()+", "+Data.PIGZ();
 		String command="bgzip -c "+(append ? "" : "-f ")+(Data.BGZIP_VERSION_levelFlag ? "-l "+zl+" " : "")+(Data.BGZIP_VERSION_threadsFlag ? "-@ "+threads+" " : "");

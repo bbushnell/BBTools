@@ -45,7 +45,7 @@ popd > /dev/null
 #DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
 CP="$DIR""current/"
 
-z="-Xmx1g"
+z="-Xmx2g"
 set=0
 
 if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
@@ -53,10 +53,18 @@ if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 	exit
 fi
 
+#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
+CP="$DIR""current/"
+
 calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
+    # Source the new scripts
+    source "$DIR""/memdetect.sh"
+    source "$DIR""/javasetup.sh"
+    
+    parseJavaArgs "--mem=2g" "--mode=fixed" "$@"
+    
+    # Set environment paths
+    setEnvironment
 }
 calcXmx "$@"
 

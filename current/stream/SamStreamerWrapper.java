@@ -1,5 +1,6 @@
 package stream;
 
+import java.io.File;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
@@ -83,6 +84,8 @@ public class SamStreamerWrapper {
 				
 			else if(parser.parse(arg, a, b)){
 				//do nothing
+			}else if(i==0 && !arg.contains("=") && FileFormat.isSamOrBamFile(arg) && new File(arg).isFile()){
+				parser.in1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
