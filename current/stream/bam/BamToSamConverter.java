@@ -474,6 +474,9 @@ public class BamToSamConverter {
 			}
 			if(SamLine.PARSE_5) {sl.cigar=cigar.toString();}
 		}
+		
+		//TODO: Use bb.skip() for skipped fields, ByteBuilder instead of StrngBuilder
+		//TODO: Use direct array access, not array copies to byte[]
 
 		//RNEXT
 		if(next_refID<0){

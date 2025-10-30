@@ -25,7 +25,7 @@ public class PipeThread extends Thread {
 	
 	@Override
 	public void run(){
-		final byte[] buf=new byte[8196];
+		final byte[] buf=new byte[16384];
 		try {
 			for(int len=is.read(buf); !finished && len>0; len=is.read(buf)){
 				os.write(buf, 0, len);

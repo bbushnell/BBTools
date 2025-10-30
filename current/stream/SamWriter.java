@@ -377,7 +377,7 @@ public abstract class SamWriter {
 	final OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob> oqs;
 	/** Output stream. */
 	final OutputStream outstream;
-
+	
 	/** Total reads written. */
 	public long readsWritten=0;
 	/** Total bases written. */
@@ -389,7 +389,7 @@ public abstract class SamWriter {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int DEFAULT_THREADS=8;
+	public static int DEFAULT_THREADS=6;
 
 	public static final boolean verbose=false;
 
