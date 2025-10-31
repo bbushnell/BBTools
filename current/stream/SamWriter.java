@@ -21,7 +21,7 @@ import structures.ListNum;
  * @contributor Isla
  * @date October 25, 2025
  */
-public abstract class SamWriter {
+public abstract class SamWriter implements Writer {
 
 	public static void main(String[] args){
 		Timer t=new Timer(), t2=new Timer();
@@ -174,6 +174,17 @@ public abstract class SamWriter {
 		poison();
 		return waitForFinish();
 	}
+
+	@Override
+	public void close(){
+		//TODO: Interrupt and terminate
+	}
+
+	@Override
+	public long readsWritten(){return readsWritten;}
+
+	@Override
+	public long basesWritten(){return basesWritten;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Helper Methods        ----------------*/

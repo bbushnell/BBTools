@@ -19,7 +19,7 @@ public class ThreadWaiter {
 		return success;
 	}
 	
-	/** Wait for completion of all threads */
+	/** Wait for completion of all threads except self */
 	public static final <T extends Thread> boolean waitForThreadsToFinish(Iterable<T> iter){
 
 		//Wait for completion of all threads

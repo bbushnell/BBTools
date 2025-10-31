@@ -70,7 +70,7 @@ public final class ListNum<K extends Serializable> implements Serializable, Iter
 				}
 			}
 		}
-		assert(list!=null || (poison() || last())); //Regular jobs may not be null (they can be empty though)
+		assert(list!=null || (poison() || last() || type==PROTO)); //Regular jobs may not be null (they can be empty though)
 		assert(!poison() || list==null); //Poison should have a null list
 		assert(!(poison() && last())); //There can only be one last but multiple poison
 	}

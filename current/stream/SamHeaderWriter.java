@@ -12,7 +12,7 @@ import structures.StringNum;
  * and writes properly formatted SAM header with @HD, @SQ, @RG, and @PG lines.
  * 
  * @author Isla
- * @date June 3, 2025
+ * @date October 30, 2025
  */
 public class SamHeaderWriter {
 
