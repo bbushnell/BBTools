@@ -41,7 +41,7 @@ public class JobQueue<K extends HasID>{
 		assert(capacity_>1) : "Capacity is too small: "+capacity_;
 		capacity=Math.max(capacity_, 2);
 		half=(capacity+1)/2; // Used for lazy notification optimization
-		ordered=ordered_;
+		ordered=ordered_ || true;//TODO: Review all cases where this can legitimately be set to false.
 		bounded=bounded_;
 		nextID=firstID;
 		maxSeen=firstID-1;
