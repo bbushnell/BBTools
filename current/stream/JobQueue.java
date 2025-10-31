@@ -95,7 +95,7 @@ public class JobQueue<K extends HasID>{
 		synchronized(heap){
 			while(job==null && !lastSeen){
 				// Wait if heap is empty or (in ordered mode) next job isn't ready yet
-				while(heap.isEmpty() || (ordered && heap.peek().id()>nextID)){
+				while(!heapReady()){
 					if(verbose){System.err.println("Consumer waiting; heap.size()="+heap.size());}
 					try {
 						heap.wait();
@@ -120,6 +120,15 @@ public class JobQueue<K extends HasID>{
 			}
 		}
 		return job;
+	}
+	
+	private boolean heapReady() {
+		synchronized(heap) {
+			if(heap.isEmpty()) {return false;}
+			K k=heap.peek();
+			if(k.id()==nextID) {return true;}
+			return !ordered && !k.last() && !k.poison();//TODO: Add a normal() function.
+		}
 	}
 	
 	public boolean hasMore(){
