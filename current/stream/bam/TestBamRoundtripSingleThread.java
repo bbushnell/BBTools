@@ -5,6 +5,7 @@ import fileIO.ByteStreamWriter;
 import stream.BamLineStreamer;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamReadInputStream;
 
 public class TestBamRoundtripSingleThread {
@@ -14,7 +15,7 @@ public class TestBamRoundtripSingleThread {
 		String outFile = "mapped_st_roundtrip.sam";
 
 		System.err.println("=== Phase 1: Convert SAM to BAM (single thread) ===");
-		SamStreamer sls = SamStreamer.makeStreamer(samFile, 1, true, true, -1, false);
+		Streamer sls = SamStreamer.makeStreamer(samFile, 1, true, true, -1, false);
 		sls.start();
 		java.util.ArrayList<byte[]> header = SamReadInputStream.getSharedHeader(true);
 

@@ -24,6 +24,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamReadInputStream;
 import stream.SamStreamer;
 import structures.ByteBuilder;
@@ -295,7 +296,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 			FileFormat ffin=FileFormat.testInput(in.get(i), FileFormat.SAM, extin, true, true);
 
 			//Create a read input stream
-			SamStreamer ss=makeStreamer(ffin);
+			Streamer ss=makeStreamer(ffin);
 
 			if(scafMap.isEmpty()) {scafMap=makeScafMap();}
 
@@ -338,9 +339,9 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		return cris;
 	}
 	
-	private SamStreamer makeStreamer(FileFormat ff){
+	private Streamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
-		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, false);
+		Streamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, false);
 		ss.start(); //Start the stream
 		if(verbose){outstream.println("Started Streamer");}
 		return ss;
@@ -382,7 +383,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/** Spawn process threads */
-	private void spawnThreads(final SamStreamer ss){
+	private void spawnThreads(final Streamer ss){
 		
 		//Do anything necessary prior to processing
 		
@@ -504,7 +505,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final SamStreamer ss_, final int tid_){
+		ProcessThread(final Streamer ss_, final int tid_){
 			ss=ss_;
 			tid=tid_;
 		}
@@ -572,7 +573,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final SamStreamer ss;
+		private final Streamer ss;
 		/** Thread ID */
 		final int tid;
 	}

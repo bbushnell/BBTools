@@ -12,6 +12,7 @@ import shared.Tools;
 import stream.SamLine;
 import stream.SamReadInputStream;
 import stream.SamStreamer;
+import stream.Streamer;
 import structures.ListNum;
 
 /**
@@ -232,7 +233,7 @@ public class BamWriter {
 		System.err.println("  Output: " + bamFile);
 
 		// Read SAM with SamStreamer
-		SamStreamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
+		Streamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
 		sls.start();
 
 		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);

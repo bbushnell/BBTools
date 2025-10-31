@@ -18,6 +18,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamStreamer;
 import structures.ListNum;
 import tracker.ReadStats;
@@ -245,7 +246,7 @@ public class FilterSam {
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
 		
-		final SamStreamer ss;
+		final Streamer ss;
 		//Create a read input stream
 		final ConcurrentReadInputStream cris;
 		if(useStreamer){
@@ -369,7 +370,7 @@ public class FilterSam {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
+	private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 		
 		//Do anything necessary prior to processing
 		
@@ -444,7 +445,7 @@ public class FilterSam {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
+		ProcessThread(final ConcurrentReadInputStream cris_, final Streamer ss_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
 			cris=cris_;
 			ss=ss_;
 			ros=ros_;
@@ -702,7 +703,7 @@ public class FilterSam {
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
 		/** Shared input stream */
-		private final SamStreamer ss;
+		private final Streamer ss;
 		/** Good output stream */
 		private final ConcurrentReadOutputStream ros;
 		/** Bad output stream */

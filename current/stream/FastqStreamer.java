@@ -1,0 +1,409 @@
+package stream;
+
+import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
+
+import fileIO.ByteFile;
+import fileIO.FileFormat;
+import shared.Shared;
+import shared.Timer;
+import shared.Tools;
+import structures.ListNum;
+
+/**
+ * Loads FASTQ files rapidly with multiple threads.
+ * 
+ * @author Isla
+ * @date June 3, 2025
+ */
+public class FastqStreamer implements Streamer {
+	
+	public static void main(String[] args) {
+		Timer t=new Timer();
+		String fname=args[0];
+		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
+		if(args.length>2) {Shared.SIMD=true;}
+		
+		FastqStreamer fs=new FastqStreamer(fname, DEFAULT_THREADS, 1, -1);
+		fs.start();
+		long reads=0, bases=0;
+		for(ListNum<Read> ln=fs.nextList(); ln!=null; ln=fs.nextList()) {
+			for(Read r : ln) {
+				reads+=r.pairCount();
+				bases+=r.pairLength();
+			}
+		}
+		t.stop();
+		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Constructor. */
+	public FastqStreamer(String fname_, int threads_, int pairnum_, long maxReads_){
+		this(FileFormat.testInput(fname_, FileFormat.FASTQ, null, true, false), threads_, pairnum_, maxReads_);
+	}
+	
+	/** Constructor. */
+	public FastqStreamer(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
+		ffin=ffin_;
+		fname=ffin_.name();
+		threads=Tools.mid(1, threads_, Shared.threads());
+		pairnum=pairnum_;
+		assert(pairnum==0 || pairnum==1) : pairnum;
+		interleaved=(ffin.interleaved());
+		assert(pairnum==0 || !interleaved);
+		maxReads=(maxReads_<1 ? Long.MAX_VALUE : maxReads_);
+		
+		int queueSize=2*threads+1;
+		inq=new ArrayBlockingQueue<ListNum<byte[][]>>(queueSize);
+		outq=new JobQueue<ListNum<Read>>(queueSize, true, true, 0);
+		if(verbose){outstream.println("Made FastqStreamer-"+threads);}
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Outer Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	@Override
+	public void start(){
+		if(verbose){outstream.println("FastqStreamer.start() called.");}
+		
+		//Reset counters
+		readsProcessed=0;
+		basesProcessed=0;
+		
+		//Process the reads in separate threads
+		spawnThreads();
+		
+		if(verbose){outstream.println("FastqStreamer started.");}
+	}
+	
+	@Override
+	public void close(){
+		//TODO: Unimplemented
+	}
+	
+	@Override
+	public boolean hasMore(){return outq.hasMore();}
+	
+	@Override
+	public boolean paired(){return interleaved;}
+
+	@Override
+	public int pairnum(){return pairnum;}
+	
+	@Override
+	public long readsProcessed() {return readsProcessed;}
+	
+	@Override
+	public long basesProcessed() {return basesProcessed;}
+	
+	@Override
+	public ListNum<Read> nextList(){
+		ListNum<Read> list=outq.take();
+		if(verbose){
+			if(list==null) {outstream.println("Consumer got null.");}
+			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
+		}
+		if(list==null || list.last()){
+			assert(list==null || list.isEmpty());
+			assert(!outq.hasMore());
+			return null;
+		}
+		return list;
+	}
+	
+	@Override
+	public ListNum<SamLine> nextLines(){
+		throw new UnsupportedOperationException("FASTQ does not support SamLine");
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Spawn process threads */
+	void spawnThreads(){
+		//Determine how many threads may be used
+		final int threads=this.threads+1;
+		
+		//Fill a list with ProcessThreads
+		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
+		for(int i=0; i<threads; i++){
+			alpt.add(new ProcessThread(i, alpt));
+		}
+		if(verbose){outstream.println("Spawned threads.");}
+		
+		//Start the threads
+		for(ProcessThread pt : alpt){
+			pt.start();
+		}
+		if(verbose){outstream.println("Started threads.");}
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Inner Classes        ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private class ProcessThread extends Thread {
+		
+		/** Constructor */
+		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
+			tid=tid_;
+			alpt=(tid==0 ? alpt_ : null);
+		}
+		
+		/** Called by start() */
+		@Override
+		public void run(){
+			//Process the reads
+			if(tid==0){
+				processBytes();
+			}else{
+				makeReads();
+			}
+			
+			//Indicate successful exit status
+			success=true;
+			if(verbose){outstream.println("tid "+tid+" terminated.");}
+		}
+		
+		void processBytes(){
+			processBytes0();
+			if(verbose){outstream.println("tid "+tid+" done with processBytes0.");}
+			
+			success=true;
+			
+			//Wait for completion of all threads
+			boolean allSuccess=true;
+			for(ProcessThread pt : alpt){
+				
+				//Wait until this thread has terminated
+				if(pt!=this){
+					if(verbose){outstream.println("Waiting for thread "+pt.tid);}
+					while(pt.getState()!=Thread.State.TERMINATED){
+						try{
+							pt.join(); //Attempt a join operation
+						}catch(InterruptedException e){
+							e.printStackTrace();
+						}
+					}
+					if(verbose){outstream.println("tid "+tid+" joined tid "+pt.tid);}
+
+					//Accumulate per-thread statistics
+					readsProcessed+=pt.readsProcessedT;
+					basesProcessed+=pt.basesProcessedT;
+					allSuccess&=pt.success;
+				}
+			}
+			if(verbose){outstream.println("tid "+tid+" noted all process threads finished.");}
+			
+			ListNum<byte[][]> list=takeBytes();//Poison
+			putReads(new ListNum<Read>(null, list.id(), false, true));//Last
+			if(verbose){outstream.println("tid "+tid+" done poisoning reads.");}
+			
+			//Track whether any threads failed
+			if(!allSuccess){errorState=true;}
+			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
+		}
+		
+		/** 
+		 * Thread 0 reads the actual file and produces lists of byte[][] (4 lines per read).
+		 * @param tid Thread number (should be 0).
+		 */
+		private void processBytes0(){
+			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
+
+			ByteFile.FORCE_MODE_BF2=true;
+			ByteFile bf=ByteFile.makeByteFile(ffin);
+			long listNumber=0;
+			long reads=0;
+			
+			final int limit=LIST_SIZE;
+			ListNum<byte[][]> ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(limit), listNumber++);
+			ln.firstRecordNum=reads;
+			
+			while(reads<maxReads){
+				// Read 4 lines per FASTQ record
+				byte[] header=bf.nextLine();
+				if(header==null){break;}
+				byte[] bases=bf.nextLine();
+				byte[] plus=bf.nextLine();
+				byte[] quals=bf.nextLine();
+				
+				if(bases==null || plus==null || quals==null){
+					// Incomplete record at end of file
+					break;
+				}
+				
+				reads++;
+				byte[][] record=new byte[][]{header, bases, plus, quals};
+				ln.add(record);
+				
+				if(ln.size()>=limit){
+					putBytes(ln);
+					ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(limit), listNumber++);
+					ln.firstRecordNum=reads;
+				}
+			}
+			
+			if(verbose){outstream.println("tid "+tid+" ran out of input.");}
+			if(ln.size()>0){putBytes(ln);}else {listNumber--;}
+			ln=null;
+			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
+			putBytes(new ListNum<byte[][]>(null, listNumber++, ListNum.LAST));
+			putBytes(new ListNum<byte[][]>(null, listNumber++, ListNum.POISON));
+			if(verbose){outstream.println("tid "+tid+" done adding last.");}
+			bf.close();
+			if(verbose){outstream.println("tid "+tid+" closed stream.");}
+		}
+		
+		/** Iterate through the reads */
+		void makeReads(){
+			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
+			
+			ListNum<byte[][]> list=takeBytes();
+			while(list!=null && !list.poison()){
+				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
+				final ListNum<Read> reads;
+				if(list.last()) {
+					reads=new ListNum<Read>(null, list.id(), ListNum.LAST);
+				}else {
+					reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
+					long readID=list.firstRecordNum;
+
+					for(byte[][] record : list){
+						byte[] header=record[0];
+						byte[] bases=record[1];
+						byte[] plus=record[2];
+						byte[] quals=record[3];
+
+						// Parse FASTQ record into Read
+						Read r=parseFastqRecord(header, bases, quals, readID++);
+						reads.add(r);
+
+						readsProcessedT++;
+						basesProcessedT+=r.length();
+					}
+				}
+				putReads(reads);
+				list=takeBytes();
+			}
+			if(verbose){outstream.println("tid "+tid+" done making reads.");}
+
+			if(list!=null) {
+				assert(list.poison());
+				putBytes(list);
+			}
+			if(verbose){outstream.println("tid "+tid+" done poisoning bytes.");}
+		}
+		
+
+		
+		final void putBytes(ListNum<byte[][]> list){
+			if(verbose){
+				outstream.println("tid "+tid+" put blist "+list.id()+" size "+list.size()+" type "+list.type);
+			}
+			while(list!=null){
+				try{
+					inq.put(list);
+					list=null;
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+		}
+		
+		final ListNum<byte[][]> takeBytes(){
+			if(verbose){outstream.println("tid "+tid+" taking bytes");}
+			ListNum<byte[][]> list=null;
+			while(list==null){
+				try{
+					list=inq.take();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+			if(verbose){outstream.println("tid "+tid+" took bytes "+list.id()+" type "+list.type);}
+			return list;
+		}
+		
+		final void putReads(ListNum<Read> list){
+			if(verbose){
+				outstream.println("tid "+tid+" putting rlist "+list.id()+" size "+list.size()+" type "+list.type);
+			}
+			outq.add(list);
+			if(verbose){outstream.println("tid "+tid+" done putting rlist");}
+		}
+		
+		/** Parse FASTQ 4-line record into Read object */
+		private Read parseFastqRecord(byte[] header, byte[] bases, byte[] quals, long id){
+			// Extract read name (skip '@')
+			String name=new String(header, 1, header.length-1);
+			
+			Read r=new Read(bases, quals, name, id);
+			r.setPairnum(pairnum);
+			if(!r.validated()){r.validate(true);}
+			return r;
+		}
+
+		/** Number of reads processed by this thread */
+		protected long readsProcessedT=0;
+		/** Number of bases processed by this thread */
+		protected long basesProcessedT=0;
+		/** True only if this thread has completed successfully */
+		boolean success=false;
+		/** Thread ID */
+		final int tid;
+		
+		ArrayList<ProcessThread> alpt;
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Primary input file path */
+	public final String fname;
+	
+	/** Primary input file */
+	final FileFormat ffin;
+	
+	final ArrayBlockingQueue<ListNum<byte[][]>> inq;
+	final JobQueue<ListNum<Read>> outq;
+	
+	final int threads;
+	final int pairnum;
+	final boolean interleaved;
+	
+	/** Number of reads processed */
+	protected long readsProcessed=0;
+	/** Number of bases processed */
+	protected long basesProcessed=0;
+	
+	/** Quit after processing this many input reads */
+	final long maxReads;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	public static int LIST_SIZE=200;
+	public static int DEFAULT_THREADS=2;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Common Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Print status messages to this output stream */
+	protected PrintStream outstream=System.err;
+	/** Print verbose messages */
+	public static final boolean verbose=false;
+	/** True if an error was encountered */
+	public boolean errorState=false;
+	
+}

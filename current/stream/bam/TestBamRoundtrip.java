@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import stream.BamLineStreamer;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamReadInputStream;
 import structures.ListNum;
 
@@ -16,7 +17,7 @@ public class TestBamRoundtrip {
 		System.err.println("=== Phase 1: Convert SAM to BAM ===");
 
 		// Read SAM
-		SamStreamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
+		Streamer sls = SamStreamer.makeStreamer(samFile, 4, true, false, -1, false);
 		sls.start();
 
 		// Wait for header to be populated in SHARED_HEADER

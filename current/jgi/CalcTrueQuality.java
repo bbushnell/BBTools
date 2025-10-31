@@ -28,6 +28,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import structures.ListNum;
 import tracker.ReadStats;
 import var2.AnalyzeVars;
@@ -336,7 +337,7 @@ public class CalcTrueQuality {
 		
 		assert(gbmatrices.size()==pass || fnum>0) : gbmatrices.size()+", "+pass;
 		
-		final SamStreamer ss;
+		final Streamer ss;
 		final ConcurrentReadInputStream cris;
 		{
 			FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
@@ -999,7 +1000,7 @@ public class CalcTrueQuality {
 	
 	private class Worker extends Thread {
 		
-		Worker(ConcurrentReadInputStream cris_, SamStreamer ss_, int pass_){
+		Worker(ConcurrentReadInputStream cris_, Streamer ss_, int pass_){
 			cris=cris_;
 			ss=ss_;
 			pass=pass_;
@@ -1328,7 +1329,7 @@ public class CalcTrueQuality {
 		long varsFixedT=0, varsTotalT=0;
 		
 		private final ConcurrentReadInputStream cris;
-		private final SamStreamer ss;
+		private final Streamer ss;
 		private final int pass;
 		GBMatrixSet matrixT;
 		

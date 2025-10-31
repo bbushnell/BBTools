@@ -160,13 +160,6 @@ public final class ListNum<K extends Serializable> implements Serializable, Iter
 	/** Returns true if deterministic random number generation is enabled. */
 	public static boolean deterministicRandom(){return GEN_RANDOM_NUMBERS;}
 	
-	/** Enable deterministic random number generation for reproducible subsampling */
-	private static boolean GEN_RANDOM_NUMBERS=false;
-	/** Random number generator for deterministic mode */
-	private static Random randy;
-	/** Seed for deterministic random number generation */
-	private static long seed=0;
-	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -177,7 +170,20 @@ public final class ListNum<K extends Serializable> implements Serializable, Iter
 	public final long id;
 	/** Job type. */
 	public final int type;
-
+	
+	public long firstRecordNum=-1;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------            Statics           ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Enable deterministic random number generation for reproducible subsampling */
+	private static boolean GEN_RANDOM_NUMBERS=false;
+	/** Random number generator for deterministic mode */
+	private static Random randy;
+	/** Seed for deterministic random number generation */
+	private static long seed=0;
+	
 	/** Prototype, for reflection. */
 	public static final int PROTO=-1;
 	/** Normal job. */

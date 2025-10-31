@@ -32,7 +32,7 @@ public abstract class SamWriter {
 
 		//Create input streamer
 		FileFormat ffin=FileFormat.testInput(in, FileFormat.SAM, null, true, false);
-		SamStreamer ss=SamStreamer.makeStreamer(ffin, DEFAULT_THREADS, true, true, -1, false);
+		Streamer ss=SamStreamer.makeStreamer(ffin, DEFAULT_THREADS, true, true, -1, false);
 		t.stopAndStart("Made streamer");
 
 		//Start streamer
