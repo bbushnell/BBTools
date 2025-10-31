@@ -159,7 +159,7 @@ public class FastqWriter implements Writer {
 	/*--------------------------------------------------------------*/
 	
 	/** Input job for OQS */
-	private static class FastqWriterInputJob implements HasID {
+	private static class FastqWriterInputJob implements HasID {//TODO: This class should just be a ln
 		FastqWriterInputJob(ListNum<Read> reads_, long id_, int type_){
 			reads=reads_;
 			id=id_;

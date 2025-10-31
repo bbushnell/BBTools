@@ -205,17 +205,18 @@ public abstract class SamWriter implements Writer {
 				!sl2.qname.equals(sl1.qname))){
 				sl2.qname=sl1.qname;
 			}
-
+			assert(sl1!=null) : r1;
 			addSamLine(r1, sl1, samLines);
 			addSamLine(r2, sl2, samLines);
 		}
-
+		//Always succeeds.
+//		System.err.println("Added "+samLines.size()+" lines from "+reads.size()+" reads.");
 		return samLines;
 	}
 
 	private static void addSamLine(Read r, SamLine primary, ArrayList<SamLine> samLines) {
 		if(r==null || primary==null) {return;}
-
+		
 		assert(!ReadStreamWriter.ASSERT_CIGAR || !r.mapped() || primary.cigar!=null) : r;
 		samLines.add(primary);
 
