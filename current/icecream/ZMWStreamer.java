@@ -10,6 +10,7 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamStreamer;
 import structures.ListNum;
 
@@ -39,7 +40,7 @@ public class ZMWStreamer implements Runnable {
 		assert((cris==null) != (ss==null)) : "Exactly one of cris or ss should exist.";
 	}
 
-	public ZMWStreamer(ConcurrentReadInputStream cris_, SamStreamer ss_, int queuelen_){
+	public ZMWStreamer(ConcurrentReadInputStream cris_, Streamer ss_, int queuelen_){
 		cris=cris_;
 		ss=ss_;
 		queuelen=Tools.mid(4, queuelen_, 64);
@@ -76,8 +77,8 @@ public class ZMWStreamer implements Runnable {
 		return cris;
 	}
 	
-	private SamStreamer makeStreamer(FileFormat ff){
-		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, ordered, maxReads, true);
+	private Streamer makeStreamer(FileFormat ff){
+		Streamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, ordered, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){System.err.println("Started sam streamer");}
 		return ss;
@@ -235,7 +236,7 @@ public class ZMWStreamer implements Runnable {
 	}
 	
 	private final ConcurrentReadInputStream cris;
-	private final SamStreamer ss;
+	private final Streamer ss;
 	private final int queuelen;
 	public long ZMWs=0;
 	private final long maxReads;

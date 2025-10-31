@@ -63,7 +63,7 @@ public final class ByteFile2 extends ByteFile {
 				if(s==null){break;}
 
 				lines++;
-				bytes+=s.length;
+				bytes+=s.length+1;
 				System.out.println(new String(s));
 			}
 			
@@ -75,7 +75,7 @@ public final class ByteFile2 extends ByteFile {
 				byte[] s=tf.nextLine();
 				if(s==null){break;}
 				lines++;
-				bytes+=s.length;
+				bytes+=s.length+1;
 			}
 		}
 		t.stop();

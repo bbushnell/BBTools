@@ -190,7 +190,7 @@ public class SamStreamerWrapper {
 		if(verbose){outstream.println("Finished.");}
 	}
 
-	void processSW(SamStreamer ss, boolean useSharedHeader) {
+	void processSW(Streamer ss, boolean useSharedHeader) {
 
 		final SamWriter sw;
 		if(ffout1!=null){

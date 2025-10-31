@@ -13,6 +13,7 @@ import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import structures.IntHashMap;
 import structures.ListNum;
 import template.Accumulator;
@@ -191,7 +192,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 //			System.err.println("SamLoader.LoadThread "+tid+" terminated successfully.");
 		}
 		
-		void processSam_Thread(SamStreamer ss, AtomicLongArray depthArray) {
+		void processSam_Thread(Streamer ss, AtomicLongArray depthArray) {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 
@@ -309,6 +310,6 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	
 	public boolean errorState=false;
 	public static int MAX_SAM_LOADER_THREADS=1024;
-	public static int MAX_SAM_LOADER_THREADS_PER_FILE=2;
+	public static int MAX_SAM_LOADER_THREADS_PER_FILE=3;
 	
 }

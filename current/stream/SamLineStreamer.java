@@ -42,6 +42,18 @@ public class SamLineStreamer extends SamStreamer {
 	public boolean hasMore() {return outq.hasMore();}
 	
 	@Override
+	public boolean paired(){return false;}
+
+	@Override
+	public int pairnum(){return 0;}
+	
+	@Override
+	public long readsProcessed() {return readsProcessed;}
+	
+	@Override
+	public long basesProcessed() {return basesProcessed;}
+	
+	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=outq.take();
 		if(list==null || list.last()) {

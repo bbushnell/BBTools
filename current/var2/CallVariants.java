@@ -28,6 +28,7 @@ import stream.SamLine;
 import stream.SamStreamer;
 import stream.SamStreamer;
 import stream.SamStreamerMF;
+import stream.Streamer;
 import structures.ListNum;
 
 /**
@@ -607,7 +608,7 @@ public class CallVariants {
 		for(FileFormat ff : ffin){
 
 			/** Optional SamStreamer for high throughput */
-			final SamStreamer ss;
+			final Streamer ss;
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
 			
@@ -926,7 +927,7 @@ public class CallVariants {
 		assert(ff.samOrBam());
 
 		/** Optional SamStreamer for high throughput */
-		final SamStreamer ss;
+		final Streamer ss;
 		/** Shared input stream */
 		final ConcurrentReadInputStream cris;
 		
@@ -998,7 +999,7 @@ public class CallVariants {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss, final SamStreamerMF ssmf, final KCountArray7MTA kca){
+	private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss, final SamStreamerMF ssmf, final KCountArray7MTA kca){
 		
 		//Do anything necessary prior to processing
 		
@@ -1082,7 +1083,7 @@ public class CallVariants {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final SamStreamerMF ssmf_,
+		ProcessThread(final ConcurrentReadInputStream cris_, final Streamer ss_, final SamStreamerMF ssmf_,
 				final int tid_, final KCountArray7MTA kca_, final boolean prefilterOnly_, final CellNet net0_){
 			cris=cris_;
 			ss=ss_;
@@ -1372,7 +1373,7 @@ public class CallVariants {
 		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
 		/** Optional SamStreamer for high throughput */
-		private final SamStreamer ss;
+		private final Streamer ss;
 		/** Optional SamStreamerMF for very high throughput */
 		private final SamStreamerMF ssmf;
 		/** For realigning reads */

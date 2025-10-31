@@ -50,23 +50,6 @@ public final class ByteFile1 extends ByteFile {
 		tf.close();
 		tf.reset();
 		tf.close();
-		
-//		tf.reset();
-//		byte[] b=tf.nextLine();
-//		System.err.println(new String(b));
-//		tf.pushBack(b);
-//		b=tf.nextLine();
-//		System.err.println(new String(b));
-//		tf.bstart+=2;
-//		tf.pushBack(b);
-//		b=tf.nextLine();
-//		System.err.println(new String(b));
-//		b=tf.nextLine();
-//		System.err.println(new String(b));
-//		b=tf.nextLine();
-//		System.err.println(new String(b));
-//		b=tf.nextLine();
-//		System.err.println(new String(b));
 	}
 	
 	private static void speedtest(ByteFile1 tf, long first, long last, boolean reprint){

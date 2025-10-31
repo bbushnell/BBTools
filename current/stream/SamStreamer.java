@@ -19,7 +19,7 @@ import structures.ListNum;
  * @date November 4, 2016
  *
  */
-public abstract class SamStreamer {
+public abstract class SamStreamer implements Streamer {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -87,6 +87,7 @@ public abstract class SamStreamer {
 	
 	
 	/** Create read streams and process all data */
+	@Override
 	public final void start(){
 		if(verbose){outstream.println("SamStreamer.start() called.");}
 		
@@ -100,8 +101,15 @@ public abstract class SamStreamer {
 		if(verbose){outstream.println("Finished; closing streams.");}
 	}
 
+	@Override
+	public void close(){
+		//TODO: Unimplemented
+	}
+
+	@Override
 	public final ListNum<Read> nextList(){return nextReads();}
 	public abstract ListNum<Read> nextReads();
+	@Override
 	public abstract ListNum<SamLine> nextLines();
 	
 	/*--------------------------------------------------------------*/
@@ -200,6 +208,7 @@ public abstract class SamStreamer {
 	/** Spawn process threads */
 	abstract void spawnThreads();
 	
+	@Override
 	public abstract boolean hasMore();
 	
 	/*--------------------------------------------------------------*/
@@ -215,10 +224,6 @@ public abstract class SamStreamer {
 	protected long readsProcessed=0;
 	/** Number of bases processed */
 	protected long basesProcessed=0;
-
-//	public void setMaxReads(long x){
-//		maxReads=(x<1 ? Long.MAX_VALUE : x);
-//	}
 	
 	/** Quit after processing this many input reads */
 	final long maxReads;
@@ -243,10 +248,7 @@ public abstract class SamStreamer {
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-
-//	static final ListNum<Read> POISON_READS=new ListNum<Read>(null, Long.MAX_VALUE);
-//	static final ListNum<SamLine> POISON_LINES=new ListNum<SamLine>(null, Long.MAX_VALUE);
-//	static final ListNum<byte[]> POISON_BYTES=new ListNum<byte[]>(null, Long.MAX_VALUE);
+	
 	public static int LIST_SIZE=200;
 	public static int DEFAULT_THREADS=6;
 	

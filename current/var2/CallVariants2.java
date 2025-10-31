@@ -25,6 +25,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
 import stream.SamStreamer;
+import stream.Streamer;
 import stream.SamStreamer;
 import structures.ListNum;
 
@@ -798,7 +799,7 @@ public class CallVariants2 {
 			}
 
 			/** Optional SamStreamer for high throughput */
-			final SamStreamer ss;
+			final Streamer ss;
 			//Create a read input stream
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
@@ -880,7 +881,7 @@ public class CallVariants2 {
 			}
 			
 			/** Optional SamStreamer for high throughput */
-			final SamStreamer ss;
+			final Streamer ss;
 			//Create a read input stream
 			/** Shared input stream */
 			final ConcurrentReadInputStream cris;
@@ -932,7 +933,7 @@ public class CallVariants2 {
 		 * @param forced Forced variants to include regardless of quality filters
 		 * @param calcCoverage Whether threads should calculate scaffold coverage statistics
 		 */
-		private void spawnThreads(final ConcurrentReadInputStream cris, final SamStreamer ss,
+		private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss,
 				final KCountArray7MTA kca, final VarMap forced, final boolean calcCoverage){
 			
 			//Do anything necessary prior to processing
@@ -1119,7 +1120,7 @@ public class CallVariants2 {
 			 * @param prefilterOnly_ Whether to run in prefilter-only mode
 			 * @param calcCoverage_ Whether to calculate scaffold coverage statistics
 			 */
-			ProcessThread(final ConcurrentReadInputStream cris_, final SamStreamer ss_, final int tid_,
+			ProcessThread(final ConcurrentReadInputStream cris_, final Streamer ss_, final int tid_,
 					final KCountArray7MTA kca_, final VarMap forced_, final boolean prefilterOnly_,
 					final boolean calcCoverage_){
 				cris=cris_;
@@ -1372,7 +1373,7 @@ public class CallVariants2 {
 			/** Shared input stream */
 			private final ConcurrentReadInputStream cris;
 			/** Optional SamStreamer for high throughput */
-			private final SamStreamer ss;
+			private final Streamer ss;
 			/** For realigning reads */
 			final Realigner realigner;
 			
