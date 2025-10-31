@@ -104,6 +104,11 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*--------------------------------------------------------------*/
 
 	/** Get next output job in order (blocks). */
+	public boolean hasMore(){
+		return outq.hasMore();
+	}
+
+	/** Get next output job in order (blocks). */
 	public O getOutput(){
 		return outq.take();
 	}

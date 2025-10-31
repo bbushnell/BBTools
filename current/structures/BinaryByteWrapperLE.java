@@ -6,7 +6,7 @@ package structures;
  * Optimized for sequential reading without bounds checking overhead.
  * 
  * @author Isla
- * @date June 3, 2025
+ * @date October 30, 2025
  */
 public class BinaryByteWrapperLE {
 	

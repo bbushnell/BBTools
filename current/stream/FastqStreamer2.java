@@ -2,6 +2,7 @@ package stream;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
@@ -9,7 +10,6 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ListNum;
-import template.ThreadWaiter;
 
 /**
  * Loads FASTQ files rapidly with multiple threads.
@@ -17,7 +17,7 @@ import template.ThreadWaiter;
  * @author Isla
  * @date October 30, 2025
  */
-public class FastqStreamer implements Streamer {
+public class FastqStreamer2 implements Streamer {
 	
 	public static void main(String[] args) {
 		Timer t=new Timer();
@@ -25,7 +25,7 @@ public class FastqStreamer implements Streamer {
 		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
 		if(args.length>2) {Shared.SIMD=true;}
 		
-		FastqStreamer fs=new FastqStreamer(fname, DEFAULT_THREADS, 1, -1);
+		FastqStreamer2 fs=new FastqStreamer2(fname, DEFAULT_THREADS, 1, -1);
 		fs.start();
 		long reads=0, bases=0;
 		for(ListNum<Read> ln=fs.nextList(); ln!=null; ln=fs.nextList()) {
@@ -43,12 +43,12 @@ public class FastqStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	
 	/** Constructor. */
-	public FastqStreamer(String fname_, int threads_, int pairnum_, long maxReads_){
+	public FastqStreamer2(String fname_, int threads_, int pairnum_, long maxReads_){
 		this(FileFormat.testInput(fname_, FileFormat.FASTQ, null, true, false), threads_, pairnum_, maxReads_);
 	}
 	
 	/** Constructor. */
-	public FastqStreamer(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
+	public FastqStreamer2(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
 		threads=Tools.mid(1, threads_, Shared.threads());
@@ -59,13 +59,8 @@ public class FastqStreamer implements Streamer {
 		maxReads=(maxReads_<1 ? Long.MAX_VALUE : maxReads_);
 		
 		int queueSize=2*threads+1;
-		
-		// Create OQS with prototypes for LAST/POISON generation
-		ListNum<byte[][]> inputPrototype=new ListNum<byte[][]>(null, 0, ListNum.PROTO);
-		ListNum<Read> outputPrototype=new ListNum<Read>(null, 0, ListNum.PROTO);
-		oqs=new OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>>(
-			queueSize, true, inputPrototype, outputPrototype);
-		
+		inq=new ArrayBlockingQueue<ListNum<byte[][]>>(queueSize);
+		outq=new JobQueue<ListNum<Read>>(queueSize, true, true, 0);
 		if(verbose){outstream.println("Made FastqStreamer-"+threads);}
 	}
 	
@@ -93,9 +88,7 @@ public class FastqStreamer implements Streamer {
 	}
 	
 	@Override
-	public boolean hasMore(){
-		return oqs.hasMore();
-	}
+	public boolean hasMore(){return outq.hasMore();}
 	
 	@Override
 	public boolean paired(){return interleaved;}
@@ -111,15 +104,14 @@ public class FastqStreamer implements Streamer {
 	
 	@Override
 	public ListNum<Read> nextList(){
-		ListNum<Read> list=oqs.getOutput();
+		ListNum<Read> list=outq.take();
 		if(verbose){
 			if(list==null) {outstream.println("Consumer got null.");}
 			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
 		}
 		if(list==null || list.last()){
-			if(list!=null && list.last()){
-				oqs.setFinished();
-			}
+			assert(list==null || list.isEmpty());
+			assert(!outq.hasMore());
 			return null;
 		}
 		return list;
@@ -184,16 +176,24 @@ public class FastqStreamer implements Streamer {
 			processBytes0();
 			if(verbose){outstream.println("tid "+tid+" done with processBytes0.");}
 			
-			// Signal completion via OQS
-			oqs.poison();
-			if(verbose){outstream.println("tid "+tid+" done poisoning.");}
+			success=true;
 			
 			//Wait for completion of all threads
 			boolean allSuccess=true;
-			ThreadWaiter.waitForThreadsToFinish(alpt);
 			for(ProcessThread pt : alpt){
+				
 				//Wait until this thread has terminated
 				if(pt!=this){
+					if(verbose){outstream.println("Waiting for thread "+pt.tid);}
+					while(pt.getState()!=Thread.State.TERMINATED){
+						try{
+							pt.join(); //Attempt a join operation
+						}catch(InterruptedException e){
+							e.printStackTrace();
+						}
+					}
+					if(verbose){outstream.println("tid "+tid+" joined tid "+pt.tid);}
+
 					//Accumulate per-thread statistics
 					readsProcessed+=pt.readsProcessedT;
 					basesProcessed+=pt.basesProcessedT;
@@ -202,6 +202,10 @@ public class FastqStreamer implements Streamer {
 			}
 			if(verbose){outstream.println("tid "+tid+" noted all process threads finished.");}
 			
+			ListNum<byte[][]> list=takeBytes();//Poison
+			putReads(new ListNum<Read>(null, list.id(), false, true));//Last
+			if(verbose){outstream.println("tid "+tid+" done poisoning reads.");}
+			
 			//Track whether any threads failed
 			if(!allSuccess){errorState=true;}
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
@@ -209,13 +213,13 @@ public class FastqStreamer implements Streamer {
 		
 		/** 
 		 * Thread 0 reads the actual file and produces lists of byte[][] (4 lines per read).
+		 * @param tid Thread number (should be 0).
 		 */
 		private void processBytes0(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
 
 			ByteFile.FORCE_MODE_BF2=true;
 			ByteFile bf=ByteFile.makeByteFile(ffin);
-			
 			long listNumber=0;
 			long reads=0;
 			
@@ -241,18 +245,19 @@ public class FastqStreamer implements Streamer {
 				ln.add(record);
 				
 				if(ln.size()>=limit){
-					oqs.addInput(ln);
+					putBytes(ln);
 					ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(limit), listNumber++);
 					ln.firstRecordNum=reads;
 				}
 			}
 			
 			if(verbose){outstream.println("tid "+tid+" ran out of input.");}
-			if(ln.size()>0){
-				oqs.addInput(ln);
-			}
+			if(ln.size()>0){putBytes(ln);}else {listNumber--;}
 			ln=null;
 			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
+			putBytes(new ListNum<byte[][]>(null, listNumber++, ListNum.LAST));
+			putBytes(new ListNum<byte[][]>(null, listNumber++, ListNum.POISON));
+			if(verbose){outstream.println("tid "+tid+" done adding last.");}
 			bf.close();
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
@@ -261,34 +266,78 @@ public class FastqStreamer implements Streamer {
 		void makeReads(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
-			ListNum<byte[][]> list=oqs.getInput();
+			ListNum<byte[][]> list=takeBytes();
 			while(list!=null && !list.poison()){
 				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
-				
-				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
-				long readID=list.firstRecordNum;
+				final ListNum<Read> reads;
+				if(list.last()) {
+					reads=new ListNum<Read>(null, list.id(), ListNum.LAST);
+				}else {
+					reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
+					long readID=list.firstRecordNum;
 
-				for(byte[][] record : list){
-//					byte[] header=record[0];
-//					byte[] bases=record[1];
-//					byte[] quals=record[3];
-//					// Parse FASTQ record into Read
-//					Read r=parseFastqRecord(header, bases, quals, readID++);
-					
-					//TODO:  Time to make a fast version
-					Read r=FASTQ.quadToRead_slow(record, false, null, readID, 0);
-					reads.add(r);
+					for(byte[][] record : list){
+						byte[] header=record[0];
+						byte[] bases=record[1];
+						byte[] plus=record[2];
+						byte[] quals=record[3];
 
-					readsProcessedT++;
-					basesProcessedT+=r.length();
+						// Parse FASTQ record into Read
+						Read r=parseFastqRecord(header, bases, quals, readID++);
+						reads.add(r);
+
+						readsProcessedT++;
+						basesProcessedT+=r.length();
+					}
 				}
-				
-				oqs.addOutput(reads);
-				list=oqs.getInput();
+				putReads(reads);
+				list=takeBytes();
 			}
 			if(verbose){outstream.println("tid "+tid+" done making reads.");}
-			//Re-inject poison for other workers
-			if(list!=null) {oqs.addInput(list);}
+
+			if(list!=null) {
+				assert(list.poison());
+				putBytes(list);
+			}
+			if(verbose){outstream.println("tid "+tid+" done poisoning bytes.");}
+		}
+		
+
+		
+		final void putBytes(ListNum<byte[][]> list){
+			if(verbose){
+				outstream.println("tid "+tid+" put blist "+list.id()+" size "+list.size()+" type "+list.type);
+			}
+			while(list!=null){
+				try{
+					inq.put(list);
+					list=null;
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+		}
+		
+		final ListNum<byte[][]> takeBytes(){
+			if(verbose){outstream.println("tid "+tid+" taking bytes");}
+			ListNum<byte[][]> list=null;
+			while(list==null){
+				try{
+					list=inq.take();
+				}catch(InterruptedException e){
+					e.printStackTrace();
+				}
+			}
+			if(verbose){outstream.println("tid "+tid+" took bytes "+list.id()+" type "+list.type);}
+			return list;
+		}
+		
+		final void putReads(ListNum<Read> list){
+			if(verbose){
+				outstream.println("tid "+tid+" putting rlist "+list.id()+" size "+list.size()+" type "+list.type);
+			}
+			outq.add(list);
+			if(verbose){outstream.println("tid "+tid+" done putting rlist");}
 		}
 		
 		/** Parse FASTQ 4-line record into Read object */
@@ -324,7 +373,8 @@ public class FastqStreamer implements Streamer {
 	/** Primary input file */
 	final FileFormat ffin;
 	
-	final OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>> oqs;
+	final ArrayBlockingQueue<ListNum<byte[][]>> inq;
+	final JobQueue<ListNum<Read>> outq;
 	
 	final int threads;
 	final int pairnum;
