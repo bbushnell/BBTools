@@ -27,10 +27,11 @@ public class FastqStreamer implements Streamer {
 		if(args.length>2) {Shared.SIMD=true;}
 		if(args.length>3) {Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
 		
-		FastqStreamer fs=new FastqStreamer(fname, DEFAULT_THREADS, 1, -1);
-		fs.start();
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
+		Streamer st=StreamerFactory.makeStreamer(ff, 0, true, -1, true, true);
+		st.start();
 		long reads=0, bases=0;
-		for(ListNum<Read> ln=fs.nextList(); ln!=null; ln=fs.nextList()) {
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
 			for(Read r : ln) {
 				reads+=r.pairCount();
 				bases+=r.pairLength();
@@ -321,24 +322,12 @@ public class FastqStreamer implements Streamer {
 			Read r=FASTQ.quadToReadVec(quad, id, 0, fname);
 			r.setPairnum(pairnum);
 			
-//			//TODO: Vectorize
 			if(!r.validated()){r.validate(true);}
 
 			readsProcessedT++;
 			basesProcessedT+=r.length();
 			return r;
 		}
-		
-//		/** Parse FASTQ 4-line record into Read object */
-//		private Read parseFastqRecord(byte[] header, byte[] bases, byte[] quals, long id){
-//			// Extract read name (skip '@')
-//			String name=new String(header, 1, header.length-1);
-//			
-//			Read r=new Read(bases, quals, name, id);
-//			r.setPairnum(pairnum);
-//			if(!r.validated()){r.validate(true);}
-//			return r;
-//		}
 
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;

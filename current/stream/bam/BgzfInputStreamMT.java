@@ -10,8 +10,6 @@ import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 import java.util.zip.GZIPInputStream;
-import java.util.concurrent.TimeUnit;
-
 import stream.JobQueue;
 
 /**

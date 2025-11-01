@@ -19,7 +19,7 @@ import template.ThreadWaiter;
  * OrderedQueueSystem ensures output blocks are written in order.
  * 
  * @author Isla
- * @date June 3, 2025
+ * @date October 30, 2025
  */
 public class FastqWriter implements Writer {
 	
@@ -27,15 +27,24 @@ public class FastqWriter implements Writer {
 		Timer t=new Timer();
 		String in=args[0];
 		String out=(args.length<2 || args[1].equalsIgnoreCase("null") ? null : args[1]);
-		if(args.length>2) {DEFAULT_THREADS=Integer.parseInt(args[2]);}
+		int threads=DEFAULT_THREADS;
+		if(args.length>2) {threads=Integer.parseInt(args[2]);}
 		if(args.length>3) {Shared.SIMD=true;}
 
-		FastqStreamer fs=new FastqStreamer(in, FastqStreamer.DEFAULT_THREADS, 1, -1);
-		FastqWriter fw=(out==null ? null : new FastqWriter(out, DEFAULT_THREADS, true, true, true));
-		fs.start();
+		FileFormat ffin=FileFormat.testInput(in, FileFormat.FASTQ, null, true, true);
+		FileFormat ffout=FileFormat.testOutput(out, FileFormat.FASTQ, null, true, true, false, true);
+		
+		SamLine.SET_FROM_OK=ffin.samOrBam();
+		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=(ffout!=null && ffout.samOrBam() && ffin.samOrBam());
+		
+		//TODO: Hangs on fastq input, sam output.  Probably waiting for header.
+		//Look at how reformat.sh handles sam headers.
+		Streamer st=StreamerFactory.makeStreamer(ffin, 0, true, -1, true, true);
+		Writer fw=WriterFactory.makeWriter(ffout, true, true, threads, null, ffin.samOrBam());
+		st.start();
 		if(fw!=null) {fw.start();}
 		long reads=0, bases=0;
-		for(ListNum<Read> ln=fs.nextList(); ln!=null; ln=fs.nextList()) {
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
 			for(Read r : ln) {
 				reads+=r.pairCount();
 				bases+=r.pairLength();
