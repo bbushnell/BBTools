@@ -16,6 +16,7 @@ import fileIO.TextFile;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
+import shared.Vector;
 import structures.ByteBuilder;
 
 
@@ -481,12 +482,12 @@ public class FASTQ {
 		return stop<=start ? null : start==0 && stop==s.length() ? s : s.substring(start, stop);
 	}
 	
-	public static final String makeId(byte[] s){
+	public static final String makeId(byte[] s){//Seems fast enough
 		if(s==null || s.length<1){return null;}
 		byte c=s[0];
 		int start=0, stop=s.length;
 		if(c=='@' || c=='>'){start=1;}
-		if(Shared.TRIM_READ_COMMENTS){
+		if(Shared.TRIM_READ_COMMENTS){//Could vectorize, unlikely to matter
 			for(int i=start; i<stop; i++){
 				if(Character.isWhitespace(s[i])){
 					stop=i;
@@ -729,6 +730,142 @@ public class FASTQ {
 		return quad;
 	}
 	
+	//Fastq only, not scarf
+	public static Read quadToReadVec(final byte[][] quad, long numericID, final int flag, String fname) {
+		final byte[] header=quad[0], bases=quad[1], plus=quad[2], quals=quad[3];
+		
+		assert(header.length>0 && header[0]==(byte)'@') : 
+			"\nError in "+fname+", record "+numericID+", with these 4 lines (missing header symbol):\n"+
+			new String(quad[0])+"\n"+new String(quad[1])+"\n"+new String(quad[2])+"\n"+new String(quad[3])+"\n";
+		assert(plus==null || (plus.length==1 && plus[0]==(byte)'+')) :
+			"\nError in "+fname+", record "+numericID+", with these 4 lines: (missing plus)\n"+
+			new String(quad[0])+"\n"+new String(quad[1])+"\n"+new String(quad[2])+"\n"+new String(quad[3])+"\n";
+		assert(bases.length==quals.length) :
+			"\nError in "+fname+", record "+numericID+", with these 4 lines (base-qual length mismatch):\n"+
+			new String(quad[0])+"\n"+new String(quad[1])+"\n"+new String(quad[2])+"\n"+new String(quad[3])+"\n";
+		
+		final String name=makeId(quad[0]);
+		convertQualsVec(quals, bases, name, numericID);
+		
+		if(PARSE_CUSTOM) {
+			Read r=parseCustom(bases, quals, header, name, numericID);
+			assert(r!=null);
+			return r;
+		}
+		try {
+			return new Read(bases, quals, name, numericID, flag);
+		} catch (OutOfMemoryError e) {
+			KillSwitch.memKill(e);
+			return null;//Unreachable
+		}
+	}
+	
+	private static void convertQualsVec(final byte[] quals, final byte[] bases,
+			final String name, final long numericID) {
+		assert(quals!=null);
+		if(numericID<8 && DETECT_QUALITY) {detectQuals(quals, bases, name, numericID);}
+		Vector.applyQualOffset(quals, bases, -ASCII_OFFSET);
+	}
+	
+	private static int detectQuals(final byte[] quals, final byte[] bases,
+			final String name, final long numericID) {
+		assert(quals!=null);
+		
+		for(int i=0; i<quals.length; i++){
+			final int q=(quals[i]-ASCII_OFFSET); //Convert from ASCII33 to native.
+			if(DETECT_QUALITY && ASCII_OFFSET==33 && (q>QUAL_THRESH /*|| (bases[i]=='N' && q>20)*/)){
+				if(warnQualityChange){
+					if(numericID<1){
+						System.err.println("Changed from ASCII-33 to ASCII-64 on input "+((char)q)+": "+q+" -> "+(q-31));
+//						assert(false) : FASTQ.DETECT_QUALITY+", "+FASTQ.IGNORE_BAD_QUALITY+", "+FASTQ.ASCII_OFFSET;
+					}else{
+						warnQualityChange=false;
+						System.err.println("Warning! Changed from ASCII-33 to ASCII-64 on input "+((char)q)+": "+q+" -> "+(q-31));
+						System.err.println("Up to "+numericID+" prior reads may have been generated with incorrect qualities.");
+						System.err.println("If this is a problem you may wish to re-run with the flag 'qin=33' or 'qin=64'.");
+						errorState=true;
+					}
+				}
+				ASCII_OFFSET=64;
+			}
+			if(q<0){
+				
+				if(IGNORE_BAD_QUALITY || q>=-5){
+					//Do nothing
+				}else if(SET_QIN){
+					if(!negativeFive){
+						System.err.println("\n***WARNING***: The ASCII quality encoding offset ("+ASCII_OFFSET+") may not be set correctly."
+								+ "\nProblematic read number "+numericID+": "+name+"\n");
+						errorState=true;
+						negativeFive=true;
+					}
+				}else{
+					if(!negativeFive){
+						{
+							for(int j=0; j<quals.length; j++){quals[j]=Tools.max(quals[j], ASCII_OFFSET);}
+							System.err.println("\nThe ASCII quality encoding offset ("+ASCII_OFFSET+") is not set correctly, or the reads are corrupt; quality value below -5.\n" +
+									"Please re-run with the flag 'qin=33', 'ignorebadquality', or '-da'.\nProblematic read number "+numericID+":\n" +
+
+						"\n"+name+"\n"+new String(bases)+"\n"+new String(quals)+"\n");
+							System.err.println("Offset="+ASCII_OFFSET);
+						}
+					}
+					
+					if(EA && !SET_QIN){KillSwitch.kill();}
+					errorState=true;
+					negativeFive=true;
+				}
+			}
+		}
+		return ASCII_OFFSET;
+	}
+	
+	private static Read parseCustom(byte[] bases, byte[] quals, byte[] header, String id, long numericID) {
+		Read r=null;
+		assert(PARSE_CUSTOM);
+
+		if(PARSE_NEW){
+			CustomHeader h=new CustomHeader(id);
+			r=new Read(bases, quals, id, numericID, h.strand, h.bbchrom, h.bbstart, h.bbstop());
+			r.setSynthetic(true);
+			r.setInsert(h.insert);
+			r.makeOriginalSite();
+		}else{
+			if(header!=null && Tools.indexOf(header, (byte)'_')>0){
+				String temp=new String(header);
+				if(temp.endsWith(" /1") || temp.endsWith(" /2")){temp=temp.substring(0, temp.length()-3);}
+				String[] answer=temp.split("_");
+
+				if(answer.length>=5){
+					try {
+						int trueChrom=Gene.toChromosome(answer[1]);
+						byte trueStrand=Byte.parseByte(answer[2]);
+						int trueLoc=Integer.parseInt(answer[3]);
+						int trueStop=Integer.parseInt(answer[4]);
+						r=new Read(bases, quals, id, numericID, trueStrand, trueChrom, trueLoc, trueStop);
+						r.setSynthetic(true);
+					} catch (NumberFormatException e) {
+						PARSE_CUSTOM=false;
+						if(PARSE_CUSTOM_WARNING){
+							System.err.println("Turned off PARSE_CUSTOM because could not parse "+new String(header));
+						}
+					}
+				}else{
+					PARSE_CUSTOM=false;
+					if(PARSE_CUSTOM_WARNING){
+						System.err.println("Turned off PARSE_CUSTOM because answer="+Arrays.toString(answer));
+					}
+				}
+			}else{
+				PARSE_CUSTOM=false;
+				if(PARSE_CUSTOM_WARNING){
+					System.err.println("Turned off PARSE_CUSTOM because quad[0]="+new String(header)+", index="+Tools.indexOf(header, (byte)'_'));
+				}
+			}
+		}
+		return r;
+	}
+	
 	public static Read quadToRead_slow(final byte[][] quad, boolean scarf, ByteFile bf, long numericID, final int flag){
 		
 		if(verbose){
@@ -773,9 +910,7 @@ public class FASTQ {
 					}
 				}
 				ASCII_OFFSET=64;
-				for(int j=0; j<=i; j++){
-					quals[j]=(byte)(quals[j]-31);
-				}
+				for(int j=0; j<=i; j++) {quals[i]-=31;}
 			}
 			if(quals[i]<0){
 				

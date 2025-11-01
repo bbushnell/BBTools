@@ -860,7 +860,7 @@ public final class Tools {
 	public static boolean isLetterOrDigit(byte c) {return c<0 ? false : isDigit(c) || letterMap[c];}
 	public static boolean isUpperCase(byte c) {return c>='A' && c<='Z';}
 	public static boolean isLowerCase(byte c) {return c>='a' && c<='z';}
-	public static byte toUpperCase(byte c) {return c<'a' || c>'z' ? c : (byte)(c-32);}
+	public static byte toUpperCase(byte c) {return AminoAcid.toUpperCase[c];}
 	public static byte toLowerCase(byte c) {return c<'A' || c>'Z' ? c : (byte)(c+32);}
 	
 	public static boolean isDigitOrSign(char c) {return c>127 ? false : signOrDigitMap[c];}

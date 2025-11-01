@@ -113,14 +113,12 @@ public abstract class SamWriter implements Writer {
 		final boolean nativeBam=(ffout.bam() && ReadWrite.nativeBamOut());
 		assert(nativeBam==(getClass()==BamLineWriter.class));
 
-		int queueSize=1+2*threads;
-
 		//Create prototype jobs for OrderedQueueSystem
 		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
 		SamWriterOutputJob outputProto=new SamWriterOutputJob(-1, null, ListNum.PROTO);
 
 		oqs=new OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob>(
-			queueSize, ffout.ordered(), inputProto, outputProto);
+			threads, ffout.ordered(), inputProto, outputProto);
 		
 		if(nativeBam) {
 			outstream=ReadWrite.getBgzipStream(fname, false);

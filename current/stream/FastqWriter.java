@@ -26,25 +26,31 @@ public class FastqWriter implements Writer {
 	public static void main(String[] args) {
 		Timer t=new Timer();
 		String in=args[0];
-		String out=args[1];
+		String out=(args.length<2 || args[1].equalsIgnoreCase("null") ? null : args[1]);
 		if(args.length>2) {DEFAULT_THREADS=Integer.parseInt(args[2]);}
 		if(args.length>3) {Shared.SIMD=true;}
 
 		FastqStreamer fs=new FastqStreamer(in, FastqStreamer.DEFAULT_THREADS, 1, -1);
-		FastqWriter fw=new FastqWriter(out, DEFAULT_THREADS, true, true, true);
+		FastqWriter fw=(out==null ? null : new FastqWriter(out, DEFAULT_THREADS, true, true, true));
 		fs.start();
-		fw.start();
+		if(fw!=null) {fw.start();}
 		long reads=0, bases=0;
 		for(ListNum<Read> ln=fs.nextList(); ln!=null; ln=fs.nextList()) {
 			for(Read r : ln) {
 				reads+=r.pairCount();
 				bases+=r.pairLength();
 			}
-			fw.addReads(ln);
+			if(fw!=null) {fw.addReads(ln);}
 		}
-		boolean error=fw.poisonAndWait();
+		if(fw!=null) {
+			fw.poisonAndWait();
+			assert(reads==fw.readsWritten());
+			assert(bases==fw.basesWritten());
+			reads=fw.readsWritten();
+			bases=fw.basesWritten();
+		}
 		t.stop();
-		System.err.println(Tools.timeReadsBasesProcessed(t, fw.readsWritten, fw.basesWritten(), 8));
+		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -67,13 +73,11 @@ public class FastqWriter implements Writer {
 		
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
-		int queueSize=2*threads+1;
-		
 		// Create OQS
 		FastqWriterInputJob inputProto=new FastqWriterInputJob(null, 0, ListNum.PROTO);
 		FastqWriterOutputJob outputProto=new FastqWriterOutputJob(0, null, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<FastqWriterInputJob, FastqWriterOutputJob>(
-			queueSize, true, inputProto, outputProto);
+			threads, true, inputProto, outputProto);
 		
 		// Open output stream
 		outstream=ReadWrite.getOutputStream(fname, false, true, false);
@@ -337,7 +341,7 @@ public class FastqWriter implements Writer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int DEFAULT_THREADS=2;
+	public static int DEFAULT_THREADS=3;
 
 	public static final boolean verbose=false;
 	

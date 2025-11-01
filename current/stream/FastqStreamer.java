@@ -5,6 +5,7 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
+import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -24,6 +25,7 @@ public class FastqStreamer implements Streamer {
 		String fname=args[0];
 		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
 		if(args.length>2) {Shared.SIMD=true;}
+		if(args.length>3) {Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
 		
 		FastqStreamer fs=new FastqStreamer(fname, DEFAULT_THREADS, 1, -1);
 		fs.start();
@@ -58,13 +60,11 @@ public class FastqStreamer implements Streamer {
 		assert(pairnum==0 || !interleaved);
 		maxReads=(maxReads_<1 ? Long.MAX_VALUE : maxReads_);
 		
-		int queueSize=2*threads+1;
-		
 		// Create OQS with prototypes for LAST/POISON generation
 		ListNum<byte[][]> inputPrototype=new ListNum<byte[][]>(null, 0, ListNum.PROTO);
 		ListNum<Read> outputPrototype=new ListNum<Read>(null, 0, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>>(
-			queueSize, true, inputPrototype, outputPrototype);
+			threads, true, inputPrototype, outputPrototype);
 		
 		if(verbose){outstream.println("Made FastqStreamer-"+threads);}
 	}
@@ -172,7 +172,11 @@ public class FastqStreamer implements Streamer {
 			if(tid==0){
 				processBytes();
 			}else{
-				makeReads();
+				if(interleaved) {
+					makeReadsInterleaved();
+				}else {
+					makeReadsSingle();
+				}
 			}
 			
 			//Indicate successful exit status
@@ -258,7 +262,7 @@ public class FastqStreamer implements Streamer {
 		}
 		
 		/** Iterate through the reads */
-		void makeReads(){
+		void makeReadsSingle(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
 			ListNum<byte[][]> list=oqs.getInput();
@@ -268,19 +272,9 @@ public class FastqStreamer implements Streamer {
 				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
 				long readID=list.firstRecordNum;
 
-				for(byte[][] record : list){
-//					byte[] header=record[0];
-//					byte[] bases=record[1];
-//					byte[] quals=record[3];
-//					// Parse FASTQ record into Read
-//					Read r=parseFastqRecord(header, bases, quals, readID++);
-					
-					//TODO:  Time to make a fast version
-					Read r=FASTQ.quadToRead_slow(record, false, null, readID, 0);
+				for(byte[][] quad : list){
+					Read r=quadToRead(quad, pairnum, readID++);
 					reads.add(r);
-
-					readsProcessedT++;
-					basesProcessedT+=r.length();
 				}
 				
 				oqs.addOutput(reads);
@@ -291,16 +285,60 @@ public class FastqStreamer implements Streamer {
 			if(list!=null) {oqs.addInput(list);}
 		}
 		
-		/** Parse FASTQ 4-line record into Read object */
-		private Read parseFastqRecord(byte[] header, byte[] bases, byte[] quals, long id){
-			// Extract read name (skip '@')
-			String name=new String(header, 1, header.length-1);
+		/** Iterate through the reads */
+		void makeReadsInterleaved(){
+			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
-			Read r=new Read(bases, quals, name, id);
+			ListNum<byte[][]> list=oqs.getInput();
+			while(list!=null && !list.poison()){
+				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
+				
+				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>((list.size()+1)/2), list.id());
+				long readID=list.firstRecordNum/2;
+				ArrayList<byte[][]> quads=list.list;
+				assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
+
+				for(int i=0, lim=quads.size(); i<lim; i+=2){
+					byte[][] quad1=quads.get(i);
+					byte[][] quad2=quads.get(i+1);
+					Read r1=quadToRead(quad1, 0, readID);
+					Read r2=quadToRead(quad2, 0, readID++);
+					r1.mate=r2;
+					r2.mate=r1;
+					reads.add(r1);
+				}
+				
+				oqs.addOutput(reads);
+				list=oqs.getInput();
+			}
+			if(verbose){outstream.println("tid "+tid+" done making reads.");}
+			//Re-inject poison for other workers
+			if(list!=null) {oqs.addInput(list);}
+		}
+		
+		private Read quadToRead(byte[][] quad, int pairnum, long id) {
+//			Read r=FASTQ.quadToRead_slow(quad, false, null, readID, 0);
+			Read r=FASTQ.quadToReadVec(quad, id, 0, fname);
 			r.setPairnum(pairnum);
+			
+//			//TODO: Vectorize
 			if(!r.validated()){r.validate(true);}
+
+			readsProcessedT++;
+			basesProcessedT+=r.length();
 			return r;
 		}
+		
+//		/** Parse FASTQ 4-line record into Read object */
+//		private Read parseFastqRecord(byte[] header, byte[] bases, byte[] quals, long id){
+//			// Extract read name (skip '@')
+//			String name=new String(header, 1, header.length-1);
+//			
+//			Read r=new Read(bases, quals, name, id);
+//			r.setPairnum(pairnum);
+//			if(!r.validated()){r.validate(true);}
+//			return r;
+//		}
 
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
@@ -343,7 +381,7 @@ public class FastqStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	
 	public static int LIST_SIZE=200;
-	public static int DEFAULT_THREADS=2;
+	public static int DEFAULT_THREADS=3;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

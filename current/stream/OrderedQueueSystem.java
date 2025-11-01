@@ -23,9 +23,14 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public OrderedQueueSystem(int capacity, boolean ordered, I inputPrototype_, O outputPrototype_){
-		inq=new ArrayBlockingQueue<I>(capacity);
-		outq=new JobQueue<O>(capacity, ordered, true, 0);
+	public OrderedQueueSystem(int threads, boolean ordered, I inputPrototype_, O outputPrototype_){
+		this(threads+3, 2*threads+3, ordered, inputPrototype_, outputPrototype_);
+	}
+
+	public OrderedQueueSystem(int capacityIn, int capacityOut, 
+			boolean ordered, I inputPrototype_, O outputPrototype_){
+		inq=new ArrayBlockingQueue<I>(capacityIn);
+		outq=new JobQueue<O>(capacityOut, ordered, true, 0);
 		inputPrototype=inputPrototype_;
 		outputPrototype=outputPrototype_;
 	}
