@@ -40,7 +40,7 @@ public class BamLineStreamer extends SamStreamer {
 	public BamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, 
 		boolean ordered_, long maxReads_, boolean makeReads_){
 		super(ffin_, threads_, saveHeader_, ordered_, maxReads_, makeReads_);
-		int queueSize=2*threads+1;
+		final int queueSize=2*threads+3;
 		outq=new JobQueue<ListNum<SamLine>>(queueSize, ordered, true, 0);
 		if(verbose) {System.err.println("Made BamLineStreamer-"+threads);}
 	}

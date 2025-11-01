@@ -46,8 +46,8 @@ public class BgzfInputStreamMT extends InputStream {
 		this.in=in;
 		this.workerThreads=threads;
 
-		//Queue size: workers*2 allows some buffering without excessive memory
-		int queueSize=Math.max(workerThreads*2, 2);
+		//Queue size: 3+workers*2 allows some buffering without excessive memory
+		final int queueSize=3+workerThreads*2;
 		this.inputQueue=new ArrayBlockingQueue<>(queueSize);
 		this.jobQueue=new JobQueue<BgzfJob>(queueSize, true, true, 0);
 

@@ -1,5 +1,6 @@
 package shared;
 
+import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.FloatVector;
@@ -24,7 +25,7 @@ public final class SIMD{
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;// FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
 	private static final int FWIDTH=FSPECIES.length();
-//	private static final int boundMask=~(FWIDTH-1);
+	//	private static final int boundMask=~(FWIDTH-1);
 
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
@@ -86,33 +87,33 @@ public final class SIMD{
 
 		// Note: FSPECIES=FloatVector.SPECIES_256 and FWIDTH=8
 		final int limit=FSPECIES.loopBound(bSet.length);
-//		assert(FWIDTH==8);
-//		int elements=0;
+		//		assert(FWIDTH==8);
+		//		int elements=0;
 
 		FloatVector sum=FloatVector.zero(FSPECIES);
 		int i=0;
 		for(; i<limit; i+=FWIDTH){// SIMD loop
 			int idx=bSet[i];
-//			elements+=FWIDTH;
-//			assert(idx%8==0) : idx+", "+i+", "+Arrays.toString(bSet);
-//			assert(bSet[i+1]==idx+1);
-//			assert(bSet[i+7]==idx+7);
+			//			elements+=FWIDTH;
+			//			assert(idx%8==0) : idx+", "+i+", "+Arrays.toString(bSet);
+			//			assert(bSet[i+1]==idx+1);
+			//			assert(bSet[i+7]==idx+7);
 			FloatVector va=FloatVector.fromArray(FSPECIES, a, i);
 			FloatVector vb=FloatVector.fromArray(FSPECIES, b, idx);
 			sum=va.fma(vb, sum);
 		}
 		float c=sum.reduceLanes(VectorOperators.ADD);
 		for(; i<bSet.length; i++){// Residual scalar loop
-//			elements++;
+			//			elements++;
 			c+=a[i]*b[bSet[i]];
 		}
 
-//		float c2=0;
-//		for (int j=0; j<bSet.length; j++) {//Verification loop
-//			c2+=a[j]*b[bSet[j]];
-//		}
-//		assert(Tools.absdif(c, c2)<0.0001f) : c+", "+c2;
-//		assert(elements==bSet.length);
+		//		float c2=0;
+		//		for (int j=0; j<bSet.length; j++) {//Verification loop
+		//			c2+=a[j]*b[bSet[j]];
+		//		}
+		//		assert(Tools.absdif(c, c2)<0.0001f) : c+", "+c2;
+		//		assert(elements==bSet.length);
 
 		return c;
 	}
@@ -252,7 +253,7 @@ public final class SIMD{
 	@SuppressWarnings("restriction")
 	public static void feedForward(final Cell[] layer, final float[] b){
 		assert (false)
-			:"This was giving incorrect results for nets made made with simd=f and vice versa.  Needs validation.";
+		:"This was giving incorrect results for nets made made with simd=f and vice versa.  Needs validation.";
 		final int limit=FSPECIES.loopBound(b.length);
 
 		for(int cnum=0; cnum<layer.length; cnum++){
@@ -320,7 +321,7 @@ public final class SIMD{
 	static final void add(final float[] a, final float[] b){
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(a.length);
-//		final int limit=a.length&boundMask;
+		//		final int limit=a.length&boundMask;
 
 		int i=0;
 		for(; i<limit; i+=FWIDTH){// SIMD loop
@@ -344,7 +345,7 @@ public final class SIMD{
 	static final void addProduct(final float[] a, final float[] b, final float mult){
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(a.length);
-//		final int limit=a.length&boundMask;
+		//		final int limit=a.length&boundMask;
 
 		int i=0;
 		for(; i<limit; i+=FWIDTH){// SIMD loop
@@ -363,7 +364,7 @@ public final class SIMD{
 		final float mult){
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(bSet.length);
-//		final int limit=a.length&boundMask;
+		//		final int limit=a.length&boundMask;
 
 		int i=0;
 		for(; i<limit; i+=FWIDTH){// SIMD loop
@@ -384,7 +385,7 @@ public final class SIMD{
 		final int length=Tools.min(a.length, b.length);
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(length);
-//		final int limit=a.length&boundMask;
+		//		final int limit=a.length&boundMask;
 
 		int i=0;
 		for(; i<limit; i+=FWIDTH){// SIMD loop
@@ -432,7 +433,7 @@ public final class SIMD{
 			VectorMask<Byte> x=v.eq(symbol);
 			int t=x.firstTrue();
 			if(t<BWIDTH){ return pos+t; }
-//			if(x.anyTrue()) {break;}
+			//			if(x.anyTrue()) {break;}
 		}
 		while(pos<to && a[pos]!=symbol){ pos++; }
 		return pos;
@@ -547,14 +548,14 @@ public final class SIMD{
 		return c;
 	}
 
-//	public static float absDifFloat(float[] a, float[] b) {
-//		assert(a.length==b.length);
-//		float sum=0;
-//		for(int i=0; i<a.length; i++){
-//			sum+=Math.abs(a[i]-b[i]);
-//		}
-//		return (float)sum;
-//	}
+	//	public static float absDifFloat(float[] a, float[] b) {
+	//		assert(a.length==b.length);
+	//		float sum=0;
+	//		for(int i=0; i<a.length; i++){
+	//			sum+=Math.abs(a[i]-b[i]);
+	//		}
+	//		return (float)sum;
+	//	}
 
 	/**
 	 * Calculates the sum of the absolute differences between corresponding elements of two float arrays.
@@ -583,11 +584,11 @@ public final class SIMD{
 		}
 
 		// Scalar residual loop
-//        float sum=sumVec.reduceLanes(VectorOperators.ADD);
-//        for (; i<length; i++) { // Residual scalar loop
-//            sum+=Math.abs(a[i]-b[i]);
-//        }
-//        return sum;
+		//        float sum=sumVec.reduceLanes(VectorOperators.ADD);
+		//        for (; i<length; i++) { // Residual scalar loop
+		//            sum+=Math.abs(a[i]-b[i]);
+		//        }
+		//        return sum;
 
 		// Handle the residual elements using lanewise masking
 		// Lightly tested and seems to work
@@ -736,7 +737,7 @@ public final class SIMD{
 	 */
 	@SuppressWarnings("restriction")
 	public static final int findSymbols(final byte[] buffer, final int from, 
-			final int to, final byte symbol, final IntList positions){
+		final int to, final byte symbol, final IntList positions){
 		final int limit=BSPECIES.loopBound(to-from);
 		final ByteVector newlineVec=ByteVector.broadcast(BSPECIES, symbol);
 
@@ -746,18 +747,18 @@ public final class SIMD{
 		for(; i<from+limit; i+=BWIDTH){
 			ByteVector vec=ByteVector.fromArray(BSPECIES, buffer, i);
 			VectorMask<Byte> mask=vec.eq(newlineVec);
-//			if(!mask.anyTrue()) {continue;}//Hopefully common case - Not faster, maybe 1% slower
+			//			if(!mask.anyTrue()) {continue;}//Hopefully common case - Not faster, maybe 1% slower
 			// Convert mask to long bitmask
 			long bits=mask.toLong();
 
 			// Extract set bit positions using bit manipulation
 			//Brian version
-//			for(int lane=0; bits!=0; lane++){//Looks strange but lane needs to be incremented
-//				int zeros=Long.numberOfTrailingZeros(bits);
-//				lane+=zeros;
-//				positions.add(lane+i);
-//				bits>>>=(zeros+1);
-//			}
+			//			for(int lane=0; bits!=0; lane++){//Looks strange but lane needs to be incremented
+			//				int zeros=Long.numberOfTrailingZeros(bits);
+			//				lane+=zeros;
+			//				positions.add(lane+i);
+			//				bits>>>=(zeros+1);
+			//			}
 			while(bits!=0){//Isla version - 5% faster
 				int lane=Long.numberOfTrailingZeros(bits);
 				positions.add(i+lane);
@@ -772,5 +773,644 @@ public final class SIMD{
 
 		return positions.size();
 	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Adds a constant delta to all bytes in an array using SIMD.
+	 * @param array The byte array to modify in-place.
+	 * @param delta The value to add to each element.
+	 */
+	static final void add(final byte[] array, final byte delta){
+		if(array==null){return;}
+
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		final ByteVector vdelta=ByteVector.broadcast(BSPECIES, delta);
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector va=ByteVector.fromArray(BSPECIES, array, i);
+			ByteVector vresult=va.add(vdelta);
+			vresult.intoArray(array, i);
+		}
+		for(; i<length; i++){// Residual scalar loop
+			array[i]+=delta;
+		}
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Adds delta to all bytes, caps at minimum value, and returns the minimum encountered.
+	 * @param array The byte array to modify in-place.
+	 * @param delta The value to add to each element.
+	 * @param cap The minimum allowed value after addition.
+	 * @return The minimum value encountered after addition (before capping).
+	 */
+	static final byte addAndCapMin(final byte[] array, final byte delta, final int cap){
+		if(array==null){return 0;}
+
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		ByteVector vdelta=ByteVector.broadcast(BSPECIES, delta);
+		ByteVector vcap=ByteVector.broadcast(BSPECIES, (byte)cap);
+		ByteVector vmin=ByteVector.broadcast(BSPECIES, (byte)127);
+
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector va=ByteVector.fromArray(BSPECIES, array, i);
+			ByteVector vresult=va.add(vdelta);
+			vmin=vmin.min(vresult);
+			ByteVector vcapped=vresult.max(vcap);
+			vcapped.intoArray(array, i);
+		}
+
+		int min=vmin.reduceLanes(VectorOperators.MIN);
+
+		for(; i<length; i++){// Residual scalar loop
+			int b=array[i]+delta;
+			min=Math.min(min, b);
+			array[i]=(byte)Math.max(cap, b);
+		}
+
+		return (byte)min;
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Applies quality offset delta, zeros quality for N bases, caps others at 2.
+	 * @param quals Quality array to modify in-place.
+	 * @param bases Sequence bases array.
+	 * @param delta The offset to add to quality scores.
+	 */
+	static final void applyQualOffset(final byte[] quals, final byte[] bases, final int delta){
+		if(quals==null){return;}
+
+		final int length=quals.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		ByteVector vdelta=ByteVector.broadcast(BSPECIES, (byte)delta);
+		ByteVector vn=ByteVector.broadcast(BSPECIES, (byte)'N');
+		ByteVector vzero=ByteVector.broadcast(BSPECIES, (byte)0);
+		ByteVector vcap2=ByteVector.broadcast(BSPECIES, (byte)2);
+
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vquals=ByteVector.fromArray(BSPECIES, quals, i);
+			ByteVector vbases=ByteVector.fromArray(BSPECIES, bases, i);
+
+			// Add delta
+			ByteVector vresult=vquals.add(vdelta);
+
+			// Cap at 2 for non-N bases
+			vresult=vresult.max(vcap2);
+
+			// Create mask: where bases == 'N'
+			VectorMask<Byte> maskN=vbases.eq(vn);
+
+			// Blend: if N then 0, else capped result
+			vresult=vresult.blend(vzero, maskN);
+
+			vresult.intoArray(quals, i);
+		}
+		
+		for(; i<length; i++){// Residual scalar loop
+			byte b=bases[i];
+			int q=quals[i]+delta;
+			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
+			quals[i]=(byte)q;
+		}
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Converts U to T and u to t in a byte array using SIMD.
+	 * @param bases The base array to modify in-place.
+	 */
+	static final void uToT(final byte[] bases){
+		if(bases==null){return;}
+
+		final int length=bases.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		ByteVector vU=ByteVector.broadcast(BSPECIES, (byte)'U');
+		ByteVector vu=ByteVector.broadcast(BSPECIES, (byte)'u');
+		ByteVector vT=ByteVector.broadcast(BSPECIES, (byte)'T');
+		ByteVector vt=ByteVector.broadcast(BSPECIES, (byte)'t');
+
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vbases=ByteVector.fromArray(BSPECIES, bases, i);
+
+			// Create masks for U and u
+			VectorMask<Byte> maskU=vbases.eq(vU);
+			VectorMask<Byte> masku=vbases.eq(vu);
+
+			// Replace U with T, u with t
+			vbases=vbases.blend(vT, maskU);
+			vbases=vbases.blend(vt, masku);
+
+			vbases.intoArray(bases, i);
+		}
+
+		for(; i<length; i++){// Residual scalar loop
+			bases[i]=AminoAcid.uToT[bases[i]];
+		}
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Converts lowercase letters to N.
+	 * @param array The byte array to modify in-place.
+	 * @return Always true.
+	 */
+	static final boolean lowerCaseToN(final byte[] array){
+		if(array==null){return true;}
+
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		final byte a='a', N='N';
+
+		ByteVector va=ByteVector.broadcast(BSPECIES, a);
+		ByteVector vN=ByteVector.broadcast(BSPECIES, N);
+
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb=ByteVector.fromArray(BSPECIES, array, i);
+
+			// Create mask: where b > a (lowercase)
+			VectorMask<Byte> maskLower=vb.compare(VectorOperators.GE, va);
+
+			// Replace with N where lowercase
+			ByteVector vresult=vb.blend(vN, maskLower);
+
+			vresult.intoArray(array, i);
+		}
+
+		for(; i<length; i++){// Residual scalar loop
+//			byte b=array[i];
+//			b=(byte)(b<a ? b : N);
+//			array[i]=b;
+			array[i]=AminoAcid.lowerCaseToNocall[array[i]];
+		}
+
+		return true;
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Converts dot, dash, and X to N.
+	 * @param array The byte array to modify in-place.
+	 * @return Always true.
+	 */
+	static final boolean dotDashXToN(final byte[] array){
+		if(array==null){return true;}
+
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+
+		int i=0;
+		final byte dot='.', dash='-', X='X', N='N';
+
+		ByteVector vdot=ByteVector.broadcast(BSPECIES, dot);
+		ByteVector vdash=ByteVector.broadcast(BSPECIES, dash);
+		ByteVector vX=ByteVector.broadcast(BSPECIES, X);
+		ByteVector vN=ByteVector.broadcast(BSPECIES, N);
+
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb=ByteVector.fromArray(BSPECIES, array, i);
+
+			// Create masks for each character
+			VectorMask<Byte> maskDot=vb.eq(vdot);
+			VectorMask<Byte> maskDash=vb.eq(vdash);
+			VectorMask<Byte> maskX=vb.eq(vX);
+
+			// Combine masks: any of the three
+			VectorMask<Byte> maskAny=maskDot.or(maskDash).or(maskX);
+
+			// Replace with N where mask is true
+			ByteVector vresult=vb.blend(vN, maskAny);
+
+			vresult.intoArray(array, i);
+		}
+
+		for(; i<length; i++){// Residual scalar loop
+//			byte b=array[i];
+//			b=(b==dot || b==dash || b==X) ? N : b;
+//			array[i]=b;
+			array[i]=AminoAcid.dotDashXToNocall[array[i]];
+		}
+
+		return true;
+	}
+	
+	@SuppressWarnings("restriction")
+	/**
+	 * Checks if array contains common amino acids (E or L).
+	 * @param array The byte array to check.
+	 * @return true if E or L found (likely protein).
+	 */
+	static final boolean isProtein(final byte[] array){
+		if(array==null){return false;}
+		
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+		
+		int i=0;
+		final byte E='E', L='L';
+		
+		ByteVector vE=ByteVector.broadcast(BSPECIES, E);
+		ByteVector vL=ByteVector.broadcast(BSPECIES, L);
+		
+		VectorMask<Byte> foundProtein=BSPECIES.maskAll(false);
+		
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb=ByteVector.fromArray(BSPECIES, array, i);
+			
+			VectorMask<Byte> isE=vb.eq(vE);
+			VectorMask<Byte> isL=vb.eq(vL);
+			
+			foundProtein=isE.or(isL).or(foundProtein);
+		}
+		
+		boolean protein=foundProtein.anyTrue();
+		
+		for(; i<length; i++){// Residual scalar loop
+			byte b=array[i];
+			boolean nuc=AminoAcid.baseToNumberExtended[b]>=0;
+			boolean amino=AminoAcid.acidToNumberExtended[b]>=0;
+//			protein|=(b==E || b==L);
+			protein|=(amino && !nuc);
+		}
+		
+		return protein;
+	}
+	
+	/* */
+	
+	@SuppressWarnings("restriction")
+	/**
+	 * Converts to uppercase using bitmask. Returns false if non-letter found.
+	 * @param array The byte array to modify in-place.
+	 * @return false if any byte is outside A-Z range after conversion.
+	 */
+	static final boolean toUpperCase(final byte[] array){
+		if(array==null){return true;}
+		
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+		
+		int i=0;
+		final byte A='A', Z='Z';
+		final byte mask=~32;
+		
+		ByteVector vmask=ByteVector.broadcast(BSPECIES, mask);
+		ByteVector vA=ByteVector.broadcast(BSPECIES, A);
+		ByteVector vZ=ByteVector.broadcast(BSPECIES, Z);
+		
+		VectorMask<Byte> invalid=BSPECIES.maskAll(false);
+		
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb0=ByteVector.fromArray(BSPECIES, array, i);
+			
+			// Apply uppercase mask
+			ByteVector vb=vb0.and(vmask);
+			
+			vb.intoArray(array, i);
+			
+			// Check if in [A, Z]
+			VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA);
+			VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ);
+			VectorMask<Byte> valid=validLow.and(validHigh);
+			
+			invalid=valid.not().or(invalid);
+		}
+		
+		boolean success=!invalid.anyTrue();
+		
+		for(; i<length; i++){// Residual scalar loop
+//			byte b=(byte)(array[i] & mask);
+//			array[i]=b;
+//			success&=(b>=A && b<=Z);
+			array[i]=AminoAcid.toUpperCase[array[i]];
+		}
+		
+		return success;
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Checks if all bytes are letters (case-insensitive check via mask).
+	 * @param array The byte array to check.
+	 * @return false if any non-letter found.
+	 */
+	static final boolean allLetters(final byte[] array){
+		if(array==null){return true;}
+		
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+		
+		int i=0;
+		final byte A='A', Z='Z';
+		final byte mask=~32;
+		
+		ByteVector vmask=ByteVector.broadcast(BSPECIES, mask);
+		ByteVector vA=ByteVector.broadcast(BSPECIES, A);
+		ByteVector vZ=ByteVector.broadcast(BSPECIES, Z);
+		
+		VectorMask<Byte> invalid=BSPECIES.maskAll(false);
+		
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb0=ByteVector.fromArray(BSPECIES, array, i);
+			
+			// Apply uppercase mask
+			ByteVector vb=vb0.and(vmask);
+			
+			// Check if in [A, Z]
+			VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA);
+			VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ);
+			VectorMask<Byte> valid=validLow.and(validHigh);
+			
+			invalid=valid.not().or(invalid);
+		}
+		
+		boolean success=!invalid.anyTrue();
+		
+		for(; i<length; i++){// TODO: Change to lookup table
+			int b=(array[i] & mask);
+			success&=(b>=A && b<=Z);
+		}
+		
+		return success;
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Converts IUPAC ambiguity codes to N, preserves A/C/G/T/U (case-insensitive).
+	 * @param array The byte array to modify in-place.
+	 * @return Always true.
+	 */
+	static final boolean iupacToN(final byte[] array){
+		if(array==null){return true;}
+		
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+		
+		int i=0;
+		final byte A='A', C='C', G='G', T='T', U='U', N='N';
+		final byte mask=~32;
+		
+		ByteVector vmask=ByteVector.broadcast(BSPECIES, mask);
+		ByteVector vA=ByteVector.broadcast(BSPECIES, A);
+		ByteVector vC=ByteVector.broadcast(BSPECIES, C);
+		ByteVector vG=ByteVector.broadcast(BSPECIES, G);
+		ByteVector vT=ByteVector.broadcast(BSPECIES, T);
+		ByteVector vU=ByteVector.broadcast(BSPECIES, U);
+		ByteVector vN=ByteVector.broadcast(BSPECIES, N);
+		
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb0=ByteVector.fromArray(BSPECIES, array, i);
+			
+			// Apply uppercase mask for comparison
+			ByteVector vb=vb0.and(vmask);
+			
+			// Check if A, C, G, T, or U
+			VectorMask<Byte> isA=vb.eq(vA);
+			VectorMask<Byte> isC=vb.eq(vC);
+			VectorMask<Byte> isG=vb.eq(vG);
+			VectorMask<Byte> isT=vb.eq(vT);
+			VectorMask<Byte> isU=vb.eq(vU);
+			VectorMask<Byte> isValid=isA.or(isC).or(isG).or(isT).or(isU);
+			
+			// Keep original if valid, replace with N if not
+			ByteVector vresult=vb0.blend(vN, isValid.not());
+			
+			vresult.intoArray(array, i);
+		}
+		
+		for(; i<length; i++){// Residual scalar loop
+//			final int b0=array[i];
+//			int b=(b0 & mask);
+//			b=(b==A || b==C || b==G || b==T || b==U) ? b0 : N;
+//			array[i]=(byte)b;
+			array[i]=AminoAcid.baseToACGTN[array[i]];
+		}
+		
+		return true;
+	}
+
+	@SuppressWarnings("restriction")
+	/**
+	 * Checks if all letters and no E or L (nucleotide validation).
+	 * @param array The byte array to check.
+	 * @return true if valid nucleotide sequence.
+	 */
+	static final boolean isNucleotide(final byte[] array){
+		if(array==null){return true;}
+		
+		final int length=array.length;
+		final int limit=BSPECIES.loopBound(length);
+		
+		int i=0;
+		final byte E='E', L='L';
+		final byte A='A', Z='Z';
+		final byte mask=~32;
+		
+		ByteVector vmask=ByteVector.broadcast(BSPECIES, mask);
+		ByteVector vA=ByteVector.broadcast(BSPECIES, A);
+		ByteVector vZ=ByteVector.broadcast(BSPECIES, Z);
+		ByteVector vE=ByteVector.broadcast(BSPECIES, E);
+		ByteVector vL=ByteVector.broadcast(BSPECIES, L);
+		
+		VectorMask<Byte> invalid=BSPECIES.maskAll(false);
+		
+		for(; i<limit; i+=BWIDTH){// SIMD loop
+			ByteVector vb0=ByteVector.fromArray(BSPECIES, array, i);
+			
+			// Apply uppercase mask
+			ByteVector vb=vb0.and(vmask);
+			
+			// Check if in [A, Z]
+			VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA);
+			VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ);
+			VectorMask<Byte> isLetter=validLow.and(validHigh);
+			
+			// Check if E or L
+			VectorMask<Byte> isE=vb.eq(vE);
+			VectorMask<Byte> isL=vb.eq(vL);
+			VectorMask<Byte> isProtein=isE.or(isL);
+			
+			// Invalid if not letter OR is protein marker
+			invalid=isLetter.not().or(isProtein).or(invalid);
+		}
+		
+		boolean success=!invalid.anyTrue();
+		
+		for(; i<length; i++){// Residual scalar loop
+//			int b=(array[i] & mask);
+//			success&=((b>=A && b<=Z) && (b!=E && b!=L));
+			success&=(AminoAcid.baseToNumberExtended[array[i]]>=0);
+		}
+		
+		return success;
+	}
+
+	/**
+	 * Benchmark uToT vs uToT2
+	 * Usage: java SIMD <iterations>
+	 */
+	public static void main(String[] args){
+		int iterations=args.length>0 ? Integer.parseInt(args[0]) : 1000;
+		int numArrays=100;
+		int arrayLength=1000;
+		
+		// Generate base arrays with random characters
+		byte[][] baseArrays=new byte[numArrays][arrayLength];
+		java.util.Random rand=new java.util.Random(42);
+		for(int i=0; i<numArrays; i++){
+			for(int j=0; j<arrayLength; j++){
+				// Mix of various characters including U/u
+				int r=rand.nextInt(10);
+				if(r<2){baseArrays[i][j]='U';}
+				else if(r<4){baseArrays[i][j]='u';}
+				else if(r<5){baseArrays[i][j]='A';}
+				else if(r<6){baseArrays[i][j]='C';}
+				else if(r<7){baseArrays[i][j]='G';}
+				else if(r<8){baseArrays[i][j]='T';}
+				else if(r<9){baseArrays[i][j]='N';}
+				else{baseArrays[i][j]=(byte)('a'+rand.nextInt(26));}
+			}
+		}
+		long start1=0, start2=0, time1=0, time2=0;
+
+		{
+			// Working copies
+			byte[][] workArrays1=new byte[numArrays][arrayLength];
+
+			// Warmup
+			for(int w=0; w<100; w++){
+				for(int i=0; i<numArrays; i++){
+					System.arraycopy(baseArrays[i], 0, workArrays1[i], 0, arrayLength);
+				}
+				for(int i=0; i<numArrays; i++){
+					uToT(workArrays1[i]);
+				}
+			}
+
+			// Benchmark uToT (original)
+			start1=System.nanoTime();
+			for(int iter=0; iter<iterations; iter++){
+				for(int i=0; i<numArrays; i++){
+					System.arraycopy(baseArrays[i], 0, workArrays1[i], 0, arrayLength);
+				}
+				for(int i=0; i<numArrays; i++){
+					uToT(workArrays1[i]);
+				}
+			}
+			time1=System.nanoTime()-start1;
+		}
+//		{
+//
+//			byte[][] workArrays2=new byte[numArrays][arrayLength];
+//			// Warmup uToT2
+//			for(int w=0; w<100; w++){
+//				for(int i=0; i<numArrays; i++){
+//					System.arraycopy(baseArrays[i], 0, workArrays2[i], 0, arrayLength);
+//				}
+//				for(int i=0; i<numArrays; i++){
+//					uToT2(workArrays2[i]);
+//				}
+//			}
+//
+//			// Benchmark uToT2 (new)
+//			start2=System.nanoTime();
+//			for(int iter=0; iter<iterations; iter++){
+//				for(int i=0; i<numArrays; i++){
+//					System.arraycopy(baseArrays[i], 0, workArrays2[i], 0, arrayLength);
+//				}
+//				for(int i=0; i<numArrays; i++){
+//					uToT2(workArrays2[i]);
+//				}
+//			}
+//			time2=System.nanoTime()-start2;
+//		}
+//		// Benchmark uToT2 (new)
+//		long start3=System.nanoTime();
+//		for(int iter=0; iter<iterations; iter++){
+//			for(int i=0; i<numArrays; i++){
+//				System.arraycopy(baseArrays[i], 0, workArrays2[i], 0, arrayLength);
+//			}
+//			for(int i=0; i<numArrays; i++){
+//				uToT3(workArrays2[i]);
+//			}
+//		}
+//		long time3=System.nanoTime()-start3;
+//		
+//		// Benchmark uToT2 (new)
+//		long start4=System.nanoTime();
+//		for(int iter=0; iter<iterations; iter++){
+//			for(int i=0; i<numArrays; i++){
+//				System.arraycopy(baseArrays[i], 0, workArrays2[i], 0, arrayLength);
+//			}
+//			for(int i=0; i<numArrays; i++){
+//				uToT4(workArrays2[i]);
+//			}
+//		}
+//		long time4=System.nanoTime()-start4;
+//		
+//		// Benchmark uToT2 (new)
+//		long start5=System.nanoTime();
+//		for(int iter=0; iter<iterations; iter++){
+//			for(int i=0; i<numArrays; i++){
+//				System.arraycopy(baseArrays[i], 0, workArrays2[i], 0, arrayLength);
+//			}
+//			for(int i=0; i<numArrays; i++){
+//				uToT5(workArrays2[i]);
+//			}
+//		}
+//		long time5=System.nanoTime()-start5;
+		
+		// Verify results match
+//		boolean match=true;
+//		for(int i=0; i<numArrays; i++){
+//			for(int j=0; j<arrayLength; j++){
+//				if(workArrays1[i][j]!=workArrays2[i][j]){
+//					match=false;
+//					break;
+//				}
+//			}
+//		}
+		
+		System.out.println("Arrays processed: "+numArrays);
+		System.out.println("Iterations: "+iterations);
+//		System.out.println("Results match: "+match);
+		System.out.println();
+		System.out.println("uToT  time: "+(time1/1_000_000)+" ms");
+		System.out.println("uToT2 time: "+(time2/1_000_000)+" ms");
+//		System.out.println("uToT3 time: "+(time3/1_000_000)+" ms");
+//		System.out.println("uToT4 time: "+(time4/1_000_000)+" ms");
+//		System.out.println("uToT5 time: "+(time5/1_000_000)+" ms");
+		System.out.println("Speedup: "+String.format("%.2f", (double)time1/time2)+"x");
+	}
+	
+//	public static void uToT3(byte[] bases){//Fast
+//		for(int i=0; i<bases.length; i++){
+//			bases[i]=AminoAcid.uToT[bases[i]];
+//		}
+//	}
+//	public static void uToT4(byte[] bases){//Slow
+//		final byte u='u', T='T';
+//		for(int i=0; i<bases.length; i++){
+//			byte b=bases[i];
+//			bases[i]=((b|32)!=u) ? b : (byte)(T|(b&32));
+//		}
+//	}
+//	public static void uToT5(byte[] bases){//Slow
+//		for(int i=0; i<bases.length; i++){// Residual scalar loop
+//			if(bases[i]=='U'){bases[i]='T';}
+//			else if(bases[i]=='u'){bases[i]='t';}
+//		}
+//	}
 
 }

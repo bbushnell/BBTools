@@ -1,5 +1,6 @@
 package shared;
 
+import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorMask;
 import ml.Cell;
@@ -444,6 +445,148 @@ public final class Vector {
 			if(array[i]==symbol){positions.add(i);}
 		}
 		return positions.size();
+	}
+	
+	public static void add(byte[] array, byte delta){
+		if(array==null){return;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			SIMD.add(array, delta);
+			return;
+		}
+		for(int i=0; i<array.length; i++) {array[i]+=delta;}
+	}
+	
+	public static byte addAndCapMin(final byte[] array, final byte delta, final int cap){
+		if(array==null){return 0;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.addAndCapMin(array, delta, cap);
+		}
+		int min=127;
+		for(int i=0; i<array.length; i++) {
+			int b=array[i]+delta;
+			min=Math.min(min, b);
+			array[i]=(byte)Math.max(cap, b);
+		}
+		return (byte)min;
+	}
+	
+	public static void applyQualOffset(final byte[] quals, final byte[] bases, final int delta){
+		if(quals==null){return;}
+		if(Shared.SIMD && quals.length>=MINLEN8) {
+			SIMD.applyQualOffset(quals, bases, delta);
+			return;
+		}
+		for(int i=0; i<quals.length; i++) {
+			byte b=bases[i];
+			int q=quals[i]+delta;
+			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
+			quals[i]=(byte)q;
+		}
+	}
+	
+	public static void uToT(byte[] bases){
+		if(bases==null){return;}
+		if(Shared.SIMD && bases.length>=MINLEN8) {
+			SIMD.uToT(bases);
+			return;
+		}
+		for(int i=0; i<bases.length; i++){
+			bases[i]=AminoAcid.uToT[bases[i]];
+		}
+	}
+	
+	/** Returns false if there was a problem */
+	public static boolean dotDashXToN(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.dotDashXToN(array);
+		}
+		for(int i=0; i<array.length; i++){
+			array[i]=AminoAcid.dotDashXToNocall[array[i]];
+		}
+		return true;
+	}
+	
+	/** Looks for common amino acids that are not IUPAC bases */
+	public static boolean isProtein(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.isProtein(array);
+		}
+		boolean protein=false;
+		for(int i=0; i<array.length; i++){
+			byte b=array[i];
+			boolean nuc=AminoAcid.baseToNumberExtended[b]>=0;
+			boolean amino=AminoAcid.acidToNumberExtended[b]>=0;
+			protein|=(amino && !nuc);
+		}
+		return protein;
+	}
+	
+	/** Returns false if there was a problem */
+	public static boolean lowerCaseToN(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.lowerCaseToN(array);
+		}
+		for(int i=0; i<array.length; i++){
+			array[i]=AminoAcid.lowerCaseToNocall[array[i]];
+		}
+		return true;
+	}
+	
+	/** Returns false if there was a problem */
+	public static boolean toUpperCase(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.toUpperCase(array);
+		}
+		boolean success=true;
+		for(int i=0; i<array.length; i++){
+			array[i]=AminoAcid.toUpperCase[array[i]];
+		}
+		return success;
+	}
+
+	/** Returns false if there are nonletters */
+	public static boolean allLetters(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.allLetters(array);
+		}
+		final byte A='A', Z='Z';
+		final byte mask=~32;
+		boolean success=true;
+		for(int i=0; i<array.length; i++){//Could do lookup instead
+			int b=(array[i] & mask);
+			success&=(b>=A && b<=Z);
+		}
+		return success;
+	}
+
+	/** Returns false if there was a problem */
+	public static boolean iupacToN(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.iupacToN(array);
+		}
+		for(int i=0; i<array.length; i++){
+			array[i]=AminoAcid.baseToACGTN[array[i]];
+		}
+		return true;
+	}
+	
+	/** Looks for common amino acids that are not IUPAC bases */
+	public static boolean isNucleotide(byte[] array) {
+		if(array==null){return true;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			return SIMD.isNucleotide(array);
+		}
+		boolean success=true;
+		for(int i=0; i<array.length; i++){
+			success&=(AminoAcid.baseToNumberExtended[array[i]]>=0);;
+		}
+		return success;
 	}
 	
 	public static final int MINLEN8=32;
