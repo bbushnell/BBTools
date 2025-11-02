@@ -2,7 +2,6 @@ package stream;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
-
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
@@ -36,20 +35,35 @@ public class FastqWriter implements Writer {
 		
 		SamLine.SET_FROM_OK=ffin.samOrBam();
 		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=(ffout!=null && ffout.samOrBam() && ffin.samOrBam());
+
+		final boolean inputReads=(!ffin.samOrBam());
+		final boolean outputReads=(ffout!=null && !ffout.samOrBam());
 		
-		//TODO: Hangs on fastq input, sam output.  Probably waiting for header.
-		//Look at how reformat.sh handles sam headers.
-		Streamer st=StreamerFactory.makeStreamer(ffin, 0, true, -1, true, true);
+		Streamer st=StreamerFactory.makeStreamer(ffin, 0, true, -1, true, outputReads);
 		Writer fw=WriterFactory.makeWriter(ffout, true, true, threads, null, ffin.samOrBam());
+		process(st, fw, t, inputReads || outputReads);
+	}
+	
+	private static void process(Streamer st, Writer fw, Timer t, boolean readMode) {
 		st.start();
 		if(fw!=null) {fw.start();}
 		long reads=0, bases=0;
-		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
-			for(Read r : ln) {
-				reads+=r.pairCount();
-				bases+=r.pairLength();
+		if(readMode) {
+			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+				for(Read r : ln) {
+					reads+=r.pairCount();
+					bases+=r.pairLength();
+				}
+				if(fw!=null) {fw.addReads(ln);}
 			}
-			if(fw!=null) {fw.addReads(ln);}
+		}else {
+			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
+				for(SamLine sl : ln) {
+					reads++;
+					bases+=sl.length();
+				}
+				if(fw!=null) {fw.addLines(ln);}
+			}
 		}
 		if(fw!=null) {
 			fw.poisonAndWait();
@@ -223,6 +237,7 @@ public class FastqWriter implements Writer {
 		/** Constructor. */
 		ProcessThread(final int tid_){
 			tid=tid_;
+			setName("FastqWriter-"+(tid==0 ? "Output" : "Worker-"+tid));
 		}
 		
 		/** Called by start(). */

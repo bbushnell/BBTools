@@ -29,7 +29,7 @@ public class SamLineStreamer extends SamStreamer {
 	SamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, 
 			long maxReads_, boolean makeReads_){
 		super(ffin_, threads_, saveHeader_, ordered_, maxReads_, makeReads_);
-		final int queueSize=2*threads+3;
+		final int queueSize=3+(3*threads)/2;
 		outq=new JobQueue<ListNum<SamLine>>(queueSize, ordered, true, 0);
 		if(verbose){outstream.println("Made sls-"+threads);}
 	}
@@ -116,6 +116,7 @@ public class SamLineStreamer extends SamStreamer {
 		/** Constructor */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
+			setName("SamLineStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 		

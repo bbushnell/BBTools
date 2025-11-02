@@ -4,8 +4,6 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Timer;
-import shared.Tools;
 import structures.ByteBuilder;
 import structures.ListNum;
 import template.ThreadWaiter;
@@ -63,6 +61,7 @@ public class SamLineWriter extends SamWriter {
 		/** Constructor. */
 		ProcessThread(final int tid_){
 			tid=tid_;
+			setName("SamLineWriter-"+(tid==0 ? "Output" : "Worker-"+tid));
 		}
 
 		/** Called by start(). */

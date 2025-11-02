@@ -163,6 +163,7 @@ public class FastqStreamer implements Streamer {
 		/** Constructor */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
+			setName("FastqStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 		
@@ -370,7 +371,7 @@ public class FastqStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	
 	public static int LIST_SIZE=200;
-	public static int DEFAULT_THREADS=3;
+	public static int DEFAULT_THREADS=2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

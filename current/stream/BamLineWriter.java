@@ -93,8 +93,8 @@ public class BamLineWriter extends SamWriter {
 				try{this.wait();}
 				catch(InterruptedException e){e.printStackTrace();}
 			}
+			return (SamToBamConverter)sharedConverter.clone();
 		}
-		return sharedConverter;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -107,20 +107,24 @@ public class BamLineWriter extends SamWriter {
 		/** Constructor. */
 		ProcessThread(final int tid_){
 			tid=tid_;
+			setName(tid == 0 ? "BamWriter-Output" : "BamWriter-Worker-" + tid);
 			if(verbose) {System.err.println("tid "+tid+" created.");}
 		}
 
 		/** Called by start(). */
 		@Override
 		public void run(){
+			if(tid==0){
+				writeOutput(); //Writer thread
+				if(verbose) {System.err.println("Consumer "+tid+" finished.");}
+			}else{
+				processJobs(); //Worker thread
+				if(verbose) {System.err.println("Worker "+tid+" finished.");}
+			}
+
 			synchronized(this) {
-				if(tid==0){
-					writeOutput(); //Writer thread
-					if(verbose) {System.err.println("Consumer "+tid+" finished.");}
-				}else{
-					processJobs(); //Worker thread
-					if(verbose) {System.err.println("Worker "+tid+" finished.");}
-				}
+				readsWrittenT++;
+				basesWrittenT++;
 				success=true;
 			}
 		}
@@ -166,11 +170,12 @@ public class BamLineWriter extends SamWriter {
 
 		/** Worker thread - converts reads/lines to formatted bytes. */
 		void processJobs(){
-			final ByteBuilder bb=new ByteBuilder();
+			final ByteBuilder bb=new ByteBuilder(65536);
+			final SamToBamConverter converter=getConverter();
 
 			SamWriterInputJob job=oqs.getInput();
-			final SamToBamConverter converter=getConverter();
 			while(!job.poison()){
+				assert(bb.length()==0 && bb.array.length>=65536);
 				//Convert to SamLines if needed
 				ArrayList<SamLine> lines;
 				if(job.lines!=null){
@@ -181,17 +186,9 @@ public class BamLineWriter extends SamWriter {
 
 				//Format SamLines to BAM bytes and count
 				for(SamLine sl : lines){
-					try{
-//						byte[] bamRecord = converter.convertAlignment(sl);
-//						// Write block_size followed by the record
-//						bb.appendUint32(bamRecord.length);
-//						bb.append(bamRecord);
-						converter.appendAlignment(sl, bb);
-						readsWrittenT++;
-						basesWrittenT+=sl.length();
-					}catch(Exception e){
-						throw new RuntimeException("Error converting to BAM", e);
-					}
+					converter.appendAlignment(sl, bb);
+					readsWrittenT++;
+					basesWrittenT+=sl.length();
 				}
 
 				//Create output job
@@ -207,9 +204,9 @@ public class BamLineWriter extends SamWriter {
 		}
 
 		/** Number of reads processed by this thread. */
-		protected long readsWrittenT=0;
+		protected long readsWrittenT=-1;
 		/** Number of bases processed by this thread. */
-		protected long basesWrittenT=0;
+		protected long basesWrittenT=-1;
 		/** True only if this thread completed successfully. */
 		boolean success=false;
 		/** Thread ID. */
@@ -223,6 +220,6 @@ public class BamLineWriter extends SamWriter {
 	/** Thread list for accumulation. */
 	private ArrayList<ProcessThread> alpt;
 	/** Converter for SamLine to BAM binary. */
-	private volatile SamToBamConverter sharedConverter;
+	private SamToBamConverter sharedConverter;
 
 }

@@ -227,6 +227,42 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
+	public ByteBuilder appendUnsafe(int x, byte b){
+		if(x<0){
+			if(x<=Integer.MIN_VALUE){
+				return append((long)x).append(b);
+			}else{
+				array[length++]='-';
+				x=-x;
+			}
+		}else if(x==0){
+			array[length++]='0';
+			array[length++]=b;
+			return this;
+		}
+		
+		int pos=0;
+		while(x>9){
+			int y=x%100;
+			x=x/100;
+			numbuffer[pos++]=ones100[y];
+			numbuffer[pos++]=tens100[y];
+		}
+		while(x>0){
+			int y=x%10;
+			x=x/10;
+			numbuffer[pos++]=ones100[y];
+		}
+		
+		assert(pos>0) : pos+", "+x;
+		while(pos>0){
+			pos--;
+			array[length++]=numbuffer[pos];
+		}
+		array[length++]=b;
+		return this;
+	}
+	
 	public ByteBuilder append(long x){
 		if(x>Integer.MIN_VALUE && x<=Integer.MAX_VALUE){return append((int)x);}
 		expand(20);
@@ -423,10 +459,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder append(byte[] x){
 		if(x==null){x=nullBytes;}
 		expand(x.length);
-		for(int i=0; i<x.length; i++){
-			array[length]=x[i];
-			length++;
-		}
+		System.arraycopy(x, 0, array, length, x.length);
+		length+=x.length;
+//		for(int i=0; i<x.length; i++){
+//			array[length]=x[i];
+//			length++;
+//		}
 		return this;
 	}
 
@@ -758,7 +796,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
-	private final void expand(int extra){
+	public final void expand(int extra){//Doubles length until it can accommodate this much more.
 		long x=array.length;
 		if(x>=length+extra){return;}
 //		System.err.println("x="+array.length+", extra="+extra+", length="+length);
@@ -831,21 +869,14 @@ public final class ByteBuilder implements Serializable, CharSequence {
 
 	/*--------------------------------------------------------------*/
 	
-	/** Ensures capacity for at least n more bytes */
-	private void ensureCapacity(int n){
-		if(length+n>array.length){expand();}
-	}
-	
 	/** Appends unsigned 8-bit value */
 	public ByteBuilder appendU8(int value){
-		ensureCapacity(1);
 		array[length++]=(byte)(value&0xFF);
 		return this;
 	}
 	
 	/** Appends unsigned 16-bit little-endian value */
 	public ByteBuilder appendU16LE(int value){
-		ensureCapacity(2);
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
 		return this;
@@ -862,7 +893,6 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	
 	/** Appends signed 32-bit little-endian value */
 	public ByteBuilder appendI32LE(int value){
-		ensureCapacity(4);
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
 		array[length++]=(byte)((value>>>16)&0xFF);
@@ -877,7 +907,6 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	
 	/** Appends signed 64-bit little-endian value */
 	public ByteBuilder appendI64LE(long value){
-		ensureCapacity(8);
 		array[length++]=(byte)(value&0xFF);
 		array[length++]=(byte)((value>>>8)&0xFF);
 		array[length++]=(byte)((value>>>16)&0xFF);
