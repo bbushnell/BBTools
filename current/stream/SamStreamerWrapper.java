@@ -135,7 +135,7 @@ public class SamStreamerWrapper {
 
 		boolean useSharedHeader=(ffout1!=null && ffout1.samOrBam());
 		final SamStreamer ss=SamStreamer.makeStreamer(ffin1, SamStreamer.DEFAULT_THREADS,
-			useSharedHeader, ordered, maxReads, true);
+			useSharedHeader, ordered, maxReads, ffout1!=null && !ffout1.samOrBam());
 		ss.start();
 		
 

@@ -656,7 +656,7 @@ public class ReadWrite {
 			if(zl<3){threads=Tools.min(threads, 16);}
 			else if(zl<5){threads=Tools.min(threads, 24);}
 			else if(zl<6){threads=Tools.min(threads, 64);}
-//			System.err.println("B: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
+			System.err.println("B: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			OutputStream out;
@@ -664,7 +664,7 @@ public class ReadWrite {
 			else {out=new BgzfOutputStreamMT(raw, Tools.mid(1, 64, threads), zl);}
 			return out;
 		}
-
+		
 		if(ALLOW_ZIPLEVEL_CHANGE && threads>=4 && zl>0 && zl<4){zl=4;}
 		if(zl<3){threads=Tools.min(threads, 12);}
 		else if(zl<5){threads=Tools.min(threads, 16);}
@@ -2017,7 +2017,7 @@ public class ReadWrite {
 	public static boolean USE_UNPIGZ=true;
 	
 	public static boolean ALLOW_NATIVE_BGZF=true;
-	public static boolean PREFER_NATIVE_BGZF_IN=false;
+	public static boolean PREFER_NATIVE_BGZF_IN=true;
 	public static boolean PREFER_NATIVE_BGZF_OUT=false;
 
 	public static boolean USE_READ_STREAM_SAM_WRITER=true;

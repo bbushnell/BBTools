@@ -236,6 +236,7 @@ public abstract class SamWriter implements Writer {
 	}
 	
 	ArrayList<byte[]> getHeader(){
+		if(verbose) {System.err.println("Fetching header: "+useSharedHeader+","+(header!=null));}
 		ArrayList<byte[]> headerLines;
 		if(useSharedHeader){
 			headerLines=SamReadInputStream.getSharedHeader(true);
@@ -248,7 +249,8 @@ public abstract class SamWriter implements Writer {
 		if(headerLines==null) {
 			System.err.println("Warning: Header was null, creating empty header");
 			headerLines=new ArrayList<byte[]>();
-		}
+		}//assert(false);
+		if(verbose) {System.err.println("Fetched header: "+(headerLines==null ? "null" : headerLines.size()));}
 		return headerLines;
 	}
 

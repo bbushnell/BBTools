@@ -616,30 +616,30 @@ public class BamToSamConverter {
 		return sl;
 	}
 	
-	public SamLine toSamLine(byte[] bamRecord){
-		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
+	public SamLine toSamLine(byte[] bamRecord, ByteBuilder cigar){
+		BinaryByteWrapperLE bbw=new BinaryByteWrapperLE(bamRecord);
 		SamLine sl=new SamLine();
 
 		//Read fixed-length fields
-		int refID=bb.getInt();
-		int pos=bb.getInt();
-		int l_read_name=bb.get()&0xFF;
-		int mapq=bb.get()&0xFF;
-		int bin=bb.getShort()&0xFFFF; //Ignore
-		int n_cigar_op=bb.getShort()&0xFFFF;
-		int flag=bb.getShort()&0xFFFF;
-		long l_seq=bb.getInt()&0xFFFFFFFFL;
-		int next_refID=bb.getInt();
-		int next_pos=bb.getInt();
-		int tlen=bb.getInt();
+		int refID=bbw.getInt();
+		int pos=bbw.getInt();
+		int l_read_name=bbw.get()&0xFF;
+		int mapq=bbw.get()&0xFF;
+		int bin=bbw.getShort()&0xFFFF; //Ignore
+		int n_cigar_op=bbw.getShort()&0xFFFF;
+		int flag=bbw.getShort()&0xFFFF;
+		long l_seq=bbw.getInt()&0xFFFFFFFFL;
+		int next_refID=bbw.getInt();
+		int next_pos=bbw.getInt();
+		int tlen=bbw.getInt();
 
 		//QNAME - SamLine.PARSE_0
 		if(SamLine.PARSE_0){
-			int qnameStart=bb.position();
-			bb.skip(l_read_name);
+			int qnameStart=bbw.position();
+			bbw.skip(l_read_name);
 			sl.qname=new String(bamRecord, qnameStart, l_read_name-1); //Exclude NUL
 		}else{
-			bb.skip(l_read_name);
+			bbw.skip(l_read_name);
 		}
 
 		//FLAG
@@ -665,16 +665,20 @@ public class BamToSamConverter {
 			sl.cigar="*";
 			//No skip needed - 0 cigar ops
 		}else if(SamLine.PARSE_5){
-			ByteBuilder cigar=new ByteBuilder(n_cigar_op*4);
+			if(cigar==null) {cigar=new ByteBuilder(n_cigar_op*8+8);}
+			else {cigar.expand(n_cigar_op*8+8);}
+			assert(cigar.isEmpty());
 			for(int i=0; i<n_cigar_op; i++){
-				int cigOp=bb.getInt();
+				int cigOp=bbw.getInt();
 				int opLen=cigOp>>>4;
 				int op=cigOp&0xF;
-				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
+//				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
+				cigar.appendUnsafe(opLen, CIGAR_OPS_B[op]);
 			}
 			sl.cigar=cigar.toString();
+			cigar.clear();
 		}else{
-			bb.skip(n_cigar_op*4);
+			bbw.skip(n_cigar_op*4);
 		}
 
 		//RNEXT
@@ -699,7 +703,7 @@ public class BamToSamConverter {
 		if(l_seq==0){
 			sl.seq=bytestar;
 		}else{
-			int seqStart=bb.position();
+			int seqStart=bbw.position();
 			byte[] seq=new byte[(int)l_seq];
 			int seqIdx=0;
 			for(int i=0; i<numSeqBytes; i++){
@@ -710,88 +714,88 @@ public class BamToSamConverter {
 				}
 			}
 			sl.seq=seq;
-			bb.skip(numSeqBytes);
+			bbw.skip(numSeqBytes);
 		}
 
 		//QUAL - SamLine.PARSE_10
 		if(l_seq==0){
 			sl.qual=bytestar;
 		}else{
-			int qualStart=bb.position();
+			int qualStart=bbw.position();
 			byte firstByte=bamRecord[qualStart];
 			if(firstByte==(byte)0xFF){
-				bb.skip((int)l_seq);
+				bbw.skip((int)l_seq);
 				sl.qual=bytestar;
 			}else if(SamLine.PARSE_10){
 				byte[] qual=new byte[(int)l_seq];
 				System.arraycopy(bamRecord, qualStart, qual, 0, (int)l_seq);
-				bb.skip((int)l_seq);
+				bbw.skip((int)l_seq);
 				sl.qual=qual;
 			}else{
-				bb.skip((int)l_seq);
+				bbw.skip((int)l_seq);
 			}
 		}
 
 		//Auxiliary tags - SamLine.PARSE_OPTIONAL
-		if(SamLine.PARSE_OPTIONAL && bb.hasRemaining()){
+		if(SamLine.PARSE_OPTIONAL && bbw.hasRemaining()){
 			sl.optional=new ArrayList<String>();
 			ByteBuilder tag=new ByteBuilder(64);
 
-			while(bb.hasRemaining()){
+			while(bbw.hasRemaining()){
 				tag.clear();
 
 				//Tag name (2 bytes)
-				tag.append(bb.get()).appendColon(bb.get());
+				tag.append(bbw.get()).appendColon(bbw.get());
 
-				char type=(char)(bb.get()&0xFF);
+				char type=(char)(bbw.get()&0xFF);
 				switch(type){
 					case 'A':
-						tag.appendColon('A').append((char)(bb.get()&0xFF));
+						tag.appendColon('A').append((char)(bbw.get()&0xFF));
 						break;
 					case 'c':
-						tag.appendColon('i').append((int)bb.get());
+						tag.appendColon('i').append((int)bbw.get());
 						break;
 					case 'C':
-						tag.appendColon('i').append(bb.get()&0xFF);
+						tag.appendColon('i').append(bbw.get()&0xFF);
 						break;
 					case 's':
-						tag.appendColon('i').append((int)bb.getShort());
+						tag.appendColon('i').append((int)bbw.getShort());
 						break;
 					case 'S':
-						tag.appendColon('i').append(bb.getShort()&0xFFFF);
+						tag.appendColon('i').append(bbw.getShort()&0xFFFF);
 						break;
 					case 'i':
-						tag.appendColon('i').append(bb.getInt());
+						tag.appendColon('i').append(bbw.getInt());
 						break;
 					case 'I':
-						tag.appendColon('i').append(bb.getInt()&0xFFFFFFFFL);
+						tag.appendColon('i').append(bbw.getInt()&0xFFFFFFFFL);
 						break;
 					case 'f':
-						tag.appendColon('f').append(bb.getFloat(), 6);
+						tag.appendColon('f').append(bbw.getFloat(), 6);
 						break;
 					case 'Z':
 						tag.appendColon('Z');
 						byte b;
-						while((b=bb.get())!=0){tag.append(b);}
+						while((b=bbw.get())!=0){tag.append(b);}
 						break;
 					case 'H':
 						tag.appendColon('H');
-						while((b=bb.get())!=0){tag.append(b);}
+						while((b=bbw.get())!=0){tag.append(b);}
 						break;
 					case 'B':
-						char arrayType=(char)(bb.get()&0xFF);
-						int count=bb.getInt();
+						char arrayType=(char)(bbw.get()&0xFF);
+						int count=bbw.getInt();
 						tag.appendColon('B').append(arrayType);
 						for(int i=0; i<count; i++){
 							tag.comma();
 							switch(arrayType){
-								case 'c': tag.append((int)bb.get()); break;
-								case 'C': tag.append(bb.get()&0xFF); break;
-								case 's': tag.append((int)bb.getShort()); break;
-								case 'S': tag.append(bb.getShort()&0xFFFF); break;
-								case 'i': tag.append(bb.getInt()); break;
-								case 'I': tag.append(bb.getInt()&0xFFFFFFFFL); break;
-								case 'f': tag.append(bb.getFloat(), 6); break;
+								case 'c': tag.append((int)bbw.get()); break;
+								case 'C': tag.append(bbw.get()&0xFF); break;
+								case 's': tag.append((int)bbw.getShort()); break;
+								case 'S': tag.append(bbw.getShort()&0xFFFF); break;
+								case 'i': tag.append(bbw.getInt()); break;
+								case 'I': tag.append(bbw.getInt()&0xFFFFFFFFL); break;
+								case 'f': tag.append(bbw.getFloat(), 6); break;
 								default:
 									throw new RuntimeException("Unknown array type: "+arrayType);
 							}

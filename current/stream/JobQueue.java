@@ -30,7 +30,7 @@ public class JobQueue<K extends HasID>{
 	public JobQueue(int capacity_, boolean ordered_){this(capacity_, ordered_, true, 0);}
 	
 	/**
-	 * Creates a new JobQueue with specified behavior.  Suggested capacity is 1+(2.5*threads).
+	 * Creates a new JobQueue with specified behavior.  Suggested capacity is 3+(1.5*threads).
 	 * 
 	 * @param capacity_ Maximum number of jobs allowed in queue before blocking producers (must be >1)
 	 * @param ordered_ If true, jobs are released in strict ID order; if false, jobs released as available

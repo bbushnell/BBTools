@@ -15,6 +15,7 @@ import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
 import stream.SamReadInputStream;
+import structures.ByteBuilder;
 
 /**
  * Single-threaded BAM reader that reads BAM files directly.
@@ -145,13 +146,14 @@ public class BamReadInputStreamST extends ReadInputStream {
 
 		int BUF_LEN=Shared.bufferLen();
 		buffer=new ArrayList<Read>(BUF_LEN);
+		final ByteBuilder cigar=new ByteBuilder(1024);
 
 		// Read alignment records until buffer full or EOF
 		try {
 			while(buffer.size()<BUF_LEN){
 				long block_size=reader.readUint32();
 				byte[] bamRecord=reader.readBytes((int)block_size);
-				SamLine sl=converter.toSamLine(bamRecord);
+				SamLine sl=converter.toSamLine(bamRecord, cigar);
 				Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
 				r.samline=sl;
 				r.numericID=nextReadID;

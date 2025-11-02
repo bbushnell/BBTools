@@ -12,6 +12,7 @@ import stream.bam.BamToSamConverter;
 import stream.bam.BgzfInputStream;
 import stream.bam.BgzfInputStreamMT;
 import stream.bam.BgzfSettings;
+import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
@@ -40,7 +41,7 @@ public class BamLineStreamer extends SamStreamer {
 	public BamLineStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, 
 		boolean ordered_, long maxReads_, boolean makeReads_){
 		super(ffin_, threads_, saveHeader_, ordered_, maxReads_, makeReads_);
-		final int queueSize=2*threads+3;
+		final int queueSize=3+(3*threads)/2;
 		outq=new JobQueue<ListNum<SamLine>>(queueSize, ordered, true, 0);
 		if(verbose) {System.err.println("Made BamLineStreamer-"+threads);}
 	}
@@ -126,6 +127,7 @@ public class BamLineStreamer extends SamStreamer {
 		/** Constructor */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
+			setName("BamLineStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 
@@ -294,6 +296,7 @@ public class BamLineStreamer extends SamStreamer {
 			}
 
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
+			final ByteBuilder cigar=new ByteBuilder(1024);
 			ListNum<byte[]> list=takeBytes();
 			while(list!=null && !list.poison()){
 				ListNum<SamLine> reads=new ListNum<SamLine>(
@@ -302,7 +305,7 @@ public class BamLineStreamer extends SamStreamer {
 				for(byte[] bamRecord : list){
 
 //					final SamLine sl=new SamLine(converter.convertAlignment(bamRecord));//Obsolete - reparse
-					final SamLine sl=converter.toSamLine(bamRecord);
+					final SamLine sl=converter.toSamLine(bamRecord, cigar);
 					assert(sl!=null);
 					if(sl!=null){
 						if(makeReads){

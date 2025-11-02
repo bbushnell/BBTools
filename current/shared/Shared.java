@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Shared functions and constants used across BBTools.
@@ -957,6 +958,47 @@ public class Shared {
 			sb.append(c);
 		}
 		return Double.parseDouble(sb.toString());
+	}
+	
+	//Gemini version
+	public static void listThreads() {
+		// Get a map of all active threads and their stack traces
+		Map<Thread, StackTraceElement[]> allThreads = Thread.getAllStackTraces();
+
+		// Get the set of Thread objects (keys of the map)
+		Set<Thread> threadSet = allThreads.keySet();
+
+		System.err.println("Active Threads in JVM:");
+		System.err.println("----------------------");
+
+		// Iterate over each Thread object and print its details
+		for (Thread t : threadSet) {
+			String name = t.getName();
+			Thread.State state = t.getState();
+			int priority = t.getPriority();
+			String type = t.isDaemon() ? "Daemon" : "Normal";
+
+			System.err.printf("Name: %-20s | State: %-10s | Priority: %d | Type: %s%n",
+				name, state, priority, type);
+		}
+	}
+
+	//Isla version
+	public static void listThreads2() {
+		ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
+		while(rootGroup.getParent() != null) {
+			rootGroup = rootGroup.getParent();
+		}
+		int count = rootGroup.activeCount();
+		Thread[] threads = new Thread[count * 2];
+		rootGroup.enumerate(threads);
+
+		System.err.println("Active Threads: " + count);
+		for(Thread t : threads) {
+			if(t != null) {
+				System.err.println("  " + t.getName() + " - " + t.getState());
+			}
+		}
 	}
 	
 	static{

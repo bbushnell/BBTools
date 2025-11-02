@@ -1,286 +1,139 @@
 package stream.bam;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
 import dna.AminoAcid;
-import shared.LineParser1;
+import shared.Parse;
 import stream.SamLine;
 import structures.ByteBuilder;
-import structures.IntList;
 
 /**
- * Converts SAM text/SamLine to BAM binary format.
+ * Converts SAM text/SamLine to BAM binary format with zero allocation in hot path.
  * Handles encoding of CIGAR, SEQ (4-bit), QUAL, and auxiliary tags.
  *
- * @author Chloe
- * @date October 18, 2025
+ * @author Isla
+ * @date November 1, 2025
  */
-public class SamToBamConverter {
+public class SamToBamConverter implements Cloneable {
 
 	private final Map<String, Integer> refMap;
-	private final byte[] seqLookup;
-	private final Map<Character, Integer> cigarOpMap;
 
-	// SEQ encoding lookup: '=ACMGRSVTWYHKDBN' -> [0,15]
-	private static final String SEQ_CHARS = "=ACMGRSVTWYHKDBN";
+	//CIGAR operation lookup: direct array instead of HashMap
+	private static final int[] CIGAR_OP_LOOKUP=new int[256];
 
-	// CIGAR operation encoding
-	private static final String CIGAR_OPS = "MIDNSHP=X";
+	static {
+		//Initialize with -1 for invalid ops
+		for(int i=0; i<256; i++){
+			CIGAR_OP_LOOKUP[i]=-1;
+		}
+		//CIGAR operations: MIDNSHP=X -> 0-8
+		String ops="MIDNSHP=X";
+		for(int i=0; i<ops.length(); i++){
+			CIGAR_OP_LOOKUP[ops.charAt(i)]=i;
+		}
+	}
+	
+	public SamToBamConverter clone() {
+		try{
+			return (SamToBamConverter)super.clone();
+		}catch(CloneNotSupportedException e){
+			throw new RuntimeException(e);
+		}
+	}
 
-	public SamToBamConverter(String[] refNames) {
-		// Build reference name to ID map
-		refMap = new HashMap<>();
-		for (int i = 0; i < refNames.length; i++) {
+	public SamToBamConverter(String[] refNames){
+		//Build reference name to ID map
+		refMap=new HashMap<>();
+		for(int i=0; i<refNames.length; i++){
 			refMap.put(refNames[i], i);
 		}
-
-		// Build SEQ lookup table
-		seqLookup = new byte[256];
-		Arrays.fill(seqLookup, (byte)15); // Default to 'N'
-		for (int i = 0; i < SEQ_CHARS.length(); i++) {
-			char c = SEQ_CHARS.charAt(i);
-			seqLookup[c] = (byte)i;
-			seqLookup[Character.toLowerCase(c)] = (byte)i;
-		}
-
-		// Build CIGAR operation map
-		cigarOpMap = new HashMap<>();
-		for (int i = 0; i < CIGAR_OPS.length(); i++) {
-			cigarOpMap.put(CIGAR_OPS.charAt(i), i);
-		}
 	}
-
-	/**
-	 * Convert a SamLine to BAM binary format.
-	 * @return Complete BAM record, excluding block_size prefix
-	 */
-
-
-	/**
-	 * Convert a SamLine to BAM binary format.
-	 * @return Complete BAM record, excluding block_size prefix
-	 */
-	public byte[] convertAlignmentOld(SamLine sl) throws IOException {
-		ByteArrayOutputStream baos = new ByteArrayOutputStream(64/*sl.estimateBamLength()*/);
-		BamWriterHelper writer = new BamWriterHelper(baos);
-
-		// Get reference IDs
-		int refID = getRefID(sl.rnameS()); // Use rnameS() which returns String regardless of storage mode
-		int nextRefID = getNextRefID(sl.rnext(), refID);
-
-		// Calculate bin
-		int bin = calculateBin(sl);
-
-		// Encode CIGAR
-		int[] cigarOps = encodeCigar(sl.cigar);
-
-		// Get sequence length
-		int seqLen = (sl.seq == null || sl.seq.length == 0) ? 0 : sl.seq.length;
-
-		// Write fixed-length fields (32 bytes)
-		writer.writeInt32(refID);
-		writer.writeInt32(sl.pos - 1); // Convert 1-based to 0-based
-		writer.writeUint8(sl.qname.length() + 1); // Include null terminator
-		writer.writeUint8(sl.mapq);
-		writer.writeUint16(bin);
-		writer.writeUint16(cigarOps.length);
-		writer.writeUint16(sl.flag);
-		writer.writeUint32(seqLen);
-		writer.writeInt32(nextRefID);
-		writer.writeInt32(sl.pnext - 1); // Convert 1-based to 0-based
-		writer.writeInt32(sl.tlen);
-
-		// Write variable-length fields
-
-		// QNAME with null terminator
-		writer.writeString(sl.qname);
-		writer.writeUint8(0);
-
-		// CIGAR
-		for (int cigOp : cigarOps) {
-			writer.writeUint32(cigOp);
-		}
-
-		// SEQ (4-bit encoded)
-		// SamLine stores reverse-strand sequences in RC form (FLIP_ON_LOAD convention)
-		// When writing to BAM, we must RC back to original orientation (matching toBytes() behavior)
-		byte[] seqToEncode = sl.seq;
-		boolean mapped = refID >= 0;
-		boolean reverseStrand = (sl.flag & 0x10) != 0;
-		if (mapped && reverseStrand && sl.seq != null && sl.seq.length > 0) {
-			seqToEncode = reverseComplement(sl.seq);
-		}
-
-		byte[] packedSeq = encodeSeq(seqToEncode);
-		writer.writeBytes(packedSeq);
-
-		// QUAL (raw phred scores)
-		// Also reverse QUAL for reverse-strand reads (matching toBytes() behavior)
-		byte[] qualToEncode = sl.qual;
-		if (mapped && reverseStrand && sl.qual != null && sl.qual.length > 0) {
-			qualToEncode = reverseArray(sl.qual);
-		}
-		byte[] rawQual = encodeQual(qualToEncode, seqLen);
-		writer.writeBytes(rawQual);
-
-		// Auxiliary tags
-		if (sl.optional != null) {
-			for (String tag : sl.optional) {
-				encodeTag(writer, tag);
-			}
-		}
-
-		// Return the record bytes without block_size prefix
-		// (block_size is added by BamWriter when writing to stream)
-		return baos.toByteArray();
-	}
-
 	
 	/**
 	 * Convert a SamLine to BAM binary format.
 	 * @return Complete BAM record, including block_size prefix
 	 */
-	public byte[] convertAlignment(SamLine sl) {
-		ByteBuilder bb = new ByteBuilder(128);
-
-		// Get reference IDs
-		int refID = getRefID(sl.rnameS());
-		int nextRefID = getNextRefID(sl.rnext(), refID);
-
-		// Calculate bin
-		int bin = calculateBin(sl);
-
-		// Encode CIGAR
-		int[] cigarOps = encodeCigar(sl.cigar);
-
-		// Get sequence length
-		int seqLen = (sl.seq == null || sl.seq.length == 0) ? 0 : sl.seq.length;
-
-		// Write fixed-length fields (32 bytes)
-		bb.appendI32LE(refID);
-		bb.appendI32LE(sl.pos - 1); // Convert 1-based to 0-based
-		bb.appendU8((sl.qname.length() + 1)); // Include null terminator
-		bb.appendU8(sl.mapq);
-		bb.appendU16LE(bin);
-		bb.appendU16LE(cigarOps.length);
-		bb.appendU16LE(sl.flag);
-		bb.appendU32LE(seqLen);
-		bb.appendI32LE(nextRefID);
-		bb.appendI32LE(sl.pnext - 1); // Convert 1-based to 0-based
-		bb.appendI32LE(sl.tlen);
-
-		// QNAME with null terminator
-		bb.append(sl.qname).append((byte)0);
-
-		// CIGAR
-		for (int cigOp : cigarOps) {
-			bb.appendU32LE(cigOp);
-		}
-
-		// SEQ (4-bit encoded)
-		byte[] seqToEncode = sl.seq;
-		boolean mapped = refID >= 0;
-		boolean reverseStrand = (sl.flag & 0x10) != 0;
-		if (mapped && reverseStrand && sl.seq != null && sl.seq.length > 0) {
-			seqToEncode = reverseComplement(sl.seq);
-		}
-		byte[] packedSeq = encodeSeq(seqToEncode);
-		bb.append(packedSeq);
-
-		// QUAL (raw phred scores)
-		byte[] qualToEncode = sl.qual;
-		if (mapped && reverseStrand && sl.qual != null && sl.qual.length > 0) {
-			qualToEncode = reverseArray(sl.qual);
-		}
-		byte[] rawQual = encodeQual(qualToEncode, seqLen);
-		bb.append(rawQual);
-
-		// Auxiliary tags
-		if (sl.optional != null) {
-			for (String tag : sl.optional) {
-				encodeTag(bb, tag);
-			}
-		}
-
+	public byte[] convertAlignment(SamLine sl){
+		ByteBuilder bb=new ByteBuilder(128);
+		appendAlignment(sl, bb);
+		bb.trimByAmount(4, 0);
 		return bb.toBytes();
 	}
 
-	
 	/**
-	 * Convert a SamLine to BAM binary format.
-	 * @return Complete BAM record, including block_size prefix
+	 * Convert a SamLine to BAM binary format, appending to ByteBuilder.
+	 * Zero allocation hot path.
+	 * @return ByteBuilder for chaining
 	 */
-	public ByteBuilder appendAlignment(SamLine sl, ByteBuilder bb) {
-		// Reserve 4 bytes for block_size (will patch at end)
+	public ByteBuilder appendAlignment(final SamLine sl, final ByteBuilder bb){
+		//Reserve 4 bytes for block_size (will patch at end)
 		final int initialLength=bb.length();
-		bb.appendI32LE(0); // Placeholder
 
-		// Get reference IDs
-		int refID = getRefID(sl.rnameS());
-		int nextRefID = getNextRefID(sl.rnext(), refID);
+		//Get reference IDs
+		int refID=getRefID(sl.rnameS());
+		int nextRefID=getNextRefID(sl.rnext(), refID);
 
-		// Calculate bin
-		int bin = calculateBin(sl);
+		//Calculate bin and alignment length from CIGAR
+		long binAndLen=calculateBinAndLength(sl);
+		int bin=(int)(binAndLen>>32);
+		int cigarOpCount=(int)binAndLen;
 
-		// Encode CIGAR
-		int[] cigarOps = encodeCigar(sl.cigar);
+		//Get sequence length
+		int seqLen=(sl.seq == null || sl.seq.length == 0) ? 0 : sl.seq.length;
 
-		// Get sequence length
-		int seqLen = (sl.seq == null || sl.seq.length == 0) ? 0 : sl.seq.length;
+		int estimatedSize=36+ 
+			sl.qname.length()+1+
+			cigarOpCount*4+
+			(seqLen+1)/2+  // packed seq
+			seqLen+              // qual
+			(sl.optional==null ? 0 : 20*sl.optional.size());
+		bb.expand(estimatedSize);
 
-		// Write fixed-length fields (32 bytes)
+		bb.appendI32LE(0); //Placeholder
+		//Write fixed-length fields (32 bytes)
 		bb.appendI32LE(refID);
-		bb.appendI32LE(sl.pos - 1); // Convert 1-based to 0-based
-		bb.appendU8((sl.qname.length() + 1)); // Include null terminator
+		bb.appendI32LE(sl.pos-1); //Convert 1-based to 0-based
+		bb.appendU8(sl.qname.length()+1); //Include null terminator
 		bb.appendU8(sl.mapq);
 		bb.appendU16LE(bin);
-		bb.appendU16LE(cigarOps.length);
+		bb.appendU16LE(cigarOpCount);
 		bb.appendU16LE(sl.flag);
 		bb.appendU32LE(seqLen);
 		bb.appendI32LE(nextRefID);
-		bb.appendI32LE(sl.pnext - 1); // Convert 1-based to 0-based
+		bb.appendI32LE(sl.pnext-1); //Convert 1-based to 0-based
 		bb.appendI32LE(sl.tlen);
 
-		// QNAME with null terminator
+		//QNAME with null terminator
 		bb.append(sl.qname).append((byte)0);
 
-		// CIGAR
-		for (int cigOp : cigarOps) {
-			bb.appendU32LE(cigOp);
-		}
+		//CIGAR-encode directly to ByteBuilder
+		appendCigar(bb, sl.cigar);
+		
+		//SEQ (4-bit encoded)-no temp arrays
+		boolean mapped=(refID>=0);
+		boolean reverseStrand=((sl.flag & 0x10)!=0);
+		if(sl.seq==null || sl.seq.length==0) {
+			//Do nothing
+		}else if(mapped && reverseStrand && sl.seq!=null && sl.seq.length>0){
+			appendSeqReverseComplement(bb, sl.seq);
+		}else{appendSeq(bb, sl.seq);}
+		
+		//Qual is already 0-based
+		assert(sl.qual==null || sl.qual.length==seqLen) : 
+			"QUAL length mismatch: qual.length="+sl.qual.length+" != seqLen="+seqLen;
+		if(sl.qual==null || sl.qual.length!=seqLen){
+			appendSymbol(bb, (byte)0xFF, seqLen);
+		}else if(mapped && reverseStrand){
+			appendReversed(bb, sl.qual);
+		}else{bb.append(sl.qual);}
 
-		// SEQ (4-bit encoded)
-		byte[] seqToEncode = sl.seq;
-		boolean mapped = refID >= 0;
-		boolean reverseStrand = (sl.flag & 0x10) != 0;
-		if (mapped && reverseStrand && sl.seq != null && sl.seq.length > 0) {
-			seqToEncode = reverseComplement(sl.seq);
+		//Auxiliary tags-parse and append directly
+		if(sl.optional!=null){
+			for(String tag : sl.optional){appendTag(bb, tag);}
 		}
-		byte[] packedSeq = encodeSeq(seqToEncode);
-		bb.append(packedSeq);
-
-		// QUAL (raw phred scores)
-		byte[] qualToEncode = sl.qual;
-		if (mapped && reverseStrand && sl.qual != null && sl.qual.length > 0) {
-			qualToEncode = reverseArray(sl.qual);
-		}
-		byte[] rawQual = encodeQual(qualToEncode, seqLen);
-		bb.append(rawQual);
-
-		// Auxiliary tags
-		if (sl.optional != null) {
-			for (String tag : sl.optional) {
-				encodeTag(bb, tag);
-			}
-		}
-
-		// Patch block_size at beginning (length excluding the 4-byte block_size itself)
-		final int blockSize=bb.length-initialLength-4;
+		//Patch block_size at beginning (length excluding the 4-byte block_size itself)
+		final int blockSize=bb.length()-initialLength-4;
 		bb.setI32LE(blockSize, initialLength);
 		return bb;
 	}
@@ -288,264 +141,198 @@ public class SamToBamConverter {
 	/**
 	 * Get reference ID from reference name string.
 	 */
-	private int getRefID(String rname) {
-		if (rname == null || rname.equals("*")) {
+	private int getRefID(String rname){
+		if(rname == null || rname.equals("*")){
 			return -1;
 		}
-		Integer id = refMap.get(rname);
+		Integer id=refMap.get(rname);
 		return (id != null) ? id : -1;
 	}
 
 	/**
 	 * Get next reference ID from RNEXT.
 	 */
-	private int getNextRefID(byte[] rnext, int currentRefID) {
-		if (rnext == null || rnext.length == 0) {
+	private int getNextRefID(byte[] rnext, int currentRefID){
+		if(rnext == null || rnext.length == 0){
 			return -1;
 		}
-		if (rnext.length == 1) {
-			if (rnext[0] == '*') {
+		if(rnext.length == 1){
+			if(rnext[0] == '*'){
 				return -1;
-			} else if (rnext[0] == '=') {
+			} else if(rnext[0] == '='){
 				return currentRefID;
 			}
 		}
-		String rnextStr = new String(rnext);
+		String rnextStr=new String(rnext);
 		return getRefID(rnextStr);
 	}
 
 	/**
-	 * Encode CIGAR string to binary format.
-	 * Each operation: (length << 4) | op_code
+	 * Append CIGAR operations directly to ByteBuilder.
+	 * Each operation: (length<<4) | op_code
 	 */
-	private int[] encodeCigar(String cigar) {
-		if (cigar == null || cigar.equals("*")) {
-			return new int[0];
+	private void appendCigar(ByteBuilder bb, String cigar){
+		if(cigar == null || cigar.equals("*")){return;}
+
+		int len=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(c>='0' && c<='9'){
+				len=len * 10+(c-'0');
+			} else {
+				int opCode=CIGAR_OP_LOOKUP[c];
+				if(opCode<0){
+					throw new RuntimeException("Unknown CIGAR operation: "+c);
+				}
+				bb.appendU32LE((len<<4) | opCode);
+				len=0;
+			}
+		}
+	}
+
+	/**
+	 * Calculate bin and CIGAR operation count in one pass.
+	 * Returns packed long: (bin<<32) | cigarOpCount
+	 */
+	private long calculateBinAndLength(SamLine sl){
+		if(sl.pos<=0 || sl.cigar == null || sl.cigar.equals("*")){
+			return (4680L<<32); //Unmapped, 0 ops
 		}
 
-		// Parse CIGAR string
-		int[] ops = new int[cigar.length()]; // Overestimate
-		int count = 0;
-		int len = 0;
+		String cigar=sl.cigar;
+		int refLength=0;
+		int cigarOpCount=0;
+		int num=0;
 
-		for (int i = 0; i < cigar.length(); i++) {
-			char c = cigar.charAt(i);
-			if (c >= '0' && c <= '9') {
-				len = len * 10 + (c - '0');
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(c>='0' && c<='9'){
+				num=num * 10+(c-'0');
 			} else {
-				Integer opCode = cigarOpMap.get(c);
-				if (opCode == null) {
-					throw new RuntimeException("Unknown CIGAR operation: " + c);
+				//Count operations
+				cigarOpCount++;
+
+				//Operations that consume reference: M, D, N, =, X
+				if(c == 'M' || c == 'D' || c == 'N' || c == '=' || c == 'X'){
+					refLength += num;
 				}
-				ops[count++] = (len << 4) | opCode;
-				len = 0;
+				num=0;
 			}
 		}
 
-		// Trim to actual size
-		return Arrays.copyOf(ops, count);
+		int beg=sl.pos-1; //0-based
+		int end=beg+refLength;
+		int bin=reg2bin(beg, end);
+
+		return ((long)bin<<32) | (cigarOpCount & 0xFFFFFFFFL);
 	}
 
 	/**
-	 * Encode SEQ to 4-bit format (2 bases per byte).
+	 * Append 4-bit encoded sequence directly to ByteBuilder.
 	 */
-	private byte[] encodeSeq(byte[] seq) {
-		if (seq == null || seq.length == 0) {
-			return new byte[0];
+	private void appendSeq(ByteBuilder bb, byte[] seq){
+		final byte[] array=bb.array;
+		final int limit=(seq.length/2) * 2; //Even pairs
+		int pos=bb.length;
+
+		//Main loop-branchless
+		for(int i=0; i<limit; i += 2){
+			int hi=AminoAcid.baseToNumberExtended[seq[i]] & 0x0F;
+			int lo=AminoAcid.baseToNumberExtended[seq[i+1]] & 0x0F;
+			array[pos++]=(byte)((hi<<4) | lo);
 		}
 
-		byte[] packed = new byte[(seq.length + 1) / 2];
-		for (int i = 0; i < seq.length; i++) {
-			int val = seqLookup[seq[i] & 0xFF];
-			if (i % 2 == 0) {
-				packed[i / 2] = (byte)(val << 4);
-			} else {
-				packed[i / 2] |= (byte)val;
-			}
+		//Handle odd length
+		if((seq.length & 1) != 0){
+			int hi=AminoAcid.baseToNumberExtended[seq[limit]] & 0x0F;
+			array[pos++]=(byte)(hi<<4);
 		}
-		return packed;
+
+		bb.length=pos;
 	}
 
 	/**
-	 * Encode QUAL to raw phred scores for BAM.
-	 * Per SAMv1 spec section 4.2.3: "Base qualities are stored as bytes in the range [0, 93],
-	 * without any +33 conversion to printable ASCII."
-	 *
-	 * NOTE: SamLine already stores qual as raw phred (SamLine.java line 631 does qual[i]-=33),
-	 * so we just copy it directly to BAM without further conversion.
+	 * Append 4-bit encoded reverse-complemented sequence directly to ByteBuilder.
 	 */
-	private byte[] encodeQual(byte[] qual, int seqLen) {
-		if (qual == null || qual.length == 0) {
-			// Missing quality - use 0xFF per spec
-			byte[] missing = new byte[seqLen];
-			Arrays.fill(missing, (byte)0xFF);
-			return missing;
+	private void appendSeqReverseComplement(ByteBuilder bb, byte[] seq){
+		final byte[] array=bb.array;
+		int pos=bb.length;
+
+		//Start from end, work backwards in pairs
+		final int start=seq.length-1;
+		final int limit=seq.length & 1; //Stop at 1 if odd, 0 if even
+
+		//Main loop-branchless, iterate from end
+		for(int i=start; i>=limit; i -= 2){
+			int hi=AminoAcid.baseToComplementNumberExtended[seq[i]] & 0x0F;
+			int lo=AminoAcid.baseToComplementNumberExtended[seq[i-1]] & 0x0F;
+			array[pos++]=(byte)((hi<<4) | lo);
 		}
 
-		// Validate: quality length must match sequence length
-		if (qual.length != seqLen) {
-			throw new RuntimeException("QUAL length mismatch: qual.length=" + qual.length +
-			                           " but seqLen=" + seqLen +
-			                           ". SAM data is corrupted.");
+		//Handle odd length (first base)
+		if(limit != 0){
+			int hi=AminoAcid.baseToComplementNumberExtended[seq[0]] & 0x0F;
+			array[pos++]=(byte)(hi<<4);
 		}
 
-		// SamLine.qual is already raw phred - just return a copy
-		return qual.clone();
+		bb.length=pos;
 	}
 
 	/**
-	 * Encode an auxiliary tag from SAM text format to BAM binary.
+	 * Append reversed quality scores directly to ByteBuilder.
+	 */
+	private int appendReversed(ByteBuilder bb, byte[] qual){
+		final byte[] array=bb.array;
+		int pos=bb.length;
+		for(int i=qual.length-1; i>=0; i--){array[pos++]=qual[i];}
+		return bb.length=pos;
+	}
+	
+	private static int appendSymbol(final ByteBuilder bb, final byte symbol, final int amount){
+		final byte[] array=bb.array;
+		int pos=bb.length;
+		for(int i=0; i<amount; i++){array[pos++]=symbol;}
+		return bb.length=pos;
+	}
+
+	/**
+	 * Append auxiliary tag directly to ByteBuilder.
 	 * Format: TAG:TYPE:VALUE
+	 * Zero allocation parsing and encoding.
 	 */
-	private void encodeTag(BamWriterHelper writer, String tagStr) throws IOException {
-		// Parse tag using simple string operations
-		if (tagStr.length() < 5) {
-			throw new RuntimeException("Invalid tag format: " + tagStr);
+	private void appendTag(ByteBuilder bb, String tagStr){
+		if(tagStr.length()<5){
+			throw new RuntimeException("Invalid tag format: "+tagStr);
 		}
 
-		// Extract tag (2 chars), type (1 char), value (rest)
-		String tag = tagStr.substring(0, 2);
-		char type = tagStr.charAt(3);
-		String value = tagStr.substring(5);
+		//Write tag (2 bytes)
+		bb.appendU8(tagStr.charAt(0));
+		bb.appendU8(tagStr.charAt(1));
 
-		// Write tag (2 bytes)
-		writer.writeUint8(tag.charAt(0));
-		writer.writeUint8(tag.charAt(1));
+		char type=tagStr.charAt(3);
 
-		// Write type and value based on type
-		switch (type) {
-			case 'A': // Printable character
-				writer.writeUint8('A');
-				writer.writeUint8(value.charAt(0));
-				break;
-
-			case 'i': // Integer - choose smallest representation
-				long intVal = Long.parseLong(value);
-				if (intVal >= Byte.MIN_VALUE && intVal <= Byte.MAX_VALUE) {
-					writer.writeUint8('c');
-					writer.writeUint8((int)intVal);
-				} else if (intVal >= 0 && intVal <= 255) {
-					writer.writeUint8('C');
-					writer.writeUint8((int)intVal);
-				} else if (intVal >= Short.MIN_VALUE && intVal <= Short.MAX_VALUE) {
-					writer.writeUint8('s');
-					writer.writeInt16((int)intVal);
-				} else if (intVal >= 0 && intVal <= 65535) {
-					writer.writeUint8('S');
-					writer.writeUint16((int)intVal);
-				} else if (intVal >= Integer.MIN_VALUE && intVal <= Integer.MAX_VALUE) {
-					writer.writeUint8('i');
-					writer.writeInt32((int)intVal);
-				} else {
-					writer.writeUint8('I');
-					writer.writeUint32(intVal);
-				}
-				break;
-
-			case 'f': // Float
-				writer.writeUint8('f');
-				float floatVal = Float.parseFloat(value);
-				writer.writeFloat(floatVal);
-				break;
-
-			case 'Z': // String
-				writer.writeUint8('Z');
-				writer.writeString(value);
-				writer.writeUint8(0); // Null terminator
-				break;
-
-			case 'H': // Hex string
-				writer.writeUint8('H');
-				writer.writeString(value);
-				writer.writeUint8(0); // Null terminator
-				break;
-
-			case 'B': // Array
-				writer.writeUint8('B');
-				// Parse array: type,val1,val2,...
-				String[] parts = value.split(",");
-				if (parts.length < 1) {
-					throw new RuntimeException("Invalid array tag: " + tagStr);
-				}
-				char arrayType = parts[0].charAt(0);
-				writer.writeUint8(arrayType);
-				writer.writeInt32(parts.length - 1); // Count
-
-				for (int i = 1; i < parts.length; i++) {
-					switch (arrayType) {
-						case 'c':
-							writer.writeUint8(Integer.parseInt(parts[i]));
-							break;
-						case 'C':
-							writer.writeUint8(Integer.parseInt(parts[i]));
-							break;
-						case 's':
-							writer.writeInt16(Integer.parseInt(parts[i]));
-							break;
-						case 'S':
-							writer.writeUint16(Integer.parseInt(parts[i]));
-							break;
-						case 'i':
-							writer.writeInt32(Integer.parseInt(parts[i]));
-							break;
-						case 'I':
-							writer.writeUint32(Long.parseLong(parts[i]));
-							break;
-						case 'f':
-							writer.writeFloat(Float.parseFloat(parts[i]));
-							break;
-						default:
-							throw new RuntimeException("Unknown array type: " + arrayType);
-					}
-				}
-				break;
-
-			default:
-				throw new RuntimeException("Unknown tag type: " + type);
-		}
-	}
-
-	/**
-	 * Encode an auxiliary tag from SAM text format to BAM binary.
-	 * Format: TAG:TYPE:VALUE
-	 */
-	private void encodeTag(ByteBuilder bb, String tagStr) {
-		// Parse tag using simple string operations
-		if (tagStr.length() < 5) {
-			throw new RuntimeException("Invalid tag format: " + tagStr);
-		}
-
-		// Extract tag (2 chars), type (1 char), value (rest)
-		String tag = tagStr.substring(0, 2);
-		char type = tagStr.charAt(3);
-		String value = tagStr.substring(5);
-
-		// Write tag (2 bytes)
-		bb.appendU8(tag.charAt(0));
-		bb.appendU8(tag.charAt(1));
-
-		// Write type and value based on type
-		switch (type) {
-			case 'A': // Printable character
+		//Write type and value based on type
+		switch (type){
+			case 'A': //Printable character
 				bb.appendU8('A');
-				bb.appendU8(value.charAt(0));
+				bb.appendU8(tagStr.charAt(5));
 				break;
 
-			case 'i': // Integer - choose smallest representation
-				long intVal = Long.parseLong(value);
-				if (intVal >= Byte.MIN_VALUE && intVal <= Byte.MAX_VALUE) {
+			case 'i': { //Integer-choose smallest representation
+				long intVal=Parse.parseLong(tagStr, 5, tagStr.length());
+				if(intVal>=Byte.MIN_VALUE && intVal<=Byte.MAX_VALUE){
 					bb.appendU8('c');
 					bb.appendU8((int)intVal);
-				} else if (intVal >= 0 && intVal <= 255) {
+				} else if(intVal>=0 && intVal<=255){
 					bb.appendU8('C');
 					bb.appendU8((int)intVal);
-				} else if (intVal >= Short.MIN_VALUE && intVal <= Short.MAX_VALUE) {
+				} else if(intVal>=Short.MIN_VALUE && intVal<=Short.MAX_VALUE){
 					bb.appendU8('s');
 					bb.appendU16LE((int)intVal);
-				} else if (intVal >= 0 && intVal <= 65535) {
+				} else if(intVal>=0 && intVal<=65535){
 					bb.appendU8('S');
 					bb.appendU16LE((int)intVal);
-				} else if (intVal >= Integer.MIN_VALUE && intVal <= Integer.MAX_VALUE) {
+				} else if(intVal>=Integer.MIN_VALUE && intVal<=Integer.MAX_VALUE){
 					bb.appendU8('i');
 					bb.appendI32LE((int)intVal);
 				} else {
@@ -553,144 +340,107 @@ public class SamToBamConverter {
 					bb.appendU32LE(intVal);
 				}
 				break;
+			}
 
-			case 'f': // Float
+			case 'f': //Float
 				bb.appendU8('f');
-				float floatVal = Float.parseFloat(value);
+				float floatVal=Parse.parseFloat(tagStr, 5);
 				bb.appendFloatLE(floatVal);
 				break;
 
-			case 'Z': // String
+			case 'Z': //String
 				bb.appendU8('Z');
-				bb.append(value);
-				bb.appendU8(0); // Null terminator
+				appendSubstring(bb, tagStr, 5, tagStr.length());
+				bb.appendU8(0); //Null terminator
 				break;
 
-			case 'H': // Hex string
+			case 'H': //Hex string
 				bb.appendU8('H');
-				bb.append(value);
-				bb.appendU8(0); // Null terminator
+				appendSubstring(bb, tagStr, 5, tagStr.length());
+				bb.appendU8(0); //Null terminator
 				break;
 
-			case 'B': // Array
+			case 'B': //Array
 				bb.appendU8('B');
-				// Parse array: type,val1,val2,...
-				String[] parts = value.split(",");
-				if (parts.length < 1) {
-					throw new RuntimeException("Invalid array tag: " + tagStr);
-				}
-				char arrayType = parts[0].charAt(0);
-				bb.appendU8(arrayType);
-				bb.appendI32LE(parts.length - 1); // Count
-
-				for (int i = 1; i < parts.length; i++) {
-					switch (arrayType) {
-						case 'c':
-							bb.appendU8(Integer.parseInt(parts[i]));
-							break;
-						case 'C':
-							bb.appendU8(Integer.parseInt(parts[i]));
-							break;
-						case 's':
-							bb.appendU16LE(Integer.parseInt(parts[i]));
-							break;
-						case 'S':
-							bb.appendU16LE(Integer.parseInt(parts[i]));
-							break;
-						case 'i':
-							bb.appendI32LE(Integer.parseInt(parts[i]));
-							break;
-						case 'I':
-							bb.appendU32LE(Long.parseLong(parts[i]));
-							break;
-						case 'f':
-							bb.appendFloatLE(Float.parseFloat(parts[i]));
-							break;
-						default:
-							throw new RuntimeException("Unknown array type: " + arrayType);
-					}
-				}
+				appendArrayTag(bb, tagStr, 5);
 				break;
 
 			default:
-				throw new RuntimeException("Unknown tag type: " + type);
+				throw new RuntimeException("Unknown tag type: "+type);
 		}
 	}
 
 	/**
-	 * Calculate BAM bin using reg2bin algorithm from SAMv1 spec.
+	 * Append array tag values directly to ByteBuilder.
+	 * Format: type,val1,val2,...
 	 */
-	private int calculateBin(SamLine sl) {
-		if (sl.pos <= 0) {
-			return 4680; // Special value for unmapped
-		}
+	private void appendArrayTag(ByteBuilder bb, String value, int start){
+		//Find array type (first char after TAG:TYPE:B:)
+		char arrayType=value.charAt(start);
+		bb.appendU8(arrayType);
 
-		int beg = sl.pos - 1; // 0-based
-		int end = beg + calculateAlignmentLength(sl.cigar);
-		return reg2bin(beg, end);
-	}
+		//Count elements and write count placeholder
+		int countPos=bb.length();
+		bb.appendI32LE(0); //Placeholder
 
-	/**
-	 * Calculate alignment length from CIGAR string.
-	 */
-	private int calculateAlignmentLength(String cigar) {
-		if (cigar == null || cigar.equals("*")) {
-			return 0;
-		}
+		//Parse and write values
+		int count=0;
+		int i=start+2; //Skip type and comma
 
-		int length = 0;
-		int num = 0;
+		while (i<value.length()){
+			int commaPos=value.indexOf(',', i);
+			if(commaPos<0) commaPos=value.length();
 
-		for (int i = 0; i < cigar.length(); i++) {
-			char c = cigar.charAt(i);
-			if (c >= '0' && c <= '9') {
-				num = num * 10 + (c - '0');
-			} else {
-				// Operations that consume reference: M, D, N, =, X
-				if (c == 'M' || c == 'D' || c == 'N' || c == '=' || c == 'X') {
-					length += num;
-				}
-				num = 0;
+			switch (arrayType){
+				case 'c':
+				case 'C':
+					bb.appendU8(Parse.parseInt(value, i, commaPos));
+					break;
+				case 's':
+				case 'S':
+					bb.appendU16LE(Parse.parseInt(value, i, commaPos));
+					break;
+				case 'i':
+					bb.appendI32LE(Parse.parseInt(value, i, commaPos));
+					break;
+				case 'I':
+					bb.appendU32LE(Parse.parseLong(value, i, commaPos));
+					break;
+				case 'f':
+					bb.appendFloatLE(Parse.parseFloat(value, i, commaPos));
+					break;
+				default:
+					throw new RuntimeException("Unknown array type: "+arrayType);
 			}
+
+			count++;
+			i=commaPos+1;
 		}
 
-		return length;
+		//Patch count
+		bb.setI32LE(count, countPos);
+	}
+
+	/**
+	 * Append substring directly to ByteBuilder without allocation.
+	 */
+	private void appendSubstring(ByteBuilder bb, String s, int start, int end){
+		for(int i=start; i<end; i++){
+			bb.append((byte)s.charAt(i));
+		}
 	}
 
 	/**
 	 * Calculate BAM bin for a region [beg, end).
 	 * Implementation from SAMv1.pdf page 20.
 	 */
-	private int reg2bin(int beg, int end) {
+	private int reg2bin(int beg, int end){
 		--end;
-		if (beg >> 14 == end >> 14) return ((1 << 15) - 1) / 7 + (beg >> 14);
-		if (beg >> 17 == end >> 17) return ((1 << 12) - 1) / 7 + (beg >> 17);
-		if (beg >> 20 == end >> 20) return ((1 << 9) - 1) / 7 + (beg >> 20);
-		if (beg >> 23 == end >> 23) return ((1 << 6) - 1) / 7 + (beg >> 23);
-		if (beg >> 26 == end >> 26) return ((1 << 3) - 1) / 7 + (beg >> 26);
+		if(beg>>14 == end>>14) return ((1<<15)-1)/7+(beg>>14);
+		if(beg>>17 == end>>17) return ((1<<12)-1)/7+(beg>>17);
+		if(beg>>20 == end>>20) return ((1<<9)-1)/7+(beg>>20);
+		if(beg>>23 == end>>23) return ((1<<6)-1)/7+(beg>>23);
+		if(beg>>26 == end>>26) return ((1<<3)-1)/7+(beg>>26);
 		return 0;
-	}
-
-	/**
-	 * Reverse-complement a DNA sequence.
-	 * Used to restore original orientation for reverse-strand reads.
-	 */
-	private static byte[] reverseComplement(byte[] seq) {
-		byte[] rc = new byte[seq.length];
-		for (int i = 0, j = seq.length - 1; i < seq.length; i++, j--) {
-			rc[i] = AminoAcid.baseToComplementExtended[seq[j]];
-		}
-		return rc;
-	}
-
-	/**
-	 * Reverse an array (used for quality scores).
-	 */
-	private static byte[] reverseArray(byte[] arr) {
-		byte[] reversed = new byte[arr.length];
-		for (int i = 0, j = arr.length - 1; i < arr.length; i++, j--) {
-			reversed[i] = arr[j];
-		}
-		return reversed;
 	}
 }

@@ -250,7 +250,7 @@ public abstract class SamStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	
 	public static int LIST_SIZE=200;
-	public static int DEFAULT_THREADS=6;
+	public static int DEFAULT_THREADS=6;//TODO: Split. 7 for bam, 4 for sam is currently max for sam output
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
