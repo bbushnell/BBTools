@@ -609,6 +609,17 @@ public final class Vector {
 		return success;
 	}
 	
+	private static synchronized boolean vectorLoaded() {
+		try{Class.forName("jdk.incubator.vector.ByteVector");}
+		catch(ClassNotFoundException e){return false;}
+		return true;
+	}
+
+	private static synchronized boolean simd256Avaliable() {
+		try{return SIMD.maxVectorLength()>=256;}
+		catch(Throwable e){return false;}
+	}
+	
 	public static final int MINLEN8=32;
 	public static final int MINLEN16=16;
 	public static final int MINLEN32=16;//16 or 32 are optimal; 0, 24, and 48 are worse.
@@ -616,4 +627,7 @@ public final class Vector {
 	public static boolean SIMDCOPY=false;//Does not seem to affect speed, but could increase power usage.
 	public static boolean SIMD_MULT_SPARSE=true;//Grants a speedup, and same results (but currently broken at ebs=1)
 	public static boolean SIMD_FMA_SPARSE=true;//Grants a speedup, slightly different results
+	public static final boolean vectorLoaded=vectorLoaded();
+	public static final boolean simd256=simd256Avaliable();
+	
 }

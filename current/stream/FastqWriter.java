@@ -37,7 +37,7 @@ public class FastqWriter implements Writer {
 				ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(args[4]);
 		}
 
-		ByteFile.FORCE_MODE_BF2=true;
+//		ByteFile.FORCE_MODE_BF4=false;
 		FileFormat ffin=FileFormat.testInput(in, FileFormat.FASTQ, null, true, true);
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.FASTQ, null, true, true, false, true);
 		
@@ -49,6 +49,7 @@ public class FastqWriter implements Writer {
 		
 		Streamer st=StreamerFactory.makeStreamer(ffin, 0, true, -1, true, outputReads);
 		Writer fw=WriterFactory.makeWriter(ffout, true, true, threads, null, ffin.samOrBam());
+//		assert(false) : "\n"+ffin+"\n"+ffout+"\n"+st.getClass()+"\n"+fw.getClass();
 		process(st, fw, t, inputReads || outputReads);
 	}
 	

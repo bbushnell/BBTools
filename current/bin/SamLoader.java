@@ -77,7 +77,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		final int covThreadsPF=allocation[3];
 		
 		System.err.println("Using "+zipThreadsPF+":"+streamerThreadsPF+":"+covThreadsPF+
-			" zip:stream:cov threads for "+files+" files and "+Shared.threads()+" threads.");
+			" zip:stream:cov threads for "+files+" files and "+Tools.plural("thread", Shared.threads())+".");
 		
 		ArrayList<SamStreamer> sslist=new ArrayList<SamStreamer>(files);
 		AtomicLongArray[] covlist=new AtomicLongArray[files];
