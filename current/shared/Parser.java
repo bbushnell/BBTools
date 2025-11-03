@@ -614,11 +614,11 @@ public class Parser {
 		}else if(a.equals("bf1bufferlen")){
 			ByteFile1.bufferlen=(int)Parse.parseKMGBinary(b);
 		}else if(a.equalsIgnoreCase("bf2") || a.equalsIgnoreCase("bytefile2")){
-			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
+			ByteFile.FORCE_MODE_BF2=Parse.parseBoolean(b);
+			if(ByteFile.FORCE_MODE_BF2) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equalsIgnoreCase("bf4") || a.equalsIgnoreCase("bytefile4")){
-			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
+			ByteFile.FORCE_MODE_BF4=Parse.parseBoolean(b);
+			if(ByteFile.FORCE_MODE_BF4) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=false;}
 		}else if(a.equals("utot")){
 			Read.U_TO_T=Parse.parseBoolean(b);
 		}else if(a.equals("usejni") || a.equals("jni")){
