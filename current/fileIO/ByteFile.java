@@ -28,19 +28,9 @@ public abstract class ByteFile {
 	}
 	
 	public static final ByteFile makeByteFile(FileFormat ff, int type){
-//		if(type==0 && Shared.threads()>8) {System.err.println("BF4");return new ByteFile4(ff);}
-		if(type==1){return new ByteFile1(ff);}
-		if(type==2){return new ByteFile2(ff);}
+		type=pickType(type);
 		if(type==4){return new ByteFile4(ff);}
-//		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF4 || (!FORCE_MODE_BF1 && !FORCE_MODE_BF2 && Shared.threads()>8/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
-////			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
-//			return new ByteFile4(ff);
-//		}
-		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF2 || (!FORCE_MODE_BF1 && Shared.threads()>6/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
-//			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
-			return new ByteFile2(ff);
-		}
-//		if(FORCE_MODE_BF3){return new QuickFile(ff);}
+		if(type==2){return new ByteFile2(ff);}
 		return new ByteFile1(ff);
 	}
 	
@@ -126,19 +116,34 @@ public abstract class ByteFile {
 	public final String name(){return ff.name();}
 	public final boolean allowSubprocess(){return ff.allowSubprocess();}
 	
+	private static final int pickType(int type) {
+		if(type==4 && !ALLOW_BF4) {type=0;}
+		else if(type==2 && !ALLOW_BF2) {type=0;}
+		else if(type==1 && !ALLOW_BF1) {type=0;}
+		if(type>0) {return type;}
+		assert(type==0) : type;
+		
+		final int threads=Shared.threads();
+		if(FORCE_MODE_BF1) {return 1;}
+		if(FORCE_MODE_BF4) {return 4;}
+		if(FORCE_MODE_BF2) {return 2;}
+		
+		if(Shared.LOW_MEMORY || threads<=8) {return 1;}
+		if(ALLOW_BF4) {return 4;}
+		if(ALLOW_BF2) {return 2;}
+		return 1;
+	}
+	
 	public final FileFormat ff;
 	
 	/** Force usage of ByteFile1 */
-	public static boolean FORCE_MODE_BF1=false;//!(Data.GENEPOOL || Data.DENOVO || Data.CORI || Shared.WINDOWS);
-	
-	/** Force usage of ByteFile2 */
+	public static boolean FORCE_MODE_BF1=false;
 	public static boolean FORCE_MODE_BF2=false;
-	
-	/** Unused */
-	@Deprecated
-	public static boolean FORCE_MODE_BF3=false;
-	
 	public static boolean FORCE_MODE_BF4=false;
+
+	public static boolean ALLOW_BF1=true;
+	public static boolean ALLOW_BF2=true;
+	public static boolean ALLOW_BF4=true;
 	
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 	

@@ -608,22 +608,19 @@ public class Parser {
 			Read.SKIP_SLOW_VALIDATION=!Parse.parseBoolean(b);
 		}else if(a.equals("validatebranchless")){
 //			Read.VALIDATE_BRANCHLESS=Parse.parseBoolean(b);
-		}else if(a.equals("bf1")){
+		}else if(a.equalsIgnoreCase("bf1") || a.equalsIgnoreCase("bytefile1")){
 			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
-			ByteFile.FORCE_MODE_BF2=!ByteFile.FORCE_MODE_BF1;
+			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equals("bf1bufferlen")){
 			ByteFile1.bufferlen=(int)Parse.parseKMGBinary(b);
+		}else if(a.equalsIgnoreCase("bf2") || a.equalsIgnoreCase("bytefile2")){
+			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
+			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
+		}else if(a.equalsIgnoreCase("bf4") || a.equalsIgnoreCase("bytefile4")){
+			ByteFile.FORCE_MODE_BF1=Parse.parseBoolean(b);
+			if(ByteFile.FORCE_MODE_BF1) {ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equals("utot")){
 			Read.U_TO_T=Parse.parseBoolean(b);
-		}else if(a.equals("bf2")){
-			ByteFile.FORCE_MODE_BF2=Parse.parseBoolean(b);
-			ByteFile.FORCE_MODE_BF1=!ByteFile.FORCE_MODE_BF2;
-		}else if(a.equals("bf3")){
-			ByteFile.FORCE_MODE_BF3=Parse.parseBoolean(b);
-			if(ByteFile.FORCE_MODE_BF3){
-				ByteFile.FORCE_MODE_BF1=true;
-				ByteFile.FORCE_MODE_BF2=false;
-			}
 		}else if(a.equals("usejni") || a.equals("jni")){
 			Shared.USE_JNI=Parse.parseBoolean(b);
 		}else if(a.equals("usempi") || a.equals("mpi")){

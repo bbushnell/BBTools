@@ -310,6 +310,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	
 	public boolean errorState=false;
 	public static int MAX_SAM_LOADER_THREADS=1024;
-	public static int MAX_SAM_LOADER_THREADS_PER_FILE=3;
+	public static int MAX_SAM_LOADER_THREADS_PER_FILE=2;
+	public static final boolean verbose=true;
 	
 }

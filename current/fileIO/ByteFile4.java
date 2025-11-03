@@ -223,7 +223,18 @@ public final class ByteFile4 extends ByteFile{
 
 	@Override
 	public void pushBack(byte[] line){
-		throw new UnsupportedOperationException("pushBack not supported in ByteFile4");
+		if(currentList==null){
+			// Shouldn't happen, but be defensive
+			currentList=new ListNum<byte[]>(new ArrayList<byte[]>(), -1);
+			currentList.add(line);
+			listPos=0;
+		}else if(listPos>0){
+			listPos--;
+		}else{
+			// listPos==0, insert at beginning
+			assert(listPos==0 && currentList!=null);
+			currentList.list.add(0, line);
+		}
 	}
 
 	/*--------------------------------------------------------------*/

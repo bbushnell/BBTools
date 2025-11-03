@@ -72,13 +72,21 @@ public class JobQueue<K extends HasID>{
 			heap.add(job);
 			maxSeen=Math.max(maxSeen, job.id());
 			if(verbose){
-				System.err.println("Worker: added job " + id +
+				System.err.println("Worker: added job " + toString(job) +
 					" to heap (heap size now " + heap.size() + ")");
 			}
 			// Lazy notify: only wake consumer if this is the job they need or heap was empty
 			if(id==nextID || (!ordered && heap.size()==1)){heap.notifyAll();}
 		}
 		return true;
+	}
+	
+	private final String toString(K k) {
+		if(k==null) {return "null";}
+		String s="id="+k.id();
+		if(k.poison()) {s+=" poison";}
+		if(k.last()) {s+=" last";}
+		return s;
 	}
 	
 	/**
@@ -96,7 +104,10 @@ public class JobQueue<K extends HasID>{
 			while(job==null && !lastSeen){
 				// Wait if heap is empty or (in ordered mode) next job isn't ready yet
 				while(!heapReady()){
-					if(verbose){System.err.println("Consumer waiting; heap.size()="+heap.size());}
+					if(verbose){
+						System.err.println("Consumer waiting for ("+nextID+"); heap.size()="+heap.size()+
+							(heap.isEmpty() ? "" : ": "+toString(heap.peek())));
+					}
 					try {
 						heap.wait();
 					} catch (InterruptedException e){
@@ -104,8 +115,9 @@ public class JobQueue<K extends HasID>{
 						// Don't return null here - wait for explicit last signal
 					}
 				}
+				if(lastSeen) {return null;}
 				job=heap.poll();
-				if(verbose){System.err.println("Consumer fetched "+job.id());}
+				if(verbose){System.err.println("Consumer fetched "+toString(job));}
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
@@ -124,9 +136,9 @@ public class JobQueue<K extends HasID>{
 	
 	private boolean heapReady() {
 		synchronized(heap) {
-			if(heap.isEmpty()) {return false;}
+			if(heap.isEmpty()) {return lastSeen;}
 			K k=heap.peek();
-			if(k.id()==nextID) {return true;}
+			if(k.id()<=nextID) {return true;}//Poison may be lower than expected
 			return !ordered && !k.last() && !k.poison();//TODO: Add a normal() function.
 		}
 	}
