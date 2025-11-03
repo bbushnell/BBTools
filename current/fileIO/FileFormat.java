@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import jgi.TestFormat;
+import shared.LineParserS1;
 import shared.Parse;
 import shared.PreParser;
 import shared.Tools;
@@ -128,7 +129,7 @@ public final class FileFormat {
 	
 	public static FileFormat testInput(String fname, int defaultFormat, String overrideExtension, boolean allowSubprocess, boolean allowFileRead){
 		if(verbose){System.err.println("testInputB("+fname+", "+defaultFormat+", "+overrideExtension+", "+allowSubprocess+", "+allowFileRead+")");}
-		return testInput(fname, defaultFormat, overrideExtension, allowSubprocess, allowFileRead, allowFileRead && !isStdin(fname));
+		return testInput(fname, defaultFormat, overrideExtension, allowSubprocess, allowFileRead, false/*allowFileRead && !isStdin(fname)*/);
 	}
 	
 	public static FileFormat testInput(String fname, int defaultFormat, String overrideExtension, boolean allowSubprocess, boolean allowFileRead, boolean forceFileRead){
@@ -331,7 +332,7 @@ public final class FileFormat {
 			return r;
 		}
 		String slc=fname.trim().toLowerCase();
-		if(slc.indexOf('/')<0){slc=slc.substring(slc.lastIndexOf('/')+1);}
+		if(slc.indexOf('/')>=0){slc=slc.substring(slc.lastIndexOf('/')+1);}
 		String comp=ReadWrite.compressionType(slc);
 		String ext=ReadWrite.rawExtension(slc);
 		
@@ -384,7 +385,7 @@ public final class FileFormat {
 			r[2]=DEVNULL;
 		}
 
-		if(verbose){System.err.println("Before reading: \t"+r[0]+", "+toString(r)+
+		if(verbose){System.err.println("Before reading: \t"+toString(r)+
 				", "+forceFileRead+", "+(r[0]!=BAM));
 			System.err.println((r[0]==UNKNOWN)+","+(r[0]!=BAM && forceFileRead)+","+ 
 				(r[0]==FASTQ || r[0]==FASTA)+","+(r[3]==UNKNOWN)+","+allowFileRead+","
@@ -401,23 +402,25 @@ public final class FileFormat {
 //				//r: {format, compression, type, interleaved, quality, length}
 				try {
 					int[] a=testInterleavedAndQuality(fname, false);
-					if(a!=null){
+					if(a!=null ){
 						final int aq=a[0], ai=a[1], al=a[2], af=a[3], abc=a[4], abd=a[5];
-						if(aq>-1){r[4]=aq;}
-						if(ai!=UNKNOWN){r[3]=ai;}
-						if(r[0]==UNKNOWN || (af!=TEXT && af!=BREAD)){r[0]=af;}
-						if(al>1 && r[5]==-1){r[5]=al;}
-						r[6]=abc;
-						r[7]=abd;
-						r[8]=a[6];
-						r[9]=a[7];
+						if(af!=UNKNOWN) {//Fixes overwriting known data
+							if(aq>-1){r[4]=aq;}
+							if(ai!=UNKNOWN){r[3]=ai;}
+							if(r[0]==UNKNOWN || (af!=TEXT && af!=BREAD)){r[0]=af;}
+							if(al>1 && r[5]==-1){r[5]=al;}
+							r[6]=abc;
+							r[7]=abd;
+							r[8]=a[6];
+							r[9]=a[7];
+						}
 					}
 				} catch (Exception e) {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
 				
-				if(verbose){System.err.println("After reading:   \t"+r[0]+", "+toString(r)+
+				if(verbose){System.err.println("After reading:   \t"+toString(r)+
 						", "+forceFileRead+", "+(r[0]!=BAM));}
 			}else if(r[0]==UNKNOWN){
 				if(fname.equals("sequential")){r[0]=SEQUENTIAL;}
@@ -442,7 +445,7 @@ public final class FileFormat {
 			File f=new File(fname);
 			if(f.exists() && !f.isDirectory()){r[2]=FILE;}
 		}
-		if(verbose){System.err.println("testFormat return:\t"+r[0]+", "+toString(r)+", "+forceFileRead+", "+(r[0]!=BAM)+", "+r[4]);}
+		if(verbose){System.err.println("testFormat return:\t"+toString(r)+", "+forceFileRead+", "+(r[0]!=BAM)+", "+r[4]);}
 		return r;
 	}
 	
@@ -571,6 +574,8 @@ public final class FileFormat {
 				}else{format=TEXT;}
 			}
 //			else{format=BREAD;} //or possibly scarf
+			
+			if(format==UNKNOWN && looksLikeSamLine(s1)) {format=SAM;}
 
 			if(format!=FQ){len=-1;}
 		}
@@ -612,11 +617,39 @@ public final class FileFormat {
 			stream.FASTQ.ASCII_OFFSET=oldQin;
 			stream.FASTQ.ASCII_OFFSET_OUT=oldQout;
 		}
+		
 		int[] r=new int[] {q, i, len, format, numBarcodes, barcodeDelimiter, bcLen1, bcLen2};
 		if(verbose){System.err.println(Arrays.toString(r));}
 		return r;
 	}
-	
+
+	public static boolean looksLikeSamLine(String line) {
+		if(line==null || line.isEmpty()) {return false;}
+
+		LineParserS1 lp=new LineParserS1('\t');
+		lp.set(line);
+
+		if(lp.terms()<11) {return false;}
+
+		if(lp.length(1)>4 || !Tools.isNumeric(lp.parseString(1))) {return false;}
+		long flag=lp.parseLong(1);
+		if(flag<0 || flag>4095) {return false;}
+
+		if(lp.length(3)>9 || !Tools.isNumeric(lp.parseString(3))) {return false;}
+		long pos=lp.parseLong(3);
+		if(pos<0 || pos>Integer.MAX_VALUE) {return false;}
+
+		if(lp.length(4)>3 || !Tools.isNumeric(lp.parseString(4))) {return false;}
+		long mapq=lp.parseLong(4);
+		if(mapq<0 || mapq>255) {return false;}
+
+		if(lp.length(5)<1) {return false;}
+		String cigar=lp.parseString(5);
+		if(!cigar.equals("*") && !cigar.matches("^(\\d+[MIDNSHPX=])+$")) {return false;}
+
+		return true;
+	}
+
 	public static byte barcodeDelimiter(String barcode){
 		if(barcode==null || barcode.length()<3) {return 0;}
 		int letters=0, nonletters=0;

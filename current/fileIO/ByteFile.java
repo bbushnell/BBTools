@@ -28,14 +28,15 @@ public abstract class ByteFile {
 	}
 	
 	public static final ByteFile makeByteFile(FileFormat ff, int type){
+//		if(type==0 && Shared.threads()>8) {System.err.println("BF4");return new ByteFile4(ff);}
 		if(type==1){return new ByteFile1(ff);}
 		if(type==2){return new ByteFile2(ff);}
 		if(type==4){return new ByteFile4(ff);}
-		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF4 || (!FORCE_MODE_BF1 && !FORCE_MODE_BF2 && Shared.threads()>5/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
-//			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
-			return new ByteFile4(ff);
-		}
-		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF2 || (!FORCE_MODE_BF1 && Shared.threads()>4/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
+//		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF4 || (!FORCE_MODE_BF1 && !FORCE_MODE_BF2 && Shared.threads()>8/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
+////			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
+//			return new ByteFile4(ff);
+//		}
+		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF2 || (!FORCE_MODE_BF1 && Shared.threads()>6/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
 //			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
 			return new ByteFile2(ff);
 		}

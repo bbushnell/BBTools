@@ -1,17 +1,76 @@
 #!/bin/bash
 
 #usage(){
-#	echo "CalcMem v1.19"
-#	echo "Written by Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster"
+#	echo "CalcMem v1.20"
+#	echo "Written by Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla"
 #	echo "Calculates available memory in megabytes"
-#	echo "Last modified November 15, 2024"
+#	echo "Last modified November 3, 2025"
 #}
+
+# Detect if CPU supports AVX2 (or ARM SVE equivalent)
+function detectCPUVectorSupport() {
+	if [ -f /proc/cpuinfo ]; then
+		# x86_64: Check for AVX2 (256-bit minimum)
+		if grep -q "avx2" /proc/cpuinfo; then
+			return 0
+		fi
+		# x86_64: Check for AVX-512 (even better)
+		if grep -q "avx512" /proc/cpuinfo; then
+			return 0
+		fi
+		# ARM: Check for SVE (scalable, can support 256-bit+)
+		if grep -q "sve" /proc/cpuinfo; then
+			return 0
+		fi
+	fi
+	
+	# macOS x86_64: Use sysctl for AVX2
+	if command -v sysctl >/dev/null 2>&1; then
+		if sysctl -a 2>/dev/null | grep -q "hw.optional.avx2.*: 1"; then
+			return 0
+		fi
+	fi
+	
+	return 1
+}
+
+# Detect Java version (need 17+)
+function detectJavaVersion() {
+	if ! command -v java >/dev/null 2>&1; then
+		return 1
+	fi
+	
+	local version_output=$(java --version 2>&1 | head -n 1)
+	local major_version=0
+	
+	if echo "$version_output" | grep -q "openjdk [0-9]"; then
+		major_version=$(echo "$version_output" | sed -n 's/.*openjdk \([0-9]\+\).*/\1/p')
+	elif echo "$version_output" | grep -q "java version"; then
+		major_version=$(echo "$version_output" | sed -n 's/.*"\(1\.\)\?\([0-9]\+\).*/\2/p')
+	fi
+	
+	if [ "$major_version" -ge 17 ] 2>/dev/null; then
+		return 0
+	fi
+	
+	return 1
+}
+
+# Auto-detect SIMD support
+function autoDetectSIMD() {
+	if detectCPUVectorSupport && detectJavaVersion; then
+		SIMD="--add-modules jdk.incubator.vector"
+		return 0
+	fi
+	return 1
+}
 
 #Also parses other Java flags
 function parseXmx () {
 	
 	local setxmx=0
 	local setxms=0
+	local simd_specified=0
 	
 	SIMD=""
 	
@@ -26,11 +85,9 @@ function parseXmx () {
 			z="-Xmx"${arg:5}
 			setxmx=1
 		elif [[ "$arg" = "-Xmx"* ]] || [[ "$arg" = "-xmx"* ]]; then
-			#z="$arg"
 			z="-X"${arg:2}
 			setxmx=1
 		elif [[ "$arg" = "Xmx"* ]] || [[ "$arg" = "xmx"* ]]; then
-			#z="-$arg"
 			z="-X"${arg:1}
 			setxmx=1
 		elif [[ "$arg" = "-Xms"* ]]; then
@@ -53,8 +110,17 @@ function parseXmx () {
 			silent=1
 		elif [[ "$arg" = "simd" ]] || [[ "$arg" = "SIMD" ]] || [[ "$arg" = "simd=t" ]] || [[ "$arg" = "simd=true" ]]; then
 			SIMD="--add-modules jdk.incubator.vector"
+			simd_specified=1
+		elif [[ "$arg" = "simd=f" ]] || [[ "$arg" = "simd=false" ]] || [[ "$arg" = "nosimd" ]]; then
+			SIMD=""
+			simd_specified=1
 		fi
 	done
+	
+	# Auto-detect SIMD if not explicitly specified
+	if [[ "$simd_specified" = "0" ]]; then
+		autoDetectSIMD
+	fi
 	
 	if [[ "$setxmx" = "1" ]] && [[ "$setxms" = "0" ]]; then
 		local substring=`echo $z| cut -d'x' -f 2`
@@ -94,7 +160,7 @@ function setEnvironment(){
 	else
 		PATH=/global/cfs/cdirs/bbtools/bgzip:$PATH
 		PATH=/global/cfs/cdirs/bbtools/lbzip2/bin:$PATH
-                PATH=/global/cfs/cdirs/bbtools/samtools116/samtools-1.16.1:$PATH
+		PATH=/global/cfs/cdirs/bbtools/samtools116/samtools-1.16.1:$PATH
 		#PATH=/global/projectb/sandbox/gaag/bbtools/sambamba:$PATH
 		PATH=/global/cfs/cdirs/bbtools/java/jdk-17/bin:$PATH
 		PATH=/global/cfs/cdirs/bbtools/pigz2/pigz-2.4:$PATH
@@ -129,30 +195,20 @@ function freeRam(){
 		mult=$2;
 	fi
 	
-	#echo "mult =    $mult" # percent of memory to allocate
-	#echo "default = $defaultMem"
-	
 	local ulimit=$(ulimit -v)
 	ulimit="${ulimit:-0}"
 	if [ "$ulimit" = "unlimited" ]; then ulimit=0; fi
 	local x=$ulimit
-	#echo "x = ${x}" # normally ulimit -v
 	
-	#local HOSTNAME=`hostname`
 	local sge_x=0
 	local slurm_x=$(( SLURM_MEM_PER_NODE * 1024 ))
 
 	if [[ $RQCMEM -gt 0 ]]; then
-		#echo "branch for manual memory"
 		x=$(( RQCMEM * 1024 ));
 	elif [ -e /proc/meminfo ]; then
 		local vfree=$(cat /proc/meminfo | awk -F: 'BEGIN{total=-1;used=-1} /^CommitLimit:/ { total=$2 }; /^Committed_AS:/ { used=$2 } END{ print (total-used) }')
 		local pfree=$(cat /proc/meminfo | awk -F: 'BEGIN{free=-1;cached=-1;buffers=-1} /^MemFree:/ { free=$2 }; /^Cached:/ { cached=$2}; /^Buffers:/ { buffers=$2} END{ print (free+cached+buffers) }')
 		
-		#echo "vfree =   $vfree"
-		#echo "pfree =   $pfree"
-		#echo "ulimit =  $ulimit"
-
 		local x2=0;
 
 		
@@ -162,11 +218,6 @@ function freeRam(){
 		elif [ $vfree -gt 0 ]; then x2=$vfree;
 		elif [ $pfree -gt 0 ]; then x2=$pfree;
 		fi
-
-		#echo $sge_x
-		#echo $slurm_x
-		#echo $x
-		#echo $x2
 
 		# set to SGE_HGR_RAMC or SLURM_MEM_PER_NODE value
 		if [ $sge_x -gt 0 ]; then 
@@ -181,38 +232,18 @@ function freeRam(){
 			fi
 		fi
 		
-		#echo "x = ${x}"
-		#echo "x2 = ${x2}"
-		#echo $vfree
-		#echo $pfree
-		
 		if [ "$x" = "unlimited" ] || (("$x" > $x2)); then x=$x2; fi
 		if [ $x -lt 1 ]; then x=$x2; fi
 	fi
 
-#TODO:
-#"NERSC_HOST", "perlmutter"
-
 	if [ $x -lt 1 ] || [[ "$HOSTNAME" = "genepool"* ]]; then
-		#echo "branch for unknown memory"
-		#echo $x
-		#echo "ram is unlimited"
 		RAM=$((defaultMem/1024))
 		echo "Max memory cannot be determined.  Attempting to use $RAM MB." 1>&2
 		echo "If this fails, please add the -Xmx flag (e.g. -Xmx24g) to your command, " 1>&2
 		echo "or run this program qsubbed or from a qlogin session on Genepool, or set ulimit to an appropriate value." 1>&2
 	else
-		#echo "branch for known memory"
-		#echo "x = ${x}"
-		#echo "m = ${mult}"
-		
-		# available (ram - 500k) * 85% / 1024kb = megs of ram to use
-		# not sure where this formula came from
 		RAM=$(( ((x-500000)*mult/100)/1024 ))
-		#echo $RAM
 	fi
-	#local z="-Xmx${RAM}m"
-	#echo $RAM
 	return 0
 }
 

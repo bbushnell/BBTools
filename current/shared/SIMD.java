@@ -20,6 +20,9 @@ import structures.IntList;
  *
  */
 final class SIMD{
+	
+	private static int maxVectorLength=ByteVector.SPECIES_PREFERRED.vectorBitSize();
+	public static final int maxVectorLength() {return maxVectorLength;}
 
 	// Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
 	@SuppressWarnings("restriction")
@@ -46,7 +49,7 @@ final class SIMD{
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
 	private static final int LWIDTH=LSPECIES.length();
-
+	
 	@SuppressWarnings("restriction")
 	/**
 	 * Vectorized version of "c+=a[i]*b[i]" where a and b are equal-length arrays.

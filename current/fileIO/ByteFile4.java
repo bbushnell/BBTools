@@ -36,11 +36,11 @@ public final class ByteFile4 extends ByteFile{
 		boolean speedtest=false;
 		int threads=DEFAULT_THREADS;
 		int bufferSize=bufferlen;
-		
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			
+
 			//Break arguments into their constituent parts, in the form of "a=b"
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
@@ -79,34 +79,34 @@ public final class ByteFile4 extends ByteFile{
 				throw new RuntimeException("Unknown parameter "+arg);
 			}
 		}
-		
+
 		if(fname==null){fname="stdin";}
-		
+
 		ByteFile4 bf=new ByteFile4(fname, true, threads);
 		bf.bufferlen=bufferSize;
 		speedtest(bf, first, last, !speedtest);
-		
+
 		bf.close();
 	}
-	
+
 	private static void speedtest(ByteFile4 bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long lines=0;
 		long bytes=0;
-		
+
 		bf.start();
-		
+
 		if(reprint){
 			for(long i=0; i<first; i++){bf.nextLine();}
 			for(long i=first; i<last; i++){
 				byte[] s=bf.nextLine();
 				if(s==null){break;}
-				
+
 				lines++;
 				bytes+=s.length+1;
 				System.out.println(new String(s));
 			}
-			
+
 			System.err.println("\n");
 			System.err.println("Lines: "+lines);
 			System.err.println("Bytes: "+bytes);
@@ -119,82 +119,83 @@ public final class ByteFile4 extends ByteFile{
 			}
 		}
 		t.stop();
-		
+
 		if(!reprint){
 			System.err.println(Tools.timeLinesBytesProcessed(t, lines, bytes, 8));
 			System.err.println("Bytes: "+bytes);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public ByteFile4(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false));
 	}
-	
+
 	public ByteFile4(FileFormat ff){
 		this(ff, DEFAULT_THREADS);
 	}
-	
+
 	public ByteFile4(String fname, boolean allowSubprocess_, int threads_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false), threads_);
 	}
-	
+
 	public ByteFile4(FileFormat ff, int threads_){
 		super(ff);
 		threads=Tools.mid(1, threads_, Shared.threads());
-		
+
 		// Create OQS with prototypes
 		BufferJob inputPrototype=new BufferJob(null, 0, BufferJob.PROTO);
 		ListNum<byte[]> outputPrototype=new ListNum<byte[]>(null, 0, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<BufferJob, ListNum<byte[]>>(
 			threads, true, inputPrototype, outputPrototype);
-		
+
 		if(verbose){System.err.println("Made ByteFile4 with "+threads+" threads");}
+		start();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public void start(){
 		if(open){return;}
 		open();
 		spawnThreads();
 	}
-	
+
 	@Override
 	public final void reset(){
 		close();
 		open();
 		superReset();
 	}
-	
+
 	@Override
 	public synchronized final boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open);}
 		if(!open){return errorState;}
 		open=false;
-		
+
 		if(is!=null){
 			errorState|=ReadWrite.finishReading(is, name(), allowSubprocess());
 			is=null;
 		}
-		
+
 		lineNum=-1;
 		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name());}
 		return errorState;
 	}
-	
+
 	@Override
 	public final byte[] nextLine(){
 		// Get next line from current list, or fetch new list
 		if(currentList==null || listPos>=currentList.size()){
 			currentList=oqs.getOutput();
 			listPos=0;
-			
+
 			if(currentList==null || currentList.last()){
 				if(currentList!=null && currentList.last()){
 					oqs.setFinished();
@@ -202,11 +203,11 @@ public final class ByteFile4 extends ByteFile{
 				return null;
 			}
 		}
-		
+
 		lineNum++;
 		return currentList.get(listPos++);
 	}
-	
+
 	@Override
 	public final ListNum<byte[]> nextList(){
 		ListNum<byte[]> list=oqs.getOutput();
@@ -219,29 +220,29 @@ public final class ByteFile4 extends ByteFile{
 		lineNum+=list.size();
 		return list;
 	}
-	
+
 	@Override
 	public void pushBack(byte[] line){
 		throw new UnsupportedOperationException("pushBack not supported in ByteFile4");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private void spawnThreads(){
 		final int totalThreads=threads+1; // Workers plus producer
-		
+
 		alpt=new ArrayList<ProcessThread>(totalThreads);
 		for(int i=0; i<totalThreads; i++){
 			alpt.add(new ProcessThread(i));
 		}
-		
+
 		for(ProcessThread pt : alpt){
 			pt.start();
 		}
 	}
-	
+
 	private synchronized InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened ByteFile4 "+name());
@@ -250,32 +251,32 @@ public final class ByteFile4 extends ByteFile{
 		is=ReadWrite.getInputStream(name(), BUFFERED, allowSubprocess(), true);
 		return is;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	@Override
 	public boolean isOpen(){return open;}
-	
+
 	@Override
 	public final InputStream is(){return is;}
-	
+
 	@Override
 	public final long lineNum(){return lineNum;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Processing thread - produces BufferJobs or processes them into lines */
 	private class ProcessThread extends Thread{
-		
+
 		ProcessThread(final int tid_){
 			tid=tid_;
 			setName("ByteFile4-"+(tid==0 ? "Producer" : "Worker-"+tid));
 		}
-		
+
 		@Override
 		public void run(){
 			if(tid==0){
@@ -285,13 +286,13 @@ public final class ByteFile4 extends ByteFile{
 			}
 			success=true;
 		}
-		
+
 		/** Producer thread - reads file and creates BufferJobs */
 		void produceBufferJobs(){
 			long jobId=0;
 			byte[] buffer=new byte[bufferlen];
 			int bstop=0;
-			
+
 			try{
 				while(true){
 					// Read data into buffer
@@ -299,19 +300,8 @@ public final class ByteFile4 extends ByteFile{
 					if(r>0){
 						bstop+=r;
 					}
-					
-					// Find last newline
-					int lastNL=Vector.findLastSymbol(buffer, bstop, slashn);
-					
-					// If no newline and buffer is full, expand
-					if(lastNL<0 && bstop==buffer.length){
-						if(r>0){
-							buffer=Arrays.copyOf(buffer, buffer.length*2);
-							continue;
-						}
-					}
-					
-					// If we hit EOF
+
+					// Handle EOF
 					if(r<0){
 						if(bstop>0){
 							// Package remaining data
@@ -321,49 +311,61 @@ public final class ByteFile4 extends ByteFile{
 						}
 						break;
 					}
-					
+
+					// Find last newline
+					int lastNL=Vector.findLastSymbol(buffer, bstop, slashn);
+
 					// If we have a newline, package job
 					if(lastNL>=0){
 						byte[] copy=Arrays.copyOf(buffer, lastNL+1);
 						BufferJob job=new BufferJob(copy, jobId++);
 						oqs.addInput(job);
-						
+
 						// Shift remaining bytes to start
 						int remaining=bstop-lastNL-1;
-						System.arraycopy(buffer, lastNL+1, buffer, 0, remaining);
-						bstop=remaining;
+						if(remaining>0){
+							System.arraycopy(buffer, lastNL+1, buffer, 0, remaining);
+							bstop=remaining;
+						}else{
+							bstop=0;
+						}
+					}else{
+						// No newline found - expand buffer if full
+						if(bstop==buffer.length){
+							buffer=Arrays.copyOf(buffer, buffer.length*2);
+						}
 					}
 				}
 			}catch(IOException e){
 				e.printStackTrace();
 			}
-			
+
 			// Signal completion
 			oqs.poison();
-			
+
 			// Wait for workers
 			ThreadWaiter.waitForThreadsToFinish(alpt);
 		}
-		
+
 		/** Worker thread - extracts lines from BufferJobs */
 		void processBufferJobs(){
 			BufferJob job=oqs.getInput();
 			IntList positions=new IntList();
-			
+
 			while(job!=null && !job.poison()){
 				positions.clear();
-				
+
 				// Find all newlines in this buffer chunk
 				Vector.findSymbols(job.buffer, 0, job.buffer.length, slashn, positions);
-				
+
 				ListNum<byte[]> output=new ListNum<byte[]>(
-					new ArrayList<byte[]>(positions.size()+1), job.id());
-				
+					new ArrayList<byte[]>(positions.size()), job.id());
+
 				int start=0;
 				for(int i=0; i<positions.size(); i++){
 					int nlpos=positions.get(i);
 					int limit=(nlpos>0 && job.buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
-					
+
 					if(start==limit){
 						output.add(blankLine);
 					}else{
@@ -372,90 +374,85 @@ public final class ByteFile4 extends ByteFile{
 					}
 					start=nlpos+1;
 				}
-				
-				// Handle any remaining bytes after last newline
-				if(start<job.buffer.length){
-					byte[] line=Arrays.copyOfRange(job.buffer, start, job.buffer.length);
-					if(line.length>0){
-						output.add(line);
-					}
-				}
-				
+
+				// BufferJob should end exactly at a newline, no residual data
+				assert(start==job.buffer.length) : "Incomplete line in BufferJob! start="+start+", length="+job.buffer.length;
+
 				oqs.addOutput(output);
 				job=oqs.getInput();
 			}
-			
+
 			// Re-inject poison for other workers
 			if(job!=null){oqs.addInput(job);}
 		}
-		
+
 		boolean success=false;
 		final int tid;
 	}
-	
+
 	/** Job for passing buffer chunks between producer and workers */
 	private static final class BufferJob implements HasID{
-		
+
 		BufferJob(byte[] buffer_, long id_){
 			this(buffer_, id_, NORMAL);
 		}
-		
+
 		BufferJob(byte[] buffer_, long id_, int type_){
 			buffer=buffer_;
 			id=id_;
 			type=type_;
 		}
-		
+
 		@Override
 		public long id(){return id;}
-		
+
 		@Override
 		public boolean poison(){return type==POISON;}
-		
+
 		@Override
 		public boolean last(){return type==LAST;}
-		
+
 		@Override
 		public BufferJob makePoison(long id_){
 			return new BufferJob(null, id_, POISON);
 		}
-		
+
 		@Override
 		public BufferJob makeLast(long id_){
 			return new BufferJob(null, id_, LAST);
 		}
-		
+
 		final byte[] buffer;
 		final long id;
 		final int type;
-		
+
 		static final int PROTO=-1;
 		static final int NORMAL=0;
 		static final int LAST=3;
 		static final int POISON=4;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final OrderedQueueSystem<BufferJob, ListNum<byte[]>> oqs;
 	private final int threads;
 	private ArrayList<ProcessThread> alpt;
-	
+
 	private boolean open=false;
 	private InputStream is;
 	private long lineNum=-1;
-	
+
 	private ListNum<byte[]> currentList=null;
 	private int listPos=0;
-	
+
 	private static final byte[] blankLine=new byte[0];
-	
+
 	public static boolean verbose=false;
 	public static boolean BUFFERED=false;
 	public static int bufferlen=65536;
 	public static int DEFAULT_THREADS=2;
-	
+
 	private boolean errorState=false;
 }
