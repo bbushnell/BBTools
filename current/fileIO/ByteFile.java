@@ -128,7 +128,7 @@ public abstract class ByteFile {
 		if(FORCE_MODE_BF4) {return 4;}
 		if(FORCE_MODE_BF2) {return 2;}
 		
-		if(Shared.LOW_MEMORY || threads<=8) {return 1;}
+		if(Shared.LOW_MEMORY || threads<12) {return 1;}
 		if(ALLOW_BF4) {return 4;}
 		if(ALLOW_BF2) {return 2;}
 		return 1;
