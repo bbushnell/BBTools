@@ -18,7 +18,7 @@ import structures.ListNum;
  * @author Brian Bushnell
  *
  */
-public final class ByteFile1 extends ByteFile {
+public final class ByteFile1old extends ByteFile {
 
 
 	public static void main(String[] args){
@@ -46,7 +46,7 @@ public final class ByteFile1 extends ByteFile {
 				ReadWrite.ALLOW_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
 			}
 		}
-		ByteFile1 tf=new ByteFile1(args.length>0 ? args[0] : "stdin", true);
+		ByteFile1old tf=new ByteFile1old(args.length>0 ? args[0] : "stdin", true);
 		speedtest(tf, first, last, !speedtest);
 
 		tf.close();
@@ -54,7 +54,7 @@ public final class ByteFile1 extends ByteFile {
 		tf.close();
 	}
 
-	private static void speedtest(ByteFile1 bf, long first, long last, boolean reprint){
+	private static void speedtest(ByteFile1old bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long lines=0;
 		long bytes=0;
@@ -105,11 +105,11 @@ public final class ByteFile1 extends ByteFile {
 		}
 	}
 
-	public ByteFile1(String fname, boolean allowSubprocess_){
+	public ByteFile1old(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false));
 	}
 
-	public ByteFile1(FileFormat ff){
+	public ByteFile1old(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile1("+ff+")");}
 		is=open();
@@ -192,19 +192,23 @@ public final class ByteFile1 extends ByteFile {
 	}
 
 	public final byte[] nextLineList(){
+
 		if(!open || is==null){
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
 			return null;
 		}
 
-		if(listPos>=positions.size()){
-			fillBuffer(); // Now handles Vector.findSymbols internally
+		if(listPos>=positions.size()) {
+			listPos=0;
+			positions.clear();
+			fillBuffer();
+			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
 		}
 
 		final int nlpos;
-		if(listPos>=positions.size()){//No newlines
+		if(listPos>=positions.size()) {//No newlines
 			nlpos=bstop;
-		}else{
+		}else {
 			nlpos=positions.get(listPos++);
 		}
 
@@ -217,15 +221,19 @@ public final class ByteFile1 extends ByteFile {
 		lineNum++;
 
 		// Determine the limit for copying
+		// If nlpos >= bstop, we have data but no newline (EOF case) - use bstop
+		// Otherwise, nlpos points to the newline
 		final int limit;
-		if(nlpos>=bstop){
-			limit=bstop;
-		}else{
-			limit=(nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+		if(nlpos >= bstop){
+			// No newline found, but we have data - use everything remaining
+			limit = bstop;
+		} else {
+			// Found newline - exclude it (and any preceding \r)
+			limit = (nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
 		}
 
-		if(bstart==limit){//Empty line
-			bstart=(nlpos<bstop) ? nlpos+1 : bstop;
+		if(bstart==limit){//Empty line.
+			bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 			return blankLine;
 		}
 
@@ -233,7 +241,8 @@ public final class ByteFile1 extends ByteFile {
 
 		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
 
-		bstart=(nlpos<bstop) ? nlpos+1 : bstop;
+		// Advance bstart past the newline (if there was one)
+		bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 
 		return line;
 	}
@@ -259,14 +268,17 @@ public final class ByteFile1 extends ByteFile {
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
 			return null;
 		}
-		if(!Shared.SIMD){return nextListScalar();}
+		if(!Shared.SIMD) {return nextListScalar();}
 		
 		final int listSize=200;
 		final ArrayList<byte[]> list=new ArrayList<byte[]>(listSize);
 
-		while(list.size()<listSize && open){
-			if(listPos>=positions.size()){
+		while(list.size()<listSize && open) {
+			if(listPos>=positions.size()) {
+				listPos=0;
+				positions.clear();
 				fillBuffer();
+				Vector.findSymbols(buffer, 0, bstop, slashn, positions);
 
 				// If still no positions after fill, we're done
 				if(positions.size()==0){
@@ -275,9 +287,9 @@ public final class ByteFile1 extends ByteFile {
 			}
 
 			// Process positions until we have enough lines OR run out of positions
-			final int iters=Math.min(positions.size()-listPos, listSize-list.size());
-			for(int i=0; i<iters; i++){
-				final int nlpos=positions.get(listPos++);
+			final int iters=Math.min(positions.size-listPos, listSize-list.size());
+			for(int i=0; i<iters; i++) {
+				final int nlpos = positions.get(listPos++);
 
 				// Check if buffer is empty
 				if(bstop<1){
@@ -288,19 +300,19 @@ public final class ByteFile1 extends ByteFile {
 
 				// Determine the limit for copying
 				final int limit;
-				if(nlpos>=bstop){
-					limit=bstop;
-				}else{
-					limit=(nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
+				if(nlpos >= bstop){
+					limit = bstop;
+				} else {
+					limit = (nlpos>bstart && buffer[nlpos-1]==slashr) ? nlpos-1 : nlpos;
 				}
 
 				if(bstart==limit){//Empty line
-					bstart=(nlpos<bstop) ? nlpos+1 : bstop;
+					bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 					list.add(blankLine);
-				}else{
+				}else {
 					byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
 					assert(line.length>0) : bstart+", "+nlpos+", "+limit;
-					bstart=(nlpos<bstop) ? nlpos+1 : bstop;
+					bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 					list.add(line);
 				}
 			}
@@ -324,39 +336,54 @@ public final class ByteFile1 extends ByteFile {
 
 	private int fillBuffer(){
 		if(bstart<bstop){ //Shift end bytes to beginning
+			//			System.err.println("Shift: "+bstart+", "+bstop);
 			assert(bstart>0);
+			//			assert(bstop==buffer.length);
 			int extra=bstop-bstart;
 			for(int i=0; i<extra; i++, bstart++){
+				//				System.err.print((char)buffer[bstart]);
+				//System.err.print('.');
 				buffer[i]=buffer[bstart];
+				//				assert(buffer[i]>=slasher || buffer[i]==tab);
 				assert(buffer[i]!=slashn);
 			}
 			bstop=extra;
+			//			System.err.println();
+
+			//			{//for debugging only
+			//				buffer=new byte[bufferlen];
+			//				bstop=0;
+			//				bstart=0;
+			//			}
 		}else{
 			bstop=0;
 		}
 
 		bstart=0;
-		
-		// Clear SIMD state if applicable
-		if(Shared.SIMD){
-			listPos=0;
-			positions.clear();
-		}
-		
 		int len=bstop;
 		int r=-1;
 		while(len==bstop){//hit end of input without encountering a newline
 			if(bstop==buffer.length){
+				//				assert(false) : len+", "+bstop;
 				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
 			}
-			try{
+			try {
 				r=is.read(buffer, bstop, buffer.length-bstop);
-			}catch(IOException e){
+				//				byte[] x=new byte[buffer.length-bstop];
+				//				r=is.read(x);
+				//				if(r>0){
+				//					for(int i=0, j=bstop; i<r; i++, j++){
+				//						buffer[j]=x[i];
+				//					}
+				//				}
+			} catch (IOException e) {//java.io.IOException: Stream Closed
+				//TODO: This should be avoided rather than caught.  It happens when a stream is shut down with e.g. "reads=100".
 				if(!Shared.anomaly){
 					e.printStackTrace();
 					System.err.println("open="+open);
 				}
-			}catch(NullPointerException e){
+			} catch (NullPointerException e) {//Can be thrown by java.util.zip.Inflater.ensureOpen(Inflater.java:389)
+				//TODO: This should be avoided rather than caught.  It happens when a stream is shut down with e.g. "reads=100".
 				if(!Shared.anomaly){
 					e.printStackTrace();
 					System.err.println("open="+open);
@@ -364,20 +391,26 @@ public final class ByteFile1 extends ByteFile {
 			}
 			if(r>0){
 				bstop=bstop+r;
+				//				//while(len<bstop && (buffer[len]>slasher || buffer[len]==tab)){len++;}//Obsolete; handled old-style Mac convention
+
 				while(len<bstop && buffer[len]!=slashn){len++;}
+				//				len=Vector.find(buffer, slashn, len, bstop); //x0.85 speed in simd mode for short sequences; x1.00 for 150bp fastq
 			}else{
 				len=bstop;
 				break;
 			}
 		}
 
+		//		System.err.println("After Fill: ");
+		//		printBuffer();
+		//		System.err.println();
+
+		//		System.out.println("Filled buffer; r="+r+", returning "+len);
 		assert(r==-1 || buffer[len]==slashn);
-		
-		// Find all newlines with SIMD if enabled
-		if(Shared.SIMD){
-			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
-		}
-		
+
+		//		System.err.println("lasteol="+(lasteol=='\n' ? "\\n" : lasteol==slashr ? "\\r" : ""+(int)lasteol));
+		//		System.err.println("First="+(int)buffer[0]+"\nLastEOL="+(int)lasteol);
+
 		return len;
 	}
 

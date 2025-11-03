@@ -7,6 +7,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.bam.BgzfSettings;
+import structures.ListNum;
 
 
 /**
@@ -52,14 +53,14 @@ public final class ByteFile2 extends ByteFile {
 		tf.close();
 	}
 	
-	private static void speedtest(ByteFile2 tf, long first, long last, boolean reprint){
+	private static void speedtest(ByteFile2 bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long lines=0;
 		long bytes=0;
-		for(long i=0; i<first; i++){tf.nextLine();}
+		for(long i=0; i<first; i++){bf.nextLine();}
 		if(reprint){
 			for(long i=first; i<last; i++){
-				byte[] s=tf.nextLine();
+				byte[] s=bf.nextLine();
 				if(s==null){break;}
 
 				lines++;
@@ -71,11 +72,17 @@ public final class ByteFile2 extends ByteFile {
 			System.err.println("Lines: "+lines);
 			System.err.println("Bytes: "+bytes);
 		}else{
-			for(long i=first; i<last; i++){
-				byte[] s=tf.nextLine();
-				if(s==null){break;}
-				lines++;
-				bytes+=s.length+1;
+//			for(long i=first; i<last; i++){
+//				byte[] s=tf.nextLine();
+//				if(s==null){break;}
+//				lines++;
+//				bytes+=s.length+1;
+//			}
+			for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()){
+				for(byte[] line : ln.list) {
+					lines++;
+					bytes+=line.length+1;
+				}
 			}
 		}
 		t.stop();

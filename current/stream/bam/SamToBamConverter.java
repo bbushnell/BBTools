@@ -7,6 +7,7 @@ import dna.AminoAcid;
 import shared.Parse;
 import stream.SamLine;
 import structures.ByteBuilder;
+import structures.ObjectIntMap;
 
 /**
  * Converts SAM text/SamLine to BAM binary format with zero allocation in hot path.
@@ -17,7 +18,8 @@ import structures.ByteBuilder;
  */
 public class SamToBamConverter implements Cloneable {
 
-	private final Map<String, Integer> refMap;
+//	private final Map<String, Integer> refMap;
+	private final ObjectIntMap<String> refMap;
 
 	//CIGAR operation lookup: direct array instead of HashMap
 	private static final int[] CIGAR_OP_LOOKUP=new int[256];
@@ -44,7 +46,7 @@ public class SamToBamConverter implements Cloneable {
 
 	public SamToBamConverter(String[] refNames){
 		//Build reference name to ID map
-		refMap=new HashMap<>();
+		refMap=new ObjectIntMap<String>(512);
 		for(int i=0; i<refNames.length; i++){
 			refMap.put(refNames[i], i);
 		}

@@ -19,7 +19,7 @@ import structures.IntList;
  * @date Sep 12, 2023?
  *
  */
-public final class SIMD{
+final class SIMD{
 
 	// Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
 	@SuppressWarnings("restriction")
@@ -119,7 +119,7 @@ public final class SIMD{
 	}
 
 	// Isla
-	public static final float absDif(long[] a, long[] b, float inva, float invb){
+	static final float absDif(long[] a, long[] b, float inva, float invb){
 		assert (a.length==b.length);
 
 		final int length=a.length;
@@ -159,7 +159,7 @@ public final class SIMD{
 
 	// Isla
 	// Unfortunately, this dumps core, is very slow, and gives the wrong answer
-	public static float absDifComp(long[] a, long[] b, int k, int[] gcmap){
+	static float absDifComp(long[] a, long[] b, int k, int[] gcmap){
 		final int length=a.length;
 
 		// Calculate GC bucket sums - this can't be easily vectorized
@@ -251,7 +251,7 @@ public final class SIMD{
 	 * ScoreSequence.
 	 */
 	@SuppressWarnings("restriction")
-	public static void feedForward(final Cell[] layer, final float[] b){
+	static void feedForward(final Cell[] layer, final float[] b){
 		assert (false)
 		:"This was giving incorrect results for nets made made with simd=f and vice versa.  Needs validation.";
 		final int limit=FSPECIES.loopBound(b.length);
@@ -284,7 +284,7 @@ public final class SIMD{
 	/**
 	 * This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for Train.
 	 */
-	public static void backPropFma(Cell[] layer, float[] a, float[][] bb){
+	static void backPropFma(Cell[] layer, float[] a, float[][] bb){
 		final int limit=FSPECIES.loopBound(a.length);
 
 		for(int cnum=0; cnum<layer.length; cnum++){
@@ -548,7 +548,7 @@ public final class SIMD{
 		return c;
 	}
 
-	//	public static float absDifFloat(float[] a, float[] b) {
+	//	static float absDifFloat(float[] a, float[] b) {
 	//		assert(a.length==b.length);
 	//		float sum=0;
 	//		for(int i=0; i<a.length; i++){
@@ -565,7 +565,7 @@ public final class SIMD{
 	 * @return the sum of the absolute differences between corresponding elements of the two arrays
 	 * @throws IllegalArgumentException if the lengths of the arrays do not match
 	 */
-	public static float absDifFloat(float[] a, float[] b){
+	static float absDifFloat(float[] a, float[] b){
 		if(a.length!=b.length){
 			throw new IllegalArgumentException("Arrays must have the same length");
 		}
@@ -604,7 +604,7 @@ public final class SIMD{
 	}
 
 	// Isla
-	public static float cosineSimilarity(int[] a, int[] b, float inva, float invb){
+	static float cosineSimilarity(int[] a, int[] b, float inva, float invb){
 		assert (a.length==b.length);
 
 		int length=a.length;
@@ -736,7 +736,7 @@ public final class SIMD{
 	 * @return Number of symbols found, including pre-existing ones
 	 */
 	@SuppressWarnings("restriction")
-	public static final int findSymbols(final byte[] buffer, final int from, 
+	static final int findSymbols(final byte[] buffer, final int from, 
 		final int to, final byte symbol, final IntList positions){
 		final int limit=BSPECIES.loopBound(to-from);
 		final ByteVector newlineVec=ByteVector.broadcast(BSPECIES, symbol);
@@ -772,6 +772,40 @@ public final class SIMD{
 		}
 
 		return positions.size();
+	}
+	
+	/**
+	 * Find the last symbol in buffer by scanning backwards using SIMD.
+	 * @param buffer Buffer to scan
+	 * @param limit Scan backwards from this position (exclusive)
+	 * @return Position of last newline, or -1 if none found
+	 */
+	@SuppressWarnings("restriction")
+	static int findLastSymbol(byte[] buffer, int limit, final byte symbol){
+		final ByteVector newlineVec=ByteVector.broadcast(BSPECIES, symbol);
+		
+		// Start from the last aligned chunk and work backwards
+		int i=((limit-1)/BWIDTH)*BWIDTH; // Round down to vector boundary
+		
+		// SIMD loop - work backwards
+		for(; i>=0; i-=BWIDTH){
+			ByteVector vec=ByteVector.fromArray(BSPECIES, buffer, i);
+			VectorMask<Byte> mask=vec.eq(newlineVec);
+			long bits=mask.toLong();
+			
+			if(bits!=0){
+				// Found newline(s) in this chunk - find the highest bit
+				int lane=63-Long.numberOfLeadingZeros(bits); // Highest set bit
+				return i+lane;
+			}
+		}
+		
+		// Residual scalar loop for beginning of buffer
+		for(i+=BWIDTH-1; i>=0; i--){
+			if(buffer[i]==symbol){return i;}
+		}
+		
+		return -1;
 	}
 
 	@SuppressWarnings("restriction")
@@ -1260,7 +1294,7 @@ public final class SIMD{
 	 * Benchmark uToT vs uToT2
 	 * Usage: java SIMD <iterations>
 	 */
-	public static void main(String[] args){
+	static void main(String[] args){
 		int iterations=args.length>0 ? Integer.parseInt(args[0]) : 1000;
 		int numArrays=100;
 		int arrayLength=1000;
@@ -1394,19 +1428,19 @@ public final class SIMD{
 		System.out.println("Speedup: "+String.format("%.2f", (double)time1/time2)+"x");
 	}
 	
-//	public static void uToT3(byte[] bases){//Fast
+//	static void uToT3(byte[] bases){//Fast
 //		for(int i=0; i<bases.length; i++){
 //			bases[i]=AminoAcid.uToT[bases[i]];
 //		}
 //	}
-//	public static void uToT4(byte[] bases){//Slow
+//	static void uToT4(byte[] bases){//Slow
 //		final byte u='u', T='T';
 //		for(int i=0; i<bases.length; i++){
 //			byte b=bases[i];
 //			bases[i]=((b|32)!=u) ? b : (byte)(T|(b&32));
 //		}
 //	}
-//	public static void uToT5(byte[] bases){//Slow
+//	static void uToT5(byte[] bases){//Slow
 //		for(int i=0; i<bases.length; i++){// Residual scalar loop
 //			if(bases[i]=='U'){bases[i]='T';}
 //			else if(bases[i]=='u'){bases[i]='t';}

@@ -3,10 +3,12 @@ package stream;
 import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import stream.bam.BamReader;
 import stream.bam.BamToSamConverter;
 import stream.bam.BgzfInputStream;
@@ -149,16 +151,16 @@ public class BamLineStreamer extends SamStreamer {
 			long listNumber=0;
 			try{
 				FileInputStream fis=new FileInputStream(fname);
-				java.io.InputStream bgzf;
-				if(BgzfSettings.USE_MULTITHREADED_BGZF){
-					int threads=Math.max(1, BgzfSettings.READ_THREADS);
-					bgzf=new BgzfInputStreamMT(fis, threads);
-					if(verbose) {System.err.println("Made bismt-"+threads);}
-				}else{
-					bgzf=new BgzfInputStream(fis);
-				}
+				final InputStream bgzf=ReadWrite.getUnbgzipStream(fname);
+//				if(BgzfSettings.USE_MULTITHREADED_BGZF){
+//					int threads=Math.max(1, BgzfSettings.READ_THREADS);
+//					bgzf=new BgzfInputStreamMT(fis, threads);
+//					if(verbose) {System.err.println("Made bismt-"+threads);}
+//				}else{
+//					bgzf=new BgzfInputStream(fis);
+//				}
 				BamReader reader=new BamReader(bgzf);
-
+				
 				//Read BAM magic
 				byte[] magic=reader.readBytes(4);
 				if(!Arrays.equals(magic, new byte[]{'B', 'A', 'M', 1})){

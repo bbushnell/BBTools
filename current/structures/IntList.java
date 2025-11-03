@@ -180,14 +180,17 @@ public final class IntList{
 		array=KillSwitch.allocInt1D(initial);
 	}
 	
+	private IntList(IntList x){
+		size=x.size;
+		array=Arrays.copyOf(x.array, size);
+	}
+	
 	/** 
 	 * Creates a deep copy of this IntList.
 	 * @return New IntList with identical contents
 	 */
 	public IntList copy() {
-		IntList copy=new IntList(size);
-		copy.addAll(this);
-		return copy;
+		return new IntList(this);
 	}
 	
 	/*--------------------------------------------------------------*/

@@ -565,7 +565,7 @@ public class ReadWrite {
 		if(FORCE_PIGZ || (allowSubprocess && Shared.threads()>=2)){
 			if((fname.endsWith(".vcf.gz") || fname.endsWith(".sam.gz") || (PREFER_BGZIP && ZIPLEVEL<10)) && bgzip){return getBgzipStream(fname, append);}
 			if(USE_PIGZ && Data.PIGZ()){return getPigzStream(fname, append);}
-			if(USE_BGZIP && Data.BGZIP()){return getBgzipStream(fname, append);}
+			if(bgzip){return getBgzipStream(fname, append);}
 			if(USE_GZIP && Data.GZIP()/* && (Data.SH() /*|| fname.equals("stdout") || fname.startsWith("stdout."))*/){return getGzipStream(fname, append);}
 		}
 		final OutputStream raw=getRawOutputStream(fname, append, false);
@@ -656,7 +656,7 @@ public class ReadWrite {
 			if(zl<3){threads=Tools.min(threads, 16);}
 			else if(zl<5){threads=Tools.min(threads, 24);}
 			else if(zl<6){threads=Tools.min(threads, 64);}
-			System.err.println("B: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
+//			System.err.println("B: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			OutputStream out;
@@ -1170,10 +1170,17 @@ public class ReadWrite {
 //			System.err.println("Native BGZF");
 			InputStream raw=getRawInputStream(fname, true);
 			InputStream in;
+			threads=Tools.mid(BgzfSettings.READ_THREADS, 1, Shared.threads());
+
+//			assert(false) : ALLOW_NATIVE_BGZF+", "+PREFER_NATIVE_BGZF_IN+
+//				", "+Data.BGZIP()+", "+threads;
 			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {in=new BgzfInputStream(raw);}
-			else {in=new BgzfInputStreamMT(raw, Tools.mid(1, 32, threads));}
+			else {in=new BgzfInputStreamMT(raw, threads);}
 			return in;
 		}
+		Data.BGZIP();//Ensure that threads capability was detected
+//		assert(false) : ALLOW_NATIVE_BGZF+", "+PREFER_NATIVE_BGZF_IN+
+//			", "+Data.BGZIP()+", "+threads+", "+Data.BGZIP_VERSION_threadsFlag;
 //		System.err.println("BGZIP");
 		return getInputStreamFromProcess(fname, "bgzip -c -d"+(Data.BGZIP_VERSION_threadsFlag ? " -@ "+threads : ""), false, true, true);
 	}
@@ -1989,11 +1996,11 @@ public class ReadWrite {
 	}
 	
 	public static boolean nativeBgzfIn() {
-		return ALLOW_NATIVE_BGZF && (PREFER_NATIVE_BGZF_IN || !Data.BGZIP());
+		return ALLOW_NATIVE_BGZF && (PREFER_NATIVE_BGZF_IN || !Data.BGZIP_THREADED());
 	}
 	
 	public static boolean nativeBgzfOut() {
-		return ALLOW_NATIVE_BGZF && ((PREFER_NATIVE_BGZF_OUT && ZIPLEVEL<=5) || !Data.BGZIP());
+		return ALLOW_NATIVE_BGZF && ((PREFER_NATIVE_BGZF_OUT && ZIPLEVEL<=5) || !Data.BGZIP_THREADED());
 	}
 	
 	/** {active, waiting, running} <br>

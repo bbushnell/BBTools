@@ -2,8 +2,11 @@ package stream;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
+
+import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -29,7 +32,12 @@ public class FastqWriter implements Writer {
 		int threads=DEFAULT_THREADS;
 		if(args.length>2) {threads=Integer.parseInt(args[2]);}
 		if(args.length>3) {Shared.SIMD=true;}
+		if(args.length>4) {
+			ReadWrite.ALLOW_NATIVE_BGZF=ReadWrite.PREFER_NATIVE_BGZF_IN=
+				ReadWrite.PREFER_NATIVE_BGZF_OUT=Parse.parseBoolean(args[4]);
+		}
 
+		ByteFile.FORCE_MODE_BF2=true;
 		FileFormat ffin=FileFormat.testInput(in, FileFormat.FASTQ, null, true, true);
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.FASTQ, null, true, true, false, true);
 		
