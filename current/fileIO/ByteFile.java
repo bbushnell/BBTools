@@ -30,6 +30,11 @@ public abstract class ByteFile {
 	public static final ByteFile makeByteFile(FileFormat ff, int type){
 		if(type==1){return new ByteFile1(ff);}
 		if(type==2){return new ByteFile2(ff);}
+		if(type==4){return new ByteFile4(ff);}
+		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF4 || (!FORCE_MODE_BF1 && !FORCE_MODE_BF2 && Shared.threads()>5/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
+//			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
+			return new ByteFile4(ff);
+		}
 		if(!Shared.LOW_MEMORY && (FORCE_MODE_BF2 || (!FORCE_MODE_BF1 && Shared.threads()>4/* && (ReadWrite.isCompressed(fname) || ReadWrite.isSam(fname))*/))){
 //			if(allowSubprocess && ((ReadWrite.USE_UNPIGZ || ReadWrite.USE_GUNZIP) && (fname.endsWith(".gz") || fname.endsWith(".gzip")))){}
 			return new ByteFile2(ff);
@@ -81,7 +86,7 @@ public abstract class ByteFile {
 		nextID=0;
 	}
 	
-	public synchronized final ListNum<byte[]> nextList(){
+	public synchronized ListNum<byte[]> nextList(){
 		byte[] line=nextLine();
 		if(line==null){return null;}
 		ArrayList<byte[]> list=new ArrayList<byte[]>(200);
@@ -132,9 +137,11 @@ public abstract class ByteFile {
 	@Deprecated
 	public static boolean FORCE_MODE_BF3=false;
 	
+	public static boolean FORCE_MODE_BF4=false;
+	
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 	
 //	byte[] pushBack=null;
-	private long nextID=0;
+	protected long nextID=0;
 	
 }

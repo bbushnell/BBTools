@@ -1566,6 +1566,9 @@ public class Data {
 //		assert(BGZIP>0) : "bgzip not found.";
 		return BGZIP>0;
 	}
+	public static boolean BGZIP_THREADED(){
+		return BGZIP() && BGZIP_VERSION_threadsFlag;
+	}
 	public static boolean GZIP(){
 		if(GZIP==0 && !Shared.WINDOWS){
 			synchronized(SUBPROCSYNC){

@@ -3873,6 +3873,16 @@ public final class Tools {
 		key = key + (key << 31);
 		return key;
 	}
+
+	public static int hash32shift(int key){
+		key = ~key + (key << 15); // key = (key << 15) - key - 1;
+		key = key ^ (key >>> 12);
+		key = key + (key << 2);
+		key = key ^ (key >>> 4);
+		key = key * 2057; // key = (key + (key << 3)) + (key << 11);
+		key = key ^ (key >>> 16);
+		return key;
+	}
 	
 	public static double exponential(Random randy, double lamda){
 //		for(int i=0; i<20; i++){

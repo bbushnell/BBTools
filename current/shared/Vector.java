@@ -447,6 +447,26 @@ public final class Vector {
 		return positions.size();
 	}
 	
+	/**
+	 * Finds the last newline in buffer by scanning backwards.
+	 * @param buffer Buffer to scan
+	 * @param limit Scan backwards from this position (exclusive)
+	 * @param symbol Symbol to find
+	 * @return Position of last newline, or -1 if none found
+	 */
+	public static int findLastSymbol(final byte[] buffer, final int limit, final byte symbol){
+		if(buffer==null){return -1;}
+		if(Shared.SIMD && limit>=MINLEN8) {
+			return SIMD.findLastSymbol(buffer, limit, symbol);
+		}
+		for(int i=limit-1; i>=0; i--){
+			if(buffer[i]==symbol){
+				return i;
+			}
+		}
+		return -1;
+	}
+	
 	public static void add(byte[] array, byte delta){
 		if(array==null){return;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
