@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# javasetup.sh v1.1.0
+# javasetup.sh v1.2
 # Parses Java command-line arguments and sets up paths
 # Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla
-# Date: November 3, 2025
+# Date: November 6, 2025
 
 # Source memory detection script
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -47,6 +47,7 @@ function detectCPUVectorSupport() {
     
     return 1
 }
+
 # Detect Java version (need 17+)
 function detectJavaVersion() {
     if ! command -v java >/dev/null 2>&1; then
@@ -89,6 +90,74 @@ function autoDetectSIMD() {
     return 1
 }
 
+# Normalize memory specification with intelligent defaults
+# Args: 
+#   $1 - memory string (e.g., "2", "4g", "512m")
+#   $2 - prefix ("-Xmx" or "-Xms")
+# Returns: normalized Java memory flag
+normalizeMemory() {
+    local mem="$1"
+    local prefix="$2"
+    
+    # Strip excessive leading dashes (handle ---, ----, etc.)
+    while [[ "$mem" == --* ]]; do
+        mem="${mem#-}"
+    done
+    
+    # Strip any existing prefix variations
+    mem="${mem#-Xmx}"
+    mem="${mem#-Xms}"
+    mem="${mem#Xmx}"
+    mem="${mem#Xms}"
+    mem="${mem#-xmx}"
+    mem="${mem#-xms}"
+    mem="${mem#xmx}"
+    mem="${mem#xms}"
+    
+    # Check if already has suffix (case-insensitive)
+    if [[ "$mem" =~ ^[0-9]+[gGmMkK]$ ]]; then
+        # Already has suffix, normalize to lowercase
+        mem=$(echo "$mem" | tr '[:upper:]' '[:lower:]')
+        echo "${prefix}${mem}"
+        return
+    fi
+    
+    # Pure number - apply heuristic
+    if [[ "$mem" =~ ^[0-9]+$ ]]; then
+        # Get TOTAL installed physical memory in GB (not available)
+        local physicalMemGB=0
+        if [ -e /proc/meminfo ]; then
+            local memTotal=$(grep '^MemTotal:' /proc/meminfo | awk '{print $2}')
+            physicalMemGB=$((memTotal / 1024 / 1024))
+        elif command -v sysctl >/dev/null 2>&1; then
+            local totalMemBytes=$(sysctl -n hw.memsize 2>/dev/null)
+            physicalMemGB=$((totalMemBytes / 1024 / 1024 / 1024))
+        fi
+        
+        # Calculate 90% of physical memory (round up)
+        local ninetyPercent=$(((physicalMemGB * 9 + 9) / 10))
+        
+        # Decision logic:
+        # - Values < 20: always GB (JVM can't bootstrap with <20MB)
+        # - Values > 1000: always MB (terabyte users should know better)
+        # - Values 20-1000: GB if <= 90% of physical memory, else MB
+        if [ "$mem" -lt 20 ]; then
+            echo "${prefix}${mem}g"
+        elif [ "$mem" -gt 1000 ]; then
+            echo "${prefix}${mem}m"
+        elif [ "$physicalMemGB" -eq 0 ] || [ "$mem" -le "$ninetyPercent" ]; then
+            # If we can't detect memory, assume GB (safer)
+            echo "${prefix}${mem}g"
+        else
+            echo "${prefix}${mem}m"
+        fi
+        return
+    fi
+    
+    # Fallback: use as-is with prefix
+    echo "${prefix}${mem}"
+}
+
 # Parse Java memory and other flags
 # Arguments:
 #   All command-line arguments
@@ -110,24 +179,12 @@ function parseJavaArgs() {
         elif [ "${arg%%=*}" = "--mode" ]; then
             memMode="$(echo "$arg" | cut -d= -f2)"
             
-        # Memory settings
-        elif [ "${arg%%=*}" = "Xmx" ] || [ "${arg%%=*}" = "xmx" ]; then
-            XMX="-Xmx$(echo "$arg" | cut -d= -f2)"
+        # Fix broken Xmx flags
+        elif [[ "$arg" =~ ^-*[xX][mM][xX]=?([0-9].*)$ ]]; then
+            XMX=$(normalizeMemory "${BASH_REMATCH[1]}" "-Xmx")
             setxmx=1
-        elif [ "${arg%%=*}" = "-Xmx" ] || [ "${arg%%=*}" = "-xmx" ]; then
-            XMX="-Xmx$(echo "$arg" | cut -d= -f2)"
-            setxmx=1
-        elif echo "$arg" | grep -q "^-Xmx"; then
-            XMX="$arg"
-            setxmx=1
-        elif echo "$arg" | grep -q "^Xmx"; then
-            XMX="-$arg"
-            setxmx=1
-        elif echo "$arg" | grep -q "^-Xms"; then
-            XMS="$arg"
-            setxms=1
-        elif echo "$arg" | grep -q "^Xms"; then
-            XMS="-$arg"
+        elif [[ "$arg" =~ ^-*[xX][mM][sS]=?([0-9].*)$ ]]; then
+            XMS=$(normalizeMemory "${BASH_REMATCH[1]}" "-Xms")
             setxms=1
         
         # Assertion settings
@@ -183,6 +240,8 @@ function parseJavaArgs() {
         XMX="-Xmx${RAM}m"
         XMS="-Xms${RAM}m"
     fi
+    z="$XMX"
+    z2="$XMS"
 }
 
 # Setup environment paths based on the execution environment

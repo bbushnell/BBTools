@@ -33,8 +33,8 @@ threadsin=0     Reader threads (0 = auto).
 threadsout=0    Writer threads (0 = auto).
 
 Other parameters:
-simd=auto       Set to t or f to forcibly enable or disable. Requires Java 17+ 
-                and AVX2, or other 256-bit vector instruction sets like SVE.
+simd            Add this flag for turbo speed. Requires Java 17+ and AVX2,
+                or other 256-bit vector instruction sets.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 "
@@ -73,7 +73,7 @@ calcXmx () {
 calcXmx "$@"
 
 streamer() {
-	local CMD="java $EA $EOOM $z $SIMD -cp $CP stream.StreamerWrapper $@"
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP stream.StreamerWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }

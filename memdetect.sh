@@ -2,7 +2,7 @@
 
 # memdetect.sh v1.0.4
 # Detects available memory for Java applications across various environments
-# Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla (Claude Sonnet)
+# Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla
 # Date: May 24, 2025
 
 # Constants
