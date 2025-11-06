@@ -66,7 +66,7 @@ public class BgzfInputStreamMT extends InputStream {
 		//Start producer thread
 		producer=new Thread(new Runnable(){
 			public void run(){producerLoop();}
-		}, "BGZF-Producer");
+		}, "BGZF-InputProducer");
 		producer.setDaemon(true);
 		producer.start();
 
@@ -76,7 +76,7 @@ public class BgzfInputStreamMT extends InputStream {
 			final int threadNum=i;
 			workers[i]=new Thread(new Runnable(){
 				public void run(){workerLoop();}
-			}, "BGZF-Worker-"+threadNum);
+			}, "BGZF-InputWorker-"+threadNum);
 			workers[i].setDaemon(true);
 			workers[i].start();
 		}

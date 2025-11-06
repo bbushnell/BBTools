@@ -24,6 +24,7 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
+import stream.SamReadInputStream;
 import structures.ListNum;
 import tax.AccessionToTaxid;
 import tax.GiToTaxid;
@@ -126,7 +127,7 @@ public class SortByName {
 				if(Parse.parseBoolean(b)){
 					comparator=ReadQualityComparator.comparator;
 				}
-			}else if(a.equals("position")){
+			}else if(a.equals("position") || a.equals("coordinate")){
 				if(Parse.parseBoolean(b)){
 					comparator=ReadComparatorPosition.comparator;
 				}
@@ -297,12 +298,6 @@ public class SortByName {
 		
 		tempExt=Tools.getTempExt(ffin1, ffout1, extout);
 		
-		if(comparator==ReadComparatorPosition.comparator){
-			if(ReadComparatorPosition.scafMap==null){
-				ReadComparatorPosition.scafMap=ScafMap.loadSamHeader(in1);
-			}
-		}
-		
 		if((comparator==ReadComparatorTaxa.comparator)){
 			if(giTableFile!=null){
 				outstream.println("Loading gi table.");
@@ -333,7 +328,7 @@ public class SortByName {
 		//Create a read input stream
 		final ConcurrentReadInputStream cris;
 		{
-			useSharedHeader=(ffin1.samOrBam() && ffout1!=null && ffout1.samOrBam());
+			useSharedHeader=(ffin1.samOrBam());
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
@@ -398,6 +393,31 @@ public class SortByName {
 		
 		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
 				", currentMem="+currentMem+", currentLimit="+currentLimit);}
+		
+		if(comparator==ReadComparatorPosition.comparator){
+			if(ReadComparatorPosition.scafMap==null){
+				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
+			}
+		}
+		if(useSharedHeader && ffout1!=null && ffout1.samOrBam()){
+			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
+
+			if(header!=null) {
+				byte[] hd;
+				if(comparator==ReadComparatorPosition.comparator) {
+					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
+				}else if(comparator==ReadComparatorName.comparator) {
+					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
+				}else {
+					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
+				}
+				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
+					header.set(0, hd);
+				}else {
+					header.add(0, hd);
+				}
+			}
+		}
 		
 		{
 			//Grab the first ListNum of reads

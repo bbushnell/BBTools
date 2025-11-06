@@ -31,6 +31,7 @@ import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.Read;
 import stream.ReadInputStream;
+import stream.Streamer;
 import structures.DoubleList;
 import structures.Feature;
 import structures.ListNum;
@@ -845,6 +846,41 @@ public class CheckStrand {
 		//Notify the input stream that the final list was used
 		if(ln!=null){
 			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+		}
+		return genes;
+	}
+	
+	/**
+	 * Call genes from a read stream and return the gene sequences.
+	 * @param cris Read stream.
+	 * @param gCaller The gene caller.
+	 * @return Gene sequences.
+	 */
+	static ArrayList<Read> callGenes(Streamer st, GeneCaller gCaller){
+		ArrayList<Read> genes=new ArrayList<Read>();
+
+		//Grab the first ListNum of reads
+		ListNum<Read> ln=st.nextList();
+
+		CallGenes.callCDS=true;
+		CallGenes.calltRNA=CallGenes.call16S=CallGenes.call23S
+				=CallGenes.call5S=CallGenes.call18S=true;
+		
+		//As long as there is a nonempty read list...
+		while(ln!=null && ln.size()>0){
+
+			for(Read r : ln) {
+				ArrayList<Orf> orfs=gCaller.callGenes(r);
+				if(orfs!=null) {
+					for(Orf orf : orfs) {
+						Read gene=CallGenes.fetch(orf, r);
+						genes.add(gene);
+					}
+				}
+//				System.err.println(r.length()+", "+orfs.size()+", "+orfs);
+			}
+			//Fetch a new list
+			ln=st.nextList();
 		}
 		return genes;
 	}

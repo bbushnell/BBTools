@@ -54,12 +54,12 @@ public class FastqStreamer implements Streamer {
 	public FastqStreamer(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
-		threads=Tools.mid(1, threads_, Shared.threads());
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		pairnum=pairnum_;
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(pairnum==0 || !interleaved);
-		maxReads=(maxReads_<1 ? Long.MAX_VALUE : maxReads_);
+		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 		
 		// Create OQS with prototypes for LAST/POISON generation
 		ListNum<byte[][]> inputPrototype=new ListNum<byte[][]>(null, 0, ListNum.PROTO);
@@ -99,6 +99,9 @@ public class FastqStreamer implements Streamer {
 	}
 	
 	@Override
+	public boolean errorState() {return errorState;}
+	
+	@Override
 	public boolean paired(){return interleaved;}
 
 	@Override
@@ -109,6 +112,12 @@ public class FastqStreamer implements Streamer {
 	
 	@Override
 	public long basesProcessed() {return basesProcessed;}
+	
+	@Override
+	public void setSampleRate(float rate, long seed){
+		samplerate=rate;
+		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+	}
 	
 	@Override
 	public ListNum<Read> nextList(){
@@ -224,9 +233,10 @@ public class FastqStreamer implements Streamer {
 			
 			long listNumber=0;
 			long reads=0;
+			int bytes=0;
 			
-			final int limit=LIST_SIZE;
-			ListNum<byte[][]> ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(limit), listNumber++);
+			final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+			ListNum<byte[][]> ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(slimit), listNumber++);
 			ln.firstRecordNum=reads;
 			
 			while(reads<maxReads){
@@ -236,6 +246,7 @@ public class FastqStreamer implements Streamer {
 				byte[] bases=bf.nextLine();
 				byte[] plus=bf.nextLine();
 				byte[] quals=bf.nextLine();
+				bytes+=2*bases.length;//Ignore header, usually short
 				
 				if(bases==null || plus==null || quals==null){
 					// Incomplete record at end of file
@@ -246,10 +257,11 @@ public class FastqStreamer implements Streamer {
 				byte[][] record=new byte[][]{header, bases, plus, quals};
 				ln.add(record);
 				
-				if(ln.size()>=limit){
+				if(ln.size()>=slimit || bytes>=blimit){
 					oqs.addInput(ln);
-					ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(limit), listNumber++);
+					ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(slimit), listNumber++);
 					ln.firstRecordNum=reads;
+					bytes=0;
 				}
 			}
 			
@@ -273,10 +285,19 @@ public class FastqStreamer implements Streamer {
 				
 				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
 				long readID=list.firstRecordNum;
-
-				for(byte[][] quad : list){
-					Read r=quadToRead(quad, pairnum, readID++);
-					reads.add(r);
+				
+				if(samplerate>=1f){
+					for(byte[][] quad : list){
+						Read r=quadToRead(quad, pairnum, readID++);
+						reads.add(r);
+					}
+				}else{
+					for(byte[][] quad : list){
+						if(randy.nextFloat()<samplerate){
+							Read r=quadToRead(quad, pairnum, readID++);
+							reads.add(r);
+						}
+					}
 				}
 				
 				oqs.addOutput(reads);
@@ -300,14 +321,28 @@ public class FastqStreamer implements Streamer {
 				ArrayList<byte[][]> quads=list.list;
 				assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
 
-				for(int i=0, lim=quads.size(); i<lim; i+=2){
-					byte[][] quad1=quads.get(i);
-					byte[][] quad2=quads.get(i+1);
-					Read r1=quadToRead(quad1, 0, readID);
-					Read r2=quadToRead(quad2, 0, readID++);
-					r1.mate=r2;
-					r2.mate=r1;
-					reads.add(r1);
+				if(samplerate>=1f){
+					for(int i=0, lim=quads.size(); i<lim; i+=2){
+						byte[][] quad1=quads.get(i);
+						byte[][] quad2=quads.get(i+1);
+						Read r1=quadToRead(quad1, 0, readID);
+						Read r2=quadToRead(quad2, 1, readID++);
+						r1.mate=r2;
+						r2.mate=r1;
+						reads.add(r1);
+					}
+				}else{
+					for(int i=0, lim=quads.size(); i<lim; i+=2){
+						if(randy.nextFloat()<samplerate){
+							byte[][] quad1=quads.get(i);
+							byte[][] quad2=quads.get(i+1);
+							Read r1=quadToRead(quad1, 0, readID);
+							Read r2=quadToRead(quad2, 1, readID++);
+							r1.mate=r2;
+							r2.mate=r1;
+							reads.add(r1);
+						}
+					}
 				}
 				
 				oqs.addOutput(reads);
@@ -320,6 +355,7 @@ public class FastqStreamer implements Streamer {
 		
 		private Read quadToRead(byte[][] quad, int pairnum, long id) {
 //			Read r=FASTQ.quadToRead_slow(quad, false, null, readID, 0);
+			
 			Read r=FASTQ.quadToReadVec(quad, id, 0, fname);
 			r.setPairnum(pairnum);
 			
@@ -369,8 +405,9 @@ public class FastqStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public static int LIST_SIZE=200;
+
+	public static int TARGET_LIST_SIZE=200;
+	public static int TARGET_LIST_BYTES=262144;
 	public static int DEFAULT_THREADS=2;
 	
 	/*--------------------------------------------------------------*/
@@ -383,5 +420,7 @@ public class FastqStreamer implements Streamer {
 	public static final boolean verbose=false;
 	/** True if an error was encountered */
 	public boolean errorState=false;
+	private float samplerate=1f;
+	private java.util.Random randy=null;
 	
 }

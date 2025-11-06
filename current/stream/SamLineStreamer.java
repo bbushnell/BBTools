@@ -3,6 +3,7 @@ package stream;
 import java.util.ArrayList;
 import fileIO.FileFormat;
 import shared.LineParser1;
+import shared.Tools;
 import structures.ListNum;
 
 /**
@@ -188,9 +189,22 @@ public class SamLineStreamer extends SamStreamer {
 			ListNum<byte[]> list=takeBytes();
 			while(!list.poison()){
 				if(verbose || verbose2){outstream.println("tid "+tid+" grabbed blist "+list.id);}
+				
+				// Apply subsampling if needed
+				if(samplerate<1f && randy!=null){
+					int nulled=0;
+					for(int i=0; i<list.size(); i++){
+						if(randy.nextFloat()>=samplerate){
+							list.list.set(i, null);
+							nulled++;
+						}
+					}
+					if(nulled>0) {Tools.condenseStrict(list.list);}
+				}
+				
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
-				long readID=list.id*200;//TODO: Should be part of the listNum
+				long readID=list.firstRecordNum;
 				for(byte[] line : list){
 					if(line[0]=='@'){
 						//Ignore header lines

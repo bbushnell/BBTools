@@ -4,6 +4,7 @@ import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorMask;
 import ml.Cell;
+import structures.ByteBuilder;
 import structures.IntList;
 
 /** 
@@ -607,6 +608,38 @@ public final class Vector {
 			success&=(AminoAcid.baseToNumberExtended[array[i]]>=0);;
 		}
 		return success;
+	}
+	
+	/** Scalar version: Add delta to each qual and append to ByteBuilder */
+	public static void addAndAppend(byte[] quals, ByteBuilder bb, int delta) {
+		if(quals==null){return;}
+		if(Shared.SIMD && quals.length>=MINLEN8) {
+			SIMD.addAndAppend(quals, bb, delta);
+			return;
+		}
+		final int qlen=quals.length;
+		bb.ensureExtra(qlen);
+		final byte[] array=bb.array;
+		for(int i=0, j=bb.length; i<qlen; i++, j++){
+			array[j]=(byte)(quals[i]+delta);
+		}
+		bb.length+=qlen;
+	}
+
+	/** Scalar version: Generate fake quals based on whether bases are defined */
+	public static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef) {
+		if(bases==null){return;}
+		if(Shared.SIMD && bases.length>=MINLEN8) {
+			SIMD.appendFake(bases, bb, qFake, qUndef);
+			return;
+		}
+		final int blen=bases.length;
+		bb.ensureExtra(blen);
+		final byte[] array=bb.array;
+		for(int i=0, j=bb.length; i<blen; i++, j++){
+			array[j]=(byte)(AminoAcid.isFullyDefined(bases[i]) ? qFake : qUndef);
+		}
+		bb.length+=blen;
 	}
 	
 	private static synchronized boolean vectorLoaded() {

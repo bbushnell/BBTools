@@ -96,9 +96,9 @@ public class SamStreamerMF {
 				else{
 					readsProcessed+=srs.readsProcessed;
 					basesProcessed+=srs.basesProcessed;
-					if(srs.header!=null){
-						SamReadInputStream.setSharedHeader(srs.header);
-					}
+//					if(srs.header!=null){//Should be automatic now
+//						SamReadInputStream.setSharedHeader(srs.header);
+//					}
 					
 					if(!streamerSource.isEmpty()){
 						srs=streamerSource.poll();
@@ -122,7 +122,7 @@ public class SamStreamerMF {
 		streamerSource=new ArrayDeque<SamStreamer>(ffin.length);
 		activeStreamers=new ArrayDeque<SamStreamer>(maxActive);
 		for(int i=0; i<ffin.length; i++){
-			SamStreamer srs=SamStreamer.makeStreamer(ffin[i], threads, saveHeader, false, maxReads, true);
+			SamStreamer srs=SamStreamer.makeStreamer(ffin[i], threads, saveHeader && i==0, false, maxReads, true);
 			streamerSource.add(srs);
 		}
 		while(activeStreamers.size()<maxActive && !streamerSource.isEmpty()){

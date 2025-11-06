@@ -3,6 +3,9 @@ package stream;
 import structures.ListNum;
 import java.util.ArrayList;
 
+import shared.Shared;
+import shared.Tools;
+
 /**
  * Pairs reads from two separate Streamers (typically R1 and R2 files).
  * Ensures mate references are set correctly.
@@ -63,20 +66,27 @@ public class PairStreamer implements Streamer {
 	}
 	
 	@Override
+	public void setSampleRate(float rate, long seed){
+		if(seed<0) {seed=(long)(Long.MAX_VALUE*Math.random());}
+		s1.setSampleRate(rate, seed);//Much faster to pass through than process in this stream
+		s2.setSampleRate(rate, seed);
+	}
+	
+	@Override
 	public ListNum<Read> nextList(){
-		ListNum<Read> list1=s1.nextList();
-		ListNum<Read> list2=s2.nextList();
+		ListNum<Read> ln1=s1.nextList();
+		ListNum<Read> ln2=s2.nextList();
 		
-		if(list1==null && list2==null){return null;}
+		if(ln1==null && ln2==null){return null;}
 		
 		// Handle mismatched list sizes
-		assert(list1!=null && list2!=null) : "Paired files have different read counts!";
-		assert(list1.size()==list2.size()) : 
-			"List size mismatch: "+list1.size()+" vs "+list2.size();
+		assert(ln1!=null && ln2!=null) : "Paired files have different read counts!";
+		assert(ln1.size()==ln2.size()) : 
+			"List size mismatch: "+ln1.size()+" vs "+ln2.size();
 		
 		// Mate the reads
-		ArrayList<Read> reads1=list1.list;
-		ArrayList<Read> reads2=list2.list;
+		ArrayList<Read> reads1=ln1.list;
+		ArrayList<Read> reads2=ln2.list;
 		for(int i=0; i<reads1.size(); i++){
 			Read r1=reads1.get(i);
 			Read r2=reads2.get(i);
@@ -85,7 +95,19 @@ public class PairStreamer implements Streamer {
 			r2.mate=r1;
 		}
 		
-		return list1; // Return R1 list (now with mates set)
+//		// Apply subsampling if needed
+//		if(samplerate<1f && randy!=null){
+//			int nulled=0;
+//			for(int i=0; i<reads1.size(); i++){
+//				if(randy.nextFloat()>=samplerate){
+//					reads1.set(i, null);
+//					nulled++;
+//				}
+//			}
+//			if(nulled>0) {Tools.condenseStrict(reads1);}
+//		}
+		
+		return ln1; // Return R1 list (now with mates set)
 	}
 	
 	@Override
@@ -93,10 +115,16 @@ public class PairStreamer implements Streamer {
 		throw new UnsupportedOperationException("PairStreamer does not support SamLine");
 	}
 	
+	@Override
+	public boolean errorState(){return s1.errorState() || s2.errorState();}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final Streamer s1; // R1
 	private final Streamer s2; // R2
+//	private float samplerate=1f;
+//	private java.util.Random randy=null;
+	
 }

@@ -3,23 +3,38 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified Novemeber 2, 2025
+Last modified November 4, 2025
 
-Description:  Converts bteween sam, bam, fasta, fastq.
+Description:  Converts between sam, bam, fasta, fastq.
+              Supports subsampling, paired files, and multithreading.
 
 Usage:  stream.sh in=<file> out=<file> <other arguments>
 or
 stream.sh <input_file> <output_file> <other arguments>
 e.g.
 stream.sh mapped.bam mapped.sam.gz
+stream.sh in=reads.fq out=subset.fq samplerate=0.1
 
-File parameters
-in=             Input file, must have correct extension.
-                To stream, use e.g. in=stdin.sam.
-out=            Output file, optional, type based on extension.
-                To stream, use e.g. out=stdout.fq
-simd            Add this flag for turbo speed.  Requires Java 17+ and AVX2,
-                or other 256-bit vector instruction sets.
+File parameters:
+in=<file>       Primary input file, type detected from extension.
+in2=<file>      Secondary input file for paired reads.
+out=<file>      Primary output file, optional, type based on extension.
+out2=<file>     Secondary output file for paired reads.
+                Note: Use # symbol for auto-numbering, e.g. reads_#.fq
+
+Processing parameters:
+samplerate=1.0  Fraction of reads to keep (0.0 to 1.0).
+sampleseed=17   Random seed for subsampling (-1 for random).
+reads=-1        Quit after processing this many reads (-1 = all).
+ordered=t       Maintain input order in output.
+
+Threading parameters:
+threadsin=0     Reader threads (0 = auto).
+threadsout=0    Writer threads (0 = auto).
+
+Other parameters:
+simd=auto       Set to t or f to forcibly enable or disable. Requires Java 17+ 
+                and AVX2, or other 256-bit vector instruction sets like SVE.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 "
@@ -58,7 +73,7 @@ calcXmx () {
 calcXmx "$@"
 
 streamer() {
-	local CMD="java $EA $EOOM $z $SIMD -cp $CP stream.FastqWriter $@"
+	local CMD="java $EA $EOOM $z $SIMD -cp $CP stream.StreamerWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }

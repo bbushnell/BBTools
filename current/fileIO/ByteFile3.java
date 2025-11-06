@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import shared.KillSwitch;
 import shared.Parse;
 import shared.Parser;
 import shared.Shared;
@@ -14,7 +13,6 @@ import shared.Tools;
 import shared.Vector;
 import stream.HasID;
 import stream.OrderedQueueSystem;
-import stream.bam.BgzfSettings;
 import structures.IntList;
 import structures.ListNum;
 import template.ThreadWaiter;
@@ -157,7 +155,7 @@ public final class ByteFile3 extends ByteFile {
 	
 	public ByteFile3(FileFormat ff, int threads_){
 		super(ff);
-		threads=Tools.mid(1, threads_, Shared.threads());
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 
 		// Create OQS with prototypes
 		BufferJob inputPrototype=new BufferJob(null, null, 0, BufferJob.PROTO);

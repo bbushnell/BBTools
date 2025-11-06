@@ -16,6 +16,7 @@ import dna.AminoAcid;
 import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
+import fileIO.ByteFile4;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
@@ -616,9 +617,14 @@ public class Parser {
 		}else if(a.equalsIgnoreCase("bf2") || a.equalsIgnoreCase("bytefile2")){
 			ByteFile.FORCE_MODE_BF2=Parse.parseBoolean(b);
 			if(ByteFile.FORCE_MODE_BF2) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF4=false;}
+		}else if(a.equalsIgnoreCase("bf3") || a.equalsIgnoreCase("bytefile3")){
+			ByteFile.FORCE_MODE_BF3=Parse.parseBoolean(b);
+			if(ByteFile.FORCE_MODE_BF3) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=ByteFile.FORCE_MODE_BF4=false;}
 		}else if(a.equalsIgnoreCase("bf4") || a.equalsIgnoreCase("bytefile4")){
 			ByteFile.FORCE_MODE_BF4=Parse.parseBoolean(b);
 			if(ByteFile.FORCE_MODE_BF4) {ByteFile.FORCE_MODE_BF1=ByteFile.FORCE_MODE_BF2=false;}
+		}else if(a.equalsIgnoreCase("bf4threads") || a.equalsIgnoreCase("bfthreads")){
+			ByteFile4.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("utot")){
 			Read.U_TO_T=Parse.parseBoolean(b);
 		}else if(a.equals("usejni") || a.equals("jni")){
@@ -742,7 +748,11 @@ public class Parser {
 		}
 		
 		else if(a.equalsIgnoreCase("simd")){
-			Shared.SIMD=Parse.parseBoolean(b);
+			if(b!=null && b.equalsIgnoreCase("auto")) {
+				Shared.SIMD=(Vector.simd256 && Vector.vectorLoaded);
+			}else {
+				Shared.SIMD=Parse.parseBoolean(b);
+			}
 		}else if(a.equalsIgnoreCase("simdsparse")){
 			Vector.SIMD_MULT_SPARSE=Vector.SIMD_FMA_SPARSE=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("simdmultsparse")){

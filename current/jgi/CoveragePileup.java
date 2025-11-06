@@ -28,6 +28,7 @@ import shared.Tools;
 import shared.TrimRead;
 import stream.Read;
 import stream.SamLine;
+import stream.SamReadInputStream;
 import stream.SamStreamer;
 import stream.ScaffoldCoordinates;
 import stream.SiteScore;
@@ -251,6 +252,8 @@ public class CoveragePileup {
 				//do nothing
 			}else if(Parser.parseZip(arg, a, b)){
 				//do nothing
+			}else if(Parser.parseSam(arg, a, b)){
+				//do nothing
 			}else if(in1==null && arg.indexOf('=')<0 && new File(arg).exists()){
 				in1=arg;
 			}else{
@@ -429,7 +432,7 @@ public class CoveragePileup {
 		if(in1!=null && FileFormat.isBamFile(in1)){
 			if(Data.SAMTOOLS() && useStreamer){ReadWrite.USE_SAMBAMBA=false;} //Disable because it takes forever to read the header
 		}
-		ByteFile tf=ByteFile.makeByteFile(in1, false);
+//		ByteFile tf=ByteFile.makeByteFile(in1, false);
 
 //		System.err.println("B");
 		
@@ -438,8 +441,8 @@ public class CoveragePileup {
 		ReadWrite.USE_SAMBAMBA=true;
 
 //		System.err.println("C");
-		processHeader(tf, tsw);
-
+//		processHeaderOld(tf, tsw);
+		
 //		System.err.println("D");
 		processReference();
 //		System.err.println("E");
@@ -449,17 +452,19 @@ public class CoveragePileup {
 			for(String s : covIn) {
 				loadCoverageFile(s);
 			}
-		}else if(useStreamer && !FileFormat.isStdio(in1)){
-			tf.close();
+		}else if(useStreamer){
+//			tf.close();
 //			System.err.println("F");
 			processViaStreamer(tsw);
 //			System.err.println("G");
 		}else{
+			ByteFile tf=ByteFile.makeByteFile(in1, false);
+//			System.err.println("H");
 //			processViaByteFile(tf, line, tsw);
 			processViaByteFile(tf, tsw);
-//			System.err.println("H");
+//			System.err.println("I");
 		}
-//		System.err.println("I");
+//		System.err.println("J");
 		
 		printOutput();
 		
@@ -471,8 +476,9 @@ public class CoveragePileup {
 	}
 	
 	private void processViaStreamer(ByteStreamWriter tsw){
-		Streamer ss=SamStreamer.makeStreamer(in1, streamerThreads, false, false, maxReads, false);
+		Streamer ss=SamStreamer.makeStreamer(in1, streamerThreads, true, false, maxReads, false);
 		ss.start();
+		processHeader(tsw);
 		ByteBuilder bb=new ByteBuilder(33000);
 		for(ListNum<SamLine> ln=ss.nextLines(); ln!=null && ln.size()>0; ln=ss.nextLines()){
 			ArrayList<SamLine> list=(ln==null ? null : ln.list);
@@ -495,6 +501,7 @@ public class CoveragePileup {
 	}
 	
 	private void processViaByteFile(ByteFile tf, ByteStreamWriter tsw){
+		processHeaderOld(tf, tsw);
 		for(byte[] line=tf.nextLine(); line!=null && readsProcessed<maxReads; line=tf.nextLine()){
 			if(tsw!=null){tsw.println(line);}
 			processSamLine(line);
@@ -550,7 +557,7 @@ public class CoveragePileup {
 	/** Process all sam header lines from the tf.
 	 * Once a non-header line is encountered, return it.
 	 * If non-null, print all lines to the tsw. */
-	public void processHeader(ByteFile tf, ByteStreamWriter tsw){
+	public void processHeaderOld(ByteFile tf, ByteStreamWriter tsw){
 		byte[] line=null;
 		for(line=tf.nextLine(); line!=null && (line.length==0 || line[0]=='@'); line=tf.nextLine()){
 //			System.err.println(new String(line));
@@ -597,6 +604,58 @@ public class CoveragePileup {
 		}
 		if(line!=null){tf.pushBack(line);}
 //		return line;
+	}
+	
+	
+	/** Process all sam header lines from the tf.
+	 * Once a non-header line is encountered, return it.
+	 * If non-null, print all lines to the tsw. */
+	public void processHeader(ByteStreamWriter tsw){
+		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
+		if(header==null) {return;}
+		for(byte[] line : header){
+//			System.err.println(new String(line));
+			if(tsw!=null){tsw.println(line);}
+
+			if(line.length>2){
+				final byte a=line[1], b=line[2];
+
+				if(a=='S' && b=='Q'){
+					lp.set(line);
+					Scaffold scaf=new Scaffold(lp);
+					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
+					assert(!table.containsKey(scaf.name)) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
+					table.put(scaf.name, scaf);
+					list.add(scaf);
+					refBases+=scaf.length;
+//					sc.obj=new CoverageArray2(table.size(), sc.length+1);
+//					outstream.println("Made scaffold "+sc.name+" of length "+sc.length);
+				}else if(a=='P' && b=='G'){
+					lp.set(line);
+					for(int i=1, terms=lp.terms(); i<terms; i++) {
+						if(lp.termStartsWith("PN:", i)){
+							if(program==null){
+								lp.incrementA(3);
+								program=lp.parseStringFromCurrentField();
+							}
+						}else if(lp.termStartsWith("VN:", i)){
+							if(version==null){
+								lp.incrementA(3);
+								version=lp.parseStringFromCurrentField();
+							}
+						}
+					}
+				}else if(a=='R' && b=='G'){
+					//Do nothing
+				}else if(a=='H' && b=='D'){
+					//Do nothing
+				}else if(a=='C' && b=='O'){
+					//Do nothing
+				}else{
+					//				assert(false) : line;
+				}
+			}
+		}
 	}
 	
 	

@@ -36,6 +36,8 @@ import shared.Tools;
 import stream.ConcurrentReadOutputStream;
 import stream.ConcurrentReadStreamInterface;
 import stream.MultiCros;
+import stream.Streamer;
+import stream.Writer;
 import stream.bam.BamInputStream;
 import stream.bam.BamOutputStream;
 import stream.bam.BgzfInputStream;
@@ -1793,7 +1795,8 @@ public class ReadWrite {
 		}
 	}
 
-	
+
+	public static final boolean closeStream(Streamer st){return closeStreams(st, (Writer[])null);}
 	public static final boolean closeStream(ConcurrentReadStreamInterface cris){return closeStreams(cris, (ConcurrentReadOutputStream[])null);}
 	public static final boolean closeStream(ConcurrentReadOutputStream ross){return closeStreams((ConcurrentReadStreamInterface)null, ross);}
 	public static final boolean closeOutputStreams(ConcurrentReadOutputStream...ross){return closeStreams(null, ross);}
@@ -1835,6 +1838,44 @@ public class ReadWrite {
 					ros.close();
 					ros.join();
 					errorState|=(ros.errorState() || !ros.finishedSuccessfully());
+					if(verbose){System.err.println("Closed ros; error="+errorState);}
+				}
+			}
+		}
+		return errorState;
+	}
+	
+	/** 
+	 * Close these streams and wait for them to finish.
+	 * @param st An input stream.  May be null.
+	 * @param writers Zero or more output streams.
+	 * @return True if an error was encountered.
+	 */
+	public static final boolean closeStreams(Streamer st, Writer...writers){
+		if(verbose){
+			System.err.println("closeStreams("+st+", "+(writers==null ? "null" : writers.length)+")");
+			new Exception().printStackTrace(System.err);
+		}
+		boolean errorState=false;
+		if(st!=null){
+			if(verbose){System.err.println("Closing cris; error="+errorState+"; c.error="+st.errorState());}
+			st.close();
+			errorState|=st.errorState();
+//			Object[] prods=cris.producers();
+//			for(Object o : prods){
+//				if(o!=null && o.getClass()==ReadInputStream.class){
+//					ReadInputStream ris=(ReadInputStream)o;
+//					ris.
+//				}
+//			}
+			if(verbose){System.err.println("Closed cris; error="+errorState);}
+		}
+		if(writers!=null){
+			for(Writer w : writers){
+				if(w!=null){
+					if(verbose){System.err.println("Closing ros "+w+"; error="+errorState);}
+					w.close();
+					errorState|=(w.errorState() || !w.finishedSuccessfully());
 					if(verbose){System.err.println("Closed ros; error="+errorState);}
 				}
 			}

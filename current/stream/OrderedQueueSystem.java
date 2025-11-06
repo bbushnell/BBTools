@@ -124,6 +124,8 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 		finished=true;
 		this.notifyAll();
 	}
+	
+	public synchronized boolean finished() {return finished;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
