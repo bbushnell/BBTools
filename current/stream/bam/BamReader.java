@@ -3,65 +3,67 @@ package stream.bam;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+
+import structures.BinaryByteWrapperLE;
 
 /**
  * Reads BAM binary structures with proper little-endian handling.
  * All multi-byte integers in BAM format are little-endian.
+ * Optimized version using BinaryByteWrapperLE instead of ByteBuffer.
  *
- * @author Chloe
- * @date October 18, 2025
+ * @author Brian Bushnell, Chloe, Isla
+ * @date November 5, 2025
  */
 public class BamReader {
 
-	public BamReader(InputStream in) {
-		this.in = in;
-		this.buffer = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN);
+	public BamReader(InputStream in){
+		this.in=in;
+		this.temp=new byte[8];
+		this.wrapper=new BinaryByteWrapperLE(temp);
 	}
 
 	/**
 	 * Read a 32-bit signed integer (little-endian).
 	 */
 	public int readInt32() throws IOException {
-		readIntoBuffer(4);
-		buffer.flip();
-		return buffer.getInt();
+		readFully(temp, 0, 4);
+		wrapper.position(0);
+		return wrapper.getInt();
 	}
 
 	/**
 	 * Read a 32-bit unsigned integer as long (little-endian).
 	 */
 	public long readUint32() throws IOException {
-		readIntoBuffer(4);
-		buffer.flip();
-		return buffer.getInt() & 0xFFFFFFFFL;
+		readFully(temp, 0, 4);
+		wrapper.position(0);
+		return wrapper.getInt()&0xFFFFFFFFL;
 	}
 
 	/**
 	 * Read a 16-bit signed integer (little-endian).
 	 */
 	public short readInt16() throws IOException {
-		readIntoBuffer(2);
-		buffer.flip();
-		return buffer.getShort();
+		readFully(temp, 0, 2);
+		wrapper.position(0);
+		return wrapper.getShort();
 	}
 
 	/**
 	 * Read a 16-bit unsigned integer as int (little-endian).
 	 */
 	public int readUint16() throws IOException {
-		readIntoBuffer(2);
-		buffer.flip();
-		return buffer.getShort() & 0xFFFF;
+		readFully(temp, 0, 2);
+		wrapper.position(0);
+		return wrapper.getShort()&0xFFFF;
 	}
 
 	/**
 	 * Read an 8-bit unsigned integer.
 	 */
 	public int readUint8() throws IOException {
-		int b = in.read();
-		if (b < 0) {
+		int b=in.read();
+		if(b<0){
 			throw new EOFException();
 		}
 		return b;
@@ -71,15 +73,8 @@ public class BamReader {
 	 * Read exactly n bytes.
 	 */
 	public byte[] readBytes(int n) throws IOException {
-		byte[] result = new byte[n];
-		int offset = 0;
-		while (offset < n) {
-			int bytesRead = in.read(result, offset, n - offset);
-			if (bytesRead < 0) {
-				throw new EOFException("Expected " + n + " bytes, got " + offset);
-			}
-			offset += bytesRead;
-		}
+		byte[] result=new byte[n];
+		readFully(result, 0, n);
 		return result;
 	}
 
@@ -87,25 +82,25 @@ public class BamReader {
 	 * Read n bytes and interpret as ASCII string (no NUL terminator included).
 	 */
 	public String readString(int n) throws IOException {
-		byte[] bytes = readBytes(n);
+		byte[] bytes=readBytes(n);
 		return new String(bytes, 0, n, java.nio.charset.StandardCharsets.US_ASCII);
 	}
 
 	/**
-	 * Read bytes into the internal buffer.
+	 * Read exactly n bytes into array at offset.
 	 */
-	private void readIntoBuffer(int n) throws IOException {
-		buffer.clear();
-		buffer.limit(n);
-		while (buffer.hasRemaining()) {
-			int bytesRead = in.read(buffer.array(), buffer.position(), buffer.remaining());
-			if (bytesRead < 0) {
-				throw new EOFException();
+	private void readFully(byte[] array, int offset, int n) throws IOException {
+		int total=0;
+		while(total<n){
+			int bytesRead=in.read(array, offset+total, n-total);
+			if(bytesRead<0){
+				throw new EOFException("Expected "+n+" bytes, got "+total);
 			}
-			buffer.position(buffer.position() + bytesRead);
+			total+=bytesRead;
 		}
 	}
 
 	private final InputStream in;
-	private final ByteBuffer buffer;
+	private final byte[] temp;
+	private final BinaryByteWrapperLE wrapper;
 }

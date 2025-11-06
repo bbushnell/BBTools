@@ -15,6 +15,16 @@ import fileIO.FileFormat;
 public class WriterFactory {
 	
 	/*--------------------------------------------------------------*/
+	/*----------------           Legacy             ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** For drop-in ConcurrentReadOutputStream support */
+	public static Writer getStream(FileFormat ffout1, FileFormat ffout2, 
+			int buffersUnused, ArrayList<byte[]> header, boolean useSharedHeader) {
+		return makeWriter(ffout1, ffout2, header, useSharedHeader);
+	}
+	
+	/*--------------------------------------------------------------*/
 	/*----------------         Twin Files           ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -166,7 +176,7 @@ public class WriterFactory {
 			ArrayList<byte[]> header, boolean useSharedHeader){
 		if(ffout==null){
 			return null;
-		}else if(ffout.fastq()){
+		}else if(ffout.fastq() || ffout.fasta() || ffout.header()){
 			return new FastqWriter(ffout, threads, writeR1, writeR2);
 		}else if(ffout.samOrBam()){
 			return SamWriter.makeWriter(ffout, threads, header, useSharedHeader);

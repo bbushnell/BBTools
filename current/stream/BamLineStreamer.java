@@ -9,11 +9,9 @@ import java.util.Arrays;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.Tools;
 import stream.bam.BamReader;
 import stream.bam.BamToSamConverter;
-import stream.bam.BgzfInputStream;
-import stream.bam.BgzfInputStreamMT;
-import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 import structures.ListNum;
 
@@ -45,7 +43,10 @@ public class BamLineStreamer extends SamStreamer {
 		super(ffin_, threads_, saveHeader_, ordered_, maxReads_, makeReads_);
 		final int queueSize=3+(3*threads)/2;
 		outq=new JobQueue<ListNum<SamLine>>(queueSize, ordered, true, 0);
-		if(verbose) {System.err.println("Made BamLineStreamer-"+threads);}
+		if(verbose) {
+			System.err.println("Made BamLineStreamer-"+threads);
+			new Exception().printStackTrace();
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -191,6 +192,7 @@ public class BamLineStreamer extends SamStreamer {
 							header.add(line);
 						}
 						SamReadInputStream.setSharedHeader(header); //Set shared header
+						if(verbose){outstream.println("Thread "+tid+" set shared header.");}
 					}
 				}
 
@@ -212,38 +214,48 @@ public class BamLineStreamer extends SamStreamer {
 					BamLineStreamer.this.notifyAll();
 				}
 				if(verbose){outstream.println("Thread "+tid+" made converter.");}
-
+				final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+				int bytes=0;
 				//Read alignment records
-				ArrayList<byte[]> list=new ArrayList<byte[]>(LIST_SIZE);
+				ArrayList<byte[]> list=new ArrayList<byte[]>(slimit);
 				try{
 					for(long reads=0; reads<maxReads; reads++){
 						long block_size=reader.readUint32();
 						byte[] bamRecord=reader.readBytes((int)block_size);
 						list.add(bamRecord);
+						bytes+=block_size;
 
-						if(list.size()>=LIST_SIZE){
+						if(list.size()>=slimit || bytes>=blimit){
 							putBytes(new ListNum<byte[]>(list, listNumber));
 							listNumber++;
-							list=new ArrayList<byte[]>(LIST_SIZE);
+							list=new ArrayList<byte[]>(slimit);
+							bytes=0;
+							if(verbose){outstream.println("Thread "+tid+" made a list: reads="+reads);}
 						}
 					}
 				}catch(EOFException e){
 					//Normal end of file
 				}
-
+				if(verbose){outstream.println("Thread "+tid+" finished reading.");}
+				
 				if(list.size()>0){
 					putBytes(new ListNum<byte[]>(list, listNumber));
 					listNumber++;
 				}
 				putBytes(new ListNum<byte[]>(null, listNumber, true, false));//Poison
+				if(verbose){outstream.println("Thread "+tid+" added LAST.");}
 
 				bgzf.close();
 				fis.close();
 
+				if(verbose){outstream.println("Thread "+tid+" closed input streams.");}
 			}catch(IOException e){
 				throw new RuntimeException("Error reading BAM file: "+fname, e);
 			}
-			if(verbose){outstream.println("Thread "+tid+" finished.");}
+			if(verbose){outstream.println("Thread "+tid+" finished input stream shutdown.");}
+
+			putReads(new ListNum<SamLine>(null, listNumber, false, true));
+			if(verbose){outstream.println("tid "+tid+" done poisoning reads.");}
 
 			success=true;
 
@@ -269,12 +281,9 @@ public class BamLineStreamer extends SamStreamer {
 				}
 			}
 
-			putReads(new ListNum<SamLine>(null, listNumber, false, true));
-			if(verbose || verbose2){outstream.println("tid "+tid+" done poisoning reads.");}
-
 			//Track whether any threads failed
 			if(!allSuccess){errorState=true;}
-			if(verbose || verbose2){outstream.println("tid "+tid+" finished!");}
+			if(verbose){outstream.println("tid "+tid+" finished!");}
 		}
 
 		void putReads(ListNum<SamLine> list){
@@ -301,9 +310,21 @@ public class BamLineStreamer extends SamStreamer {
 			final ByteBuilder cigar=new ByteBuilder(1024);
 			ListNum<byte[]> list=takeBytes();
 			while(list!=null && !list.poison()){
+				// Apply subsampling if needed
+				if(samplerate<1f && randy!=null){
+					int nulled=0;
+					for(int i=0; i<list.size(); i++){
+						if(randy.nextFloat()>=samplerate){
+							list.list.set(i, null);
+							nulled++;
+						}
+					}
+					if(nulled>0) {Tools.condenseStrict(list.list);}
+				}
+				
 				ListNum<SamLine> reads=new ListNum<SamLine>(
 					new ArrayList<SamLine>(list.size()), list.id);
-				long readID=list.id*200;//TODO: Should be part of the listNum
+				long readID=list.firstRecordNum;
 				for(byte[] bamRecord : list){
 
 //					final SamLine sl=new SamLine(converter.convertAlignment(bamRecord));//Obsolete - reparse

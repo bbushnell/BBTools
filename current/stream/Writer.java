@@ -1,5 +1,7 @@
 package stream;
 
+import java.util.ArrayList;
+
 import structures.ListNum;
 
 /**
@@ -22,6 +24,12 @@ public interface Writer {
 	
 	/** Number of bases written */
 	public long basesWritten();
+	
+	/** 
+	 * Submit ordered batch of reads for writing.
+	 * Blocks if queue is full. Thread-safe for single producer.
+	 */
+	public void add(ArrayList<Read> reads, long id);
 	
 	/** 
 	 * Submit ordered batch of reads for writing.
@@ -50,5 +58,7 @@ public interface Writer {
 //	public void setErrorState(boolean b);
 	
 	public boolean errorState();
+
+	public boolean finishedSuccessfully();
 	
 }

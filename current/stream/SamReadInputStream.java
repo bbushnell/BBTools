@@ -66,11 +66,11 @@ public class SamReadInputStream extends ReadInputStream {
 		int threads=(threads_<=0 ? SamStreamer.DEFAULT_THREADS : threads_);
 		streamer=SamStreamer.makeStreamer(ff, threads, loadHeader_, true, maxReads_, true);
 		
-		//Extract header if requested
-		if(loadHeader){
-			header=streamer.header;
-			if(header!=null){setSharedHeader(header);}
-		}
+//		//Extract header if requested
+//		if(loadHeader){
+//			header=streamer.header;
+//			if(header!=null){setSharedHeader(header);}
+//		}
 		streamer.start();
 	}
 	
@@ -100,7 +100,7 @@ public class SamReadInputStream extends ReadInputStream {
 	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
 		if(printHeaderWait) {System.err.println("Waiting on header to be read from a sam file.");}
-		while(SHARED_HEADER==null){
+		while(SHARED_HEADER==null){//TODO:  Test with headerless sam, should populate with an empty list
 			try{
 				SamReadInputStream.class.wait(100);
 			}catch(InterruptedException e){

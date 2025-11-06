@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import dna.Data;
+import shared.Shared;
 import structures.ListNum;
 
 public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStream {
@@ -268,10 +269,8 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		samplerate=rate;
 		if(rate>=1f){
 			randy=null;
-		}else if(seed>-1){
-			randy=new java.util.Random(seed);
 		}else{
-			randy=new java.util.Random();
+			randy=Shared.threadLocalRandom(seed);
 		}
 	}
 	

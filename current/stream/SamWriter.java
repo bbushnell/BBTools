@@ -5,6 +5,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -105,7 +106,7 @@ public abstract class SamWriter implements Writer {
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
 		ffout=ffout_;
 		fname=ffout.name();
-		threads=threads_;
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		header=header_;
 		useSharedHeader=useSharedHeader_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
@@ -141,6 +142,8 @@ public abstract class SamWriter implements Writer {
 
 	/** Start worker threads. */
 	public abstract void start();
+	
+	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 
 	/** Add reads for writing (will be converted to SamLines). */
 	public final void addReads(ListNum<Read> reads){
@@ -363,7 +366,12 @@ public abstract class SamWriter implements Writer {
 	synchronized void setErrorState(boolean b){
 		errorState|=b;//Can never be unset
 	}
+	
+	@Override
 	public synchronized boolean errorState() {return errorState;}
+	
+	@Override
+	public boolean finishedSuccessfully() {return !errorState && oqs.finished();}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

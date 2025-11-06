@@ -214,8 +214,8 @@ public class CallVariants {
 					}
 				}
 			}else if(a.equals("sslistsize")){
-				SamStreamer.LIST_SIZE=Parse.parseIntKMG(b);
-				assert(SamStreamer.LIST_SIZE>0);
+				SamStreamer.TARGET_LIST_SIZE=Parse.parseIntKMG(b);
+				assert(SamStreamer.TARGET_LIST_SIZE>0);
 			}
 			
 			// Analysis and output parameters

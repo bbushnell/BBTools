@@ -64,11 +64,11 @@ public abstract class SamStreamer implements Streamer {
 	public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
 		fname=ffin_.name();
 		ordered=ordered_;
-		threads=Tools.mid(1, threads_, Shared.threads());
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		ffin=ffin_;
 		saveHeader=saveHeader_;
 		header=(saveHeader ? new ArrayList<byte[]>() : null);
-		maxReads=(maxReads_<1 ? Long.MAX_VALUE : maxReads_);
+		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 		makeReads=makeReads_;
 		
 		inq=new ArrayBlockingQueue<ListNum<byte[]>>(threads/2+2);
@@ -102,8 +102,14 @@ public abstract class SamStreamer implements Streamer {
 	}
 
 	@Override
-	public void close(){
+	public synchronized void close(){
 		//TODO: Unimplemented
+	}
+	
+	@Override
+	public void setSampleRate(float rate, long seed){
+		samplerate=rate;
+		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
 	}
 
 	@Override
@@ -130,9 +136,9 @@ public abstract class SamStreamer implements Streamer {
 		
 		long listNumber=0;
 		long reads=0;
-		
-		final int limit=LIST_SIZE;
-		ArrayList<byte[]> list=new ArrayList<byte[]>(limit);
+		int bytes=0;
+		final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+		ArrayList<byte[]> list=new ArrayList<byte[]>(slimit);
 		for(byte[] line=bf.nextLine(); line!=null && reads<maxReads; line=bf.nextLine()){
 			assert(line!=null);
 //			outstream.println("a");
@@ -147,14 +153,16 @@ public abstract class SamStreamer implements Streamer {
 					header=null;
 				}
 				reads++;
+				bytes+=line.length;
 				list.add(line);
-				if(list.size()>=limit){
+				if(list.size()>=slimit || bytes>=blimit){
 					//					outstream.println("b");
 					//					outstream.println(inq.size()+", "+inq.remainingCapacity());
 					putBytes(new ListNum<byte[]>(list, listNumber));
 					listNumber++;
+					bytes=0;
 					//					outstream.println("c");
-					list=new ArrayList<byte[]>(limit);
+					list=new ArrayList<byte[]>(slimit);
 				}
 			}
 //			outstream.println("d");
@@ -191,7 +199,7 @@ public abstract class SamStreamer implements Streamer {
 	}
 	
 	final ListNum<byte[]> takeBytes(){
-//		if(verbose){outstream.println("ss tid "+tid+" taking blist");}
+		if(verbose){outstream.println("ss taking blist");}
 		ListNum<byte[]> list=null;
 		while(list==null){
 			try {
@@ -201,7 +209,7 @@ public abstract class SamStreamer implements Streamer {
 				e.printStackTrace();
 			}
 		}
-//		if(verbose){outstream.println("ss tid "+tid+" took blist size "+list.size());}
+		if(verbose){outstream.println("ss took blist "+list.id+" type "+list.type+" size "+list.size());}
 		return list;
 	}
 	
@@ -210,6 +218,9 @@ public abstract class SamStreamer implements Streamer {
 	
 	@Override
 	public abstract boolean hasMore();
+	
+	@Override
+	public boolean errorState() {return errorState;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -248,8 +259,9 @@ public abstract class SamStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	public static int LIST_SIZE=200;
+
+	public static int TARGET_LIST_SIZE=200;
+	public static int TARGET_LIST_BYTES=250000;
 	public static int DEFAULT_THREADS=6;//TODO: Split. 7 for bam, 4 for sam is currently max for sam output
 	
 	/*--------------------------------------------------------------*/
@@ -263,5 +275,7 @@ public abstract class SamStreamer implements Streamer {
 	public static final boolean verbose2=false;
 	/** True if an error was encountered */
 	public boolean errorState=false;
+	float samplerate=1f;
+	java.util.Random randy=null;
 	
 }

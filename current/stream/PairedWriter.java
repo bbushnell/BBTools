@@ -1,5 +1,7 @@
 package stream;
 
+import java.util.ArrayList;
+
 import structures.ListNum;
 
 /**
@@ -55,6 +57,8 @@ public class PairedWriter implements Writer {
 		return w1.basesWritten()+w2.basesWritten();
 	}
 	
+	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
+	
 	@Override
 	public void addReads(ListNum<Read> reads){
 		// Both writers get the same list; they filter internally by pairnum
@@ -87,9 +91,10 @@ public class PairedWriter implements Writer {
 	}
 	
 	@Override
-	public boolean errorState(){
-		return w1.errorState() || w2.errorState();
-	}
+	public boolean errorState(){return w1.errorState() || w2.errorState();}
+	
+	@Override
+	public boolean finishedSuccessfully() {return w1.finishedSuccessfully() && w2.finishedSuccessfully();}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

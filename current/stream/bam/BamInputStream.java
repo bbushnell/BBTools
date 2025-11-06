@@ -25,7 +25,8 @@ import java.util.Objects;
 public class BamInputStream extends InputStream {
 
 	public BamInputStream(String fname, boolean ordered) {
-		this(FileFormat.testInput(fname, FileFormat.BAM, null, true, false), ordered, Shared.threads());
+		this(FileFormat.testInput(fname, FileFormat.BAM, null, true, false), ordered, 
+			Math.min(6, Shared.threads()/2+1));
 	}
 
 	public BamInputStream(String fname, boolean ordered, int threads) {
@@ -79,7 +80,9 @@ public class BamInputStream extends InputStream {
 	}
 
 	@Override
-	public void close() {
+	public synchronized void close() {
+		if(closed) {return;}
+		streamer.close();
 		closed = true;
 		currentList = null;
 		currentBuffer = null;

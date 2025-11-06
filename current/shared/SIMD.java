@@ -11,6 +11,7 @@ import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 import ml.Cell;
+import structures.ByteBuilder;
 import structures.IntList;
 
 /**
@@ -1291,6 +1292,85 @@ final class SIMD{
 		}
 		
 		return success;
+	}
+	
+	/** SIMD version: Add delta to each qual and append to ByteBuilder */
+	static void addAndAppend(byte[] quals, ByteBuilder bb, int delta) {
+		final int qlen=quals.length;
+		bb.ensureExtra(qlen);
+		final byte[] array=bb.array;
+		final int offset=bb.length;
+		
+		final VectorSpecies<Byte> SPECIES=ByteVector.SPECIES_PREFERRED;
+		final int VLEN=SPECIES.length();
+		final ByteVector vDelta=ByteVector.broadcast(SPECIES, (byte)delta);
+		
+		int i=0;
+		// Vector loop
+		for(; i<qlen-VLEN+1; i+=VLEN){
+			ByteVector vq=ByteVector.fromArray(SPECIES, quals, i);
+			ByteVector vResult=vq.add(vDelta);
+			vResult.intoArray(array, offset+i);
+		}
+		
+		// Scalar tail
+		for(; i<qlen; i++){
+			array[offset+i]=(byte)(quals[i]+delta);
+		}
+		
+		bb.length+=qlen;
+	}
+
+	/** SIMD version: Generate fake quals based on whether bases are defined */
+	static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef) {
+		final int blen=bases.length;
+		bb.ensureExtra(blen);
+		final byte[] array=bb.array;
+		final int offset=bb.length;
+		
+		final VectorSpecies<Byte> SPECIES=ByteVector.SPECIES_PREFERRED;
+		final int VLEN=SPECIES.length();
+		final int limit=SPECIES.loopBound(blen);
+		
+		final ByteVector vQFake=ByteVector.broadcast(SPECIES, (byte)qFake);
+		final ByteVector vQUndef=ByteVector.broadcast(SPECIES, (byte)qUndef);
+		
+		// Vectors for valid bases
+		final byte mask=~32; // Uppercase mask
+		final ByteVector vmask=ByteVector.broadcast(SPECIES, mask);
+		final ByteVector vA=ByteVector.broadcast(SPECIES, (byte)'A');
+		final ByteVector vC=ByteVector.broadcast(SPECIES, (byte)'C');
+		final ByteVector vG=ByteVector.broadcast(SPECIES, (byte)'G');
+		final ByteVector vT=ByteVector.broadcast(SPECIES, (byte)'T');
+		final ByteVector vU=ByteVector.broadcast(SPECIES, (byte)'U');
+		
+		int i=0;
+		// Vector loop
+		for(; i<limit; i+=VLEN){
+			ByteVector vBases=ByteVector.fromArray(SPECIES, bases, i);
+			
+			// Apply uppercase mask for comparison
+			ByteVector vb=vBases.and(vmask);
+			
+			// Check if A, C, G, T, or U (fully defined)
+			VectorMask<Byte> isA=vb.eq(vA);
+			VectorMask<Byte> isC=vb.eq(vC);
+			VectorMask<Byte> isG=vb.eq(vG);
+			VectorMask<Byte> isT=vb.eq(vT);
+			VectorMask<Byte> isU=vb.eq(vU);
+			VectorMask<Byte> isDefined=isA.or(isC).or(isG).or(isT).or(isU);
+			
+			// Blend: if defined use qFake, else use qUndef
+			ByteVector vResult=vQFake.blend(vQUndef, isDefined.not());
+			vResult.intoArray(array, offset+i);
+		}
+		
+		// Scalar tail
+		for(; i<blen; i++){
+			array[offset+i]=(byte)(AminoAcid.isFullyDefined(bases[i]) ? qFake : qUndef);
+		}
+		
+		bb.length+=blen;
 	}
 
 	/**

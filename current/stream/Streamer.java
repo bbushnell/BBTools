@@ -1,5 +1,6 @@
 package stream;
 
+import shared.Shared;
 import structures.ListNum;
 
 /**
@@ -28,6 +29,8 @@ public interface Streamer {
 	
 	/** Number of bases processed */
 	public long basesProcessed();
+	
+	public void setSampleRate(float rate, long seed);
 
 	/** 
 	 * Returns next ordered batch of reads, or null when exhausted.
@@ -47,5 +50,8 @@ public interface Streamer {
 	 * Used for pre-allocation optimizations, not correctness.
 	 */
 	public boolean hasMore();
+
+	/** True if there was an error */
+	public boolean errorState();
 
 }

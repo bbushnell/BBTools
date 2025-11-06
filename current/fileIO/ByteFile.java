@@ -30,6 +30,7 @@ public abstract class ByteFile {
 	public static final ByteFile makeByteFile(FileFormat ff, int type){
 		type=pickType(type);
 		if(type==4){return new ByteFile4(ff);}
+		if(type==3){return new ByteFile3(ff);}
 		if(type==2){return new ByteFile2(ff);}
 		return new ByteFile1(ff);
 	}
@@ -80,12 +81,16 @@ public abstract class ByteFile {
 	public synchronized ListNum<byte[]> nextList(){
 		byte[] line=nextLine();
 		if(line==null){return null;}
-		ArrayList<byte[]> list=new ArrayList<byte[]>(200);
+		final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+		ArrayList<byte[]> list=new ArrayList<byte[]>(slimit);
 		list.add(line);
-		for(int i=1; i<200; i++){
+		int bytes=line.length;
+		
+		for(int i=1; i<slimit && bytes<blimit; i++){
 			line=nextLine();
 			if(line==null){break;}
 			list.add(line);
+			bytes+=line.length;
 		}
 		ListNum<byte[]> ln=new ListNum<byte[]>(list, nextID);
 		nextID++;
@@ -118,6 +123,7 @@ public abstract class ByteFile {
 	
 	private static final int pickType(int type) {
 		if(type==4 && !ALLOW_BF4) {type=0;}
+		else if(type==3 && !ALLOW_BF3) {type=0;}
 		else if(type==2 && !ALLOW_BF2) {type=0;}
 		else if(type==1 && !ALLOW_BF1) {type=0;}
 		if(type>0) {return type;}
@@ -126,10 +132,12 @@ public abstract class ByteFile {
 		final int threads=Shared.threads();
 		if(FORCE_MODE_BF1) {return 1;}
 		if(FORCE_MODE_BF4) {return 4;}
+		if(FORCE_MODE_BF3) {return 3;}
 		if(FORCE_MODE_BF2) {return 2;}
 		
 		if(Shared.LOW_MEMORY || threads<12) {return 1;}
 		if(ALLOW_BF4) {return 4;}
+		if(ALLOW_BF3) {return 3;}
 		if(ALLOW_BF2) {return 2;}
 		return 1;
 	}
@@ -139,13 +147,19 @@ public abstract class ByteFile {
 	/** Force usage of ByteFile1 */
 	public static boolean FORCE_MODE_BF1=false;
 	public static boolean FORCE_MODE_BF2=false;
+	public static boolean FORCE_MODE_BF3=false;
 	public static boolean FORCE_MODE_BF4=false;
 
 	public static boolean ALLOW_BF1=true;
 	public static boolean ALLOW_BF2=true;
+	public static boolean ALLOW_BF3=false;//Hung on fasta input
 	public static boolean ALLOW_BF4=true;
 	
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
+	protected static final byte[] plusLine=new byte[] {plus};
+	
+	public static int TARGET_LIST_SIZE=800;
+	public static int TARGET_LIST_BYTES=262144;
 	
 //	byte[] pushBack=null;
 	protected long nextID=0;

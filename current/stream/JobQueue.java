@@ -71,7 +71,7 @@ public class JobQueue<K extends HasID>{
 			}
 			heap.add(job);
 			maxSeen=Math.max(maxSeen, job.id());
-			if(verbose){
+			if(verbose2){
 				System.err.println("Worker: added job " + toString(job) +
 					" to heap (heap size now " + heap.size() + ")");
 			}
@@ -99,12 +99,12 @@ public class JobQueue<K extends HasID>{
 	 */
 	public K take(){
 		K job=null;
-		if(verbose){System.err.println("Consumer waiting for "+nextID);}
+		if(verbose2){System.err.println("Consumer waiting for "+nextID);}
 		synchronized(heap){
 			while(job==null && !lastSeen){
 				// Wait if heap is empty or (in ordered mode) next job isn't ready yet
 				while(!heapReady()){
-					if(verbose){
+					if(verbose2){
 						System.err.println("Consumer waiting for ("+nextID+"); heap.size()="+heap.size()+
 							(heap.isEmpty() ? "" : ": "+toString(heap.peek())));
 					}
@@ -117,12 +117,17 @@ public class JobQueue<K extends HasID>{
 				}
 				if(lastSeen) {return null;}
 				job=heap.poll();
-				if(verbose){System.err.println("Consumer fetched "+toString(job));}
+				if(verbose2){System.err.println("Consumer fetched "+toString(job));}
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
-				if(job.last()) {heap.add((K)job.makePoison(job.id()+1));}
-				else if(job.poison()) {heap.add(job);}
+				if(job.last()) {
+					if(verbose) {System.err.println("Consumer fetched last and added poison.");}
+					heap.add((K)job.makePoison(job.id()+1));
+				}else if(job.poison()) {
+					if(verbose) {System.err.println("Consumer fetched and reinserted poison.");}
+					heap.add(job);
+				}
 				final int size=heap.size();
 				// Lazy notify: wake producers only when necessary to reduce overhead
 				// Skip notification when heap is mostly full (more jobs coming soon anyway)
@@ -186,6 +191,7 @@ public class JobQueue<K extends HasID>{
 	/** Half of capacity, used for lazy notification optimization */
 	private final int half;//TODO: Change so high numbers can only add under half
 	/** Enable debug output */
-	private static final boolean verbose=false;
+	private static final boolean verbose=false;//Should be for important events like thread death
+	private static final boolean verbose2=false;
 	
 }

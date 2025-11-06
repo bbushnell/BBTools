@@ -110,7 +110,7 @@ public class MergeSorted {
 				if(Parse.parseBoolean(b)){
 					comparator=ReadQualityComparator.comparator;
 				}
-			}else if(a.equals("position")){
+			}else if(a.equals("position") || a.equals("coordinate")){
 				if(Parse.parseBoolean(b)){
 					comparator=ReadComparatorPosition.comparator;
 				}

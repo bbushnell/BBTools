@@ -480,6 +480,7 @@ public final class FileFormat {
 	}
 	
 	public static boolean hasSamOrBamExtension(String fname){
+		if(fname==null) {return false;}
 		int[] r=testFormat(fname, false, false);
 		return r[0]==SAM || r[0]==BAM;
 	}

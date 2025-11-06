@@ -11,6 +11,8 @@ import shared.Tools;
 import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
+import stream.SamReadInputStream;
+import stream.SamStreamer;
 
 /**
  * Maps scaffold (chromosome/contig) names to Scaffold objects and provides
@@ -39,17 +41,20 @@ public class ScafMap {
 	/** Loads scaffold information from SAM file header
 	 * @param fname SAM filename
 	 * @return ScafMap populated with scaffold information */
+	@Deprecated
 	public static ScafMap loadSamHeader(String fname){return loadSamHeader(fname, null);}
 	
 	/** Loads scaffold information from SAM file header
 	 * @param ff SAM FileFormat object
 	 * @return ScafMap populated with scaffold information */
+	@Deprecated
 	public static ScafMap loadSamHeader(FileFormat ff){return loadSamHeader(ff, null);}
 	
 	/** Loads scaffold information from SAM file header into existing ScafMap
 	 * @param fname SAM filename
 	 * @param scafMap Existing ScafMap to add to (null to create new)
 	 * @return ScafMap populated with scaffold information */
+	@Deprecated
 	public static ScafMap loadSamHeader(String fname, ScafMap scafMap){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, false, false);
 		return loadSamHeader(ff, scafMap);
@@ -59,20 +64,27 @@ public class ScafMap {
 	 * @param ff SAM FileFormat object
 	 * @param scafMap Existing ScafMap to add to (null to create new)
 	 * @return ScafMap populated with scaffold information */
+	@Deprecated
 	public static ScafMap loadSamHeader(FileFormat ff, ScafMap scafMap){
-		ByteFile bf=ByteFile.makeByteFile(ff);
+		SamStreamer ss=SamStreamer.makeStreamer(ff, 1, true, false, 0, false);
+		ss.start();
+		scafMap=waitForSamHeader(scafMap);
+		ss.close();
+		return scafMap;
+	}
+	
+	/** Correct way to get header from sam - wait for a shared header */
+	public static ScafMap waitForSamHeader(ScafMap scafMap) {
+		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
+		assert(header!=null);
 		if(scafMap==null){scafMap=new ScafMap();}
-		byte[] line=bf.nextLine();
-		while(line!=null && line.length>0){
+		for(byte[] line : header){
 			if(Tools.startsWith(line, "@SQ\t")){
 				scafMap.add(line);
 			}else if(line[0]!='@'){
 				break;
 			}
-			line=bf.nextLine();
 		}
-		bf.close();
-
 		return scafMap;
 	}
 

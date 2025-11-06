@@ -124,7 +124,7 @@ public final class ByteFile1 extends ByteFile {
 
 	@Override
 	public synchronized final boolean close(){
-		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
+		if(verbose || true){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		if(!open){return errorState;}
 		open=false;
 		assert(is!=null);
@@ -134,7 +134,7 @@ public final class ByteFile1 extends ByteFile {
 		is=null;
 		lineNum=-1;
 		//		pushBack=null;
-		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
+		if(verbose || true){System.err.println("Closed "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		return errorState;
 	}
 
@@ -180,7 +180,7 @@ public final class ByteFile1 extends ByteFile {
 			bstart = (nlpos < bstop) ? nlpos+1 : bstop;
 			return blankLine;
 		}
-
+		
 		byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
 
 		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
@@ -228,8 +228,14 @@ public final class ByteFile1 extends ByteFile {
 			bstart=(nlpos<bstop) ? nlpos+1 : bstop;
 			return blankLine;
 		}
-
-		byte[] line=KillSwitch.copyOfRange(buffer, bstart, limit);
+		
+		final byte[] line;
+//		if(bstart+1==limit && buffer[bstart]==plus) {//Slows it down
+//			line=plusLine;//Not really safe from modification...
+//			assert(plusLine[0]==plus);
+//		}else {
+			line=KillSwitch.copyOfRange(buffer, bstart, limit);
+//		}
 
 		assert(line.length>0) : bstart+", "+nlpos+", "+limit;
 
@@ -260,11 +266,11 @@ public final class ByteFile1 extends ByteFile {
 			return null;
 		}
 		if(!Shared.SIMD){return nextListScalar();}
-		
-		final int listSize=200;
-		final ArrayList<byte[]> list=new ArrayList<byte[]>(listSize);
 
-		while(list.size()<listSize && open){
+		final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+		final ArrayList<byte[]> list=new ArrayList<byte[]>(slimit);
+		int bytes=0;
+		while(list.size()<slimit && bytes<blimit && open){
 			if(listPos>=positions.size()){
 				fillBuffer();
 
@@ -275,8 +281,8 @@ public final class ByteFile1 extends ByteFile {
 			}
 
 			// Process positions until we have enough lines OR run out of positions
-			final int iters=Math.min(positions.size()-listPos, listSize-list.size());
-			for(int i=0; i<iters; i++){
+			final int iters=Math.min(positions.size()-listPos, slimit-list.size());
+			for(int i=0; i<iters && bytes<blimit; i++){
 				final int nlpos=positions.get(listPos++);
 
 				// Check if buffer is empty
@@ -302,6 +308,7 @@ public final class ByteFile1 extends ByteFile {
 					assert(line.length>0) : bstart+", "+nlpos+", "+limit;
 					bstart=(nlpos<bstop) ? nlpos+1 : bstop;
 					list.add(line);
+					bytes+=line.length;
 				}
 			}
 		}

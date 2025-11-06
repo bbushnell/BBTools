@@ -508,8 +508,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		//Do anything necessary prior to processing
 		
 		//Determine how many threads may be used
-		final int maxThreads=mergePairs ? 64 : 16; //This is to limit memory use by sketches
-		final int threads=Tools.min(maxThreads, Shared.threads());
+		final int threads=Tools.mid(mergePairs ? 64 : 40, (3+Shared.threads()*7)/8, 1);
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);

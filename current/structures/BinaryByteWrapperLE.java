@@ -111,7 +111,7 @@ public class BinaryByteWrapperLE {
 	}
 	
 	/** Underlying byte array */
-	private byte[] array;
+	public byte[] array;
 	/** Current read position in array */
 	private int position;
 	/** Maximum readable position (exclusive) */

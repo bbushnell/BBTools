@@ -3,7 +3,6 @@ package stream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
-import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
@@ -99,9 +98,11 @@ public class FastqWriter implements Writer {
 	public FastqWriter(FileFormat ffout_, int threads_, boolean writeR1_, boolean writeR2_){
 		ffout=ffout_;
 		fname=ffout_.name();
-		threads=Tools.mid(1, threads_, Shared.threads());
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		writeR1=writeR1_;
 		writeR2=writeR2_;
+		format=(ffout.format()==UNKNOWN ? FASTQ : ffout.format());
+		assert(format==FASTQ || format==FASTA || format==HEADER) : ffout;
 		
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
@@ -139,6 +140,8 @@ public class FastqWriter implements Writer {
 		return basesWritten;
 	}
 	
+	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
+	
 	@Override
 	public void addReads(ListNum<Read> reads){
 		FastqWriterInputJob job=new FastqWriterInputJob(reads, reads.id(), ListNum.NORMAL);
@@ -146,8 +149,12 @@ public class FastqWriter implements Writer {
 	}
 	
 	@Override
-	public void addLines(ListNum<SamLine> lines){
-		throw new UnsupportedOperationException("FASTQ does not support SamLine");
+	public void addLines(ListNum<SamLine> lines){//Should be fairly fast
+		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
+		for(SamLine sl : lines) {
+			reads.add(new Read(sl.seq, sl.qual, sl.qname, -1, false));
+		}
+		addReads(new ListNum<Read>(reads, lines.id));
 	}
 	
 	@Override
@@ -168,9 +175,10 @@ public class FastqWriter implements Writer {
 	}
 	
 	@Override
-	public boolean errorState(){
-		return errorState;
-	}
+	public boolean errorState(){return errorState;}
+	
+	@Override
+	public boolean finishedSuccessfully() {return !errorState && oqs.finished();}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
@@ -303,22 +311,15 @@ public class FastqWriter implements Writer {
 			while(!job.poison()){
 				ArrayList<Read> reads=job.reads.list;
 				
-				// Format reads to FASTQ
-				for(Read r : reads){
-					final Read r1=(r.pairnum()==0 ? r : null);
-					final Read r2=(r.pairnum()==1 ? r : r.mate);
-					if(writeR1 && r1!=null){
-						r1.toFastq(bb);
-						bb.nl();
-						readsWrittenT++;
-						basesWrittenT+=r1.length();
-					}
-					if(writeR2 && r2!=null){
-						r2.toFastq(bb);
-						bb.nl();
-						readsWrittenT++;
-						basesWrittenT+=r2.length();
-					}
+				// Format reads
+				if(format==FASTQ) {
+					writeFastq(reads, bb);
+				}else if(format==FASTA) {
+					writeFasta(reads, bb);
+				}else if(format==HEADER) {
+					writeHeader(reads, bb);
+				}else {
+					throw new RuntimeException("Bad format: "+format);
 				}
 				
 				// Create output job
@@ -331,6 +332,59 @@ public class FastqWriter implements Writer {
 			
 			// Re-inject poison for other workers
 			oqs.addInput(job);
+		}
+		
+		private void writeFastq(ArrayList<Read> reads, ByteBuilder bb) {
+			for(Read r : reads){
+				final Read r1=(r.pairnum()==0 ? r : null);
+				final Read r2=(r.pairnum()==1 ? r : r.mate);
+				if(writeR1 && r1!=null){
+					r1.toFastq(bb);
+					bb.nl();
+					readsWrittenT++;
+					basesWrittenT+=r1.length();
+				}
+				if(writeR2 && r2!=null){
+					r2.toFastq(bb);
+					bb.nl();
+					readsWrittenT++;
+					basesWrittenT+=r2.length();
+				}
+			}
+		}
+		
+		private void writeFasta(ArrayList<Read> reads, ByteBuilder bb) {
+			for(Read r : reads){
+				final Read r1=(r.pairnum()==0 ? r : null);
+				final Read r2=(r.pairnum()==1 ? r : r.mate);
+				if(writeR1 && r1!=null){
+					r1.toFasta(bb);
+					bb.nl();
+					readsWrittenT++;
+					basesWrittenT+=r1.length();
+				}
+				if(writeR2 && r2!=null){
+					r2.toFasta(bb);
+					bb.nl();
+					readsWrittenT++;
+					basesWrittenT+=r2.length();
+				}
+			}
+		}
+		
+		private void writeHeader(ArrayList<Read> reads, ByteBuilder bb) {
+			for(Read r : reads){
+				final Read r1=(r.pairnum()==0 ? r : null);
+				final Read r2=(r.pairnum()==1 ? r : r.mate);
+				if(writeR1 && r1!=null){
+					bb.appendln(r1.id);
+					readsWrittenT++;
+				}
+				if(writeR2 && r2!=null){
+					bb.appendln(r2.id);
+					readsWrittenT++;
+				}
+			}
 		}
 		
 		/** Number of reads processed by this thread. */
@@ -351,6 +405,8 @@ public class FastqWriter implements Writer {
 	public final String fname;
 	/** Output file format */
 	final FileFormat ffout;
+	/** Output file format as an int */
+	public final int format;
 	/** Output stream */
 	OutputStream outstream;
 	/** OQS for coordinating workers and writer */
@@ -374,8 +430,12 @@ public class FastqWriter implements Writer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	private static final int FASTQ=FileFormat.FASTQ;
+	private static final int FASTA=FileFormat.FASTA;
+	private static final int HEADER=FileFormat.HEADER;
+	private static final int UNKNOWN=FileFormat.UNKNOWN;
+	
 	public static int DEFAULT_THREADS=3;
-
 	public static final boolean verbose=false;
 	
 }

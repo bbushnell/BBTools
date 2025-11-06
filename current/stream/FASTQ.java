@@ -382,28 +382,30 @@ public class FASTQ {
 //		if(quals!=null){for(byte b : quals){sb.append((char)(b+ASCII_OFFSET_OUT));}}
 		
 		if(bases==null){
-			bb.nl().append('+').append('\n');
+			bb.nl().appendln('+');
 			if(verbose){System.err.println("A:\n"+bb);}
 		}else{
 			bb.append(bases);
-			bb.nl().append('+').append('\n');
+			bb.nl().appendln('+');
 			if(verbose){System.err.println("B:\n"+bb);}
 			if(quals==null){
 				final byte q=(byte)(Shared.FAKE_QUAL+ASCII_OFFSET_OUT);
-				final int blen=bases.length;
-				bb.ensureExtra(blen);
-				for(int i=0, j=bb.length; i<blen; i++, j++){
-					bb.array[j]=(AminoAcid.isFullyDefined(bases[i]) ? q : ASCII_OFFSET_OUT);
-				}
-				bb.length+=blen;
+				Vector.appendFake(bases, bb, q, ASCII_OFFSET_OUT);
+//				final int blen=bases.length;
+//				bb.ensureExtra(blen);
+//				for(int i=0, j=bb.length; i<blen; i++, j++){
+//					bb.array[j]=(AminoAcid.isFullyDefined(bases[i]) ? q : ASCII_OFFSET_OUT);
+//				}
+//				bb.length+=blen;
 				if(verbose){System.err.println("C:\n"+bb);}
 			}else{
-				bb.ensureExtra(quals.length);
-				for(int i=0, j=bb.length; i<quals.length; i++, j++){
-					byte q=quals[i];
-					bb.array[j]=(byte)(q+ASCII_OFFSET_OUT);
-				}
-				bb.length+=quals.length;
+				Vector.addAndAppend(quals, bb, len);
+//				bb.ensureExtra(quals.length);
+//				for(int i=0, j=bb.length; i<quals.length; i++, j++){
+//					byte q=quals[i];
+//					bb.array[j]=(byte)(q+ASCII_OFFSET_OUT);
+//				}
+//				bb.length+=quals.length;
 				if(verbose){System.err.println("D:\n"+bb);}
 			}
 		}

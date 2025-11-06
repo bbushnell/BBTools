@@ -35,9 +35,6 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		System.out.println(new String(c));
 		byte[] d=toLongMatchString(c);
 		System.out.println(new String(d));
-		//		byte[] e=toShortMatchString(b);
-		//		System.out.println(new String(e));
-
 	}
 
 	public Read(byte[] bases_, byte[] quals_, long id_){
@@ -45,7 +42,17 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	}
 
 	public Read(byte[] bases_, byte[] quals_, String name_, long id_){
-		this(bases_, quals_, name_, id_, 0, -1, -1, -1);
+		this(bases_, quals_, name_, id_, VALIDATE_IN_CONSTRUCTOR);
+	}
+
+	public Read(byte[] bases_, byte[] quals_, String name_, long id_, boolean validate){
+		flags=~VALIDATEDMASK;
+		bases=bases_;
+		quality=quals_;
+		id=name_;
+		numericID=id_;
+		
+		if(validate){validate(true);}
 	}
 
 	public Read(byte[] bases_, byte[] quals_, String name_, long id_, int flag_){
@@ -56,26 +63,18 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		this(s_, quals_, Long.toString(id_), id_, (int)strand_, chrom_, start_, stop_);
 	}
 
-	//	public Read(byte[] bases_, byte[] quals_, String id_, long numericID_, byte strand_, int chrom_, int start_, int stop_){
-	//		this(bases_, quals_, id_, numericID_, (int)strand_, chrom_, start_, stop_);
-	//		assert(strand_==0 || strand_==1);
-	//		assert(start_<=stop_) : chrom_+", "+start_+", "+stop_+", "+numericID_;
-	//	}
-
 	/** Note that strand can be used as flag */
 	public Read(byte[] bases_, byte[] quals_, String id_, long numericID_, int flags_, int chrom_, int start_, int stop_){
 		flags=flags_&~VALIDATEDMASK;
 		bases=bases_;
 		quality=quals_;
-
+		id=id_;
+		numericID=numericID_;
+		
 		chrom=chrom_;
 		start=start_;
 		stop=stop_;
-
-		id=id_;
-		numericID=numericID_;
-
-		//		assert(amino()) : Shared.AMINO_IN;//123
+		
 		if(VALIDATE_IN_CONSTRUCTOR){validate(true);}
 	}
 
@@ -3172,9 +3171,9 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	public String name() {return id;}
 	public String id;
 	public long numericID;
-	public int chrom;
-	public int start;
-	public int stop;
+	public int chrom=-1;
+	public int start=-1;
+	public int stop=-1;
 
 	public int copies=1;
 

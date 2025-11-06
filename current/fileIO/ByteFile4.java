@@ -144,7 +144,7 @@ public final class ByteFile4 extends ByteFile{
 
 	public ByteFile4(FileFormat ff, int threads_){
 		super(ff);
-		threads=Tools.mid(1, threads_, Shared.threads());
+		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 
 		// Create OQS with prototypes
 		BufferJob inputPrototype=new BufferJob(null, 0, BufferJob.PROTO);
