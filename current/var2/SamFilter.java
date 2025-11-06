@@ -37,6 +37,10 @@ public class SamFilter {
 			minMapq=Parse.parseIntKMG(b);
 		}else if(a.equals("maxreadmapq") || a.equals("maxsammapq") || a.equals("maxmapq")){
 			maxMapq=Parse.parseIntKMG(b);
+		}else if(a.equals("mappedonly")){
+			if(Parse.parseBoolean(b)) {includeMapped=true; includeUnmapped=false;}
+		}else if(a.equals("unmappedonly")){
+			if(Parse.parseBoolean(b)) {includeMapped=false; includeUnmapped=true;}
 		}else if(a.equals("mapped")){
 			includeMapped=Parse.parseBoolean(b);
 		}else if(a.equals("unmapped")){

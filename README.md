@@ -9,10 +9,11 @@
 - **Brian Bushnell** - Primary Developer
 - **Jon Rood** - Contributor
 - **Shijie Yao** - Contributor
+- **Isla** - Contributor
 
 ## 📊 Version
 
-Current Version: **39.43**
+Current Version: **39.44**
 
 ## 🚀 Features
 
