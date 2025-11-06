@@ -283,7 +283,7 @@ public final class FileFormat {
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
 		sb.append(name).append(',');
-		sb.append(format+"("+FORMAT_ARRAY[format]+")").append(',');
+		sb.append(format+"("+formatString()+")").append(',');
 		sb.append(compression+"("+COMPRESSION_ARRAY[compression]+")").append(',');
 		sb.append(type+"("+TYPE_ARRAY[type]+")").append(',');
 		sb.append(interleaving+"("+INTERLEAVING_ARRAY[interleaving]+")").append(',');
@@ -981,12 +981,17 @@ public final class FileFormat {
 
 	public boolean interleaved(){return interleaving==INTERLEAVED;}
 	
-	public final boolean exists(){
+	public final boolean exists(){//TODO - check this for efficiency - .canRead, etc.
 		if(!file()){return read();}
 		File f=new File(name);
-		if(!f.exists() && !gzip()){return false;}
+		if(!f.exists() && !gzip()){return false;}//TODO Why gzip special case?
 		long size=f.length();
 		return size>10;
+	}
+	
+	public String formatString() {
+		int x=(format<0 || format>FORMAT_ARRAY.length) ? UNKNOWN : format;
+		return FORMAT_ARRAY[x];
 	}
 	
 //	public final boolean interleaved(){return interleaved;}

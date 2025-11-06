@@ -124,7 +124,7 @@ public final class ByteFile1 extends ByteFile {
 
 	@Override
 	public synchronized final boolean close(){
-		if(verbose || true){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
+		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		if(!open){return errorState;}
 		open=false;
 		assert(is!=null);
@@ -134,7 +134,7 @@ public final class ByteFile1 extends ByteFile {
 		is=null;
 		lineNum=-1;
 		//		pushBack=null;
-		if(verbose || true){System.err.println("Closed "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
+		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		return errorState;
 	}
 

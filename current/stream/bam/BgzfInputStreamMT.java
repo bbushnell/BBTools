@@ -34,7 +34,7 @@ public class BgzfInputStreamMT extends InputStream {
 	/*--------------------------------------------------------------*/
 
 	public BgzfInputStreamMT(InputStream in){
-		this(in, 1); //Start with 1 worker for correctness
+		this(in, 4);
 	}
 
 	public BgzfInputStreamMT(InputStream in, int threads){
