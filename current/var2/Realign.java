@@ -81,7 +81,7 @@ public class Realign {
 		parser.trimq=trimq;
 
 		samFilter.includeUnmapped=false;
-		samFilter.includeSupplimentary=false;
+		samFilter.includeSupplementary=false;
 		samFilter.includeDuplicate=true;
 		samFilter.includeNonPrimary=true;
 		samFilter.includeQfail=false;

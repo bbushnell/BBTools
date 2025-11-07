@@ -47,8 +47,8 @@ public class SamFilter {
 			includeUnmapped=Parse.parseBoolean(b);
 		}else if(a.equals("secondary") || a.equals("nonprimary")){
 			includeNonPrimary=Parse.parseBoolean(b);
-		}else if(a.equals("supplimentary")){
-			includeSupplimentary=Parse.parseBoolean(b);
+		}else if(a.equals("supplementary") || a.equals("supplimentary")){
+			includeSupplementary=Parse.parseBoolean(b);
 		}else if(a.equals("duplicate") || a.equals("duplicates")){
 			includeDuplicate=Parse.parseBoolean(b);
 		}else if(a.equals("qfail") || a.equals("samqfail")){
@@ -123,7 +123,7 @@ public class SamFilter {
 		else if(!includeMapped){return false;}
 
 		if(!includeNonPrimary && !sl.primary()){return false;}
-		if(!includeSupplimentary && sl.supplementary()){return false;}
+		if(!includeSupplementary && sl.supplementary()){return false;}
 		if(!includeDuplicate && sl.duplicate()){return false;}
 
 		if(minPos>Integer.MIN_VALUE || maxPos<Integer.MAX_VALUE){
@@ -278,7 +278,7 @@ public class SamFilter {
 	/** Whether to include mapped reads */
 	public boolean includeMapped=true;
 	/** Whether to include supplementary alignments */
-	public boolean includeSupplimentary=true;
+	public boolean includeSupplementary=true;
 	/** Whether to include reads that failed quality checks */
 	public boolean includeQfail=false;
 	/** Whether to include duplicate reads */
@@ -300,7 +300,7 @@ public class SamFilter {
 		ReadWrite.SAMTOOLS_IGNORE_FLAG=0;
 		if(!includeUnmapped){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_UNMAPPED;}
 		if(!includeNonPrimary){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_SECONDARY;}
-		if(!includeSupplimentary){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_SUPPLIMENTARY;}
+		if(!includeSupplementary){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_SUPPLEMENTARY;}
 		if(!includeQfail){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_QFAIL;}
 		if(!includeDuplicate){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_DUPLICATE;}
 	}

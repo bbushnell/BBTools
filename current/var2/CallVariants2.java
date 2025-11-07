@@ -101,7 +101,7 @@ public class CallVariants2 {
 		Shared.TRIM_READ_COMMENTS=Shared.TRIM_RNAME=true;
 
 		samFilter.includeUnmapped=false;
-		samFilter.includeSupplimentary=false;
+		samFilter.includeSupplementary=false;
 		samFilter.includeDuplicate=false;
 		samFilter.includeNonPrimary=false;
 		samFilter.includeQfail=false;

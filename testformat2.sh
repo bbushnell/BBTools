@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 10, 2023
+Last modified November 6, 2025
 
 Description:  Reads the entire file to find extended information about the format and contents.
 

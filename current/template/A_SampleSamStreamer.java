@@ -77,7 +77,7 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		ReadWrite.setZipThreads(Shared.threads());
 		
 //		samFilter.includeUnmapped=false;
-//		samFilter.includeSupplimentary=false;
+//		samFilter.includeSupplementary=false;
 //		samFilter.includeDuplicate=false;
 //		samFilter.includeNonPrimary=false;
 //		samFilter.includeQfail=false;

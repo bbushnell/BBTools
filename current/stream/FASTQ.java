@@ -399,7 +399,7 @@ public class FASTQ {
 //				bb.length+=blen;
 				if(verbose){System.err.println("C:\n"+bb);}
 			}else{
-				Vector.addAndAppend(quals, bb, len);
+				Vector.addAndAppend(quals, bb, ASCII_OFFSET_OUT);
 //				bb.ensureExtra(quals.length);
 //				for(int i=0, j=bb.length; i<quals.length; i++, j++){
 //					byte q=quals[i];

@@ -83,7 +83,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		FASTQ.TEST_INTERLEAVED=FASTQ.FORCE_INTERLEAVED=false;
 		
 		samFilter.includeUnmapped=false;
-//		samFilter.includeSupplimentary=false;
+//		samFilter.includeSupplementary=false;
 //		samFilter.includeDuplicate=false;
 		samFilter.includeNonPrimary=false;
 		samFilter.includeQfail=false;
