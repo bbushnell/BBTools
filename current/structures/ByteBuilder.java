@@ -176,13 +176,27 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder appendln(int x){
 		expand(12);
 		append(x);
-		return append('\n');
+		return append(newline);
+	}
+	
+	public ByteBuilder appendln(char x){
+		expand(2);
+		array[length++]=(byte)x;
+		array[length++]=newline;
+		return this;
+	}
+	
+	public ByteBuilder appendln(byte x){
+		expand(2);
+		array[length++]=(byte)x;
+		array[length++]=newline;
+		return this;
 	}
 	
 	public ByteBuilder appendln(long x){
 		expand(12);
 		append(x);
-		return append('\n');
+		return append(newline);
 	}
 	
 	public ByteBuilder append(int x){
@@ -446,7 +460,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		if(x==null){return appendln(nullBytes);}
 		expand(x.length()+1);
 		append(x);
-		array[length]='\n';
+		array[length]=newline;
 		length++;
 		return this;
 	}
@@ -478,7 +492,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder appendln(byte[] x){
 		expand(x.length+1);
 		append(x);
-		array[length]='\n';
+		array[length]=newline;
 		length++;
 		return this;
 	}
@@ -573,7 +587,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder appendln(ByteBuilder x){
 		expand(x.length+1);
 		append(x);
-		array[length]='\n';
+		array[length]=newline;
 		length++;
 		return this;
 	}
@@ -607,7 +621,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder appendln(char[] x){
 		expand(x.length+1);
 		append(x);
-		array[length]='\n';
+		array[length]=newline;
 		length++;
 		return this;
 	}
@@ -620,13 +634,13 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * Append a newline.
 	 * @return This ByteBuilder.
 	 */
-	public ByteBuilder nl(){return append('\n');}
+	public ByteBuilder nl(){return append(newline);}
 	
 	/**
 	 * Append a tab.
 	 * @return This ByteBuilder.
 	 */
-	public ByteBuilder tab(){return append('\t');}
+	public ByteBuilder tab(){return append(tab);}
 	
 	/**
 	 * Append a space.
@@ -944,6 +958,8 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public int length=0;
 	private final byte[] numbuffer=KillSwitch.allocByte1D(40);
 
+	private static final byte tab='\t';
+	private static final byte newline='\n';
 	public static final byte[] numbers=new byte[] {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
 	public static final byte[] nullBytes="null".getBytes();
 	public static final byte[] fbool="false".getBytes();
