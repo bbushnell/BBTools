@@ -145,7 +145,7 @@ public final class KillSwitch extends Thread {
 		}
 	}
 	
-	public static final void exceptionKill(Exception e){
+	public static final void exceptionKill(Throwable e){
 		ballast=null;
 		synchronized(MemKillMessage){
 			e.printStackTrace();

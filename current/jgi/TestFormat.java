@@ -33,6 +33,7 @@ import sketch.SketchTool;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.Read;
+import stream.bam.BamReader;
 import structures.ByteBuilder;
 import structures.IntHashMapBinary;
 import structures.ListNum;
@@ -267,7 +268,7 @@ public class TestFormat {
 	
 	void printVariantResults(){
 		println("Format\t\t"+FileFormat.FORMAT_ARRAY[format]);
-		println("Compression\t"+FileFormat.COMPRESSION_ARRAY[compression]);
+		println("Compression\t"+(bgzip ? "bgzip" : FileFormat.COMPRESSION_ARRAY[compression]));
 		println("HeaderLines\t"+headerLinesProcessed);
 		println("Variants\t"+variantsProcessed);
 		if(ploidy>0){println("Ploidy\t\t"+ploidy);}
@@ -280,8 +281,9 @@ public class TestFormat {
 	void printSequenceResults(){
 
 		println("Format\t\t"+FileFormat.FORMAT_ARRAY[format]);
-		println("Compression\t"+FileFormat.COMPRESSION_ARRAY[compression]);
+		println("Compression\t"+(bgzip ? "bgzip" : FileFormat.COMPRESSION_ARRAY[compression]));
 		println("Interleaved\t"+interleaved);
+		if(sortOrder!=null) {println("SortOrder\t"+sortOrder);}
 		println("MaxLen\t\t"+maxLen);
 		println("MinLen\t\t"+(minLen<Integer.MAX_VALUE ? minLen : 0));
 		println("AvgLen\t\t"+Tools.format("%.2f",basesProcessed/Tools.max(1.0, readsProcessed)));
@@ -667,6 +669,7 @@ public class TestFormat {
 		}else{
 			format=ff.format();
 			compression=ff.compression();
+			bgzip=ff.bgzip();
 			if(ff.fastq()){
 				byte qold=stream.FASTQ.ASCII_OFFSET;
 				stream.FASTQ.ASCII_OFFSET=33;
@@ -680,6 +683,8 @@ public class TestFormat {
 				stream.FASTQ.ASCII_OFFSET=qold;
 			}else if(ff.fasta()){
 				interleaved=stream.FASTQ.testInterleavedFasta(fname, false);
+			}else if(ff.samOrBam()){
+				sortOrder=ff.sortOrder();
 			}
 		}
 		
@@ -1293,9 +1298,11 @@ public class TestFormat {
 
 	private int format=FileFormat.UNKNOWN;
 	private int compression=FileFormat.UNKNOWN;
+	private boolean bgzip=false;
 	private boolean amino=false;
 	private boolean differs=false;
 	private boolean interleaved=false;
+	private String sortOrder=null;
 	private int offset=33;
 	private boolean makeSketch=true;
 	private boolean doMerge=true;

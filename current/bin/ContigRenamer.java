@@ -89,7 +89,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		ReadWrite.setZipThreads(Shared.threads());
 		
 		samFilter.includeUnmapped=false;
-		samFilter.includeSupplimentary=false;
+		samFilter.includeSupplementary=false;
 		samFilter.includeDuplicate=false;
 		samFilter.includeNonPrimary=false;
 		samFilter.includeQfail=false;

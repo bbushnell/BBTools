@@ -3,12 +3,12 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 4, 2016
+Last modified November 6, 2025
 
 Description:  Tests file extensions and contents to determine format,
 quality, compression, interleaving, and read length.  More than one file
-may be specified.  Note that ASCII-33 (sanger) and ASCII-64 
-(old Illumina/Solexa) cannot always be differentiated.
+may be specified.  Note that ASCII-33 and ASCII-64 cannot always
+be differentiated.
 
 Usage:  testformat.sh <file>
 

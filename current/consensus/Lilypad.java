@@ -81,7 +81,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		SamLine.RNAME_AS_BYTES=false;
 		
 		samFilter.includeUnmapped=false;
-		samFilter.includeSupplimentary=false;
+		samFilter.includeSupplementary=false;
 //		samFilter.includeDuplicate=false;
 		samFilter.includeNonPrimary=false;
 		samFilter.includeQfail=false;

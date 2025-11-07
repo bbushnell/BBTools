@@ -1,17 +1,20 @@
 package stream;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.KillSwitch;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.bam.BamIndexWriter;
 import structures.ListNum;
 import var2.SamFilter;
 import var2.ScafMap;
@@ -161,7 +164,7 @@ public class SamStreamerWrapper{
 					FileFormat.isSamOrBamFile(arg) && new File(arg).isFile()){
 				parser.in1=arg;
 			}else if(i==1 && !arg.contains("=") && parser.out1==null && parser.in1!=null &&
-					FileFormat.isSequence(arg)){
+					(FileFormat.isSequence(arg) || FileFormat.isBaiFile(arg))){
 				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
@@ -221,12 +224,25 @@ public class SamStreamerWrapper{
 		final boolean inputSam=(ffin1!=null && ffin1.samOrBam());
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean outputReads=(ffout1!=null && !ffout1.samOrBam());
+		final boolean outputBai=(ffout1!=null && ffout1.bai());
 		final boolean useSharedHeader=inputSam && outputSam;
 		final boolean makeReads=(outputReads || !inputSam);
 		if(!inputSam) {
 			System.err.println("Input is "+ffin1.formatString()+"; sam filter disabled.");
 			filter=null;
 			ref=null;
+		}
+		
+		if(outputBai){
+			assert(ffin1.bam()) : "bai output requires bam input.";
+			try{
+				BamIndexWriter.writeIndex(in1, out1);
+			}catch(Throwable e){
+				KillSwitch.exceptionKill(e);
+			}
+			t.stop();
+			outstream.println("Time:                         \t"+t);
+			return;
 		}
 
 		//Load reference if specified

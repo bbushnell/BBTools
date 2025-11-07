@@ -3,22 +3,17 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 30, 2025
+Last modified November 6, 2025
 
-Description:  Converts sam/bam to sam, bam, fasta, or fastq rapidly.
-Allows some filtering operations.  Multithreaded.
+Description:  Interconverts sam, bam, fasta, or fastq rapidly.
+Sam and bam input also allow filtering options; bam allows bai generation.
 
-Usage:  samstreamer.sh in=<file> out=<file> <other arguments>
-or
-samstreamer.sh <input_file> <output_file> <other arguments>
-e.g.
-samstreamer.sh mapped.bam mapped.sam.gz minid=0.95 simd
-
-
-File parameters
-in=             Input file, must be sam, sam.gz, or bam.
-                To stream, use in=stdin.sam with the proper extension.
-out=            Output file, optional, any sequence format allowed.
+Usage:  samstreamer.sh in=<file> out=<file>
+        samstreamer.sh <in> <out>
+Examples:
+samstreamer.sh reads.sam.gz mapped.bam unmapped=f
+samstreamer.sh sorted.bam sorted.bai
+samstreamer.sh sorted.bam reads.fq.gz 
 
 Filtering parameters:
 minpos=         Ignore alignments not overlapping this range.
@@ -29,19 +24,20 @@ minid=0.0       Ignore alignments with identity below this.
 maxid=1.0       Ignore alignments with identity above this.
 contigs=        Comma-delimited list of contig names to include. These 
                 should have no spaces, or underscores instead of spaces.
+                If present, this will be a whitelist.
 mapped=t        Include mapped reads.
 unmapped=t      Include unmapped reads.
+mappedonly=     If true, include only mapped reads.
+unmappedonly=   If true, only include unmapped reads.
 secondary=t     Include secondary alignments.
-                Recommended false for fasta/fastq.
-supplimentary=t Include supplimentary alignments.
-                Recommended false for fasta/fastq.
+supplementary=t Include supplementary alignments.
 lengthzero=t    Include alignments without bases.
-                Recommended false for fasta/fastq.
 invert=f        Invert sam filters.
 ordered=t       Keep reads in input order.
+duplicate=t     Include reads marked as duplicate.
+qfail=t         Include reads marked as qfail.
 ref=<file>      Optional reference file.
-simd            Add this flag for turbo speed.  Requires Java 17+ and AVX2,
-                or other 256-bit vector instruction sets.
+
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 "
@@ -58,12 +54,6 @@ cd "$(dirname "$DIR")"
 DIR="$(pwd)/"
 popd > /dev/null
 
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx2g"
-set=0
-
 if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 	usage
 	exit
@@ -77,17 +67,17 @@ calcXmx () {
     source "$DIR""/memdetect.sh"
     source "$DIR""/javasetup.sh"
     
-    parseJavaArgs "--mem=1g" "--mode=fixed" "$@"
+    parseJavaArgs "--mem=2g" "--mode=fixed" "$@"
     
     # Set environment paths
     setEnvironment
 }
 calcXmx "$@"
 
-samstreamer() {
-	local CMD="java $EA $EOOM $z $SIMD -cp $CP stream.SamStreamerWrapper $@"
+streamer() {
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP stream.SamStreamerWrapper $@"
 	echo $CMD >&2
 	eval $CMD
 }
 
-samstreamer "$@"
+streamer "$@"

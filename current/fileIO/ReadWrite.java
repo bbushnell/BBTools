@@ -1127,9 +1127,7 @@ public class ReadWrite {
 				}
 				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())){
 					if(!fname.contains("stdin") && new File(fname).exists()){
-						int magicNumber=getMagicNumber(fname);
-						if(magicNumber==529205252){return getUnbgzipStream(fname);}
-//						System.err.println(magicNumber);
+						if(isBGZip(fname)){return getUnbgzipStream(fname);}
 					}
 				}
 				if(USE_UNPIGZ && Data.PIGZ()){return getUnpigzStream(fname);}
@@ -1973,6 +1971,35 @@ public class ReadWrite {
 			atp.add(pt);
 		}
 	}
+	
+	public static boolean isBGZip(String fname) {
+		if(fname.startsWith("stdin")) {return false;}
+		int magic=getMagicNumber(fname);
+		return magic==529205252;
+//		byte[] header=getFirst16Bytes(fname);
+//		if(header[10]==0x42 && header[11]==0x43){ //BC subfield
+//			return true; //Is BGZF
+//		}
+	}
+	
+	private static byte[] getFirstNBytes(String fname, int n) {
+		byte[] array=new byte[n];
+		FileInputStream fis;
+		try{
+			fis=new FileInputStream(fname);
+			int read=fis.read(array, 0, n);
+			while(read<n) {
+				int r=fis.read(array, read, n-read);
+				read+=r;
+				if(r<1) {break;}
+			}
+			fis.close();
+			return read<n ? null : array;
+		}catch(Exception e){
+			KillSwitch.exceptionKill(e);
+			return null;
+		}
+	}
 
 	/** 
 	 * Note:
@@ -1998,23 +2025,6 @@ public class ReadWrite {
 			e.printStackTrace();
 		}
 		
-		//This is fine but uses Java11 methods
-//		byte[] array=new byte[4];
-//		int read=0;
-//		try {
-////			read=is.readNBytes(array, 0, 4);
-//			read=is.readNBytes(array, 0, 4);
-//		} catch (IOException e) {
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-//		assert(read==4) : read;
-//		int x=0;
-//		for(int i=0; i<read; i++){
-//			int b=((int)array[i])&255;
-//			x=(x<<8)|b;
-//		}
-		
 		int x=0;
 		for(int i=0; i<4; i++){
 			try {
@@ -2024,7 +2034,8 @@ public class ReadWrite {
 				e.printStackTrace();
 			}
 		}
-		
+//		System.err.println("Returning "+x);
+//		new Exception().printStackTrace();
 		return x;
 	}
 	
@@ -2093,7 +2104,7 @@ public class ReadWrite {
 	public static int SAMTOOLS_IGNORE_FLAG=0;
 	public static final int SAM_UNMAPPED=0x4;
 	public static final int SAM_DUPLICATE=0x400;
-	public static final int SAM_SUPPLIMENTARY=0x800;
+	public static final int SAM_SUPPLEMENTARY=0x800;
 	public static final int SAM_SECONDARY=0x100;
 	public static final int SAM_QFAIL=0x200;
 	

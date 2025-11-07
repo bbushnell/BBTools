@@ -142,7 +142,7 @@ public class CallVariants {
 		// Configure default SAM filtering parameters
 		// These settings focus on high-quality, properly mapped reads
 		samFilter.includeUnmapped=false; // Skip unmapped reads
-		samFilter.includeSupplimentary=false; // Skip supplementary alignments
+		samFilter.includeSupplementary=false; // Skip supplementary alignments
 		samFilter.includeDuplicate=false; // Skip duplicate reads
 		samFilter.includeNonPrimary=false; // Skip secondary alignments
 		samFilter.includeQfail=false; // Skip quality-failed reads

@@ -15,6 +15,7 @@ import shared.Parse;
 import shared.PreParser;
 import shared.Tools;
 import stream.Read;
+import stream.bam.BamReader;
 
 /**
  * This class contains metadata about a file
@@ -89,14 +90,24 @@ public final class FileFormat {
 				i=stream.FASTQ.testInterleavedFasta(fname, false);
 			}
 			if(ff.isSequence()){
-				String qs=(q==33 ? "sanger" : q==64 ? "illumina" : ""+q);
-				System.out.print(qs+"\t"+FORMAT_ARRAY[ff.format()]+"\t"+COMPRESSION_ARRAY[ff.compression()]);
-				System.out.print("\t"+(i ? "interleaved" : "single-ended"));
+//				String qs=(q==33 ? "sanger" : q==64 ? "illumina" : ""+q);
+				String qs=(q==33 ? "ASCII-33" : q==64 ? "ASCII-64" : ""+q);
+				System.out.print(qs+"\t"+ff.formatString()+"\t");
+				System.out.print(ff.compressionString());
+				if(ff.samOrBam()) {
+					System.out.print("\t"+ff.sortOrder());
+				}else {
+					System.out.print("\t"+(i ? "interleaved" : "single-ended"));
+				}
 				if(len>0){System.out.print("\t"+len+"bp");}
 			}else{
-				System.out.print(FORMAT_ARRAY[ff.format()]+"\t"+COMPRESSION_ARRAY[ff.compression()]);
+				System.out.print(ff.formatString()+"\t");
+				System.out.print(ff.compressionString());
 			}
-			if(ffName.format()!=ff.format()){System.out.print("\t"+FORMAT_ARRAY[ffName.format()]+"\t(File extension differs from contents)");}
+			if(ffName.format()!=ff.format()){
+				System.out.print("\t"+FORMAT_ARRAY[ffName.format()]+
+					"\t(File extension differs from contents)");
+			}
 			System.out.println();
 		}
 	}
@@ -368,6 +379,8 @@ public final class FileFormat {
 		else if(ext.equals("bbvec") || ext.equals("vec")){r[0]=BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){r[0]=CLADE;}
 		else if(ext.equals("png")){r[0]=PNG;}
+		else if(ext.equals("bai")){r[0]=BAI;}
+		else if(ext.equals("sai")){r[0]=SAI;}
 		
 		if(comp!=null){
 			r[1]=Tools.find(comp, COMPRESSION_ARRAY);
@@ -775,6 +788,11 @@ public final class FileFormat {
 		return (ext.equalsIgnoreCase("sam") || ext.equalsIgnoreCase("bam"));
 	}
 	
+	public static boolean isBaiExt(String ext){
+		if(ext==null){return false;}
+		return (ext.equalsIgnoreCase("bai"));
+	}
+	
 	public static boolean isGffExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equalsIgnoreCase("gff"));
@@ -800,6 +818,12 @@ public final class FileFormat {
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isBamExt(ext);
+	}
+	
+	public static boolean isBaiFile(String fname){
+		if(fname==null){return false;}
+		String ext=ReadWrite.rawExtension(fname);
+		return isBaiExt(ext);
 	}
 	
 	public static boolean isVcfFile(String fname){
@@ -876,6 +900,8 @@ public final class FileFormat {
 		else if(ext.equals("bbvec") || ext.equals("vec")){return BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){return CLADE;}
 		else if(ext.equals("png")){return PNG;}
+		else if(ext.equals("bai")){return BAI;}
+		else if(ext.equals("sai")){return SAI;}
 		else if(ext.equals("txt") || ext.equals("text") || ext.equals("tsv") || ext.equals("csv")){return TXT;}
 		return UNKNOWN;
 	}
@@ -919,6 +945,7 @@ public final class FileFormat {
 	public final boolean bread(){return format==BREAD;}
 	public final boolean sam(){return format==SAM;}
 	public final boolean samOrBam(){return format==SAM || format==BAM;}
+	public final boolean samOrBamOrBai(){return format==SAM || format==BAM || format==BAI;}
 	public final boolean csfasta(){return format==CSFASTA;}
 	public final boolean qual(){return format==QUAL;}
 	public final boolean sequential(){return format==SEQUENTIAL;}
@@ -947,6 +974,7 @@ public final class FileFormat {
 	public final boolean bbvec(){return format==BBVEC;}
 	public final boolean clade(){return format==CLADE;}
 	public final boolean png(){return format==PNG;}
+	public final boolean bai(){return format==BAI;}
 	
 	public final boolean preferShreds(){return preferShreds;}
 
@@ -994,8 +1022,25 @@ public final class FileFormat {
 		return FORMAT_ARRAY[x];
 	}
 	
-//	public final boolean interleaved(){return interleaved;}
-//	public final long maxReads(){return maxReads;}
+	public String compressionString() {
+		if(bam() || bgzip()) {return "bgzip";}
+		int x=(compression<0 || compression>COMPRESSION_ARRAY.length) ? UNKNOWN : compression;
+		return COMPRESSION_ARRAY[x];
+	}
+	
+	public String sortOrder() {
+		if(sam()) {
+			return BamReader.getSamSortOrder(name);
+		}else if(bam()) {
+			return BamReader.getBamSortOrder(name);
+		}
+		return null;
+	}
+	
+	public boolean bgzip() {
+		if(magicNumber==Long.MIN_VALUE) {magicNumber=ReadWrite.getMagicNumber(name);}
+		return magicNumber==529205252;
+	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -1022,6 +1067,7 @@ public final class FileFormat {
 	private final boolean allowSubprocess;
 	private final boolean ordered;
 	
+	private long magicNumber=Long.MIN_VALUE;
 //	private final int magicNumber;
 	
 	public boolean preferShreds=false;
@@ -1077,6 +1123,8 @@ public final class FileFormat {
 	public static final int BBVEC=32;
 	public static final int CLADE=33;
 	public static final int PNG=34;
+	public static final int BAI=35;
+	public static final int SAI=36;
 	
 	public static final String[] FORMAT_ARRAY=new String[] {
 		"unknown", "fasta", "fastq", "bread", "sam", "csfasta",
@@ -1084,7 +1132,8 @@ public final class FileFormat {
 		"bam", "scarf", "text", "phylip", "header", "int1d",
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
-		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png"
+		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png",
+		"bai", "sai"
 	};
 	
 	public static final String[] EXTENSION_LIST=new String[] {
@@ -1095,7 +1144,8 @@ public final class FileFormat {
 		"gz", "gzip", "bz2", "zip", "xz", "dsrc", "header", "headers",
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
-		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png"
+		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",
+		"bai", "sai"
 	};
 	
 	/* Compression */
