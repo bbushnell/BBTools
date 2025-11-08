@@ -673,7 +673,7 @@ public class BamToSamConverter {
 				int opLen=cigOp>>>4;
 				int op=cigOp&0xF;
 //				cigar.append(opLen).append((char)CIGAR_OPS_B[op]);
-				cigar.appendUnsafe(opLen, CIGAR_OPS_B[op]);
+				cigar.appendOpUnsafe(opLen, CIGAR_OPS_B[op]);
 			}
 			sl.cigar=cigar.toString();
 			cigar.clear();

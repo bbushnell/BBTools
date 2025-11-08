@@ -999,6 +999,7 @@ public class FASTQ {
 				KillSwitch.memKill(e);
 			}
 		}
+		Vector.capQuality(quals, bases);//Also caps quality
 		return r;
 	}
 	
@@ -1009,9 +1010,10 @@ public class FASTQ {
 		final byte[] header=quad[0];
 		final byte[] bases=quad[1];
 		final byte[] quals=quad[3];
-		final String id=makeId(header);
 		
 		if(header==null || header.length<1 || header[0]!=(byte)'@'){return quadToRead_slow(quad, false, bf, numericID, flag);}
+		if(true) {return quadToReadVec(quad, numericID, flag, (bf==null ? null : bf.name()));}
+		final String id=makeId(header);
 		
 //		boolean over=false;
 //		int negative=0;

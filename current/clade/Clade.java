@@ -355,7 +355,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		assert(finished);
 		if(!finished) {finish();}
 		final boolean outDEC=(outputCoding==DECIMAL);
-		final byte[] temp=(outDEC ? null : KillSwitch.allocByte1D(12));
+//		final byte[] temp=(outDEC ? null : KillSwitch.allocByte1D(12));
 		{//header
 			int lines=10+counts.length-1;
 			if(r16S!=null) {lines++;}
@@ -381,7 +381,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			if(counts[k]!=null && (k<=maxK || !CONCISE)) {
 				bb.tab();
 				if(outDEC) {bb.append(counts[k], '\t');}
-				else {bb.appendA48(counts[k], '\t', temp);}
+//				else {bb.appendA48(counts[k], '\t', temp);}
+				else {bb.appendA48(counts[k], '\t');}
 			}
 			bb.nl();
 		}

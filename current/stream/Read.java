@@ -284,11 +284,11 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		assert(bases!=null);
 		
 		boolean problem=false;
-		boolean needCap=true;//TODO: This is not necessary if reads are processed via Streamer
+		boolean needCap=false;
 		if(IUPAC_TO_N || JUNK_MODE==FIX_JUNK_AND_IUPAC) {Vector.iupacToN(bases); needCap=true;}
 		if(TO_UPPER_CASE || LOWER_CASE_TO_N || DOT_DASH_X_TO_N){problem=fixCaseVec(); needCap=true;}
 		if(quality!=null && CHANGE_QUALITY && needCap){
-			Vector.applyQualOffset(quality, bases, 0);//Also caps quality
+			Vector.capQuality(quality, bases);
 			needCap=false;
 		}
 		
@@ -298,7 +298,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		if(JUNK_MODE==FLAG_JUNK) {setJunk(true);}
 		else if(JUNK_MODE==FIX_JUNK) {
 			Vector.iupacToN(bases);
-			Vector.applyQualOffset(quality, bases, 0);//Also caps quality
+			Vector.capQuality(quality, bases);
 		}else if(JUNK_MODE==CRASH_JUNK) {return validateCommonCase_branchless(true);}
 		return true;
 	}
