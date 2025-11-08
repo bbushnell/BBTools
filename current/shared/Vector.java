@@ -299,7 +299,7 @@ public final class Vector {
 	/** Returns number of matches */
 	public static final int countMatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
 		assert(b1-a1==b2-a2) : a1+"-"+b1+", "+a2+"-"+b2+", len="+s1.length+", "+(b1-a1)+"!="+(b2-a2);
-		if(Shared.SIMD && b1-a1+1>=MINLEN8) {return SIMD.countMatches(s1, s2, a1, b1, a2, b2);}
+		if(Shared.SIMD && b1-a1+1>=MINLEN8) {return SIMDByte256.countMatches(s1, s2, a1, b1, a2, b2);}
 		int matches=0;
 		for(int i=a1, j=a2; j<=b2; i++, j++) {
 			final byte x=s1[i], y=s2[j];
@@ -315,7 +315,7 @@ public final class Vector {
 	}
 	
 	public static final int find(final byte[] a, final byte symbol, final int from, final int to){
-//		if(Shared.SIMD && to-from>=MINLEN8) {return SIMD.find(a, symbol, from, to);}
+//		if(Shared.SIMD && to-from>=MINLEN8) {return SIMDByte.find(a, symbol, from, to);}
 		int len=from;
 		while(len<to && a[len]!=symbol){len++;}
 		return len;
@@ -332,7 +332,7 @@ public final class Vector {
 
 	public static long sum(byte[] array){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN8) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN8) {return SIMDByte256.sum(array, 0, array.length-1);}
 		long x=0;
 		for(byte y : array){x+=y;}
 		return x;
@@ -440,7 +440,7 @@ public final class Vector {
 			final int from, final int to, final byte symbol, final IntList positions){
 		if(array==null){return positions.size();}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.findSymbols(array, from, to, symbol, positions);
+			return SIMDByte256.findSymbols(array, from, to, symbol, positions);
 		}
 		for(int i=from; i<to; i++){
 			if(array[i]==symbol){positions.add(i);}
@@ -458,7 +458,7 @@ public final class Vector {
 	public static int findLastSymbol(final byte[] buffer, final int limit, final byte symbol){
 		if(buffer==null){return -1;}
 		if(Shared.SIMD && limit>=MINLEN8) {
-			return SIMD.findLastSymbol(buffer, limit, symbol);
+			return SIMDByte256.findLastSymbol(buffer, limit, symbol);
 		}
 		for(int i=limit-1; i>=0; i--){
 			if(buffer[i]==symbol){
@@ -471,7 +471,7 @@ public final class Vector {
 	public static void add(byte[] array, byte delta){
 		if(array==null){return;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			SIMD.add(array, delta);
+			SIMDByte256.add(array, delta);
 			return;
 		}
 		for(int i=0; i<array.length; i++) {array[i]+=delta;}
@@ -480,7 +480,7 @@ public final class Vector {
 	public static byte addAndCapMin(final byte[] array, final byte delta, final int cap){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.addAndCapMin(array, delta, cap);
+			return SIMDByte256.addAndCapMin(array, delta, cap);
 		}
 		int min=127;
 		for(int i=0; i<array.length; i++) {
@@ -494,7 +494,7 @@ public final class Vector {
 	public static void applyQualOffset(final byte[] quals, final byte[] bases, final int delta){
 		if(quals==null){return;}
 		if(Shared.SIMD && quals.length>=MINLEN8) {
-			SIMD.applyQualOffset(quals, bases, delta);
+			SIMDByte256.applyQualOffset(quals, bases, delta);
 			return;
 		}
 		for(int i=0; i<quals.length; i++) {
@@ -505,10 +505,24 @@ public final class Vector {
 		}
 	}
 	
+	public static void capQuality(final byte[] quals, final byte[] bases){
+		if(quals==null){return;}
+		if(Shared.SIMD && quals.length>=MINLEN8) {
+			SIMDByte256.capQuality(quals, bases);
+			return;
+		}
+		for(int i=0; i<quals.length; i++) {
+			byte b=bases[i];
+			int q=quals[i];
+			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
+			quals[i]=(byte)q;
+		}
+	}
+	
 	public static void uToT(byte[] bases){
 		if(bases==null){return;}
 		if(Shared.SIMD && bases.length>=MINLEN8) {
-			SIMD.uToT(bases);
+			SIMDByte256.uToT(bases);
 			return;
 		}
 		for(int i=0; i<bases.length; i++){
@@ -520,7 +534,7 @@ public final class Vector {
 	public static boolean dotDashXToN(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.dotDashXToN(array);
+			return SIMDByte256.dotDashXToN(array);
 		}
 		for(int i=0; i<array.length; i++){
 			array[i]=AminoAcid.dotDashXToNocall[array[i]];
@@ -532,7 +546,7 @@ public final class Vector {
 	public static boolean isProtein(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.isProtein(array);
+			return SIMDByte256.isProtein(array);
 		}
 		boolean protein=false;
 		for(int i=0; i<array.length; i++){
@@ -548,7 +562,7 @@ public final class Vector {
 	public static boolean lowerCaseToN(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.lowerCaseToN(array);
+			return SIMDByte256.lowerCaseToN(array);
 		}
 		for(int i=0; i<array.length; i++){
 			array[i]=AminoAcid.lowerCaseToNocall[array[i]];
@@ -560,7 +574,7 @@ public final class Vector {
 	public static boolean toUpperCase(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.toUpperCase(array);
+			return SIMDByte256.toUpperCase(array);
 		}
 		boolean success=true;
 		for(int i=0; i<array.length; i++){
@@ -573,7 +587,7 @@ public final class Vector {
 	public static boolean allLetters(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.allLetters(array);
+			return SIMDByte256.allLetters(array);
 		}
 		final byte A='A', Z='Z';
 		final byte mask=~32;
@@ -589,7 +603,7 @@ public final class Vector {
 	public static boolean iupacToN(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.iupacToN(array);
+			return SIMDByte256.iupacToN(array);
 		}
 		for(int i=0; i<array.length; i++){
 			array[i]=AminoAcid.baseToACGTN[array[i]];
@@ -601,7 +615,7 @@ public final class Vector {
 	public static boolean isNucleotide(byte[] array) {
 		if(array==null){return true;}
 		if(Shared.SIMD && array.length>=MINLEN8) {
-			return SIMD.isNucleotide(array);
+			return SIMDByte256.isNucleotide(array);
 		}
 		boolean success=true;
 		for(int i=0; i<array.length; i++){
@@ -614,7 +628,7 @@ public final class Vector {
 	public static void addAndAppend(byte[] quals, ByteBuilder bb, int delta) {
 		if(quals==null){return;}
 		if(Shared.SIMD && quals.length>=MINLEN8) {
-			SIMD.addAndAppend(quals, bb, delta);
+			SIMDByte256.addAndAppend(quals, bb, delta);
 			return;
 		}
 		final int qlen=quals.length;
@@ -625,12 +639,28 @@ public final class Vector {
 		}
 		bb.length+=qlen;
 	}
+	
+	/** Scalar version: Add delta to each qual and append to ByteBuilder */
+	public static void addAndAppendReversed(byte[] quals, ByteBuilder bb, int delta) {
+		if(quals==null){return;}
+		if(Shared.SIMD && quals.length>=MINLEN8) {
+			SIMDByte256.addAndAppendReversed(quals, bb, delta);
+			return;
+		}
+		final int qlen=quals.length;
+		bb.ensureExtra(qlen);
+		final byte[] array=bb.array;
+		for(int i=qlen-1, j=bb.length; i>=0; i--, j++){
+			array[j]=(byte)(quals[i]+delta);
+		}
+		bb.length+=qlen;
+	}
 
 	/** Scalar version: Generate fake quals based on whether bases are defined */
 	public static void appendFake(byte[] bases, ByteBuilder bb, int qFake, int qUndef) {
 		if(bases==null){return;}
 		if(Shared.SIMD && bases.length>=MINLEN8) {
-			SIMD.appendFake(bases, bb, qFake, qUndef);
+			SIMDByte256.appendFake(bases, bb, qFake, qUndef);
 			return;
 		}
 		final int blen=bases.length;
@@ -640,6 +670,20 @@ public final class Vector {
 			array[j]=(byte)(AminoAcid.isFullyDefined(bases[i]) ? qFake : qUndef);
 		}
 		bb.length+=blen;
+	}
+	
+	public static ByteBuilder append(ByteBuilder bb, String s) {
+		if(varHandles) {
+			return VarHandler.appendString(bb, s);
+		} else {
+			final int len=s.length();
+			bb.expand(len);
+			for(int i=0, j=bb.length; i<len; i++, j++){
+				bb.array[j]=(byte)s.charAt(i);
+			}
+			bb.length+=len;
+			return bb;
+		}
 	}
 	
 	private static synchronized boolean vectorLoaded() {
@@ -662,5 +706,6 @@ public final class Vector {
 	public static boolean SIMD_FMA_SPARSE=true;//Grants a speedup, slightly different results
 	public static final boolean vectorLoaded=vectorLoaded();
 	public static final boolean simd256=simd256Avaliable();
+	public static final boolean varHandles=(Shared.javaVersion>=9 && VarHandler.AVAILABLE);
 	
 }

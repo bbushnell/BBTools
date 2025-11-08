@@ -35,9 +35,9 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.45";
+	public static String BBTOOLS_VERSION_STRING="39.46";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="QuickBai";
+	public static String BBMAP_VERSION_NAME="Dual Simd";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
@@ -199,7 +199,7 @@ public class Shared {
 	/** True if assertions are enabled */
 	private static boolean EA=false;
 	/** Java version number */
-	public static double javaVersion=parseJavaVersion();
+	public static final double javaVersion=parseJavaVersion();
 	/** Thread-local character buffer */
 	private static final ThreadLocal<char[]> TLCB=new ThreadLocal<char[]>();
 	

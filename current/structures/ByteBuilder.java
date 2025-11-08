@@ -1,12 +1,14 @@
 package structures;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 
 import dna.AminoAcid;
 import shared.KillSwitch;
 import shared.LineParser;
 import shared.LineParser1;
 import shared.Tools;
+import shared.Vector;
 import ukmer.Kmer;
 
 /**
@@ -241,7 +243,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
-	public ByteBuilder appendUnsafe(int x, byte b){
+	public ByteBuilder appendOpUnsafe(int x, byte b){
 		if(x<0){
 			if(x<=Integer.MIN_VALUE){
 				return append((long)x).append(b);
@@ -415,14 +417,34 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
-	public ByteBuilder append(String x){
-		if(x==null){return append(nullBytes);}
-		expand(x.length());
-		for(int i=0; i<x.length(); i++){
-			array[length]=(byte)x.charAt(i);
-			length++;
+	public ByteBuilder append(String s){//Baseline
+		if(s==null){return append(nullBytes);}
+		final int len=s.length();
+		expand(len);
+		for(int i=0; i<len; i++, length++){
+			array[length]=(byte)s.charAt(i);
 		}
 		return this;
+	}
+	
+	//1.5x faster on cluster microbenchmark
+	//4.5x faster on laptop micorbenchmark
+	public ByteBuilder appendByCopy(String s){
+		if(s==null){return append(nullBytes);}
+		byte[] x=s.getBytes(StandardCharsets.ISO_8859_1);		
+		expand(x.length);
+		System.arraycopy(x, 0, array, length, x.length);
+		length+=x.length;
+		return this;
+	}
+	
+	//11x faster on cluster and laptop microbenchmark
+	//Not faster in practice though, with fastq or sam
+	public ByteBuilder appendByVH(String s) {
+		if(s==null){return append(nullBytes);}
+		if(Vector.varHandles) {return Vector.append(this, s);}
+//		else{return appendByCopy(s);}
+		else{return append(s);}
 	}
 	
 	public ByteBuilder append(String x, int from, int toExclusive){
@@ -531,18 +553,17 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
-	public ByteBuilder appendA48(long[] array, char delimiter, byte[] temp){
+	public ByteBuilder appendA48(long[] array, char delimiter){
 		if(array==null || array.length<1){return this;}
-		if(temp==null) {temp=new byte[12];}
 		for(int i=0; i<array.length; i++){
-			appendA48(array[i], temp);
+			appendA48(array[i]);
 			append(delimiter);
 		}
 		length--;
 		return this;
 	}
 	
-	public ByteBuilder appendA48(long value, byte[] temp){
+	private ByteBuilder appendA48_old(long value, byte[] temp){
 		int i=0;
 		while(value!=0){
 			byte b=(byte)(value&0x3F);
@@ -556,6 +577,38 @@ public final class ByteBuilder implements Serializable, CharSequence {
 			for(i--;i>=0;i--){
 				append((char)(temp[i]+48));
 			}
+		}
+		return this;
+	}
+	
+	public ByteBuilder appendA48(long value){
+		if(value==0){
+			return append((byte)'0');
+		}
+		
+		int highBit=63-Long.numberOfLeadingZeros(value);
+		int symbols=(highBit/6)+1;
+		
+		expand(symbols);
+		for(int shift=(symbols-1)*6; shift>=0; shift-=6){
+			byte b=(byte)((value>>shift)&0x3F);
+			array[length++]=(byte)(b+48);
+		}
+		return this;
+	}
+	
+	public ByteBuilder appendA48(int value){
+		if(value==0){
+			return append((byte)'0');
+		}
+		
+		int highBit=31-Integer.numberOfLeadingZeros(value);
+		int symbols=(highBit/6)+1;
+		
+		expand(symbols);
+		for(int shift=(symbols-1)*6; shift>=0; shift-=6){
+			byte b=(byte)((value>>shift)&0x3F);
+			array[length++]=(byte)(b+48);
 		}
 		return this;
 	}

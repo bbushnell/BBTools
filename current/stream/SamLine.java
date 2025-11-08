@@ -14,6 +14,7 @@ import shared.LineParser1;
 import shared.Parse;
 import shared.Shared;
 import shared.Tools;
+import shared.Vector;
 import structures.ByteBuilder;
 import var2.ScafMap;
 import var2.Scaffold;
@@ -444,7 +445,8 @@ public class SamLine implements Serializable {
 		}
 		
 		if(qual!=null && qual!=bytestar){
-			for(int i=0; i<qual.length; i++){qual[i]-=33;}
+//			for(int i=0; i<qual.length; i++){qual[i]-=33;}
+			Vector.add(qual, (byte)(-33));
 		}
 		
 		if(PARSE_OPTIONAL && lp.terms()>11) {
@@ -2134,15 +2136,16 @@ public class SamLine implements Serializable {
 		appendTo(bb, rnext).tab();
 		bb.append(pnext).tab();
 		bb.append(tlen).tab();
-		
+//		int len=bb.length;
 		if(mapped() && strand()==Shared.MINUS){
 			appendReverseComplemented(bb, seq).tab();
 			appendQualReversed(bb, qual);
+//			assert(bb.length==len+seq.length+qual.length+1) : bb.length-len;
 		}else{
 			appendTo(bb, seq).tab();
 			appendQual(bb, qual);
+//			assert(bb.length==len+seq.length+qual.length+1) : bb.length-len;
 		}
-		
 		if(optional!=null){
 			for(String s : optional){
 				bb.tab().append(s);
@@ -2179,11 +2182,12 @@ public class SamLine implements Serializable {
 	private static ByteBuilder appendQual(ByteBuilder sb, byte[] a){
 		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
 
-		sb.ensureExtra(a.length);
-		byte[] buffer=sb.array;
-		int i=sb.length;
-		for(int j=0; j<a.length; i++, j++){buffer[i]=(byte)(a[j]+33);}
-		sb.length+=a.length;
+//		sb.ensureExtra(a.length);
+//		byte[] buffer=sb.array;
+//		int i=sb.length;
+//		for(int j=0; j<a.length; i++, j++){buffer[i]=(byte)(a[j]+33);}
+//		sb.length+=a.length;
+		Vector.addAndAppend(a, sb, 33);
 
 		return sb;
 	}
@@ -2191,11 +2195,12 @@ public class SamLine implements Serializable {
 	private static ByteBuilder appendQualReversed(ByteBuilder sb, byte[] a){
 		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
 		
-		sb.ensureExtra(a.length);
-		byte[] buffer=sb.array;
-		int i=sb.length;
-		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=(byte)(a[j]+33);}
-		sb.length+=a.length;
+//		sb.ensureExtra(a.length);
+//		byte[] buffer=sb.array;
+//		int i=sb.length;
+//		for(int j=a.length-1; j>=0; i++, j--){buffer[i]=(byte)(a[j]+33);}
+//		sb.length+=a.length;
+		Vector.addAndAppendReversed(a, sb, 33);
 		
 		return sb;
 	}
