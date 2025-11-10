@@ -1006,7 +1006,8 @@ public class RandomReadsMG{
 			//Generate from heavy tail (exponential)
 			double scale=meanLength*2; //Scale factor produces longer tail reads
 			double x=-Math.log(randy.nextDouble())*scale;
-			return (int)Math.min(x, maxLength);
+			// Apply both minimum and maximum bounds to exponential tail
+			return Math.max(minLength, (int)Math.min(x, maxLength));
 		}else{
 			//Generate from log-normal core distribution
 			double sigma=0.5;
