@@ -251,6 +251,6 @@ public class ZMWStreamer implements Runnable {
 	//Streamer seems to give more highly variable timings... sometimes.  And it's not really needed.
 	public static boolean useStreamer=false;
 	//Only 1 thread for now to force ordered input
-	public static final int streamerThreads=1;
+	public static final int streamerThreads=-1;
 	
 }
