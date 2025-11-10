@@ -7,7 +7,6 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import dna.AminoAcid;
 import dna.Data;
 import dna.Gene;
 import fileIO.ByteFile;

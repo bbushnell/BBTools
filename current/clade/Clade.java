@@ -1,12 +1,12 @@
 package clade;
 
 import java.util.ArrayList;
+
 import bin.AdjustEntropy;
 import bin.SimilarityMeasures;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
-import shared.KillSwitch;
 import shared.LineParser1;
 import shared.Tools;
 import stream.Read;

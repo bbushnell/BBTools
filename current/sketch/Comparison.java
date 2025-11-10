@@ -2,7 +2,6 @@ package sketch;
 
 import java.util.Comparator;
 
-import aligner.Aligner;
 import aligner.GlocalAlignerOld;
 import aligner.IDAligner;
 import prok.GeneCaller;

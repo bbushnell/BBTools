@@ -1,7 +1,6 @@
 package stream.bam;
 
 import java.io.FileInputStream;
-import java.io.IOException;
 
 /**
  * Minimal test to exercise closing a BGZF MT stream while

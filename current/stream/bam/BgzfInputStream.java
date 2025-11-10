@@ -7,8 +7,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
-import java.util.zip.Inflater;
 import java.util.zip.GZIPInputStream;
+import java.util.zip.Inflater;
 
 /**
  * Reads BGZF (Blocked GZIP Format) compressed data.

@@ -1,8 +1,11 @@
 package illumina;
 
-import java.io.*;
-import java.nio.*;
-import java.util.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Parses CBCL file headers containing metadata and tile information.

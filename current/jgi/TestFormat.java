@@ -33,7 +33,6 @@ import sketch.SketchTool;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.Read;
-import stream.bam.BamReader;
 import structures.ByteBuilder;
 import structures.IntHashMapBinary;
 import structures.ListNum;

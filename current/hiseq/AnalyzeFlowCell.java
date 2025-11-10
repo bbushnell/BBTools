@@ -37,8 +37,8 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamStreamer;
 import stream.Streamer;
+import stream.StreamerFactory;
 import structures.AtomicStringNum;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -541,7 +541,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			outstream.println("Loading sam file.");
 			FileFormat ff=FileFormat.testInput(samInput, FileFormat.SAM, null, true, false);
 			final int streamerThreads=Tools.min(4, Shared.threads());
-			ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, false);
+			ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, false);
 			ss.start();
 		}
 		

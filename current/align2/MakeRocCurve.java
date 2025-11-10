@@ -4,7 +4,6 @@ import java.io.File;
 import java.util.BitSet;
 
 import fileIO.ByteFile;
-import fileIO.TextFile;
 import shared.LineParser1;
 import shared.Parse;
 import shared.PreParser;

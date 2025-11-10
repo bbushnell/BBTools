@@ -1,9 +1,8 @@
 package driver;
 
 import fileIO.ByteFile;
-import fileIO.ReadWrite;
-import fileIO.TextFile;
 import fileIO.ByteStreamWriter;
+import fileIO.ReadWrite;
 import shared.LineParser1;
 import shared.Parse;
 import shared.Shared;

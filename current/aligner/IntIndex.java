@@ -1,8 +1,8 @@
 package aligner;
 
 import dna.AminoAcid;
-import structures.IntListHashMap;
 import structures.IntList;
+import structures.IntListHashMap;
 
 public class IntIndex {
     final int k;

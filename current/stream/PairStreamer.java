@@ -1,10 +1,8 @@
 package stream;
 
-import structures.ListNum;
 import java.util.ArrayList;
 
-import shared.Shared;
-import shared.Tools;
+import structures.ListNum;
 
 /**
  * Pairs reads from two separate Streamers (typically R1 and R2 files).
@@ -43,6 +41,9 @@ public class PairStreamer implements Streamer {
 		s1.close();
 		s2.close();
 	}
+	
+	@Override
+	public String fname() {return s1.fname()+","+s2.fname();}
 	
 	@Override
 	public boolean hasMore(){

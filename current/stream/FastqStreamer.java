@@ -94,6 +94,9 @@ public class FastqStreamer implements Streamer {
 	}
 	
 	@Override
+	public String fname() {return fname;}
+	
+	@Override
 	public boolean hasMore(){
 		return oqs.hasMore();
 	}

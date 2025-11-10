@@ -1,7 +1,6 @@
 package jgi;
 
 
-import java.io.File;
 import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -11,11 +10,9 @@ import dna.Data;
 import dna.Scaffold;
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
-import fileIO.ByteFile;
 import fileIO.TextStreamWriter;
 import shared.KillSwitch;
 import shared.LineParser1;
-import shared.LineParserS1;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;

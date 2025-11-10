@@ -1,8 +1,5 @@
 package stream.bam;
 
-import stream.SamLine;
-import structures.ByteBuilder;
-
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -11,6 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import shared.LineParser1;
+import stream.SamLine;
+import structures.ByteBuilder;
 
 /**
  * {@link OutputStream} facade that accepts SAM text and emits BAM output.

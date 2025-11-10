@@ -1,6 +1,5 @@
 package aligner;
 
-import java.nio.ByteBuffer;
 import java.util.Arrays;
 
 import jdk.incubator.vector.ByteVector;

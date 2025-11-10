@@ -7,8 +7,8 @@ import fileIO.FileFormat;
 import structures.ListNum;
 
 /**
- * Writes SAM/BAM files from Read objects using SamWriter.
- * Wraps the new multithreaded SamWriter/BamLineWriter architecture
+ * Writes SAM/BAM files from Read objects using Writer.
+ * Wraps the new multithreaded Writer/BamLineWriter architecture
  * to fit into the ReadStreamWriter interface.
  *
  * @author Brian Bushnell
@@ -23,13 +23,13 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 
 	public ReadStreamSamWriter(FileFormat ff, int bufferSize, CharSequence header, boolean useSharedHeader){
 		super(ff, null, true, bufferSize, header, true, useSharedHeader);
-		assert(OUTPUT_SAM || OUTPUT_BAM) : "ReadStreamSamWriter requires SAM/BAM output format";
+		assert(OUTPUT_SAM || OUTPUT_BAM) : "ReadStreamWriter requires SAM/BAM output format";
 		assert(read1) : "SAM/BAM output requires read1=true (cannot write paired reads to separate files)";
 		
-		// Create header for SamWriter
+		// Create header for Writer
 		ArrayList<byte[]> headerLines;
 		if(useSharedHeader){
-			headerLines=null; // SamWriter will pull from shared header
+			headerLines=null; // Writer will pull from shared header
 		}else if(header!=null){
 			// Convert CharSequence header to ArrayList<byte[]>
 			String headerStr=header.toString();
@@ -39,11 +39,10 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 				headerLines.add(line.getBytes());
 			}
 		}else{
-			headerLines=null; // SamWriter will generate from Data.scaffoldNames
+			headerLines=null; // Writer will generate from Data.scaffoldNames
 		}
 		
-		int threads=SamWriter.DEFAULT_THREADS;
-		samWriter=SamWriter.makeWriter(ff, threads, headerLines, useSharedHeader);
+		samWriter=WriterFactory.makeWriter(ff, true, true, headerLines, useSharedHeader);
 		samWriter.start();
 	}
 
@@ -58,7 +57,7 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 		} catch (Exception e) {
 			errorState=true;
 			finishedSuccessfully=false;
-			System.err.println("ReadStreamSamWriter failed: "+e.getMessage());
+			System.err.println("ReadStreamWriter failed: "+e.getMessage());
 			throw new RuntimeException(e);
 		}
 	}
@@ -118,9 +117,9 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 	private boolean finishWriting() throws IOException {
 		samWriter.poisonAndWait();
 		
-		// Accumulate statistics from SamWriter
-		readsWritten=samWriter.readsWritten;
-		basesWritten=samWriter.basesWritten;
+		// Accumulate statistics from Writer
+		readsWritten=samWriter.readsWritten();
+		basesWritten=samWriter.basesWritten();
 		errorState|=samWriter.errorState();
 		
 		finishedSuccessfully=!errorState;
@@ -131,6 +130,6 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 	/*----------------        Instance Fields       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private final SamWriter samWriter;
+	private final Writer samWriter;
 
 }

@@ -1,7 +1,8 @@
 package illumina;
 
-import java.io.*;
-import java.nio.*;
+import java.io.FileInputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 /**
  * Quick inspector to examine CBCL binary file structure.

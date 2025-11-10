@@ -3,6 +3,8 @@ package stream;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
+import shared.Shared;
 
 /**
  * Factory for creating appropriate Writer implementations based on file format.
@@ -148,13 +150,22 @@ public class WriterFactory {
 			ArrayList<byte[]> header, boolean useSharedHeader){
 		if(ffout==null){
 			return null;
-		}else if(ffout.fastq()){
-			return new FastqWriter(ffout, FastqWriter.DEFAULT_THREADS, writeR1, writeR2);
+		}else if(ffout.fastq() || ffout.fasta()){
+			if(Shared.threads()>=4 && FastqWriter.DEFAULT_THREADS>0) {
+				return new FastqWriter(ffout, -1, writeR1, writeR2);
+			}else {
+				return new FastqWriterST(ffout, writeR1, writeR2);
+			}
+		}else if(ffout.header()){
+			return new FastqWriterST(ffout, writeR1, writeR2);
+		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
+			return new BamWriter(ffout, -1, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			return SamWriter.makeWriter(ffout, SamWriter.DEFAULT_THREADS, header, useSharedHeader);
-		}else if(ffout.fasta()){
-			//TODO: return new FastaWriter(ffout, threads, writeR1, writeR2);
-			throw new RuntimeException("FASTA writing not yet implemented");
+			if(Shared.threads()>=4 && SamWriter.DEFAULT_THREADS>0) {
+				return new SamWriter(ffout, -1, header, useSharedHeader);
+			}else {
+				return new SamWriterST(ffout, header, useSharedHeader);
+			}
 		}
 
 		throw new RuntimeException("Unsupported file format: "+ffout);
@@ -176,10 +187,22 @@ public class WriterFactory {
 			ArrayList<byte[]> header, boolean useSharedHeader){
 		if(ffout==null){
 			return null;
-		}else if(ffout.fastq() || ffout.fasta() || ffout.header()){
-			return new FastqWriter(ffout, threads, writeR1, writeR2);
+		}else if(ffout.fastq() || ffout.fasta()){
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqWriter.DEFAULT_THREADS>0)) {
+				return new FastqWriter(ffout, -1, writeR1, writeR2);
+			}else {
+				return new FastqWriterST(ffout, writeR1, writeR2);
+			}
+		}else if(ffout.header()){
+			return new FastqWriterST(ffout, writeR1, writeR2);
+		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
+			return new BamWriter(ffout, threads, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			return SamWriter.makeWriter(ffout, threads, header, useSharedHeader);
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || SamWriter.DEFAULT_THREADS>0)) {
+				return new SamWriter(ffout, threads, header, useSharedHeader);
+			}else {
+				return new SamWriterST(ffout, header, useSharedHeader);
+			}
 		}
 
 		throw new RuntimeException("Unsupported file format: "+ffout);

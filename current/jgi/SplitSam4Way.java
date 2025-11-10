@@ -4,7 +4,6 @@ import java.io.PrintStream;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import fileIO.TextFile;
 import fileIO.TextStreamWriter;
 import shared.LineParser1;
 import shared.PreParser;

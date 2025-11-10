@@ -1,10 +1,13 @@
 package fun;
 
-import jdk.incubator.vector.*;
+import java.util.Random;
+
+import dna.AminoAcid;
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorSpecies;
 import shared.Parse;
 import shared.Timer;
-import dna.AminoAcid;
-import java.util.Random;
 
 /**
  * Benchmark quality offset application with different SIMD widths.

@@ -24,6 +24,8 @@ import jgi.BBMerge;
 import jgi.CalcTrueQuality;
 import kmer.AbstractKmerTable;
 import sketch.SketchObject;
+import stream.BamStreamer;
+import stream.BamWriter;
 import stream.ConcurrentDepot;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
@@ -35,8 +37,8 @@ import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
 import stream.SamLine;
-import stream.SamReadInputStream;
 import stream.SamStreamer;
+import stream.SamReadInputStream;
 import stream.SamWriter;
 import stream.bam.BgzfOutputStreamMT;
 import stream.bam.BgzfSettings;
@@ -1137,7 +1139,7 @@ public class Parser {
 		}else if(a.equals("streamerthreads") || a.equals("ssthreads")){
 			SamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("bsthreads")){
-			SamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
+			BamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("fastqstreamerthreads") || a.equals("fqsthreads")){
 			FastqStreamer.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("fastastreamerthreads") || a.equals("fasthreads")){
@@ -1145,7 +1147,7 @@ public class Parser {
 		}else if(a.equals("samwriterthreads") || a.equals("swthreads")){
 			SamWriter.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("bamwriterthreads") || a.equals("bwthreads")){
-			SamWriter.DEFAULT_THREADS=Integer.parseInt(b);
+			BamWriter.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("fastqwriterthreads") || a.equals("fqwthreads")){
 			FastqWriter.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("prefermd") || a.equals("prefermdtag")){

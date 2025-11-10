@@ -9,9 +9,8 @@ import shared.Parse;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
-import stream.SamStreamer;
 import stream.Streamer;
-import stream.SamStreamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
@@ -78,7 +77,7 @@ public class ZMWStreamer implements Runnable {
 	}
 	
 	private Streamer makeStreamer(FileFormat ff){
-		Streamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, ordered, maxReads, true);
+		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, true, ordered, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){System.err.println("Started sam streamer");}
 		return ss;

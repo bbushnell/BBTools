@@ -25,7 +25,6 @@ import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
-import stream.ReadStreamWriter;
 import stream.SamLine;
 import stream.SamReadInputStream;
 import stream.SiteScore;

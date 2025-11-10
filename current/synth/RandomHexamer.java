@@ -1,6 +1,5 @@
 package synth;
 
-import java.util.Arrays;
 import java.util.Random;
 
 import dna.AminoAcid;

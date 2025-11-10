@@ -11,15 +11,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import bin.AdjustEntropy;
 import bin.GeneTools;
-import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import prok.CallGenes;
 import prok.GeneCaller;
-import prok.GeneModelParser;
-import prok.Orf;
 import shared.LineParser1;
 import shared.Parse;
 import shared.Parser;

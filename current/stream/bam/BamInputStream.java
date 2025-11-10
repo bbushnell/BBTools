@@ -1,21 +1,22 @@
 package stream.bam;
 
-import fileIO.FileFormat;
-import shared.Shared;
-import stream.BamLineStreamer;
-import stream.SamLine;
-import structures.ByteBuilder;
-import structures.ListNum;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Objects;
 
+import fileIO.FileFormat;
+import shared.Shared;
+import stream.SamLine;
+import stream.Streamer;
+import stream.StreamerFactory;
+import structures.ByteBuilder;
+import structures.ListNum;
+
 /**
  * Presents BAM content as SAM text through the {@link InputStream} interface.
- * The implementation wraps {@link BamLineStreamer} so callers can treat a BAM
+ * The implementation wraps {@link Streamer} so callers can treat a BAM
  * file as a plain-text stream of SAM header lines followed by SAM alignment
  * lines, one per newline.
  *
@@ -35,7 +36,7 @@ public class BamInputStream extends InputStream {
 
 	public BamInputStream(FileFormat ff, boolean ordered, int threads) {
 		Objects.requireNonNull(ff, "FileFormat must not be null");
-		streamer = new BamLineStreamer(ff, threads, true, ordered, -1L, false);
+		streamer = StreamerFactory.makeSamOrBamStreamer(ff, threads, true, ordered, -1L, false);
 		streamer.start();
 		headerQueue = new ArrayDeque<>();
 	}
@@ -165,7 +166,7 @@ public class BamInputStream extends InputStream {
 		return bb.toBytes();
 	}
 
-	private final BamLineStreamer streamer;
+	private final Streamer streamer;
 	private final ArrayDeque<byte[]> headerQueue;
 	private boolean headerLoaded = false;
 

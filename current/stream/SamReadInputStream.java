@@ -9,10 +9,10 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Multithreaded SAM/BAM input stream using SamStreamer.
+ * Multithreaded SAM/BAM input stream using Streamer.
  * 
  * Provides ReadInputStream interface for SAM and BAM files with automatic format detection
- * and multithreaded parsing. Delegates to SamStreamer for efficient parallel processing
+ * and multithreaded parsing. Delegates to Streamer for efficient parallel processing
  * while maintaining the familiar ReadInputStream API.
  * 
  * Supports both single-read and interleaved paired-read modes.
@@ -24,8 +24,7 @@ import structures.ListNum;
 public class SamReadInputStream extends ReadInputStream {
 	
 	public static void main(String[] args){
-		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, 
-			SamStreamer.DEFAULT_THREADS, -1);
+		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, -1, -1);
 		
 		Timer t=new Timer();
 		long reads=0, bases=0;
@@ -41,7 +40,7 @@ public class SamReadInputStream extends ReadInputStream {
 	/** Constructor with default thread count. */
 	public SamReadInputStream(String fname, boolean loadHeader_, 
 			boolean allowSubprocess_, long maxReads_){
-		this(fname, loadHeader_, allowSubprocess_, SamStreamer.DEFAULT_THREADS, maxReads_);
+		this(fname, loadHeader_, allowSubprocess_, -1, maxReads_);
 	}
 	
 	/** Constructor with explicit thread count. */
@@ -51,7 +50,7 @@ public class SamReadInputStream extends ReadInputStream {
 			loadHeader_, threads_, maxReads_);
 	}
 	
-	/** Main constructor - creates and starts SamStreamer. */
+	/** Main constructor - creates and starts Streamer. */
 	public SamReadInputStream(FileFormat ff, boolean loadHeader_, 
 			int threads_, long maxReads_){
 		loadHeader=loadHeader_;
@@ -63,8 +62,7 @@ public class SamReadInputStream extends ReadInputStream {
 		}
 		
 		//Create streamer with appropriate thread count
-		int threads=(threads_<=0 ? SamStreamer.DEFAULT_THREADS : threads_);
-		streamer=SamStreamer.makeStreamer(ff, threads, loadHeader_, true, maxReads_, true);
+		streamer=StreamerFactory.makeSamOrBamStreamer(ff, threads_, loadHeader_, true, maxReads_, true);
 		
 //		//Extract header if requested
 //		if(loadHeader){
@@ -81,7 +79,7 @@ public class SamReadInputStream extends ReadInputStream {
 	
 	@Override
 	public ArrayList<Read> nextList(){
-		ListNum<Read> ln=streamer.nextReads();
+		ListNum<Read> ln=streamer.nextList();
 		return ln==null || ln.isEmpty() ? null : ln.list;
 	}
 
@@ -151,7 +149,7 @@ public class SamReadInputStream extends ReadInputStream {
 	}
 	
 	@Override
-	public String fname(){return streamer.fname;}
+	public String fname(){return streamer.fname();}
 	
 	@Override
 	public boolean paired(){return false;}
@@ -168,7 +166,7 @@ public class SamReadInputStream extends ReadInputStream {
 	private ArrayList<byte[]> header=null;
 	
 	/** Underlying multithreaded streamer */
-	private final SamStreamer streamer;
+	private final Streamer streamer;
 	/** True if header should be loaded and shared */
 	private final boolean loadHeader;
 	

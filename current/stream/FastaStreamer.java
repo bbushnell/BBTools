@@ -5,11 +5,10 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import structures.ByteBuilder;
-import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import structures.ByteBuilder;
 import structures.ListNum;
 import template.ThreadWaiter;
 
@@ -91,6 +90,9 @@ public class FastaStreamer implements Streamer {
 	public void close(){
 		//TODO: Unimplemented
 	}
+	
+	@Override
+	public String fname() {return fname;}
 	
 	@Override
 	public boolean hasMore(){

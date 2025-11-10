@@ -16,7 +16,6 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
-import structures.FloatList;
 import structures.ListNum;
 import tracker.KmerTracker;
 

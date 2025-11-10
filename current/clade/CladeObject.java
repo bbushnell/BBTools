@@ -2,7 +2,6 @@ package clade;
 
 import java.io.PrintStream;
 import java.util.Arrays;
-import java.util.Collection;
 
 import dna.AminoAcid;
 import ml.CellNet;

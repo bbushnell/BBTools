@@ -11,8 +11,6 @@
  */
 package aligner;
 
-import java.util.Arrays;
-
 import fileIO.ByteStreamWriter;
 import shared.Tools;
 import structures.ByteBuilder;

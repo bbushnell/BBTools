@@ -1,6 +1,5 @@
 package shared;
 
-import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.DoubleVector;
 import jdk.incubator.vector.FloatVector;
@@ -12,8 +11,6 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 import ml.Cell;
-import structures.ByteBuilder;
-import structures.IntList;
 
 /**
  * Holds SIMD methods.
@@ -25,40 +22,33 @@ final class SIMD{
 	
 	private static int maxVectorLength=ByteVector.SPECIES_PREFERRED.vectorBitSize();
 	public static final int maxVectorLength() {return maxVectorLength;}
-
-	// Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
-	@SuppressWarnings("restriction")
+	
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;// FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
 	private static final int FWIDTH=FSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
 	private static final int IWIDTH=ISPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
 	private static final int SWIDTH=SSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
 	private static final int DWIDTH=DSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
 	private static final int LWIDTH=LSPECIES.length();
 	
-	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE;
+	private static final VectorShuffle<Integer> I_REVERSE_SHUFFLE;
 	static {
-		VectorSpecies<Byte> species=ByteVector.SPECIES_PREFERRED;
-		int vlen=species.length();
+		int vlen=ISPECIES.length();
 		int[] indices=new int[vlen];
 		for(int i=0; i<vlen; i++){
 			indices[i]=vlen-1-i;
 		}
-		B_REVERSE_SHUFFLE=VectorShuffle.fromArray(species, indices, 0);
+		I_REVERSE_SHUFFLE=VectorShuffle.fromArray(ISPECIES, indices, 0);
 	}
 	
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Vectorized version of "c+=a[i]*b[i]" where a and b are equal-length arrays.
 	 * @param a A vector to multiply.
@@ -85,7 +75,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Vectorized version of "c+=a[i]*b[bSet[i]]" where a and bSet are equal-length arrays, and bSet stores indices of b, in ascending contiguous blocks of 8.
 	 * @param a A vector to multiply.
@@ -261,7 +251,6 @@ final class SIMD{
 	 * This is here to keep all the vector operations in a single loop, to prevent going in and out of SIMD mode too often... hopefully. ~20% measured speed increase compared to calling fma() for
 	 * ScoreSequence.
 	 */
-	@SuppressWarnings("restriction")
 	static void feedForward(final Cell[] layer, final float[] b){
 		assert (false)
 		:"This was giving incorrect results for nets made made with simd=f and vice versa.  Needs validation.";
@@ -328,7 +317,6 @@ final class SIMD{
 	 * @param a A vector to increment.
 	 * @param b Increment amount.
 	 */
-	@SuppressWarnings("restriction")
 	static final void add(final float[] a, final float[] b){
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(a.length);
@@ -352,7 +340,6 @@ final class SIMD{
 	 * @param b Increment amount.
 	 * @param mult Increment multiplier.
 	 */
-	@SuppressWarnings("restriction")
 	static final void addProduct(final float[] a, final float[] b, final float mult){
 		// final int width=SPECIES.length();
 		final int limit=FSPECIES.loopBound(a.length);
@@ -370,7 +357,6 @@ final class SIMD{
 		}
 	}
 
-	@SuppressWarnings("restriction")
 	static final void addProductSparse(final float[] a, final float[] b, final int[] bSet,
 		final float mult){
 		// final int width=SPECIES.length();
@@ -391,7 +377,6 @@ final class SIMD{
 	}
 
 	// a is dest
-	@SuppressWarnings("restriction")
 	static final void copy(final float[] a, final float[] b){
 		final int length=Tools.min(a.length, b.length);
 		// final int width=SPECIES.length();
@@ -408,7 +393,7 @@ final class SIMD{
 		}
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Sums the array.
 	 * @param a A vector.
@@ -430,7 +415,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Sums the array.
 	 * @param a A vector.
@@ -452,7 +437,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Sums the array.
 	 * @param a A vector.
@@ -473,7 +458,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Sums the array.
 	 * @param a A vector.
@@ -598,7 +583,7 @@ final class SIMD{
 		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Finds the maximum value.
 	 * @param a A vector.
@@ -623,7 +608,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Finds the maximum value.
 	 * @param a A vector.
@@ -648,7 +633,7 @@ final class SIMD{
 		return c;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Finds the maximum value.
 	 * @param a A vector.
@@ -672,6 +657,141 @@ final class SIMD{
 		}
 		return c;
 	}
+	
+	/**
+	 * SIMD search for key in hash table array starting at initial position.
+	 * @param keys Array of keys
+	 * @param key Key to find
+	 * @param initial Starting search position (hash result)
+	 * @param invalid Sentinel value for empty cells
+	 * @return Cell index if key found, -1 if invalid encountered first
+	 */
+	static int findKey(final int[] keys, final int key, final int initial, final int invalid){
+		final int limit=keys.length;
+		final IntVector vKey=IntVector.broadcast(ISPECIES, key);
+		final IntVector vInvalid=IntVector.broadcast(ISPECIES, invalid);
+		
+		// Search from initial to end
+		for(int cell=initial; cell<=limit-IWIDTH; cell+=IWIDTH){
+			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
+			VectorMask<Integer> matchKey=v.eq(vKey);
+			VectorMask<Integer> matchInvalid=v.eq(vInvalid);
+			
+			if(matchKey.anyTrue()){
+				return cell+matchKey.firstTrue();
+			}
+			if(matchInvalid.anyTrue()){
+				return -1;
+			}
+		}
+		
+		// Scalar tail from where SIMD stopped to limit
+		for(int cell=(initial+(limit-initial)/IWIDTH*IWIDTH); cell<limit; cell++){
+			final int x=keys[cell];
+			if(x==key){return cell;}
+			if(x==invalid){return -1;}
+		}
+		
+		// Search from 0 to initial
+		for(int cell=0; cell<=initial-IWIDTH; cell+=IWIDTH){
+			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
+			VectorMask<Integer> matchKey=v.eq(vKey);
+			VectorMask<Integer> matchInvalid=v.eq(vInvalid);
+			
+			if(matchKey.anyTrue()){
+				return cell+matchKey.firstTrue();
+			}
+			if(matchInvalid.anyTrue()){
+				return -1;
+			}
+		}
+		
+		// Scalar tail from where SIMD stopped to initial
+		for(int cell=(initial/IWIDTH*IWIDTH); cell<initial; cell++){
+			final int x=keys[cell];
+			if(x==key){return cell;}
+			if(x==invalid){return -1;}
+		}
+		
+		return -1;
+	}
 
+	/**
+	 * SIMD search for key or empty cell in hash table array.
+	 * @param keys Array of keys
+	 * @param key Key to find
+	 * @param initial Starting search position (hash result)
+	 * @param invalid Sentinel value for empty cells
+	 * @return Cell index containing key or first empty cell, -1 if table full
+	 */
+	static int findKeyOrInvalid(final int[] keys, final int key, final int initial, final int invalid){
+		final int limit=keys.length;
+		final IntVector vKey=IntVector.broadcast(ISPECIES, key);
+		final IntVector vInvalid=IntVector.broadcast(ISPECIES, invalid);
+		
+		// Search from initial to end
+		for(int cell=initial; cell<=limit-IWIDTH; cell+=IWIDTH){
+			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
+			VectorMask<Integer> match=v.eq(vKey).or(v.eq(vInvalid));
+			
+			if(match.anyTrue()){
+				return cell+match.firstTrue();
+			}
+		}
+		
+		// Scalar tail
+		for(int cell=(initial+(limit-initial)/IWIDTH*IWIDTH); cell<limit; cell++){
+			final int x=keys[cell];
+			if(x==key || x==invalid){return cell;}
+		}
+		
+		// Search from 0 to initial
+		for(int cell=0; cell<=initial-IWIDTH; cell+=IWIDTH){
+			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
+			VectorMask<Integer> match=v.eq(vKey).or(v.eq(vInvalid));
+			
+			if(match.anyTrue()){
+				return cell+match.firstTrue();
+			}
+		}
+		
+		// Scalar tail
+		for(int cell=(initial/IWIDTH*IWIDTH); cell<initial; cell++){
+			final int x=keys[cell];
+			if(x==key || x==invalid){return cell;}
+		}
+		
+		return -1;
+	}
+	
+	/**
+	 * SIMD replacement of all occurrences of oldKey with newKey.
+	 * Used when invalid sentinel collides with a real key.
+	 * @param keys Array of keys
+	 * @param oldKey Value to replace
+	 * @param newKey Replacement value
+	 */
+	static void changeAll(int[] keys, int oldKey, int newKey){
+		final int limit=keys.length;
+		final IntVector vOld=IntVector.broadcast(ISPECIES, oldKey);
+		final IntVector vNew=IntVector.broadcast(ISPECIES, newKey);
+		
+		int i=0;
+		
+		// SIMD loop
+		for(; i<=limit-IWIDTH; i+=IWIDTH){
+			IntVector v=IntVector.fromArray(ISPECIES, keys, i);
+			VectorMask<Integer> match=v.eq(vOld);
+			if(match.anyTrue()){
+				IntVector replaced=v.blend(vNew, match);
+				replaced.intoArray(keys, i);
+			}
+		}
+		
+		// Scalar tail
+		for(; i<limit; i++){
+			if(keys[i]==oldKey){keys[i]=newKey;}
+		}
+	}
 
 }

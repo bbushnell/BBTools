@@ -29,10 +29,10 @@ import shared.TrimRead;
 import stream.Read;
 import stream.SamLine;
 import stream.SamReadInputStream;
-import stream.SamStreamer;
 import stream.ScaffoldCoordinates;
 import stream.SiteScore;
 import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.CoverageArray;
 import structures.CoverageArray2;
@@ -476,7 +476,7 @@ public class CoveragePileup {
 	}
 	
 	private void processViaStreamer(ByteStreamWriter tsw){
-		Streamer ss=SamStreamer.makeStreamer(in1, streamerThreads, true, false, maxReads, false);
+		Streamer ss=StreamerFactory.makeSamOrBamStreamer(in1, streamerThreads, true, false, maxReads, false);
 		ss.start();
 		processHeader(tsw);
 		ByteBuilder bb=new ByteBuilder(33000);

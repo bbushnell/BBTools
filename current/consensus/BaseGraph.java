@@ -6,7 +6,6 @@ import java.util.Arrays;
 import aligner.Aligner;
 import aligner.AlignmentResult;
 import aligner.FlatAligner2;
-import dna.AminoAcid;
 import prok.GeneCaller;
 import shared.KillSwitch;
 import shared.Tools;

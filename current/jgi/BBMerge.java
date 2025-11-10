@@ -32,7 +32,6 @@ import stream.ConcurrentReadOutputStream;
 import stream.CustomHeader;
 import stream.FASTQ;
 import stream.Read;
-import stream.ReadStreamWriter;
 import structures.ByteBuilder;
 import structures.FloatList;
 import structures.IntList;

@@ -1,7 +1,5 @@
 package shared;
 
-import java.util.Arrays;
-
 import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.DoubleVector;
@@ -25,28 +23,22 @@ import structures.IntList;
 public class SIMDAlignByte {
 
 	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
 	private static final int FWIDTH=FSPECIES.length();
 	//		private static final int boundMask=~(FWIDTH-1);
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
 	private static final int BWIDTH=BSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
 	private static final int IWIDTH=ISPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
 	private static final int SWIDTH=SSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
 	private static final int DWIDTH=DSPECIES.length();
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
 	private static final int LWIDTH=LSPECIES.length();
 

@@ -1,6 +1,5 @@
 package stream;
 
-import shared.Shared;
 import structures.ListNum;
 
 /**
@@ -11,6 +10,9 @@ import structures.ListNum;
  * @date October 30, 2025
  */
 public interface Streamer {
+	
+	/** Source file */
+	public String fname();
 	
 	/** Initialize and start background reading/parsing threads */
 	public void start();

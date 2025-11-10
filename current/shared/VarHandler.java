@@ -2,6 +2,7 @@ package shared;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+
 import structures.ByteBuilder;
 
 /**
