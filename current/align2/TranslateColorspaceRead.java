@@ -10,6 +10,7 @@ import dna.Data;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
+import shared.Vector;
 import stream.Read;
 import stream.SiteScore;
 import var.Variation;
@@ -156,7 +157,7 @@ public final class TranslateColorspaceRead {
 			if(r.length()==(r.stop-r.start+1)){
 				
 				byte[] ref=chacs.getBytes(r.start, r.stop);
-				AminoAcid.reverseComplementBasesInPlace(ref);
+				Vector.reverseComplementInPlaceFast(ref);
 				scoreNoIndel=msa.scoreNoIndelsAndMakeMatchString(r.bases, ref, 0, matchR);
 				r.match=matchR[0];
 			}
@@ -182,7 +183,7 @@ public final class TranslateColorspaceRead {
 
 				byte[] ref=chacs.getBytes(minLoc, maxLoc);
 				//			System.err.println("Aligning:\n"+new String(r.bases)+"\n"+new String(ref));
-				AminoAcid.reverseComplementBasesInPlace(ref);
+				Vector.reverseComplementInPlace(ref);
 
 				//			System.err.println("Aligning:\n"+new String(r.bases)+"\n"+new String(ref));
 				int[] max=msa.fillLimited(r.bases, ref, 0, ref.length-1, scoreNoIndel, r.gaps);
@@ -1558,8 +1559,8 @@ public final class TranslateColorspaceRead {
 		
 //		byte[] original=Arrays.copyOf(call, call.length);
 		if(r.strand()==Shared.MINUS){
-			AminoAcid.reverseComplementBasesInPlace(r.bases);
-			Tools.reverseInPlace(r.quality);
+			Vector.reverseComplementInPlaceFast(r.bases);
+			Vector.reverseInPlace(r.quality);
 		}
 		
 		
@@ -1582,8 +1583,8 @@ public final class TranslateColorspaceRead {
 		}
 		
 		if(r.strand()==Shared.MINUS){
-			AminoAcid.reverseComplementBasesInPlace(r.bases);
-			Tools.reverseInPlace(r.quality);
+			Vector.reverseComplementInPlace(r.bases);
+			Vector.reverseInPlace(r.quality);
 		}
 		return b;
 	}
@@ -1739,8 +1740,8 @@ public final class TranslateColorspaceRead {
 		
 //		byte[] original=Arrays.copyOf(call, call.length);
 		if(read.strand()==Shared.MINUS){
-			AminoAcid.reverseComplementBasesInPlace(call);
-			Tools.reverseInPlace(quality);
+			Vector.reverseComplementInPlaceFast(call);
+			Vector.reverseInPlace(quality);
 		}
 		
 		
@@ -2121,8 +2122,8 @@ public final class TranslateColorspaceRead {
 		//assert(checkArray(call));
 		//Don't exit early and forget to undo this!
 		if(read.strand()==Shared.MINUS){
-			AminoAcid.reverseComplementBasesInPlace(call);
-			Tools.reverseInPlace(quality);
+			Vector.reverseComplementInPlace(call);
+			Vector.reverseInPlace(quality);
 		}
 		//assert(checkArray(call));
 		return vars;

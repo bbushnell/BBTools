@@ -1350,9 +1350,9 @@ public class BBMerge {
 		if(r2==null) {return null;}
 		int insert=findOverlapStrict(r1, r2, false);
 		if(insert<1){return null;}
-		r2.reverseComplement();
+		r2.reverseComplementFast();
 		Read r3=r1.joinRead(insert);
-		r2.reverseComplement();
+		r2.reverseComplementFast();
 		return r3;
 	}
 
@@ -1431,7 +1431,7 @@ public class BBMerge {
 			localRvector.set(rvector);
 		}
 		
-		r2.reverseComplement();
+		r2.reverseComplementFast();
 		
 		int bestInsert=-1;
 		int bestBad=999999;
@@ -1477,7 +1477,7 @@ public class BBMerge {
 			if(!foundAdapter){
 				bestInsert=RET_NO_SOLUTION;
 				assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				return RET_NO_SOLUTION;
 			}
 		}
@@ -1488,7 +1488,7 @@ public class BBMerge {
 			int errors=errorCorrectWithInsert(r1, r2, bestInsert);
 		}
 		
-		if(r2!=null){r2.reverseComplement();}
+		if(r2!=null){r2.reverseComplementFast();}
 		if(!ambig && bestInsert>-1){r1.setInsert(bestInsert);}
 		
 		return ambig ? -1 : bestInsert;
@@ -1648,14 +1648,14 @@ public class BBMerge {
 			final int adapterLen=len2-bestInsert;
 			if(good<1 && adapterLen>=minAdapterOverlap){
 				if(adapterLen>=minAdapterOverlap){
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					for(byte[] adapter : staticAdapterList){
 						int aiv=adapterIsValid(r2, adapter, bestInsert, minAdapterOverlap, minAdapterRatio);
 						if(aiv==2){good++; break;}
 						else if(aiv==1){invalid++;}
 						else{bad++;}
 					}
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 				}
 			}
 		}
@@ -1883,9 +1883,9 @@ public class BBMerge {
 				insertMax=Tools.max(bestInsert, insertMax);
 				hist[Tools.min(bestInsert, hist.length-1)]++;
 				if(joinReads){
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					joined=r1.joinRead(bestInsert);
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					assert(joined.length()==bestInsert);
 					
 					if(trimNonOverlapping){
@@ -1899,9 +1899,9 @@ public class BBMerge {
 					}
 					
 				}else if(ecco){
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					errorCorrectWithInsert(r1, r2, bestInsert);
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					errorsCorrectedT+=(r1.errors+r2.errors);
 					
 					if(trimNonOverlapping){
@@ -1935,10 +1935,10 @@ public class BBMerge {
 			
 			if(findAdapterSequence && bestInsert>0 && bestInsert<r1.length()){
 				storeAdapterSequence(r1, bestInsert);
-				//r2.reverseComplement();
+				//r2.reverseComplementFast();
 				storeAdapterSequence(r2, bestInsert);
 				//outstream.println(new String(r2.bases));
-				//r2.reverseComplement();
+				//r2.reverseComplementFast();
 			}
 			
 			if(originals!=null && (!ecco || bestInsert<1)){
@@ -2112,9 +2112,9 @@ public class BBMerge {
 			for(int i=0; i<iters && (bestInsert==RET_AMBIG || bestInsert==RET_NO_SOLUTION); i++){
 				
 				int e1=(sum1==attempted ? extendRead(r1, amt) : 0);
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				int e2=(sum2==attempted ? extendRead(r2, amt) : 0);
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				
 				attempted+=amt;
 				sum1+=e1;
@@ -2530,14 +2530,14 @@ public class BBMerge {
 				if(adapterList2!=null && good<1 && adapterLen>=minAdapterOverlap){
 					if(adapterLen>=minAdapterOverlap){
 						adaptersExpectedT++;
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 						for(byte[] adapter : adapterList2){
 							int aiv=adapterIsValid(r2, adapter, bestInsert, minAdapterOverlap, minAdapterRatio);
 							if(aiv==2){good++; break;}
 							else if(aiv==1){invalid++;}
 							else{bad++;}
 						}
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 					}
 				}
 			}
@@ -2565,7 +2565,7 @@ public class BBMerge {
 				if(!TAG_CUSTOM && !MAKE_VECTOR && x<0){return x;}
 			}
 			
-			r2.reverseComplement();
+			r2.reverseComplementFast();
 			
 			byte[] qual1=r1.quality, qual2=r2.quality;
 			if(!useQuality){//strip qualities
@@ -2579,9 +2579,9 @@ public class BBMerge {
 				for(int iter=0; iter<trimq.length && bestInsert<0; iter++){
 					r1.quality=qual1;
 					r2.quality=qual2;
-					//				r2.reverseComplement();
+					//				r2.reverseComplementFast();
 					//				qtrim(r1, r2);
-					//				r2.reverseComplement();
+					//				r2.reverseComplementFast();
 
 					TrimRead.trimFast(r1, qtrimLeft, qtrimRight, trimq[iter], trimE[iter], 1);
 					TrimRead.trimFast(r2, qtrimRight, qtrimLeft, trimq[iter], trimE[iter], 1);//Reversed because read is rcomped
@@ -2603,7 +2603,7 @@ public class BBMerge {
 						restoreQualities(r1, r2, qual1, qual2);
 					}
 					assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					return RET_NO_SOLUTION;
 				}
 			}else{
@@ -2728,7 +2728,7 @@ public class BBMerge {
 			if(!useQuality){//restore qualities
 				restoreQualities(r1, r2, qual1, qual2);
 			}
-			r2.reverseComplement();
+			r2.reverseComplementFast();
 			assert(r1.quality==null || (r1.quality.length==r1.bases.length && r2.quality.length==r2.bases.length));
 			return bestInsert;
 		}
@@ -2745,12 +2745,12 @@ public class BBMerge {
 				}
 			}
 			if(qual2.length!=len2){
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				r2.quality=Arrays.copyOf(qual2, len2);
 				for(int i=len2; i<r2.quality.length; i++){
 					r2.quality[i]=qf;
 				}
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 			}
 		}
 		

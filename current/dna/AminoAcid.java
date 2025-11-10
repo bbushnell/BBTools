@@ -5,6 +5,7 @@ import java.util.HashMap;
 import align2.QualityTools;
 import shared.KillSwitch;
 import shared.Tools;
+import shared.Vector;
 import structures.ByteBuilder;
 
 
@@ -347,8 +348,6 @@ public final class AminoAcid {
 		for(int i=0; i<max; i++){
 			byte a=in[i];
 			byte b=in[last-i];
-//			assert(b>0 && b<baseToComplementExtended.length) : ((int)b)+"\t"+((char)b)+"\t"+Arrays.toString(in);
-//			System.out.println((char)a+", "+(char)b+", "+i+", "+last);
 			in[i]=baseToComplementExtended[b];
 			in[last-i]=baseToComplementExtended[a];
 		}
@@ -655,11 +654,11 @@ public final class AminoAcid {
 			for(int i=0; i<3; i++){
 				out[i]=toAAQuality(quals, i);
 			}
-			Tools.reverseInPlace(quals);
+			Vector.reverseInPlace(quals);
 			for(int i=0; i<3; i++){
 				out[i+3]=toAAQuality(quals, i);
 			}
-			Tools.reverseInPlace(quals);
+			Vector.reverseInPlace(quals);
 		}
 		
 		if(offset!=0){

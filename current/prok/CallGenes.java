@@ -858,7 +858,7 @@ public class CallGenes extends ProkObject {
 					if(merge){
 						final int insert=BBMerge.findOverlapStrict(r1, r2, false);
 						if(insert>0){
-							r2.reverseComplement();
+							r2.reverseComplementFast();
 							r1=r1.joinRead(insert);
 							r2=null;
 						}

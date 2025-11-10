@@ -132,12 +132,12 @@ public class KmerComparator implements Comparator<Read> {
 		if(mergeFirst && r.pairnum()==0 && r.mate!=null){//This is probably unsafe in multithreaded mode unless the same thread handles both reads.
 			int x=BBMerge.findOverlapStrict(r, r.mate, false);
 			if(x>0){
-				if(r.swapped()==r.mate.swapped()){r.mate.reverseComplement();}
+				if(r.swapped()==r.mate.swapped()){r.mate.reverseComplementFast();}
 				Read merged=r.joinRead(x);
-				if(r.swapped()==r.mate.swapped()){r.mate.reverseComplement();}
+				if(r.swapped()==r.mate.swapped()){r.mate.reverseComplementFast();}
 				fillMax(merged, key, table, minCount);
 				if(key.flipped){
-					r.reverseComplement();
+					r.reverseComplementFast();
 					r.setSwapped(true);
 				}
 				return key.kmer;

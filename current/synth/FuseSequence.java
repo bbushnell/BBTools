@@ -176,7 +176,7 @@ public final class FuseSequence extends BBTool_ST {
 	private void fusePair(Read r1, Read r2) {
 		if(r2==null){return;}
 		
-		r2.reverseComplement();
+		r2.reverseComplementFast();
 		final int len=r1.length()+r2.length()+npad;
 		byte[] bases=new byte[len];
 		byte[] quals=(r1.quality==null || r2.quality==null ? null : new byte[len]);

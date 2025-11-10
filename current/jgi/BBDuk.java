@@ -174,6 +174,8 @@ public class BBDuk {
 				//do nothing
 			}else if(Parser.parseFasta(arg, a, b)){
 				//do nothing
+			}else if(Parser.parseSam(arg, a, b)){
+				//do nothing
 			}else if(parser.parseInterleaved(arg, a, b)){
 				//do nothing
 			}else if(parser.parseTrim(arg, a, b)){
@@ -2876,7 +2878,7 @@ public class BBDuk {
 						if(bprob==null || bprob.length<r2.length()){bprob=new float[r2.length()];}
 						
 						//Do overlap trimming
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 //						int bestInsert=BBMergeOverlapper.mateByOverlap(r1, r2, aprob, bprob, overlapVector, minOverlap0, minOverlap,
 //								overlapMargin, overlapMaxMismatches0, overlapMaxMismatches, overlapMinq);
 						int bestInsert=BBMergeOverlapper.mateByOverlapRatio(r1, r2, aprob, bprob, overlapVector, minOverlap0, minOverlap,
@@ -2901,7 +2903,7 @@ public class BBDuk {
 							}
 						}
 						
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 						
 						if(bestInsert>0 && !ambig){
 							if(bestInsert<r1.length()){

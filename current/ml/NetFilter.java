@@ -17,6 +17,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
@@ -670,9 +671,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp) {
 		final float f=score(bases, vec, k, net), r;
 		if(rcomp) {
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			r=score(bases, vec, k, net);
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}else {r=f;}
 		return Tools.max(r, f);
 	}

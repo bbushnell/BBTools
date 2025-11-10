@@ -5,6 +5,7 @@ import java.util.HashMap;
 
 import dna.AminoAcid;
 import shared.Tools;
+import shared.Vector;
 import structures.ByteBuilder;
 import ukmer.Kmer;
 
@@ -183,7 +184,7 @@ public class Contig {
 	}
 	
 	void rcomp(){
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		Vector.reverseComplementInPlace(bases);
 		{
 			int temp=leftCode;
 			leftCode=rightCode;
@@ -325,7 +326,7 @@ public class Contig {
 	final void flip(ArrayList<Edge> inbound){
 		if(Tadpole.verbose){System.err.println("Flipping contig "+name());}
 		flipped=!flipped;
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		Vector.reverseComplementInPlace(bases);
 		{
 			int temp=leftCode;
 			leftCode=rightCode;

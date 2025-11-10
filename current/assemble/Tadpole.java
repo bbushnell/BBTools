@@ -25,6 +25,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
+import shared.Vector;
 import sort.ContigLengthComparator;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
@@ -1544,17 +1545,17 @@ public abstract class Tadpole extends ShaveObject{
 				final int insert=findOverlap(r1, r2, false);
 				if(merge){
 					if(insert>0){
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 						r1=r1.joinRead(insert);
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 						r2=null;
 						if(testMerge && !mergeOK(r1, initialLength1, initialLength2, mergeOKBitsetT, countList, kmerT, testMergeWidth, testMergeThresh, testMergeMult)){
 							r1=r1_0;
 							r2=r2_0;
 						}else{
-							r2_0.reverseComplement();
+							r2_0.reverseComplementFast();
 							int errors=BBMerge.countErrors(r1_0, r2_0, r1);
-							r2_0.reverseComplement();
+							r2_0.reverseComplementFast();
 							basesCorrectedEccoT+=errors;
 							readsCorrectedEccoT+=(errors>0 ? 1 : 0);
 							readsMergedT++;
@@ -1563,7 +1564,7 @@ public abstract class Tadpole extends ShaveObject{
 				}else if(ecco){
 //					findOverlap(r1, r2, true);
 					if(insert>0){
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 						Read merged=r1.joinRead(insert);
 						if(!testMerge || mergeOK(merged, initialLength1, initialLength2, mergeOKBitsetT, countList, kmerT, testMergeWidth, testMergeThresh, testMergeMult)){
 							int errors=BBMerge.errorCorrectWithInsert(r1, r2, insert);
@@ -1571,7 +1572,7 @@ public abstract class Tadpole extends ShaveObject{
 							readsCorrectedEccoT+=(errors>0 ?1 : 0);
 							readsMergedT++;
 						}
-						r2.reverseComplement();
+						r2.reverseComplementFast();
 					}
 				}
 			}
@@ -1585,7 +1586,7 @@ public abstract class Tadpole extends ShaveObject{
 				final int len=Tools.min(r1.length(), initialLength2);
 				r2=r1.subRead(to-len+1, to);
 				r2.setPairnum(1);
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				r2.mate=r1;
 				r1.mate=r2;
 				r2.id=r2id;
@@ -1892,10 +1893,10 @@ public abstract class Tadpole extends ShaveObject{
 		
 		int clearedLeft=clearWindow2(fromLeft, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
-		Tools.reverseInPlace(quals);
+		Vector.reverseInPlace(quals);
 		int clearedRight=clearWindow2(fromRight, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
-		Tools.reverseInPlace(quals);
+		Vector.reverseInPlace(quals);
 		
 		for(int i=0; i<bases.length; i++){
 			byte a=bases[i];

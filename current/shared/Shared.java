@@ -192,6 +192,7 @@ public class Shared {
 	public static final char[] strandCodes2={'+', '-', '?'};
 	/** Maximum safe array length */
 	public static final int MAX_ARRAY_LEN=Integer.MAX_VALUE-20;
+	public static final int SAFE_ARRAY_LEN=Integer.MAX_VALUE-60;
 	
 	// Runtime configuration
 	/** True if amino acid input mode is enabled */

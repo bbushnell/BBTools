@@ -22,6 +22,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
+import shared.Vector;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
@@ -1290,7 +1291,7 @@ public final class IceCreamFinder {
 		/** Align the left qlen bases to the rest of the read. */
 		private AlignmentResult alignLeft(final byte[] bases, final int qlen, final float minRatio, boolean v2, boolean tipOnly){
 			final byte[] query=Arrays.copyOfRange(bases, 0, qlen);
-			AminoAcid.reverseComplementBasesInPlace(query);
+			Vector.reverseComplementInPlaceFast(query);
 			final AlignmentResult ar;
 			final int rstop=bases.length-1;
 			final int rstart=(tipOnly ? Tools.max(qlen, rstop-(int)(tipRatio*qlen)) : qlen);
@@ -1310,7 +1311,7 @@ public final class IceCreamFinder {
 		/** Align the right qlen bases to the rest of the read. */
 		private AlignmentResult alignRight(final byte[] bases, final int qlen, final float minRatio, boolean v2, boolean tipOnly){
 			final byte[] query=Arrays.copyOfRange(bases, bases.length-qlen, bases.length);
-			AminoAcid.reverseComplementBasesInPlace(query);
+			Vector.reverseComplementInPlaceFast(query);
 			final AlignmentResult ar;
 			final int rstop=(tipOnly ? Tools.min((int)(tipRatio*qlen), bases.length-qlen-1) : bases.length-qlen-1);
 			final int rstart=0;

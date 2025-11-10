@@ -505,7 +505,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		final int lim=Tools.min(len1, len2);
 		
 		if(FASTQ.FLIP_R2){
-			for(Read r2 : buffer2) {r2.reverseComplement();}
+			for(Read r2 : buffer2) {r2.reverseComplementFast();}
 		}
 		
 		for(int i=0; i<lim; i++){

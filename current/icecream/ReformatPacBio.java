@@ -576,11 +576,11 @@ public final class ReformatPacBio {
 		for(Read r : zmw){
 			if(r!=ref){
 				final boolean rcomp=(r.strand()!=ref.strand());
-				if(rcomp){r.reverseComplement();}
+				if(rcomp){r.reverseComplementFast();}
 				float id=shredAndAdd(r, bg, null);
 				idSum+=id;
 				added++;
-				if(rcomp){r.reverseComplement();}
+				if(rcomp){r.reverseComplementFast();}
 			}
 		}
 		float avgId=idSum/(Tools.max(1, added));

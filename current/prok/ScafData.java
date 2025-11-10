@@ -5,6 +5,7 @@ import java.util.Arrays;
 
 import dna.AminoAcid;
 import gff.GffLine;
+import shared.Vector;
 import stream.Read;
 import structures.IntList;
 
@@ -45,7 +46,7 @@ class ScafData {
 	}
 	
 	void reverseComplement(){
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		Vector.reverseComplementInPlaceFast(bases);
 		strand=1^strand;
 	}
 	

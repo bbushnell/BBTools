@@ -17,6 +17,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentGenericReadInputStream;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
@@ -238,14 +239,14 @@ public class FakeReads {
 						
 						byte[] bases1=KillSwitch.copyOfRange(r.bases, 0, len);
 						byte[] bases2=KillSwitch.copyOfRange(r.bases, r.length()-len, r.length());
-						AminoAcid.reverseComplementBasesInPlace(bases2);
+						Vector.reverseComplementInPlaceFast(bases2);
 						
 						byte[] qual1=null;
 						byte[] qual2=null;
 						if(r.quality!=null){
 							qual1=KillSwitch.copyOfRange(r.quality, 0, len);
 							qual2=KillSwitch.copyOfRange(r.quality, r.quality.length-len, r.quality.length);
-							Tools.reverseInPlace(qual2);
+							Vector.reverseInPlace(qual2);
 						}
 						
 //						public Read(byte[] s_, int chrom_, int start_, int stop_, String id_, byte[] quality_, long numericID_, int flags_){

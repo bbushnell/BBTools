@@ -2,6 +2,7 @@ package stream.bam;
 
 import dna.AminoAcid;
 import shared.LineParser1;
+import shared.Vector;
 import stream.SamLine;
 
 /**
@@ -104,7 +105,7 @@ public class TestSeqReverse {
 
 	private static String reverseComplement(String seq) {
 		byte[] bytes = seq.getBytes();
-		AminoAcid.reverseComplementBasesInPlace(bytes);
+		Vector.reverseComplementInPlace(bytes);
 		return new String(bytes);
 	}
 

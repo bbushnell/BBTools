@@ -280,7 +280,8 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		modulus=(int)newPrime;
 		
 		final int size3=(int)(newPrime+extra);
-		sizeLimit=(int)(modulus*loadFactor);
+		final float lf=(size3<0x60000000 ? loadFactor : Math.max(loadFactor, 0.85f));
+		sizeLimit=(int)(modulus*lf);
 		final int[] oldK=keys;
 		final int[] oldV=values;
 		keys=KillSwitch.allocInt1D(size3);

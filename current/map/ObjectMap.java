@@ -1,4 +1,4 @@
-package structures;
+package map;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -12,12 +12,12 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Hash map with primitive int keys and Object values.
+ * Hash map with Object keys and Object values.
  * Uses open addressing with linear probing for collision resolution.
- * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
+ * Caches hash codes to avoid expensive equals() calls during probing.
+ * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * More memory-efficient than HashMap<Integer, V> by:
- * - Storing primitive int keys instead of Integer objects
+ * More memory-efficient than HashMap<K, V> by:
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
@@ -27,226 +27,294 @@ import shared.Tools;
  * @author Isla
  * @date November 2, 2025
  * 
+ * @param <K> Key type - must properly implement hashCode() and equals()
  * @param <V> Value type
  */
-public final class IntObjectMap<V> implements Serializable {
-	
+public final class ObjectMap<K, V> implements Serializable {
+
 	private static final long serialVersionUID = 1L;
-	
+
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
-		
-		// Generate random keys with collisions
-		System.err.println("Generating "+size+" random keys...");
+		ArrayList<String> list=randomStrings(size, 1, 50);
+		test(list);
+		bench(list, repeats);
+	}
+
+	private static ArrayList<String> randomStrings(int size, int minLen, int maxLen){
+		// Generate random strings
+		Shared.printMemory();
+		ArrayList<String> strings=new ArrayList<String>(size);
 		Random randy=new Random(12345);
-		int[] keys=new int[size];
+		int range=maxLen-minLen+1;
 		for(int i=0; i<size; i++){
-			keys[i]=(int)Math.sqrt(randy.nextLong() & Long.MAX_VALUE);
-		}
-		
-		// Generate random string values (unrelated to keys)
-		System.err.println("Generating "+size+" random values...");
-		ArrayList<String> values=new ArrayList<String>(size);
-		for(int i=0; i<size; i++){
-			int len=randy.nextInt(50)+1;
+			int len=randy.nextInt(range)+minLen;
 			StringBuilder sb=new StringBuilder(len);
 			for(int j=0; j<len; j++){
 				sb.append((char)('A'+randy.nextInt(26)));
 			}
-			values.add(sb.toString());
+			strings.add(sb.toString());
 		}
-		System.err.println("Keys and values generated.");
-		
-		bench(keys, values, repeats);
+		Shared.printMemory();
+		System.err.println("Generated "+size+" random strings");
+		return strings;
 	}
 
-	private static void bench(int[] keys, ArrayList<String> values, int repeats){
-		final int size=keys.length;
+	/**
+	 * Tests correctness by comparing ObjectObjectMap against HashMap.
+	 * Creates random list, inserts them in both maps, and validates all values match.
+	 */
+	private static void test(ArrayList<? extends Object> list){
+		System.err.println("\n*** Testing Correctness ***");
+
+		// Build HashMap
+		HashMap<Object, Object> hashMap=new HashMap<Object, Object>();
+		for(int i=0; i<list.size(); i++){
+			hashMap.put(list.get(i), list.get(i));
+		}
+
+		// Build ObjectObjectMap
+		ObjectMap<Object, Object> objectMap=new ObjectMap<Object, Object>();
+		for(int i=0; i<list.size(); i++){
+			objectMap.put(list.get(i), list.get(i));
+		}
+
+		System.err.println("HashMap size: "+hashMap.size());
+		System.err.println("ObjectObjectMap size: "+objectMap.size());
+		assert(hashMap.size()==objectMap.size()) : "Size mismatch!";
+
+		// Validate all values match
+		int errors=0;
+		for(int i=0; i<list.size(); i++){
+			Object key=list.get(i);
+			Object hashVal=hashMap.get(key);
+			Object objVal=objectMap.get(key);
+			if(hashVal==null || !hashVal.equals(objVal)){
+				System.err.println("ERROR at index "+i+": key='"+key+"', HashMap="+hashVal+", ObjectObjectMap="+objVal);
+				errors++;
+				if(errors>10){break;} // Don't spam too much
+			}
+		}
+
+		if(errors==0){
+			System.err.println("*** PASS: All values match! ***");
+		}else{
+			System.err.println("*** FAIL: "+errors+" mismatches found! ***");
+			System.exit(1);
+		}
+	}
+
+	/**
+	 * Benchmarks performance against HashMap<Object, Object>.
+	 */
+	private static void bench(ArrayList<? extends Object> list, int repeats){
 		System.gc();
 		Timer t=new Timer();
-		
+
 		{
-			System.err.println("\n*** IntObjectMap<String> ***");
+			System.err.println("\n*** ObjectObjectMap<Object, Object> ***");
 			Shared.printMemory();
 			t.start();
-			IntObjectMap<String> map=null;
-			long sum=0;
+			ObjectMap<Object, Object> map=null;
 			for(int r=0; r<repeats; r++){
-				map=new IntObjectMap<String>();
-				for(int i=0; i<size; i++){
-					map.put(keys[i], values.get(i));
+				map=new ObjectMap<Object, Object>();
+				for(int i=0; i<list.size(); i++){
+					map.put(list.get(i), list.get(i));
 				}
-				for(int i=0; i<size; i++){
-					String s=map.get(keys[i]);
-					if(s!=null){sum+=s.length();}
+				for(int i=0; i<list.size(); i++){
+					Object x=map.get(list.get(i));
+				}
+				for(int i=0; i<list.size(); i++){
+					map.remove(list.get(i));
 				}
 			}
 			t.stop("Time: \t");
 			System.gc();
-			System.err.println("Size: "+map.size()+", sum="+sum);
+			System.err.println("Size: "+map.size());
 			Shared.printMemory();
 			map=null;
 			System.gc();
 		}
-		
+
 		{
-			System.err.println("\n*** HashMap<Integer, String> ***");
+			System.err.println("\n*** HashMap<Object, Object> ***");
 			Shared.printMemory();
 			t.start();
-			HashMap<Integer, String> map=null;
-			long sum=0;
+			HashMap<Object, Object> map=null;
 			for(int r=0; r<repeats; r++){
-				map=new HashMap<Integer, String>();
-				for(int i=0; i<size; i++){
-					map.put(keys[i], values.get(i));
+				map=new HashMap<Object, Object>();
+				for(int i=0; i<list.size(); i++){
+					map.put(list.get(i), list.get(i));
 				}
-				for(int i=0; i<size; i++){
-					String s=map.get(keys[i]);
-					if(s!=null){sum+=s.length();}
+				for(int i=0; i<list.size(); i++){
+					Object x=map.get(list.get(i));
+				}
+				for(int i=0; i<list.size(); i++){
+					map.remove(list.get(i));
 				}
 			}
 			t.stop("Time: \t");
 			System.gc();
-			System.err.println("Size: "+map.size()+", sum="+sum);
+			System.err.println("Size: "+map.size());
 			Shared.printMemory();
 			map=null;
 			System.gc();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
 	 */
-	public IntObjectMap(){
+	public ObjectMap(){
 		this(256);
 	}
-	
+
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 */
-	public IntObjectMap(int initialSize){
+	public ObjectMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
-	
+
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
-	public IntObjectMap(int initialSize, float loadFactor_){
-		invalid=randy.nextInt()|MINMASK;
-		assert(invalid<0);
-		assert(initialSize>0);
-		assert(loadFactor_>0 && loadFactor_<1);
+	public ObjectMap(int initialSize, float loadFactor_){
+		assert(initialSize>0) : "Initial size must be positive";
+		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Removes all entries from the map.
 	 */
 	public void clear(){
 		if(size<1){return;}
-		Arrays.fill(keys, invalid);
+		Arrays.fill(keys, null);
 		Arrays.fill(values, null);
+		Arrays.fill(hashes, 0);
 		size=0;
 	}
-	
+
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
 	 * @return Value associated with key, or null if key not found
 	 */
-	public V get(int key){
+	public V get(K key){
 		int cell=findCell(key);
 		return cell<0 ? null : values[cell];
 	}
-	
+
 	/**
 	 * Checks if the map contains the given key.
 	 * @param key Key to check
 	 * @return true if key is present
 	 */
-	public boolean contains(int key){
+	public boolean contains(K key){
 		return findCell(key)>=0;
 	}
-	
+
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
-	 * @param value Value to associate with key (may be null)
+	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or null if key was not present
 	 */
-	public V put(int key, V value){
+	public V put(K key, V value){
 		return set(key, value);
 	}
-	
+
 	/**
 	 * Copies all entries from another map into this map.
 	 * @param map Source map to copy from
 	 */
-	public void putAll(IntObjectMap<V> map){
+	public void putAll(ObjectMap<K, V> map){
 		for(int i=0; i<map.keys.length; i++){
-			if(map.keys[i]!=map.invalid){
+			if(map.keys[i]!=null){
 				put(map.keys[i], map.values[i]);
 			}
 		}
 	}
-	
+
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
-	 * @param key Key to insert/update
+	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key (may be null)
 	 * @return Previous value associated with key, or null if key was not present
 	 */
-	public V set(int key, V value){
-		if(key==invalid){resetInvalid();}
-		final int cell=findCellOrEmpty(key);
+	public V set(K key, V value){
+		assert(key!=null) : "Null keys not supported";
+		final int hash=Tools.hash32plus(key.hashCode());
+		final int cell=findCellOrEmpty(key, hash);
 		final V oldV=values[cell];
 		values[cell]=value;
-		if(keys[cell]==invalid){
+		if(keys[cell]==null){
 			keys[cell]=key;
+			hashes[cell]=hash;
 			size++;
 			if(size>sizeLimit){resize();}
 		}
 		return oldV;
 	}
-	
+
+	/**
+	 * Internal set method that takes pre-computed hash.
+	 * Used during resize to avoid recomputing hashes.
+	 */
+	private V set(K key, V value, int hash){
+		assert(key!=null) : "Null keys not supported";
+		final int cell=findCellOrEmpty(key, hash);
+		final V oldV=values[cell];
+		values[cell]=value;
+		if(keys[cell]==null){
+			keys[cell]=key;
+			hashes[cell]=hash;
+			size++;
+			if(size>sizeLimit){resize();}
+		}
+		return oldV;
+	}
+
 	/**
 	 * Removes the entry with the specified key.
 	 * @param key Key to remove
 	 * @return Previous value associated with key, or null if key was not found
 	 */
-	public V remove(int key){
-		if(key==invalid){return null;}
+	public V remove(K key){
+		if(key==null){return null;}
 		final int cell=findCell(key);
 		if(cell<0){return null;}
-		assert(keys[cell]==key);
+		assert(keys[cell].equals(key));
 		final V oldV=values[cell];
-		keys[cell]=invalid;
+		keys[cell]=null;
 		values[cell]=null;
+		hashes[cell]=0;
 		size--;
-		
+
 		rehashFrom(cell);
 		return oldV;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Rehashes entries after a removal to maintain probe sequence integrity.
 	 * @param initial Starting position of removed entry
@@ -255,102 +323,91 @@ public final class IntObjectMap<V> implements Serializable {
 		if(size<1){return;}
 		final int limit=keys.length;
 		for(int cell=initial+1; cell<limit; cell++){
-			final int key=keys[cell];
-			if(key==invalid){return;}
+			final K key=keys[cell];
+			if(key==null){return;}
 			rehashCell(cell);
 		}
 		for(int cell=0; cell<initial; cell++){
-			final int key=keys[cell];
-			if(key==invalid){return;}
+			final K key=keys[cell];
+			if(key==null){return;}
 			rehashCell(cell);
 		}
 	}
-	
+
 	/**
 	 * Attempts to move an entry to its ideal position.
 	 * @param cell Position of entry to rehash
 	 * @return true if entry was moved
 	 */
 	private boolean rehashCell(final int cell){
-		final int key=keys[cell];
+		final K key=keys[cell];
 		final V value=values[cell];
-		assert(key!=invalid);
-		final int dest=findCellOrEmpty(key);
+		final int hash=hashes[cell];
+		assert(key!=null);
+		final int dest=findCellOrEmpty(key, hash);
 		if(cell==dest){return false;}
-		assert(keys[dest]==invalid);
-		keys[cell]=invalid;
+		assert(keys[dest]==null);
+		keys[cell]=null;
 		values[cell]=null;
+		hashes[cell]=0;
 		keys[dest]=key;
 		values[dest]=value;
-		
+		hashes[dest]=hash;
+
 		return true;
-	}
-	
-	/**
-	 * Resets the invalid sentinel when it collides with a real key.
-	 */
-	private void resetInvalid(){
-		final int old=invalid;
-		int x=invalid;
-		while(x==old || contains(x)){x=randy.nextInt()|MINMASK;}
-		assert(x<0);
-		invalid=x;
-		for(int i=0; i<keys.length; i++){
-			if(keys[i]==old){
-				keys[i]=invalid;
-			}
-		}
 	}
 
 	/**
 	 * Finds the cell containing the given key.
-	 * Uses linear probing with hash mixing for collision resolution.
+	 * Uses linear probing to resolve collisions.
+	 * Checks hash code equality before calling expensive equals().
 	 * @param key Key to search for
 	 * @return Cell index if found, -1 if not found
 	 */
-	private int findCell(final int key){
-		if(key==invalid){return -1;}
-		
+	private int findCell(final K key){
+		if(key==null){return -1;}
+
 		final int limit=keys.length;
-		final int hash=Tools.hash32shift(key);
+		final int hash=Tools.hash32plus(key.hashCode());
 		final int initial=hash & mask;
-		
+
 		for(int cell=initial; cell<limit; cell++){
-			final int x=keys[cell];
-			if(x==key){return cell;}
-			if(x==invalid){return -1;}
+			final K x=keys[cell];
+			if(x==null){return -1;}
+			if(hashes[cell]==hash && x.equals(key)){return cell;}
 		}
 		for(int cell=0; cell<initial; cell++){
-			final int x=keys[cell];
-			if(x==key){return cell;}
-			if(x==invalid){return -1;}
+			final K x=keys[cell];
+			if(x==null){return -1;}
+			if(hashes[cell]==hash && x.equals(key)){return cell;}
 		}
 		return -1;
 	}
-	
+
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
+	 * Checks hash code equality before calling expensive equals().
 	 * @param key Key to search for
+	 * @param hash Pre-computed hash code of key
 	 * @return Cell index (either containing key or empty)
 	 */
-	private int findCellOrEmpty(final int key){
-		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+	private int findCellOrEmpty(final K key, final int hash){
+		assert(key!=null) : "Null keys not supported";
+
 		final int limit=keys.length;
-		final int hash=Tools.hash32shift(key);
 		final int initial=hash & mask;
-		
+
 		for(int cell=initial; cell<limit; cell++){
-			final int x=keys[cell];
-			if(x==key || x==invalid){return cell;}
+			final K x=keys[cell];
+			if(x==null || (hashes[cell]==hash && x.equals(key))){return cell;}
 		}
 		for(int cell=0; cell<initial; cell++){
-			final int x=keys[cell];
-			if(x==key || x==invalid){return cell;}
+			final K x=keys[cell];
+			if(x==null || (hashes[cell]==hash && x.equals(key))){return cell;}
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
+
 	/**
 	 * Doubles the map capacity and rehashes all entries.
 	 */
@@ -358,7 +415,7 @@ public final class IntObjectMap<V> implements Serializable {
 		assert(size>=sizeLimit);
 		resize(keys.length*2L);
 	}
-	
+
 	/**
 	 * Resizes the map to at least the specified size and rehashes all entries.
 	 * Actual size will be rounded up to the next power of 2.
@@ -366,114 +423,93 @@ public final class IntObjectMap<V> implements Serializable {
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
-		
-		// Round up to next power of 2
-		int newSize=Integer.highestOneBit((int)size2);
-		if(newSize<size2){newSize<<=1;}
-		assert(newSize>0) : "Overflow: "+size2;
-		
-		final int size3=newSize+extra;
-		sizeLimit=(int)(newSize*loadFactor);
-		mask=newSize-1;
-		
-		final int[] oldK=keys;
+
+		long size3=Long.highestOneBit(size2);
+		if(size3<size2){size3<<=1;}
+		mask=(int)(size3-1);
+		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
+		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){
+			throw new RuntimeException("Map hit capacity at "+size);
+		}
+		final float loadFactor2=(size3<Shared.SAFE_ARRAY_LEN ? loadFactor : 0.85f);
+		sizeLimit=(int)((size3-extra)*loadFactor2);
+
+		@SuppressWarnings("unchecked")
+		final K[] oldK=keys;
 		@SuppressWarnings("unchecked")
 		final V[] oldV=values;
-		keys=KillSwitch.allocInt1D(size3);
+		final int[] oldH=hashes;
 		@SuppressWarnings("unchecked")
-		V[] temp=(V[])new Object[size3];
-		values=temp;
-		Arrays.fill(keys, invalid);
-		
+		K[] tempK=(K[])new Object[(int)size3];
+		@SuppressWarnings("unchecked")
+		V[] tempV=(V[])new Object[(int)size3];
+		keys=tempK;
+		values=tempV;
+		hashes=KillSwitch.allocInt1D((int)size3);
+
 		if(size<1){return;}
-		
+
 		size=0;
 		for(int i=0; i<oldK.length; i++){
-			final int k=oldK[i];
-			if(k!=invalid){
+			final K k=oldK[i];
+			if(k!=null){
 				final V v=oldV[i];
-				set(k, v);
+				final int h=oldH[i];
+				set(k, v, h);
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns array of all keys currently in the map.
-	 * @return Array containing all keys (no invalid sentinels)
-	 */
-	public int[] toArray(){
-		int[] x=KillSwitch.allocInt1D(size);
-		int i=0;
-		for(int key : keys){
-			if(key!=invalid){
-				x[i]=key;
-				i++;
-			}
-		}
-		return x;
-	}
-	
-	/**
 	 * Returns the internal key array.
-	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
+	 * WARNING: Contains null entries for empty cells. Use with caution.
 	 * @return Internal key array
 	 */
-	public int[] keys(){return keys;}
-	
+	public K[] keys(){return keys;}
+
 	/**
 	 * Returns the internal value array.
-	 * WARNING: Contains null for empty cells. Use with caution.
+	 * WARNING: Contains null for empty cells corresponding to null keys.
 	 * @return Internal value array
 	 */
 	public V[] values(){return values;}
-	
-	/**
-	 * Returns the invalid sentinel value used for empty cells.
-	 * @return Invalid sentinel (always negative)
-	 */
-	public int invalid(){return invalid;}
-	
+
 	/**
 	 * Returns the number of key-value pairs in the map.
 	 * @return Number of entries
 	 */
 	public int size(){return size;}
-	
+
 	/**
 	 * Checks if the map is empty.
 	 * @return true if map contains no entries
 	 */
 	public boolean isEmpty(){return size==0;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Array of int keys (invalid sentinel for empty cells) */
-	private int[] keys;
-	/** Array of Object values (parallel to keys array, may contain nulls) */
+
+	/** Array of keys (null for empty cells) */
+	private K[] keys;
+	/** Array of values (parallel to keys array, may contain null values) */
 	private V[] values;
+	/** Array of cached hash codes (parallel to keys array, 0 for empty cells) */
+	private int[] hashes;
 	/** Number of entries in the map */
 	private int size=0;
-	/** Invalid sentinel value for empty cells (always negative) */
-	private int invalid;
 	/** Bit mask for fast modulo (always power of 2 minus 1) */
 	private int mask;
 	/** Size threshold for triggering resize (capacity * loadFactor) */
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
-	
+
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;
-	/** Mask to ensure invalid sentinel is negative */
-	private static final int MINMASK=Integer.MIN_VALUE;
-	
-	/** Random number generator for invalid sentinel */
-	private static final Random randy=new Random(1);
-	
+
 }

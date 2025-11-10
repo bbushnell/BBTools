@@ -416,7 +416,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		// Prepare read for variant analysis
 		r.toLongMatchString(false);
 		if(sl.strand()==1 && !r.swapped()){
-			r.reverseComplement(); // Orient read to match reference
+			r.reverseComplementFast(); // Orient read to match reference
 			r.setSwapped(true);
 		}
 		

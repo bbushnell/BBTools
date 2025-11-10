@@ -1,4 +1,4 @@
-package structures;
+package map;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -9,6 +9,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import structures.LongLongHashMap;
 
 /**
  * Hash map with primitive long keys and long values.
@@ -30,13 +31,13 @@ import shared.Tools;
  * @date November 2, 2025
  */
 public final class LongLongHashMap2 implements Serializable {
-	
+
 	private static final long serialVersionUID = 1L;
-	
+
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
-		
+
 		// Generate random keys with collisions
 		System.err.println("Generating "+size+" random keys...");
 		Random randy=new Random(12345);
@@ -46,7 +47,7 @@ public final class LongLongHashMap2 implements Serializable {
 			keys[i]=(long)Math.sqrt(x);
 		}
 		System.err.println("Keys generated.");
-		
+
 		bench(keys, repeats);
 	}
 
@@ -54,7 +55,7 @@ public final class LongLongHashMap2 implements Serializable {
 		final int size=keys.length;
 		System.gc();
 		Timer t=new Timer();
-		
+
 		{
 			System.err.println("\n*** LongLongHashMap2 ***");
 			Shared.printMemory();
@@ -77,7 +78,7 @@ public final class LongLongHashMap2 implements Serializable {
 			map=null;
 			System.gc();
 		}
-		
+
 		{
 			System.err.println("\n*** LongLongHashMap ***");
 			Shared.printMemory();
@@ -100,7 +101,7 @@ public final class LongLongHashMap2 implements Serializable {
 			map=null;
 			System.gc();
 		}
-		
+
 		{
 			System.err.println("\n*** HashMap<Long, Long> ***");
 			Shared.printMemory();
@@ -124,18 +125,18 @@ public final class LongLongHashMap2 implements Serializable {
 			System.gc();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
 	 */
 	public LongLongHashMap2(){
 		this(256);
 	}
-	
+
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
@@ -143,7 +144,7 @@ public final class LongLongHashMap2 implements Serializable {
 	public LongLongHashMap2(int initialSize){
 		this(initialSize, 0.7f);
 	}
-	
+
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
@@ -157,11 +158,11 @@ public final class LongLongHashMap2 implements Serializable {
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Removes all entries from the map.
 	 */
@@ -171,7 +172,7 @@ public final class LongLongHashMap2 implements Serializable {
 		Arrays.fill(values, 0);
 		size=0;
 	}
-	
+
 	/**
 	 * Gets the value associated with the given key.
 	 * @param key Key to look up
@@ -181,7 +182,7 @@ public final class LongLongHashMap2 implements Serializable {
 		int cell=findCell(key);
 		return cell<0 ? -1 : values[cell];
 	}
-	
+
 	/**
 	 * Checks if the map contains the given key.
 	 * @param key Key to check
@@ -190,7 +191,7 @@ public final class LongLongHashMap2 implements Serializable {
 	public boolean contains(long key){
 		return findCell(key)>=0;
 	}
-	
+
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
@@ -201,7 +202,7 @@ public final class LongLongHashMap2 implements Serializable {
 	public long put(long key, long value){
 		return set(key, value);
 	}
-	
+
 	/**
 	 * Copies all entries from another map into this map.
 	 * @param map Source map to copy from
@@ -213,7 +214,7 @@ public final class LongLongHashMap2 implements Serializable {
 			}
 		}
 	}
-	
+
 	/**
 	 * Associates the specified value with the specified key.
 	 * If the key already exists, updates its value.
@@ -233,7 +234,7 @@ public final class LongLongHashMap2 implements Serializable {
 		}
 		return oldV;
 	}
-	
+
 	/**
 	 * Increments the value associated with the key by 1.
 	 * If key is not present, inserts it with value 1.
@@ -243,7 +244,7 @@ public final class LongLongHashMap2 implements Serializable {
 	public long increment(long key){
 		return increment(key, 1);
 	}
-	
+
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
@@ -265,7 +266,7 @@ public final class LongLongHashMap2 implements Serializable {
 		}
 		return values[cell];
 	}
-	
+
 	/**
 	 * Increments all entries in this map by corresponding values from another map.
 	 * Keys not present in this map are inserted with their values from the source map.
@@ -278,7 +279,7 @@ public final class LongLongHashMap2 implements Serializable {
 			}
 		}
 	}
-	
+
 	/**
 	 * For each key in the source map, sets this map's value to the maximum
 	 * of the current value and the source value.
@@ -292,7 +293,7 @@ public final class LongLongHashMap2 implements Serializable {
 			}
 		}
 	}
-	
+
 	/**
 	 * Removes the entry with the specified key.
 	 * @param key Key to remove
@@ -306,15 +307,15 @@ public final class LongLongHashMap2 implements Serializable {
 		keys[cell]=invalid;
 		values[cell]=0;
 		size--;
-		
+
 		rehashFrom(cell);
 		return true;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Rehashes entries after a removal to maintain probe sequence integrity.
 	 * @param initial Starting position of removed entry
@@ -333,7 +334,7 @@ public final class LongLongHashMap2 implements Serializable {
 			rehashCell(cell);
 		}
 	}
-	
+
 	/**
 	 * Attempts to move an entry to its ideal position.
 	 * @param cell Position of entry to rehash
@@ -350,10 +351,10 @@ public final class LongLongHashMap2 implements Serializable {
 		values[cell]=0;
 		keys[dest]=key;
 		values[dest]=value;
-		
+
 		return true;
 	}
-	
+
 	/**
 	 * Resets the invalid sentinel when it collides with a real key.
 	 */
@@ -379,11 +380,11 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
-		
+
 		final int limit=keys.length;
-		final long hash=Tools.hash64shift(key);
+		final long hash=Tools.hash64plus(key);
 		final int initial=(int)(hash & mask);
-		
+
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
 			if(x==key){return cell;}
@@ -396,7 +397,7 @@ public final class LongLongHashMap2 implements Serializable {
 		}
 		return -1;
 	}
-	
+
 	/**
 	 * Finds the cell containing the key, or an empty cell where it can be inserted.
 	 * @param key Key to search for
@@ -404,11 +405,11 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=keys.length;
-		final long hash=Tools.hash64shift(key);
+		final long hash=Tools.hash64plus(key);
 		final int initial=(int)(hash & mask);
-		
+
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
 			if(x==key || x==invalid){return cell;}
@@ -419,7 +420,7 @@ public final class LongLongHashMap2 implements Serializable {
 		}
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
-	
+
 	/**
 	 * Doubles the map capacity and rehashes all entries.
 	 */
@@ -427,7 +428,7 @@ public final class LongLongHashMap2 implements Serializable {
 		assert(size>=sizeLimit);
 		resize(keys.length*2L);
 	}
-	
+
 	/**
 	 * Resizes the map to at least the specified size and rehashes all entries.
 	 * Actual size will be rounded up to the next power of 2.
@@ -435,25 +436,25 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
-		
-		// Round up to next power of 2
-		long newSize=Long.highestOneBit(size2);
-		if(newSize<size2){newSize<<=1;}
-		assert(newSize>0) : "Overflow: "+size2;
-		assert(newSize<=Integer.MAX_VALUE-extra) : "Table too large: "+newSize;
-		
-		final int size3=(int)(newSize+extra);
-		sizeLimit=(int)(newSize*loadFactor);
-		mask=(int)(newSize-1);
-		
+
+		long size3=Long.highestOneBit(size2);
+		if(size3<size2){size3<<=1;}
+		mask=(int)(size3-1);
+		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
+		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){
+			throw new RuntimeException("Map hit capacity at "+size);
+		}
+		final float loadFactor2=(size3<Shared.SAFE_ARRAY_LEN ? loadFactor : 0.85f);
+		sizeLimit=(int)((size3-extra)*loadFactor2);
+
 		final long[] oldK=keys;
 		final long[] oldV=values;
-		keys=KillSwitch.allocLong1D(size3);
-		values=KillSwitch.allocLong1D(size3);
+		keys=KillSwitch.allocLong1D((int)size3);
+		values=KillSwitch.allocLong1D((int)size3);
 		Arrays.fill(keys, invalid);
-		
+
 		if(size<1){return;}
-		
+
 		size=0;
 		for(int i=0; i<oldK.length; i++){
 			final long k=oldK[i];
@@ -463,7 +464,7 @@ public final class LongLongHashMap2 implements Serializable {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
@@ -483,43 +484,43 @@ public final class LongLongHashMap2 implements Serializable {
 		}
 		return x;
 	}
-	
+
 	/**
 	 * Returns the internal key array.
 	 * WARNING: Contains invalid sentinel for empty cells. Use with caution.
 	 * @return Internal key array
 	 */
 	public long[] keys(){return keys;}
-	
+
 	/**
 	 * Returns the internal value array.
 	 * WARNING: Contains 0 for empty cells. Use with caution.
 	 * @return Internal value array
 	 */
 	public long[] values(){return values;}
-	
+
 	/**
 	 * Returns the invalid sentinel value used for empty cells.
 	 * @return Invalid sentinel (always negative)
 	 */
 	public long invalid(){return invalid;}
-	
+
 	/**
 	 * Returns the number of key-value pairs in the map.
 	 * @return Number of entries
 	 */
 	public int size(){return size;}
-	
+
 	/**
 	 * Checks if the map is empty.
 	 * @return true if map contains no entries
 	 */
 	public boolean isEmpty(){return size==0;}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Array of keys (invalid sentinel for empty cells) */
 	private long[] keys;
 	/** Array of values (parallel to keys array) */
@@ -534,13 +535,13 @@ public final class LongLongHashMap2 implements Serializable {
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
-	
+
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;
 	/** Mask to ensure invalid sentinel is negative */
 	private static final long MINMASK=Long.MIN_VALUE;
-	
+
 	/** Random number generator for invalid sentinel */
 	private static final Random randy=new Random(1);
-	
+
 }

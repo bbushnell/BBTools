@@ -78,7 +78,7 @@ public class AnalyzeVars {
 		final byte[] bases=r.bases;
 
 		final boolean rcomp=(r.strand()==Shared.MINUS);
-		if(rcomp){r.reverseComplement();}
+		if(rcomp){r.reverseComplementFast();}
 
 		int rpos=sl.pos-1-SamLine.countLeadingClip(sl.cigar, true, true);
 
@@ -125,7 +125,7 @@ public class AnalyzeVars {
 			if(m!='I' && m!='i'){rpos++;}
 			prev=m;
 		}
-		if(rcomp){r.reverseComplement();}
+		if(rcomp){r.reverseComplementFast();}
 
 		//		assert(false) : new String(r.match);
 
@@ -159,7 +159,7 @@ public class AnalyzeVars {
 		if(r.match!=null && r.shortmatch()){r.toLongMatchString(false);}
 
 		final boolean rcomp=(r.strand()==Shared.MINUS);
-		if(rcomp){r.reverseComplement();}
+		if(rcomp){r.reverseComplementFast();}
 
 		final byte[] match=r.match;
 		final byte[] bases=r.bases;
@@ -194,7 +194,7 @@ public class AnalyzeVars {
 			if(m!='I'){rpos++;}
 		}
 		assert(subs==subsFound) : subs+", "+subsFound+", "+Read.countSubs(r.match)+"\n"+new String(match)+"\n"+new String(Read.toShortMatchString(r.match));
-		if(rcomp){r.reverseComplement();}
+		if(rcomp){r.reverseComplementFast();}
 		return list.isEmpty() ? null : list;
 	}
 
@@ -225,7 +225,7 @@ public class AnalyzeVars {
 
 		final boolean rcomp=(r.strand()==Shared.MINUS);
 		if(rcomp){
-			r.reverseComplement();
+			r.reverseComplementFast();
 			r.setSwapped(true);
 		}
 
@@ -248,7 +248,7 @@ public class AnalyzeVars {
 			}
 		}
 		if(rcomp){
-			r.reverseComplement();
+			r.reverseComplementFast();
 			r.setSwapped(false);
 		}
 		return list2.isEmpty() ? null : list2;

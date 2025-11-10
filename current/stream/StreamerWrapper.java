@@ -2,8 +2,6 @@ package stream;
 
 import java.io.File;
 import java.io.PrintStream;
-import java.util.Arrays;
-
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
@@ -104,8 +102,19 @@ public class StreamerWrapper{
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, true);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, true);
 		
-		SamLine.SET_FROM_OK=(ffin1!=null && ffin1.samOrBam());
-		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=(ffout1!=null && ffout1.samOrBam() && ffin1!=null && ffin1.samOrBam());
+		final boolean samIn=(ffin1!=null && ffin1.samOrBam());
+		final boolean samOut=(ffout1!=null && ffout1.samOrBam());
+		SamLine.SET_FROM_OK=samIn;
+		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=samIn && samOut;
+		//Determine if we need to parse SAM fields or can skip for performance
+		if(!forceParse && samIn && !samOut){
+			SamLine.PARSE_2=false;
+			SamLine.PARSE_5=false;
+			SamLine.PARSE_6=false;
+			SamLine.PARSE_7=false;
+			SamLine.PARSE_8=false;
+			SamLine.PARSE_OPTIONAL=false;
+		}
 	}
 
 	/** 
@@ -140,6 +149,8 @@ public class StreamerWrapper{
 				sampleseed=Long.parseLong(b);
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
+			}else if(a.equals("forceparse")){
+				forceParse=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
@@ -353,6 +364,8 @@ public class StreamerWrapper{
 	private float samplerate=1f;
 	/** Random seed for subsampling */
 	private long sampleseed=17;
+	/** Force parsing of all SAM fields even if not needed */
+	private boolean forceParse=false;
 
 	/** Number of reads processed */
 	private long readsIn=0;

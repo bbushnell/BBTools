@@ -898,7 +898,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	}
 	
 	public ByteBuilder reverseComplementInPlace() {
-		AminoAcid.reverseComplementBasesInPlace(array, length);
+		Vector.reverseComplementInPlace(array, length);
 		return this;
 	}
 	

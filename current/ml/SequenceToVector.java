@@ -14,6 +14,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
@@ -186,7 +187,7 @@ public class SequenceToVector {
 		if(bsw!=null) {bsw.println(bb);}
 		bb.clear();
 		if(!rcomp) {return;}
-		toVector(r.reverseComplement(), bb, bsw, width, k, result, buffer, false);
+		toVector(r.reverseComplementFast(), bb, bsw, width, k, result, buffer, false);
 	}
 	
 	private static ByteBuilder toVector(byte[] bases, ByteBuilder bb, int width, int k, float result, float[] buffer) {
@@ -310,10 +311,10 @@ public class SequenceToVector {
 		net.applyInput(vec);
 		final float r, f=net.feedForward();
 		if(rcomp) {
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			net.applyInput(vec);
 			r=net.feedForward();
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}else {r=f;}
 		return Tools.max(r, f);
 	}

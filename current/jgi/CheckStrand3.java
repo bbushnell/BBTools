@@ -29,6 +29,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import sketch.Sketch;
 import sketch.SketchHeap;
 import sketch.SketchMakerMini;
@@ -1074,7 +1075,7 @@ public class CheckStrand3 implements Accumulator<CheckStrand3.ProcessThread> {
 			if(mergePairs && r2!=null){
 				final int insert=BBMerge.findOverlapStrict(r1, r2, false);
 				if(insert>0){
-					r2.reverseComplement();
+					r2.reverseComplementFast();
 					r1=r1.joinRead(insert);
 					r2=null;
 					readsMergedT++;
@@ -1250,11 +1251,11 @@ public class CheckStrand3 implements Accumulator<CheckStrand3.ProcessThread> {
 			double plusScoreCDS=gCaller.scoreFeature(bases, ProkObject.CDS);//These scores are suspiciously low; I wonder if frame tracking is working correctly?
 			double plusScore16S=gCaller.scoreFeature(bases, ProkObject.r16S);
 			double plusScore5S=gCaller.scoreFeature(bases, ProkObject.r5S);
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			double minusScoreCDS=gCaller.scoreFeature(bases, ProkObject.CDS);
 			double minusScore16S=gCaller.scoreFeature(bases, ProkObject.r16S);
 			double minusScore5S=gCaller.scoreFeature(bases, ProkObject.r5S);
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 
 			double maxCDS=Tools.max(plusScoreCDS, minusScoreCDS)*1.6;
 			double max16S=Tools.max(plusScore16S, minusScore16S)*1.2;

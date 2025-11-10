@@ -1,6 +1,7 @@
 package assemble;
 
 import dna.AminoAcid;
+import shared.Vector;
 import structures.ByteBuilder;
 
 public class Edge {
@@ -44,7 +45,7 @@ public class Edge {
 	
 	void flipSource(){
 		if(Tadpole.verbose){System.err.print("Flipping edge source "+this+" -> ");}
-		if(bases!=null){AminoAcid.reverseComplementBasesInPlace(bases);}
+		if(bases!=null){Vector.reverseComplementInPlace(bases);}
 		orientation^=1;
 		if(Tadpole.verbose){System.err.println(this);}
 	}

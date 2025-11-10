@@ -7,6 +7,7 @@ import dna.AminoAcid;
 import fileIO.FileFormat;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -450,7 +451,7 @@ public class KmerCount5 extends KmerCountAbstract {
 			}
 		}
 		if(rcomp){
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			addReadSplit(bases, count, k1, k2, mask1, mask2, gap, false);
 		}
 	}

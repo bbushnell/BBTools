@@ -696,7 +696,7 @@ public class ReformatReads {
 					if(r2!=null){
 						readsProcessed++;
 						basesProcessed+=initialLength2;
-						if(reverseComplement || reverseComplementMate){r2.reverseComplement();}
+						if(reverseComplement || reverseComplementMate){r2.reverseComplementFast();}
 						if(complement){r2.complement();}
 					}
 					

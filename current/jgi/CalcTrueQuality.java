@@ -21,6 +21,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentGenericReadInputStream;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
@@ -1143,7 +1144,7 @@ public class CalcTrueQuality {
 			
 			if(r.strand()==Shared.MINUS){
 //				r.reverseComplement();
-				Tools.reverseInPlace(match);
+				Vector.reverseInPlace(match);
 			}
 			if(verbose){outstream.println("C");}
 			

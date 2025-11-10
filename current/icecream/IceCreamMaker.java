@@ -17,6 +17,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
@@ -771,7 +772,7 @@ public class IceCreamMaker {
 				int elapsed=rb.length()+adapterLen;
 				moviePos+=elapsed;
 				movieRemaining-=elapsed;
-				AminoAcid.reverseComplementBasesInPlace(frag);
+				Vector.reverseComplementInPlaceFast(frag);
 			}
 			return list;
 		}
@@ -836,7 +837,7 @@ public class IceCreamMaker {
 			}
 			if(stop-start<1){return null;}
 			byte[] frag=Arrays.copyOfRange(source, start, stop);
-			if(randy.nextBoolean()){AminoAcid.reverseComplementBasesInPlace(frag);}
+			if(randy.nextBoolean()){Vector.reverseComplementInPlaceFast(frag);}
 			return frag;
 		}
 		
