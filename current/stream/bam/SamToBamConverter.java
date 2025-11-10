@@ -1,8 +1,5 @@
 package stream.bam;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import dna.AminoAcid;
 import map.ObjectIntMap;
 import shared.Parse;

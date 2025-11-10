@@ -23,7 +23,8 @@ import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamStreamer;
+import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.ListNum;
 import template.Accumulator;
@@ -244,7 +245,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
 		//Create a read input stream
-		final SamStreamer ss=makeStreamer(ffin);
+		final Streamer ss=makeStreamer(ffin);
 		
 		//Load reference
 		loadReferenceCustom();
@@ -318,9 +319,9 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		return cris;
 	}
 	
-	private SamStreamer makeStreamer(FileFormat ff){
+	private Streamer makeStreamer(FileFormat ff){
 		if(ff==null){return null;}
-		SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreads, true, false, maxReads, true);
+		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, true, false, maxReads, true);
 		ss.start(); //Start the stream
 		if(verbose){outstream.println("Started Streamer");}
 		return ss;
@@ -342,7 +343,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/*--------------------------------------------------------------*/
 	
 	/** Spawn process threads */
-	private void spawnThreads(final SamStreamer ss){
+	private void spawnThreads(final Streamer ss){
 		
 		//Do anything necessary prior to processing
 		
@@ -454,7 +455,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final SamStreamer ss_, final int tid_){
+		ProcessThread(final Streamer ss_, final int tid_){
 			ss=ss_;
 			tid=tid_;
 		}
@@ -477,7 +478,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		void processInner(){
 			
 			//Grab and process all lists
-			for(ListNum<Read> ln=ss.nextReads(); ln!=null; ln=ss.nextReads()){
+			for(ListNum<Read> ln=ss.nextList(); ln!=null; ln=ss.nextList()){
 //				if(verbose){outstream.println("Got list of size "+list.size());} //Disabled due to non-static access
 				
 				processList(ln);
@@ -559,7 +560,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final SamStreamer ss;
+		private final Streamer ss;
 		/** Thread ID */
 		final int tid;
 	}
@@ -722,7 +723,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/*--------------------------------------------------------------*/
 	
 	/** Threads dedicated to reading the sam file */
-	private int streamerThreads=SamStreamer.DEFAULT_THREADS;
+	private int streamerThreads=-1;
 	
 	private boolean loadedRef=false;
 	

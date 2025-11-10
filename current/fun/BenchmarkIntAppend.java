@@ -1,7 +1,7 @@
 package fun;
 
-import structures.ByteBuilder;
 import shared.Timer;
+import structures.ByteBuilder;
 
 /**
  * Benchmark different integer-to-string append strategies.

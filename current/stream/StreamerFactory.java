@@ -1,6 +1,7 @@
 package stream;
 
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import shared.Shared;
 
 /**
@@ -103,21 +104,44 @@ public class StreamerFactory {
 			boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
 		if(ff==null){
 			return null;
+			
 		}else if(ff.fastq()){
-//			System.err.println(Shared.threads()+", "+threads+", "+FastqStreamer.DEFAULT_THREADS);
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>0)) {
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>1)) {
 				return new FastqStreamer(ff, threads, pairnum, maxReads);
 			}else {
 				return new FastqStreamerST(ff, pairnum, maxReads);
 			}
+			
 		}else if(ff.fasta()){
-			return new FastaStreamer(ff, threads, pairnum, maxReads);
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastaStreamer.DEFAULT_THREADS>0)) {
+				return new FastaStreamer(ff, threads, pairnum, maxReads);
+			}else {
+				return new FastaStreamerST(ff, pairnum, maxReads);
+			}
+			
+		}else if(ff.bam() && ReadWrite.nativeBamIn()){
+			return new BamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);
+			
 		}else if(ff.samOrBam()){
-			return SamStreamer.makeStreamer(ff, threads, saveHeader, 
-				ordered, maxReads, makeReads);
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || SamStreamer.DEFAULT_THREADS>0)) {
+				return new SamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);
+			}else {
+				return new SamStreamerST(ff, saveHeader, maxReads, makeReads);
+			}
+			
 		}
 		
 		throw new RuntimeException("Unsupported file format: "+ff);
+	}
+	
+	//Legacy
+	
+	public static Streamer makeSamOrBamStreamer(String fname, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
+		return makeSamOrBamStreamer(FileFormat.testInput(fname, FileFormat.SAM, null, true, false), threads, saveHeader, ordered, maxReads, makeReads);
+	}
+	
+	public static Streamer makeSamOrBamStreamer(FileFormat ffin, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
+		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
 	}
 	
 }

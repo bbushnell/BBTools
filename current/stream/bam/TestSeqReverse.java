@@ -1,6 +1,5 @@
 package stream.bam;
 
-import dna.AminoAcid;
 import shared.LineParser1;
 import shared.Vector;
 import stream.SamLine;

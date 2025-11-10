@@ -4,7 +4,6 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 import shared.Tools;
-import structures.RingBuffer;
 
 /**
  *Aligns two sequences to return ANI.

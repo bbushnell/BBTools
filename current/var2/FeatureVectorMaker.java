@@ -1,6 +1,6 @@
 package var2;
 
-import shared.*;
+import shared.Tools;
 
 /**
  * Converts Var objects into feature vectors for neural network analysis.

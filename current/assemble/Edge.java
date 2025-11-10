@@ -1,6 +1,5 @@
 package assemble;
 
-import dna.AminoAcid;
 import shared.Vector;
 import structures.ByteBuilder;
 

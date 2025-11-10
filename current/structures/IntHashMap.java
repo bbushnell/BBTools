@@ -10,6 +10,7 @@ import shared.Primes;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 
 /**
  * @author Brian Bushnell
@@ -224,45 +225,20 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		while(x==old || contains(x)){x=randy.nextInt()|MINMASK;}
 		assert(x<0);
 		invalid=x;
-		for(int i=0; i<keys.length; i++){
-			if(keys[i]==old){
-				keys[i]=invalid;
-//				assert(values[i]==0); //TODO: slow
-			}
-		}
+		Vector.changeAll(keys, old, x);
 	}
 
 	@Override
 	int findCell(final int key){
-		if(key==invalid){return -1;}
-		
-		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
-		for(int cell=initial; cell<limit; cell++){
-			final int x=keys[cell];
-			if(x==key){return cell;}
-			if(x==invalid){return -1;}
-		}
-		for(int cell=0; cell<initial; cell++){
-			final int x=keys[cell];
-			if(x==key){return cell;}
-			if(x==invalid){return -1;}
-		}
-		return -1;
+//		if(key==invalid){return -1;}
+		final int initial=((key&MASK)%modulus);
+		return Vector.findKeyScalar(keys, key, initial, invalid);
 	}
 	
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
-		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
-		for(int cell=initial; cell<limit; cell++){
-			final int x=keys[cell];
-			if(x==key || x==invalid){return cell;}
-		}
-		for(int cell=0; cell<initial; cell++){
-			final int x=keys[cell];
-			if(x==key || x==invalid){return cell;}
-		}
-		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
+		final int initial=(int)((key&MASK)%modulus);
+		return Vector.findKeyOrInvalid(keys, key, initial, invalid);
 	}
 	
 	private final void resize(){

@@ -1,8 +1,6 @@
 package shared;
 
 import dna.AminoAcid;
-import jdk.incubator.vector.ByteVector;
-import jdk.incubator.vector.VectorMask;
 import ml.Cell;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -759,6 +757,69 @@ public final class Vector {
 		}
 		if((length&1)==1){//Odd length; process middle
 			bases[max]=AminoAcid.baseToComplementExtended[bases[max]];
+		}
+	}
+	
+	public static int findKey(final int[] keys, final int key, final int initial, final int invalid){
+		assert(keys!=null);
+		if(key==invalid) {return -1;}
+		if(Shared.SIMD && keys.length>=MINLEN32) {
+			return SIMD.findKey(keys, key, initial, invalid);
+		}
+		final int limit=keys.length;
+		int cell=initial;
+		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		if(cell<limit) {return keys[cell]==key ? cell : -1;}
+		cell=0;
+		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		return keys[cell]==key ? cell : -1;
+	}
+	
+	public static int findKeyOrInvalid(final int[] keys, final int key, final int initial, final int invalid){
+		assert(keys!=null);
+		assert(key!=invalid) : "Collision - this should have been intercepted.";
+		if(Shared.SIMD && keys.length>=MINLEN32) {
+			return SIMD.findKeyOrInvalid(keys, key, initial, invalid);
+		}
+		final int limit=keys.length;
+		int cell=initial;
+		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		if(cell<limit) {return cell;}
+		cell=0;
+		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		assert(cell<initial) : "Overflow at size "+limit+": key="+key+", initial="+initial+", invalid="+invalid;
+		return cell<initial ? cell : -1;
+	}
+	
+	public static int findKeyScalar(final int[] keys, final int key, final int initial, final int invalid){
+		final int limit=keys.length;
+		int cell=initial;
+		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		if(cell<limit) {return keys[cell]==key ? cell : -1;}
+		cell=0;
+		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		return keys[cell]==key ? cell : -1;
+	}
+	
+	public static int findKeyOrInvalidScalar(final int[] keys, final int key, final int initial, final int invalid){
+		final int limit=keys.length;
+		int cell=initial;
+		for(; cell<limit && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		if(cell<limit) {return cell;}
+		cell=0;
+		for(; cell<initial && keys[cell]!=key && keys[cell]!=invalid; cell++){}
+		assert(cell<initial) : "Overflow at size "+limit+": key="+key+", initial="+initial+", invalid="+invalid;
+		return cell<initial ? cell : -1;
+	}
+	
+	public static void changeAll(int[] keys, int oldKey, int newKey){
+		assert(keys!=null);
+		if(Shared.SIMD && keys.length>=MINLEN32) {
+			SIMD.changeAll(keys, oldKey, newKey);
+			return;
+		}
+		for(int i=0; i<keys.length; i++){
+			if(keys[i]==oldKey){keys[i]=newKey;}
 		}
 	}
 	

@@ -3,7 +3,6 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -19,7 +18,6 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;

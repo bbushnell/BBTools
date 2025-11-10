@@ -1,7 +1,9 @@
 package illumina;
 
-import java.io.*;
-import java.nio.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 /**
  * Reads Illumina .filter files containing pass-filter flags.

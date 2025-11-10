@@ -16,8 +16,8 @@ import structures.ListNum;
  * Single-threaded FASTQ loader with simple buffering.
  * Simpler alternative to FastqStreamer for cases where threading overhead isn't worth it.
  * 
- * @author Isla
- * @date January 2026
+ * @author Brian Bushnell, Isla
+ * @date November 10, 2025
  */
 public class FastqStreamerST implements Streamer {
 	
@@ -88,6 +88,9 @@ public class FastqStreamerST implements Streamer {
 	public void close(){
 		//TODO: Unimplemented
 	}
+	
+	@Override
+	public String fname() {return fname;}
 	
 	@Override
 	public boolean hasMore(){

@@ -27,8 +27,8 @@ import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ListNum;
 import tax.TaxTree;
-import template.ThreadWaiter;
 import template.Accumulator;
+import template.ThreadWaiter;
 import tracker.KmerTracker;
 
 /**

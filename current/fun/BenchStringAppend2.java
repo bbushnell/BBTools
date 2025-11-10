@@ -4,9 +4,10 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
-import structures.ByteBuilder;
+
 import shared.Timer;
 import shared.Vector;
+import structures.ByteBuilder;
 
 /**
  * Benchmark different String append strategies for ByteBuilder.

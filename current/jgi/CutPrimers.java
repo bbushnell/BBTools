@@ -6,7 +6,6 @@ import java.util.LinkedHashMap;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import fileIO.TextFile;
 import shared.KillSwitch;
 import shared.LineParser1;
 import shared.Parse;

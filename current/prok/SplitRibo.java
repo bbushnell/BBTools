@@ -6,7 +6,6 @@ import java.util.Arrays;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import aligner.SingleStateAlignerFlat2;
 import aligner.IDAligner;
 import fileIO.ByteFile;
 import fileIO.FileFormat;

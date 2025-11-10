@@ -3,8 +3,6 @@ package aligner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-import shared.Timer;
-
 /**
  *Aligns two sequences to return ANI.
  *Uses only 2 arrays and avoids traceback.

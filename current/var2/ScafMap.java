@@ -12,7 +12,8 @@ import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
 import stream.SamReadInputStream;
-import stream.SamStreamer;
+import stream.Streamer;
+import stream.StreamerFactory;
 
 /**
  * Maps scaffold (chromosome/contig) names to Scaffold objects and provides
@@ -66,7 +67,7 @@ public class ScafMap {
 	 * @return ScafMap populated with scaffold information */
 	@Deprecated
 	public static ScafMap loadSamHeader(FileFormat ff, ScafMap scafMap){
-		SamStreamer ss=SamStreamer.makeStreamer(ff, 1, true, false, 0, false);
+		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, 0, true, false, 0, false);
 		ss.start();
 		scafMap=waitForSamHeader(scafMap);
 		ss.close();

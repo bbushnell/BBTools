@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import bin.SketchRecord;
 import dna.AminoAcid;
 import fileIO.ReadWrite;
 import json.JsonObject;

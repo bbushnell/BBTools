@@ -1,9 +1,9 @@
 package bin;
 
 import java.util.ArrayList;
-import structures.IntHashSet;
 
 import shared.Tools;
+import structures.IntHashSet;
 
 /**
  * Abstract base class for bin refinement strategies.

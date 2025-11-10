@@ -1,6 +1,5 @@
 package jgi;
 
-import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,8 +27,8 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamStreamer;
 import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 import tracker.ReadStats;
 import var2.AnalyzeVars;
@@ -344,7 +343,7 @@ public class CalcTrueQuality {
 			FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
 			if(useStreamer && Shared.threads()>1 && ff.samOrBam()){
 				cris=null;
-				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
+				ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 			}else{
 				ss=null;

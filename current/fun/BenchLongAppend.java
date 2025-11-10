@@ -1,8 +1,9 @@
 package fun;
 
-import structures.ByteBuilder;
-import shared.Timer;
 import java.util.Random;
+
+import shared.Timer;
+import structures.ByteBuilder;
 
 /**
  * Benchmark different long-to-string append strategies.

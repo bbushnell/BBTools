@@ -24,9 +24,8 @@ import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamStreamer;
 import stream.Streamer;
-import stream.SamStreamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
@@ -805,7 +804,7 @@ public class CallVariants2 {
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;
-				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
+				ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
@@ -887,7 +886,7 @@ public class CallVariants2 {
 			final ConcurrentReadInputStream cris;
 			if(useStreamer){
 				cris=null;
-				ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, true);
+				ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
@@ -1547,7 +1546,7 @@ public class CallVariants2 {
 	/** Whether to use SamStreamer for high-throughput read processing */
 	static boolean useStreamer=true;
 	/** Number of threads to use for SamStreamer processing */
-	static int streamerThreads=SamStreamer.DEFAULT_THREADS;
+	static int streamerThreads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

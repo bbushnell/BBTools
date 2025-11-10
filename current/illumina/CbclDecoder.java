@@ -1,7 +1,9 @@
 package illumina;
 
-import java.io.*;
-import java.util.zip.*;
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.util.zip.GZIPInputStream;
 
 /**
  * Decodes gzip-compressed, bit-packed base call data from CBCL files.

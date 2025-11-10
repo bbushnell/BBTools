@@ -8,7 +8,6 @@ import java.util.Random;
 import shared.Shared;
 import stream.HasID;
 import stream.Read;
-import stream.bam.BgzfJob;
 
 /**
  * Numbered list wrapper for multithreaded producer-consumer patterns.

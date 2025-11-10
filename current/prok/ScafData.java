@@ -3,7 +3,6 @@ package prok;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import dna.AminoAcid;
 import gff.GffLine;
 import shared.Vector;
 import stream.Read;

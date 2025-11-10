@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map.Entry;
+
 import bloom.BloomFilter;
 import bloom.KmerCountAbstract;
 import dna.Data;
@@ -29,14 +30,13 @@ import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamStreamer;
 import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.FloatList;
 import structures.IntHashMap;
 import structures.IntLongHashMap;
 import structures.ListNum;
-import tax.TaxTree;
 import ukmer.Kmer;
 
 public class DataLoader extends BinObject {
@@ -708,7 +708,7 @@ public class DataLoader extends BinObject {
 		outstream.print("Loading sam file: \t");
 		phaseTimer.start();
 		final int streamerThreads=Tools.min(4, Shared.threads());
-		ss=SamStreamer.makeStreamer(ff, streamerThreads, false, false, maxReads, false);
+		ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, false);
 		ss.start();
 		processSam(ss, sample, contigMap);
 		for(Entry<String, Contig> e : contigMap.entrySet()) {

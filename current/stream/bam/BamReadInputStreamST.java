@@ -3,12 +3,11 @@ package stream.bam;
 import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.io.InputStream;
 
 import fileIO.FileFormat;
-import shared.LineParser1;
 import shared.Shared;
 import stream.FASTQ;
 import stream.Read;

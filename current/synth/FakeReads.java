@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 
-import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
 import fileIO.ByteFile2;

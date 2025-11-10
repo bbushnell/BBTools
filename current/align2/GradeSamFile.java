@@ -3,8 +3,8 @@ package align2;
 import java.io.File;
 import java.util.BitSet;
 
-import fileIO.FileFormat;
 import fileIO.ByteFile;
+import fileIO.FileFormat;
 import fileIO.TextStreamWriter;
 import shared.LineParser1;
 import shared.Parse;

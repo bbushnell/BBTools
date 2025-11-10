@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Map.Entry;
 
 import aligner.IDAligner;
 import aligner.QuantumAligner;
@@ -24,8 +23,6 @@ import sketch.SketchResults;
 import sketch.SketchTool;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
-import structures.AbstractBitSet;
-import structures.Heap;
 import structures.ListNum;
 import tax.TaxNode;
 import tax.TaxTree;

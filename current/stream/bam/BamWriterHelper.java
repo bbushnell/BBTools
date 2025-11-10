@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
-import shared.LineParser;
 import shared.LineParser1;
 import structures.ByteBuilder;
 import structures.IntList;

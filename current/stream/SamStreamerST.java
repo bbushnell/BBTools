@@ -1,5 +1,6 @@
 package stream;
 
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
@@ -13,24 +14,29 @@ import structures.ListNum;
  * Single-threaded SAM line loader with simple buffering.
  * Simpler alternative to SamLineStreamer for cases where threading overhead isn't worth it.
  * 
- * @author Isla
- * @date January 2026
+ * @author Brian Bushnell, Isla
+ * @date November 10, 2025
  */
-public class SamLineStreamerST extends SamStreamer {
+public class SamStreamerST implements Streamer {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/** Constructor. */
-	SamLineStreamerST(String fname_, boolean saveHeader_, long maxReads_, boolean makeReads_){
+	SamStreamerST(String fname_, boolean saveHeader_, long maxReads_, boolean makeReads_){
 		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), 
 			saveHeader_, maxReads_, makeReads_);
 	}
 	
 	/** Constructor. */
-	SamLineStreamerST(FileFormat ffin_, boolean saveHeader_, long maxReads_, boolean makeReads_){
-		super(ffin_, 0, saveHeader_, false, maxReads_, makeReads_);
+	SamStreamerST(FileFormat ffin_, boolean saveHeader_, long maxReads_, boolean makeReads_){
+		fname=ffin_.name();
+		ffin=ffin_;
+		saveHeader=saveHeader_;
+		header=(saveHeader ? new ArrayList<byte[]>() : null);
+		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
+		makeReads=makeReads_;
 		outq=new ArrayBlockingQueue<ListNum<SamLine>>(QUEUE_SIZE);
 		if(verbose){outstream.println("Made SamLineStreamerST");}
 	}
@@ -40,7 +46,33 @@ public class SamLineStreamerST extends SamStreamer {
 	/*--------------------------------------------------------------*/
 	
 	@Override
+	public void start(){
+		if(verbose){outstream.println("SamLineStreamerST.start() called.");}
+		
+		//Reset counters
+		readsProcessed=0;
+		basesProcessed=0;
+		
+		//Start processing thread
+		thread=new ProcessThread();
+		thread.start();
+		
+		if(verbose){outstream.println("SamLineStreamerST started.");}
+	}
+
+	@Override
+	public synchronized void close(){
+		//TODO: Unimplemented
+	}
+	
+	@Override
+	public String fname() {return fname;}
+	
+	@Override
 	public boolean hasMore() {return !finished;}
+	
+	@Override
+	public boolean errorState() {return errorState;}
 	
 	@Override
 	public boolean paired(){return false;}
@@ -53,6 +85,15 @@ public class SamLineStreamerST extends SamStreamer {
 	
 	@Override
 	public long basesProcessed() {return basesProcessed;}
+	
+	@Override
+	public void setSampleRate(float rate, long seed){
+		samplerate=rate;
+		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+	}
+	
+	@Override
+	public ListNum<Read> nextList(){return nextReads();}
 	
 	@Override
 	public ListNum<SamLine> nextLines(){
@@ -76,7 +117,6 @@ public class SamLineStreamerST extends SamStreamer {
 		}
 	}
 
-	@Override
 	public ListNum<Read> nextReads(){
 		assert(makeReads);
 		ListNum<SamLine> lines=nextLines();
@@ -90,18 +130,6 @@ public class SamLineStreamerST extends SamStreamer {
 		}
 		ListNum<Read> ln=new ListNum<Read>(reads, lines.id);
 		return ln;
-	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------         Inner Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/** Spawn process thread */
-	@Override
-	void spawnThreads(){
-		thread=new ProcessThread();
-		thread.start();
-		if(verbose){outstream.println("Started thread.");}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -215,12 +243,31 @@ public class SamLineStreamerST extends SamStreamer {
 	}
 	
 	/*--------------------------------------------------------------*/
-	/*----------------         Final Fields         ----------------*/
+	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	/** Primary input file path */
+	public final String fname;
+	
+	/** Primary input file */
+	final FileFormat ffin;
 	
 	final ArrayBlockingQueue<ListNum<SamLine>> outq;
 	private ProcessThread thread;
 	private boolean finished=false;
+	
+	final boolean saveHeader;
+	final boolean makeReads;
+	
+	ArrayList<byte[]> header;
+	
+	/** Number of reads processed */
+	protected long readsProcessed=0;
+	/** Number of bases processed */
+	protected long basesProcessed=0;
+	
+	/** Quit after processing this many input reads */
+	final long maxReads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
@@ -229,5 +276,18 @@ public class SamLineStreamerST extends SamStreamer {
 	public static int TARGET_LIST_SIZE=200;
 	public static int TARGET_LIST_BYTES=250000;
 	private static final int QUEUE_SIZE=8;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Common Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/** Print status messages to this output stream */
+	protected PrintStream outstream=System.err;
+	/** Print verbose messages */
+	public static final boolean verbose=false;
+	/** True if an error was encountered */
+	public boolean errorState=false;
+	private float samplerate=1f;
+	private java.util.Random randy=null;
 	
 }

@@ -2,11 +2,10 @@ package stream.bam;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.zip.CRC32;
 import java.util.zip.Deflater;
-import java.util.concurrent.TimeUnit;
-import java.util.Arrays;
 
 import stream.JobQueue;
 

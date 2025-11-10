@@ -2,7 +2,6 @@ package ml;
 
 import java.util.ArrayList;
 
-import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;

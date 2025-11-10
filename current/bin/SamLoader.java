@@ -12,8 +12,8 @@ import fileIO.FileFormat;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
-import stream.SamStreamer;
 import stream.Streamer;
+import stream.StreamerFactory;
 import structures.IntHashMap;
 import structures.ListNum;
 import template.Accumulator;
@@ -67,7 +67,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 //		final int maxLoaderThreadsPerFile=(availableLoaderThreads+files-1)/files;
 //		
 //		int zipTheadsPF=8;
-//		int streamerThreadsPF=Tools.min(maxThreadsPerFile, SamStreamer.DEFAULT_THREADS);
+//		int streamerThreadsPF=Tools.min(maxThreadsPerFile, Streamer.DEFAULT_THREADS);
 //		int loaderThreadsPF=availableLoaderThreads;
 //		final int loaderThreads=loaderThreadsPF*files;
 
@@ -79,11 +79,11 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		System.err.println("Using "+zipThreadsPF+":"+streamerThreadsPF+":"+covThreadsPF+
 			" zip:stream:cov threads for "+files+" files and "+Tools.plural("thread", Shared.threads())+".");
 		
-		ArrayList<SamStreamer> sslist=new ArrayList<SamStreamer>(files);
+		ArrayList<Streamer> sslist=new ArrayList<Streamer>(files);
 		AtomicLongArray[] covlist=new AtomicLongArray[files];
 		for(int i=0; i<fnames.size(); i++){
 			FileFormat ff=FileFormat.testInput(fnames.get(i), FileFormat.SAM, null, true, false);
-			SamStreamer ss=SamStreamer.makeStreamer(ff, streamerThreadsPF, false, false, -1, false);
+			Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreadsPF, false, false, -1, false);
 			sslist.add(ss);
 			ss.start();
 			covlist[i]=new AtomicLongArray(contigs.size());
@@ -166,7 +166,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	
 	class LoadThread extends Thread {
 		
-		LoadThread(final SamStreamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
+		LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
 				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
 			ss=ss_;
 			sample=sample_;
@@ -183,7 +183,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		}
 		
 		private void runInner() {
-			if(tid<=sample) {outstream.println("Loading "+ss.fname);}
+			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
 			//else {outstream.println("tid "+tid+">sample "+sample);}
 
 //			System.err.println("SamLoader.LoadThread "+tid+" started processSam_Thread.");
@@ -279,7 +279,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			return true;
 		}
 		
-		final SamStreamer ss;
+		final Streamer ss;
 		final int sample;
 		final int tid;
 		final HashMap<String, Contig> contigMap;

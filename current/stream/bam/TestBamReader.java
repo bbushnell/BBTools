@@ -1,11 +1,12 @@
 package stream.bam;
 
-import stream.BamLineStreamer;
 import stream.SamLine;
+import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
- * Simple test program for BamLineStreamer.
+ * Simple test program for Streamer.
  * Usage: java -cp build stream.TestBamReader <bamfile> [maxReads]
  *
  * @author Chloe
@@ -22,10 +23,10 @@ public class TestBamReader {
 		String bamFile = args[0];
 		long maxReads = args.length > 1 ? Long.parseLong(args[1]) : 10;
 
-		System.err.println("Testing BamLineStreamer on: " + bamFile);
+		System.err.println("Testing Streamer on: " + bamFile);
 		System.err.println("Reading up to " + maxReads + " records");
 
-		BamLineStreamer streamer = new BamLineStreamer(bamFile, 2, true, true, maxReads, false);
+		Streamer streamer = StreamerFactory.makeSamOrBamStreamer(bamFile, 2, true, true, maxReads, false);
 		streamer.start();
 
 		long count = 0;

@@ -1,12 +1,13 @@
 package fun;
 
-import java.lang.reflect.Field;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
-import structures.ByteBuilder;
+
 import shared.Timer;
+import structures.ByteBuilder;
 
 /**
  * Benchmark different String append strategies for ByteBuilder.

@@ -1,6 +1,7 @@
 package aligner;
 
 import java.util.ArrayList;
+
 import dna.Data;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;

@@ -2,107 +2,34 @@ package stream;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.ArrayList;
+
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
-import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.ListNum;
+import template.ThreadWaiter;
 
 /**
- * Multithreaded SAM/BAM writer using parallel conversion and ordered output.
+ * Writes SAM text files with parallel conversion and ordered output.
  * 
- * Abstract base class for writing SAM/BAM files with parallel Read-to-SamLine
- * conversion and ordered output via OrderedQueueSystem. Workers convert reads 
- * to formatted bytes in parallel while a single writer thread outputs ordered blocks.
+ * Workers convert Read/SamLine objects to SAM text in parallel.
+ * OrderedQueueSystem ensures output blocks are written in order.
  * 
- * @author Brian Bushnell
- * @contributor Isla
+ * @author Brian Bushnell, Isla
  * @date October 25, 2025
  */
-public abstract class SamWriter implements Writer {
-
-	public static void main(String[] args){
-		Timer t=new Timer(), t2=new Timer();
-		String in=args[0];
-		String out=args[1];
-		ReadWrite.PREFER_NATIVE_BAM_OUT=ReadWrite.ALLOW_NATIVE_BAM_OUT=args.length>2;
-		ReadWrite.PREFER_NATIVE_BGZF_OUT=ReadWrite.ALLOW_NATIVE_BGZF=(args.length>3);
-
-		//Create input streamer
-		FileFormat ffin=FileFormat.testInput(in, FileFormat.SAM, null, true, false);
-		Streamer ss=SamStreamer.makeStreamer(ffin, DEFAULT_THREADS, true, true, -1, false);
-		t.stopAndStart("Made streamer");
-
-		//Start streamer
-		ss.start();
-		t.stopAndStart("Started streamer");
-
-		//Create output writer with header from streamer
-		FileFormat ffout=FileFormat.testOutput(out, FileFormat.SAM, null, true, false, false, true);
-		SamWriter writer=SamWriter.makeWriter(ffout, DEFAULT_THREADS, null, true);
-		t.stopAndStart("Made writer - "+writer.getClass());
-
-		//Start writer
-		writer.start();
-		t.stopAndStart("Started writer");
-
-		//Copy data
-		for(ListNum<SamLine> list=ss.nextLines(); list!=null; list=ss.nextLines()){
-			writer.addLines(list);
-		}
-		t.stopAndStart("Finished streamer");
-
-		//Finish
-		writer.poisonAndWait();
-		t.stopAndStart("Closed writer");
-
-		t2.stop();
-		System.err.println();
-		System.err.println(Tools.timeReadsBasesProcessed(t2, writer.readsWritten, writer.basesWritten, 8));
-		System.err.println(Tools.readsBasesOut(t2.elapsed, writer.readsWritten, writer.basesWritten, 8));
-//		if(verbose) {
-//			System.err.println("Main finished.");
-//			try {
-//				// Wait for 1000 milliseconds (1 second)
-//				Thread.sleep(1000);
-//			} catch (InterruptedException e) {
-//				// Handle the interruption if the thread is interrupted while sleeping
-//				e.printStackTrace();
-//			}
-//			Set<Thread> threads = Thread.getAllStackTraces().keySet();
-//			for(Thread th : threads){
-//				System.err.println("Thread: " + th.getName() + 
-//					" daemon=" + th.isDaemon() + " state=" + th.getState());
-//			}
-//		}
-	}
+public class SamWriter implements Writer {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Factory method to create appropriate writer type. */
-	public static SamWriter makeWriter(String out, int threads, 
-		ArrayList<byte[]> header, boolean useSharedHeader, boolean ordered){
-		FileFormat ffout=FileFormat.testOutput(out, FileFormat.SAM, null, true, false, false, ordered);
-		return new SamLineWriter(ffout, threads, header, useSharedHeader);
-	}
-
-	/** Factory method to create appropriate writer type. */
-	public static SamWriter makeWriter(FileFormat ffout, int threads,
-		ArrayList<byte[]> header, boolean useSharedHeader){
-		if(ffout.bam() && ReadWrite.nativeBamOut()) {
-			return new BamLineWriter(ffout, threads, header, useSharedHeader);
-		}else {
-			return new SamLineWriter(ffout, threads, header, useSharedHeader);
-		}
-	}
-
 	/** Constructor. */
-	public SamWriter(FileFormat ffout_, int threads_, 
+	public SamWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
 		ffout=ffout_;
 		fname=ffout.name();
@@ -111,8 +38,6 @@ public abstract class SamWriter implements Writer {
 		useSharedHeader=useSharedHeader_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
-		final boolean nativeBam=(ffout.bam() && ReadWrite.nativeBamOut());
-		assert(nativeBam==(getClass()==BamLineWriter.class));
 
 		//Create prototype jobs for OrderedQueueSystem
 		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
@@ -121,14 +46,7 @@ public abstract class SamWriter implements Writer {
 		oqs=new OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob>(
 			threads, ffout.ordered(), inputProto, outputProto);
 		
-		if(nativeBam) {
-			outstream=ReadWrite.getBgzipStream(fname, false);
-//			try{//To see raw bam
-//				outstream=new FileOutputStream(fname);
-//			}catch(FileNotFoundException e){
-//				throw new RuntimeException(e);
-//			}
-		}else if(ffout.bam()){
+		if(ffout.bam()){
 			outstream=ReadWrite.getBamOutputStream(fname, ffout.append());
 		}else {
 			outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, ffout.allowSubprocess());
@@ -140,8 +58,8 @@ public abstract class SamWriter implements Writer {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Start worker threads. */
-	public abstract void start();
+	@Override
+	public void start(){spawnThreads();}
 	
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 
@@ -188,9 +106,19 @@ public abstract class SamWriter implements Writer {
 	public long basesWritten(){return basesWritten;}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Helper Methods        ----------------*/
+	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Spawn worker and writer threads. */
+	void spawnThreads(){
+		final int totalThreads=threads+1; //Workers plus writer
+
+		alpt=new ArrayList<ProcessThread>(totalThreads);
+		for(int i=0; i<totalThreads; i++){alpt.add(new ProcessThread(i));}
+
+		for(ProcessThread pt : alpt){pt.start();}
+	}
+	
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
@@ -210,8 +138,6 @@ public abstract class SamWriter implements Writer {
 			addSamLine(r1, sl1, samLines);
 			addSamLine(r2, sl2, samLines);
 		}
-		//Always succeeds.
-//		System.err.println("Added "+samLines.size()+" lines from "+reads.size()+" reads.");
 		return samLines;
 	}
 
@@ -252,7 +178,7 @@ public abstract class SamWriter implements Writer {
 		if(headerLines==null) {
 			System.err.println("Warning: Header was null, creating empty header");
 			headerLines=new ArrayList<byte[]>();
-		}//assert(false);
+		}
 		if(verbose) {System.err.println("Fetched header: "+(headerLines==null ? "null" : headerLines.size()));}
 		return headerLines;
 	}
@@ -292,8 +218,7 @@ public abstract class SamWriter implements Writer {
 			lines=lines_;
 			type=type_;
 			id=id_;
-			assert(type!=ListNum.NORMAL || ((reads==null) != (lines==null))) : 
-				"Exactly one must be non-null for NORMAL jobs";
+			assert(type!=ListNum.NORMAL || ((reads==null) != (lines==null)));
 			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.POISON || type==ListNum.PROTO);
 			assert(reads==null || id==reads.id);
 			assert(lines==null || id==lines.id);
@@ -332,7 +257,7 @@ public abstract class SamWriter implements Writer {
 			bytes=bytes_;
 			type=type_;
 			assert((type==ListNum.NORMAL) == (bytes!=null));
-			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.PROTO || type==ListNum.POISON) : type;
+			assert(type==ListNum.NORMAL || type==ListNum.LAST || type==ListNum.PROTO || type==ListNum.POISON);
 		}
 
 		@Override
@@ -359,12 +284,116 @@ public abstract class SamWriter implements Writer {
 		public final int type;
 	}
 
+	/** Processing thread - converts reads/lines to SAM text or writes output. */
+	private class ProcessThread extends Thread {
+
+		/** Constructor. */
+		ProcessThread(final int tid_){
+			tid=tid_;
+			setName("SamLineWriter-"+(tid==0 ? "Output" : "Worker-"+tid));
+		}
+
+		/** Called by start(). */
+		@Override
+		public void run(){
+			synchronized(this) {
+				if(tid==0){
+					writeOutput(); //Writer thread
+				}else{
+					processJobs(); //Worker thread
+				}
+				success=true;
+			}
+		}
+
+		/** Writer thread - outputs ordered blocks to disk. */
+		void writeOutput(){
+			//Write header first
+			writeHeader();
+
+			//Write ordered data blocks
+			SamWriterOutputJob job=oqs.getOutput();
+			while(job!=null && !job.last()){
+				try{
+					outstream.write(job.bytes);
+				}catch(Exception e){
+					throw new RuntimeException("Error writing output", e);
+				}
+
+				job=oqs.getOutput();
+			}
+
+			//Wait for other threads and accumulate statistics
+			ThreadWaiter.waitForThreadsToFinish(alpt);
+			synchronized(SamWriter.this) {
+				for(ProcessThread pt : alpt){
+					if(pt!=this) {
+						synchronized(pt) {
+							readsWritten+=pt.readsWrittenT;
+							basesWritten+=pt.basesWrittenT;
+							setErrorState(!pt.success);
+						}
+					}
+				}
+			}
+			
+			if(verbose) {System.err.println("Consumer finished accumulating.");}
+			ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+			if(verbose) {System.err.println("Consumer finished writing.");}
+			oqs.setFinished();
+			if(verbose) {System.err.println("Consumer set oqs finished.");}
+		}
+
+		/** Worker thread - converts reads/lines to formatted bytes. */
+		void processJobs(){
+			final ByteBuilder bb=new ByteBuilder();
+
+			SamWriterInputJob job=oqs.getInput();
+			while(!job.poison()){
+				//Convert to SamLines if needed
+				ArrayList<SamLine> lines;
+				if(job.lines!=null){
+					lines=job.lines.list;
+				}else{
+					lines=toSamLines(job.reads.list);
+				}
+
+				//Format SamLines to bytes and count
+				for(SamLine sl : lines){
+					sl.toBytes(bb);
+					bb.nl();
+					readsWrittenT++;
+					basesWrittenT+=sl.length();
+				}
+
+				//Create output job
+				SamWriterOutputJob outJob=new SamWriterOutputJob(job.id(), bb.toBytes(), ListNum.NORMAL);
+				oqs.addOutput(outJob);
+				bb.clear();
+
+				job=oqs.getInput();
+			}
+
+			//Re-inject poison for other workers
+			oqs.addInput(job);
+		}
+
+		/** Number of reads processed by this thread. */
+		protected long readsWrittenT=0;
+		/** Number of bases processed by this thread. */
+		protected long basesWrittenT=0;
+		/** True only if this thread completed successfully. */
+		boolean success=false;
+		/** Thread ID. */
+		final int tid;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------     Getters and Setters      ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	synchronized void setErrorState(boolean b){
-		errorState|=b;//Can never be unset
+		errorState|=b;
 	}
 	
 	@Override
@@ -398,6 +427,9 @@ public abstract class SamWriter implements Writer {
 	/** Output stream. */
 	final OutputStream outstream;
 	
+	/** Thread list for accumulation. */
+	private ArrayList<ProcessThread> alpt;
+	
 	/** Total reads written. */
 	public long readsWritten=0;
 	/** Total bases written. */
@@ -412,5 +444,8 @@ public abstract class SamWriter implements Writer {
 	public static int DEFAULT_THREADS=6;
 
 	public static final boolean verbose=false;
+	
+	/** Print status messages to this output stream */
+	protected PrintStream outstream2=System.err;
 
 }

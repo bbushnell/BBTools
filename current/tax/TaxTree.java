@@ -13,8 +13,6 @@ import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.LineParser1;
-import shared.LineParserS1;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;

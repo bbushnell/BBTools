@@ -1,11 +1,12 @@
 package fun;
 
+import java.util.Arrays;
+import java.util.Random;
+
+import dna.AminoAcid;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
-import dna.AminoAcid;
-import java.util.Random;
-import java.util.Arrays;
 
 /**
  * Benchmark and validate in-place reverse operations.

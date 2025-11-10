@@ -3,12 +3,12 @@ package stream.bam;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
-import shared.Shared;
-import stream.BamLineStreamer;
 import stream.FASTQ;
 import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
+import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 
 /**
@@ -56,9 +56,8 @@ public class BamReadInputStream extends ReadInputStream {
 
 		fname=ff.name();
 		header=new ArrayList<byte[]>();
-
-		// Create BamLineStreamer with maxReads - will populate SHARED_HEADER
-		bls=new BamLineStreamer(ff, Shared.threads(), loadHeader, ordered_, maxReads, false);
+		
+		bls=StreamerFactory.makeSamOrBamStreamer(ff, -1, loadHeader, ordered_, maxReads, true);
 	}
 	
 	public void start() {
@@ -94,7 +93,7 @@ public class BamReadInputStream extends ReadInputStream {
 		buffer=null;
 		next=0;
 
-		// Get next batch of SamLines from BamLineStreamer
+		// Get next batch of SamLines from Streamer
 		ListNum<SamLine> samLines=bls.nextLines();
 		if(samLines==null || samLines.size()==0){
 			finished=true;
@@ -160,7 +159,7 @@ public class BamReadInputStream extends ReadInputStream {
 	private ArrayList<byte[]> header=null;
 	private int next=0;
 
-	private final BamLineStreamer bls;
+	private final Streamer bls;
 	private final boolean interleaved;
 	private final boolean loadHeader;
 	private final boolean ordered;

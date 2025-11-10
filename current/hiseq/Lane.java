@@ -6,8 +6,6 @@ import java.util.concurrent.atomic.AtomicLongArray;
 
 import fileIO.ByteStreamWriter;
 import shared.Tools;
-import structures.ByteBuilder;
-import structures.LongList;
 
 public class Lane implements Iterable<Tile> {
 	

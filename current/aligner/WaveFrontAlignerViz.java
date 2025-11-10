@@ -1,7 +1,7 @@
 package aligner;
 
 import java.util.Arrays;
-import shared.Timer;
+
 import structures.IntList;
 
 /**
