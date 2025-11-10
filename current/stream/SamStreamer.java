@@ -34,7 +34,7 @@ public abstract class SamStreamer implements Streamer {
 		Timer t=new Timer();
 		
 		//Create an instance of this class
-		int threads=Shared.threads();
+		int threads=-1;
 		if(args.length>1){threads=Integer.parseInt(args[1]);}
 		SamStreamer x=SamStreamer.makeStreamer(args[0], threads, false, false, -1, true);
 		
@@ -52,16 +52,22 @@ public abstract class SamStreamer implements Streamer {
 	public static SamStreamer makeStreamer(FileFormat ffin, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
 		if(ffin.bam() && ReadWrite.nativeBamIn()) {
 			return new BamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);
-		}else {return new SamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);}
+		}else {
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || DEFAULT_THREADS>0)) {
+				return new SamLineStreamer(ffin, threads, saveHeader, ordered, maxReads, makeReads);
+			}else {
+				return new SamLineStreamerST(ffin, saveHeader, maxReads, makeReads);
+			}
+		}
 	}
 
 	/** Constructor. */
-	public SamStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
+	protected SamStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
 		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, saveHeader_, ordered_, maxReads_, makeReads_);
 	}
 	
 	/** Constructor. */
-	public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
+	protected SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, long maxReads_, boolean makeReads_){
 		fname=ffin_.name();
 		ordered=ordered_;
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
