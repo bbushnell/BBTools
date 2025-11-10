@@ -383,10 +383,10 @@ public class SamStreamerWrapper{
 	/** Primary output file format */
 	private FileFormat ffout1;
 
-	/** Number of threads for input streaming (0 = auto) */
-	private int threadsIn=0;
-	/** Number of threads for output writing (0 = auto) */
-	private int threadsOut=0;
+	/** Number of threads for input streaming (-1 = auto) */
+	private int threadsIn=-1;
+	/** Number of threads for output writing (-1 = auto) */
+	private int threadsOut=-1;
 
 	/** Number of reads processed */
 	private long readsProcessed=0;

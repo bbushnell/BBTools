@@ -24,7 +24,7 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*--------------------------------------------------------------*/
 
 	public OrderedQueueSystem(int threads, boolean ordered, I inputPrototype_, O outputPrototype_){
-		this(threads/2+3, (3*threads)/2+3, ordered, inputPrototype_, outputPrototype_);
+		this(threads+4, (3*threads)/2+4, ordered, inputPrototype_, outputPrototype_);
 	}
 
 	public OrderedQueueSystem(int capacityIn, int capacityOut, 
