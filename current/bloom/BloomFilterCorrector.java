@@ -9,6 +9,7 @@ import assemble.Rollback;
 import dna.AminoAcid;
 import kmer.AbstractKmerTable;
 import shared.Tools;
+import shared.Vector;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -93,11 +94,11 @@ public class BloomFilterCorrector {
 			int start=(ECC_ALL ? 0 : counts.size-k-1);
 //			if(ECC_PINCER && tracker!=null && tracker.detected>correctedPincer){start=start-k;}
 			correctedTail+=errorCorrectTail(bases, quals, leftCounts, rightCounts, kmers, counts, bb, tracker, start, errorExtensionTail);
-			r.reverseComplement();
+			r.reverseComplementFast();
 			valid=fillKmers(bases, kmers);
 			counts.reverse();
 			correctedTail+=errorCorrectTail(bases, quals, leftCounts, rightCounts, kmers, counts, bb, tracker, start, errorExtensionTail);
-			r.reverseComplement();
+			r.reverseComplementFast();
 			counts.reverse();
 		}
 		
@@ -382,10 +383,10 @@ public class BloomFilterCorrector {
 		
 		int clearedLeft=clearWindow2(fromLeft, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
-		Tools.reverseInPlace(quals);
+		Vector.reverseInPlace(quals);
 		int clearedRight=clearWindow2(fromRight, quals, windowLen, windowCount, windowQualSum/*, windowCountHQ, windowHQThresh*/);
 		fromRight.reverseInPlace();
-		Tools.reverseInPlace(quals);
+		Vector.reverseInPlace(quals);
 		
 		for(int i=0; i<bases.length; i++){
 			byte a=bases[i];

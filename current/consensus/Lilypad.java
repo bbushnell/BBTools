@@ -19,6 +19,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
@@ -799,7 +800,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 		
 		void flip(){//Be careful with this
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlace(bases);
 			strand^=1;
 			LinkedHashMap<String, Edge> temp=leftEdgeMap;
 			leftEdgeMap=rightEdgeMap;

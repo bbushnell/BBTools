@@ -360,9 +360,9 @@ public class SplitNexteraLMP extends BBTool_ST {
 		if(merge){
 			int insert=BBMerge.findOverlapStrict(r1, r2, false);
 			if(insert>0){
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				Read merged=r1.joinRead(insert);
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				
 				int a=1, b=0, c=0;
 				if(mask){

@@ -17,6 +17,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
@@ -571,10 +572,10 @@ public class FilterBySequence {
 			boolean match=compare(bases);
 //			System.err.println("g: "+match);
 			if(match || !rcomp) {return match;}
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlace(bases);
 			match=compare(bases);
 //			System.err.println("h: "+match);
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlace(bases);
 			return match;
 		}
 		
@@ -755,7 +756,7 @@ public class FilterBySequence {
 					bases=bases_;
 				}else{
 					bases=bases_.clone();
-					if(a!=fwd){AminoAcid.reverseComplementBasesInPlace(bases);}
+					if(a!=fwd){Vector.reverseComplementInPlace(bases);}
 					for(int i=0; i<bases.length; i++){
 						bases[i]=(byte) Tools.toUpperCase(bases[i]);
 					}

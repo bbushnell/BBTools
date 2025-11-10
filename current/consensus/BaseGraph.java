@@ -11,6 +11,7 @@ import prok.GeneCaller;
 import shared.KillSwitch;
 import shared.Tools;
 import shared.TrimRead;
+import shared.Vector;
 import stream.FASTQ;
 import stream.Read;
 import structures.ByteBuilder;
@@ -737,9 +738,9 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	public int findBestOrientation(Read r, float minRatio){
 		FlatAligner2 fla=new FlatAligner2();
 		AlignmentResult ar0=fla.alignForwardShort(r.bases, original, 0, original.length-1, minRatio);
-		AminoAcid.reverseComplementBasesInPlace(r.bases);
+		Vector.reverseComplementInPlace(r.bases);
 		AlignmentResult ar1=fla.alignForwardShort(r.bases, original, 0, original.length-1, minRatio);
-		AminoAcid.reverseComplementBasesInPlace(r.bases);
+		Vector.reverseComplementInPlace(r.bases);
 		AlignmentResult ar=(ar0==null ? ar1 : ar1==null ? ar0 : ar0.ratio>=ar1.ratio ? ar0 : ar1);
 		return ar==null ? -1 : ar==ar0 ? 0 : 1;
 	}

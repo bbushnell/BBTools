@@ -663,7 +663,7 @@ public class FASTQ {
 			if(!PAIR_READS){
 				for(Read r : list) {r.mate=null;}
 			}else if(FLIP_R2){
-				for(Read r : list) {r.mate.reverseComplement();}
+				for(Read r : list) {r.mate.reverseComplementFast();}
 			}
 			
 		}else{

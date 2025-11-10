@@ -2620,7 +2620,7 @@ public final class Tools {
 		return x;
 	}
 	
-	public static void reverseInPlace(final byte[] array){
+	static void reverseInPlace(final byte[] array){
 		if(array==null){return;}
 		final int max=array.length/2, last=array.length-1;
 		for(int i=0; i<max; i++){
@@ -3854,7 +3854,7 @@ public final class Tools {
 	
 	public static boolean canonize(byte[] s) {
 		if(canonical(s)) {return false;}
-		AminoAcid.reverseComplementBasesInPlace(s);
+		Vector.reverseComplementInPlace(s);
 		return true;
 	}
 	
@@ -3864,24 +3864,74 @@ public final class Tools {
 	 *  This is much faster than the table version.  Results seem similar y.
 	 */
 	public static long hash64shift(long key){
-		key = (~key) + (key << 21); // key = (key << 21) - key - 1;
-		key = key ^ (key >>> 24);
-		key = (key + (key << 3)) + (key << 8); // key * 265
-		key = key ^ (key >>> 14);
-		key = (key + (key << 2)) + (key << 4); // key * 21
-		key = key ^ (key >>> 28);
-		key = key + (key << 31);
+		key=(~key)+(key<<21); // key=(key<<21) - key - 1;
+		key=key^(key>>>24);
+		key=(key+(key<<3))+(key<<8); // key*265
+		key=key^(key>>>14);
+		key=(key+(key<<2))+(key<<4); // key*21
+		key=key^(key>>>28);
+		key=key+(key<<31);
 		return key;
+	}
+	
+	public static int hash64plus(long key){
+		key=(~key)+(key<<21);
+		key=key^(key>>>24);
+		key=(key+(key<<3))+(key<<8);
+		key=key^(key>>>14);
+		key=(key+(key<<2))+(key<<4);
+		key=key^(key>>>28);
+		key=key+(key<<31);
+		int ikey=(int)(key&0x7FFFFFFF);
+		return ikey<0x7FFFF800 ? ikey : (ikey-0x7FFFF800)*64;
 	}
 
 	public static int hash32shift(int key){
-		key = ~key + (key << 15); // key = (key << 15) - key - 1;
-		key = key ^ (key >>> 12);
-		key = key + (key << 2);
-		key = key ^ (key >>> 4);
-		key = key * 2057; // key = (key + (key << 3)) + (key << 11);
-		key = key ^ (key >>> 16);
+		key=~key+(key<<15); // key=(key<<15) - key - 1;
+		key=key^(key>>>12);
+		key=key+(key<<2);
+		key=key^(key>>>4);
+		key=key*2057; // key=(key+(key<<3))+(key<<11);
+		key=key^(key>>>16);
 		return key;
+	}
+
+	/** Returns a positive number below Java max array length */
+	public static int hash32plus(int key){
+		key=~key+(key<<15);
+		key=key^(key>>>12);
+		key=key+(key<<2);
+		key=key^(key>>>4);
+		key=key*2057;
+		key=key^(key>>>16);
+		key=key&(0x7FFFFFFF);
+		return key<0x7FFFF800 ? key : (key-0x7FFFF800)*64;
+	}
+
+	/** Returns a positive number below Java max array length 
+	 * Slow */
+	public static int hash32plus2(int key){
+		key=~key+(key<<15);
+		key=key^(key>>>12);
+		key=key+(key<<2);
+		key=key^(key>>>4);
+		key=key*2057;
+		key=key^(key>>>16);
+		key=key&(0x7FFFFFFF);
+		return (int)((key*4095L)>>12);
+	}
+
+	/** Returns a positive number below Java max array length 
+	 * Slow */
+	public static int hash32plus3(int key){
+		key=~key+(key<<15);
+		key=key^(key>>>12);
+		key=key+(key<<2);
+		key=key^(key>>>4);
+		key=key*2057;
+		key=key^(key>>>16);
+		key=key&(0x7FFFFFFF);
+		return (int)(key*hashMult);
 	}
 	
 	public static double exponential(Random randy, double lamda){
@@ -4153,6 +4203,7 @@ public final class Tools {
 	private static final byte[] baseToHashcode=AminoAcid.baseToHashcode;
 	private static final byte[] baseToNumberExtended=AminoAcid.baseToNumberExtended;
 	private static final byte[] baseToComplementNumberExtended=AminoAcid.baseToComplementNumberExtended;
+	private static final float hashMult=0.99993896484375f;
 	
 	private static final ThreadLocal<int[]> localACGTN=new ThreadLocal<int[]>(){
         @Override protected int[] initialValue() {return new int[5];}

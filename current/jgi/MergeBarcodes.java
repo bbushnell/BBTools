@@ -339,7 +339,7 @@ public class MergeBarcodes {
 					if(r2!=null){
 						readsProcessed++;
 						basesProcessed+=initialLength2;
-						if(reverseComplement || reverseComplementMate){r2.reverseComplement();}
+						if(reverseComplement || reverseComplementMate){r2.reverseComplementFast();}
 					}
 
 					String key=r1.id;

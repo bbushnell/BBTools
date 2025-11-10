@@ -14,6 +14,7 @@ import shared.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FastaReadInputStream;
@@ -500,7 +501,7 @@ public class RemoveAdapters3 {
 				rcomp2[i]=array[k];
 				if(rcomp2[i]=='X'){rcomp2[i]='N';}
 			}
-			AminoAcid.reverseComplementBasesInPlace(rcomp2);
+			Vector.reverseComplementInPlaceFast(rcomp2);
 			
 //			System.out.println(new String(array).substring(start-rcompDistance, stop+rcompDistance));
 //			System.out.println(new String(rcomp1));

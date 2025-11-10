@@ -12,6 +12,7 @@ import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
 import shared.KillSwitch;
 import shared.Tools;
+import shared.Vector;
 import stream.Read;
 import structures.FloatList;
 import structures.IntList;
@@ -165,7 +166,7 @@ public class GeneCaller extends ProkObject {
 				}
 			}
 			Collections.sort(array[strand]);
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}
 		return array;
 	}
@@ -183,9 +184,9 @@ public class GeneCaller extends ProkObject {
 		if(best1!=null && best1.orfScore>-999){return best1;}
 		
 		strand++;
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		Vector.reverseComplementInPlaceFast(bases);
 		list=makeRnasForStrand(name, bases, strand, sc, scores, kmersSeen, true, -1);
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		Vector.reverseComplementInPlaceFast(bases);
 		if(strand==1 && list!=null){
 			for(Orf orf : list){
 				assert(orf.strand==strand);
@@ -231,7 +232,7 @@ public class GeneCaller extends ProkObject {
 					}
 				}
 			}
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}
 //		System.err.print("orfs="+orfs+", ");
 		return array;
@@ -1048,7 +1049,7 @@ public class GeneCaller extends ProkObject {
 				brokenLists[fnum]=broken;
 			}
 			//Reverse-complement bases after processing each strand
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}
 		return brokenLists;
 	}

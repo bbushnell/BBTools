@@ -4,9 +4,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 
-import dna.AminoAcid;
 import shared.Shared;
-import shared.Tools;
+import shared.Vector;
 import stream.SamLine;
 import structures.BinaryByteWrapperLE;
 import structures.ByteBuilder;
@@ -407,8 +406,8 @@ public class BamToSamConverter {
 		}
 		
 		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
-			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
-			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+			if(sl.seq!=bytestar){Vector.reverseComplementInPlaceFast(sl.seq);}
+			if(sl.qual!=bytestar){Vector.reverseInPlace(sl.qual);}
 		}
 
 		sl.trimNames();
@@ -608,8 +607,8 @@ public class BamToSamConverter {
 		}
 		
 		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
-			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
-			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+			if(sl.seq!=bytestar){Vector.reverseComplementInPlaceFast(sl.seq);}
+			if(sl.qual!=bytestar){Vector.reverseInPlace(sl.qual);}
 		}
 
 		sl.trimNames();
@@ -815,8 +814,8 @@ public class BamToSamConverter {
 		}
 
 		if(sl.mapped() && sl.strand()==Shared.MINUS && SamLine.FLIP_ON_LOAD){
-			if(sl.seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(sl.seq);}
-			if(sl.qual!=bytestar){Tools.reverseInPlace(sl.qual);}
+			if(sl.seq!=bytestar){Vector.reverseComplementInPlaceFast(sl.seq);}
+			if(sl.qual!=bytestar){Vector.reverseInPlace(sl.qual);}
 		}
 
 		sl.trimNames();

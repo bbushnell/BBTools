@@ -1,4 +1,4 @@
-package structures;
+package map;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -9,6 +9,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import structures.IntHashMap;
 
 /**
  * Hash map with primitive int keys and int values.
@@ -26,13 +27,14 @@ import shared.Tools;
  * @author Isla
  * @date November 2, 2025
  */
-public final class IntHashMap2 implements Serializable {
+public final class IntHashMap3 implements Serializable {
 
 	private static final long serialVersionUID = 1L;
 
 	public static void main(String[] args){
 		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
 		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
+		boolean remove=args.length>2 ? Boolean.parseBoolean(args[2]) : true;
 		
 		// Generate random keys with collisions
 		System.err.println("Generating "+size+" random keys...");
@@ -43,14 +45,56 @@ public final class IntHashMap2 implements Serializable {
 		}
 		System.err.println("Keys generated.");
 		
-		bench(keys, repeats);
+		bench(keys, repeats, remove);
 	}
 
-	private static void bench(int[] keys, int repeats){
+	private static void bench(int[] keys, int repeats, boolean remove){
 		final int size=keys.length;
 		System.gc();
 		Timer t=new Timer();
-		boolean remove=true;
+		{
+			System.err.println("\n*** Warmup ***");
+			Shared.printMemory();
+			t.start();
+			HashMap<Integer, Integer> map0=new HashMap<Integer, Integer>();
+			IntHashMap map1=new IntHashMap();
+			IntHashMap2 map2=new IntHashMap2();
+			IntHashMap3 map3=new IntHashMap3();
+			long sum=0;
+			int warmupCycles=32000;
+			{
+				for(int i=0; i<warmupCycles; i++){
+					map0.put(i, 2*i);
+					map1.put(i, 2*i);
+					map2.put(i, 2*i);
+					map3.put(i, 2*i);
+				}
+				for(int i=0; i<warmupCycles; i++){
+					sum+=map0.get(i);
+					sum+=map1.get(i);
+					sum+=map2.get(i);
+					sum+=map3.get(i);
+				}
+				if(remove) {
+					for(int i=0; i<warmupCycles; i++){
+						map0.remove(i);
+						map1.remove(i);
+						map2.remove(i);
+						map3.remove(i);
+					}
+				}
+			}
+			t.stop("Time: \t");
+			System.gc();
+			System.err.println("Size: "+map0.size()+", sum="+sum);
+			Shared.printMemory();
+			map0=null;
+			map1=null;
+			map2=null;
+			map3=null;
+			System.gc();
+		}
+		
 		{
 			System.err.println("\n*** IntHashMap2 ***");
 			Shared.printMemory();
@@ -59,6 +103,28 @@ public final class IntHashMap2 implements Serializable {
 			long sum=0;
 			for(int r=0; r<repeats; r++){
 				map=new IntHashMap2();
+				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
+				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
+				if(remove) {
+					for(int i=0; i<size; i++){map.remove(keys[i]);}
+				}
+			}
+			t.stop("Time: \t");
+			System.gc();
+			System.err.println("Size: "+map.size()+", sum="+sum);
+			Shared.printMemory();
+			map=null;
+			System.gc();
+		}
+		
+		{
+			System.err.println("\n*** IntHashMap3 ***");
+			Shared.printMemory();
+			t.start();
+			IntHashMap3 map=null;
+			long sum=0;
+			for(int r=0; r<repeats; r++){
+				map=new IntHashMap3();
 				for(int i=0; i<size; i++){map.put(keys[i], 2*keys[i]);}
 				for(int i=0; i<size; i++){sum+=map.get(keys[i]);}
 				if(remove) {
@@ -116,6 +182,82 @@ public final class IntHashMap2 implements Serializable {
 			map=null;
 			System.gc();
 		}
+		
+		keys=new int[Shared.MAX_ARRAY_LEN];
+		for(int i=0; i<keys.length; i++){keys[i]=i;}
+		Random randy=Shared.threadLocalRandom(1);
+		for(int i=0; i<keys.length; i++){
+			int loc=randy.nextInt(keys.length);
+			int temp=keys[i];
+			keys[i]=keys[loc];
+			keys[loc]=temp;
+		}
+		{
+			long max=0;
+			t.start();
+			try{
+				IntHashMap map=new IntHashMap();
+				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
+				for(int i : keys) {
+					map.put((int)i, (int)(i*2));
+					max=map.size();
+				}
+			}catch(Throwable e){
+				e.printStackTrace();
+			}
+			System.err.println("IntHashMap: capacity="+max);
+			t.stopAndPrint();
+		}
+		{
+			long max=0;
+			t.start();
+			try{
+				IntHashMap2 map=new IntHashMap2();
+				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
+				for(int i : keys) {
+					map.put((int)i, (int)(i*2));
+					max=map.size();
+				}
+			}catch(Throwable e){
+				e.printStackTrace();
+			}
+			System.err.println("IntHashMap2: capacity="+max);
+			t.stopAndPrint();
+		}
+		
+		{
+			long max=0;
+			t.start();
+			try{
+				IntHashMap3 map=new IntHashMap3();
+				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
+				for(int i : keys) {
+					map.put((int)i, (int)(i*2));
+					max=map.size();
+				}
+			}catch(Throwable e){
+				e.printStackTrace();
+			}
+			System.err.println("IntHashMap3: capacity="+max);
+			t.stopAndPrint();
+		}
+		
+		{
+			long max=0;
+			t.start();
+			try{
+				HashMap<Integer, Integer> map=new HashMap<Integer, Integer>();
+				//for(long i=Integer.MAX_VALUE; i>=0; i--) {
+				for(int i : keys) {
+					map.put((int)i, (int)(i*2));
+					max=map.size();
+				}
+			}catch(Throwable e){
+				e.printStackTrace();
+			}
+			System.err.println("HashMap: capacity="+max);
+			t.stopAndPrint();
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -125,7 +267,7 @@ public final class IntHashMap2 implements Serializable {
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
 	 */
-	public IntHashMap2(){
+	public IntHashMap3(){
 		this(256);
 	}
 
@@ -133,7 +275,7 @@ public final class IntHashMap2 implements Serializable {
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 */
-	public IntHashMap2(int initialSize){
+	public IntHashMap3(int initialSize){
 		this(initialSize, 0.7f);
 	}
 
@@ -142,7 +284,7 @@ public final class IntHashMap2 implements Serializable {
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
-	public IntHashMap2(int initialSize, float loadFactor_){
+	public IntHashMap3(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
 		assert(initialSize>0);
@@ -199,7 +341,7 @@ public final class IntHashMap2 implements Serializable {
 	 * Copies all entries from another map into this map.
 	 * @param map Source map to copy from
 	 */
-	public void putAll(IntHashMap2 map){
+	public void putAll(IntHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
 			if(map.keys[i]!=map.invalid){
 				put(map.keys[i], map.values[i]);
@@ -264,7 +406,7 @@ public final class IntHashMap2 implements Serializable {
 	 * Keys not present in this map are inserted with their values from the source map.
 	 * @param map Source map containing increment values
 	 */
-	public void incrementAll(IntHashMap2 map){
+	public void incrementAll(IntHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
 			if(map.keys[i]!=map.invalid){
 				increment(map.keys[i], map.values[i]);
@@ -277,7 +419,7 @@ public final class IntHashMap2 implements Serializable {
 	 * of the current value and the source value.
 	 * @param map Source map to compare against
 	 */
-	public void setToMax(IntHashMap2 map){
+	public void setToMax(IntHashMap3 map){
 		for(int i=0; i<map.keys.length; i++){
 			final int key=map.keys[i];
 			if(key!=map.invalid){
@@ -373,7 +515,7 @@ public final class IntHashMap2 implements Serializable {
 		if(key==invalid){return -1;}
 
 		final int limit=keys.length;
-		final int hash=Tools.hash32shift(key);
+		final int hash=Tools.hash32plus(key);
 		final int initial=hash & mask;
 
 		for(int cell=initial; cell<limit; cell++){
@@ -398,7 +540,7 @@ public final class IntHashMap2 implements Serializable {
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
 		final int limit=keys.length;
-		final int hash=Tools.hash32shift(key);
+		final int hash=Tools.hash32plus(key);
 		final int initial=hash & mask;
 
 		for(int cell=initial; cell<limit; cell++){
@@ -419,32 +561,34 @@ public final class IntHashMap2 implements Serializable {
 		assert(size>=sizeLimit);
 		resize(keys.length*2L);
 	}
-
+	
 	/**
 	 * Resizes the map to at least the specified size and rehashes all entries.
-	 * Actual size will be rounded up to the next power of 2.
+	 * For sizes up to 2^30: uses power-of-2 sizing with user-specified load factor.
+	 * For sizes above 2^30: caps at SAFE_LIMIT with 0.85 load factor.
 	 * @param size2 Minimum new size
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
-
-		// Round up to next power of 2
-		int newSize=Integer.highestOneBit((int)size2);
-		if(newSize<size2){newSize<<=1;}
-		assert(newSize>0) : "Overflow: "+size2;
-
-		final int size3=newSize+extra;
-		sizeLimit=(int)(newSize*loadFactor);
-		mask=newSize-1;
-
+		
+		final long old=(keys==null ? 0 : keys.length);
+		long size3=Long.highestOneBit(size2);
+		mask=(int)(size3-1);
+		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
+		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {
+			throw new RuntimeException("Map hit capacity at "+size+":"
+				+"\nkeys.length="+keys.length+"\nsize2="+size2+"\nsize3="+size3);
+		}
+		final float loadFactor2=(size3<Shared.SAFE_ARRAY_LEN ? loadFactor : Tools.max(loadFactor, 0.85f));
+		sizeLimit=(int)((size3-extra)*loadFactor2);
+		
 		final int[] oldK=keys;
 		final int[] oldV=values;
-		keys=KillSwitch.allocInt1D(size3);
-		values=KillSwitch.allocInt1D(size3);
+		keys=KillSwitch.allocInt1D((int)size3);
+		values=KillSwitch.allocInt1D((int)size3);
 		Arrays.fill(keys, invalid);
-
+		
 		if(size<1){return;}
-
 		size=0;
 		for(int i=0; i<oldK.length; i++){
 			final int k=oldK[i];

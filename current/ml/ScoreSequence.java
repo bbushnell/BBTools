@@ -12,6 +12,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
@@ -202,11 +203,11 @@ public class ScoreSequence {
 		final float r;
 		final float f=net.feedForward();
 		if(rcomp) {
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			SequenceToVector.fillVector(bases, vec, k);
 			net.applyInput(vec);
 			r=net.feedForward();
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 		}else {r=f;}
 		return Tools.max(r, f);
 	}

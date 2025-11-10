@@ -686,6 +686,82 @@ public final class Vector {
 		}
 	}
 	
+	public static void reverseInPlace(final byte[] array) {
+		if(array==null){return;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			SIMDByte256.reverseInPlace(array, array.length);
+			return;
+		}
+		final int max=array.length/2, last=array.length-1;
+		for(int i=0; i<max; i++){
+			byte temp=array[i];
+			array[i]=array[last-i];
+			array[last-i]=temp;
+		}
+	}
+	
+	public static void reverseInPlace(final byte[] array, final int length) {
+		if(array==null){return;}
+		if(Shared.SIMD && array.length>=MINLEN8) {
+			SIMDByte256.reverseInPlace(array, length);
+			return;
+		}
+		final int max=length/2, last=length-1;
+		for(int i=0; i<max; i++){
+			byte temp=array[i];
+			array[i]=array[last-i];
+			array[last-i]=temp;
+		}
+	}
+	
+	public static void reverseComplementInPlace(final byte[] bases) {
+		reverseComplementInPlace(bases, bases.length);
+	}
+	
+	public static void reverseComplementInPlace(final byte[] bases, final int length) {
+		if(bases==null){return;}
+		if(Shared.SIMD && bases.length>=MINLEN8 && SIMDByte256.isACGTN(bases, length)) {
+			SIMDByte256.reverseComplementInPlace(bases, length);
+			return;
+		}
+		final int last=length-1;
+		final int max=length/2;
+		for(int i=0; i<max; i++){
+			byte a=bases[i];
+			byte b=bases[last-i];
+			bases[i]=AminoAcid.baseToComplementExtended[b];
+			bases[last-i]=AminoAcid.baseToComplementExtended[a];
+		}
+		if((length&1)==1){//Odd length; process middle
+			bases[max]=AminoAcid.baseToComplementExtended[bases[max]];
+		}
+	}
+
+	/** Converts IUPAC to N */
+	public static void reverseComplementInPlaceFast(final byte[] bases) {
+		reverseComplementInPlaceFast(bases, bases.length);
+	}
+	
+	/** Converts IUPAC to N */
+	public static void reverseComplementInPlaceFast(final byte[] bases, final int length) {
+		if(bases==null){return;}
+		if(Shared.SIMD && bases.length>=MINLEN8) {
+			SIMDByte256.reverseComplementInPlace(bases, length);
+			return;
+		}
+		final int last=length-1;
+		final int max=length/2;
+		for(int i=0; i<max; i++){
+			byte a=bases[i];
+			byte b=bases[last-i];
+			bases[i]=AminoAcid.baseToComplementExtended[b];
+			bases[last-i]=AminoAcid.baseToComplementExtended[a];
+		}
+		if((length&1)==1){//Odd length; process middle
+			bases[max]=AminoAcid.baseToComplementExtended[bases[max]];
+		}
+	}
+	
 	private static synchronized boolean vectorLoaded() {
 		try{Class.forName("jdk.incubator.vector.ByteVector");}
 		catch(ClassNotFoundException e){return false;}
@@ -697,7 +773,7 @@ public final class Vector {
 		catch(Throwable e){return false;}
 	}
 	
-	public static final int MINLEN8=32;
+	public static final int MINLEN8=8;//Due to dual SIMD
 	public static final int MINLEN16=16;
 	public static final int MINLEN32=16;//16 or 32 are optimal; 0, 24, and 48 are worse.
 	public static final int MINLEN64=8;

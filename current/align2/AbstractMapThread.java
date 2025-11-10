@@ -539,7 +539,7 @@ public abstract class AbstractMapThread extends Thread {
 						TrimRead.trim(r2, TRIM_LEFT, TRIM_RIGHT, TRIM_QUAL, TRIM_ERROR_RATE, TRIM_MIN_LENGTH);
 					}
 
-					if(RCOMP){r.reverseComplement();}
+					if(RCOMP){r.reverseComplementFast();}
 
 					if(r2==null){
 						final byte[] basesP=r.bases;
@@ -549,7 +549,7 @@ public abstract class AbstractMapThread extends Thread {
 						capSiteList(r, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS);
 						assert(Read.CHECKSITES(r, basesM));
 					}else{
-						if(RCOMP_MATE!=RCOMP){r2.reverseComplement();}
+						if(RCOMP_MATE!=RCOMP){r2.reverseComplementFast();}
 						final byte[] basesP1=r.bases;
 						final byte[] basesM1=AminoAcid.reverseComplementBases(basesP1);
 						final byte[] basesP2=r2.bases;

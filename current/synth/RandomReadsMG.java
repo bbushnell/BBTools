@@ -22,6 +22,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
@@ -1224,7 +1225,7 @@ public class RandomReadsMG{
 					|| start+paddedLen>contig.length() || start<0){return null;}
 
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
-			if(strand==1){AminoAcid.reverseComplementBasesInPlace(bases);}
+			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
 			String header=makeHeader(start, strand, paddedLen, taxID, fnum, cnum, 0, novel?0:1, fname);
 			Read r=new Read(bases, null, header, rnum);
@@ -1264,7 +1265,7 @@ public class RandomReadsMG{
 			if(skip((start+insert)/2, contig.length(), variance) 
 					|| start+paddedLen>=contig.length() || start<0){return null;}
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
-			if(strand==1){AminoAcid.reverseComplementBasesInPlace(bases);}
+			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
 			String header=makeHeader(start, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname);
 			Read r=new Read(bases, null, header, rnum);
@@ -1313,7 +1314,7 @@ public class RandomReadsMG{
 
 			byte[] bases1=Arrays.copyOfRange(contig.bases, start1, start1+paddedLen);
 			byte[] bases2=Arrays.copyOfRange(contig.bases, start2, start2+paddedLen);
-			AminoAcid.reverseComplementBasesInPlace(bases2);
+			Vector.reverseComplementInPlaceFast(bases2);
 			if(strand==1){
 				byte[] temp=bases1;
 				bases1=bases2;

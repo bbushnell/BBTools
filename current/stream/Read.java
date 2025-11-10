@@ -1344,15 +1344,23 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 	/** Reverse-complements the read. */
 	public Read reverseComplement() {
-		AminoAcid.reverseComplementBasesInPlace(bases);
-		Tools.reverseInPlace(quality);
+		Vector.reverseComplementInPlace(bases);
+		Vector.reverseInPlace(quality);
+		setStrand(strand()^1);
+		return this;
+	}
+
+	/** Reverse-complements the read, usually treating IUPAC as N. */
+	public Read reverseComplementFast() {
+		Vector.reverseComplementInPlaceFast(bases);
+		Vector.reverseInPlace(quality);
 		setStrand(strand()^1);
 		return this;
 	}
 
 	/** Complements the read. */
 	public void complement() {
-		AminoAcid.reverseComplementBasesInPlace(bases);
+		AminoAcid.complementBasesInPlace(bases);
 	}
 
 	@Override

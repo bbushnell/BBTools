@@ -4,10 +4,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 import dna.AminoAcid;
+import map.ObjectIntMap;
 import shared.Parse;
 import stream.SamLine;
 import structures.ByteBuilder;
-import structures.ObjectIntMap;
 
 /**
  * Converts SAM text/SamLine to BAM binary format with zero allocation in hot path.

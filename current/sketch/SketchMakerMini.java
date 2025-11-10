@@ -205,7 +205,7 @@ public class SketchMakerMini extends SketchObject {
 			final int insert=BBMerge.findOverlapStrict(r1, r2, false);
 			if(insert>0){
 				heap.genomeSequences++;
-				r2.reverseComplement();
+				r2.reverseComplementFast();
 				r1=r1.joinRead(insert);
 				r2=null;
 			}

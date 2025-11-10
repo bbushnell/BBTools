@@ -603,7 +603,7 @@ public class ReadCounter extends KmerCountAbstract {
 						if(merge){
 							final int insert=findOverlap(r1, r2, false);
 							if(insert>0){
-								r2.reverseComplement();
+								r2.reverseComplementFast();
 								r1=r1.joinRead(insert);
 								r2=null;
 							}
@@ -665,7 +665,7 @@ public class ReadCounter extends KmerCountAbstract {
 			
 			buffer.clear();
 			if(PREJOIN && r1.mate!=null && r1.insert()>0){
-				r1.mate.reverseComplement();
+				r1.mate.reverseComplementFast();
 				r1=r1.joinRead();
 				assert(r1.mate==null);
 			}

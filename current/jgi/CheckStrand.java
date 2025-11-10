@@ -279,7 +279,7 @@ public class CheckStrand {
 		for(Read r : genes) {
 			smmCanon.processRead(r);
 			smmPlus.processRead(r);
-			r.reverseComplement();
+			r.reverseComplementFast();
 			r.setStrand(0);
 			smmMinus.processRead(r);
 		}
@@ -766,7 +766,7 @@ public class CheckStrand {
 //					assert(!r.containsLowercase()) : r.toFasta()+"\n"
 //					+ "validated="+r.validated()+", scaf.validated="+scaf.validated()+", tuc="+Read.TO_UPPER_CASE+", vic="+Read.VALIDATE_IN_CONSTRUCTOR;
 					if(r!=null){
-						if(gline.strand()==1){r.reverseComplement();}
+						if(gline.strand()==1){r.reverseComplementFast();}
 						if(list==null){list=new ArrayList<Read>(8);}
 						list.add(r);
 					}

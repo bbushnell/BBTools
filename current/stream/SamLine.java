@@ -439,9 +439,9 @@ public class SamLine implements Serializable {
 		assert((seq==bytestar)==(Tools.equals(seq, bytestar)));
 		assert((qual==bytestar)==(Tools.equals(qual, bytestar)));
 		
-		if(mapped() && strand()==Shared.MINUS && FLIP_ON_LOAD){
-			if(seq!=bytestar){AminoAcid.reverseComplementBasesInPlace(seq);}
-			if(qual!=bytestar){Tools.reverseInPlace(qual);}
+		if(FLIP_ON_LOAD && mapped() && strand()==Shared.MINUS){
+			if(seq!=bytestar){Vector.reverseComplementInPlaceFast(seq);}
+			if(qual!=bytestar){Vector.reverseInPlace(qual);}
 		}
 		
 		if(qual!=null && qual!=bytestar){
@@ -1318,7 +1318,7 @@ public class SamLine implements Serializable {
 		final byte[] bases;
 		if(refBases!=null){
 //			bases=(strand()==1) ? AminoAcid.reverseComplementBases(seq) : seq;//Why not reverse in place?
-			if(strand()==1){AminoAcid.reverseComplementBasesInPlace(seq);}
+			if(strand()==1){Vector.reverseComplementInPlaceFast(seq);}
 			bases=seq;
 		}else{bases=null;}
 
@@ -1371,7 +1371,7 @@ public class SamLine implements Serializable {
 		
 		final byte[] match=Read.toShortMatchString(longmatch);
 		
-		if(bases!=null && strand()==1){AminoAcid.reverseComplementBasesInPlace(seq);}
+		if(bases!=null && strand()==1){Vector.reverseComplementInPlace(seq);}
 		
 //		System.err.println("Block 7.");//123
 //		System.err.println("Returning "+new String(match));//123
@@ -1992,7 +1992,7 @@ public class SamLine implements Serializable {
 //		byte[] quals=(qual==null || (qual.length==1 && qual[0]=='*')) ? null : qual;
 //		byte[] bases=seq==null ? null : seq.clone();
 //		if(strand_==Gene.MINUS){//Minus-mapped SAM lines have bases and quals reversed
-//			AminoAcid.reverseComplementBasesInPlace(bases);
+//			Vector.reverseComplementInPlace(bases);
 //			Tools.reverseInPlace(quals);
 //		}
 //		Read r=new Read(bases, chrom_, strand_, start_, stop_, qname, quals, cs_, numericId_);

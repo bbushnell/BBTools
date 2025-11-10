@@ -1,5 +1,7 @@
 package shared;
 
+import java.util.Arrays;
+
 import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorMask;
@@ -27,6 +29,8 @@ final class SIMDByte256{
 	
 	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_256;
 	private static final VectorShuffle<Byte> B_REVERSE_SHUFFLE_64;
+	private static final boolean[] ACGTN;
+	
 	static {
 		//256-bit reverse shuffle
 		int vlen256=BSPECIES256.length();
@@ -43,6 +47,10 @@ final class SIMDByte256{
 			indices64[i]=vlen64-1-i;
 		}
 		B_REVERSE_SHUFFLE_64=VectorShuffle.fromArray(BSPECIES64, indices64, 0);
+		ACGTN=new boolean[128];
+		Arrays.fill(ACGTN, false);
+		ACGTN['A']=ACGTN['C']=ACGTN['G']=ACGTN['T']=ACGTN['N']=true;
+		ACGTN['a']=ACGTN['c']=ACGTN['g']=ACGTN['t']=ACGTN['n']=true;
 	}
 	
 	/** Returns number of matches */
@@ -1044,6 +1052,222 @@ final class SIMDByte256{
 		}
 
 		bb.length+=qlen;
+	}
+	
+	/** Dual SIMD version: Reverse array in-place */
+	static void reverseInPlace(final byte[] array, final int len){
+		if(array==null || len<2){return;}
+		
+		int left=0;
+		int right=len;
+		
+		{//256-bit loop - work from both ends toward middle
+			for(; left+BWIDTH256<=len/2; left+=BWIDTH256, right-=BWIDTH256){
+				//Load from both ends
+				ByteVector vLeft=ByteVector.fromArray(BSPECIES256, array, left);
+				ByteVector vRight=ByteVector.fromArray(BSPECIES256, array, right-BWIDTH256);
+				
+				//Reverse each vector
+				ByteVector vLeftRev=vLeft.rearrange(B_REVERSE_SHUFFLE_256);
+				ByteVector vRightRev=vRight.rearrange(B_REVERSE_SHUFFLE_256);
+				
+				//Write to opposite ends
+				vRightRev.intoArray(array, left);
+				vLeftRev.intoArray(array, right-BWIDTH256);
+			}
+		}
+		
+		{//64-bit loop
+			for(; left+BWIDTH64<=len/2; left+=BWIDTH64, right-=BWIDTH64){
+				ByteVector vLeft=ByteVector.fromArray(BSPECIES64, array, left);
+				ByteVector vRight=ByteVector.fromArray(BSPECIES64, array, right-BWIDTH64);
+				
+				ByteVector vLeftRev=vLeft.rearrange(B_REVERSE_SHUFFLE_64);
+				ByteVector vRightRev=vRight.rearrange(B_REVERSE_SHUFFLE_64);
+				
+				vRightRev.intoArray(array, left);
+				vLeftRev.intoArray(array, right-BWIDTH64);
+			}
+		}
+		
+		//Scalar tail - swap remaining elements
+		right--;
+		while(left<right){
+			byte temp=array[left];
+			array[left]=array[right];
+			array[right]=temp;
+			left++;
+			right--;
+		}
+	}
+
+	/** Dual SIMD version: Reverse-complement array in-place (ACGTacgt, others→N) */
+	static void reverseComplementInPlace(final byte[] array, final int len){
+		if(array==null || len<1){return;}
+		int left=0;
+		int right=len;
+		final byte caseMask=32; // 0x20 - difference between upper and lowercase
+		
+		{//256-bit loop
+			final ByteVector vCaseMask256=ByteVector.broadcast(BSPECIES256, caseMask);
+			final ByteVector vA256=ByteVector.broadcast(BSPECIES256, (byte)'A');
+			final ByteVector vC256=ByteVector.broadcast(BSPECIES256, (byte)'C');
+			final ByteVector vG256=ByteVector.broadcast(BSPECIES256, (byte)'G');
+			final ByteVector vT256=ByteVector.broadcast(BSPECIES256, (byte)'T');
+			final ByteVector vN256=ByteVector.broadcast(BSPECIES256, (byte)'N');
+			
+			for(; left+BWIDTH256<=len/2; left+=BWIDTH256, right-=BWIDTH256){
+				ByteVector vLeft=ByteVector.fromArray(BSPECIES256, array, left);
+				ByteVector vRight=ByteVector.fromArray(BSPECIES256, array, right-BWIDTH256);
+				
+				//Process left vector
+				ByteVector casesLeft=vLeft.and(vCaseMask256);
+				ByteVector upperLeft=vLeft.and(vCaseMask256.not());
+				VectorMask<Byte> isA_L=upperLeft.eq(vA256);
+				VectorMask<Byte> isC_L=upperLeft.eq(vC256);
+				VectorMask<Byte> isG_L=upperLeft.eq(vG256);
+				VectorMask<Byte> isT_L=upperLeft.eq(vT256);
+				ByteVector compLeft=vN256.blend(vT256, isA_L).blend(vG256, isC_L).blend(vC256, isG_L).blend(vA256, isT_L);
+				compLeft=compLeft.or(casesLeft);
+				ByteVector vLeftRevComp=compLeft.rearrange(B_REVERSE_SHUFFLE_256);
+				
+				//Process right vector
+				ByteVector casesRight=vRight.and(vCaseMask256);
+				ByteVector upperRight=vRight.and(vCaseMask256.not());
+				VectorMask<Byte> isA_R=upperRight.eq(vA256);
+				VectorMask<Byte> isC_R=upperRight.eq(vC256);
+				VectorMask<Byte> isG_R=upperRight.eq(vG256);
+				VectorMask<Byte> isT_R=upperRight.eq(vT256);
+				ByteVector compRight=vN256.blend(vT256, isA_R).blend(vG256, isC_R).blend(vC256, isG_R).blend(vA256, isT_R);
+				compRight=compRight.or(casesRight);
+				ByteVector vRightRevComp=compRight.rearrange(B_REVERSE_SHUFFLE_256);
+				
+				//Write to opposite ends
+				vRightRevComp.intoArray(array, left);
+				vLeftRevComp.intoArray(array, right-BWIDTH256);
+			}
+		}
+		
+		{//64-bit loop
+			final ByteVector vCaseMask64=ByteVector.broadcast(BSPECIES64, caseMask);
+			final ByteVector vA64=ByteVector.broadcast(BSPECIES64, (byte)'A');
+			final ByteVector vC64=ByteVector.broadcast(BSPECIES64, (byte)'C');
+			final ByteVector vG64=ByteVector.broadcast(BSPECIES64, (byte)'G');
+			final ByteVector vT64=ByteVector.broadcast(BSPECIES64, (byte)'T');
+			final ByteVector vN64=ByteVector.broadcast(BSPECIES64, (byte)'N');
+			
+			for(; left+BWIDTH64<=len/2; left+=BWIDTH64, right-=BWIDTH64){
+				ByteVector vLeft=ByteVector.fromArray(BSPECIES64, array, left);
+				ByteVector vRight=ByteVector.fromArray(BSPECIES64, array, right-BWIDTH64);
+				
+				//Process left
+				ByteVector casesLeft=vLeft.and(vCaseMask64);
+				ByteVector upperLeft=vLeft.and(vCaseMask64.not());
+				VectorMask<Byte> isA_L=upperLeft.eq(vA64);
+				VectorMask<Byte> isC_L=upperLeft.eq(vC64);
+				VectorMask<Byte> isG_L=upperLeft.eq(vG64);
+				VectorMask<Byte> isT_L=upperLeft.eq(vT64);
+				ByteVector compLeft=vN64.blend(vT64, isA_L).blend(vG64, isC_L).blend(vC64, isG_L).blend(vA64, isT_L);
+				compLeft=compLeft.or(casesLeft);
+				ByteVector vLeftRevComp=compLeft.rearrange(B_REVERSE_SHUFFLE_64);
+				
+				//Process right
+				ByteVector casesRight=vRight.and(vCaseMask64);
+				ByteVector upperRight=vRight.and(vCaseMask64.not());
+				VectorMask<Byte> isA_R=upperRight.eq(vA64);
+				VectorMask<Byte> isC_R=upperRight.eq(vC64);
+				VectorMask<Byte> isG_R=upperRight.eq(vG64);
+				VectorMask<Byte> isT_R=upperRight.eq(vT64);
+				ByteVector compRight=vN64.blend(vT64, isA_R).blend(vG64, isC_R).blend(vC64, isG_R).blend(vA64, isT_R);
+				compRight=compRight.or(casesRight);
+				ByteVector vRightRevComp=compRight.rearrange(B_REVERSE_SHUFFLE_64);
+				
+				vRightRevComp.intoArray(array, left);
+				vLeftRevComp.intoArray(array, right-BWIDTH64);
+			}
+		}
+		
+		//Scalar tail
+		right--;
+		while(left<right){
+			byte bLeft=array[left];
+			byte bRight=array[right];
+			array[left]=AminoAcid.baseToComplementExtended[bRight];
+			array[right]=AminoAcid.baseToComplementExtended[bLeft];
+			left++;
+			right--;
+		}
+		//Handle middle element if odd length
+		if(left==right){
+			array[left]=AminoAcid.baseToComplementExtended[array[left]];
+		}
+	}
+	
+	/**
+	 * Check if array contains only uppercase A/C/G/T/N using SIMD.
+	 * @param array Byte array to check
+	 * @param length Number of elements to check
+	 * @return true if all bases are A/C/G/T/N (uppercase only), false otherwise
+	 */
+	static boolean isACGTN(byte[] array, int length){
+		if(array==null || length==0){return true;}
+		
+		int i=0;
+		final byte UPPERMASK=(byte)(~32);
+		
+		{//256-bit loop
+			VectorMask<Byte> valid=BSPECIES256.maskAll(true);
+			final ByteVector vA256=ByteVector.broadcast(BSPECIES256, (byte)'A');
+			final ByteVector vC256=ByteVector.broadcast(BSPECIES256, (byte)'C');
+			final ByteVector vG256=ByteVector.broadcast(BSPECIES256, (byte)'G');
+			final ByteVector vT256=ByteVector.broadcast(BSPECIES256, (byte)'T');
+			final ByteVector vN256=ByteVector.broadcast(BSPECIES256, (byte)'N');
+			final ByteVector vUPPER256=ByteVector.broadcast(BSPECIES256, UPPERMASK);
+			
+			for(; i<=length-BWIDTH256; i+=BWIDTH256){
+				ByteVector v=ByteVector.fromArray(BSPECIES256, array, i).and(vUPPER256);
+				VectorMask<Byte> isA=v.eq(vA256);
+				VectorMask<Byte> isC=v.eq(vC256);
+				VectorMask<Byte> isG=v.eq(vG256);
+				VectorMask<Byte> isT=v.eq(vT256);
+				VectorMask<Byte> isN=v.eq(vN256);
+				VectorMask<Byte> isAny=isA.or(isC).or(isG).or(isT).or(isN);
+				valid=valid.and(isAny);
+			}
+			
+			if(!valid.allTrue()){return false;}
+		}
+		
+		{//64-bit loop
+			VectorMask<Byte> valid=BSPECIES64.maskAll(true);
+			final ByteVector vA64=ByteVector.broadcast(BSPECIES64, (byte)'A');
+			final ByteVector vC64=ByteVector.broadcast(BSPECIES64, (byte)'C');
+			final ByteVector vG64=ByteVector.broadcast(BSPECIES64, (byte)'G');
+			final ByteVector vT64=ByteVector.broadcast(BSPECIES64, (byte)'T');
+			final ByteVector vN64=ByteVector.broadcast(BSPECIES64, (byte)'N');
+			final ByteVector vUPPER64=ByteVector.broadcast(BSPECIES64, UPPERMASK);
+			
+			for(; i<=length-BWIDTH64; i+=BWIDTH64){
+				ByteVector v=ByteVector.fromArray(BSPECIES64, array, i).and(vUPPER64);
+				VectorMask<Byte> isA=v.eq(vA64);
+				VectorMask<Byte> isC=v.eq(vC64);
+				VectorMask<Byte> isG=v.eq(vG64);
+				VectorMask<Byte> isT=v.eq(vT64);
+				VectorMask<Byte> isN=v.eq(vN64);
+				VectorMask<Byte> isAny=isA.or(isC).or(isG).or(isT).or(isN);
+				valid=valid.and(isAny);
+			}
+			
+			if(!valid.allTrue()){return false;}
+		}
+		
+		//Scalar tail
+		for(; i<length; i++){
+			byte b=array[i];
+			if(!ACGTN[b]) {return false;}
+		}
+		
+		return true;
 	}
 
 }

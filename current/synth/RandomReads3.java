@@ -20,6 +20,7 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -1721,7 +1722,7 @@ public final class RandomReads3 {
 		assert(FORCE_LOC>=0 || FORCE_CHROM>=0 || cha.get(y)>0) : cha.get(y);
 		
 		if(strand==Shared.MINUS){
-			AminoAcid.reverseComplementBasesInPlace(bases);
+			Vector.reverseComplementInPlaceFast(bases);
 			//Reverse loc array; not really necessary
 			for(int i=0, lim=bases.length/2; i<lim; i++){
 				int tmp=locs[i];
