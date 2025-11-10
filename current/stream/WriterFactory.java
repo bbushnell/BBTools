@@ -180,9 +180,6 @@ public class WriterFactory {
 			return new FastqWriter(ffout, threads, writeR1, writeR2);
 		}else if(ffout.samOrBam()){
 			return SamWriter.makeWriter(ffout, threads, header, useSharedHeader);
-		}else if(ffout.fasta()){
-			//TODO: return new FastaWriter(ffout, threads, writeR1, writeR2);
-			throw new RuntimeException("FASTA writing not yet implemented");
 		}
 
 		throw new RuntimeException("Unsupported file format: "+ffout);

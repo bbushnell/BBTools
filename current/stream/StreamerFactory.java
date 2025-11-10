@@ -1,6 +1,7 @@
 package stream;
 
 import fileIO.FileFormat;
+import shared.Shared;
 
 /**
  * Factory for creating appropriate Streamer implementations based on file format.
@@ -94,6 +95,7 @@ public class StreamerFactory {
 	 * @param maxReads Maximum reads to process, or -1 for unlimited
 	 * @param saveHeader True to preserve SAM/BAM header information
 	 * @param makeReads True to convert SamLines to Read objects (SAM/BAM only)
+	 * @param threads Worker threads; -1 for auto, 0 for singlethreaded (zero workers)
 	 * @return Appropriate Streamer implementation, or null if ff is null
 	 * @throws RuntimeException if file format is unsupported
 	 */
@@ -102,7 +104,12 @@ public class StreamerFactory {
 		if(ff==null){
 			return null;
 		}else if(ff.fastq()){
-			return new FastqStreamer(ff, threads, pairnum, maxReads);
+//			System.err.println(Shared.threads()+", "+threads+", "+FastqStreamer.DEFAULT_THREADS);
+			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>0)) {
+				return new FastqStreamer(ff, threads, pairnum, maxReads);
+			}else {
+				return new FastqStreamerST(ff, pairnum, maxReads);
+			}
 		}else if(ff.fasta()){
 			return new FastaStreamer(ff, threads, pairnum, maxReads);
 		}else if(ff.samOrBam()){

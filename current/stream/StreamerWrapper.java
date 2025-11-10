@@ -354,10 +354,10 @@ public class StreamerWrapper{
 	/** Secondary output file format */
 	private FileFormat ffout2;
 	
-	/** Number of threads for input streaming (0 = auto) */
-	private int threadsIn=0;
-	/** Number of threads for output writing (0 = auto) */
-	private int threadsOut=0;
+	/** Number of threads for input streaming (-1 = auto) */
+	private int threadsIn=-1;
+	/** Number of threads for output writing (-1 = auto) */
+	private int threadsOut=-1;
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	/** Fraction of reads to keep (1.0 = all reads) */

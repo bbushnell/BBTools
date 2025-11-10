@@ -41,6 +41,7 @@ public class JobQueue<K extends HasID>{
 		assert(capacity_>1) : "Capacity is too small: "+capacity_;
 		capacity=Math.max(capacity_, 2);
 		half=(capacity+1)/2; // Used for lazy notification optimization
+		quarter=(half+1)/2;//Anyone can add under quarter full
 		ordered=ordered_ || true;//TODO: Review all cases where this can legitimately be set to false.
 		bounded=bounded_;
 		nextID=firstID;
@@ -50,8 +51,7 @@ public class JobQueue<K extends HasID>{
 	
 	/**
 	 * Adds a job to the queue, blocking if necessary to respect capacity bounds.
-	 * In bounded mode, blocks when heap is at capacity UNLESS this job's ID matches nextID,
-	 * which prevents deadlocks by allowing the exact job the consumer needs to be added.
+	 * In bounded mode, blocks until id is within capacity of nextID.
 	 * 
 	 * @param job Job to add to the queue
 	 * @throws InterruptedException if interrupted while waiting for capacity
@@ -59,14 +59,38 @@ public class JobQueue<K extends HasID>{
 	 */
 	public boolean add(K job) {
 		final long id=job.id();
+		final long ticket=id-capacity;
+		boolean warn=verbose2;
+		if(verbose2){System.err.println("Worker: got ticket "+ticket+" for job "+id);}
 		synchronized(heap){
+			//Old version:
 			// Block if bounded, at capacity, and this isn't the job the consumer is waiting for
 			// The id>heap.peek().id() check prevents deadlock by letting nextID through
-			while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
-				try {
-					heap.wait();
-				} catch (InterruptedException e){
-					Thread.currentThread().interrupt(); // Preserve interrupt status for caller
+			// while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
+			
+			//New version:  Take a ticket.
+			if(!bounded) {//skip wait
+			}else if(ordered) {
+//				while(bounded && heap.size()>=capacity && id>=nextID+half && id>heap.peek().id() && !poisoned){
+				while(ticket>nextID && heap.size()>quarter && !poisoned){
+					if(verbose2 && warn) {
+						warn=false;
+						System.err.println("Worker can't add "+id+": ticket "+ticket+">"+nextID);
+					}
+					try {
+						heap.wait();
+					} catch (InterruptedException e){
+						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
+					}
+				}
+			}else {
+				while(heap.size()>=capacity && !poisoned){
+					if(verbose2) {System.err.println("Worker can't add "+id+": size "+heap.size()+">="+capacity);}
+					try {
+						heap.wait();
+					} catch (InterruptedException e){
+						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
+					}
 				}
 			}
 			heap.add(job);
@@ -76,7 +100,10 @@ public class JobQueue<K extends HasID>{
 					" to heap (heap size now " + heap.size() + ")");
 			}
 			// Lazy notify: only wake consumer if this is the job they need or heap was empty
-			if(id==nextID || (!ordered && heap.size()==1)){heap.notifyAll();}
+			if(id==nextID || (!ordered && heap.size()==1)){
+				if(verbose2) {System.err.println("Worker notify.");}
+				heap.notifyAll();
+			}
 		}
 		return true;
 	}
@@ -133,6 +160,7 @@ public class JobQueue<K extends HasID>{
 				// Skip notification when heap is mostly full (more jobs coming soon anyway)
 				if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
 					heap.notifyAll();
+					if(verbose2) {System.err.println("Consumer notify.");}
 				}
 			}
 		}
@@ -189,7 +217,8 @@ public class JobQueue<K extends HasID>{
 	/** Maximum jobs allowed in queue before blocking */
 	private final int capacity;
 	/** Half of capacity, used for lazy notification optimization */
-	private final int half;//TODO: Change so high numbers can only add under half
+	private final int half;
+	private final int quarter;
 	/** Enable debug output */
 	private static final boolean verbose=false;//Should be for important events like thread death
 	private static final boolean verbose2=false;

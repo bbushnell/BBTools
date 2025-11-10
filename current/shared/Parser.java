@@ -28,6 +28,9 @@ import stream.ConcurrentDepot;
 import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
+import stream.FastaStreamer;
+import stream.FastqStreamer;
+import stream.FastqWriter;
 import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.ReadStreamWriter;
@@ -1131,10 +1134,20 @@ public class Parser {
 			ReadStreamWriter.USE_ATTACHED_SAMLINE=Parse.parseBoolean(b);
 		}else if(a.equals("samtools")){
 			Data.USE_SAMTOOLS=Parse.parseBoolean(b);
-		}else if(a.equals("streamerthreads")){
+		}else if(a.equals("streamerthreads") || a.equals("ssthreads")){
 			SamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
-		}else if(a.equals("samwriterthreads") || a.equals("writerthreads")){
+		}else if(a.equals("bsthreads")){
+			SamStreamer.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("fastqstreamerthreads") || a.equals("fqsthreads")){
+			FastqStreamer.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("fastastreamerthreads") || a.equals("fasthreads")){
+			FastaStreamer.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("samwriterthreads") || a.equals("swthreads")){
 			SamWriter.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("bamwriterthreads") || a.equals("bwthreads")){
+			SamWriter.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("fastqwriterthreads") || a.equals("fqwthreads")){
+			FastqWriter.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("prefermd") || a.equals("prefermdtag")){
 			SamLine.PREFER_MDTAG=Parse.parseBoolean(b);
 		}else if(a.equals("notags")){

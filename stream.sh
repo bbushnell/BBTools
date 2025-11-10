@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 4, 2025
+Last modified November 9, 2025
 
 Description:  Converts between sam, bam, fasta, fastq.
               Supports subsampling, paired files, and multithreading.
@@ -29,8 +29,8 @@ reads=-1        Quit after processing this many reads (-1 = all).
 ordered=t       Maintain input order in output.
 
 Threading parameters:
-threadsin=0     Reader threads (0 = auto).
-threadsout=0    Writer threads (0 = auto).
+threadsin=-1    Reader threads (-1 = auto).
+threadsout=-1   Writer threads (-1 = auto).
 
 Other parameters:
 simd            Add this flag for turbo speed. Requires Java 17+ and AVX2,
