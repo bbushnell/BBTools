@@ -104,14 +104,16 @@ public class MutateGenome {
 			}else if(a.equals("nohomopolymers") || a.equals("nohomop") || 
 				a.equals("banhomopolymers") || a.equals("banhomop")){
 				banHomopolymers=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("preserveGC")){
+				preserveGC=Parse.parseBoolean(b);
 			}
-			
+
 			else if(a.equals("mod3")){
 				mod3=Parse.parseBoolean(b);
 			}else if(a.equals("k")){
 				k=Integer.parseInt(b);
 			}
-			
+
 			else if(a.equals("rcomp")){//Doesn't do anything since it gets replaced.
 				rcomp=Parse.parseBoolean(b);
 			}else if(a.equals("counts")){//Doesn't do anything since it gets replaced.
@@ -120,7 +122,7 @@ public class MutateGenome {
 				float mult=1f/Tools.sum(counts);
 				for(int j=0; j<counts.length; k++) {kmerFreq[j]=counts[j]*mult;}
 			}
-			
+
 			else if(a.equals("prefix")){
 				prefix=b;
 			}else if(a.equals("vcf") || a.equals("outvcf") || a.equals("vcfout")
@@ -253,11 +255,12 @@ public class MutateGenome {
 
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
+					final float gc=(preserveGC ? r1.gc() : 0.5f);
 
 					readsProcessed++;
 					basesProcessed+=r1.length();
 
-					processRead(r1, bb, varsTemp, headers);
+					processRead(r1, bb, varsTemp, headers, gc);
 
 					readsOut++;
 					basesOut+=r1.length();
@@ -357,13 +360,14 @@ public class MutateGenome {
 		return isHomopolymerIns(bases, pos, b);
 	}
 
-	public void processRead(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers){
+	public void processRead(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, 
+			ArrayList<String> headers, float gc){
 
 		if(r.aminoacid()) {
 			processReadAmino(r, bb, vars, headers);
 			return;
 		}
-		
+
 		long mutationLengthAdded=0;
 		long netLengthAdded=0;
 		long subsAdded=0;
@@ -418,7 +422,7 @@ public class MutateGenome {
 					basesSinceMutation=0;
 					float x=randy.nextFloat()*errorRate;
 					if(x<subRate){
-						b=mutate(bases, i, randy);
+						b=mutate(bases, i, gc, randy);
 						bb.append(b);
 						if(vars!=null){vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), Character.toString((char)b0), prevChar, r.id, r.numericID));}
 						subsAdded++;
@@ -493,7 +497,7 @@ public class MutateGenome {
 				}else if(addSub) {
 					subsAdded++;
 					mutationLengthAdded++;
-					b=mutate(bases, i, randy);
+					b=mutate(bases, i, gc, randy);
 					bb.append(b);
 					if(vars!=null){
 						vars.add(new SmallVar(SUB, i, i+1, Character.toString((char)b), 
@@ -566,7 +570,7 @@ public class MutateGenome {
 				assert(i==refAdded+subsAdded+delLenAdded) : i+", "+refAdded+", "+subsAdded+", "+delLenAdded;
 			}
 		}
-		
+
 		this.mutationLengthAdded+=mutationLengthAdded;
 		this.netLengthAdded+=netLengthAdded;
 		this.subsAdded+=subsAdded;
@@ -604,25 +608,38 @@ public class MutateGenome {
 		basesRetained+=r.bases.length;
 	}
 	
-	private byte mutate(final byte[] bases, final int pos, Random randy) {
-		if(kmerFreq==null) {return AminoAcid.numberToBase[((AminoAcid.baseToNumber[bases[pos]]+randy.nextInt(3)+1)&3)];}
-		return mutate(bases, pos, k, kmerFreq, rcomp, randy);
-	}
 	
-	public static byte mutate(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp, Random randy) {
-		float[] probs=calcPrefixProb(bases, pos, k, freq, rcomp);
-		float f=randy.nextFloat();
-		int x=0;
-		for(float sum=0; x<3; x++) {
-			sum+=probs[x];
-			if(sum>=f) {break;}
+	public static byte mutate(final byte[] bases, final int pos, final float gc, Random randy) {
+		final byte original=bases[pos];
+		if(gc==0.5f) {
+			int n=AminoAcid.baseToNumber[original];
+			return AminoAcid.numberToBase[(1+randy.nextInt(3)+n)&3];
 		}
-		final byte b=AminoAcid.numberToBase[x];
-		//This assertion can happen in rare cases like Ns or array ends or weird probability
-		assert(b!=bases[pos]) : ((char)b)+", "+((char)bases[pos])+", "+f+", "+Arrays.toString(probs);
-		return b;
+		
+		// Determine if original is GC (0=A, 1=C, 2=G, 3=T)
+		final boolean isGC = (original=='C' || original=='G'); // C or G
+		
+		// Decide whether to stay in same pool or switch
+		final float stayProb = isGC ? gc : (1f - gc);
+		final boolean stayInPool = randy.nextFloat() < stayProb;
+		
+		byte result;
+		if(stayInPool) {
+			// Stay in same GC/AT pool - pick the other base in that pool
+			result=AminoAcid.baseToComplementExtended[original];
+		} else {
+			// Switch pools - pick randomly from the other pool
+			boolean low=randy.nextBoolean();
+			if(isGC) {
+				result = low ? (byte)'A' : (byte)'T';
+			} else {
+				result = low ? (byte)'C' : (byte)'G';
+			}
+		}
+		
+		return result;
 	}
-	
+
 	public static float[] calcPrefixProb(final byte[] bases, final int pos, final int k, final float[] freq, boolean rcomp) {
 		float[] prob=new float[] {1, 1, 1, 1};
 		final byte b0=bases[pos];
@@ -644,7 +661,7 @@ public class MutateGenome {
 		prob[x0]=0;
 		return normalize(prob);
 	}
-	
+
 	public static float[] normalize(float[] prob) {
 		float sum=(float)Tools.sum(prob);
 		if(sum==0) {
@@ -990,6 +1007,7 @@ public class MutateGenome {
 	private long junctionsAdded=0;
 
 	int sinewaves=0;
+	boolean preserveGC=true;
 
 	private int period=-1;
 
@@ -1011,7 +1029,7 @@ public class MutateGenome {
 	private boolean banHomopolymers=false;
 	private final float errorRate;
 	private final float errorRate2;
-	
+
 	private boolean mod3=false;
 	private float[] kmerFreq;
 	private int k=-1;

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 17, 2019
+Last modified November 11, 2025
 
 Description:  Generates a random, (probably) repeat-free genome.
 
@@ -11,6 +11,9 @@ Usage:  randomgenome.sh len=<total size> chroms=<int> gc=<float> out=<file>
 
 Parameters:
 out=<file>      Output.
+in=<file>       Optional input clade or fasta file.  If specified, the
+                synthetic genome will conserve the input kmer frequencies.
+k=5             Kmer length for base frequencies (2-5).
 overwrite=f     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 len=100000      Total genome size.

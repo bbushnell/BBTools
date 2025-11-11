@@ -40,6 +40,7 @@ import stream.SamLine;
 import stream.SamStreamer;
 import stream.SamReadInputStream;
 import stream.SamWriter;
+import stream.StreamerFactory;
 import stream.bam.BgzfOutputStreamMT;
 import stream.bam.BgzfSettings;
 import structures.IntList;
@@ -1150,6 +1151,8 @@ public class Parser {
 			BamWriter.DEFAULT_THREADS=Integer.parseInt(b);
 		}else if(a.equals("fastqwriterthreads") || a.equals("fqwthreads")){
 			FastqWriter.DEFAULT_THREADS=Integer.parseInt(b);
+		}else if(a.equals("fastastreamer2")){
+			StreamerFactory.FASTA_STREAMER_2=Parse.parseBoolean(b);
 		}else if(a.equals("prefermd") || a.equals("prefermdtag")){
 			SamLine.PREFER_MDTAG=Parse.parseBoolean(b);
 		}else if(a.equals("notags")){

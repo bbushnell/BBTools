@@ -3,31 +3,33 @@ package stream;
 import java.io.PrintStream;
 import java.util.ArrayList;
 
-import fileIO.ByteFile;
+import fileIO.ByteFile1F;
 import fileIO.FileFormat;
+import shared.Vector;
 import structures.ByteBuilder;
+import structures.IntList;
 import structures.ListNum;
 
 /**
- * Single-threaded FASTA file loader.
+ * Single-threaded FASTA file loader using record-based ByteFile1F.
  * 
  * @author Brian Bushnell
  * @contributor Isla
- * @date November 10, 2025
+ * @date January 2026
  */
-public class FastaStreamerST implements Streamer {
+public class FastaStreamer2ST implements Streamer{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Constructor. */
-	public FastaStreamerST(String fname_, int pairnum_, long maxReads_){
+	public FastaStreamer2ST(String fname_, int pairnum_, long maxReads_){
 		this(FileFormat.testInput(fname_, FileFormat.FASTA, null, true, false), pairnum_, maxReads_);
 	}
 
 	/** Constructor. */
-	public FastaStreamerST(FileFormat ffin_, int pairnum_, long maxReads_){
+	public FastaStreamer2ST(FileFormat ffin_, int pairnum_, long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
 		pairnum=pairnum_;
@@ -36,7 +38,7 @@ public class FastaStreamerST implements Streamer {
 		assert(pairnum==0 || !interleaved);
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 
-		if(verbose){outstream.println("Made FastaStreamerST");}
+		if(verbose){outstream.println("Made FastaStreamer2ST");}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -45,16 +47,16 @@ public class FastaStreamerST implements Streamer {
 
 	@Override
 	public void start(){
-		if(verbose){outstream.println("FastaStreamerST.start() called.");}
+		if(verbose){outstream.println("FastaStreamer2ST.start() called.");}
 
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
 
 		//Open the file
-		bf=ByteFile.makeByteFile(ffin);
+		bf=new ByteFile1F(ffin);
 
-		if(verbose){outstream.println("FastaStreamerST started.");}
+		if(verbose){outstream.println("FastaStreamer2ST started.");}
 	}
 
 	@Override
@@ -66,7 +68,7 @@ public class FastaStreamerST implements Streamer {
 	}
 
 	@Override
-	public String fname() {return fname;}
+	public String fname(){return fname;}
 
 	@Override
 	public boolean hasMore(){
@@ -74,7 +76,7 @@ public class FastaStreamerST implements Streamer {
 	}
 
 	@Override
-	public boolean errorState() {return errorState;}
+	public boolean errorState(){return errorState;}
 
 	@Override
 	public boolean paired(){return interleaved;}
@@ -83,10 +85,10 @@ public class FastaStreamerST implements Streamer {
 	public int pairnum(){return pairnum;}
 
 	@Override
-	public long readsProcessed() {return readsProcessed;}
+	public long readsProcessed(){return readsProcessed;}
 
 	@Override
-	public long basesProcessed() {return basesProcessed;}
+	public long basesProcessed(){return basesProcessed;}
 
 	@Override
 	public void setSampleRate(float rate, long seed){
@@ -126,62 +128,27 @@ public class FastaStreamerST implements Streamer {
 		ListNum<Read> reads=new ListNum<Read>(readList, listNum);
 		reads.firstRecordNum=readsProcessed;
 
-		final ByteBuilder bb=new ByteBuilder(4096);
 		long readID=readsProcessed;
-
 		int readsInList=0;
 		int bytesInList=0;
 
-		// Start with pending header if exists
-		byte[] header=pendingHeader;
-		pendingHeader=null;
-		if(header!=null){
-			bb.clear();
-		}
-
-		for(byte[] line=bf.nextLine(); line!=null && readsProcessed<maxReads; line=bf.nextLine()){
-
-			if(line.length>0 && line[0]=='>'){
-				// Save previous record if exists
-				if(header!=null){
-					if(samplerate>=1f || randy.nextFloat()<samplerate){
-						Read r=new Read(bb.toBytes(), null, new String(header), readID, true);
-						r.setPairnum(pairnum);
-						if(!r.validated()){r.validate(true);}
-						readList.add(r);
-						readsProcessed++;
-						basesProcessed+=r.length();
-						readsInList++;
-						bytesInList+=r.length();
-					}
-					readID++;
-					
-					// Check if we should ship current list
-					if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
-						pendingHeader=line; // Save this header for next list
-						break;
-					}
-				}
-
-				header=line;
-				bb.clear();
-			}else{
-				bb.append(line);
-			}
-		}
-
-		// Save final record in this batch if not saved as pending
-		if(header!=null && pendingHeader==null){
+		for(byte[] record=bf.nextLine(); record!=null && readsProcessed<maxReads; record=bf.nextLine()){
 			if(samplerate>=1f || randy.nextFloat()<samplerate){
-				Read r=new Read(bb.toBytes(), null, new String(header), readID, true);
-				r.setPairnum(pairnum);
-				if(!r.validated()){r.validate(true);}
+				Read r=Vector.fastaRecordToRead(record, readID, pairnum, bb, newlines);
 				readList.add(r);
 				readsProcessed++;
 				basesProcessed+=r.length();
+				readsInList++;
+				bytesInList+=r.length();
+			}
+			readID++;
+
+			// Check if we should ship current list
+			if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
+				break;
 			}
 		}
-
+		if(bb.array.length>8000000 && bytesInList<2000000){bb.shrinkTo(512000);} 
 		return reads;
 	}
 
@@ -192,67 +159,14 @@ public class FastaStreamerST implements Streamer {
 		ListNum<Read> reads=new ListNum<Read>(readList, listNum);
 		reads.firstRecordNum=readsProcessed/2;
 
-		final ByteBuilder bb=new ByteBuilder(4096);
 		long readID=readsProcessed/2;
-
 		int readsInList=0;
 		int bytesInList=0;
 
 		Read pending=null;
-		
-		// Start with pending header if exists
-		byte[] header=pendingHeader;
-		pendingHeader=null;
-		if(header!=null){
-			bb.clear();
-		}
 
-		for(byte[] line=bf.nextLine(); line!=null && readsProcessed<maxReads; line=bf.nextLine()){
-
-			if(line.length>0 && line[0]=='>'){
-				// Save previous record if exists
-				if(header!=null){
-					Read r=new Read(bb.toBytes(), null, new String(header), 0, true);
-					if(!r.validated()){r.validate(true);}
-					readsProcessed++;
-					basesProcessed+=r.length();
-
-					if(pending==null){
-						pending=r;
-						pending.setPairnum(0);
-					}else{
-						r.setPairnum(1);
-						pending.mate=r;
-						r.mate=pending;
-						pending.numericID=readID;
-						r.numericID=readID++;
-
-						if(samplerate>=1f || randy.nextFloat()<samplerate){
-							readList.add(pending);
-							readsInList+=2;
-							bytesInList+=pending.length()+r.length();
-						}
-						pending=null;
-
-						// Check if we should ship current list (only on pair boundaries)
-						if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
-							pendingHeader=line; // Save this header for next list
-							break;
-						}
-					}
-				}
-
-				header=line;
-				bb.clear();
-			}else{
-				bb.append(line);
-			}
-		}
-
-		// Save final record in this batch if not saved as pending
-		if(header!=null && pendingHeader==null){
-			Read r=new Read(bb.toBytes(), null, new String(header), 0, true);
-			if(!r.validated()){r.validate(true);}
+		for(byte[] record=bf.nextLine(); record!=null && readsProcessed<maxReads; record=bf.nextLine()){
+			Read r=Vector.fastaRecordToRead(record, readID, 0, bb, newlines);
 			readsProcessed++;
 			basesProcessed+=r.length();
 
@@ -263,13 +177,19 @@ public class FastaStreamerST implements Streamer {
 				r.setPairnum(1);
 				pending.mate=r;
 				r.mate=pending;
-				pending.numericID=readID;
-				r.numericID=readID++;
+				readID++;
 
 				if(samplerate>=1f || randy.nextFloat()<samplerate){
 					readList.add(pending);
+					readsInList+=2;
+					bytesInList+=pending.length()+r.length();
 				}
 				pending=null;
+
+				// Check if we should ship current list
+				if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
+					break;
+				}
 			}
 		}
 
@@ -277,7 +197,7 @@ public class FastaStreamerST implements Streamer {
 		if(pending!=null && bf.nextLine()==null){
 			throw new RuntimeException("Odd number of reads in interleaved FASTA file: "+fname);
 		}
-
+		if(bb.array.length>8000000 && bytesInList<2000000){bb.shrinkTo(512000);} 
 		return reads;
 	}
 
@@ -292,10 +212,12 @@ public class FastaStreamerST implements Streamer {
 	final FileFormat ffin;
 
 	/** ByteFile for reading */
-	private ByteFile bf;
+	private ByteFile1F bf;
 
 	final int pairnum;
 	final boolean interleaved;
+	private final ByteBuilder bb=new ByteBuilder(4096);
+	private final IntList newlines=new IntList(256);
 
 	/** Number of reads processed */
 	protected long readsProcessed=0;
@@ -310,9 +232,6 @@ public class FastaStreamerST implements Streamer {
 
 	/** True when file is exhausted */
 	private boolean finished=false;
-	
-	/** Header line pending for next list */
-	private byte[] pendingHeader=null;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

@@ -19,11 +19,9 @@ import structures.IntList;
  */
 final class SIMDByte256{
 
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Byte> BSPECIES256=ByteVector.SPECIES_256;
 	private static final int BWIDTH256=BSPECIES256.length(); //32
 	
-	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Byte> BSPECIES64=ByteVector.SPECIES_64;
 	private static final int BWIDTH64=BSPECIES64.length(); //8
 	
@@ -54,7 +52,6 @@ final class SIMDByte256{
 	}
 	
 	/** Returns number of matches */
-	@SuppressWarnings("restriction")
 	static final int countMatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
 		int i=a1, j=a2;
 		int matches=0;
@@ -87,7 +84,6 @@ final class SIMDByte256{
 	}
 
 	/** Returns index of symbol */
-	@SuppressWarnings("restriction")
 	static final int find(final byte[] a, final byte symbol, final int from, final int to){
 		int pos=from;
 		
@@ -114,7 +110,7 @@ final class SIMDByte256{
 		return pos;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Sums the array.
 	 * @param a A vector.
@@ -152,7 +148,6 @@ final class SIMDByte256{
 	 * @param positions IntList to store newline positions
 	 * @return Number of symbols found, including pre-existing ones
 	 */
-	@SuppressWarnings("restriction")
 	static final int findSymbols(final byte[] buffer, final int from, 
 		final int to, final byte symbol, final IntList positions){
 		int i=from;
@@ -201,7 +196,6 @@ final class SIMDByte256{
 	 * @param limit Scan backwards from this position (exclusive)
 	 * @return Position of last newline, or -1 if none found
 	 */
-	@SuppressWarnings("restriction")
 	static int findLastSymbol(byte[] buffer, int limit, final byte symbol){
 		//Start from the last aligned chunk and work backwards
 		int i=((limit-1)/BWIDTH256)*BWIDTH256; //Round down to 256-bit boundary
@@ -241,8 +235,72 @@ final class SIMDByte256{
 		
 		return -1;
 	}
+	
+	/**
+	 * Find FASTA record boundaries (\n>) using SIMD.
+	 * @param buffer The byte array to search
+	 * @param from Starting position (inclusive)
+	 * @param to Ending position (exclusive)
+	 * @param positions IntList to store \n positions before >
+	 * @return Number of boundaries found
+	 */
+	static final int findFastaHeaders(final byte[] buffer, final int from, 
+			final int to, final IntList positions){
+		int i=from+1; // Need to check i-1, so start at from+1
+		
+		{//256-bit loop
+			final ByteVector carrotVec256=ByteVector.broadcast(BSPECIES256, (byte)'>');
+			final ByteVector slashnVec256=ByteVector.broadcast(BSPECIES256, (byte)'\n');
+			
+			for(; i<=to-BWIDTH256; i+=BWIDTH256){
+				ByteVector vec=ByteVector.fromArray(BSPECIES256, buffer, i);
+				ByteVector vecPrev=ByteVector.fromArray(BSPECIES256, buffer, i-1);
+				
+				VectorMask<Byte> isCarrot=vec.eq(carrotVec256);
+				VectorMask<Byte> prevIsSlashn=vecPrev.eq(slashnVec256);
+				VectorMask<Byte> isBoundary=isCarrot.and(prevIsSlashn);
+				
+				long bits=isBoundary.toLong();
+				while(bits!=0){
+					int lane=Long.numberOfTrailingZeros(bits);
+					positions.add(i+lane-1); // Store \n position
+					bits&=(bits-1);
+				}
+			}
+		}
+		
+		{//64-bit loop
+			final ByteVector carrotVec64=ByteVector.broadcast(BSPECIES64, (byte)'>');
+			final ByteVector slashnVec64=ByteVector.broadcast(BSPECIES64, (byte)'\n');
+			
+			for(; i<=to-BWIDTH64; i+=BWIDTH64){
+				ByteVector vec=ByteVector.fromArray(BSPECIES64, buffer, i);
+				ByteVector vecPrev=ByteVector.fromArray(BSPECIES64, buffer, i-1);
+				
+				VectorMask<Byte> isCarrot=vec.eq(carrotVec64);
+				VectorMask<Byte> prevIsSlashn=vecPrev.eq(slashnVec64);
+				VectorMask<Byte> isBoundary=isCarrot.and(prevIsSlashn);
+				
+				long bits=isBoundary.toLong();
+				while(bits!=0){
+					int lane=Long.numberOfTrailingZeros(bits);
+					positions.add(i+lane-1);
+					bits&=(bits-1);
+				}
+			}
+		}
+		
+		//Scalar tail
+		for(; i<to; i++){
+			if(buffer[i]=='>' && buffer[i-1]=='\n'){
+				positions.add(i-1);
+			}
+		}
+		
+		return positions.size();
+	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Adds a constant delta to all bytes in an array using SIMD.
 	 * @param array The byte array to modify in-place.
@@ -278,7 +336,7 @@ final class SIMDByte256{
 		}
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Adds delta to all bytes, caps at minimum value, and returns the minimum encountered.
 	 * @param array The byte array to modify in-place.
@@ -335,7 +393,7 @@ final class SIMDByte256{
 		return (byte)min;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Applies quality offset delta, zeros quality for N bases, caps others at 2.
 	 * @param quals Quality array to modify in-place.
@@ -391,7 +449,7 @@ final class SIMDByte256{
 		}
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Zeros quality for N bases, caps others at 2.
 	 * @param quals Quality array to modify in-place.
@@ -442,7 +500,7 @@ final class SIMDByte256{
 		}
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Converts U to T and u to t in a byte array using SIMD.
 	 * @param bases The base array to modify in-place.
@@ -491,7 +549,7 @@ final class SIMDByte256{
 		}
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Converts lowercase letters to N.
 	 * @param array The byte array to modify in-place.
@@ -536,7 +594,7 @@ final class SIMDByte256{
 		return true;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Converts dot, dash, and X to N.
 	 * @param array The byte array to modify in-place.
@@ -591,7 +649,7 @@ final class SIMDByte256{
 		return true;
 	}
 	
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Checks if array contains common amino acids (E or L).
 	 * @param array The byte array to check.
@@ -647,7 +705,7 @@ final class SIMDByte256{
 		return protein;
 	}
 	
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Converts to uppercase using bitmask. Returns false if non-letter found.
 	 * @param array The byte array to modify in-place.
@@ -709,7 +767,7 @@ final class SIMDByte256{
 		return success;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Checks if all bytes are letters (case-insensitive check via mask).
 	 * @param array The byte array to check.
@@ -770,7 +828,7 @@ final class SIMDByte256{
 		return success;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Converts IUPAC ambiguity codes to N, preserves A/C/G/T/U (case-insensitive).
 	 * @param array The byte array to modify in-place.
@@ -838,7 +896,7 @@ final class SIMDByte256{
 		return true;
 	}
 
-	@SuppressWarnings("restriction")
+	
 	/**
 	 * Checks if all letters and no E or L (nucleotide validation).
 	 * @param array The byte array to check.
