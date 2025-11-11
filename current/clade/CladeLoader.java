@@ -25,6 +25,8 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
+import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.ListNum;
 import tax.TaxTree;
@@ -459,6 +461,21 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			}
 		}
 		return out;
+	}
+	
+	public static Clade loadCladeFromSequence(FileFormat ff) {
+		EntropyTracker et=calcCladeEntropy ? new EntropyTracker(entropyK, entropyWindow, false) : null;
+		Streamer st=StreamerFactory.makeStreamer(ff, 1, false, -1);
+		st.start();
+		Clade clade=new Clade(0, 0, ff.name());
+		for(ListNum<Read> ln=st.nextList(); ln!=null && !ln.isEmpty(); ln=st.nextList()) {
+			for(Read r : ln) {
+				clade.add(r, et, null);
+			}
+		}
+		st.close();
+		clade.finish();
+		return clade;
 	}
 	
 	static int addRibo(ConcurrentHashMap<Integer, Clade> cladeMap, String ssuFile, boolean r16s) {

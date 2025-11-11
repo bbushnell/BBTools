@@ -116,7 +116,11 @@ public class StreamerFactory {
 			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastaStreamer.DEFAULT_THREADS>0)) {
 				return new FastaStreamer(ff, threads, pairnum, maxReads);
 			}else {
-				return new FastaStreamerST(ff, pairnum, maxReads);
+				if(FASTA_STREAMER_2 && Shared.SIMD) {
+					return new FastaStreamer2ST(ff, pairnum, maxReads);
+				}else {
+					return new FastaStreamerST(ff, pairnum, maxReads);
+				}
 			}
 			
 		}else if(ff.bam() && ReadWrite.nativeBamIn()){
@@ -143,5 +147,9 @@ public class StreamerFactory {
 	public static Streamer makeSamOrBamStreamer(FileFormat ffin, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
 		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
 	}
+	
+	//Generally faster and makes fewer objects
+	//It does scan for newlines twice though
+	public static boolean FASTA_STREAMER_2=true;
 	
 }

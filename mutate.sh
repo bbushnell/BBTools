@@ -52,8 +52,7 @@ sinewaves=0     Vary mutation rate across the genome, yielding more- and
                 less-mutated areas, when >1.  More sinewaves will give
 		a more complicated conservation pattern.
 mod3=f		Forbid indels that are not a multiple of 3 in length.
-k=0             If positive, conserve kmer frequencies through substitutions.
-                Values are 1-5.
+preservegc=t    Substitutions are selected to maintain GC fraction.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
