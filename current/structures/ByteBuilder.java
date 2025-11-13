@@ -2,11 +2,19 @@ package structures;
 
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
 
+import bin.Cluster;
+import bin.Contig;
 import dna.AminoAcid;
+import fileIO.ByteFile;
+import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
 import shared.KillSwitch;
 import shared.LineParser;
 import shared.LineParser1;
+import shared.Timer;
 import shared.Tools;
 import shared.Vector;
 import ukmer.Kmer;
@@ -640,8 +648,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	public ByteBuilder appendln(ByteBuilder x){
 		expand(x.length+1);
 		append(x);
-		array[length]=newline;
-		length++;
+		array[length++]=newline;
 		return this;
 	}
 	
@@ -651,13 +658,15 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	
 	public ByteBuilder append(byte[] x, int start, int len){
 //		if(x==null){x=nullBytes;}
-		final int lim=(int)Tools.min(start+(long)len, x.length);
 		len=Tools.min(len, x.length-start);
 		expand(len);
-		for(int i=start; i<lim; i++){
-			array[length]=x[i];
-			length++;
-		}
+//		final int lim=(int)Tools.min(start+(long)len, x.length);
+//		for(int i=start; i<lim; i++){
+//			array[length]=x[i];
+//			length++;
+//		}
+		System.arraycopy(x, 0, array, start, len);
+		length+=len;
 		return this;
 	}
 	
@@ -1052,6 +1061,42 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	    append((byte)((val >> 16) & 0xFF));
 	    append((byte)((val >> 24) & 0xFF));
 	    return this;
+	}
+	
+	public static void main(String[] args) {
+		Timer t=new Timer();
+		String in=args[0];
+		String out=(args.length<2 || "null".equalsIgnoreCase(args[1])) ? null : args[1];
+		int type=(args.length>2 ? Integer.parseInt(args[2]) : 4);
+		FileFormat ffin=FileFormat.testInput(in, null, false);
+		FileFormat ffout=FileFormat.testOutput(out, FileFormat.FASTQ, null, false, true, false, false);
+		ByteFile bf=ByteFile.makeByteFile(ffin, type);
+		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
+		ByteBuilder bb=new ByteBuilder(32768);
+//		assert(false) : out+", "+ffout+", "+bf+", "+bsw;
+		long lines=0, bytes=0;
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
+			bb.append(line);
+			lines++;
+			bytes+=line.length;
+//			assert(false) : "BB "+bb.length;
+			if(bb.length>=16384) {
+				if(bsw!=null) {
+					bsw.print(bb);
+//					assert(false) : "Wrote "+bb.length;
+				}
+				bb.clear();
+			}
+		}
+		if(bsw!=null && !bb.isEmpty()) {bsw.print(bb);}
+		bb.clear();
+		bf.close();
+		if(bsw!=null) {
+			boolean error=bsw.poisonAndWait();
+			assert(!error);
+		}
+		t.stop();
+		System.err.println(Tools.timeLinesBytesProcessed(t, lines, bytes, 8));
 	}
 	
 }

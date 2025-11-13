@@ -89,7 +89,7 @@ public class FastaStreamer implements Streamer {
 
 	@Override
 	public void close(){
-		if(bf!=null) {bf.close();}
+		if(bf!=null) {bf.close(); bf=null;}
 	}
 
 	@Override

@@ -2,6 +2,7 @@ package stream;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.util.ArrayList;
 
 import fileIO.ByteFile4;
 import fileIO.FileFormat;
@@ -301,16 +302,19 @@ public class StreamerWrapper{
 			}
 		}else {
 			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
-				for(SamLine sl : ln) {
-					processSamLine(sl);
+				final ArrayList<SamLine> list=ln.list;
+				for(int i=0, len=list.size(); i<len; i++) {
+					SamLine sl=list.get(i);
+					boolean keep=processSamLine(sl);
+					if(!keep) {list.set(i, null);}
 				}
 				if(fw!=null) {fw.addLines(ln);}
 			}
 		}
 		if(fw!=null) {
 			fw.poisonAndWait();
-			assert(readsIn==fw.readsWritten());
-			assert(basesIn==fw.basesWritten());
+			assert(!readMode || readsIn==fw.readsWritten());
+			assert(!readMode || basesIn==fw.basesWritten());
 			readsOut=fw.readsWritten();
 			basesOut=fw.basesWritten();
 		}
@@ -340,10 +344,16 @@ public class StreamerWrapper{
 	/**
 	 * Process a SamLine - override this method to add custom processing.
 	 * @param sl SamLine to process
+	 * @return keep;
 	 */
-	private void processSamLine(SamLine sl) {
+	private boolean processSamLine(SamLine sl) {
+		final int len=sl.lengthOrZero();
 		readsIn++;
-		basesIn+=sl.length();
+		basesIn+=len;
+
+		//Apply filter if present
+		boolean keep=(len>0 || ffout1==null || ffout1.samOrBam());
+		return keep;
 	}
 	
 	/*--------------------------------------------------------------*/

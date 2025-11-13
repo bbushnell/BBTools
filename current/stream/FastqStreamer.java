@@ -90,7 +90,7 @@ public class FastqStreamer implements Streamer {
 	
 	@Override
 	public void close(){
-		//TODO: Unimplemented
+		if(bf!=null) {bf.close(); bf=null;}
 	}
 	
 	@Override
@@ -230,9 +230,8 @@ public class FastqStreamer implements Streamer {
 		 */
 		private void processBytes0(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
-
-			ByteFile.FORCE_MODE_BF2=true;
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			
+			bf=ByteFile.makeByteFile(ffin);
 			
 			long listNumber=0;
 			long reads=0;
@@ -390,6 +389,9 @@ public class FastqStreamer implements Streamer {
 	
 	/** Primary input file */
 	final FileFormat ffin;
+	
+	/** Input source */
+	private ByteFile bf;
 	
 	final OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>> oqs;
 	

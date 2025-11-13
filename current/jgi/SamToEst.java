@@ -1,14 +1,17 @@
 package jgi;
 
 
+import java.io.File;
 import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 
+import align2.BBMap;
 import dna.Data;
 import dna.Scaffold;
 import fileIO.ByteFile;
+import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import shared.KillSwitch;
@@ -111,7 +114,19 @@ public class SamToEst {
 		fractionForAll=fractionForAll_;
 	}
 	
+	private void align() {
+		FileFormat ff=FileFormat.testInput(in, FileFormat.SAM, null, false, false);
+		if(ff==null || ff.samOrBam() || (!ff.fastq() && !ff.fasta())) {return;}
+		String sam=in+".mapped.sam.gz";
+		String[] args=new String[] {"in="+in, "ref="+ref, "out="+sam, 
+			"k=13", "maxindel=100000", "customtag", "ordered", "nodisk"};
+		BBMap.main(args);
+		in=sam;
+		ranBBMap=true;
+	}
+	
 	public void process(){
+		align();
 		HashMap<String, EST> table=new HashMap<String, EST>(initialSize);
 		ByteFile tf=ByteFile.makeByteFile(in, true);
 		LineParser1 lp=new LineParser1('\t');
@@ -356,6 +371,7 @@ public class SamToEst {
 
 			tsw.poisonAndWait();
 		}
+		if(ranBBMap && deleteTemp) {new File(in).delete();}
 	}
 
 	private void addEst(EST est){
@@ -410,7 +426,12 @@ public class SamToEst {
 	}
 	
 	public final float fractionForAll;
-	public final String in, stats, ref, estFile;
+	public String in;
+	public final String stats;
+	public final String ref;
+	public final String estFile;
+	public boolean ranBBMap=false;
+	public boolean deleteTemp=true;
 	
 	public long refBases=0;
 	public long estBases=0;

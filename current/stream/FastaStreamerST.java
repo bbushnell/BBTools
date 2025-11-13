@@ -66,7 +66,7 @@ public class FastaStreamerST implements Streamer {
 
 	@Override
 	public void close(){
-		//TODO: Unimplemented
+		if(bf!=null) {bf.close(); bf=null;}
 	}
 
 	@Override
@@ -164,7 +164,7 @@ public class FastaStreamerST implements Streamer {
 		void processSingle() throws InterruptedException{
 			if(verbose){outstream.println("Started processSingle.");}
 
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			bf=ByteFile.makeByteFile(ffin);
 
 			long listNumber=0;
 			int readsInList=0;
@@ -349,6 +349,9 @@ public class FastaStreamerST implements Streamer {
 
 	/** Processing thread */
 	private ProcessThread thread;
+	
+	/** Input source */
+	private ByteFile bf;
 
 	final int pairnum;
 	final boolean interleaved;

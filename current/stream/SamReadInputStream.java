@@ -85,7 +85,7 @@ public class SamReadInputStream extends ReadInputStream {
 
 	@Override
 	public boolean close(){
-		//Streamer cleanup handled automatically
+		streamer.close();
 		return errorState;
 	}
 	

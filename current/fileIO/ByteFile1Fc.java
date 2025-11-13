@@ -15,7 +15,9 @@ import structures.ListNum;
 
 /**
  * ByteFile variant that splits on FASTA record boundaries (\n>) instead of newlines.
- * Each "line" returned is a complete FASTA record (header + sequence).
+ * Each "line" returned is a block of complete FASTA records (header + sequence),
+ * with \r stripped and only 2 \n per record.  Specifically, the blocks 
+ * start with > and end with \n which signifies the end of a record.
  * Uses SIMD for boundary detection.
  * 
  * @author Brian Bushnell

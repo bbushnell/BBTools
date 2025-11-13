@@ -86,7 +86,7 @@ public class FastqStreamerST implements Streamer {
 	
 	@Override
 	public void close(){
-		//TODO: Unimplemented
+		if(bf!=null) {bf.close(); bf=null;}
 	}
 	
 	@Override
@@ -184,7 +184,7 @@ public class FastqStreamerST implements Streamer {
 		void processSingle() throws InterruptedException{
 			if(verbose){outstream.println("Started processSingle.");}
 
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			bf=ByteFile.makeByteFile(ffin);
 			
 			long listNumber=0;
 			long readID=0;
@@ -314,6 +314,9 @@ public class FastqStreamerST implements Streamer {
 	
 	/** Processing thread */
 	private ProcessThread thread;
+	
+	/** Input source */
+	private ByteFile bf;
 	
 	final int pairnum;
 	final boolean interleaved;

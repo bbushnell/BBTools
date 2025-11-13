@@ -1857,6 +1857,10 @@ public class SamLine implements Serializable {
 		return seq==null ? calcCigarBases(cigar, true, false) : seq.length;
 	}
 	
+	public int lengthOrZero(){
+		return seq!=null ? seq.length : cigar!=null ? calcCigarBases(cigar, true, false) : 0;
+	}
+	
 	public int estimateBamLength() {
 		return 40+(seq==null ? 1 : seq.length)+qname.length()+(cigar==null ? 1 : cigar.length()*2);
 	}
