@@ -160,7 +160,7 @@ public class FastqReadInputStream extends ReadInputStream {
 	private final ByteBuilder bbh=new ByteBuilder(128);
 	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 
-	private final int BUF_LEN=Shared.bufferLen();;
+	private final int BUF_LEN=Shared.bufferLen();
 	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
 
 	public long generated=0;

@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
+import fileIO.ByteFile;
 import fileIO.ByteFile1Fc;
 import fileIO.FileFormat;
 import shared.KillSwitch;
@@ -69,7 +70,7 @@ public class FastaStreamer2ST implements Streamer{
 
 	@Override
 	public void close(){
-		//TODO: Unimplemented
+		if(bf!=null) {bf.close(); bf=null;}
 	}
 
 	@Override
@@ -163,7 +164,7 @@ public class FastaStreamer2ST implements Streamer{
 		void processSingle() throws InterruptedException{
 			if(verbose){outstream.println("Started processSingle.");}
 
-			ByteFile1Fc bf=new ByteFile1Fc(ffin);
+			bf=new ByteFile1Fc(ffin);
 			IntList newlines=new IntList(256);
 
 			long listNumber=0;
@@ -232,6 +233,9 @@ public class FastaStreamer2ST implements Streamer{
 
 	/** Processing thread */
 	private ProcessThread thread;
+	
+	/** Input source */
+	private ByteFile1Fc bf;
 
 	final int pairnum;
 	final boolean interleaved;

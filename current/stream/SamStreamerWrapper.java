@@ -332,12 +332,13 @@ public class SamStreamerWrapper{
 			ArrayList<SamLine> out=(filter==null && !fixCigar ? list : new ArrayList<SamLine>(list.size()));
 
 			for(SamLine sl : list){
-				final int len=sl.length();
+				final int len=sl.lengthOrZero();
 				readsProcessed++;
 				basesProcessed+=len;
 
 				//Apply filter if present
-				boolean keep=(filter==null || filter.passesFilter(sl));
+				boolean keep=(filter==null || filter.passesFilter(sl)) && 
+					(len>0 || ffout1==null || ffout1.samOrBam());
 				if(!keep){continue;}
 
 				//Fix CIGAR if needed

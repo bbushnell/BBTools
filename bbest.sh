@@ -3,15 +3,18 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 16, 2025
+Last modified November 13, 2025
 
 Description:  Calculates EST (expressed sequence tags) capture by an assembly from a sam file.
-Designed to use BBMap output generated with these flags: k=13 maxindel=100000 customtag ordered
+Designed to use BBMap output generated with these flags:
+k=13 maxindel=100000 customtag ordered nodisk
 
 Usage:          bbest.sh in=<sam file> out=<stats file>
 
 Parameters:
 in=<file>       Specify a sam file (or stdin) containing mapped ests.
+                If a fastq file is specified it will be mapped to a temporary
+                sam file using BBMap, then deleted.
 out=<file>      Specify the output stats file (default is stdout).
 ref=<file>      Specify the reference file (optional).
 est=<file>      Specify the est fasta file (optional).

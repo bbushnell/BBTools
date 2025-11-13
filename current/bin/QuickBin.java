@@ -722,7 +722,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				chaff=ByteStreamWriter.makeBSW(pattern.replaceFirst("%", "chaff"), overwrite, append, true);
 			}
 			
-			final ByteBuilder bb=new ByteBuilder(8192);
+			final ByteBuilder bb=new ByteBuilder(32768);
 			for(int i=0; i<clusters.size(); i++) {
 				Bin a=clusters.get(i);
 				if(a.size()>=minBases && a.numContigs()>=minContigs) {
@@ -743,7 +743,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			}
 			if(chaff!=null) {chaff.poisonAndWait();}
 		}else {
-			final ByteBuilder bb=new ByteBuilder(8192);
+			final ByteBuilder bb=new ByteBuilder(32768);
 			final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(pattern, overwrite, append, true);
 			for(int i=0; i<clusters.size(); i++) {
 				Bin a=clusters.get(i);
@@ -785,7 +785,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		Collections.sort(contigs);
 		for(Contig c : contigs) {
 			c.appendTo(bb, id);
-			if(bb.length>4096) {
+			if(bb.length>=16384) {
 				if(bsw!=null) {bsw.print(bb);}
 				bb.clear();
 			}
