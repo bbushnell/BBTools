@@ -67,7 +67,7 @@ public final class ByteFile4 extends ByteFile{
 			}else if(a.equals("buffersize") || a.equals("buffer")){
 				bufferSize=(int)Parse.parseKMG(b);
 			}else if(a.equals("verbose")){
-				verbose=Parse.parseBoolean(b);
+//				verbose=Parse.parseBoolean(b);
 			}else if(Parser.parseCommonStatic(arg, a, b)){
 				//Do nothing
 			}else if(arg.indexOf('=')<0 && fname==null){
@@ -183,6 +183,8 @@ public final class ByteFile4 extends ByteFile{
 			errorState|=ReadWrite.finishReading(is, name(), allowSubprocess());
 			is=null;
 		}
+		
+		oqs.setFinished();
 
 		lineNum=-1;
 		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name());}
@@ -292,8 +294,10 @@ public final class ByteFile4 extends ByteFile{
 		public void run(){
 			if(tid==0){
 				produceBufferJobs();
+				if(verbose) {System.err.println("Producer finished.");}
 			}else{
 				processBufferJobs();
+				if(verbose) {System.err.println("Worker "+tid+" finished.");}
 			}
 			success=true;
 		}
@@ -306,8 +310,13 @@ public final class ByteFile4 extends ByteFile{
 
 			try{
 				while(true){
+					if(verbose) {System.err.println("Producer attempting read.");}
 					// Read data into buffer
-					int r=is.read(buffer, bstop, buffer.length-bstop);
+					final int r;
+					synchronized(ByteFile4.this) {
+						if(is==null) {break;}
+						r=is.read(buffer, bstop, buffer.length-bstop);
+					}
 					if(r>0){
 						bstop+=r;
 					}
@@ -318,10 +327,12 @@ public final class ByteFile4 extends ByteFile{
 							// Package remaining data
 							byte[] copy=Arrays.copyOf(buffer, bstop);
 							BufferJob job=new BufferJob(copy, jobId++);
+							if(verbose) {System.err.println("Producer adding EOF job "+job.id+".");}
 							oqs.addInput(job);
 						}
 						break;
 					}
+
 
 					// Find last newline
 					int lastNL=Vector.findLastSymbol(buffer, bstop, slashn);
@@ -330,6 +341,7 @@ public final class ByteFile4 extends ByteFile{
 					if(lastNL>=0){
 						byte[] copy=Arrays.copyOf(buffer, lastNL+1);
 						BufferJob job=new BufferJob(copy, jobId++);
+						if(verbose) {System.err.println("Producer adding normal job "+job.id+".");}
 						oqs.addInput(job);
 
 						// Shift remaining bytes to start
@@ -352,15 +364,19 @@ public final class ByteFile4 extends ByteFile{
 			}
 
 			// Signal completion
+			if(verbose) {System.err.println("Producer adding poison.");}
 			oqs.poison();
 
 			// Wait for workers
+			if(verbose) {System.err.println("Producer waiting for finish.");}
 			ThreadWaiter.waitForThreadsToFinish(alpt);
 		}
 
 		/** Worker thread - extracts lines from BufferJobs */
 		void processBufferJobs(){
+			if(verbose) {System.err.println("Worker "+tid+" getInput()");}
 			BufferJob job=oqs.getInput();
+			if(verbose) {System.err.println("Worker "+tid+" got job "+(job==null ? -1 : job.id));}
 			IntList positions=new IntList();
 
 			while(job!=null && !job.poison()){
@@ -387,14 +403,21 @@ public final class ByteFile4 extends ByteFile{
 				}
 
 				// BufferJob should end exactly at a newline, no residual data
-				assert(start==job.buffer.length) : "Incomplete line in BufferJob! start="+start+", length="+job.buffer.length;
+				assert(start==job.buffer.length) : "Incomplete line in BufferJob! start="+start+
+					", length="+job.buffer.length;
 
+				if(verbose) {System.err.println("Worker "+tid+" addOutput("+output.id+")");}
 				oqs.addOutput(output);
+				if(verbose) {System.err.println("Worker "+tid+" getInput()");}
 				job=oqs.getInput();
+				if(verbose) {System.err.println("Worker "+tid+" got job "+(job==null ? -1 : job.id));}
 			}
+			if(verbose) {System.err.println("Worker "+tid+" exited on "+
+				(job==null ? "null" : "poison="+job.poison()));}
 
 			// Re-inject poison for other workers
 			if(job!=null){oqs.addInput(job);}
+			if(verbose) {System.err.println("Worker "+tid+" reinjected poison.");}
 		}
 
 		boolean success=false;
@@ -460,7 +483,7 @@ public final class ByteFile4 extends ByteFile{
 
 	private static final byte[] blankLine=new byte[0];
 
-	public static boolean verbose=false;
+	public static final boolean verbose=false;
 	public static boolean BUFFERED=false;
 	public static int bufferlen=65536;
 	public static int DEFAULT_THREADS=2;

@@ -1,5 +1,6 @@
 package stream;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import dna.Data;
@@ -109,7 +110,7 @@ public class HeaderInputStream extends ReadInputStream {
 		
 		for(line=tf.nextLine(); line!=null && added<maxReadsToReturn; line=tf.nextLine()){
 			
-			Read r=new Read(null, null, new String(line), numericID);
+			Read r=new Read(null, null, new String(line, StandardCharsets.US_ASCII), numericID);
 
 //			if(interleaved){
 //				if(prev==null){prev=r;}

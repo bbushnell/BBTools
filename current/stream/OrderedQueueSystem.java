@@ -122,6 +122,7 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	public synchronized void setFinished(){
 		if(verbose) {System.err.println("OQS: setFinished()");}
 		finished=true;
+		outq.poison();
 		this.notifyAll();
 	}
 	

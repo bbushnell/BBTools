@@ -1,5 +1,6 @@
 package shared;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import dna.AminoAcid;
@@ -499,7 +500,8 @@ public final class Vector {
 	 * @param pairnum Pair number (0 or 1)
 	 * @return Read object
 	 */
-	public static Read fastaRecordToRead(byte[] record, long readID, int pairnum, ByteBuilder bb, IntList newlines){
+	public static Read fastaRecordToRead(byte[] record, long readID, int pairnum, 
+			ByteBuilder bb, IntList newlines){
 		if(record==null || record.length==0){return null;}
 
 		// Find end of header (first newline)
@@ -544,9 +546,8 @@ public final class Vector {
 			}	
 		}
 //		assert(false) : bb.length+", "+headerEnd+", "+record.length;
-		Read r=new Read(bb.toBytes(), null, new String(header), readID, true);
+		Read r=new Read(bb.toBytes(), null, new String(header, StandardCharsets.US_ASCII), readID);
 		r.setPairnum(pairnum);
-		if(!r.validated()){r.validate(true);}
 		return r;
 	}
 

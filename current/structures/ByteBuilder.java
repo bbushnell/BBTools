@@ -801,7 +801,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	
 	@Override
 	public final String toString(){
-		return new String(array, 0, length);
+		return new String(array, 0, length, StandardCharsets.US_ASCII);
 	}
 	
 	public final byte[] toBytes(){

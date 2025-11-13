@@ -1,21 +1,25 @@
 package stream;
 
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.concurrent.ArrayBlockingQueue;
 
-import fileIO.ByteFile1F;
+import fileIO.ByteFile1Fc;
 import fileIO.FileFormat;
-import shared.Vector;
-import structures.ByteBuilder;
+import shared.KillSwitch;
+import shared.Shared;
 import structures.IntList;
 import structures.ListNum;
 
 /**
- * Single-threaded FASTA file loader using record-based ByteFile1F.
+ * Single-threaded FASTA file loader using ByteFile1Fc (pre-stripped records).
+ * Not suitable for interleaved files.
+ * Runs in its own thread with output queue.
  * 
  * @author Brian Bushnell
  * @contributor Isla
- * @date January 2026
+ * @date November 12, 2025
  */
 public class FastaStreamer2ST implements Streamer{
 
@@ -35,8 +39,11 @@ public class FastaStreamer2ST implements Streamer{
 		pairnum=pairnum_;
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
-		assert(pairnum==0 || !interleaved);
+		assert(!interleaved) : "FastaStreamer2ST does not support interleaved files";
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
+
+		// Simple output queue
+		outputQueue=new ArrayBlockingQueue<ListNum<Read>>(QUEUE_SIZE);
 
 		if(verbose){outstream.println("Made FastaStreamer2ST");}
 	}
@@ -53,18 +60,16 @@ public class FastaStreamer2ST implements Streamer{
 		readsProcessed=0;
 		basesProcessed=0;
 
-		//Open the file
-		bf=new ByteFile1F(ffin);
+		//Start processing thread
+		thread=new ProcessThread();
+		thread.start();
 
 		if(verbose){outstream.println("FastaStreamer2ST started.");}
 	}
 
 	@Override
 	public void close(){
-		if(bf!=null){
-			bf.close();
-			bf=null;
-		}
+		//TODO: Unimplemented
 	}
 
 	@Override
@@ -79,7 +84,7 @@ public class FastaStreamer2ST implements Streamer{
 	public boolean errorState(){return errorState;}
 
 	@Override
-	public boolean paired(){return interleaved;}
+	public boolean paired(){return false;}
 
 	@Override
 	public int pairnum(){return pairnum;}
@@ -93,23 +98,29 @@ public class FastaStreamer2ST implements Streamer{
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : new java.util.Random(seed));
+		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
 	}
 
 	@Override
 	public ListNum<Read> nextList(){
-		if(finished){return null;}
-
-		ListNum<Read> list=interleaved ? nextListInterleaved() : nextListSingle();
-
-		if(list==null || list.size()==0){
-			finished=true;
-			close();
+		try{
+			ListNum<Read> list=outputQueue.take();
+			if(verbose){
+				if(list==null || list.last()) {outstream.println("Consumer got terminal list.");}
+				else {outstream.println("Consumer got list "+list.id());}
+			}
+			if(list!=null && list.last()){
+				finished=true;
+				readsProcessed=thread.readsProcessedT;
+				basesProcessed=thread.basesProcessedT;
+				errorState=!thread.success;
+				return null;
+			}
+			return list;
+		}catch(InterruptedException e){
+			errorState=true;
 			return null;
 		}
-
-		listNum++;
-		return list;
 	}
 
 	@Override
@@ -118,87 +129,92 @@ public class FastaStreamer2ST implements Streamer{
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------         Inner Methods        ----------------*/
+	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private ListNum<Read> nextListSingle(){
-		if(bf==null){return null;}
+	private class ProcessThread extends Thread {
 
-		ArrayList<Read> readList=new ArrayList<Read>(TARGET_LIST_SIZE);
-		ListNum<Read> reads=new ListNum<Read>(readList, listNum);
-		reads.firstRecordNum=readsProcessed;
-
-		long readID=readsProcessed;
-		int readsInList=0;
-		int bytesInList=0;
-
-		for(byte[] record=bf.nextLine(); record!=null && readsProcessed<maxReads; record=bf.nextLine()){
-			if(samplerate>=1f || randy.nextFloat()<samplerate){
-				Read r=Vector.fastaRecordToRead(record, readID, pairnum, bb, newlines);
-				readList.add(r);
-				readsProcessed++;
-				basesProcessed+=r.length();
-				readsInList++;
-				bytesInList+=r.length();
-			}
-			readID++;
-
-			// Check if we should ship current list
-			if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
-				break;
-			}
+		/** Constructor */
+		ProcessThread(){
+			setName("FastaStreamer2ST-Worker");
 		}
-		if(bb.array.length>8000000 && bytesInList<2000000){bb.shrinkTo(512000);} 
-		return reads;
-	}
 
-	private ListNum<Read> nextListInterleaved(){
-		if(bf==null){return null;}
-
-		ArrayList<Read> readList=new ArrayList<Read>(TARGET_LIST_SIZE);
-		ListNum<Read> reads=new ListNum<Read>(readList, listNum);
-		reads.firstRecordNum=readsProcessed/2;
-
-		long readID=readsProcessed/2;
-		int readsInList=0;
-		int bytesInList=0;
-
-		Read pending=null;
-
-		for(byte[] record=bf.nextLine(); record!=null && readsProcessed<maxReads; record=bf.nextLine()){
-			Read r=Vector.fastaRecordToRead(record, readID, 0, bb, newlines);
-			readsProcessed++;
-			basesProcessed+=r.length();
-
-			if(pending==null){
-				pending=r;
-				pending.setPairnum(0);
-			}else{
-				r.setPairnum(1);
-				pending.mate=r;
-				r.mate=pending;
-				readID++;
-
-				if(samplerate>=1f || randy.nextFloat()<samplerate){
-					readList.add(pending);
-					readsInList+=2;
-					bytesInList+=pending.length()+r.length();
-				}
-				pending=null;
-
-				// Check if we should ship current list
-				if(readsInList>=TARGET_LIST_SIZE || bytesInList>=TARGET_LIST_BYTES){
-					break;
+		/** Called by start() */
+		@Override
+		public void run(){
+			try{
+				processSingle();
+				success=true;
+			}catch(Exception e){
+				e.printStackTrace();
+				errorState=true;
+			}finally{
+				// Send terminal list
+				try{
+					ListNum<Read> terminal=new ListNum<Read>(null, -1, ListNum.LAST);
+					outputQueue.put(terminal);
+				}catch(InterruptedException e){
+					e.printStackTrace();
 				}
 			}
+			if(verbose){outstream.println("ProcessThread terminated.");}
 		}
 
-		// Pending should be null at batch boundaries, otherwise file has odd number of reads
-		if(pending!=null && bf.nextLine()==null){
-			throw new RuntimeException("Odd number of reads in interleaved FASTA file: "+fname);
+		void processSingle() throws InterruptedException{
+			if(verbose){outstream.println("Started processSingle.");}
+
+			ByteFile1Fc bf=new ByteFile1Fc(ffin);
+			IntList newlines=new IntList(256);
+
+			long listNumber=0;
+
+			while(readsProcessedT<maxReads){
+				// Get block of records with newline positions
+				byte[] block=bf.nextLine(newlines);
+				if(block==null || block.length==0){break;}
+
+				ArrayList<Read> readList=new ArrayList<Read>();
+				ListNum<Read> reads=new ListNum<Read>(readList, listNumber++);
+				reads.firstRecordNum=readsProcessedT;
+
+				for(int i=0, nl0=-1; i<newlines.size() && readsProcessedT<maxReads; i++){
+					int nl1=newlines.get(i);
+					int nl2=(newlines.size()>i+1 ? newlines.get(i+1) : nl1);
+					assert(block[nl0+1]=='>') : nl0+", "+(char)block[nl0+1];
+					final byte[] header=KillSwitch.copyOfRange(block, nl0+2, nl1);
+					final byte[] bases=(nl2>nl1 ? KillSwitch.copyOfRange(block, nl1+1, nl2) : null);
+					
+					if(samplerate>=1f || randy.nextFloat()<samplerate){
+						Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessedT);
+						r.setPairnum(pairnum);
+						readList.add(r);
+						readsProcessedT++;
+						basesProcessedT+=r.length();
+					}
+					
+					if(bases!=null) {
+						i++;
+						nl0=nl2;
+					}else {
+						nl0=nl1;
+					}
+				}
+
+				if(readList.size()>0){
+					outputQueue.put(reads);
+				}
+			}
+
+			bf.close();
+			if(verbose){outstream.println("Finished processSingle.");}
 		}
-		if(bb.array.length>8000000 && bytesInList<2000000){bb.shrinkTo(512000);} 
-		return reads;
+
+		/** Number of reads processed by this thread */
+		protected long readsProcessedT=0;
+		/** Number of bases processed by this thread */
+		protected long basesProcessedT=0;
+		/** True only if this thread has completed successfully */
+		boolean success=false;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -211,13 +227,14 @@ public class FastaStreamer2ST implements Streamer{
 	/** Primary input file */
 	final FileFormat ffin;
 
-	/** ByteFile for reading */
-	private ByteFile1F bf;
+	/** Output queue */
+	final ArrayBlockingQueue<ListNum<Read>> outputQueue;
+
+	/** Processing thread */
+	private ProcessThread thread;
 
 	final int pairnum;
 	final boolean interleaved;
-	private final ByteBuilder bb=new ByteBuilder(4096);
-	private final IntList newlines=new IntList(256);
 
 	/** Number of reads processed */
 	protected long readsProcessed=0;
@@ -227,18 +244,14 @@ public class FastaStreamer2ST implements Streamer{
 	/** Quit after processing this many input reads */
 	final long maxReads;
 
-	/** Current list number */
-	private long listNum=0;
-
-	/** True when file is exhausted */
+	/** Set when terminal list is received */
 	private boolean finished=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int TARGET_LIST_SIZE=200;
-	public static int TARGET_LIST_BYTES=262144;
+	private static final int QUEUE_SIZE=2;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

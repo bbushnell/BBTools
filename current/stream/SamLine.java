@@ -1,6 +1,7 @@
 package stream;
 
 import java.io.Serializable;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -440,8 +441,8 @@ public class SamLine implements Serializable {
 		assert((qual==bytestar)==(Tools.equals(qual, bytestar)));
 		
 		if(FLIP_ON_LOAD && mapped() && strand()==Shared.MINUS){
-			if(seq!=bytestar){Vector.reverseComplementInPlaceFast(seq);}
-			if(qual!=bytestar){Vector.reverseInPlace(qual);}
+			if(seq!=null && qual!=bytestar){Vector.reverseComplementInPlaceFast(seq);}
+			if(qual!=null && qual!=bytestar){Vector.reverseInPlace(qual);}
 		}
 		
 		if(qual!=null && qual!=bytestar){
@@ -526,7 +527,7 @@ public class SamLine implements Serializable {
 		
 		while(b<s.length && s[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 0: "+new String(s);
-		String qname=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a));
+		String qname=(b==a+1 && s[a]=='*' ? null : new String(s, a, b-a, StandardCharsets.US_ASCII));
 		return qname;
 	}
 	
@@ -1817,7 +1818,7 @@ public class SamLine implements Serializable {
 					if(!r.shortmatch()){
 						match=Read.toShortMatchString(match);
 					}
-					optionalTags.add("X2:Z:"+new String(match));
+					optionalTags.add("X2:Z:"+new String(match, StandardCharsets.US_ASCII));
 				}
 
 				optionalTags.add("X3:i:"+r.mapScore);
@@ -2496,8 +2497,8 @@ public class SamLine implements Serializable {
 	public void setRname(String x){assert(!RNAME_AS_BYTES);rnameS=x;}
 	public void setRnext(String x){rnext=(x==null ? null : x.getBytes());}
 	
-	public String rnameS(){return rnameS!=null ? rnameS : rname==null ? null : new String(rname);}
-	public String rnextS(){return rnext==null ? null : new String(rnext);}
+	public String rnameS(){return rnameS!=null ? rnameS : rname==null ? null : new String(rname, StandardCharsets.US_ASCII);}
+	public String rnextS(){return rnext==null ? null : new String(rnext, StandardCharsets.US_ASCII);}
 	
 	public String rnamePrefix() {
 		return (rnameS!=null ? toPrefix(rnameS) : toPrefix(rname));
@@ -2515,10 +2516,10 @@ public class SamLine implements Serializable {
 	private static String toPrefix(byte[] s) {
 		for(int i=0; i<s.length; i++) {
 			if(Character.isWhitespace(s[i])) {
-				return new String(s, 0, i);
+				return new String(s, 0, i, StandardCharsets.US_ASCII);
 			}
 		}
-		return new String(s);
+		return new String(s, StandardCharsets.US_ASCII);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -2558,7 +2559,7 @@ public class SamLine implements Serializable {
 		if(mapped() || (rname!=null && rname!=byteequals && rname!=bytestar)){
 			name=rnameS();
 		}else if(nextMapped() && rnext!=null && rnext!=byteequals && rnext!=bytestar){
-			name=new String(rnext);
+			name=new String(rnext, StandardCharsets.US_ASCII);
 		}
 		if(name!=null){scafnum=scafMap.getNumber(name);}
 		return scafnum;

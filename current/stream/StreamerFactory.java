@@ -7,7 +7,7 @@ import shared.Shared;
 /**
  * Factory for creating appropriate Streamer implementations based on file format.
  * Handles single files, paired files, and interleaved formats.
- * Supports FASTQ, SAM/BAM, and FASTA (when implemented).
+ * Supports FASTQ, SAM/BAM, and FASTA.
  * 
  * @author Isla
  * @date October 31, 2025
@@ -113,14 +113,21 @@ public class StreamerFactory {
 			}
 			
 		}else if(ff.fasta()){
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastaStreamer.DEFAULT_THREADS>0)) {
-				return new FastaStreamer(ff, threads, pairnum, maxReads);
-			}else {
-				if(FASTA_STREAMER_2 && Shared.SIMD) {
+			if(threads==0 || (threads<0 && FastaStreamer.DEFAULT_THREADS<1) || 
+					Shared.threads()<4 || Shared.LOW_MEMORY) {
+				if(FASTA_STREAMER_2 && Shared.SIMD && !ff.interleaved()) {
+					return new FastaStreamer2ZT(ff, pairnum, maxReads);
+				}else {
+					return new FastaStreamerZT(ff, pairnum, maxReads);
+				}
+			}else if(threads==1 || (threads<0 && FastaStreamer.DEFAULT_THREADS<2) || Shared.threads()<8) {
+				if(FASTA_STREAMER_2 && Shared.SIMD && !ff.interleaved()) {
 					return new FastaStreamer2ST(ff, pairnum, maxReads);
 				}else {
 					return new FastaStreamerST(ff, pairnum, maxReads);
 				}
+			}else {
+				return new FastaStreamer(ff, threads, pairnum, maxReads);
 			}
 			
 		}else if(ff.bam() && ReadWrite.nativeBamIn()){

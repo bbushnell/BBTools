@@ -5,6 +5,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 
+import align2.AbstractMapThread;
+import align2.IndexMaker4;
+import align2.IndexMaker5;
 import align2.QualityTools;
 import aligner.SideChannel3;
 import bloom.KCountArray;
@@ -613,6 +616,8 @@ public class Parser {
 			Read.SKIP_SLOW_VALIDATION=Parse.parseBoolean(b);
 		}else if(a.equals("validate")){
 			Read.SKIP_SLOW_VALIDATION=!Parse.parseBoolean(b);
+		}else if(a.equals("validateinconstructor") || a.equals("vic")){
+			Read.VALIDATE_IN_CONSTRUCTOR=Parse.parseBoolean(b);
 		}else if(a.equals("validatebranchless")){
 //			Read.VALIDATE_BRANCHLESS=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("bf1") || a.equalsIgnoreCase("bytefile1")){
@@ -817,6 +822,12 @@ public class Parser {
 		
 		else if(a.equalsIgnoreCase("sidechannelstats")){
 			SideChannel3.TRACK_STATS=Parse.parseBoolean(b);
+		}
+		
+		else if(a.equals("lowmem") || a.equals("lowram") || a.equals("lowmemory")){
+			boolean x=Parse.parseBoolean(b);
+			shared.SyncHeart.setLowMemory(x);
+			if(x){Shared.LOW_MEMORY=true;}
 		}
 		
 //		else if(a.equalsIgnoreCase("sortserial")){

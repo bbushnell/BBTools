@@ -1,5 +1,6 @@
 package gff;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -42,16 +43,16 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 0: "+new String(line);
-		seqid=parseSeqid ? intern(new String(line, a, b-a)) : null;
-//		assert(seqid==null || seqid.equals(new String(line, a, b-a)));
-//		assert(seqid!=null) : new String(line, a, b-a)+", "+a+", "+b+"\n"+line;
+		seqid=parseSeqid ? intern(new String(line, a, b-a, StandardCharsets.US_ASCII)) : null;
+//		assert(seqid==null || seqid.equals(new String(line, a, b-a, StandardCharsets.US_ASCII)));
+//		assert(seqid!=null) : new String(line, a, b-a, StandardCharsets.US_ASCII)+", "+a+", "+b+"\n"+line;
 		b++;
 		a=b;
 		
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 1: "+new String(line);
 		if(b==a+1 && line[a]=='.'){source=DOTS;}
-		else{source=paseSource ? intern(new String(line, a, b-a)) : null;}
+		else{source=paseSource ? intern(new String(line, a, b-a, StandardCharsets.US_ASCII)) : null;}
 		b++;
 		a=b;
 		
@@ -60,7 +61,7 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		if(b==a+1 && line[a]=='.'){type=DOTS;}
 		else{
 			try { //This was to catch a probably intermittent hardware error; can't replicate.
-				type=(parseType ? intern(new String(line, a, b-a)) : null);
+				type=(parseType ? intern(new String(line, a, b-a, StandardCharsets.US_ASCII)) : null);
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
@@ -113,7 +114,7 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 8: "+new String(line);
 		if(b==a+1 && line[a]=='.'){attributes=DOTS;}
-		else{attributes=parseAttributes ? new String(line, a, b-a) : null;}
+		else{attributes=parseAttributes ? new String(line, a, b-a, StandardCharsets.US_ASCII) : null;}
 		b++;
 		a=b;
 		

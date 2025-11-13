@@ -3,6 +3,7 @@ package stream;
 import java.io.File;
 import java.io.PrintStream;
 
+import fileIO.ByteFile4;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
@@ -271,7 +272,8 @@ public class StreamerWrapper{
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean saveHeader=inputSam && outputSam;
 		
-		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads, saveHeader, outputReads, threadsIn);
+		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads, 
+			saveHeader, outputReads, threadsIn);
 		st.setSampleRate(samplerate, sampleseed);
 		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
 		
@@ -286,6 +288,8 @@ public class StreamerWrapper{
 	 * @param readMode True for Read objects, false for SamLine objects
 	 */
 	private void process(Streamer st, Writer fw, Timer t, boolean readMode) {
+		if(threadsIn==0 || threadsIn==1) {Read.VALIDATE_IN_CONSTRUCTOR=false;}
+//		System.err.println("VIC="+Read.VALIDATE_IN_CONSTRUCTOR);
 		st.start();
 		if(fw!=null) {fw.start();}
 		if(readMode) {
@@ -312,6 +316,13 @@ public class StreamerWrapper{
 		}
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
+		st.close();//Prevents a BF4 hang with limited reads
+//		try {
+//		    Thread.sleep(100);
+//		} catch (InterruptedException e) {
+//		    // Ignore
+//		}
+//		Shared.listThreads2();
 	}
 	
 	/**
@@ -322,6 +333,8 @@ public class StreamerWrapper{
 	private void processReadPair(Read r1, Read r2) {
 		readsIn+=r1.pairCount();
 		basesIn+=r1.pairLength();
+		if(!r1.validated()) {r1.validate(true);}
+		if(r2!=null && !r2.validated()) {r2.validate(true);}
 	}
 	
 	/**

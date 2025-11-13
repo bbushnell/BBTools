@@ -9,6 +9,7 @@ import shared.Timer;
 import shared.Tools;
 import shared.Vector;
 import stream.bam.BgzfSettings;
+import structures.ByteBuilder;
 import structures.IntList;
 import structures.ListNum;
 
@@ -20,7 +21,7 @@ import structures.ListNum;
  * @author Brian Bushnell
  * @date November 11, 2025
  */
-public final class ByteFile1F extends ByteFile {
+public final class ByteFile1Fc extends ByteFile {
 
 	public static void main(String[] args){
 		long first=0, last=100;
@@ -47,7 +48,7 @@ public final class ByteFile1F extends ByteFile {
 				ReadWrite.ALLOW_NATIVE_BGZF=BgzfSettings.USE_MULTITHREADED_BGZF=true;
 			}
 		}
-		ByteFile1F tf=new ByteFile1F(args.length>0 ? args[0] : "stdin", true);
+		ByteFile1Fc tf=new ByteFile1Fc(args.length>0 ? args[0] : "stdin", true);
 		speedtest(tf, first, last, !speedtest);
 
 		tf.close();
@@ -55,7 +56,7 @@ public final class ByteFile1F extends ByteFile {
 		tf.close();
 	}
 
-	private static void speedtest(ByteFile1F bf, long first, long last, boolean reprint){
+	private static void speedtest(ByteFile1Fc bf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long records=0;
 		long bytes=0;
@@ -66,7 +67,9 @@ public final class ByteFile1F extends ByteFile {
 				if(s==null){break;}
 				records++;
 				bytes+=s.length+1;
-				System.out.println(new String(s));
+				System.out.print("*");
+				System.out.print(new String(s));
+				System.out.println("*");
 			}
 			System.err.println("\n");
 			System.err.println("Records: "+records);
@@ -87,11 +90,11 @@ public final class ByteFile1F extends ByteFile {
 		}
 	}
 
-	public ByteFile1F(String fname, boolean allowSubprocess_){
+	public ByteFile1Fc(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, null, allowSubprocess_, false));
 	}
 
-	public ByteFile1F(FileFormat ff){
+	public ByteFile1Fc(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile1F("+ff+")");}
 		is=open();
@@ -123,85 +126,34 @@ public final class ByteFile1F extends ByteFile {
 
 	@Override
 	public final byte[] nextLine(){
+		return nextLine(new IntList());
+	}
+	
+	public final byte[] nextLine(IntList newlines){
 		if(!open || is==null){
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
 			return null;
 		}
-
-		// For the first record, find the first '>'
-		if(firstRecord){
-			if(bstop==0){fillBuffer();}
-			while(bstart<bstop && buffer[bstart]!=carrot){bstart++;}
-			if(bstart>=bstop){
-				close();
-				return null;
-			}
-			firstRecord=false;
-		}
-
-		// Need more positions?
-		if(listPos>=positions.size()){
-			fillBuffer();
-			if(listPos>=positions.size() && bstart>=bstop){
-				// EOF
-				close();
-				return null;
-			}
-		}
-
-		lineNum++;
-
-		// Determine record boundaries
-		final int limit;
-		if(listPos<positions.size()){
-			// Next boundary is at positions[listPos] (points to \n before >)
-			limit=positions.get(listPos++);
-		}else{
-			// No more boundaries, use rest of buffer
-			limit=bstop;
-		}
-
-		if(bstart>=limit){
-			// Empty record or at end
-			if(bstart<bstop){
-				bstart++; // Skip the >
-			}
-			return blankLine;
-		}
-
-		byte[] record=KillSwitch.copyOfRange(buffer, bstart, limit);
-
-		// Move past this record (\n> or end)
-		if(limit<bstop){
-			bstart=limit+2; // Skip \n>
-		}else{
-			bstart=bstop;
-		}
-
-		return record;
+		int lastRecordLoc=fillBuffer();
+		byte[] records=condense(buffer, positions, newlines, lastRecordLoc);
+		return records;
 	}
 	
 	@Override
 	public final ListNum<byte[]> nextList(){
-		if(!open || is==null){
-			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
-			return null;
-		}
-		
-		final int listSize=200;
-		final ArrayList<byte[]> list=new ArrayList<byte[]>(listSize);
-		for(int i=0; i<listSize; i++){
-			byte[] record=nextLine();
-			if(record==null){
-				break;
-			}
-			list.add(record);
-		}
-		return list.isEmpty() ? null : new ListNum<byte[]>(list, nextID++);
+		return nextList(new IntList());
+	}
+	
+	public final ListNum<byte[]> nextList(IntList newlines){
+		byte[] records=nextLine();
+		if(records==null) {return null;}
+		ArrayList<byte[]> list=new ArrayList<byte[]>(1);
+		list.add(records);
+		return new ListNum<byte[]>(list, nextID++);
 	}
 
 	/** Fill buffer and find all FASTA boundaries */
-	private void fillBuffer(){
+	private int fillBuffer(){
 		// Shift remaining data to start
 		if(bstart>0 && bstart<bstop){
 			int extra=bstop-bstart;
@@ -218,12 +170,13 @@ public final class ByteFile1F extends ByteFile {
 		positions.clear();
 
 		// Read data
-		while(positions.isEmpty()){
+		int lastRecordLoc=-1;
+		while(lastRecordLoc<0){
 			if(bstop==buffer.length){
 				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
 			}
 			
-			int r=-1;
+			int r=0;
 			try{
 				r=is.read(buffer, bstop, buffer.length-bstop);
 			}catch(IOException e){
@@ -232,14 +185,69 @@ public final class ByteFile1F extends ByteFile {
 				if(!Shared.anomaly){e.printStackTrace();}
 			}
 			
-			if(r<=0){break;} // EOF
-			
-			final int from=Math.max(0, bstop-1);
+//			final int from=Math.max(0, bstop-1);//Not safe because buffer can come in with residual newlines
 			bstop+=r;
+			
+			if(firstRecord){
+			    assert(bstop<1 || buffer[0]==carrot) : "File does not start with '>' - "+ff.name()+" is not a valid FASTA file";
+			    firstRecord=false;
+			}
 
 			// Find all \n> boundaries in the buffer
-			Vector.findFastaHeaders(buffer, from, bstop, positions);
+			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
+			for(int i=positions.size-1; i>=0 && lastRecordLoc<0; i--) {
+				int loc=positions.array[i];
+				if(loc+1<bstop && buffer[loc+1]==carrot) {lastRecordLoc=loc;}
+			}
+			
+			if(r<=0){// EOF
+				if(bstop>0 && buffer[bstop-1]!='\n') {positions.add(bstop);}
+				break;
+			}
 		}
+		return lastRecordLoc;
+	}
+	
+	private byte[] condense(byte[] buffer, IntList newlines1, IntList newlines2, int lastRecordLoc) {
+		int lastByte=lastRecordLoc>0 ? lastRecordLoc : bstop;
+		newlines2.clear();
+		if(lastByte<1) {
+			close();
+			return null;
+		}
+		ByteBuilder bb=new ByteBuilder(lastByte+1);
+		int prev=-1;
+		if(verbose) {System.err.println("Entered condense: lastRecordLoc="+
+			lastRecordLoc+", bstop="+bstop+", newlines="+newlines1);}
+		for(int i=0; i<newlines1.size && prev<lastByte; i++) {
+			int loc=newlines1.get(i);
+			int len=loc-prev-1;
+			System.arraycopy(buffer, prev+1, bb.array, bb.length, len);//Copy excluding newline
+			if(verbose) {System.err.println("Added "+len+" bytes.");}
+			bb.length+=len;
+			if(bb.endsWith('\r')){bb.length--;}//Trim \r
+			if(buffer[prev+1]==carrot){//Record start
+				newlines2.add(bb.length);
+				bb.nl();
+				if(verbose) {System.err.println("Added header start newline.");}
+			}
+			if(loc>=lastByte || buffer[loc+1]==carrot) {//Record end
+				newlines2.add(bb.length);
+				bb.nl();
+				if(verbose) {System.err.println("Added record stop newline.");}
+			}
+			prev=loc;
+		}
+		//Shift residual
+		int residual=bstop-lastRecordLoc-1;
+		if(lastRecordLoc>0 && residual>0) {
+			System.arraycopy(buffer, lastRecordLoc+1, buffer, 0, residual);
+			bstop=residual;
+		}else {
+			bstop=0;
+		}
+		//assert(false) : "*"+bb.toString()+"*";
+		return bb.array;
 	}
 
 	@Override
@@ -280,9 +288,9 @@ public final class ByteFile1F extends ByteFile {
 	private int listPos=0;
 	private boolean firstRecord=true;
 
-	public static boolean verbose=false;
+	public static final boolean verbose=false;
 	public static boolean BUFFERED=false;
-	public static int bufferlen=65536;
+	public static int bufferlen=262144;
 
 	private boolean errorState=false;
 }

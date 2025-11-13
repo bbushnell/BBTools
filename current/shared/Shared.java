@@ -961,7 +961,7 @@ public class Shared {
 		return Double.parseDouble(sb.toString());
 	}
 	
-	//Gemini version
+	/** Gemini version */
 	public static void listThreads() {
 		// Get a map of all active threads and their stack traces
 		Map<Thread, StackTraceElement[]> allThreads = Thread.getAllStackTraces();
@@ -984,7 +984,7 @@ public class Shared {
 		}
 	}
 
-	//Isla version
+	/** Isla version */
 	public static void listThreads2() {
 		ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
 		while(rootGroup.getParent() != null) {

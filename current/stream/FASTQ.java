@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -499,7 +500,7 @@ public class FASTQ {
 		String id=null;
 		if(stop>start){
 			try {
-				id=new String(s, start, stop-start);
+				id=new String(s, start, stop-start, StandardCharsets.US_ASCII);
 			} catch (OutOfMemoryError e) {
 				KillSwitch.memKill(e);
 			}
@@ -833,7 +834,7 @@ public class FASTQ {
 			r.makeOriginalSite();
 		}else{
 			if(header!=null && Tools.indexOf(header, (byte)'_')>0){
-				String temp=new String(header);
+				String temp=new String(header, StandardCharsets.US_ASCII);
 				if(temp.endsWith(" /1") || temp.endsWith(" /2")){temp=temp.substring(0, temp.length()-3);}
 				String[] answer=temp.split("_");
 
@@ -959,7 +960,7 @@ public class FASTQ {
 				r.makeOriginalSite();
 			}else{
 				if(quad[0]!=null && Tools.indexOf(quad[0], (byte)'_')>0){
-					String temp=new String(quad[0]);
+					String temp=new String(quad[0], StandardCharsets.US_ASCII);
 					if(temp.endsWith(" /1") || temp.endsWith(" /2")){temp=temp.substring(0, temp.length()-3);}
 					String[] answer=temp.split("_");
 

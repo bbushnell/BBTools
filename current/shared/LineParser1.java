@@ -1,6 +1,7 @@
 package shared;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -209,7 +210,7 @@ public final class LineParser1 implements LineParser {
 	@Override
 	public String parseString(int term) {
 		final int len=setBounds(term);
-		return new String(line, a, len);
+		return new String(line, a, len, StandardCharsets.US_ASCII);
 	}
 
 	@Override
@@ -228,7 +229,7 @@ public final class LineParser1 implements LineParser {
 	
 	@Override
 	public String parseStringFromCurrentField() {
-		return new String(line, a, b-a);
+		return new String(line, a, b-a, StandardCharsets.US_ASCII);
 	}
 	
 	/*--------------------------------------------------------------*/

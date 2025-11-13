@@ -1,5 +1,7 @@
 package stream.bam;
 
+import java.nio.charset.StandardCharsets;
+
 import dna.AminoAcid;
 import map.ObjectIntMap;
 import shared.Parse;
@@ -162,7 +164,7 @@ public class SamToBamConverter implements Cloneable {
 				return currentRefID;
 			}
 		}
-		String rnextStr=new String(rnext);
+		String rnextStr=new String(rnext, StandardCharsets.US_ASCII);
 		return getRefID(rnextStr);
 	}
 
