@@ -2,6 +2,7 @@ package stream.bam;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import shared.Shared;
@@ -242,7 +243,7 @@ public class BamToSamConverter {
 		//QNAME - SamLine.PARSE_0
 		byte[] readNameBytes=new byte[l_read_name];
 		bb.get(readNameBytes);
-		sl.qname=new String(readNameBytes, 0, l_read_name-1); //Exclude NUL
+		sl.qname=new String(readNameBytes, 0, l_read_name-1, StandardCharsets.US_ASCII); //Exclude NUL
 
 		//FLAG
 		sl.flag=flag;
@@ -440,7 +441,7 @@ public class BamToSamConverter {
 		//QNAME - SamLine.PARSE_0
 		byte[] readNameBytes=new byte[l_read_name];
 		bb.get(readNameBytes);
-		if(SamLine.PARSE_0) {sl.qname=new String(readNameBytes, 0, l_read_name-1);} //Exclude NUL
+		if(SamLine.PARSE_0) {sl.qname=new String(readNameBytes, 0, l_read_name-1, StandardCharsets.US_ASCII);} //Exclude NUL
 
 		//FLAG
 		sl.flag=flag;
@@ -636,7 +637,7 @@ public class BamToSamConverter {
 		if(SamLine.PARSE_0){
 			int qnameStart=bbw.position();
 			bbw.skip(l_read_name);
-			sl.qname=new String(bamRecord, qnameStart, l_read_name-1); //Exclude NUL
+			sl.qname=new String(bamRecord, qnameStart, l_read_name-1, StandardCharsets.US_ASCII); //Exclude NUL
 		}else{
 			bbw.skip(l_read_name);
 		}

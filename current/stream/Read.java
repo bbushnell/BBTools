@@ -84,7 +84,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 	public boolean validate(final boolean processAssertions){
 		assert(!validated());
-
+//		assert(false);
 		//		if(false){//This causes problems with error-corrected PacBio reads.
 		//			boolean x=(quality==null || quality.length<1 || quality[0]<=80 || !FASTQ.DETECT_QUALITY || FASTQ.IGNORE_BAD_QUALITY);
 		//			if(!x){

@@ -2,6 +2,7 @@ package tax;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -453,7 +454,7 @@ public class AccessionToTaxid {
 		while(b<line.length && line[b]!=delimiter){b++;}
 //		assert(b>a) : "Missing field 1: "+new String(line);
 		assert(b>=a) : "Missing field 1: "+new String(line)+"\n"+a+", "+b;
-		//accession2=new String(line, a, b-a);
+		//accession2=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		b++;
 		a=b;
 		
@@ -583,7 +584,7 @@ public class AccessionToTaxid {
 //
 //			while(b<line.length && line[b]!=delimiter){b++;}
 //			assert(b>a) : "Missing field 1: "+new String(line);
-//			//accession2=new String(line, a, b-a);
+//			//accession2=new String(line, a, b-a, StandardCharsets.US_ASCII);
 //			b++;
 //			a=b;
 //
@@ -624,7 +625,7 @@ public class AccessionToTaxid {
 			
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing field 0: "+new String(line);
-			accession=new String(line, a, b-a);
+			accession=new String(line, a, b-a, StandardCharsets.US_ASCII);
 			final int dot=accession.indexOf('.');//and :, but this is deprecated.
 			if(dot>=0){//Should never happen
 //				System.err.println(accession);
@@ -649,7 +650,7 @@ public class AccessionToTaxid {
 			while(b<line.length && line[b]!=delimiter){b++;}
 //			assert(b>a) : "Missing field 1: "+new String(line);
 			assert(b>=a) : "Missing field 1: "+new String(line)+"\n"+a+", "+b;
-			//accession2=new String(line, a, b-a);
+			//accession2=new String(line, a, b-a, StandardCharsets.US_ASCII);
 			b++;
 			a=b;
 			
@@ -733,7 +734,7 @@ public class AccessionToTaxid {
 			while(b<line.length && line[b]!=delimiter){b++;}
 //			assert(b>a) : "Missing field 1: "+new String(line);
 			assert(b>=a) : "Missing field 1: "+new String(line)+"\n"+a+", "+b;
-			//accession2=new String(line, a, b-a);
+			//accession2=new String(line, a, b-a, StandardCharsets.US_ASCII);
 			b++;
 			a=b;
 			
@@ -742,7 +743,7 @@ public class AccessionToTaxid {
 			while(b<line.length && line[b]!=delimiter){b++;}
 			assert(b>a) : "Missing field 2: "+new String(line);
 			ncbi=Parse.parseInt(line, a, b);
-			//System.err.println("D: a="+a+", b="+b+", ncbi="+ncbi+", '"+(new String(line, a, b-a))+"'");
+			//System.err.println("D: a="+a+", b="+b+", ncbi="+ncbi+", '"+(new String(line, a, b-a, StandardCharsets.US_ASCII))+"'");
 			b++;
 			a=b;
 			

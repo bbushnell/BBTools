@@ -3,6 +3,7 @@ package stream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
@@ -125,7 +126,7 @@ public class BamWriter implements Writer {
 		ArrayList<String> refNames=new ArrayList<String>();
 		for(byte[] line : headerLines) {
 			if(line.length > 3 && line[0] == '@' && line[1] == 'S' && line[2] == 'Q') {
-				String lineStr = new String(line);
+				String lineStr = new String(line, StandardCharsets.US_ASCII);
 				String[] fields = lineStr.split("\\t");
 				for(int i = 1; i < fields.length; i++) {
 					if(fields[i].startsWith("SN:")) {

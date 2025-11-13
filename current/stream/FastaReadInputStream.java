@@ -1,6 +1,7 @@
 package stream;
 
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -305,7 +306,7 @@ public class FastaReadInputStream extends ReadInputStream {
 			}
 		}
 		
-		String s=stop>start ? new String(buffer, start, stop-start) : "";
+		String s=stop>start ? new String(buffer, start, stop-start, StandardCharsets.US_ASCII) : "";
 //		String s=new String(buffer, bstart+1, x-(bstart+1));
 		if(verbose){System.err.println("Fetched header: '"+s+"'");}
 		bstart=x+1;

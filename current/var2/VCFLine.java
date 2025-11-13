@@ -1,5 +1,6 @@
 package var2;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,7 +36,7 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 0: "+new String(line);
-		scaf=new String(line, a, b-a);
+		scaf=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		b++;
 		a=b;
 		

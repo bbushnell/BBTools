@@ -189,7 +189,14 @@ public class JobQueue<K extends HasID>{
 	}
 	
 	public void poison() {
-		synchronized(heap){poisoned=true;}
+		synchronized(heap){
+			poisoned=true;
+			heap.notifyAll();
+		}
+	}
+	
+	public void notifyHeap() {
+		synchronized(heap) {heap.notifyAll();}
 	}
 
 	/** Comparator for sorting jobs */

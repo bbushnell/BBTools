@@ -1,5 +1,7 @@
 package hmm;
 
+import java.nio.charset.StandardCharsets;
+
 import shared.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -20,7 +22,7 @@ public class HMMSearchLine {
 		while(b<line.length && line[b]!=' '){b++;}
 //		System.err.println("2: a="+a+", b="+b);
 		assert(b>a) : "Missing field 0: "+new String(line);
-		name=new String(line, a, b-a);
+		name=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		while(b<line.length && line[b]==' '){b++;}
 		a=b;
 //		System.err.println("3: a="+a+", b="+b);
@@ -28,7 +30,7 @@ public class HMMSearchLine {
 		while(b<line.length && line[b]!=' '){b++;}
 //		System.err.println("4: a="+a+", b="+b);
 		assert(b>a) : "Missing field 1: "+new String(line);
-		field1=new String(line, a, b-a);
+		field1=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		while(b<line.length && line[b]==' '){b++;}
 		a=b;
 //		System.err.println("5: a="+a+", b="+b);
@@ -41,13 +43,13 @@ public class HMMSearchLine {
 		
 		while(b<line.length && line[b]!=' '){b++;}
 		assert(b>a) : "Missing field 3: "+new String(line);
-		hmmName=new String(line, a, b-a);
+		hmmName=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		while(b<line.length && line[b]==' '){b++;}
 		a=b;
 		
 		while(b<line.length && line[b]!=' '){b++;}
 		assert(b>a) : "Missing field 4: "+new String(line);
-		accession=new String(line, a, b-a);
+		accession=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		while(b<line.length && line[b]==' '){b++;}
 		a=b;
 		
@@ -155,7 +157,7 @@ public class HMMSearchLine {
 		
 		while(b<line.length && line[b]!=' '){b++;}
 		assert(b>a) : "Missing field 22: "+new String(line);
-		field22=new String(line, a, b-a);
+		field22=new String(line, a, b-a, StandardCharsets.US_ASCII);
 		while(b<line.length && line[b]==' '){b++;}
 		a=b;
 		

@@ -153,7 +153,7 @@ public abstract class ByteFile {
 	public static boolean ALLOW_BF1=true;
 	public static boolean ALLOW_BF2=true;
 	public static boolean ALLOW_BF3=false;//Hung on fasta input
-	public static boolean ALLOW_BF4=true;
+	public static boolean ALLOW_BF4=true;//Hangs if there are limited reads and it is never closed. 
 	
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 	protected static final byte[] plusLine=new byte[] {plus};
