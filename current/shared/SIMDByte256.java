@@ -197,43 +197,42 @@ final class SIMDByte256{
 	 * @return Position of last newline, or -1 if none found
 	 */
 	static int findLastSymbol(byte[] buffer, int limit, final byte symbol){
-		//Start from the last aligned chunk and work backwards
-		int i=((limit-1)/BWIDTH256)*BWIDTH256; //Round down to 256-bit boundary
-		
-		{//256-bit loop - work backwards
-			final ByteVector newlineVec256=ByteVector.broadcast(BSPECIES256, symbol);
-			for(; i>=0; i-=BWIDTH256){
-				ByteVector vec=ByteVector.fromArray(BSPECIES256, buffer, i);
-				VectorMask<Byte> mask=vec.eq(newlineVec256);
-				long bits=mask.toLong();
-				
-				if(bits!=0){
-					int lane=63-Long.numberOfLeadingZeros(bits); //Highest set bit
-					return i+lane;
-				}
-			}
-		}
-		
-		{//64-bit loop for beginning of buffer
-			final ByteVector newlineVec64=ByteVector.broadcast(BSPECIES64, symbol);
-			for(i+=BWIDTH256-BWIDTH64; i>=0; i-=BWIDTH64){
-				ByteVector vec=ByteVector.fromArray(BSPECIES64, buffer, i);
-				VectorMask<Byte> mask=vec.eq(newlineVec64);
-				long bits=mask.toLong();
-				
-				if(bits!=0){
-					int lane=63-Long.numberOfLeadingZeros(bits);
-					return i+lane;
-				}
-			}
-		}
-		
-		//Scalar tail for beginning of buffer
-		for(i+=BWIDTH64-1; i>=0; i--){
-			if(buffer[i]==symbol){return i;}
-		}
-		
-		return -1;
+	    int i=limit;
+	    
+	    {//256-bit loop - work backwards
+	        final ByteVector newlineVec256=ByteVector.broadcast(BSPECIES256, symbol);
+	        for(; i>=BWIDTH256; i-=BWIDTH256){
+	            ByteVector vec=ByteVector.fromArray(BSPECIES256, buffer, i-BWIDTH256);
+	            VectorMask<Byte> mask=vec.eq(newlineVec256);
+	            long bits=mask.toLong();
+	            
+	            if(bits!=0){
+	                int lane=63-Long.numberOfLeadingZeros(bits);
+	                return (i-BWIDTH256)+lane;
+	            }
+	        }
+	    }
+	    
+	    {//64-bit loop
+	        final ByteVector newlineVec64=ByteVector.broadcast(BSPECIES64, symbol);
+	        for(; i>=BWIDTH64; i-=BWIDTH64){
+	            ByteVector vec=ByteVector.fromArray(BSPECIES64, buffer, i-BWIDTH64);
+	            VectorMask<Byte> mask=vec.eq(newlineVec64);
+	            long bits=mask.toLong();
+	            
+	            if(bits!=0){
+	                int lane=63-Long.numberOfLeadingZeros(bits);
+	                return (i-BWIDTH64)+lane;
+	            }
+	        }
+	    }
+	    
+	    //Scalar tail
+	    for(i--; i>=0; i--){
+	        if(buffer[i]==symbol){return i;}
+	    }
+	    
+	    return -1;
 	}
 	
 	/**
