@@ -35,9 +35,9 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.47";
+	public static String BBTOOLS_VERSION_STRING="39.48";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Sable Stable";
+	public static String BBMAP_VERSION_NAME="BF4 Breakout";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
