@@ -42,6 +42,29 @@ public class ThreadWaiter {
 		return success;
 	}
 	
+	/** Wait for completion of all threads except self */
+	public static final <T extends Thread> boolean waitForThreadsToFinish(T[] iter){
+
+		//Wait for completion of all threads
+		boolean success=true;
+		final Thread self=Thread.currentThread();
+		for(T t : iter){
+			if(t==self) {continue;}
+			//Wait until this thread has terminated
+			while(t.getState()!=Thread.State.TERMINATED){
+				try {
+					//Attempt a join operation
+					t.join();
+				} catch (InterruptedException e) {
+					//Potentially handle this, if it is expected to occur
+					e.printStackTrace();
+				}
+			}
+		}
+		
+		return success;
+	}
+	
 	public static final <T extends Thread> void startThreads(Iterable<T> iter){
 		for(Thread t : iter){t.start();}
 	}

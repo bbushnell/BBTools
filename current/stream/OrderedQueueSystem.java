@@ -40,14 +40,18 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*--------------------------------------------------------------*/
 
 	/** Add input job for processing. */
-	public void addInput(I job){
-		if(job==null){return;}
+	public boolean addInput(I job){
+		if(job==null){return false;}
 		assert(!job.last()) : "Use poison() to terminate";
 		synchronized(this){
 			assert(!lastSeen || job.poison());
 			maxSeenId=Math.max(job.id(), maxSeenId);
+//			if(finished) {
+//				if(job.poison()) {return inq.offer(job);}
+//				return false;
+//			}
 		}
-		putJob(job);
+		return putJob(job);
 	}
 
 	/** Signal end of input - injects LAST to output and POISON to input. */
@@ -91,6 +95,11 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 			try{
 				job=inq.take();
 			}catch(InterruptedException e){
+//				synchronized(this) {
+//					if(finished) {
+//						//I'm not sure what to do... return null?
+//					}
+//				}
 				e.printStackTrace();
 			}
 		}
@@ -132,16 +141,27 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void putJob(I job){
+	private boolean putJob(I job){
 		if(verbose) {System.err.println("OQS: putJob I "+job.id()+": "+job.poison()+", "+job.last());}
 		while(job!=null){
 			try{
 				inq.put(job);
 				job=null;
 			}catch(InterruptedException e){
+//				synchronized(this) {
+//					if(finished) {
+//						if(job.poison()) {
+//							//return inq.offer(job);
+//							continue;//Risk of it never getting inserted
+//						}else {
+//							//return false;
+//						}
+//					}
+//				}
 				e.printStackTrace();
 			}
 		}
+		return true;
 	}
 
 	/*--------------------------------------------------------------*/
