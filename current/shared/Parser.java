@@ -1093,6 +1093,12 @@ public class Parser {
 			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
 		}else if(a.equals("filteredbgzf")){
 			BgzfOutputStreamMT.FILTERED_BGZF=Parse.parseBoolean(b);
+		}else if(a.equals("bgzfthreadsin") || a.equals("bgzftin") || a.equals("bgzfreadthreads")){
+			int x=Integer.parseInt(b);
+			BgzfSettings.READ_THREADS=Tools.max(1, x>0 ? x : Shared.threads());
+		}else if(a.equals("bgzfthreadsout") || a.equals("bgzftout") || a.equals("bgzfwritethreads")){
+			int x=Integer.parseInt(b);
+			BgzfSettings.WRITE_THREADS=Tools.max(1, x>0 ? x : Shared.threads());
 		}
 		
 		else if(a.equals("preferunbgzip")){

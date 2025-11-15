@@ -3,8 +3,6 @@ package stream.bam;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
@@ -12,6 +10,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.Inflater;
 
 import stream.JobQueue;
+import structures.BinaryByteWrapperLE;
 
 /**
  * Multithreaded BGZF (Blocked GZIP Format) input stream.
@@ -26,13 +25,13 @@ import stream.JobQueue;
  *
  * @author Chloe
  * @contributor Isla
- * @date October 23, 2025
+ * @date November 14, 2025
  */
-public class BgzfInputStreamMT extends InputStream {
+public class BgzfInputStreamMT2 extends InputStream {
 	
 	public static void main(String[] args) throws IOException{
 		if(args.length<1){
-			System.err.println("Usage: BgzfInputStreamMT <file.gz>");
+			System.err.println("Usage: BgzfInputStreamMT2 <file.gz>");
 			System.exit(1);
 		}
 		int threads=(args.length>1 ? Integer.parseInt(args[1]) : BgzfSettings.READ_THREADS);
@@ -45,7 +44,7 @@ public class BgzfInputStreamMT extends InputStream {
 		long startTime=System.nanoTime();
 		
 		try(InputStream fis=new java.io.FileInputStream(filename);
-			InputStream bgzf=new BgzfInputStreamMT(fis, threads)){
+			InputStream bgzf=new BgzfInputStreamMT2(fis, threads)){
 			
 			int bytesRead;
 			while((bytesRead=bgzf.read(buffer))>=0){
@@ -67,11 +66,11 @@ public class BgzfInputStreamMT extends InputStream {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public BgzfInputStreamMT(InputStream in){
+	public BgzfInputStreamMT2(InputStream in){
 		this(in, BgzfSettings.READ_THREADS);
 	}
 
-	public BgzfInputStreamMT(InputStream in, int threads){
+	public BgzfInputStreamMT2(InputStream in, int threads){
 		assert(in!=null) : "Null input stream";
 		assert(threads>0 && threads<=32) : "Invalid thread count: "+threads;
 
@@ -81,7 +80,7 @@ public class BgzfInputStreamMT extends InputStream {
 		//Queue size: 3+workers*2 allows some buffering without excessive memory
 		final int queueSize=3+(3*workerThreads)/2;
 		this.inputQueue=new ArrayBlockingQueue<>(queueSize);
-		this.jobQueue=new JobQueue<BgzfJob>(queueSize, true, true, 0);
+		this.jobQueue=new JobQueue<BgzfInputJob>(queueSize, true, true, 0);
 
 		startThreads();
 
@@ -118,21 +117,24 @@ public class BgzfInputStreamMT extends InputStream {
 
 	/** Producer thread: Read BGZF blocks and create jobs. */
 	private void producerLoop(){
+		// Declare temp arrays outside loop for reuse
+		byte[] header=new byte[10];
+		byte[] xlenBytes=new byte[2];
+		byte[] trailer=new byte[8];
+		
 		try{
 			while(!closed){
-				BgzfJob job=readNextBlock();
+				BgzfInputJob job=readNextBlock(header, xlenBytes, trailer);
 				if(job==null){
 					if(!lastJobQueued){
-						BgzfJob eofJob=new BgzfJob(nextJobId++, new byte[0], null, true);
-						eofJob.decompressedSize=0;
-						while(eofJob!=null) {
+						BgzfInputJob eofJob=new BgzfInputJob(nextJobId++, null, 0, 0, 0, true);
+						while(eofJob!=null){
 							try{
 								inputQueue.put(eofJob);
 								eofJob=null;
 							}catch(InterruptedException e){
-								// If closing, stop trying to enqueue and exit
-								synchronized(BgzfInputStreamMT.this) {
-									if(closed) {
+								synchronized(BgzfInputStreamMT2.this){
+									if(closed){
 										inputQueue.offer(eofJob);
 										producerFinished=true;
 										return;
@@ -156,15 +158,14 @@ public class BgzfInputStreamMT extends InputStream {
 				}
 				assert(!DEBUG || job.repOK()) : "Producer created invalid job";
 
-				// Submit to input queue (be robust to interrupts during close)
-				while(job!=null) {
+				// Submit to input queue
+				while(job!=null){
 					try{
 						inputQueue.put(job);
 						job=null;
 					}catch(InterruptedException e){
-						// If we are closing, stop trying to enqueue and exit loop
-						synchronized(BgzfInputStreamMT.this) {
-							if(closed) {
+						synchronized(BgzfInputStreamMT2.this){
+							if(closed){
 								job=null;
 								producerFinished=true;
 								return;
@@ -178,24 +179,22 @@ public class BgzfInputStreamMT extends InputStream {
 		}finally{
 			producerFinished=true;
 			if(!lastJobQueued){
-				// Best-effort poison without blocking during shutdown
-				inputQueue.offer(BgzfJob.POISON_PILL);
+				inputQueue.offer(BgzfInputJob.POISON_PILL);
 			}
 		}
 	}
 
 	/** Read next BGZF block from input stream and create job. Returns null on EOF. */
-	private BgzfJob readNextBlock() throws IOException{
+	private BgzfInputJob readNextBlock(byte[] header, byte[] xlenBytes, byte[] trailer) throws IOException{
 		while(true){
 			if(readingPlainGzip){
-				BgzfJob job=readPlainGzipChunk();
+				BgzfInputJob job=readPlainGzipChunk();
 				if(job!=null){return job;}
-				closePlainStream(); //Plain gzip member exhausted; switch back to BGZF
+				closePlainStream();
 				continue;
 			}
 
 			//Read gzip header (minimum 10 bytes)
-			byte[] header=new byte[10];
 			int bytesRead=readFully(header, 0, header.length);
 			if(bytesRead==0){return null;} //EOF
 			if(bytesRead<header.length){
@@ -223,7 +222,6 @@ public class BgzfInputStreamMT extends InputStream {
 			}
 
 			//Read XLEN (2 bytes, little-endian)
-			byte[] xlenBytes=new byte[2];
 			if(readFully(xlenBytes, 0, 2)<2){
 				throw new EOFException("Truncated XLEN");
 			}
@@ -246,35 +244,29 @@ public class BgzfInputStreamMT extends InputStream {
 			int remaining=(bsize+1)-alreadyRead;
 			if(remaining<8){throw new IOException("Invalid BSIZE: "+bsize);}
 
-			final int compressedSize=remaining-8; //Subtract CRC32 and ISIZE
+			final int compressedSize=remaining-8;
 
-			//Read complete block into job
+			//Read compressed data
 			final byte[] compressed=new byte[compressedSize];
 			if(readFully(compressed, 0, compressedSize)<compressedSize){
 				throw new EOFException("Truncated compressed data");
 			}
 
 			//Read trailer (CRC32+ISIZE)
-			byte[] trailer=new byte[8];
 			if(readFully(trailer, 0, 8)<8){
 				throw new EOFException("Truncated block trailer");
 			}
 
-			//Store trailer in job for worker validation
-			ByteBuffer bb=ByteBuffer.wrap(trailer).order(ByteOrder.LITTLE_ENDIAN);
-			long expectedCrc=bb.getInt() & 0xFFFFFFFFL;
-			int expectedSize=bb.getInt();
-
-			//Store expected values for worker validation
-			final byte[] decompressed=new byte[8+65536]; //8 bytes metadata+max block
-			ByteBuffer meta=ByteBuffer.wrap(decompressed).order(ByteOrder.LITTLE_ENDIAN);
-			meta.putInt((int)expectedCrc);
-			meta.putInt(expectedSize);
+			//Extract expected CRC and size using wrapper
+			BinaryByteWrapperLE wrapper=new BinaryByteWrapperLE(trailer);
+			long expectedCrc=wrapper.getInt() & 0xFFFFFFFFL;
+			int expectedSize=wrapper.getInt();
 
 			if(compressedSize==0 && expectedSize==0){lastJobQueued=true;}
 
-			BgzfJob job=new BgzfJob(nextJobId++, decompressed, compressed, lastJobQueued);
-			synchronized(job){job.compressedSize=compressedSize;}
+			BgzfInputJob job=new BgzfInputJob(nextJobId++, compressed, compressedSize, 
+				expectedCrc, expectedSize, lastJobQueued);
+			
 			if(DEBUG && job.lastJob){
 				System.err.println("Producer: job "+job.id+" marked LAST (compressed="+
 					compressedSize+", expected="+expectedSize+")");
@@ -312,7 +304,7 @@ public class BgzfInputStreamMT extends InputStream {
 		readingPlainGzip=true;
 	}
 
-	private BgzfJob readPlainGzipChunk() throws IOException{
+	private BgzfInputJob readPlainGzipChunk() throws IOException{
 		if(plainGzipStream==null){return null;}
 
 		byte[] buffer=new byte[65536];
@@ -327,7 +319,8 @@ public class BgzfInputStreamMT extends InputStream {
 
 		if(total<=0){return null;}
 
-		BgzfJob job=new BgzfJob(nextJobId++, buffer, null, false);
+		BgzfInputJob job=new BgzfInputJob(nextJobId++, null, 0, 0, 0, false);
+		job.decompressed=buffer;
 		job.decompressedSize=total;
 		return job;
 	}
@@ -394,11 +387,11 @@ public class BgzfInputStreamMT extends InputStream {
 
 	/** Worker thread: Decompress BGZF blocks. */
 	private void workerLoop(){
-		Inflater inflater=new Inflater(true); //true=nowrap mode for raw deflate
+		Inflater inflater=new Inflater(true);
 
 		try{
 			while(!closed){
-				BgzfJob job=inputQueue.take();
+				BgzfInputJob job=inputQueue.take();
 
 				if(DEBUG){
 					System.err.println("Worker: dequeued job "+job.id+
@@ -409,82 +402,69 @@ public class BgzfInputStreamMT extends InputStream {
 					if(DEBUG){
 						System.err.println("Worker: got POISON, terminating");
 					}
-					// Do not re-inject poison to avoid potential blocking; close() interrupts others
 					break;
 				}
 
-				synchronized(job){
-					if(job.compressed==null){
-						assert(job.decompressed!=null) : 
-							"Job "+job.id+" missing decompressed data";
-						if(DEBUG){
-							System.err.println("Worker: job "+job.id+
-								" already decompressed ("+job.decompressedSize+" bytes)");
-						}
-					}else{
-						assert(!DEBUG || job.repOK()) : "Worker received invalid job";
-
-						//Extract expected CRC and size from metadata
-						ByteBuffer meta=ByteBuffer.wrap(job.decompressed).order(
-							ByteOrder.LITTLE_ENDIAN);
-						long expectedCrc=meta.getInt() & 0xFFFFFFFFL;
-						int expectedSize=meta.getInt();
-
-						//Decompress into same array (after metadata)
-						inflater.reset();
-						inflater.setInput(job.compressed, 0, job.compressedSize);
-
-						if(DEBUG){System.err.println("Worker: inflating job "+job.id);}
-
-						try{
-							job.decompressedSize=inflater.inflate(job.decompressed, 8, 65536);
-							if(DEBUG){
-								System.err.println("Worker: inflated job "+job.id+" to "+
-									job.decompressedSize+" bytes");
-							}
-						}catch(DataFormatException e){
-							job.error=new IOException("Decompression failed for job "+
-								job.id, e);
-							if(!jobQueue.add(job)){break;}
-							continue;
-						}
-
-						//Validate decompressed size
-						assert(job.decompressedSize==expectedSize) : 
-							"Size mismatch for job "+job.id+": expected "+expectedSize+
-							", got "+job.decompressedSize;
-						if(job.decompressedSize!=expectedSize){
-							job.error=new IOException("Uncompressed size mismatch for job "+
-								job.id+": expected "+expectedSize+", got "+
-								job.decompressedSize);
-							if(!jobQueue.add(job)){break;}
-							continue;
-						}
-
-						//Verify CRC32
-						CRC32 crc=new CRC32();
-						crc.update(job.decompressed, 8, job.decompressedSize);
-						long actualCrc=crc.getValue();
-
-						assert(actualCrc==expectedCrc) : 
-							"CRC32 mismatch for job "+job.id+": expected "+expectedCrc+
-							", got "+actualCrc;
-						if(actualCrc!=expectedCrc){
-							job.error=new IOException("CRC32 mismatch for job "+job.id);
-							if(!jobQueue.add(job)){break;}
-							continue;
-						}
-
-						//Move decompressed data to start of array (remove metadata)
-						System.arraycopy(job.decompressed, 8, job.decompressed, 0, 
-							job.decompressedSize);
-
-						//Clear compressed data to free memory
-						job.compressed=null;
-						job.compressedSize=0;
-
-						assert(!DEBUG || job.repOK()) : "Worker produced invalid job";
+				if(job.compressed==null){
+					assert(job.decompressed!=null) : 
+						"Job "+job.id+" missing decompressed data";
+					if(DEBUG){
+						System.err.println("Worker: job "+job.id+
+							" already decompressed ("+job.decompressedSize+" bytes)");
 					}
+				}else{
+					assert(!DEBUG || job.repOK()) : "Worker received invalid job";
+
+					//Decompress
+					inflater.reset();
+					inflater.setInput(job.compressed, 0, job.compressedSize);
+
+					if(DEBUG){System.err.println("Worker: inflating job "+job.id);}
+
+					// TODO: Brian to move this allocation here from producer
+					final byte[] decompressed=new byte[65536];
+					
+					try{
+						job.decompressedSize=inflater.inflate(decompressed, 0, 65536);
+						job.decompressed=decompressed;
+						if(DEBUG){
+							System.err.println("Worker: inflated job "+job.id+" to "+
+								job.decompressedSize+" bytes");
+						}
+					}catch(DataFormatException e){
+						job.error=new IOException("Decompression failed for job "+
+							job.id, e);
+						if(!jobQueue.add(job)){break;}
+						continue;
+					}
+
+					//Validate decompressed size
+					assert(job.decompressedSize==job.expectedSize) : 
+						"Size mismatch for job "+job.id+": expected "+job.expectedSize+
+						", got "+job.decompressedSize;
+					if(job.decompressedSize!=job.expectedSize){
+						job.error=new IOException("Uncompressed size mismatch for job "+
+							job.id+": expected "+job.expectedSize+", got "+
+							job.decompressedSize);
+						if(!jobQueue.add(job)){break;}
+						continue;
+					}
+
+					//Verify CRC32
+					CRC32 crc=new CRC32();
+					crc.update(job.decompressed, 0, job.decompressedSize);
+					long actualCrc=crc.getValue();
+
+					assert(actualCrc==job.expectedCrc) : 
+						"CRC32 mismatch for job "+job.id+": expected "+job.expectedCrc+
+						", got "+actualCrc;
+					if(actualCrc!=job.expectedCrc){
+						job.error=new IOException("CRC32 mismatch for job "+job.id);
+						if(!jobQueue.add(job)){break;}
+						continue;
+					}
+
+					assert(!DEBUG || job.repOK()) : "Worker produced invalid job";
 				}
 
 				//Add to job queue
@@ -495,12 +475,11 @@ public class BgzfInputStreamMT extends InputStream {
 						System.err.println("Worker: job "+job.id+
 							" marked LAST, injecting POISON to wake others");
 					}
-					// Try to wake remaining workers without blocking
 					final int toSignal=Math.max(1, workerThreads-1);
 					int signaled=0;
 					while(signaled<toSignal){
-						if(inputQueue.offer(BgzfJob.POISON_PILL)) {signaled++;}
-						else {Thread.yield();}
+						if(inputQueue.offer(BgzfInputJob.POISON_PILL)){signaled++;}
+						else{Thread.yield();}
 					}
 				}
 			}
@@ -528,63 +507,56 @@ public class BgzfInputStreamMT extends InputStream {
 		if(len==0){return 0;}
 		if(eofReached){return -1;}
 
-		//Check for worker errors
 		if(workerError!=null){throw workerError;}
 
 		int totalRead=0;
 		while(totalRead<len){
-			//Need new block?
 			if(currentBlockPos>=currentBlockSize){
-				BgzfJob nextJob=jobQueue.take();
+				BgzfInputJob nextJob=jobQueue.take();
 				if(nextJob==null){
 					eofReached=true;
 					return totalRead==0 ? -1 : totalRead;
 				}
 
-				synchronized(nextJob){
-					if(DEBUG){
-						System.err.println("Consumer: received job "+nextJob.id+
-							", decompressedSize="+nextJob.decompressedSize+
-							", decompressed="+(nextJob.decompressed!=null ? 
-								"not null" : "NULL"));
-					}
-
-					//Check for job error
-					if(nextJob.error!=null){
-						throw new IOException("Decompression failed", nextJob.error);
-					}
-
-					assert(nextJob.decompressed!=null) : 
-						"Job "+nextJob.id+" has null decompressed data";
-
-					if(nextJob.lastJob){
-						if(DEBUG){
-							System.err.println("Consumer: job "+nextJob.id+
-								" marked LAST, returning EOF");
-						}
-						eofReached=true;
-						return totalRead==0 ? -1 : totalRead;
-					}
-
-					//Zero-length blocks (non-final) carry no data; skip and keep reading
-					if(nextJob.decompressedSize==0){
-						if(DEBUG){
-							System.err.println("Consumer: job "+nextJob.id+
-								" has 0 decompressed bytes, skipping");
-						}
-						continue;
-					}
-
-					assert(nextJob.decompressedSize>0) : 
-						"Job "+nextJob.id+" has zero decompressed size";
-
-					currentBlock=nextJob.decompressed;
-					currentBlockSize=nextJob.decompressedSize;
+				if(DEBUG){
+					System.err.println("Consumer: received job "+nextJob.id+
+						", decompressedSize="+nextJob.decompressedSize+
+						", decompressed="+(nextJob.decompressed!=null ? 
+							"not null" : "NULL"));
 				}
+
+				if(nextJob.error!=null){
+					throw new IOException("Decompression failed", nextJob.error);
+				}
+
+				assert(nextJob.decompressed!=null) : 
+					"Job "+nextJob.id+" has null decompressed data";
+
+				if(nextJob.lastJob){
+					if(DEBUG){
+						System.err.println("Consumer: job "+nextJob.id+
+							" marked LAST, returning EOF");
+					}
+					eofReached=true;
+					return totalRead==0 ? -1 : totalRead;
+				}
+
+				if(nextJob.decompressedSize==0){
+					if(DEBUG){
+						System.err.println("Consumer: job "+nextJob.id+
+							" has 0 decompressed bytes, skipping");
+					}
+					continue;
+				}
+
+				assert(nextJob.decompressedSize>0) : 
+					"Job "+nextJob.id+" has zero decompressed size";
+
+				currentBlock=nextJob.decompressed;
+				currentBlockSize=nextJob.decompressedSize;
 				currentBlockPos=0;
 			}
 
-			//Copy from current block
 			int available=currentBlockSize-currentBlockPos;
 			int toCopy=Math.min(available, len-totalRead);
 
@@ -602,7 +574,6 @@ public class BgzfInputStreamMT extends InputStream {
 		return totalRead;
 	}
 
-	/** Read exactly n bytes from input stream. Returns 0 on immediate EOF, n on success. */
 	private int readFully(byte[] b, int off, int len) throws IOException{
 		int total=0;
 		while(total<len){
@@ -619,31 +590,26 @@ public class BgzfInputStreamMT extends InputStream {
 
 		closed=true;
 
-		// Close streams early to unblock any I/O
-		try {closePlainStream();} catch(IOException ignore) {}
-		try {in.close();} catch(IOException ignore) {}
+		try{closePlainStream();}catch(IOException ignore){}
+		try{in.close();}catch(IOException ignore){}
 
-		// Best-effort: nudge workers via poison without blocking
-		inputQueue.offer(BgzfJob.POISON_PILL);
+		inputQueue.offer(BgzfInputJob.POISON_PILL);
 
-		// Interrupt threads to break out of take()/put()
 		if(producer!=null){producer.interrupt();}
 		if(workers!=null){
 			for(Thread worker : workers){worker.interrupt();}
 		}
 
-		// Wait briefly for threads to notice and exit
 		try{
-			if(producer!=null){producer.join(10);} // target ~10ms shutdown
+			if(producer!=null){producer.join(10);}
 			if(workers!=null){
-				for(Thread worker : workers){worker.join(10);} // short joins; threads are daemon
+				for(Thread worker : workers){worker.join(10);}
 			}
 		}catch(InterruptedException e){
 			Thread.currentThread().interrupt();
 		}
 	}
 
-	/** Validate internal state for debugging. */
 	private boolean repOK(){
 		if(in==null){return false;}
 		if(workerThreads<=0 || workerThreads>32){return false;}
@@ -657,40 +623,22 @@ public class BgzfInputStreamMT extends InputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of worker threads (start with 1 for correctness, then scale up) */
 	private final int workerThreads;
-	/** Input queue for jobs to be processed */
-	private final ArrayBlockingQueue<BgzfJob> inputQueue;
-	/** Job queue maintaining sequential output order */
-	private final JobQueue<BgzfJob> jobQueue;
-	/** Producer thread reading BGZF blocks */
+	private final ArrayBlockingQueue<BgzfInputJob> inputQueue;
+	private final JobQueue<BgzfInputJob> jobQueue;
 	private Thread producer;
-	/** Worker threads decompressing blocks */
 	private Thread[] workers;
-	/** Next job ID to assign by producer */
 	private long nextJobId=0;
-	/** Current decompressed block being read from */
 	private byte[] currentBlock;
-	/** Position in current block */
 	private int currentBlockPos=0;
-	/** Size of current block */
 	private int currentBlockSize=0;
-	/** Underlying input stream */
 	private final InputStream in;
-	/** Error state from worker threads */
 	private volatile IOException workerError=null;
-	/** Producer finished flag */
 	private volatile boolean producerFinished=false;
-	/** Stream closed flag */
 	private volatile boolean closed=false;
-	/** Whether a last-job marker has already been queued */
 	private boolean lastJobQueued=false;
-	/** Whether EOF has already been delivered to the caller */
 	private boolean eofReached=false;
-	/** Debug flag (enable with -Dbgzf.debug=true) */
-	private static final boolean DEBUG=false;//Boolean.getBoolean("bgzf.debug");
-	/** Plain gzip stream currently being drained by the producer (null when reading BGZF) */
+	private static final boolean DEBUG=false;
 	private GZIPInputStream plainGzipStream=null;
-	/** True while the producer is emitting pre-decompressed plain gzip chunks */
 	private boolean readingPlainGzip=false;
 }
