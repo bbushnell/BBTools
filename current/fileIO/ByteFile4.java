@@ -1,5 +1,6 @@
 package fileIO;
 
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -32,7 +33,7 @@ public final class ByteFile4 extends ByteFile{
 
 	public static void main(String[] args){
 		String fname=null;
-		long first=0, last=100;
+		long first=0, last=-1;
 		boolean speedtest=false;
 		int threads=DEFAULT_THREADS;
 		int bufferSize=bufferlen;
@@ -70,6 +71,8 @@ public final class ByteFile4 extends ByteFile{
 //				verbose=Parse.parseBoolean(b);
 			}else if(Parser.parseCommonStatic(arg, a, b)){
 				//Do nothing
+			}else if(Parser.parseZip(arg, a, b)){
+				//Do nothing
 			}else if(arg.indexOf('=')<0 && fname==null){
 				// First non-flag argument is the filename
 				fname=arg;
@@ -93,23 +96,27 @@ public final class ByteFile4 extends ByteFile{
 		Timer t=new Timer();
 		long lines=0;
 		long bytes=0;
-
+		if(last<0) {last=Long.MAX_VALUE;}
 		bf.start();
 
 		if(reprint){
+			BufferedOutputStream bos=new BufferedOutputStream(System.out, 65536);
 			for(long i=0; i<first; i++){bf.nextLine();}
-			for(long i=first; i<last; i++){
-				byte[] s=bf.nextLine();
-				if(s==null){break;}
+			try{
+				for(long i=first; i<last; i++){
+					byte[] s=bf.nextLine();
+					if(s==null){break;}
 
-				lines++;
-				bytes+=s.length+1;
-				System.out.println(new String(s));
+					lines++;
+					bytes+=s.length+1;
+					//				System.out.println(new String(s));
+					bos.write(s);
+					bos.write('\n');
+				}
+			}catch(IOException e){
+				// TODO Auto-generated catch block
+				e.printStackTrace();
 			}
-
-			System.err.println("\n");
-			System.err.println("Lines: "+lines);
-			System.err.println("Bytes: "+bytes);
 		}else{
 			for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()){
 				for(byte[] line : ln.list){
