@@ -16,7 +16,7 @@ public final class BgzfSettings {
 	 * Number of worker threads to use when decompressing BGZF blocks.
 	 * Only consulted when {@link #USE_MULTITHREADED_BGZF} is true.
 	 */
-	public static int READ_THREADS = Tools.mid(1, Shared.threads(), 8);
+	public static int READ_THREADS = Tools.mid(1, Shared.threads(), 8);//Peaks at 20
 
 	/** Number of worker threads to use when compressing BGZF blocks. */
 	public static int WRITE_THREADS = Tools.mid(1, Shared.threads(), 32);

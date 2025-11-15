@@ -1,8 +1,11 @@
 package stream.bam;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.zip.CRC32;
 import java.util.zip.DataFormatException;
@@ -23,7 +26,7 @@ import structures.BinaryByteWrapperLE;
  * Jobs are automatically ordered by JobQueue to maintain sequential output
  * even when workers complete out of order.
  *
- * @author Chloe
+ * @author Brian Bushnell
  * @contributor Isla
  * @date November 14, 2025
  */
@@ -35,24 +38,28 @@ public class BgzfInputStreamMT2 extends InputStream {
 			System.exit(1);
 		}
 		int threads=(args.length>1 ? Integer.parseInt(args[1]) : BgzfSettings.READ_THREADS);
+		boolean write=args.length>2;
 		
 		String filename=args[0];
-		byte[] buffer=new byte[65536];
+		byte[] buffer=new byte[131072];
 		
 		long totalReads=0;
 		long totalBytes=0;
 		long startTime=System.nanoTime();
 		
 		try(InputStream fis=new java.io.FileInputStream(filename);
-			InputStream bgzf=new BgzfInputStreamMT2(fis, threads)){
+			InputStream bis=new BufferedInputStream(fis, 131072);//reduces sys time (10%+)
+			InputStream bgzf=new BgzfInputStreamMT2(bis, threads);
+//			OutputStream bos=(write ? new BufferedOutputStream(System.out, 131072) : null)//slower
+				){
 			
 			int bytesRead;
 			while((bytesRead=bgzf.read(buffer))>=0){
 				totalReads++;
 				totalBytes+=bytesRead;
+				if(write) {System.out.write(buffer, 0, bytesRead);}
 			}
 		}
-		
 		long endTime=System.nanoTime();
 		float seconds=(endTime-startTime)/1e9f;
 		
@@ -118,16 +125,16 @@ public class BgzfInputStreamMT2 extends InputStream {
 	/** Producer thread: Read BGZF blocks and create jobs. */
 	private void producerLoop(){
 		// Declare temp arrays outside loop for reuse
-		byte[] header=new byte[10];
-		byte[] xlenBytes=new byte[2];
-		byte[] trailer=new byte[8];
+		final byte[] header=new byte[10];
+		final byte[] xlenBytes=new byte[2];
+		final byte[] trailer=new byte[8];
 		
 		try{
 			while(!closed){
 				BgzfInputJob job=readNextBlock(header, xlenBytes, trailer);
 				if(job==null){
 					if(!lastJobQueued){
-						BgzfInputJob eofJob=new BgzfInputJob(nextJobId++, null, 0, 0, 0, true);
+						BgzfInputJob eofJob=new BgzfInputJob(nextJobId++, null, 0, 0, true);
 						while(eofJob!=null){
 							try{
 								inputQueue.put(eofJob);
@@ -150,7 +157,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 				assert(job.compressed!=null || job.decompressed!=null) : 
 					"Producer created job without data";
 				if(job.compressed!=null){
-					assert(job.compressedSize>0) : 
+					assert(job.compressed.length>0) : 
 						"Producer created job with zero compressed size";
 				}else{
 					assert(job.decompressedSize>0) : 
@@ -264,7 +271,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 
 			if(compressedSize==0 && expectedSize==0){lastJobQueued=true;}
 
-			BgzfInputJob job=new BgzfInputJob(nextJobId++, compressed, compressedSize, 
+			BgzfInputJob job=new BgzfInputJob(nextJobId++, compressed, 
 				expectedCrc, expectedSize, lastJobQueued);
 			
 			if(DEBUG && job.lastJob){
@@ -307,7 +314,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 	private BgzfInputJob readPlainGzipChunk() throws IOException{
 		if(plainGzipStream==null){return null;}
 
-		byte[] buffer=new byte[65536];
+		final byte[] buffer=new byte[65536];
 		int total=0;
 		while(total<buffer.length){
 			int n=plainGzipStream.read(buffer, total, buffer.length-total);
@@ -319,9 +326,11 @@ public class BgzfInputStreamMT2 extends InputStream {
 
 		if(total<=0){return null;}
 
-		BgzfInputJob job=new BgzfInputJob(nextJobId++, null, 0, 0, 0, false);
-		job.decompressed=buffer;
-		job.decompressedSize=total;
+		BgzfInputJob job=new BgzfInputJob(nextJobId++, null, 0, 0, false);
+		synchronized(job) {
+			job.decompressed=buffer;
+			job.decompressedSize=total;
+		}
 		return job;
 	}
 
@@ -387,7 +396,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 
 	/** Worker thread: Decompress BGZF blocks. */
 	private void workerLoop(){
-		Inflater inflater=new Inflater(true);
+		final Inflater inflater=new Inflater(true);
 
 		try{
 			while(!closed){
@@ -406,7 +415,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 				}
 
 				if(job.compressed==null){
-					assert(job.decompressed!=null) : 
+					assert(job.decompressed!=null || job.last()) : 
 						"Job "+job.id+" missing decompressed data";
 					if(DEBUG){
 						System.err.println("Worker: job "+job.id+
@@ -417,16 +426,16 @@ public class BgzfInputStreamMT2 extends InputStream {
 
 					//Decompress
 					inflater.reset();
-					inflater.setInput(job.compressed, 0, job.compressedSize);
+					inflater.setInput(job.compressed, 0, job.compressed.length);
 
 					if(DEBUG){System.err.println("Worker: inflating job "+job.id);}
-
-					// TODO: Brian to move this allocation here from producer
 					final byte[] decompressed=new byte[65536];
 					
 					try{
-						job.decompressedSize=inflater.inflate(decompressed, 0, 65536);
-						job.decompressed=decompressed;
+						synchronized(job) {
+							job.decompressedSize=inflater.inflate(decompressed, 0, 65536);
+							job.decompressed=decompressed;
+						}
 						if(DEBUG){
 							System.err.println("Worker: inflated job "+job.id+" to "+
 								job.decompressedSize+" bytes");
@@ -460,7 +469,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 						", got "+actualCrc;
 					if(actualCrc!=job.expectedCrc){
 						job.error=new IOException("CRC32 mismatch for job "+job.id);
-						if(!jobQueue.add(job)){break;}
+						jobQueue.add(job);
 						continue;
 					}
 
@@ -468,7 +477,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 				}
 
 				//Add to job queue
-				if(!jobQueue.add(job)){break;}
+				jobQueue.add(job);
 
 				if(job.lastJob){
 					if(DEBUG){
@@ -529,7 +538,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 					throw new IOException("Decompression failed", nextJob.error);
 				}
 
-				assert(nextJob.decompressed!=null) : 
+				assert(nextJob.decompressed!=null || nextJob.lastJob) : 
 					"Job "+nextJob.id+" has null decompressed data";
 
 				if(nextJob.lastJob){

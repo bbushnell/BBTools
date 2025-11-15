@@ -42,6 +42,7 @@ import stream.bam.BamInputStream;
 import stream.bam.BamOutputStream;
 import stream.bam.BgzfInputStream;
 import stream.bam.BgzfInputStreamMT;
+import stream.bam.BgzfInputStreamMT2;
 import stream.bam.BgzfOutputStream;
 import stream.bam.BgzfOutputStreamMT;
 import stream.bam.BgzfSettings;
@@ -1175,7 +1176,7 @@ public class ReadWrite {
 //			assert(false) : ALLOW_NATIVE_BGZF+", "+PREFER_NATIVE_BGZF_IN+
 //				", "+Data.BGZIP()+", "+threads;
 			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {in=new BgzfInputStream(raw);}
-			else {in=new BgzfInputStreamMT(raw, threads);}
+			else {in=new BgzfInputStreamMT2(raw, threads);}
 			return in;
 		}
 		Data.BGZIP();//Ensure that threads capability was detected
@@ -2111,8 +2112,8 @@ public class ReadWrite {
 	public static boolean PROCESS_BZ2=true;
 	public static final boolean PROCESS_XZ=false;
 	
-	public static final int INBUF=16384;
-	public static final int OUTBUF=16384;
+	public static final int INBUF=65536;
+	public static final int OUTBUF=65536;
 
 	/** Gzip compression level */
 	public static int ZIPLEVEL=4;

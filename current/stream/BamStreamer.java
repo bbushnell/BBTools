@@ -221,7 +221,6 @@ public class BamStreamer implements Streamer {
 			
 			long listNumber=0;
 			try{
-				FileInputStream fis=new FileInputStream(fname);
 				final InputStream bgzf=ReadWrite.getUnbgzipStream(fname);
 				BamReader reader=new BamReader(bgzf);
 				
@@ -307,7 +306,6 @@ public class BamStreamer implements Streamer {
 				}
 
 				bgzf.close();
-				fis.close();
 
 				if(verbose){outstream.println("Thread "+tid+" closed streams.");}
 			}catch(IOException e){
@@ -425,7 +423,7 @@ public class BamStreamer implements Streamer {
 
 	public static int TARGET_LIST_SIZE=200;
 	public static int TARGET_LIST_BYTES=250000;
-	public static int DEFAULT_THREADS=7; // BAM benefits from more threads
+	public static int DEFAULT_THREADS=6; // BAM benefits from more threads; peaks at 7 + 12 bgzip threads
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
