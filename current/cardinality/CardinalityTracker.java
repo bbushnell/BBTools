@@ -119,6 +119,8 @@ public abstract class CardinalityTracker {
 		Random randy=Shared.threadLocalRandom(seed<0 ? -1 : seed);
 		hashXor=randy.nextLong();
 	}
+
+	public abstract CardinalityTracker copy();
 	
 	/** 
 	 * Return the lowest power of 2 that is >= target. 

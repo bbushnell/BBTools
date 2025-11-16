@@ -2,6 +2,7 @@ package template;
 
 import java.io.File;
 import java.io.PrintStream;
+import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -97,8 +98,19 @@ public class A_SampleStreamer{
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, true);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, true);
 		
-		SamLine.SET_FROM_OK=(ffin1!=null && ffin1.samOrBam());
-		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=(ffout1!=null && ffout1.samOrBam() && ffin1!=null && ffin1.samOrBam());
+		final boolean samIn=(ffin1!=null && ffin1.samOrBam());
+		final boolean samOut=(ffout1!=null && ffout1.samOrBam());
+		SamLine.SET_FROM_OK=samIn;
+		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=samIn && samOut;
+		//Determine if we need to parse SAM fields or can skip for performance
+		if(!forceParse && samIn && !samOut){
+			SamLine.PARSE_2=false;
+			SamLine.PARSE_5=false;
+			SamLine.PARSE_6=false;
+			SamLine.PARSE_7=false;
+			SamLine.PARSE_8=false;
+			SamLine.PARSE_OPTIONAL=false;
+		}
 	}
 
 	/** 
@@ -127,14 +139,14 @@ public class A_SampleStreamer{
 				threadsIn=Integer.parseInt(b);
 			}else if(a.equals("threadsout") || a.equals("tout")){
 				threadsOut=Integer.parseInt(b);
-			}else if(a.equals("maxreads") || a.equals("reads")){
-				maxReads=Parse.parseKMG(b);
 			}else if(a.equals("samplerate") || a.equals("sample")){
 				samplerate=Float.parseFloat(b);
 			}else if(a.equals("sampleseed") || a.equals("seed")){
 				sampleseed=Long.parseLong(b);
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
+			}else if(a.equals("forceparse")){
+				forceParse=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
@@ -254,7 +266,8 @@ public class A_SampleStreamer{
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean saveHeader=inputSam && outputSam;
 		
-		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads, saveHeader, outputReads, threadsIn);
+		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads,
+			saveHeader, outputReads, threadsIn);
 		st.setSampleRate(samplerate, sampleseed);
 		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
 		
@@ -269,6 +282,7 @@ public class A_SampleStreamer{
 	 * @param readMode True for Read objects, false for SamLine objects
 	 */
 	private void process(Streamer st, Writer fw, Timer t, boolean readMode) {
+		if(threadsIn==0 || threadsIn==1) {Read.VALIDATE_IN_CONSTRUCTOR=false;}
 		st.start();
 		if(fw!=null) {fw.start();}
 		if(readMode) {
@@ -280,21 +294,25 @@ public class A_SampleStreamer{
 			}
 		}else {
 			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
-				for(SamLine sl : ln) {
-					processSamLine(sl);
+				final ArrayList<SamLine> list=ln.list;
+				for(int i=0, len=list.size(); i<len; i++) {
+					SamLine sl=list.get(i);
+					boolean keep=processSamLine(sl);
+					if(!keep) {list.set(i, null);}
 				}
 				if(fw!=null) {fw.addLines(ln);}
 			}
 		}
 		if(fw!=null) {
 			fw.poisonAndWait();
-			assert(readsIn==fw.readsWritten());
-			assert(basesIn==fw.basesWritten());
+			assert(!readMode || readsIn==fw.readsWritten());
+			assert(!readMode || basesIn==fw.basesWritten());
 			readsOut=fw.readsWritten();
 			basesOut=fw.basesWritten();
 		}
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
+		st.close();//Prevents a BF4 hang with limited reads
 	}
 	
 	/**
@@ -305,15 +323,23 @@ public class A_SampleStreamer{
 	private void processReadPair(Read r1, Read r2) {
 		readsIn+=r1.pairCount();
 		basesIn+=r1.pairLength();
+		if(!r1.validated()) {r1.validate(true);}
+		if(r2!=null && !r2.validated()) {r2.validate(true);}
 	}
 	
 	/**
 	 * Process a SamLine - override this method to add custom processing.
 	 * @param sl SamLine to process
+	 * @return keep;
 	 */
-	private void processSamLine(SamLine sl) {
+	private boolean processSamLine(SamLine sl) {
+		final int len=sl.lengthOrZero();
 		readsIn++;
-		basesIn+=sl.length();
+		basesIn+=len;
+
+		//Apply filter if present
+		boolean keep=(len>0 || ffout1==null || ffout1.samOrBam());
+		return keep;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -348,6 +374,8 @@ public class A_SampleStreamer{
 	private float samplerate=1f;
 	/** Random seed for subsampling */
 	private long sampleseed=17;
+	/** Force parsing of all SAM fields even if not needed */
+	private boolean forceParse=false;
 
 	/** Number of reads processed */
 	private long readsIn=0;

@@ -38,6 +38,9 @@ public final class LogLog8 extends CardinalityTracker {
 		maxArray=new byte[buckets];
 	}
 	
+	@Override
+	public LogLog8 copy() {return new LogLog8(buckets, k, -1, minProb);}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/

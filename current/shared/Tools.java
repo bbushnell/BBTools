@@ -4185,6 +4185,18 @@ public final class Tools {
 		int dot=lc.indexOf('.');
 		return lc.startsWith("stdout") || lc.startsWith("stderr") || (dot>0 && dot<lc.length()-1);
 	}
+	
+	public static boolean looksLikeInputSequenceStream(String arg) {
+		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)) {return false;}
+		return arg.toLowerCase().startsWith("stdin") || isReadableFile(arg);
+	}
+	
+	public static boolean looksLikeOutputSequenceStream(String arg) {
+		if(arg==null || arg.indexOf('=')>=0 || !FileFormat.isSequence(arg)) {return false;}
+		String lc=arg.toLowerCase();
+		int dot=lc.indexOf('.');
+		return lc.startsWith("stdout") || lc.startsWith("stderr") || (dot>0 && dot<lc.length()-1);
+	}
 
     public static void sleep(int millis){
 		if(millis<1){return;}

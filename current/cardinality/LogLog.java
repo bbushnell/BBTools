@@ -44,6 +44,9 @@ public final class LogLog extends CardinalityTracker {
 		maxArray=(atomic ? null : new int[buckets]);
 	}
 	
+	@Override
+	public LogLog copy() {return new LogLog(buckets, k, -1, minProb);}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/

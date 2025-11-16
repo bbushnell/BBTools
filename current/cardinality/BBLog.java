@@ -44,6 +44,9 @@ public final class BBLog extends CardinalityTracker {
 		counts=(trackCounts ? new int[buckets] : null);
 	}
 	
+	@Override
+	public BBLog copy() {return new BBLog(buckets, k, -1, minProb);}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
