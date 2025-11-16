@@ -125,11 +125,11 @@ public class BgzfInputStreamMT2 extends InputStream {
 		// Declare temp arrays outside loop for reuse
 		final byte[] header=new byte[10];
 		final byte[] xlenBytes=new byte[2];
-		final byte[] trailer=new byte[8];
+		final byte[] extra=new byte[1024];
 		
 		try{
 			while(!closed){
-				BgzfInputJob job=readNextBlock(header, xlenBytes, trailer);
+				BgzfInputJob job=readNextBlock(header, xlenBytes, extra);
 				if(job==null){
 					if(!lastJobQueued){
 						BgzfInputJob eofJob=new BgzfInputJob(nextJobId++, null, 0, 0, true);
@@ -190,7 +190,8 @@ public class BgzfInputStreamMT2 extends InputStream {
 	}
 
 	/** Read next BGZF block from input stream and create job. Returns null on EOF. */
-	private BgzfInputJob readNextBlock(byte[] header, byte[] xlenBytes, byte[] trailer) throws IOException{
+	private BgzfInputJob readNextBlock(byte[] fields, byte[] xlenBytes, byte[] extra) 
+			throws IOException{
 		while(true){
 			if(readingPlainGzip){
 				BgzfInputJob job=readPlainGzipChunk();
@@ -200,29 +201,29 @@ public class BgzfInputStreamMT2 extends InputStream {
 			}
 
 			//Read gzip header (minimum 10 bytes)
-			int bytesRead=readFully(header, 0, header.length);
+			int bytesRead=readFully(fields, 0, fields.length);
 			if(bytesRead==0){return null;} //EOF
-			if(bytesRead<header.length){
+			if(bytesRead<fields.length){
 				throw new EOFException("Truncated BGZF block header");
 			}
 
 			//Verify gzip signature
-			assert((header[0] & 0xFF)==31 && (header[1] & 0xFF)==139) : 
-				"Not a gzip file: "+(header[0] & 0xFF)+", "+(header[1] & 0xFF);
-			if((header[0] & 0xFF)!=31 || (header[1] & 0xFF)!=139){
+			assert((fields[0] & 0xFF)==31 && (fields[1] & 0xFF)==139) : 
+				"Not a gzip file: "+(fields[0] & 0xFF)+", "+(fields[1] & 0xFF);
+			if((fields[0] & 0xFF)!=31 || (fields[1] & 0xFF)!=139){
 				throw new IOException("Not a gzip file");
 			}
 
 			//Check compression method (should be 8=DEFLATE)
-			if(header[2]!=8){
-				throw new IOException("Unsupported compression method: "+header[2]);
+			if(fields[2]!=8){
+				throw new IOException("Unsupported compression method: "+fields[2]);
 			}
 
 			//Check flags - FEXTRA must be set for BGZF
-			int flags=header[3] & 0xFF;
+			int flags=fields[3] & 0xFF;
 			boolean fextra=(flags & 0x04)!=0;
 			if(!fextra){
-				startPlainGzip(header, null, null);
+				startPlainGzip(fields, null, null, 0);
 				continue;
 			}
 
@@ -233,16 +234,17 @@ public class BgzfInputStreamMT2 extends InputStream {
 			int xlen=((xlenBytes[1] & 0xFF)<<8) | (xlenBytes[0] & 0xFF);
 
 			//Read extra field and find BC subfield
-			byte[] extra=new byte[xlen];
+			if(xlen>extra.length) {extra=new byte[xlen];}
 			if(readFully(extra, 0, xlen)<xlen){
 				throw new EOFException("Truncated extra field");
 			}
 
 			int bsize=findBsizeInExtra(extra, xlen);
 			if(bsize<0){
-				startPlainGzip(header, xlenBytes, extra);
+				startPlainGzip(fields, xlenBytes, extra, xlen);
 				continue;
 			}
+			//To here
 
 			//Calculate compressed data length
 			int alreadyRead=10+2+xlen;
@@ -258,12 +260,12 @@ public class BgzfInputStreamMT2 extends InputStream {
 			}
 
 			//Read trailer (CRC32+ISIZE)
-			if(readFully(trailer, 0, 8)<8){
+			if(readFully(fields, 0, 8)<8){
 				throw new EOFException("Truncated block trailer");
 			}
 
 			//Extract expected CRC and size using wrapper
-			BinaryByteWrapperLE wrapper=new BinaryByteWrapperLE(trailer);
+			BinaryByteWrapperLE wrapper=new BinaryByteWrapperLE(fields);
 			long expectedCrc=wrapper.getInt() & 0xFFFFFFFFL;
 			int expectedSize=wrapper.getInt();
 
@@ -283,30 +285,42 @@ public class BgzfInputStreamMT2 extends InputStream {
 	}
 
 	/** Find BC subfield in gzip extra field and extract BSIZE. */
-	private int findBsizeInExtra(byte[] extra, int xlen){
-		int pos=0;
-		while(pos+4<=xlen){
-			int si1=extra[pos] & 0xFF;
-			int si2=extra[pos+1] & 0xFF;
-			int slen=((extra[pos+3] & 0xFF)<<8) | (extra[pos+2] & 0xFF);
-
-			if(si1==66 && si2==67){ //'B' 'C'
-				if(slen==2 && pos+6<=xlen){
-					return ((extra[pos+5] & 0xFF)<<8) | (extra[pos+4] & 0xFF);
-				}
+	private final int findBsizeInExtra(final byte[] extra, final int xlen){
+		for(int pos=0, lim=xlen-6; pos<=lim;){
+			final int slen=((extra[pos+3] & 0xFF)<<8) | (extra[pos+2] & 0xFF);
+			if(extra[pos]=='B' && extra[pos+1]=='C' && slen==2){
+				return ((extra[pos+5] & 0xFF)<<8) | (extra[pos+4] & 0xFF);
 			}
-
 			pos+=4+slen;
 		}
 		return -1;
 	}
 
-	private void startPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra) 
+	private void startPlainGzip(byte[] header, byte[] xlenBytes, byte[] extra, int xlen) 
 		throws IOException{
 		if(readingPlainGzip){return;}
-		byte[] prefix=buildPrefix(header, xlenBytes, extra);
+		byte[] prefix=buildPrefix(header, xlenBytes, extra, xlen);
 		plainGzipStream=new GZIPInputStream(new PrefixedInputStream(prefix, in), 65536);
 		readingPlainGzip=true;
+	}
+
+	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra, final int xlen){
+		int prefixLen=header.length;
+		if(xlenBytes!=null){prefixLen+=xlenBytes.length;}
+		prefixLen+=xlen;
+
+		byte[] prefix=new byte[prefixLen];
+		int pos=0;
+		System.arraycopy(header, 0, prefix, pos, header.length);
+		pos+=header.length;
+		if(xlenBytes!=null){
+			System.arraycopy(xlenBytes, 0, prefix, pos, xlenBytes.length);
+			pos+=xlenBytes.length;
+		}
+		if(xlen>0){
+			System.arraycopy(extra, 0, prefix, pos,xlen);
+		}
+		return prefix;
 	}
 
 	private BgzfInputJob readPlainGzipChunk() throws IOException{
@@ -338,25 +352,6 @@ public class BgzfInputStreamMT2 extends InputStream {
 			plainGzipStream=null;
 		}
 		readingPlainGzip=false;
-	}
-
-	private byte[] buildPrefix(byte[] header, byte[] xlenBytes, byte[] extra){
-		int prefixLen=header.length;
-		if(xlenBytes!=null){prefixLen+=xlenBytes.length;}
-		if(extra!=null){prefixLen+=extra.length;}
-
-		byte[] prefix=new byte[prefixLen];
-		int pos=0;
-		System.arraycopy(header, 0, prefix, pos, header.length);
-		pos+=header.length;
-		if(xlenBytes!=null){
-			System.arraycopy(xlenBytes, 0, prefix, pos, xlenBytes.length);
-			pos+=xlenBytes.length;
-		}
-		if(extra!=null && extra.length>0){
-			System.arraycopy(extra, 0, prefix, pos, extra.length);
-		}
-		return prefix;
 	}
 
 	private static final class PrefixedInputStream extends InputStream{

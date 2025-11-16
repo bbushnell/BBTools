@@ -1115,38 +1115,25 @@ public class ReadWrite {
 	}
 	
 	public static InputStream getGZipInputStream(String fname, boolean allowSubprocess, boolean buffer){
-		if(verbose){
-			System.err.println("getGZipInputStream("+fname+", "+allowSubprocess+")");
-//			new Exception().printStackTrace(System.err);
+		if(verbose){System.err.println("getGZipInputStream("+fname+", "+allowSubprocess+")");}
+		
+		if(Shared.threads()<2 || Shared.LOW_MEMORY || fname.startsWith("jar:") || 
+				(!allowSubprocess && !ALLOW_NATIVE_BGZF)) {
+			//Use plain gzip stream
+		}else if(USE_UNBGZIP && ALLOW_NATIVE_BGZF && PREFER_NATIVE_BGZF_IN) {
+			return getUnbgzipStream(fname);
+		}else if(allowSubprocess) {
+			if(USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())) {return getUnbgzipStream(fname);}
+			if(USE_UNPIGZ && Data.PIGZ()){return getUnpigzStream(fname);}
+			if(USE_GUNZIP && Data.GUNZIP()){return getGunzipStream(fname);}
+			//Fallthrough to plain
 		}
-//		assert(!fname.contains("temp")) : fname+", "+USE_UNBGZIP+", "+allowSubprocess;
-//		assert(!USE_UNPIGZ);
-		if(allowSubprocess && Shared.threads()>2){
-			if(!fname.startsWith("jar:")){
-				if(verbose){
-					System.err.println("Fetching gzip input stream: "+fname+", allowSubprocess="+allowSubprocess+", USE_UNPIGZ="+USE_UNPIGZ+", Data.PIGZ()="+Data.PIGZ());
-				}
-				if((PREFER_UNBGZIP || fname.endsWith(".vcf.gz")) && USE_UNBGZIP && (ALLOW_NATIVE_BGZF || Data.BGZIP())){
-					if(!fname.contains("stdin") && new File(fname).exists()){
-						if(isBGZip(fname)){return getUnbgzipStream(fname);}
-					}
-				}
-				if(USE_UNPIGZ && Data.PIGZ()){return getUnpigzStream(fname);}
-//				if(USE_UNBGZIP && Data.BGZIP()){return getUnbgzipStream(fname);}
-				if(USE_GUNZIP && Data.GUNZIP()){return getGunzipStream(fname);}
-			}
-		}
-//		assert(false) : "allowSubprocess="+allowSubprocess+", Shared.threads()="+Shared.threads()+", fname="+fname+"\n"
-//				+"PREFER_UNBGZIP="+PREFER_UNBGZIP+", "+"USE_UNBGZIP="+USE_UNBGZIP+", "+"Data.BGZIP()="+Data.BGZIP()+"\n"
-//				+"USE_UNPIGZ="+USE_UNPIGZ+", "+"Data.PIGZ()="+Data.PIGZ()+"\n";
-		InputStream raw=getRawInputStream(fname, buffer);//123
+		
+		InputStream raw=getRawInputStream(fname, buffer);
 		InputStream in=null;
 		try {
 			in=new GZIPInputStream(raw, INBUF);
-		} catch (FileNotFoundException e) {
-			System.err.println("Error when attempting to read "+fname);
-			throw new RuntimeException(e);
-		} catch (IOException e) {
+		} catch (Exception e) {
 			System.err.println("Error when attempting to read "+fname);
 			throw new RuntimeException(e);
 		}
@@ -1166,24 +1153,22 @@ public class ReadWrite {
 	
 	public static InputStream getUnbgzipStream(String fname){
 		if(verbose){System.err.println("getUnbgzipStream("+fname+")");}
-		int threads=Tools.mid(4, 1, Shared.threads());
+		boolean stdin=FileFormat.isStdin(fname);
+		boolean bgz=stdin ? true : isBGZip(fname);
+
+		int threads=Tools.mid(BgzfSettings.READ_THREADS, 1, Shared.threads());
+		if(!bgz && !stdin) {threads=2;}
+		
 		if(nativeBgzfIn()) {
 //			System.err.println("Native BGZF");
-			InputStream raw=getRawInputStream(fname, true);
-			InputStream in;
-			threads=Tools.mid(BgzfSettings.READ_THREADS, 1, Shared.threads());
-
-//			assert(false) : ALLOW_NATIVE_BGZF+", "+PREFER_NATIVE_BGZF_IN+
-//				", "+Data.BGZIP()+", "+threads;
+			final InputStream in, raw=getRawInputStream(fname, true);
 			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {in=new BgzfInputStream(raw);}
 			else {in=new BgzfInputStreamMT2(raw, threads);}
 			return in;
 		}
 		Data.BGZIP();//Ensure that threads capability was detected
-//		assert(false) : ALLOW_NATIVE_BGZF+", "+PREFER_NATIVE_BGZF_IN+
-//			", "+Data.BGZIP()+", "+threads+", "+Data.BGZIP_VERSION_threadsFlag;
-//		System.err.println("BGZIP");
-		return getInputStreamFromProcess(fname, "bgzip -c -d"+(Data.BGZIP_VERSION_threadsFlag ? " -@ "+threads : ""), false, true, true);
+		return getInputStreamFromProcess(fname, "bgzip -c -d"+
+			(Data.BGZIP_VERSION_threadsFlag ? " -@ "+threads : ""), false, true, true);
 	}
 	
 	//Does not seem to work; just makes a big file somewhere (?).
