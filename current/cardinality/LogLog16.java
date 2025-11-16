@@ -38,6 +38,9 @@ public final class LogLog16 extends CardinalityTracker {
 		maxArray=new char[buckets];
 	}
 	
+	@Override
+	public LogLog16 copy() {return new LogLog16(buckets, k, -1, minProb);}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/

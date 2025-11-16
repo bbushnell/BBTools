@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 13, 2025
+Last modified November 15, 2025
 
 Description:  Interconverts sam, bam, fasta, or fastq rapidly.
 Sam and bam input also allow filtering options; bam allows bai generation.

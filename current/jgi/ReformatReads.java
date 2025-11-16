@@ -247,8 +247,10 @@ public class ReformatReads {
 			
 			else if(parser.parse(arg, a, b)){
 				//do nothing
-			}else if(parser.in1==null && i==0 && Tools.looksLikeInputStream(arg)){
+			}else if(i==0 && parser.in1==null && Tools.looksLikeInputSequenceStream(arg)){
 				parser.in1=arg;
+			}else if(i==1 && parser.in1!=null && parser.out1==null && Tools.looksLikeOutputSequenceStream(arg)){
+				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -597,8 +599,6 @@ public class ReformatReads {
 				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
 			}
 			
-			Read prevRead=null;
-			
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				
 				if(skipreads>0){
@@ -663,14 +663,7 @@ public class ReformatReads {
 						if(MAKE_IHIST && sl1!=null && !r1.secondary() && sl1.pairnum()==0){
 							readstats.addToInsertHistogram(sl1);
 						}
-						
-//						if(MAKE_IHIST && !r1.secondary()){
-//							if(sl1!=null && sl2!=null && sl1.qname.equals(sl2.qname) && sl1.pairnum()!=sl2.pairnum()){
-//								readstats.addToInsertHistogram(sl1, sl2);
-//							}
-//						}
 					}
-					if(!r1.secondary()){prevRead=r1;}
 					
 					if(loglog!=null){loglog.hash(r1);}
 					

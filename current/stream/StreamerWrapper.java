@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 
-import fileIO.ByteFile4;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
@@ -156,11 +155,9 @@ public class StreamerWrapper{
 				forceParse=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
-			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
-				FileFormat.isSequence(arg) && new File(arg).isFile()){
+			}else if(i==0 && parser.in1==null && Tools.looksLikeInputSequenceStream(arg)){
 				parser.in1=arg;
-			}else if(i==1 && !arg.contains("=") && parser.out1==null && parser.in1!=null &&
-				FileFormat.isSequence(arg)){
+			}else if(i==1 && parser.in1!=null && parser.out1==null && Tools.looksLikeOutputSequenceStream(arg)){
 				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
@@ -273,7 +270,7 @@ public class StreamerWrapper{
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean saveHeader=inputSam && outputSam;
 		
-		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads, 
+		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads,
 			saveHeader, outputReads, threadsIn);
 		st.setSampleRate(samplerate, sampleseed);
 		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
@@ -290,7 +287,6 @@ public class StreamerWrapper{
 	 */
 	private void process(Streamer st, Writer fw, Timer t, boolean readMode) {
 		if(threadsIn==0 || threadsIn==1) {Read.VALIDATE_IN_CONSTRUCTOR=false;}
-//		System.err.println("VIC="+Read.VALIDATE_IN_CONSTRUCTOR);
 		st.start();
 		if(fw!=null) {fw.start();}
 		if(readMode) {
@@ -321,12 +317,6 @@ public class StreamerWrapper{
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		st.close();//Prevents a BF4 hang with limited reads
-//		try {
-//		    Thread.sleep(100);
-//		} catch (InterruptedException e) {
-//		    // Ignore
-//		}
-//		Shared.listThreads2();
 	}
 	
 	/**
