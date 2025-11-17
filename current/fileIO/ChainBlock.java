@@ -11,6 +11,8 @@ import shared.Shared;
 public class ChainBlock implements Comparable<ChainBlock>{
 	
 	
+	/** Test method that loads and displays chain lines for chromosomes 1-22.
+	 * @param args Command-line arguments, expects chain file path as first argument */
 	public static void main(String args[]){
 		ChainLine[][] lines=loadChainLines(args[0]);
 		for(int i=1; i<=22; i++){
@@ -22,6 +24,12 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 
 
+	/**
+	 * Constructs a ChainBlock from parsed chain file lines.
+	 * Parses the header line containing chain metadata and subsequent alignment chunks.
+	 * The first element of the list must be the chain header line starting with "chain".
+	 * @param list List of String arrays representing parsed chain file lines
+	 */
 	public ChainBlock(List<String[]> list){
 		
 		String[] head=list.get(0);
@@ -58,6 +66,12 @@ public class ChainBlock implements Comparable<ChainBlock>{
 		
 	}
 	
+	/**
+	 * Converts chromosome name string to numeric chromosome code.
+	 * Falls back to "U" (unknown) chromosome code if conversion fails.
+	 * @param s Chromosome name string
+	 * @return Numeric chromosome code
+	 */
 	private static int toChromosome(String s){
 		int result;
 		try{
@@ -68,6 +82,14 @@ public class ChainBlock implements Comparable<ChainBlock>{
 		return result;
 	}
 	
+	/**
+	 * Converts this ChainBlock into an array of ChainLine objects.
+	 * Processes alignment chunks based on query strand orientation.
+	 * For plus strand queries, coordinates advance normally.
+	 * For minus strand queries, query coordinates are processed in reverse.
+	 *
+	 * @return Array of ChainLine objects representing alignment segments
+	 */
 	public ChainLine[] toLines(){
 		ChainLine[] out=new ChainLine[chunks.length];
 		
@@ -101,6 +123,12 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 	
+	/**
+	 * Loads chain file and converts all blocks to organized ChainLine arrays.
+	 * Loads chain blocks, organizes them by chromosome, and converts to sorted ChainLines.
+	 * @param fname Chain file path
+	 * @return Two-dimensional array of ChainLines organized by chromosome
+	 */
 	public static ChainLine[][] loadChainLines(String fname){
 		ArrayList<ChainBlock> list=loadChainBlocks(fname);
 		ChainBlock[][] blocks=splitChain(list);
@@ -126,6 +154,14 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 	
+	/**
+	 * Loads and parses a chain file into ChainBlock objects.
+	 * Reads the entire file, splits lines into tokens, and groups lines into chain blocks.
+	 * Each block ends with a single-element line.
+	 *
+	 * @param fname Chain file path to load
+	 * @return ArrayList of parsed ChainBlock objects sorted by position
+	 */
 	public static ArrayList<ChainBlock> loadChainBlocks(String fname){
 		TextFile tf=new TextFile(fname, false);
 		String[] lines=tf.toStringLines();
@@ -147,6 +183,12 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 	
+	/**
+	 * Organizes ChainBlocks into arrays by target chromosome.
+	 * Creates a two-dimensional array where each chromosome has its own ChainBlock array.
+	 * @param list List of ChainBlocks to organize
+	 * @return Two-dimensional array of ChainBlocks organized by chromosome
+	 */
 	public static ChainBlock[][] splitChain(ArrayList<ChainBlock> list){
 		int[] size=new int[Gene.chromCodes.length];
 		
@@ -185,23 +227,38 @@ public class ChainBlock implements Comparable<ChainBlock>{
 	}
 	
 	
+	/** Chain alignment score */
 	public long score;
+	/** Target sequence name (chromosome) */
 	public String tName;
+	/** Target chromosome numeric code */
 	public int tChrom;
+	/** Target sequence size */
 	public int tSize;
+	/** Target sequence strand orientation */
 	public byte tStrand;
+	/** Target sequence alignment start position */
 	public int tStart;
+	/** Target sequence alignment end position */
 	public int tStop;
 
+	/** Query sequence name (chromosome) */
 	public String qName;
+	/** Query chromosome numeric code */
 	public int qChrom;
+	/** Query sequence size */
 	public int qSize;
+	/** Query sequence strand orientation */
 	public byte qStrand;
+	/** Query sequence alignment start position */
 	public int qStart;
+	/** Query sequence alignment end position */
 	public int qStop;
 	
+	/** Unique identifier for this chain */
 	public int chainID;
 	
+	/** Alignment chunk data arrays containing match lengths and gap sizes */
 	public int[][] chunks;
 	
 	//chain 3303 chr1 247249719 + 13192499 13192587 chr1 249250621 - 236203315 236203403 109

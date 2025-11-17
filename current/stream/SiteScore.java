@@ -16,6 +16,14 @@ import structures.ByteBuilder;
 
 
 
+/**
+ * Represents an alignment site between a read and reference chromosome.
+ * Stores alignment coordinates, scoring information, and optional match string.
+ * Used throughout BBMap for tracking and comparing potential alignment locations.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serializable{
 	
 	/**
@@ -23,6 +31,15 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	 */
 	private static final long serialVersionUID = -8096245242590075081L;
 
+	/**
+	 * Creates a basic SiteScore with alignment coordinates and initial scoring.
+	 * @param chrom_ Reference chromosome identifier
+	 * @param strand_ Alignment strand (+ or -)
+	 * @param start_ Starting position on reference
+	 * @param stop_ Ending position on reference
+	 * @param hits_ Number of k-mer hits supporting this alignment
+	 * @param quickScore_ Initial fast alignment score
+	 */
 	public SiteScore(int chrom_, byte strand_, int start_, int stop_, int hits_, int quickScore_){
 		start=start_;
 		stop=stop_;
@@ -35,6 +52,17 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		assert(start_<=stop_) : this.toText()+"\nchrom_="+chrom_+", strand_="+strand_+", start_="+start_+", stop_="+stop_+", hits_="+hits_+", quickScore_="+quickScore_;
 	}
 	
+	/**
+	 * Creates a SiteScore with additional rescue and perfect match flags.
+	 * @param chrom_ Reference chromosome identifier
+	 * @param strand_ Alignment strand (+ or -)
+	 * @param start_ Starting position on reference
+	 * @param stop_ Ending position on reference
+	 * @param hits_ Number of k-mer hits supporting this alignment
+	 * @param quickScore_ Initial fast alignment score
+	 * @param rescued_ Whether this alignment was rescued from low-scoring sites
+	 * @param perfect_ Whether this is a perfect match to the reference
+	 */
 	public SiteScore(int chrom_, byte strand_, int start_, int stop_, int hits_, int quickScore_, boolean rescued_, boolean perfect_){
 		start=start_;
 		stop=stop_;
@@ -87,6 +115,11 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	}
 	
 //	9+2+1+9+9+1+1+4+4+4+4+gaps
+	/**
+	 * Converts SiteScore to comma-separated text representation.
+	 * Format: chrom,strand,start,stop,rescued,semiperfect+perfect,hits,quickScore,slowScore,pairedScore,score[,gaps][,match]
+	 * @return CharSequence containing formatted alignment data
+	 */
 	public CharSequence toText(){
 		StringBuilder sb=new StringBuilder(53+(gaps==null ? 0 : gaps.length*10));
 		sb.append(chrom);
@@ -134,6 +167,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	}
 	
 //	9+2+1+9+9+1+1+4+4+4+4+gaps
+	/**
+	 * Converts SiteScore to binary representation using ByteBuilder.
+	 * More efficient than toText() for high-throughput operations.
+	 * @param sb Existing ByteBuilder to append to, or null to create new one
+	 * @return ByteBuilder containing the formatted data
+	 */
 	public ByteBuilder toBytes(ByteBuilder sb){
 		if(sb==null){sb=new ByteBuilder(53+(gaps==null ? 0 : gaps.length*10));}
 		sb.append(chrom);
@@ -178,6 +217,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //		(perfect ? 1 : 0)+","+quickScore+","+slowScore+","+pairedScore+","+score;
 	}
 	
+	/**
+	 * Tests if alignment is semi-perfect (allows N bases in reference).
+	 * Semi-perfect allows up to half the bases to be N in the reference.
+	 * @param bases Query sequence bases to compare
+	 * @return True if alignment meets semi-perfect criteria
+	 */
 	public boolean isSemiPerfect(byte[] bases){
 		if(bases.length!=stop-start+1){return false;}
 		byte[] ref=Data.getChromosome(chrom).array;
@@ -211,6 +256,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return true;
 	}
 	
+	/**
+	 * Tests if alignment is perfect (exact match, no N bases allowed).
+	 * Requires exact base-by-base match between read and reference.
+	 * @param bases Query sequence bases to compare
+	 * @return True if alignment is a perfect match
+	 */
 	public boolean isPerfect(byte[] bases){
 		if(bases.length!=stop-start+1 || start<0){return false;}
 		byte[] ref=Data.getChromosome(chrom).array;
@@ -230,6 +281,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	}
 	
 	
+	/**
+	 * Sets perfect flag if alignment score equals maximum possible score.
+	 * Optimized path that assumes perfect match when score is maximal.
+	 * @param maxScore Maximum possible alignment score
+	 * @param bases Query sequence bases for verification
+	 * @return True if perfect flag was set
+	 */
 	public boolean setPerfectFlag(int maxScore, byte[] bases){
 		if(maxScore==slowScore){
 			assert(isPerfect(bases));
@@ -297,21 +355,48 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return perfect;
 	}
 	
+	/**
+	 * Tests if this SiteScore overlaps with another on same chromosome and strand.
+	 * @param ss Other SiteScore to test overlap with
+	 * @return True if alignments overlap
+	 */
 	public final boolean overlaps(SiteScore ss){
 		return chrom==ss.chrom && strand==ss.strand && overlap(start, stop, ss.start, ss.stop);
 	}
+	/**
+	 * Tests if this SiteScore overlaps with another, optionally ignoring strand.
+	 * @param ss Other SiteScore to test overlap with
+	 * @param ignoreStrand If true, overlaps are checked regardless of strand
+	 * @return True if alignments overlap
+	 */
 	public final boolean overlaps(SiteScore ss, boolean ignoreStrand){
 		return chrom==ss.chrom && (ignoreStrand || strand==ss.strand) && overlap(start, stop, ss.start, ss.stop);
 	}
+	/**
+	 * Tests if two intervals [a1,b1] and [a2,b2] overlap.
+	 * @param a1 Start of first interval
+	 * @param b1 End of first interval
+	 * @param a2 Start of second interval
+	 * @param b2 End of second interval
+	 * @return True if intervals overlap
+	 */
 	private static boolean overlap(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1 && b2>=a1;
 	}
 	
+	/** Returns header string for CSV output format.
+	 * @return Column headers matching toText() output format */
 	public static String header() {
 		return "chrom,strand,start,stop,rescued,semiperfect+perfect,hits,quickScore,slowScore,pairedScore,score,match";
 	}
 	
+	/**
+	 * Parses a SiteScore from comma-separated text representation.
+	 * Inverse operation of toText(), handles gaps and match strings.
+	 * @param s Text representation to parse
+	 * @return SiteScore object reconstructed from text
+	 */
 	public static SiteScore fromText(String s){
 //		System.err.println("Trying to make a SS from "+s);
 		String line[]=s.split(",");
@@ -356,6 +441,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return ss;
 	}
 	
+	/**
+	 * Tests if this SiteScore matches another in genomic position.
+	 * Optionally compares gap structures for complete positional identity.
+	 * @param b Other SiteScore to compare positions
+	 * @param testGaps If true, also compares gap arrays
+	 * @return True if positions (and optionally gaps) match exactly
+	 */
 	public boolean positionalMatch(SiteScore b, boolean testGaps){
 //		return chrom==b.chrom && strand==b.strand && start==b.start && stop==b.stop;
 		if(chrom!=b.chrom || strand!=b.strand || start!=b.start || stop!=b.stop){
@@ -370,6 +462,11 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return true;
 	}
 	
+	/**
+	 * Retrieves the scaffold name containing this alignment.
+	 * @param requireSingleScaffold If true, returns null if alignment spans multiple scaffolds
+	 * @return Scaffold name bytes, or null if spanning multiple scaffolds
+	 */
 	public byte[] getScaffoldName(boolean requireSingleScaffold){
 		byte[] name=null;
 		if(!requireSingleScaffold || Data.isSingleScaffold(chrom, start, stop)){
@@ -382,8 +479,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return name;
 	}
 	
+	/** Comparator for sorting SiteScore objects by genomic position.
+	 * Sorts by chromosome, start, stop, strand, then by scores in descending order. */
 	public static class PositionComparator implements Comparator<SiteScore>{
 		
+		/** Private constructor prevents external instantiation.
+		 * Use static PCOMP instance instead. */
 		private PositionComparator(){}
 		
 		@Override
@@ -400,11 +501,15 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			return 0;
 		}
 		
+		/** Sorts ArrayList of SiteScore objects by position.
+		 * @param list ArrayList to sort in-place */
 		public void sort(ArrayList<SiteScore> list){
 			if(list==null || list.size()<2){return;}
 			Shared.sort(list, this);
 		}
 		
+		/** Sorts array of SiteScore objects by position.
+		 * @param list Array to sort in-place */
 		public void sort(SiteScore[] list){
 			if(list==null || list.length<2){return;}
 			Arrays.sort(list, this);
@@ -412,6 +517,8 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		
 	}
 	
+	/** Creates deep copy of this SiteScore including gaps array.
+	 * @return New SiteScore with identical data but independent arrays */
 	public SiteScore copy(){
 		SiteScore ss2=this.clone();
 		if(gaps!=null){ss2.gaps=ss2.gaps.clone();}
@@ -429,35 +536,65 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		throw new RuntimeException();
 	}
 	
+	/** Tests if alignment coordinates are within reference chromosome bounds.
+	 * @return True if start >= 0 and stop <= chromosome maximum index */
 	public boolean isInBounds(){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return (start>=0 && stop<=cha.maxIndex);
 	}
 	
+	/**
+	 * Tests if match string contains X or Y symbols at terminal positions.
+	 * X and Y represent uncertain alignment boundaries.
+	 * @return True if first or last match character is X or Y
+	 */
 	public boolean matchContainsXY(){
 		if(match==null || match.length<1){return false;}
 		final byte a=match[0], b=match[match.length-1];
 		return (a=='X' ||a=='Y' || b=='X' || b=='Y');
 	}
 	
+	/** Tests if match string contains A or B symbols at terminal positions.
+	 * @return True if first or last match character is A or B */
 	public boolean matchContainsAB(){
 		if(match==null || match.length<1){return false;}
 		final byte a=match[0], b=match[match.length-1];
 		return (a=='A' ||a=='B' || b=='A' || b=='B');
 	}
 	
+	/**
+	 * Tests if match string contains C symbols at terminal positions.
+	 * C represents clipped/soft-clipped alignment regions.
+	 * @return True if first or last match character is C
+	 */
 	public boolean matchContainsC(){
 		if(match==null || match.length<1){return false;}
 		final byte a=match[0], b=match[match.length-1];
 		return (a=='C' || b=='C');
 	}
 	
+	/**
+	 * Tests if this alignment is correct relative to expected position.
+	 * Used for validation and accuracy testing.
+	 * @param chrom_ Expected chromosome
+	 * @param strand_ Expected strand
+	 * @param start_ Expected start position
+	 * @param stop_ Expected stop position
+	 * @param thresh Position tolerance threshold (0 for exact match)
+	 * @return True if alignment matches expected position within threshold
+	 */
 	public boolean isCorrect(int chrom_, byte strand_, int start_, int stop_, int thresh){
 		if(chrom_!=chrom || strand_!=strand){return false;}
 		if(thresh<=0){return start_==start && stop_==stop;}
 		return Tools.absdif(start_, start)<=thresh || Tools.absdif(stop_, stop)<=thresh;
 	}
 	
+	/**
+	 * Calculates padding needed on left side to handle tip indels.
+	 * @param tiplen Length of read tip to examine
+	 * @param maxIndel Maximum indel size allowed
+	 * @return Number of bases padding needed on left side
+	 */
 	public int leftPaddingNeeded(int tiplen, int maxIndel){
 		if(match==null || match.length<1){return 0;}
 		
@@ -480,6 +617,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return 0;
 	}
 	
+	/**
+	 * Calculates padding needed on right side to handle tip indels.
+	 * @param tiplen Length of read tip to examine
+	 * @param maxIndel Maximum indel size allowed
+	 * @return Number of bases padding needed on right side
+	 */
 	public int rightPaddingNeeded(int tiplen, int maxIndel){
 		if(match==null || match.length<1){return 0;}
 		final int lastIndex=match.length-1;
@@ -644,10 +787,28 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //		return clipped;
 //	}
 	
+	/**
+	 * Clips tip indels using strand-appropriate base array.
+	 * @param bases Plus-strand bases
+	 * @param basesM Minus-strand bases
+	 * @param tiplen Length of read tips to process
+	 * @param maxIndel Maximum indel size to clip
+	 * @param msa MSA object for rescoring
+	 * @return True if any clipping was performed
+	 */
 	public boolean clipTipIndels(byte[] bases, byte[] basesM, int tiplen, int maxIndel, MSA msa){
 		return this.plus() ? clipTipIndels(bases, tiplen, maxIndel, msa) : clipTipIndels(basesM, tiplen, maxIndel, msa);
 	}
 	
+	/**
+	 * Clips excessive indels from read tips and rescores alignment.
+	 * Improves alignment quality by removing problematic terminal indels.
+	 * @param bases Read sequence bases
+	 * @param tiplen Length of read tips to examine
+	 * @param maxIndel Maximum indel size threshold
+	 * @param msa MSA object for rescoring after clipping
+	 * @return True if any clipping was performed
+	 */
 	public boolean clipTipIndels(byte[] bases, int tiplen, int maxIndel, MSA msa){
 		if(match==null || match.length<maxIndel){return false;}
 		if(verbose){
@@ -674,6 +835,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return left | right;
 	}
 	
+	/**
+	 * Clips excessive indels from left tip of alignment.
+	 * @param bases Read sequence bases
+	 * @param tiplen Length of tip region to examine
+	 * @param maxIndel Maximum indel threshold for clipping
+	 * @return True if clipping was performed
+	 */
 	public boolean clipLeftTipIndel(byte[] bases, int tiplen, int maxIndel){
 		if(match==null || match.length<maxIndel){return false;}
 		if(match[0]=='C' || match[0]=='Y' || match[0]=='X'){return false;}
@@ -991,14 +1159,23 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return success;
 	}
 	
+	/** Validates that match string length agrees with mapped reference length.
+	 * @return True if match length equals mapped length, or match is null */
 	public boolean lengthsAgree(){
 		return match==null ? true : matchLength()==mappedLength();
 	}
 	
+	/** Calculates length of reference region covered by this alignment.
+	 * @return Number of reference bases from start to stop (inclusive) */
 	public int mappedLength(){
 		return stop-start+1;
 	}
 	
+	/**
+	 * Calculates effective length represented by match string.
+	 * Accounts for insertions and deletions in match string.
+	 * @return Effective alignment length from match string
+	 */
 	public int matchLength(){
 		assert(match!=null);
 		return Read.calcMatchLength(match);
@@ -1038,24 +1215,51 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //		return b;
 //	}
 
+	/** Tests if alignment is on plus strand.
+	 * @return True if strand is plus */
 	public boolean plus(){return strand==Shared.PLUS;}
+	/** Tests if alignment is on minus strand.
+	 * @return True if strand is minus */
 	public boolean minus(){return strand==Shared.MINUS;}
+	/** Returns perfect match flag.
+	 * @return True if alignment is perfect */
 	public boolean perfect(){return perfect;}
+	/** Returns semi-perfect match flag.
+	 * @return True if alignment is semi-perfect */
 	public boolean semiperfect(){return semiperfect;}
+	/** Returns rescued flag.
+	 * @return True if alignment was rescued */
 	public boolean rescued(){return rescued;}
+	/** Returns alignment strand.
+	 * @return Strand byte (+ or -) */
 	public byte strand(){return strand;}
 	
+	/** Alignment strand (+ or -) */
 	public final byte strand;
+	/** Whether this alignment was rescued from low-scoring candidates */
 	public boolean rescued=false;
+	/** Whether alignment is a perfect match to reference */
 	public boolean perfect=false;
+	/** Whether alignment is semi-perfect (allows N in reference) */
 	public boolean semiperfect=false;
 
+	/** Sets both perfect and semiperfect flags to true and clears gaps.
+	 * Used when alignment is confirmed to be perfect. */
 	public void setPerfect(){
 		perfect=semiperfect=true;
 		gaps=null;
 	}
+	/** Adjusts start position by specified amount.
+	 * @param x Amount to add to start position */
 	public void incrementStart(int x){setStart(start+x);}
+	/** Adjusts stop position by specified amount.
+	 * @param x Amount to add to stop position */
 	public void incrementStop(int x){setStop(stop+x);}
+	/**
+	 * Sets both start and stop positions, updating gaps array if present.
+	 * @param a New start position
+	 * @param b New stop position
+	 */
 	public void setLimits(int a, int b){
 		start=a;
 		stop=b;
@@ -1068,6 +1272,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	}
 	
 	//Seems to be no longer needed after a change to calculating Y symbols.
+	/** @deprecated No longer needed after change to Y symbol calculation */
 	@Deprecated
 	public void fixLimitsXY(){
 //		if(match==null || match.length<1){return;}
@@ -1086,6 +1291,8 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 //		}
 	}
 	
+	/** Sets start position and updates gaps array if present.
+	 * @param a New start position */
 	public void setStart(int a){
 		start=a;
 		if(gaps!=null){
@@ -1096,6 +1303,8 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			assert(CHECKGAPS()) : Arrays.toString(gaps);
 		}
 	}
+	/** Sets stop position and updates gaps array if present.
+	 * @param b New stop position */
 	public void setStop(int b){
 		stop=b;
 		if(gaps!=null){
@@ -1104,6 +1313,8 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 			assert(CHECKGAPS()) : Arrays.toString(gaps);
 		}
 	}
+	/** Validates gaps array integrity and consistency with start/stop positions.
+	 * @return True if gaps array is valid */
 	public boolean CHECKGAPS(){
 		if(gaps==null){return true;}
 		if(gaps.length==0 || ((gaps.length&1)==1)){return false;}
@@ -1113,8 +1324,17 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return gaps[0]==start && gaps[gaps.length-1]==stop;
 	}
 	
+	/** Returns start position.
+	 * @return Alignment start position */
 	public int start(){return start;}
+	/** Returns stop position.
+	 * @return Alignment stop position */
 	public int stop(){return stop;}
+	/**
+	 * Sets slow (detailed) alignment score and updates paired score accordingly.
+	 * Maintains score hierarchy where pairedScore >= slowScore.
+	 * @param x New slow score value
+	 */
 	public void setSlowScore(int x){
 //		assert(x!=-1);
 		if(verbose){System.err.println("Before setSlowScore: x="+x+", quick="+quickScore+", slow="+slowScore+", paired="+pairedScore);}
@@ -1137,41 +1357,67 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		if(verbose){System.err.println("After setSlowScore: "+this);}
 //		assert(pairedScore<=0 || pairedScore>=slowScore) : "quick="+quickScore+", slow="+slowScore+", paired="+pairedScore+"\n"+this;  //Correct, but temporarily disabled for stability
 	}
+	/** Sets paired alignment score.
+	 * @param x New paired score value */
 	public void setPairedScore(int x){
 //		assert(x==0 || slowScore<=0 || x>=slowScore) : "x="+x+", quick="+quickScore+", slow="+slowScore+", paired="+pairedScore+"\n"+this;  //Correct, but temporarily disabled for stability
 		pairedScore=x;
 //		assert(slowScore<=0 || pairedScore<=0 || pairedScore>=slowScore) : "x="+x+", quick="+quickScore+", slow="+slowScore+", paired="+pairedScore+"\n"+this;  //Correct, but temporarily disabled for stability
 	}
+	/**
+	 * Sets both slow and paired scores simultaneously.
+	 * @param x New slow score
+	 * @param y New paired score
+	 */
 	public void setSlowPairedScore(int x, int y){
 //		assert(slowScore<=0 || pairedScore<=0 || pairedScore>=slowScore) : "x="+x+", quick="+quickScore+", slow="+slowScore+", paired="+pairedScore+"\n"+this;  //Correct, but temporarily disabled for stability
 		slowScore=x;
 		pairedScore=y;
 //		assert(pairedScore<=0 || pairedScore>=slowScore) : this;  //Correct, but temporarily disabled for stability
 	}
+	/** Sets final alignment score.
+	 * @param x New score value */
 	public void setScore(int x){
 		score=x;
 	}
 
+	/** Starting position on reference chromosome */
 	public int start;
+	/** Ending position on reference chromosome */
 	public int stop;
+	/** Fast initial alignment score based on k-mer hits */
 	public int quickScore;
+	/** Final alignment score used for ranking */
 	public int score;
+	/** Detailed alignment score from dynamic programming */
 	public int slowScore;
+	/** Combined score when part of paired-end alignment */
 	public int pairedScore;
+	/** Number of k-mer hits supporting this alignment */
 	public int hits;
+	/** Reference chromosome identifier */
 	public final int chrom;
 	
+	/** Bit flags for future use (currently unused) */
 	public long flags; //TODO Use this instead of fields
 	
+	/** Positions of large gaps in alignment (null if no gaps) */
 	public int[] gaps; //Limits of large gaps
+	/** Match string showing alignment details (null for simple alignments) */
 	public byte[] match;
 	
 
+	/** Singleton instance of position-based comparator */
 	public static final PositionComparator PCOMP=new PositionComparator();
+	/** Bit mask for strand flag (currently unused) */
 	public static final long strandMask=(1L<<0);
+	/** Bit mask for rescued flag (currently unused) */
 	public static final long rescuedMask=(1L<<1);
+	/** Bit mask for perfect flag (currently unused) */
 	public static final long perfectMask=(1L<<2);
+	/** Bit mask for semiperfect flag (currently unused) */
 	public static final long semiperfectMask=(1L<<3);
+	/** Global flag for verbose debugging output */
 	public static boolean verbose=false;
 	
 }

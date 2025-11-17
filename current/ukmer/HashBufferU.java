@@ -18,6 +18,15 @@ public class HashBufferU extends AbstractKmerTableU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a HashBufferU with specified backend tables and buffer configuration.
+	 * Initializes buffer arrays for each way and sets up k-mer routing parameters.
+	 *
+	 * @param tables_ Array of backend k-mer tables for distributed storage
+	 * @param buflen_ Buffer length for each way
+	 * @param kbig_ K-mer size parameter
+	 * @param initValues Whether to initialize value buffers
+	 */
 	public HashBufferU(AbstractKmerTableU[] tables_, int buflen_, int kbig_, boolean initValues){
 		tables=tables_;
 		buflen=buflen_;
@@ -108,6 +117,12 @@ public class HashBufferU extends AbstractKmerTableU {
 		return tables[way].contains(kmer);
 	}
 	
+	/**
+	 * Determines which backend table way to use for a given k-mer.
+	 * Uses k-mer XOR hash modulo number of ways for distribution.
+	 * @param kmer The k-mer to route
+	 * @return Way index (0 to ways-1) for the k-mer
+	 */
 	public final int getWay(Kmer kmer){return (int)(kmer.xor()%ways);}
 	
 	/*--------------------------------------------------------------*/
@@ -314,15 +329,26 @@ public class HashBufferU extends AbstractKmerTableU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array of backend k-mer tables for distributed storage */
 	private final AbstractKmerTableU[] tables;
+	/** Buffer length for each way */
 	private final int buflen;
+	/** Buffer length multiplied by k-mer multiplier */
 	private final int buflen2;
+	/**
+	 * Half buffer length multiplied by k-mer multiplier, used for flush thresholds
+	 */
 	private final int halflen2;
+	/** K-mer array multiplier for multi-long k-mer representation */
 	private final int mult;
+	/** Number of ways (backend tables) for k-mer distribution */
 	private final int ways;
+	/** Array of k-mer buffers, one for each way */
 	private final KmerBufferU[] buffers;
+	/** Reusable k-mer object for buffer processing and reconstruction */
 	private final Kmer kmer;
 	
+	/** Bit mask used for buffer size threshold checking */
 	private static final int SIZEMASK=15;
 
 }

@@ -12,8 +12,27 @@ import stream.ConcurrentReadOutputStream;
 import stream.Read;
 import structures.ListNum;
 
+/**
+ * Streams reads from input to one or more output streams.
+ * Supports single-stream pass-through and multi-stream distribution based on k-mer hashing.
+ * Provides optional name-based sorting via temporary files.
+ *
+ * @author Brian Bushnell
+ * @date January 2025
+ */
 public class StreamToOutput {
 	
+	/**
+	 * Creates a StreamToOutput from file format specifications.
+	 * Initializes input stream from file formats and configures output distribution.
+	 *
+	 * @param ffin1 Primary input file format
+	 * @param ffin2 Secondary input file format (may be null for single-end)
+	 * @param rosa_ Array of output streams for read distribution
+	 * @param old K-mer comparator for hashing (may be incremented)
+	 * @param sortByName_ Whether to sort reads by name before processing
+	 * @param incrementComparator Whether to increment the comparator seed
+	 */
 	public StreamToOutput(FileFormat ffin1, FileFormat ffin2, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator){
 		final ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ffin1, ffin2, null, null);
 		cris.start();
@@ -22,6 +41,16 @@ public class StreamToOutput {
 		sortByName=sortByName_;
 	}
 	
+	/**
+	 * Creates a StreamToOutput from an existing input stream.
+	 * Configures output distribution without creating new input streams.
+	 *
+	 * @param cris_ Existing input stream to process
+	 * @param rosa_ Array of output streams for read distribution
+	 * @param old K-mer comparator for hashing (may be incremented)
+	 * @param sortByName_ Whether to sort reads by name before processing
+	 * @param incrementComparator Whether to increment the comparator seed
+	 */
 	public StreamToOutput(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream[] rosa_, KmerComparator old, boolean sortByName_, boolean incrementComparator){
 		cris=cris_;
 		rosa=rosa_;
@@ -29,6 +58,12 @@ public class StreamToOutput {
 		sortByName=sortByName_;
 	}
 	
+	/**
+	 * Main processing method that streams reads from input to outputs.
+	 * Optionally sorts reads by name using temporary files before distribution.
+	 * Routes to single or multi-stream processing based on output array size.
+	 * @return true if errors occurred during processing, false otherwise
+	 */
 	public boolean process(){
 		if(rosa==null || rosa.length==0){return errorState;}
 		
@@ -59,6 +94,12 @@ public class StreamToOutput {
 		return errorState;
 	}
 	
+	/**
+	 * Processes reads for single output stream scenario.
+	 * Streams all reads directly to the single output without distribution logic.
+	 * Tracks read and base counts during processing.
+	 * @param cris Input stream to read from
+	 */
 	public void processSingle(ConcurrentReadInputStream cris){
 		
 		ListNum<Read> ln=cris.nextList();
@@ -83,6 +124,12 @@ public class StreamToOutput {
 		}
 	}
 	
+	/**
+	 * Processes reads for multiple output stream scenario.
+	 * Distributes reads across output streams based on k-mer hash values.
+	 * Uses modulo operation to assign reads to groups deterministically.
+	 * @param cris Input stream to read from
+	 */
 	public void processMulti(ConcurrentReadInputStream cris){
 		final int groups=rosa.length;
 		
@@ -120,16 +167,23 @@ public class StreamToOutput {
 		}
 	}
 	
+	/** Total number of reads processed through the stream */
 	long readsIn=0;
+	/** Total number of bases processed through the stream */
 	long basesIn=0;
 	
 //	final FileFormat ffin1;
 //	final FileFormat ffin2;
+	/** Input stream for reading sequence data */
 	ConcurrentReadInputStream cris;
+	/** Array of output streams for distributing processed reads */
 	ConcurrentReadOutputStream[] rosa;
+	/** K-mer comparator used for hashing reads during multi-stream distribution */
 	final KmerComparator kc;
+	/** Whether to sort reads by name before processing */
 	final boolean sortByName;
 	
+	/** Tracks whether any errors occurred during processing */
 	boolean errorState=false;
 	
 }

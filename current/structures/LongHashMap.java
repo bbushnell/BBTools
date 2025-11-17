@@ -127,14 +127,25 @@ public final class LongHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a LongHashMap with default capacity of 256 and load factor of 0.7.
+	 */
 	public LongHashMap(){
 		this(256);
 	}
 	
+	/**
+	 * Creates a LongHashMap with specified initial capacity and default load factor of 0.7.
+	 */
 	public LongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Creates a LongHashMap with specified initial capacity and load factor.
+	 * @param initialSize Initial capacity (must be > 0)
+	 * @param loadFactor_ Load factor for resizing (clamped to 0.25-0.90 range)
+	 */
 	public LongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -148,6 +159,7 @@ public final class LongHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all key-value mappings, resetting size to 0. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -156,15 +168,30 @@ public final class LongHashMap{
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests whether this map contains the specified key.
+	 * @param key Key to test for presence
+	 * @return True if key exists in the map
+	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests whether this map contains the specified key.
+	 * @param key Key to test for presence
+	 * @return True if key exists in the map
+	 */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
+	/**
+	 * Returns the value mapped to the specified key.
+	 * @param key Key to look up
+	 * @return Value associated with key, or -1 if key not found
+	 */
 	public int get(long key){
 //		assert(verify()); //123
 		int value=-1;
@@ -253,8 +280,10 @@ public final class LongHashMap{
 		return value;
 	}
 	
+	/** Returns the number of key-value mappings in this map. */
 	public int size(){return size;}
 	
+	/** Returns true if this map contains no key-value mappings. */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -266,6 +295,8 @@ public final class LongHashMap{
 		return toStringListView();
 	}
 	
+	/** Returns detailed string representation showing array index, key, and value
+	 * for each occupied cell in the format [(index, key, value), ...]. */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -280,6 +311,9 @@ public final class LongHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns string representation showing only the keys as a list [key1, key2, ...].
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -294,6 +328,8 @@ public final class LongHashMap{
 		return sb.toString();
 	}
 	
+	/** Returns all keys in the map as an array.
+	 * @return Array containing all keys currently in the map */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -306,6 +342,11 @@ public final class LongHashMap{
 		return x;
 	}
 	
+	/**
+	 * Finds the minimum key among entries with values >= threshold.
+	 * @param thresh Minimum value threshold
+	 * @return Array containing [minimum_key, count_found], or [invalid, 0] if none found
+	 */
 	public long[] getMin(int thresh){
 		int found=0;
 		long min=Long.MAX_VALUE;
@@ -321,6 +362,11 @@ public final class LongHashMap{
 		return new long[] {found>0 ? min : invalid, found};
 	}
 	
+	/**
+	 * Returns keys with values >= threshold as an array.
+	 * @param thresh Minimum value threshold (clamped to at least 1)
+	 * @return Array of keys with values meeting threshold
+	 */
 	public long[] toArray(int thresh){
 		thresh=Tools.max(thresh, 1);
 		int len=0;
@@ -348,6 +394,12 @@ public final class LongHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Validates internal consistency of the hash map structure.
+	 * Checks that all keys can be found at their expected positions
+	 * and that empty cells have zero values.
+	 * @return True if structure is consistent
+	 */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -381,6 +433,11 @@ public final class LongHashMap{
 		return pass;
 	}
 	
+	/**
+	 * Rehashes all entries after the specified starting position.
+	 * Used after removal to maintain proper probe sequences.
+	 * @param initial Starting position for rehashing
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -411,6 +468,8 @@ public final class LongHashMap{
 		return true;
 	}
 	
+	/** Generates a new invalid marker value when the current one collides with actual data.
+	 * Updates all empty cells to use the new invalid marker. */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -457,6 +516,7 @@ public final class LongHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Doubles the hash table capacity when size limit is exceeded. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -498,29 +558,42 @@ public final class LongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns direct reference to the internal keys array. */
 	public long[] keys() {return keys;}
 
+	/** Returns direct reference to the internal values array. */
 	public int[] values() {return values;}
 
+	/** Returns the current invalid marker value used for empty cells. */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Array storing the keys, with invalid marker for empty cells */
 	private long[] keys;
+	/** Array storing the values corresponding to keys */
 	private int[] values;
+	/** Number of key-value mappings currently in the map */
 	private int size=0;
 	/** Value for empty cells */
 	private long invalid;
+	/** Prime number used as modulus for hash function */
 	private int modulus;
+	/** Maximum size before resizing, calculated as modulus * loadFactor */
 	private int sizeLimit;
+	/** Load factor determining when to resize the hash table */
 	private final float loadFactor;
 	
+	/** Random number generator for creating invalid marker values */
 	private static final Random randy=new Random(1);
+	/** Bit mask set to Long.MAX_VALUE for hash calculations */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Bit mask set to Long.MIN_VALUE ensuring invalid markers are negative */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
+	/** Additional capacity beyond prime modulus to reduce collisions */
 	private static final int extra=10;
 	
 }

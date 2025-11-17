@@ -20,16 +20,29 @@ public class KmerNodeU2D extends KmerNodeU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Constructs a node with specified k-mer pivot but no values.
+	 * @param pivot_ The k-mer key to use as the pivot for this tree node */
 	public KmerNodeU2D(long[] pivot_){
 		super(pivot_);
 	}
 	
+	/**
+	 * Constructs a node with specified k-mer pivot and single initial value.
+	 * Creates a values array with the given value followed by -1 terminator.
+	 * @param pivot_ The k-mer key to use as the pivot for this tree node
+	 * @param value_ Initial value to store (must be >= 0 or -1)
+	 */
 	public KmerNodeU2D(long[] pivot_, int value_){
 		super(pivot_);
 		assert(value_>=0 || value_==-1);
 		values=new int[] {value_, -1};
 	}
 	
+	/**
+	 * Constructs a node with specified k-mer pivot and array of values.
+	 * @param pivot_ The k-mer key to use as the pivot for this tree node
+	 * @param vals_ Array of values to associate with this k-mer
+	 */
 	public KmerNodeU2D(long[] pivot_, int[] vals_){
 		super(pivot_);
 		values=vals_;
@@ -243,6 +256,7 @@ public class KmerNodeU2D extends KmerNodeU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing multiple integer values associated with this k-mer node */
 	int[] values;
 	
 }

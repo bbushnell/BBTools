@@ -7,8 +7,19 @@ import shared.LineParser1;
 import shared.Tools;
 import stream.SamLine;
 
+/**
+ * Utility for filtering SAM files by removing reads that overlap with specified genomic regions.
+ * Identifies reads that map to or span a target scaffold region and excludes them from output.
+ * Useful for removing contaminated or problematic genomic regions from alignment data.
+ * @author Brian Bushnell
+ */
 public class TrimSamFile {
 	
+	/**
+	 * Program entry point for SAM file trimming utility.
+	 * Expects 4 arguments: filename, scaffold name, start position, and end position.
+	 * @param args Command-line arguments: [filename] [scaffold] [start] [end]
+	 */
 	public static void main(String[] args){
 		String fname=args[0];
 		String scaf=args[1];

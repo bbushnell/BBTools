@@ -27,10 +27,26 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates a BaseNode with character reference base.
+	 * Delegates to byte constructor for internal processing.
+	 *
+	 * @param refBase_ Reference base as character
+	 * @param type_ Node type (REF, INS, or DEL)
+	 * @param rpos_ Reference position
+	 */
 	public BaseNode(char refBase_, int type_, int rpos_){
 		this((byte)refBase_, type_, rpos_);
 	}
 	
+	/**
+	 * Creates a BaseNode with the specified reference base and type.
+	 * Initializes ACGT count and weight arrays for non-deletion nodes.
+	 *
+	 * @param refBase_ Reference base as byte
+	 * @param type_ Node type (REF, INS, or DEL)
+	 * @param rpos_ Reference position
+	 */
 	public BaseNode(byte refBase_, int type_, int rpos_){
 		super(type_);
 		refBase=refBase_;
@@ -72,6 +88,14 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 //		return AminoAcid.numberToBase[maxPos];
 //	}
 	
+	/**
+	 * Determines consensus base and quality for this position.
+	 * Returns reference base for low-confidence positions or when onlyConvertNs is true.
+	 * For sufficient evidence, returns the most supported base with calculated quality.
+	 *
+	 * @param r Array to store result: [0]=base, [1]=quality
+	 * @return The consensus base
+	 */
 	public byte consensus(byte[] r) {
 		assert(type!=DEL);
 		if(onlyConvertNs && type==REF && refBase!='N'){
@@ -121,6 +145,12 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return r[0];
 	}
 	
+	/**
+	 * Returns probability of observing the specified base at this position.
+	 * Uses precomputed acgtProb array for valid bases.
+	 * @param b The base to query
+	 * @return Probability of the base, or 0.25 for invalid bases
+	 */
 	public float baseProb(byte b){
 		assert(acgtProb!=null) : this;
 		int x=AminoAcid.baseToNumber[b];
@@ -134,6 +164,12 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 //	}
 
 	//inflection at x=.25,y=0.  Range is 1 to -1.
+	/**
+	 * Returns score for the specified base at this position.
+	 * Currently simplified to return probability directly.
+	 * @param b The base to score
+	 * @return Score for the base (currently just probability)
+	 */
 	public float baseScore(byte b){
 		float prob=baseProb(b);
 //		return prob>0.25f ? (prob-0.25f)*slope : 4*prob-1;
@@ -146,6 +182,7 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return prob;
 	}
 	
+	/** Returns the base with minimum count at this position */
 	byte minBase(){
 		int idx=0, count=acgtCount[0];
 		for(int i=1; i<4; i++){
@@ -157,6 +194,7 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return AminoAcid.numberToBase[idx];
 	}
 	
+	/** Returns the base with maximum count at this position */
 	byte maxBase(){
 		int idx=0, count=acgtCount[0];
 		for(int i=1; i<4; i++){
@@ -168,6 +206,7 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return AminoAcid.numberToBase[idx];
 	}
 	
+	/** Returns the base with second-highest count at this position */
 	byte secondBase(){
 		int idx=0, count=acgtCount[0];
 		int idx2=-1, count2=-1;
@@ -197,6 +236,11 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return toTextCount();
 	}
 	
+	/**
+	 * Returns text representation showing position, type, and ACGT weights.
+	 * Includes edge weight information if edges exist.
+	 * @return ByteBuilder with weight-based text representation
+	 */
 	public ByteBuilder toTextWeight(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('(');
@@ -213,6 +257,11 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return bb;
 	}
 	
+	/**
+	 * Returns text representation showing position, type, and ACGT counts.
+	 * Includes edge count information if edges exist.
+	 * @return ByteBuilder with count-based text representation
+	 */
 	public ByteBuilder toTextCount(){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('(');
@@ -238,6 +287,8 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 		return type-b.type;
 	}
 	
+	/** Calculates base probabilities from observed counts.
+	 * Normalizes ACGT counts to probabilities summing to 1.0. */
 	void calcProbs(){
 		assert(acgtProb==null);
 		acgtProb=new float[4];
@@ -248,6 +299,11 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 	}
 
 	//Difference between first and second most common bases, as a fraction of the total traversals
+	/**
+	 * Calculates allele frequency difference metric.
+	 * Returns (max - 0.5*second) / total_count to measure base dominance.
+	 * @return Fraction indicating how strongly one allele dominates
+	 */
 	public float alleleDif() {
 		int max=0, second=0, sum=0;
 		for(int x : acgtCount){
@@ -274,22 +330,31 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 	 * Probably equal to sum of acgt. */
 	public int weightSum;
 	
+	/** Reference position of this node */
 	public final int rpos;
 	
+	/** Reference base at this position */
 	public final byte refBase;
+	/** Quality score sums for A, C, G, T at this position (null for deletions) */
 	public final int[] acgtWeight;
+	/** Observation counts for A, C, G, T at this position (null for deletions) */
 	public final int[] acgtCount;
+	/** Calculated probabilities for A, C, G, T bases (computed by calcProbs) */
 	public float acgtProb[];
 	
 	//These fields are not really necessary
+	/** Edge to next reference position node */
 	public BaseNode refEdge;
+	/** Edge to insertion node from this position */
 	public BaseNode insEdge;
+	/** Edge to deletion node from this position */
 	public BaseNode delEdge;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Slope constant (4/3) for base scoring calculations */
 	private static final float slope=(4f/3f);
 	
 }

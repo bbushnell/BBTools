@@ -21,6 +21,11 @@ import structures.ListNum;
 public final class ByteFile1 extends ByteFile {
 
 
+	/**
+	 * Main method for testing ByteFile1 functionality and performance.
+	 * Supports speed testing and line range reading with optional SIMD acceleration.
+	 * @param args Command-line arguments: [filename] [start_line|"speedtest"] [end_line|"simd"]
+	 */
 	public static void main(String[] args){
 		long first=0, last=100;
 		boolean speedtest=false;
@@ -105,10 +110,20 @@ public final class ByteFile1 extends ByteFile {
 		}
 	}
 
+	/**
+	 * Constructs ByteFile1 for reading from specified filename.
+	 * @param fname Filename to read from (or "stdin" for standard input)
+	 * @param allowSubprocess_ Whether to allow subprocess execution for compressed files
+	 */
 	public ByteFile1(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false));
 	}
 
+	/**
+	 * Constructs ByteFile1 with specified FileFormat configuration.
+	 * Opens the input stream immediately upon construction.
+	 * @param ff FileFormat specifying file type and access parameters
+	 */
 	public ByteFile1(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile1("+ff+")");}
@@ -316,6 +331,8 @@ public final class ByteFile1 extends ByteFile {
 		return list.isEmpty() ? null : new ListNum<byte[]>(list, nextID++);
 	}
 
+	/** Prints the current buffer contents to stderr for debugging.
+	 * Shows line endings as escaped characters. */
 	private final void printBuffer(){
 		for(int i=0; i<bstop; i++){
 			char c=(char)buffer[i];
@@ -329,6 +346,12 @@ public final class ByteFile1 extends ByteFile {
 		}
 	}
 
+	/**
+	 * Fills the internal buffer from the input stream.
+	 * Handles buffer shifting when partial lines remain from previous reads.
+	 * Dynamically resizes buffer if needed to accommodate long lines.
+	 * @return Position of next newline character, or -1 if end of stream
+	 */
 	private int fillBuffer(){
 		if(bstart<bstop){ //Shift end bytes to beginning
 			assert(bstart>0);
@@ -420,6 +443,12 @@ public final class ByteFile1 extends ByteFile {
 		bstop=newLen;
 	}
 
+	/**
+	 * Opens the input stream for reading.
+	 * Thread-safe operation that initializes buffer positions and stream state.
+	 * @return Opened InputStream for the file
+	 * @throws RuntimeException if file is already open
+	 */
 	private final synchronized InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened TextFile "+name());
@@ -440,19 +469,28 @@ public final class ByteFile1 extends ByteFile {
 	@Override
 	public final long lineNum(){return lineNum;}
 
+	/** Flag indicating whether the file is currently open */
 	private boolean open=false;
+	/** Internal buffer for reading file data */
 	private byte[] buffer=new byte[bufferlen];
+	/** Static empty byte array returned for blank lines */
 	private static final byte[] blankLine=new byte[0];
 	private int bstart=0, bstop=0;
+	/** The underlying input stream for reading file data */
 	public InputStream is;
+	/** Current line number being read (0-based, -1 when closed) */
 	public long lineNum=-1;
 	private IntList positions=new IntList();
 	private int listPos=0;
 
+	/** Flag to enable verbose debugging output */
 	public static boolean verbose=false;
+	/** Flag to enable buffered I/O operations */
 	public static boolean BUFFERED=false;
+	/** Default buffer size in bytes for I/O operations */
 	public static int bufferlen=65536;
 
+	/** Flag indicating whether an error occurred during file operations */
 	private boolean errorState=false;
 
 

@@ -2,6 +2,12 @@ package stream;
 
 import structures.ListNum;
 
+/**
+ * Interface for concurrent read streams that produce sequence reads from files
+ * or other input sources in a multi-threaded environment.
+ * Provides thread-safe access to read data with producer-consumer pattern.
+ * @author Brian Bushnell
+ */
 public interface ConcurrentReadStreamInterface extends Runnable{
 	
 	/** Start this in a new thread. */

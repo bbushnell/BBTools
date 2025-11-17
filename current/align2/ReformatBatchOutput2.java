@@ -4,6 +4,14 @@ import java.util.ArrayList;
 
 import fileIO.TextFile;
 
+/**
+ * Reformats batch mapping statistics output into tab-separated format.
+ * Processes BBMap alignment statistics files to extract key metrics like mapping rates,
+ * retention percentages, and accuracy measurements for downstream analysis.
+ *
+ * @author Brian Bushnell
+ * @date 2014
+ */
 public class ReformatBatchOutput2 {
 	
 //	Elapsed:	31.7
@@ -27,6 +35,12 @@ public class ReformatBatchOutput2 {
 //	Elapsed:	20.51
 	
 	
+	/**
+	 * Program entry point that processes a mapping statistics file.
+	 * Reads the input file specified as the first command-line argument,
+	 * parses mapping statistics blocks, and outputs reformatted data with header.
+	 * @param args Command-line arguments where args[0] is the input file path
+	 */
 	public static void main(String[] args){
 		TextFile tf=new TextFile(args[0], false);
 		String[] lines=tf.toStringLines();
@@ -53,6 +67,12 @@ public class ReformatBatchOutput2 {
 	}
 	
 	
+	/**
+	 * Returns the tab-separated header string for output formatting.
+	 * Defines column names for mapping statistics including timing, accuracy,
+	 * and correctness measurements.
+	 * @return Tab-separated header string with column names
+	 */
 	public static String header() {
 		return("name\tcount\ttime\tmapTime\tmapped\tretained\tdiscarded\tambiguous\ttruePositive\t" +
 				"falsePositive\ttruePositiveL\tfalsePositiveL\tfalseNegative");

@@ -16,8 +16,23 @@ import structures.IntList;
 import structures.LongList;
 import ukmer.Kmer;
 
+/**
+ * Bloom filter-based sequencing error correction system using k-mer frequency analysis.
+ * Identifies and corrects sequencing errors by analyzing k-mer abundance patterns
+ * with memory-efficient Bloom filters. Supports multiple correction strategies including
+ * pincer-based correction, tail correction, and reassembly-based approaches.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class BloomFilterCorrector {
 	
+	/**
+	 * Constructs a BloomFilterCorrector with specified parameters.
+	 * @param filter_ The Bloom filter containing reference k-mer counts
+	 * @param k_ K-mer length for error correction operations
+	 * @param ksmall_ Small k-mer length for efficient lookups (must be <= k_)
+	 */
 	public BloomFilterCorrector(BloomFilter filter_, int k_, int ksmall_) {
 		filter=filter_;
 		k=k_;
@@ -25,6 +40,12 @@ public class BloomFilterCorrector {
 		assert(ksmall<=k);
 	}
 
+	/**
+	 * Performs error correction on a read using thread-local storage.
+	 * Initializes thread-local data structures and delegates to the main correction method.
+	 * @param r The read to error correct
+	 * @return Number of errors corrected
+	 */
 	public int errorCorrect(Read r){
 		initializeThreadLocals();
 		int corrected=errorCorrect(r, localLeftCounts.get(), localRightCounts.get(), localLongList.get(),
@@ -37,6 +58,14 @@ public class BloomFilterCorrector {
 		return errorCorrect(r, leftCounts, rightCounts, kmers, counts, counts2, bb, bb2, tracker, bs);
 	}
 	
+	/**
+	 * Fast error detection by sampling k-mers at regular intervals.
+	 * Checks k-mer counts and transitions to identify potential errors without
+	 * performing full correction analysis.
+	 *
+	 * @param kmers List of k-mers from the sequence
+	 * @return true if errors are likely present, false otherwise
+	 */
 	public boolean hasErrorsFast(LongList kmers){
 		if(kmers.size<1){return false;}
 		int prev=-1;
@@ -210,6 +239,15 @@ public class BloomFilterCorrector {
 		return marked;
 	}
 	
+	/**
+	 * Fills k-mer count array for the given sequence.
+	 * Uses either small k-mer lookup or big k-mer counting depending on k size.
+	 * Applies smoothing if enabled to reduce noise in count profiles.
+	 *
+	 * @param bases Sequence bases
+	 * @param kmers K-mer list (used for small k)
+	 * @param counts Output count array
+	 */
 	public void fillCounts(byte[] bases, LongList kmers, IntList counts){
 		counts.clear();
 		
@@ -226,6 +264,12 @@ public class BloomFilterCorrector {
 		}
 	}
 	
+	/**
+	 * Fills counts by looking up each k-mer individually.
+	 * Used when k equals ksmall for direct k-mer lookup.
+	 * @param kmers List of encoded k-mers
+	 * @param counts Output count array
+	 */
 	private void fillCountsFromKmers(LongList kmers, IntList counts){
 		for(int i=0; i<kmers.size; i++){
 			long kmer=kmers.get(i);
@@ -239,6 +283,15 @@ public class BloomFilterCorrector {
 		}
 	}
 	
+	/**
+	 * Smooths k-mer count profiles to reduce noise and artifacts.
+	 * Applies multi-pass smoothing to eliminate isolated peaks and valleys
+	 * that likely represent sequencing errors rather than real abundance changes.
+	 *
+	 * @param kmerList List of k-mers
+	 * @param countList Count values to smooth
+	 * @param width Maximum width of peaks to smooth
+	 */
 	public void smooth(LongList kmerList, IntList countList, int width){
 		final int size=countList.size;
 		if(size<3){return;}
@@ -647,6 +700,17 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 	
+	/**
+	 * Determines if a position represents a substitution error.
+	 * Analyzes k-mer count patterns around a position to identify
+	 * the characteristic signature of single-base substitutions.
+	 *
+	 * @param ca Count array index for the position
+	 * @param errorExtension Extension distance for context analysis
+	 * @param qb Quality score at the position
+	 * @param counts K-mer count values
+	 * @return true if position appears to be a substitution error
+	 */
 	protected final boolean isSubstitution(int ca, int errorExtension, byte qb, IntList counts){
 		final int cb=ca+1;
 		final int aCount=counts.get(ca);
@@ -666,6 +730,15 @@ public class BloomFilterCorrector {
 		return false;
 	}
 	
+	/**
+	 * Counts potential errors in a sequence based on k-mer count transitions.
+	 * Identifies positions where k-mer counts suggest sequencing errors
+	 * using bidirectional analysis and quality score thresholds.
+	 *
+	 * @param counts K-mer count values
+	 * @param quals Quality scores (may be null)
+	 * @return Number of potential errors detected
+	 */
 	public final int countErrors(IntList counts, byte[] quals){
 		int possibleErrors=0;
 		for(int i=1; i<counts.size; i++){
@@ -852,6 +925,17 @@ public class BloomFilterCorrector {
 		return 1;
 	}
 	
+	/**
+	 * Tests if a proposed base change results in similar k-mer count.
+	 * Verifies that the new k-mer has a count similar to the original
+	 * to avoid introducing artifacts during correction.
+	 *
+	 * @param a K-mer index
+	 * @param newBase Proposed replacement base
+	 * @param kmers K-mer list
+	 * @param counts K-mer count values
+	 * @return true if the new k-mer has similar count
+	 */
 	private boolean isSimilar(int a, byte newBase, LongList kmers, IntList counts){
 		final int shift=2*k;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
@@ -1127,6 +1211,12 @@ public class BloomFilterCorrector {
 		}
 	}
 	
+	/**
+	 * Finds maximum count among all possible left extensions of a k-mer.
+	 * Tests all four possible bases that could precede the k-mer.
+	 * @param kmer K-mer to extend leftward
+	 * @return Maximum count among left extensions
+	 */
 	public int maxLeftCount(long kmer){
 		long rkmer=rcomp(kmer);
 		final int shift=2*k;
@@ -1152,6 +1242,12 @@ public class BloomFilterCorrector {
 		return max;
 	}
 	
+	/**
+	 * Finds maximum count among all possible right extensions of a k-mer.
+	 * Tests all four possible bases that could follow the k-mer.
+	 * @param kmer K-mer to extend rightward
+	 * @return Maximum count among right extensions
+	 */
 	public int maxRightCount(long kmer){
 		long rkmer=rcomp(kmer);
 		final int shift=2*k;
@@ -1180,6 +1276,17 @@ public class BloomFilterCorrector {
 		return max;
 	}
 	
+	/**
+	 * Fills array with counts for all possible left extensions of a k-mer.
+	 * Computes counts for all four bases that could precede the given k-mer.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param counts Output array for extension counts
+	 * @param mask Bit mask for k-mer operations
+	 * @param shift2 Bit shift value for operations
+	 * @return Index of extension with maximum count
+	 */
 	public int fillLeftCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
 //		if(verbose){outstream.println("fillLeftCounts:    "+toText(kmer)+",   "+toText(rkmer));}
@@ -1206,6 +1313,17 @@ public class BloomFilterCorrector {
 		return maxPos;
 	}
 	
+	/**
+	 * Fills array with counts for all possible right extensions of a k-mer.
+	 * Computes counts for all four bases that could follow the given k-mer.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param counts Output array for extension counts
+	 * @param mask Bit mask for k-mer operations
+	 * @param shift2 Bit shift value for operations
+	 * @return Index of extension with maximum count
+	 */
 	public int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){
 		assert(kmer==rcomp(rkmer));
 		if(verbose){outstream.println("fillRightCounts:   "+toText(kmer)+",   "+toText(rkmer));}
@@ -1232,11 +1350,29 @@ public class BloomFilterCorrector {
 		return maxPos;
 	}
 	
+	/**
+	 * Tests if position represents a junction using both left and right analysis.
+	 *
+	 * @param rightMax Highest count in right extensions
+	 * @param rightSecond Second highest count in right extensions
+	 * @param leftMax Highest count in left extensions
+	 * @param leftSecond Second highest count in left extensions
+	 * @return true if position is a junction
+	 */
 	protected final boolean isJunction(int rightMax, int rightSecond, int leftMax, int leftSecond){
 		if(isJunction(rightMax, rightSecond)){return true;}
 		return isJunction(leftMax, leftSecond);
 	}
 	
+	/**
+	 * Tests if count pattern indicates a junction point.
+	 * Uses configurable thresholds to identify positions where multiple
+	 * high-count paths diverge, indicating assembly complexity.
+	 *
+	 * @param max Highest count among extensions
+	 * @param second Second highest count among extensions
+	 * @return true if counts indicate a junction
+	 */
 	protected final boolean isJunction(int max, int second){
 		if(second<1 || second*branchMult1<max || (second<=branchLowerConst && max>=Tools.max(minCountExtend, second*branchMult2))){
 			return false;
@@ -1387,17 +1523,44 @@ public class BloomFilterCorrector {
 		return valid;
 	}
 
+	/** Converts encoded k-mer to text representation */
 	private final StringBuilder toText(long kmer){return AbstractKmerTable.toText(kmer, k);}
+	/** Computes reverse complement of encoded k-mer */
 	private final long rcomp(long kmer){return AminoAcid.reverseComplementBinaryFast(kmer, k);}
+	/**
+	 * Gets count for k-mer using appropriate method based on k size.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return K-mer count from Bloom filter
+	 */
 	public final int getCount(long kmer, long rkmer){
 		return (k==ksmall ? filter.getCount(kmer, rkmer) : filter.getCountBig(kmer));
 	}
+	/**
+	 * Gets count for k-mer key using appropriate method based on k size.
+	 * @param key K-mer key value
+	 * @return K-mer count from Bloom filter
+	 */
 	public final int getCount(long key){
 		return (k==ksmall ? filter.getCount(key) : filter.getCountBig(key));
 	}
+	/**
+	 * Gets count for k-mer with invalid k-mer handling.
+	 * Returns 0 for invalid k-mers (negative values).
+	 * @param kmer K-mer to look up
+	 * @return K-mer count, or 0 if k-mer is invalid
+	 */
 	public final int getCount2(long kmer){
 		return kmer<0 ? 0 : (k==ksmall ? filter.getCount(toValue(kmer, rcomp(kmer))) : filter.getCountBig(kmer));
 	}
+	/**
+	 * Converts k-mer pair to lookup key value.
+	 * Uses canonical representation if reverse complement mode is enabled.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Key value for Bloom filter lookup
+	 */
 	public final long toValue(long kmer, long rkmer){
 		long value=(rcomp ? Tools.max(kmer, rkmer) : kmer);
 		return value;
@@ -1407,6 +1570,7 @@ public class BloomFilterCorrector {
 	/*----------------       ThreadLocal Temps      ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Initializes thread-local storage for correction operations */
 	protected final void initializeThreadLocals(){
 		if(localLeftCounts.get()!=null){return;}
 		localLeftCounts.set(new int[4]);
@@ -1422,29 +1586,48 @@ public class BloomFilterCorrector {
 		localTracker.set(new ErrorTracker());
 	}
 	
+	/** Thread-local storage for left extension count arrays */
 	protected ThreadLocal<int[]> localLeftCounts=new ThreadLocal<int[]>();
+	/** Thread-local storage for right extension count arrays */
 	protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>();
+	/** Thread-local storage for k-mer lists */
 	protected ThreadLocal<LongList> localLongList=new ThreadLocal<LongList>();
+	/** Thread-local storage for count arrays */
 	protected ThreadLocal<IntList> localIntList=new ThreadLocal<IntList>();
+	/** Thread-local storage for secondary count arrays */
 	protected ThreadLocal<IntList> localIntList2=new ThreadLocal<IntList>();
+	/** Thread-local storage for primary byte builders */
 	protected ThreadLocal<ByteBuilder> localByteBuilder=new ThreadLocal<ByteBuilder>();
+	/** Thread-local storage for secondary byte builders */
 	protected ThreadLocal<ByteBuilder> localByteBuilder2=new ThreadLocal<ByteBuilder>();
+	/** Thread-local storage for position tracking bit sets */
 	protected ThreadLocal<BitSet> localBitSet=new ThreadLocal<BitSet>();
+	/** Thread-local storage for primary Kmer objects */
 	private ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
+	/** Thread-local storage for secondary Kmer objects */
 	private ThreadLocal<Kmer> localKmer2=new ThreadLocal<Kmer>();
+	/** Thread-local storage for error tracking statistics */
 	protected ThreadLocal<ErrorTracker> localTracker=new ThreadLocal<ErrorTracker>();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Enable pincer-based error correction mode */
 	protected boolean ECC_PINCER=false;
+	/** Enable tail-based error correction mode */
 	protected boolean ECC_TAIL=false;
+	/** Enable correction across entire sequence length */
 	protected boolean ECC_ALL=false;
+	/** Enable reassembly-based error correction mode */
 	protected boolean ECC_REASSEMBLE=true;
+	/** Enable aggressive error correction parameters */
 	protected boolean ECC_AGGRESSIVE=false;
+	/** Enable conservative error correction parameters */
 	protected boolean ECC_CONSERVATIVE=false;
+	/** Enable rollback of questionable corrections */
 	protected boolean ECC_ROLLBACK=true;
+	/** Require bidirectional confirmation for corrections in middle regions */
 	protected boolean ECC_REQUIRE_BIDIRECTIONAL=true;
 	
 	/** Mark bases as bad if they are completely covered by kmers with a count below this */
@@ -1458,47 +1641,82 @@ public class BloomFilterCorrector {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** The Bloom filter containing k-mer counts for correction */
 	BloomFilter filter;
 	
+	/** K-mer length for error correction operations */
 	int k=31;
+	/** Small k-mer length for efficient lookups */
 	int ksmall=31;
+	/** Use reverse complement canonical k-mer representation */
 	final boolean rcomp=true;
 
+	/** Minimum count required for k-mer extension operations */
 	int minCountExtend=2;
+	/** Primary multiplier for branch detection thresholds */
 	float branchMult1=20;
+	/** Secondary multiplier for branch detection at low counts */
 	float branchMult2=3;
+	/** Constant threshold for low-count branch detection */
 	int branchLowerConst=3;
 	
+	/** Error detection algorithm variant selection */
 	int errorPath=1;
+	/** Primary multiplier for error detection thresholds */
 	float errorMult1=16;
+	/** Secondary multiplier for error detection at low counts */
 	float errorMult2=2.6f;
+	/** Quality score factor for adjusting error detection sensitivity */
 	float errorMultQFactor=0.002f;
+	/** Constant threshold for low-count error detection */
 	int errorLowerConst=4;//3 seems fine
+	/** Minimum count required for error correction operations */
 	int minCountCorrect=3;//5 is more conservative...
+	/** Gets the minimum count threshold for error correction */
 	int minCountCorrect(){return minCountCorrect;}
+	/** Constant threshold for path similarity testing */
 	int pathSimilarityConstant=3;
+	/** Fractional threshold for path similarity testing */
 	float pathSimilarityFraction=0.45f;//0.3
+	/** Extension distance for reassembly-based error detection */
 	int errorExtensionReassemble=3;//default 2; higher is more conservative
+	/** Extension distance for pincer-based error detection */
 	int errorExtensionPincer=3;//default 5; higher is more conservative
+	/** Extension distance for tail-based error detection */
 	int errorExtensionTail=8;//default 9; higher is more conservative
+	/** Dead zone size at sequence ends where correction is avoided */
 	int deadZone=0;
+	/** Window length for correction density analysis */
 	int windowLen=12;
+	/** Maximum corrections allowed within a window */
 	int windowCount=6;
+	/** Maximum quality sum allowed for corrections within a window */
 	int windowQualSum=80;
 	
+	/** Quality score increase for pincer-corrected bases */
 	byte qIncreasePincer=8;
+	/** Minimum quality score for pincer-corrected bases */
 	byte qMinPincer=24;
+	/** Maximum quality score for pincer-corrected bases */
 	byte qMaxPincer=32;
 	
+	/** Quality score increase for tail-corrected bases */
 	byte qIncreaseTail=4;
+	/** Minimum quality score for tail-corrected bases */
 	byte qMinTail=20;
+	/** Maximum quality score for tail-corrected bases */
 	byte qMaxTail=28;
 
+	/** Enable verbose debugging output */
 	boolean verbose=false;
+	/** Enable additional verbose debugging output */
 	boolean verbose2=false;
+	/** Enable smoothing of k-mer count profiles */
 	boolean smooth=true;
+	/** Width parameter for count profile smoothing */
 	int smoothWidth=3;
 	
+	/** Output stream for debugging and verbose messages */
 	PrintStream outstream=System.err;
 	
 }

@@ -308,6 +308,17 @@ public class Clumpify {
 		
 	}
 	
+	/**
+	 * Executes a single clumpification pass using the original algorithm.
+	 * First splits input into groups, then sorts each group by k-mer similarity.
+	 *
+	 * @param args Processing arguments array
+	 * @param pass Current pass number
+	 * @param in1 Primary input file
+	 * @param in2 Secondary input file (may be null)
+	 * @param out1 Primary output file
+	 * @param out2 Secondary output file (may be null)
+	 */
 	private void runOnePass(String[] args, int pass, String in1, String in2, String out1, String out2){
 		assert(groups>1);
 		if(pass>1){
@@ -373,6 +384,20 @@ public class Clumpify {
 		}
 	}
 	
+	/**
+	 * Executes a single clumpification pass using improved v2/v3 algorithms.
+	 * Uses memory estimates from previous passes to optimize processing.
+	 * Handles external sorting for final pass if repair or namesort is enabled.
+	 *
+	 * @param args Processing arguments array
+	 * @param pass Current pass number
+	 * @param in1 Primary input file
+	 * @param in2 Secondary input file (may be null)
+	 * @param out1 Primary output file
+	 * @param out2 Secondary output file (may be null)
+	 * @param fileMem Memory usage estimate from previous pass
+	 * @return Updated memory usage estimate
+	 */
 	private long runOnePass_v2(String[] args, int pass, String in1, String in2, String out1, String out2, long fileMem){
 		assert(groups>1);
 		if(pass>1){
@@ -464,6 +489,12 @@ public class Clumpify {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Automatically determines optimal number of groups based on memory and file size.
+	 * Estimates memory requirements and sets groups to prevent out-of-memory errors.
+	 * Uses file sampling to predict memory usage for the complete dataset.
+	 * @param s Groups setting string ("auto" or numeric value)
+	 */
 	private void autoSetGroups(String s) {
 		if(s==null || s.equalsIgnoreCase("null")){return;}
 		if(Tools.isDigit(s.charAt(0))){
@@ -506,6 +537,14 @@ public class Clumpify {
 		outstream.println("Set groups to "+groups);
 	}
 	
+	/**
+	 * Generates temporary file names with random suffixes to avoid conflicts.
+	 * Uses output path and extension as template, optionally using system tmpdir.
+	 * Prevents problematic bz2 compression that can cause crashes.
+	 *
+	 * @param core Base name for the temporary file
+	 * @return Complete temporary file path with random suffix
+	 */
 	private String getTempFname(String core){
 //		outstream.println(core);
 		String temp;
@@ -537,6 +576,12 @@ public class Clumpify {
 		return temp;
 	}
 	
+	/**
+	 * Shortens read IDs by replacing common sequencer prefixes with abbreviations.
+	 * Converts "HISEQ" to "H", "MISEQ" to "M", and removes padding zeros.
+	 * Reduces file size by compacting verbose sequencer-generated names.
+	 * @param r Read whose ID should be shortened
+	 */
 	public static void shrinkName(Read r) {
 		if(r==null){return;}
 		String s=r.id;
@@ -550,6 +595,12 @@ public class Clumpify {
 		r.id=s;
 	}
 	
+	/**
+	 * Replaces read ID with a compact numeric representation.
+	 * Uses zero-padded numeric ID plus pair number for minimal space usage.
+	 * Creates IDs in format "0000000123 1:" or "0000000123 2:".
+	 * @param r Read whose ID should be replaced with short form
+	 */
 	public static void shortName(Read r) {
 		ByteBuilder sb=new ByteBuilder(14);
 		long x=r.numericID|1;
@@ -574,37 +625,64 @@ public class Clumpify {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Enables processing optimizations for low complexity sequences */
 	private boolean lowComplexity=false;
 	
+	/** Whether to quantize quality scores to reduce file size */
 	private boolean quantizeQuality=false;
+	/** Random number generator for creating unique temporary file names */
 	private Random randy=new Random();
+	/** Number of groups to split sequences into for processing */
 	private int groups=31;
+	/** Number of clumpification passes to perform */
 	private int passes=1;
+	/** Whether to use error correction and overlap detection */
 	private boolean ecco=false;
+	/** Whether to add names during processing */
 	private boolean addName=false;
+	/** Short name setting for read ID modification */
 	private String shortName="f";
+	/** Whether to use system temporary directory for intermediate files */
 	private boolean useTmpdir=false;
+	/** Whether to delete temporary files after processing */
 	private boolean delete=true;
+	/** Whether to delete input files after successful processing */
 	private boolean deleteInput=false;
+	/** Whether to use shared header for SAM/BAM file processing */
 	private boolean useSharedHeader=false;
+	/** Forces compression of temporary files regardless of output format */
 	private boolean forceCompressTemp=false;
+	/** Forces temporary files to be uncompressed regardless of output format */
 	private boolean forceRawTemp=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
 
+	/** Whether to unpair paired-end reads into single-end format */
 	private boolean unpair=false;
+	/** Whether to repair broken paired-end read files */
 	private boolean repair=false;
+	/** Whether to sort output by read names */
 	private boolean namesort=false;
+	/** Whether to use version 2 of the clumpification algorithm */
 	private boolean V2=false;
+	/** Whether to use version 3 of the clumpification algorithm */
 	private boolean V3=true;
 
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired-end data */
 	private String in2=null;
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired-end data */
 	private String out2=null;
 	
+	/** Arguments array for passing to underlying sorting algorithms */
 	ArrayList<String> args2=new ArrayList<String>();
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
 
+	/** Shared error state flag for coordinating across multiple instances */
 	public static boolean sharedErrorState=false;
 	
 }

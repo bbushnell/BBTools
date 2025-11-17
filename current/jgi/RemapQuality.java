@@ -114,7 +114,9 @@ public class RemapQuality extends BBTool_ST {
 		return true;
 	}
 	
+	/** Custom mapping specification string in format "old1,new1;old2,new2;..." */
 	public String mapString;
+	/** 256-element lookup table for remapping quality score bytes */
 	public final byte[] map;
 
 }

@@ -53,6 +53,8 @@ import tracker.ReadStats;
  */
 public final class Dedupe2 {
 	
+	/** Program entry point for sequence deduplication.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		int rbl0=Shared.bufferLen();
 		Shared.setBufferLen(16);
@@ -66,6 +68,12 @@ public final class Dedupe2 {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Constructs a Dedupe2 instance with command-line arguments.
+	 * Parses parameters for input/output files, clustering options,
+	 * similarity thresholds, and processing modes.
+	 * @param args Command-line arguments array
+	 */
 	public Dedupe2(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -398,6 +406,11 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Main processing method that coordinates the complete deduplication pipeline.
+	 * Executes exact matching, containment detection, overlap finding, and
+	 * clustering phases based on configured parameters.
+	 */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -421,6 +434,11 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Core processing implementation that handles multi-threaded deduplication.
+	 * Processes exact matches first, then containments, overlaps, and clustering
+	 * in sequential phases with progress reporting and memory management.
+	 */
 	public void process2(){
 		if(dupeWriter!=null){dupeWriter.start();}
 //		assert(false) : out;
@@ -502,6 +520,12 @@ public final class Dedupe2 {
 		affixMaps=null;
 	}
 	
+	/**
+	 * Creates input stream array for reading sequences from files or collections.
+	 * Handles multiple input files and detects paired-end data automatically.
+	 * @param list Optional read collection to use instead of file input
+	 * @return Array of concurrent read input streams
+	 */
 	private ConcurrentReadInputStream[] makeCrisArray(ArrayList<Read> list){
 		final ConcurrentReadInputStream[] array;
 		
@@ -534,6 +558,12 @@ public final class Dedupe2 {
 		return array;
 	}
 	
+	/**
+	 * Processes exact sequence matches using multi-threaded hash-based comparison.
+	 * Identifies identical sequences and builds initial data structures for
+	 * subsequent containment and overlap detection phases.
+	 * @param t Timer for performance monitoring
+	 */
 	private void processMatches(Timer t){
 		crisa=makeCrisArray(null);
 		
@@ -578,6 +608,12 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Detects sequence containment relationships where one sequence is completely
+	 * contained within another with allowed edit distance. Uses k-mer indexing
+	 * and banded alignment for efficient containment detection.
+	 * @param t Timer for performance monitoring
+	 */
 	private void processContainments(Timer t){
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
 		for(ArrayList<Unit> alu : codeMap.values()){
@@ -658,6 +694,12 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Identifies sequence overlaps for clustering and assembly purposes.
+	 * Uses k-mer matching followed by banded alignment to verify overlaps
+	 * within specified similarity and length thresholds.
+	 * @param t Timer for performance monitoring
+	 */
 	private void findOverlaps(Timer t){
 		
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
@@ -905,6 +947,14 @@ public final class Dedupe2 {
 		return max;
 	}
 	
+	/**
+	 * Groups sequences into clusters based on overlap relationships.
+	 * Creates connected components from overlap graph and generates
+	 * cluster size statistics for analysis.
+	 *
+	 * @param t Timer for performance monitoring
+	 * @param list List of reads to cluster
+	 */
 	private void makeClusters(Timer t, ArrayList<Read> list){
 		
 		final int clusterlen=70000;
@@ -1065,6 +1115,12 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Converts overlap clusters to maximum spanning tree representation.
+	 * Reduces redundant edges while preserving connectivity for improved
+	 * assembly and merging performance.
+	 * @param t Timer for performance monitoring
+	 */
 	private void processMst(Timer t){
 		
 		if(DISPLAY_PROGRESS){outstream.println("Converting to Maximum Spanning Tree.");}
@@ -1137,6 +1193,14 @@ public final class Dedupe2 {
 		}
 	}
 	
+	/**
+	 * Advanced cluster processing including canonicalization, cycle removal,
+	 * and optional sequence merging. Handles contradictions in overlap
+	 * orientations and offsets.
+	 *
+	 * @param t Timer for performance monitoring
+	 * @param mergeClusters Whether to merge overlapping sequences within clusters
+	 */
 	private void processClusters(Timer t, boolean mergeClusters){
 		
 		ArrayList<ClusterThread> alct=new ArrayList<ClusterThread>(THREADS);
@@ -1338,6 +1402,14 @@ public final class Dedupe2 {
 		return list;
 	}
 	
+	/**
+	 * Writes deduplicated sequences and cluster information to output files.
+	 * Handles multiple output formats including individual cluster files
+	 * and statistics reports.
+	 *
+	 * @param clusterStatsFile Path for cluster statistics output
+	 * @param t Timer for performance monitoring
+	 */
 	private void writeOutput(String clusterStatsFile, Timer t){
 //		verbose=true;
 //		assert(false) : (processedClusters==null)+", "+(processedClusters.isEmpty())+", "+outgraph+", "+out+", "+clusterFilePattern;
@@ -1696,6 +1768,12 @@ public final class Dedupe2 {
 		return best;
 	}
 	
+	/**
+	 * Computes hash code for DNA sequence using rolling hash algorithm.
+	 * Handles ambiguous bases and provides canonical representation.
+	 * @param bases DNA sequence as byte array
+	 * @return 64-bit hash value
+	 */
 	public static long hash(byte[] bases){
 		long code=bases.length;
 		for(int i=0; i<bases.length; i++){
@@ -1709,6 +1787,12 @@ public final class Dedupe2 {
 	}
 	
 	
+	/**
+	 * Computes hash code for reverse complement of DNA sequence.
+	 * Used for canonical sequence comparison regardless of strand orientation.
+	 * @param bases DNA sequence as byte array
+	 * @return 64-bit hash value of reverse complement
+	 */
 	public static long hashReversed(byte[] bases){
 		long code=bases.length;
 		for(int i=bases.length-1; i>=0; i--){
@@ -1723,6 +1807,12 @@ public final class Dedupe2 {
 	}
 	
 	
+	/**
+	 * Determines if sequence is in canonical form (lexicographically smaller
+	 * than its reverse complement). Used for consistent sequence representation.
+	 * @param bases DNA sequence as byte array
+	 * @return true if sequence is canonical, false otherwise
+	 */
 	public static boolean isCanonical(byte[] bases){
 		if(ignoreReverseComplement || bases==null || bases.length==0){return true;}
 		final int lim=(bases.length+1)/2;
@@ -1783,6 +1873,8 @@ public final class Dedupe2 {
 	}
 	
 	
+	/** Worker thread for maximum spanning tree conversion of overlap clusters.
+	 * Processes clusters to remove redundant edges while preserving connectivity. */
 	private final class MstThread extends Thread{
 
 		public MstThread(){}
@@ -3564,6 +3656,12 @@ public final class Dedupe2 {
 		private final BandedAligner bandy;
 	}
 	
+	/**
+	 * Tests if two sequences are identical or reverse complements of each other.
+	 * @param a First DNA sequence
+	 * @param b Second DNA sequence
+	 * @return true if sequences are identical or reverse complements
+	 */
 	public static boolean equalsRC(byte[] a, byte[] b){
 		if(a==b){return true;}
 		if(a==null || b==null){return false;}
@@ -3710,6 +3808,15 @@ public final class Dedupe2 {
 		return ua.pairnum()-ub.pairnum();
 	}
 	
+	/**
+	 * Computes hash for sequence tip (prefix or suffix) used in overlap detection.
+	 *
+	 * @param bases DNA sequence
+	 * @param prefix true for prefix hash, false for suffix hash
+	 * @param k K-mer length for hashing
+	 * @param skipInitialBases Number of initial bases to skip
+	 * @return Hash value for sequence tip
+	 */
 	private static long hashTip(byte[] bases, boolean prefix, int k, int skipInitialBases){
 		if(bases==null || bases.length<k){return -1;}
 
@@ -3747,6 +3854,11 @@ public final class Dedupe2 {
 	}
 	
 	
+	/**
+	 * Represents an overlap between two sequence units with alignment details.
+	 * Stores overlap type, coordinates, length, and quality metrics for
+	 * clustering and merging operations.
+	 */
 	private class Overlap implements Comparable<Overlap>{
 		
 		public Overlap(Unit u1_, Unit u2_, int type_, int start1_, int start2_, int stop1_, int stop2_, int len_, int mismatches_, int edits_, BandedAligner bandy){
@@ -4218,6 +4330,11 @@ public final class Dedupe2 {
 		return cluster1;
 	}
 	
+	/**
+	 * Represents a sequence unit with associated metadata for deduplication.
+	 * Stores hash codes, k-mer indices, overlap lists, and processing flags.
+	 * Supports canonical representation and cluster membership tracking.
+	 */
 	private class Unit implements Comparable<Unit>, Serializable {
 		
 		/**
@@ -5299,20 +5416,27 @@ public final class Dedupe2 {
 		public String toString(){return "("+name()+","+code1+","+code2+","+length()+","+prefixes[0]+","+suffixes[0]+","+(canonical()?"c":"nc")+",d="+depth+")";}
 		
 		
+		/** The sequence read associated with this unit */
 		public final Read r;
+		/** Primary hash code for the sequence */
 		public final long code1;
+		/** Secondary hash code for collision resolution */
 		public final long code2;
+		/** Hash codes for sequence prefixes used in overlap detection */
 		public final long[] prefixes=(numAffixMaps>0 ? new long[numAffixMaps] : null);
+		/** Hash codes for sequence suffixes used in overlap detection */
 		public final long[] suffixes=(storeSuffix && numAffixMaps>0 ? new long[numAffixMaps] : null);
 		
 		/** Distance of leftmost side of this read relative to leftmost side of root.
 		 * Assumes everything is in 'forward' orientation. */
 		public int offset=-999999999;
+		/** Coverage depth for this sequence unit */
 		public int depth=1;
 //		private boolean valid=true;
 
 		public int unitID;
 
+		/** List of overlaps with other sequence units */
 		public ArrayList<Overlap> overlapList;
 		
 		private long flags;
@@ -5468,9 +5592,13 @@ public final class Dedupe2 {
 	public boolean errorState=false;
 	boolean sort=false;
 //	boolean ascending=true;
+	/** Whether to remove sequences contained within others */
 	boolean absorbContainment=true;
+	/** Whether to remove exact duplicate sequences */
 	boolean absorbMatch=true;
+	/** Whether to detect sequence overlaps for clustering */
 	boolean findOverlaps=false;
+	/** Whether to group sequences into overlap-based clusters */
 	boolean makeClusters=false;
 	boolean processClusters=false;
 	boolean renameClusters=false;
@@ -5510,13 +5638,17 @@ public final class Dedupe2 {
 	/** Error rate for trimming (derived from trimq) */
 	private final float trimE;
 
+	/** Maximum edit distance allowed for matches */
 	int maxEdits=0;
+	/** Maximum substitutions allowed in alignments */
 	int maxSubs=0;
 	int bandwidth=9;
 	final boolean customBandwidth;
+	/** Minimum sequence identity percentage required for matches */
 	float minIdentity=100;
 	float minIdentityMult=0;
 	float minLengthPercent=0;
+	/** Minimum overlap length required for clustering */
 	int minOverlapCluster=100;
 	int minOverlapMerge=1;
 	float minOverlapPercentCluster=0;
@@ -5526,14 +5658,18 @@ public final class Dedupe2 {
 	private int minClusterSizeForStats=1;
 	private boolean pickBestRepresentativePerCluster=false;
 
+	/** Total number of reads processed */
 	long readsProcessed=0;
 	long basesProcessed=0;
 	long collisions=0;
+	/** Number of sequence containments detected */
 	long containments=0;
 	long baseContainments=0;
 	long containmentCollisions=0;
+	/** Number of exact sequence matches found */
 	long matches=0;
 	long baseMatches=0;
+	/** Number of sequence overlaps identified */
 	long overlaps=0;
 	long baseOverlaps=0;
 	long overlapCollisions=0;
@@ -5543,6 +5679,7 @@ public final class Dedupe2 {
 	private final int subsetCount;
 	private final boolean subsetMode;
 	
+	/** K-mer length for hashing and comparison */
 	private final int k;
 	private final int k2;
 	private final boolean EA=Shared.EA();
@@ -5555,11 +5692,15 @@ public final class Dedupe2 {
 	
 	private static int tcount=0;
 	
+	/** Main hash table mapping sequence codes to unit lists */
 	private LinkedHashMap<Long, ArrayList<Unit>> codeMap=new LinkedHashMap<Long, ArrayList<Unit>>(4000000);
 //	private HashMap<LongM, ArrayList<Unit>> affixMap1=null;
 //	private HashMap<LongM, ArrayList<Unit>> affixMap2=null;
+	/** Hash tables for prefix/suffix matching in overlap detection */
 	private HashMap<LongM, ArrayList<Unit>>[] affixMaps=null;
+	/** Queue of clusters awaiting processing */
 	private ArrayDeque<ArrayList<Unit>> clusterQueue=null;
+	/** List of completed clusters ready for output */
 	private ArrayList<ArrayList<Unit>> processedClusters=null;
 	private AtomicIntegerArray clusterNumbers=null;
 
@@ -5586,6 +5727,7 @@ public final class Dedupe2 {
 	public static boolean printLengthInEdges=false;
 	public static float depthRatio=2;
 	public static int MINSCAF=0;
+	/** Number of processing threads to use */
 	public static int THREADS=Shared.threads();
 	public static int threadMaxReadsToBuffer=4000;
 	public static int threadMaxBasesToBuffer=32000000;

@@ -52,6 +52,8 @@ import template.ThreadWaiter;
  */
 public class GradeBins {
 
+	/** Program entry point for bin grading analysis.
+	 * @param args Command-line arguments specifying input files and analysis parameters */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -66,6 +68,11 @@ public class GradeBins {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a GradeBins instance and parses command-line arguments.
+	 * Configures input files, output options, reference data, and analysis parameters.
+	 * @param args Command-line arguments array
+	 */
 	public GradeBins(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -207,6 +214,8 @@ public class GradeBins {
 		loadStuff();
 	}
 	
+	/** Initializes global data structures for bin grading.
+	 * Loads GFF annotations, spectra index, coverage data, and taxonomic tree. */
 	static void loadStuff() {
 		loadGff();
 		loadSpectra();
@@ -215,6 +224,8 @@ public class GradeBins {
 		if(useTree && BinObject.tree==null) {BinObject.loadTree();}
 	}
 	
+	/** Initializes taxonomic level counting maps for total, medium quality, and high quality bins.
+	 * Creates IntHashMap arrays indexed by taxonomic level from domain to species. */
 	static synchronized void makeLevelMaps() {
 		if(levelMaps!=null) {return;}
 		levelMaps=new IntHashMap[TaxTree.LIFE+1];
@@ -227,11 +238,15 @@ public class GradeBins {
 		}
 	}
 	
+	/** Loads coverage data from file into covMap if not already loaded.
+	 * Uses DataLoader to parse coverage file format. */
 	static synchronized void loadCov() {
 		if(cov==null || covMap!=null) {return;}
 		covMap=DataLoader.loadCovFile(cov);
 	}
 	
+	/** Loads GFF annotation file and builds contig-to-annotations mapping.
+	 * Filters for rRNA and tRNA features, applies IMG mapping if available. */
 	static synchronized void loadGff() {
 		if(gffFile==null || gffMap!=null) {return;}
 		HashMap<String, String> imgMap=loadImgMap(imgMapFile);
@@ -251,6 +266,12 @@ public class GradeBins {
 //		assert(false) : gffMap;
 	}
 	
+	/**
+	 * Loads bidirectional IMG contig name mapping from tab-delimited file.
+	 * Creates mapping for both directions (a->b and b->a) for contig renaming.
+	 * @param fname Path to IMG mapping file, or null to skip
+	 * @return HashMap with bidirectional contig name mappings, or null if no file
+	 */
 	static HashMap<String, String> loadImgMap(String fname){
 		if(fname==null) {return null;}
 		HashMap<String,String> map=new HashMap<String,String>();
@@ -269,6 +290,8 @@ public class GradeBins {
 		return map;
 	}
 	
+	/** Loads clade spectra index for taxonomic classification if QuickClade is enabled.
+	 * Uses default reference if spectraFile is null but runQuickClade is true. */
 	static void loadSpectra() {
 		if(cladeServer) {spectraFile=null; return;}
 		if(runQuickClade && spectraFile==null) {spectraFile=CladeSearcher.defaultRef();}
@@ -281,6 +304,11 @@ public class GradeBins {
 		t.stopAndPrint();
 	}
 	
+	/**
+	 * Main processing method that performs bin grading analysis.
+	 * Loads reference data, processes bins, and generates comprehensive reports.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		BinObject.grading=true;
@@ -321,6 +349,11 @@ public class GradeBins {
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 	}
 	
+	/**
+	 * Adds bin taxonomic information to level counting maps.
+	 * Uses GTDB lineage if available, otherwise creates lineage from taxid.
+	 * @param bin The bin statistics to add to taxonomic counts
+	 */
 	private void addTaxLevels(BinStats bin) {
 		Lineage lineage=null;
 		if(gtdbMap!=null) {
@@ -335,6 +368,12 @@ public class GradeBins {
 		addTaxLevels(bin, lineage);
 	}
 	
+	/**
+	 * Increments taxonomic level counters for the given bin and lineage.
+	 * Updates total counts and quality-specific counts based on bin quality metrics.
+	 * @param bin The bin statistics containing quality information
+	 * @param lineage The taxonomic lineage to increment counts for
+	 */
 	private void addTaxLevels(BinStats bin, Lineage lineage) {
 		boolean hq=bin.hq(useRNA);
 		boolean mq=bin.mq(useRNA);
@@ -350,6 +389,11 @@ public class GradeBins {
 //		assert(false);
 	}
 	
+	/**
+	 * Generates comprehensive output reports from processed bin statistics.
+	 * Prints quality summaries, L90 statistics, contamination reports, and optional charts.
+	 * @param bins List of processed bin statistics to report on
+	 */
 	void printResults(ArrayList<BinStats> bins) {
 		for(BinStats bin : bins) {
 			readsProcessed+=bin.contigs;
@@ -391,6 +435,16 @@ public class GradeBins {
 		}
 	}
 	
+	/**
+	 * Calculates and prints overall binning performance scores.
+	 * Reports sequence recovery, completeness, contamination, and total quality scores.
+	 *
+	 * @param bins List of bin statistics to score
+	 * @param totalSize Total assembly size in bases
+	 * @param totalContigs Total number of contigs in assembly
+	 * @param taxIDsIn Number of unique taxa in input
+	 * @param validation Whether to include validation-specific metrics
+	 */
 	public static void printScore(ArrayList<BinStats> bins, 
 			long totalSize, long totalContigs, long taxIDsIn, boolean validation) {
 		long cleanContigs=0, contamContigs=0;
@@ -443,6 +497,15 @@ public class GradeBins {
 		}
 	}
 	
+	/**
+	 * Converts bin collection to score string after calculating contamination.
+	 * Filters bins by minimum size and computes quality scores.
+	 *
+	 * @param bins Collection of bins to score
+	 * @param minSize Minimum bin size to include in scoring
+	 * @param sizeMap Size mapping for contamination calculation
+	 * @return Formatted string with completeness, contamination, and total scores
+	 */
 	static String toScoreString(ArrayList<? extends Bin> bins, int minSize, IntLongHashMap sizeMap){
 		for(Bin b : bins) {
 			if(b.size()>minSize) {b.calcContam(sizeMap);}
@@ -450,6 +513,14 @@ public class GradeBins {
 		return toScoreString(toBinStats(null, bins, minSize, false, false, false), sizeMap.sum());
 	}
 	
+	/**
+	 * Formats bin statistics into a score summary string.
+	 * Calculates completeness, contamination, and total quality scores.
+	 *
+	 * @param bins List of bin statistics to summarize
+	 * @param totalSize Total assembly size for percentage calculations
+	 * @return Tab-delimited string with score metrics
+	 */
 	private static String toScoreString(ArrayList<BinStats> bins, long totalSize){
 		double compltScore=0, contamScore=0;
 		double totalScore2=0;
@@ -470,6 +541,8 @@ public class GradeBins {
 		return "Complt:\t"+compS+"\tContam:\t"+contamS+"\tTotal:\t"+totalS;
 	}
 	
+	/** Reports statistics on clean versus contaminated bins.
+	 * Categorizes bins as clean (no contamination) or dirty (some contamination). */
 	public static void printCleanDirty(ArrayList<BinStats> bins) {
 		long cleanBins=0, contamBins=0;
 		long cleanContigs=0, contamContigs=0;
@@ -503,6 +576,18 @@ public class GradeBins {
 				String.format("%.3f", badContigs*100.0/(cleanContigs+contamContigs)));
 	}
 	
+	/**
+	 * Converts bins or bin files to BinStats list with multi-threaded processing.
+	 * Handles taxonomic classification, gene calling, and annotation based on flags.
+	 *
+	 * @param fnames List of input bin file paths, or null if using bins parameter
+	 * @param bins List of Bin objects to process, or null if using fnames parameter
+	 * @param minSize Minimum bin size to include
+	 * @param qclade Whether to perform clade-based taxonomic classification
+	 * @param call Whether to call genes on sequences
+	 * @param annot Whether to apply GFF annotations
+	 * @return List of BinStats objects for all processed bins
+	 */
 	public static ArrayList<BinStats> toBinStats(List<String> fnames, List<? extends Bin> bins,
 		int minSize, boolean qclade, boolean call, boolean annot){
 		
@@ -549,6 +634,12 @@ public class GradeBins {
 		return binStats;
 	}
 
+	/**
+	 * Loads a single bin file as a Cluster object with constituent contigs.
+	 * Parses FASTA format, calculates GC content, assigns taxonomic IDs, and applies coverage data.
+	 * @param fname Path to the bin file in FASTA format
+	 * @return Cluster object containing all contigs from the bin
+	 */
 	static Cluster loadCluster(String fname) {
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		
@@ -605,6 +696,12 @@ public class GradeBins {
 		return c;
 	}
 	
+	/**
+	 * Calculates contamination for a cluster using external quality assessment tools.
+	 * Prioritizes checkM and EukCC results over internal contamination calculation.
+	 * @param fname Bin filename used for lookup in quality assessment maps
+	 * @param c Cluster to calculate contamination for
+	 */
 	static void calcContam(String fname, Cluster c) {
 		fname=new File(fname).getName();
 		String core=ReadWrite.stripToCore(fname);
@@ -648,6 +745,14 @@ public class GradeBins {
 //		printClusterReport(list, minSize, fname);
 //	}
 	
+	/**
+	 * Writes comprehensive bin statistics report to tab-delimited file.
+	 * Includes quality metrics, taxonomic assignments, gene counts, and lineage information.
+	 *
+	 * @param bins List of bin statistics to report
+	 * @param minSize Minimum bin size threshold for inclusion
+	 * @param fname Output file path, or null to skip report generation
+	 */
 	static void printClusterReport(ArrayList<BinStats> bins, int minSize, String fname) {
 		if(fname==null) {return;}
 		Collections.sort(bins);
@@ -694,6 +799,12 @@ public class GradeBins {
 		bsw.poison();
 	}
 	
+	/**
+	 * Prints counts of unique taxa represented at each taxonomic level.
+	 * Shows total, medium quality, and high quality bin counts by level.
+	 * @param bins List of bin statistics (unused in current implementation)
+	 * @param outstream Output stream for printing results
+	 */
 	static void printTaxLevels(ArrayList<BinStats> bins, PrintStream outstream) {
 		outstream.println("Unique Taxa Counts:");
 		outstream.println("Level         \tTotal\tMQ\tHQ");
@@ -712,6 +823,15 @@ public class GradeBins {
 //		printBinQuality(list, minSize, useRNA, outstream);
 //	}
 	
+	/**
+	 * Categorizes and reports bins by quality levels (UHQ, VHQ, HQ, MQ, LQ, VLQ).
+	 * Quality determination based on completeness, contamination, and optional RNA gene presence.
+	 *
+	 * @param bins List of bin statistics to categorize
+	 * @param minSize Minimum bin size for inclusion in quality assessment
+	 * @param useRNA Whether RNA gene presence is required for high quality bins
+	 * @param outstream Output stream for printing quality distribution
+	 */
 	static void printBinQuality(ArrayList<BinStats> bins, int minSize, boolean useRNA, 
 			PrintStream outstream) {
 		long uhq=0, uhqINC=0, uhqCON=0;
@@ -785,6 +905,11 @@ public class GradeBins {
 		outstream.println("HQ+MQ/4\t"+hqm+"\t\t\t"+(hqSize+mqSize/4));
 	}
 	
+	/**
+	 * Prints L90 statistics from a collection of bins.
+	 * @param bins Collection of bins to analyze
+	 * @param basesLoaded Total bases loaded for percentage calculations
+	 */
 	static void printL90FromBins(Collection<? extends Bin> bins, long basesLoaded) {
 		LongList sizes=new LongList(bins.size());
 		for(Bin b : bins) {
@@ -793,6 +918,11 @@ public class GradeBins {
 		GradeBins.printL90(sizes, basesLoaded);
 	}
 	
+	/**
+	 * Prints L90 statistics from BinStats collection.
+	 * @param bins Collection of bin statistics to analyze
+	 * @param basesLoaded Total bases loaded for percentage calculations
+	 */
 	static void printL90(Collection<BinStats> bins, long basesLoaded) {
 		LongList sizes=new LongList(bins.size());
 		for(BinStats b : bins) {
@@ -801,6 +931,12 @@ public class GradeBins {
 		GradeBins.printL90(sizes, basesLoaded);
 	}
 	
+	/**
+	 * Calculates and prints L/N statistics at various percentage thresholds.
+	 * Reports the length (L) and count (N) where cumulative size reaches percentage thresholds.
+	 * @param list List of sizes to analyze
+	 * @param basesLoaded Total bases for percentage threshold calculations
+	 */
 	static void printL90(LongList list, long basesLoaded) {
 		long c99=(long)(0.99f*basesLoaded);
 		long c95=(long)(0.95f*basesLoaded);
@@ -841,6 +977,12 @@ public class GradeBins {
 		}
 	}
 	
+	/**
+	 * Creates size mapping from reference assembly file.
+	 * Parses FASTA sequences, extracts taxonomic IDs, and builds taxid-to-size mapping.
+	 * @param fname Path to reference assembly file in FASTA format
+	 * @return IntLongHashMap mapping taxonomic IDs to total sequence lengths
+	 */
 	IntLongHashMap makeSizeMap(String fname) {
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		
@@ -888,6 +1030,12 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Loads pre-computed taxonomic size mapping from tab-delimited file.
+	 * Expected format: taxID, size, contig_count per line.
+	 * @param fname Path to taxonomic mapping file
+	 * @return IntLongHashMap with taxonomic ID to size mappings
+	 */
 	private IntLongHashMap loadTaxIn(String fname) {
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		LineParser1 lp=new LineParser1('\t');
@@ -916,6 +1064,12 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Writes taxonomic size and count mapping to tab-delimited output file.
+	 * @param fname Output file path
+	 * @param sizeMap Mapping of taxonomic IDs to total sizes
+	 * @param countMap Mapping of taxonomic IDs to contig counts
+	 */
 	private void writeTaxOut(String fname, IntLongHashMap sizeMap, IntHashMap countMap) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, false);
 		bsw.print("#taxID\tSize\tContigs\n");
@@ -929,6 +1083,12 @@ public class GradeBins {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads CheckM completeness and contamination results from file or directory.
+	 * Parses quality_report.tsv file format with bin names and percentage values.
+	 * @param fname Path to CheckM file or directory containing quality_report.tsv
+	 * @return HashMap mapping bin names to CCLine objects with completeness/contamination data
+	 */
 	public static HashMap<String, CCLine> loadCheckM(String fname){
 		if(fname==null) {return null;}
 		File f=new File(fname);
@@ -957,6 +1117,12 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Loads EukCC completeness and contamination results from file or directory.
+	 * Parses eukcc.csv file format with bin names and percentage values.
+	 * @param fname Path to EukCC file or directory containing eukcc.csv
+	 * @return HashMap mapping bin names to CCLine objects with completeness/contamination data
+	 */
 	public static HashMap<String, CCLine> loadEukCC(String fname){
 		if(fname==null) {return null;}
 		File f=new File(fname);
@@ -985,6 +1151,12 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Loads CAMI format taxonomic assignments from tab-delimited file.
+	 * Parses contig names and taxonomic IDs while skipping comment lines.
+	 * @param fname Path to CAMI format file
+	 * @return HashMap mapping contig names to taxonomic IDs
+	 */
 	public static HashMap<String, Integer> loadCami(String fname) {
 		if(fname==null) {return null;}
 		LineParser1 lp=new LineParser1('\t');
@@ -1001,6 +1173,12 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Loads GTDB taxonomic classifications from directory or file.
+	 * Looks for gtdbtk.bac120.summary.tsv and gtdbtk.ar53.summary.tsv files.
+	 * @param fname Path to GTDB directory or specific summary file
+	 * @return HashMap mapping genome names to Lineage objects
+	 */
 	public static HashMap<String, Lineage> loadGTDBDir(String fname) {
 		if(fname==null) {return null;}
 		HashMap<String, Lineage> map=new HashMap<String, Lineage>();
@@ -1019,6 +1197,14 @@ public class GradeBins {
 		return map;
 	}
 	
+	/**
+	 * Loads individual GTDB summary file and parses taxonomic classifications.
+	 * Processes bacterial or archaeal classification results into lineage objects.
+	 *
+	 * @param fname Path to GTDB summary file
+	 * @param map Map to populate with genome name to lineage mappings
+	 * @return true if file was successfully loaded, false otherwise
+	 */
 	public static boolean loadGTDBFile(String fname, HashMap<String, Lineage> map) {
 		if(fname==null || !new File(fname).canRead()) {return false;}
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
@@ -1039,6 +1225,8 @@ public class GradeBins {
 	/*----------------          Accumulator         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Accumulator for collecting results from ProcessThread workers.
+	 * Tracks overall success status across all parallel bin processing threads. */
 	private static class PTAccumulator implements Accumulator<GradeBins.ProcessThread> {
 
 		@Override
@@ -1056,9 +1244,15 @@ public class GradeBins {
 			return success;
 		}
 		
+		/** Flag indicating overall success of all threads */
 		boolean success=true;
 	}
 	
+	/**
+	 * Performs taxonomic classification on clades using server or local index.
+	 * Sends clades to remote server or uses local CladeIndex to assign taxonomy.
+	 * @param clades List of Clade objects to classify
+	 */
 	private static void runQuickClade(List<Clade> clades){
 		assert(cladeIndex==null);
 		
@@ -1074,6 +1268,14 @@ public class GradeBins {
 		}
 	}
 	
+	/**
+	 * Performs gene calling on bin sequences and updates statistics.
+	 * Counts rRNA, tRNA, and CDS genes using the provided gene caller.
+	 *
+	 * @param b Bin containing sequences to analyze
+	 * @param gcall GeneCaller instance for gene prediction
+	 * @param bs BinStats object to update with gene counts
+	 */
 	static void callGenes(Bin b, GeneCaller gcall, BinStats bs) {
 		ArrayList<Read> reads=new ArrayList<Read>(b.numContigs());
 		for(Contig c : b) {
@@ -1093,6 +1295,14 @@ public class GradeBins {
 		}
 	}
 	
+	/**
+	 * Annotates bin using pre-loaded GFF data to count gene features.
+	 * Matches contig names to GFF entries and tallies different gene types.
+	 *
+	 * @param b Bin containing contigs to annotate
+	 * @param map HashMap mapping contig names to GFF annotation lines
+	 * @param bs BinStats object to update with annotation counts
+	 */
 	static void annotate(Bin b, HashMap<String, ArrayList<GffLine>> map, BinStats bs) {
 //		System.err.println("Annotating "+b.name());
 		for(Contig c : b) {
@@ -1127,6 +1337,19 @@ public class GradeBins {
 	 * It is safe to remove the static modifier. */
 	static class ProcessThread extends Thread {
 		
+		/**
+		 * Constructs ProcessThread for parallel bin processing.
+		 *
+		 * @param fnames_ List of all input filenames, or null if using bins_
+		 * @param bins_ List of Bin objects to process, or null if using fnames_
+		 * @param binStats_ Shared list to store processed bin statistics
+		 * @param tid_ Thread ID for this worker
+		 * @param threads_ Total number of worker threads
+		 * @param minSize_ Minimum bin size for inclusion
+		 * @param qclade_ Whether to perform clade classification
+		 * @param call_ Whether to call genes
+		 * @param annot_ Whether to apply annotations
+		 */
 		ProcessThread(List<String> fnames_, List<? extends Bin> bins_,
 			ArrayList<BinStats> binStats_, int tid_, int threads_,
 			int minSize_, boolean qclade_, boolean call_, boolean annot_){
@@ -1200,18 +1423,29 @@ public class GradeBins {
 			return bs;
 		}
 		
+		/** List of input filenames to process */
 		private final List<String> fnames;
+		/** List of Bin objects to process */
 		private final List<? extends Bin> bins;
+		/** Shared list for storing processed bin statistics */
 		private final ArrayList<BinStats> binStats;
+		/** Thread ID for stride-based file assignment */
 		private final int tid;
+		/** Total number of processing threads */
 		private final int threads;
+		/** Thread-local GeneCaller instance for gene annotation */
 		private final GeneCaller gCallerT;
 		
+		/** Minimum bin size for inclusion */
 		private final int minSize;
+		/** Whether to perform clade classification */
 		private final boolean qclade;
+		/** Whether to call genes */
 		private final boolean call;
+		/** Whether to apply annotations */
 		private final boolean annot;
 		
+		/** Count of bins processed by this thread */
 		int processed=0;
 		boolean success=false;
 		
@@ -1219,12 +1453,25 @@ public class GradeBins {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Container for completeness and contamination values from quality assessment tools.
+	 * Used to store results from CheckM, EukCC, and similar bin quality evaluators. */
 	private static class CCLine {
 		
+		/**
+		 * Creates CCLine with completeness and contamination values.
+		 * @param completeness_ Completeness fraction (0.0-1.0)
+		 * @param contam_ Contamination fraction (0.0-1.0)
+		 */
 		CCLine(float completeness_, float contam_) {
 			this(completeness_, contam_, -1);
 		}
 		
+		/**
+		 * Creates CCLine with completeness, contamination, and size values.
+		 * @param completeness_ Completeness fraction (0.0-1.0)
+		 * @param contam_ Contamination fraction (0.0-1.0)
+		 * @param size_ Bin size in bases, or -1 if unknown
+		 */
 		CCLine(float completeness_, float contam_, long size_) {
 			completeness=completeness_;
 			contam=contam_;
@@ -1234,76 +1481,130 @@ public class GradeBins {
 			assert(size>0 || size==-1);
 		}
 		
+		/** Returns string representation of size, completeness, and contamination.
+		 * @return Comma-separated values string */
 		public String toString() {return size+", "+completeness+", "+contam;}
 		
+		/** Bin size in bases, or -1 if not specified */
 		long size=-1;
+		/** Completeness fraction from 0.0 to 1.0 */
 		float completeness=-1;
+		/** Contamination fraction from 0.0 to 1.0 */
 		float contam=-1;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input bin file paths */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Path to input taxonomic mapping file */
 	private String taxIn=null;
+	/** Path to output taxonomic mapping file */
 	private String taxOut=null;
+	/** Path to taxonomic data file (input or output) */
 	private String tax=null;
+	/** Path to reference assembly file */
 	private String ref=null;
+	/** Path for bin size histogram output */
 	private String hist=null;
+	/** Path for contamination histogram output */
 	private String contamHist=null;
+	/** Path for completeness vs contamination plot output */
 	private String ccplot=null;
+	/** Path to CheckM results file or directory */
 	private String checkMFile=null;
+	/** Path to EukCC results file or directory */
 	private String eukCCFile=null;
+	/** Path to CAMI format taxonomic assignments file */
 	private String camiFile=null;
+	/** Path to GTDB taxonomic classification file or directory */
 	private String gtdbFile=null;
+	/** Path to coverage data file */
 	private static String cov=null;
+	/** Path to GFF annotation file */
 	private static String gffFile=null;
+	/** Path to IMG contig mapping file */
 	private static String imgMapFile=null;
+	/** Whether to use clade server for taxonomic classification */
 	static boolean cladeServer=false;
+	/** Path to clade spectra file for taxonomic classification */
 	static String spectraFile=null;
+	/** Map from contig names to GFF annotation lines */
 	private static HashMap<String, ArrayList<GffLine>> gffMap;
+	/** Map from contig names to coverage values */
 	private static HashMap<String, FloatList> covMap;
 	
+	/** Path for detailed cluster report output */
 	private String report=null;
+	/** List of bin sizes for L90 calculations */
 	private LongList sizes=new LongList();
+	/** List of processed bin statistics */
 	private ArrayList<BinStats> bins=new ArrayList<BinStats>();
+	/** Total contamination score across all bins */
 	private double contamScore=0;
+	/** Total completeness score across all bins */
 	private double compltScore=0;
+	/** Minimum bin size threshold for inclusion in analysis */
 	private int minSize=1;
+	/** Whether to use multi-threaded loading */
 	private boolean loadMT=true;
 
+	/** Map from taxonomic IDs to total sequence sizes */
 	private	static IntLongHashMap sizeMap;
+	/** Map from taxonomic IDs to contig counts */
 	private	static IntHashMap countMap;
+	/** Map from bin names to CheckM completeness/contamination results */
 	private static HashMap<String, CCLine> checkMMap;
+	/** Map from bin names to EukCC completeness/contamination results */
 	private static HashMap<String, CCLine> eukCCMap;
+	/** Map from contig names to CAMI taxonomic assignments */
 	private static HashMap<String, Integer> camiMap;
 //	private static HashMap<String, GTDBLine> gtdbMap;
+	/** Map from genome names to GTDB taxonomic lineages */
 	private static HashMap<String, Lineage> gtdbMap;
 
+	/** Arrays of maps counting taxa at each taxonomic level */
 	private static IntHashMap[] levelMaps;
+	/** Arrays of maps counting high-quality taxa at each taxonomic level */
 	private static IntHashMap[] levelMapsHQ;
+	/** Arrays of maps counting medium-quality taxa at each taxonomic level */
 	private static IntHashMap[] levelMapsMQ;
 
+	/** Whether to perform taxonomic classification using clade analysis */
 	static boolean runQuickClade=false;
+	/** Index for clade-based taxonomic classification */
 	private static CladeIndex cladeIndex=null;
+	/** Whether to use taxonomic tree for lineage analysis */
 	static boolean useTree=false;
+	/** Whether a server error occurred during clade classification */
 	static boolean serverError=false;
 	
+	/** Whether to perform gene calling on bin sequences */
 	static boolean callGenes=false;
+	/** Whether RNA genes are required for high-quality bin designation */
 	static boolean useRNA=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of reads/contigs to process, or -1 for unlimited */
 	private static long maxReads=-1;
+	/** Count of contigs processed */
 	private long readsProcessed=0, basesProcessed=0;
+	/** Total size of all sequences in the assembly */
 	private long totalSize=0, totalContigs=0;
+	/** Number of unique taxonomic IDs in input data */
 	private long taxIDsIn=0;
+	/** Whether to overwrite existing output files */
 	boolean overwrite=true;
+	/** Whether processing completed successfully */
 	static boolean success=true;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for printing results */
 	private static java.io.PrintStream outstream=System.err;
+	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
 	
 }

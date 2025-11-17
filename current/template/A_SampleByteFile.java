@@ -218,6 +218,15 @@ public class A_SampleByteFile {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core processing logic that reads lines and applies filtering.
+	 * Valid lines (not starting with '#') are processed by extracting content
+	 * before the first tab character. Invalid lines are routed to optional output.
+	 *
+	 * @param bf Input ByteFile reader
+	 * @param bsw Output writer for valid lines
+	 * @param bswInvalid Optional output writer for invalid lines
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -249,6 +258,11 @@ public class A_SampleByteFile {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified file format.
+	 * @param ff FileFormat specification, may be null
+	 * @return Started ByteStreamWriter, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -271,11 +285,16 @@ public class A_SampleByteFile {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines read from input */
 	private long linesProcessed=0;
+	/** Number of valid lines written to output */
 	private long linesOut=0;
+	/** Total bytes read from input including newlines */
 	private long bytesProcessed=0;
+	/** Total bytes written to output including newlines */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process; Long.MAX_VALUE for unlimited */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

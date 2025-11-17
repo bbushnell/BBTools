@@ -60,6 +60,24 @@ public class CustomHeader {
 //		new Exception().printStackTrace();
 	}
 	
+	/**
+	 * Creates a CustomHeader with all parameters specified directly.
+	 * Used for programmatic creation of synthetic headers.
+	 *
+	 * @param rnum_ Pair number (0 or 1)
+	 * @param id_ Numeric identifier
+	 * @param start_ Start position on reference
+	 * @param stop_ Stop position on reference
+	 * @param insert_ Insert size
+	 * @param strand_ Strand orientation
+	 * @param cigar_ CIGAR string (unused parameter)
+	 * @param bbstart_ BBTools start position
+	 * @param bbstop_ BBTools stop position (unused parameter)
+	 * @param bbchrom_ BBTools chromosome number
+	 * @param bbscaffold_ BBTools scaffold number (unused parameter)
+	 * @param match_ Match string bytes
+	 * @param rname_ Reference name
+	 */
 	public CustomHeader(int rnum_, long id_, int start_, int stop_, int insert_, int strand_, 
 			String cigar_, int bbstart_, int bbstop_, int bbchrom_, int bbscaffold_, byte[] match_, String rname_){
 		assert(rnum_==0 || rnum_==1);
@@ -91,6 +109,12 @@ public class CustomHeader {
 //		assert(rname.equals(h.rname)) : s+"\n"+s2;
 	}
 	
+	/**
+	 * Creates a CustomHeader from a Read object.
+	 * Extracts mapping information and converts to custom header format.
+	 * Uses genome build data if available for scaffold information.
+	 * @param r Read object to convert
+	 */
 	public CustomHeader(Read r){
 		
 		rnum=r.pairnum();
@@ -143,6 +167,12 @@ public class CustomHeader {
 		return bb.toString();
 	}
 	
+	/**
+	 * Appends header fields to a ByteBuilder in underscore-separated format.
+	 * Format: id_start_stop_insert_strand_bbstart_bbchrom_match_rname
+	 * @param bb ByteBuilder to append to
+	 * @return The modified ByteBuilder
+	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 //		if(rnum==0){bb.append("SYN_");}
 //		bb.append(rnum);
@@ -158,6 +188,14 @@ public class CustomHeader {
 		return bb;
 	}
 	
+	/**
+	 * Generates old-style custom ID from a Read object.
+	 * Creates custom identifier with optional mapping and scaffold information.
+	 * Includes pair number formatting based on configuration flags.
+	 *
+	 * @param r Read to generate ID for
+	 * @return Custom ID string
+	 */
 	public static String customID_old(Read r){
 		if(!FASTQ.TAG_CUSTOM){return r.id;}
 		
@@ -219,6 +257,12 @@ public class CustomHeader {
 		return sb.toString();
 	}
 	
+	/**
+	 * Converts a Read and its mate to custom header string format.
+	 * Creates headers for both reads in a pair if mate exists.
+	 * @param r Read to convert (with optional mate)
+	 * @return Custom header string for the read pair
+	 */
 	public static String toString(Read r){
 		CustomHeader h1=new CustomHeader(r);
 		CustomHeader h2=(r.mate==null ? null : new CustomHeader(r.mate));
@@ -232,6 +276,16 @@ public class CustomHeader {
 		return s;
 	}
 	
+	/**
+	 * Creates string representation from two CustomHeader objects.
+	 * Combines headers with "&" separator if both are present.
+	 * Adds pair number formatting based on configuration flags.
+	 *
+	 * @param h1 First header (required)
+	 * @param h2 Second header (may be null)
+	 * @param rnum Current read number (0 or 1)
+	 * @return Combined header string with "SYN_" prefix
+	 */
 	public static String toString(CustomHeader h1, CustomHeader h2, int rnum){
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("SYN_");
@@ -253,6 +307,14 @@ public class CustomHeader {
 		return bb.toString();
 	}
 	
+	/**
+	 * Decodes reference name from encoded format.
+	 * Handles escape sequences for special characters in reference names.
+	 * Uses "!" as escape character with specific mappings.
+	 *
+	 * @param rname Encoded reference name
+	 * @return Decoded reference name with special characters restored
+	 */
 	public static String decodeRname(String rname){
 		ByteBuilder bb=new ByteBuilder(rname.length());
 		char prev='.';
@@ -271,6 +333,14 @@ public class CustomHeader {
 		return bb.toString();
 	}
 	
+	/**
+	 * Encodes reference name to avoid conflicts with header delimiters.
+	 * Escapes special characters: space, underscore, ampersand, dollar, brace.
+	 * Uses substitution mapping to preserve header structure.
+	 *
+	 * @param rname Reference name to encode
+	 * @return Encoded reference name safe for use in headers
+	 */
 	public static String encodeRname(String rname){
 		
 		int found=0;
@@ -294,6 +364,12 @@ public class CustomHeader {
 		return bb.toString();
 	}
 	
+	/**
+	 * Extracts pair number from header string.
+	 * Looks for pair number after last space or slash character.
+	 * @param s Header string containing pair number
+	 * @return Pair number (0 or 1)
+	 */
 	public static int getPairnum(String s){
 		int idx=s.lastIndexOf(' ');
 		if(idx<0){idx=s.lastIndexOf('/');}
@@ -304,22 +380,38 @@ public class CustomHeader {
 		return s.charAt(idx)-'1';
 	}
 
+	/** Read pair number (0 or 1) */
 	public int rnum;
+	/** Numeric identifier for the read */
 	public long id;
+	/** Start position on reference sequence */
 	public int start;
+	/** Stop position on reference sequence */
 	public int stop;
+	/** Insert size between paired reads */
 	public int insert;
+	/** Strand orientation (0 for forward, 1 for reverse) */
 	public int strand;
+	/** BBTools start position */
 	public int bbstart;
+	/** Calculates BBTools stop position from start positions and reference coordinates.
+	 * @return BBTools stop position */
 	public int bbstop(){return bbstart-start+stop;}
+	/** BBTools chromosome number */
 	public int bbchrom;
+	/** Match string bytes for alignment representation */
 	public byte[] match;
+	/** Reference sequence name */
 	public String rname;
 
+	/** Escape character used in reference name encoding */
 	private static final char ESCAPE='!';
+	/** Separator character between paired read headers */
 	private static final char MIDDLE='&';
 
+	/** Array for decoding special characters in reference names */
 	private static final byte[] decodeArray;
+	/** Array for handling escape sequences in reference names */
 	private static final byte[] escapeArray;
 	
 	static{

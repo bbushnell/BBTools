@@ -16,6 +16,11 @@ import stream.SiteScore;
 public final class MultiStateAligner9ts extends MSA{
 	
 	
+	/**
+	 * Testing entry point for the aligner.
+	 * Demonstrates alignment between two byte sequences provided as command arguments.
+	 * @param args Command-line arguments containing read and reference sequences
+	 */
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
@@ -46,6 +51,12 @@ public final class MultiStateAligner9ts extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs a MultiStateAligner9ts with specified matrix dimensions.
+	 * Initializes packed scoring matrices and limit arrays for alignment computation.
+	 * @param maxRows_ Maximum number of rows (read length) for alignment matrix
+	 * @param maxColumns_ Maximum number of columns (reference length) for alignment matrix
+	 */
 	public MultiStateAligner9ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -1480,6 +1491,14 @@ public final class MultiStateAligner9ts extends MSA{
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Translates coordinate from gapped reference back to original reference.
+	 * Accounts for gap characters when converting positions.
+	 *
+	 * @param point Position in gapped reference coordinate system
+	 * @param gref Gapped reference sequence
+	 * @return Corresponding position in original reference coordinates
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -1505,6 +1524,14 @@ public final class MultiStateAligner9ts extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Translates coordinate from original reference to gapped reference.
+	 * Inserts gap positions when converting coordinates.
+	 *
+	 * @param point Position in original reference coordinate system
+	 * @param gref Gapped reference sequence
+	 * @return Corresponding position in gapped reference coordinates
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -2188,6 +2215,12 @@ public final class MultiStateAligner9ts extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion penalty score with bit offset for packed representation.
+	 * Internal method for efficient score calculation during alignment.
+	 * @param len Length of deletion
+	 * @return Bit-shifted deletion penalty score
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -2229,6 +2262,11 @@ public final class MultiStateAligner9ts extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion penalty score with bit offset for packed representation.
+	 * @param len Length of insertion
+	 * @return Bit-shifted insertion penalty score
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -2247,10 +2285,15 @@ public final class MultiStateAligner9ts extends MSA{
 	}
 	
 
+	/** Three-dimensional packed scoring matrix for alignment states */
 	private final int[][][] packed;
+	/** Buffer for gapped reference sequence */
 	private final byte[] grefbuffer;
+	/** Limit for gapped reference sequence length */
 	private int greflimit=-1;
+	/** Secondary limit for gapped reference sequence */
 	private int greflimit2=-1;
+	/** Origin coordinate for gapped reference sequence */
 	private int grefRefOrigin=-1;
 	
 	
@@ -2260,7 +2303,9 @@ public final class MultiStateAligner9ts extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for banded alignment optimization */
 	public final int[] vertLimit;
+	/** Horizontal score limits for banded alignment optimization */
 	public final int[] horizLimit;
 
 	@Override
@@ -2277,6 +2322,12 @@ public final class MultiStateAligner9ts extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity percentage to minimum score ratio.
+	 * Uses scoring constants to estimate expected score ratio for given identity.
+	 * @param minid Minimum identity (0-1 or 0-100 if >1)
+	 * @return Minimum score ratio threshold for alignment filtering
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -2434,7 +2485,9 @@ public final class MultiStateAligner9ts extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Current number of rows in alignment matrix */
 	private int rows;
+	/** Current number of columns in alignment matrix */
 	private int columns;
 	
 }

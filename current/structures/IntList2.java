@@ -151,7 +151,9 @@ public final class IntList2{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the smaller of two integer values */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger of two integer values */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/

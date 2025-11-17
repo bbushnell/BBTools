@@ -6,8 +6,22 @@ import java.util.HashMap;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Identifies and resolves bubble structures in assembly graphs.
+ * Bubbles are short alternative paths between two nodes that represent
+ * sequencing errors or minor sequence variants. This class collapses
+ * these redundant paths to simplify the assembly graph.
+ *
+ * @author Brian Bushnell
+ */
 public class BubblePopper {
 	
+	/**
+	 * Constructs a BubblePopper for the given assembly graph.
+	 * @param allContigs_ Complete list of contigs in the assembly
+	 * @param destMap_ Mapping from contig IDs to their incoming edges
+	 * @param kbig_ K-mer size used in the assembly
+	 */
 	BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_){
 		allContigs=allContigs_;
 		destMap=destMap_;
@@ -15,6 +29,14 @@ public class BubblePopper {
 		minLen=2*kbig-1;
 	}
 	
+	/**
+	 * Expands a contig by finding and merging compatible adjacent paths.
+	 * Attempts both direct merging of simple paths and indirect bubble popping.
+	 * Processes the contig in both directions by flipping when needed.
+	 *
+	 * @param c The contig to expand from
+	 * @return Number of expansions performed
+	 */
 	int expand(Contig c) {
 		//assert(validate(c));
 //		if(true) {return 0;}
@@ -45,22 +67,45 @@ public class BubblePopper {
 		return count;
 	}
 	
+	/**
+	 * Removes dead-end branches from both sides of a contig.
+	 * Only operates when the debranch flag is enabled.
+	 * @param c The contig to debranch
+	 */
 	void debranch(Contig c){
 		assert(debranch);
 		debranchRight(c);
 		debranchLeft(c);
 	}
 	
+	/**
+	 * Removes dead-end branches from the right side of a contig.
+	 * Skips processing if there are fewer than 2 outbound edges or if it's a loop.
+	 * @param c The contig to debranch
+	 */
 	private void debranchRight(Contig c){
 		if(c.rightEdgeCount()<2 || c.rightCode==Tadpole.LOOP){return;}
 		debranch(c, c.rightEdges);
 	}
 	
+	/**
+	 * Removes dead-end branches from the left side of a contig.
+	 * Skips processing if there are fewer than 2 outbound edges or if it's a loop.
+	 * @param c The contig to debranch
+	 */
 	private void debranchLeft(Contig c){
 		if(c.leftEdgeCount()<2 || c.leftCode==Tadpole.LOOP){return;}
 		debranch(c, c.leftEdges);
 	}
 	
+	/**
+	 * Determines if the left side of a contig is a dead end.
+	 * Considers length, edge codes, and incoming edge patterns.
+	 * Contigs longer than 400bp are never considered dead ends.
+	 *
+	 * @param c The contig to test
+	 * @return true if the left side is a dead end
+	 */
 	private boolean isDeadEndLeft(Contig c){
 		if(c.length()>400){return false;}
 		
@@ -75,6 +120,14 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Determines if the right side of a contig is a dead end.
+	 * Considers length, edge codes, and incoming edge patterns.
+	 * Contigs longer than 400bp are never considered dead ends.
+	 *
+	 * @param c The contig to test
+	 * @return true if the right side is a dead end
+	 */
 	private boolean isDeadEndRight(Contig c){
 		if(c.length()>400){return false;}
 		
@@ -89,6 +142,14 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Removes dead-end branches from the specified outbound edge set.
+	 * Identifies dead ends, optionally keeps the longest branch if all are dead,
+	 * and truncates the selected branches.
+	 *
+	 * @param source The source contig
+	 * @param outbound The outbound edges to evaluate
+	 */
 	private void debranch(Contig source, ArrayList<Edge> outbound){
 		if(outbound==null || outbound.size()<2) {return;}
 		int deadEnds=0;
@@ -127,6 +188,15 @@ public class BubblePopper {
 		assert(outbound.size()>=1);
 	}
 	
+	/**
+	 * Removes an edge connection between two contigs.
+	 * Updates both the source and destination contig edge lists
+	 * and the global destination mapping.
+	 *
+	 * @param e The edge to remove
+	 * @param from The source contig
+	 * @param to The destination contig
+	 */
 	void truncate(Edge e, Contig from, Contig to){
 		branchesRemoved++;
 		{
@@ -151,6 +221,14 @@ public class BubblePopper {
 		}
 	}
 	
+	/**
+	 * Attempts to expand the center contig rightward through a simple path.
+	 * A simple path has exactly one outbound edge leading to a node with
+	 * at most one return edge to the center. Validates connectivity patterns
+	 * before merging.
+	 *
+	 * @return true if expansion was successful
+	 */
 	private boolean expandRightSimple(){
 		//assert(validate(center));
 		ArrayList<Edge> outbound=center.rightEdges;
@@ -193,6 +271,12 @@ public class BubblePopper {
 		return merge(center, dest, leftEdge);
 	}
 	
+	/**
+	 * Counts incoming edges to a contig from a specific side.
+	 * @param id The contig ID to check
+	 * @param destRight Whether to count edges incoming to the right side
+	 * @return Number of matching incoming edges
+	 */
 	private int countInbound(int id, boolean destRight){
 		int count=0;
 		ArrayList<Edge> inbound=destMap.get(id);
@@ -205,6 +289,12 @@ public class BubblePopper {
 		return count;
 	}
 
+	/**
+	 * Gets incoming edges to a contig from a specific side.
+	 * @param id The contig ID to check
+	 * @param destRight Whether to get edges incoming to the right side
+	 * @return List of matching incoming edges, or null if none found
+	 */
 	private ArrayList<Edge> getInbound(int id, boolean destRight){
 		ArrayList<Edge> inbound=destMap.get(id);
 		if(inbound==null){return null;}
@@ -217,6 +307,14 @@ public class BubblePopper {
 		return inboundSide.isEmpty() ? null : inboundSide;
 	}
 	
+	/**
+	 * Attempts to expand the center contig rightward through bubble resolution.
+	 * Identifies bubble structures with multiple intermediate nodes that
+	 * converge to a mutual destination. Validates bubble topology and
+	 * performs the bubble popping operation.
+	 *
+	 * @return true if bubble was successfully popped
+	 */
 	private boolean expandRight(){
 		//assert(validate(center));
 		//Reset shared state
@@ -308,6 +406,19 @@ public class BubblePopper {
 		
 	}
 	
+	/**
+	 * Pops a bubble by merging the left and right nodes through the best path.
+	 * Concatenates sequence data, redirects edges, marks intermediate nodes
+	 * as used, and updates coverage statistics.
+	 *
+	 * @param left The left (source) contig
+	 * @param right The right (destination) contig
+	 * @param mid The representative middle contig
+	 * @param leftMidEdge Edge from left to middle
+	 * @param rightMidEdge Edge from middle to right
+	 * @param midNodes All intermediate nodes in the bubble
+	 * @return true if pop operation completed successfully
+	 */
 	private boolean pop(Contig left, Contig right, Contig mid, Edge leftMidEdge, Edge rightMidEdge, ArrayList<Contig> midNodes){
 		//assert(validate(left));
 		//assert(validate(right));
@@ -412,11 +523,22 @@ public class BubblePopper {
 		destMap.put(to, inboundTo);
 	}
 	
+	/**
+	 * Removes edges pointing to used or associated contigs.
+	 * Cleans up both left and right edge lists.
+	 * @param c The contig to clean
+	 */
 	void removeDeadEdges(Contig c){
 		c.leftEdges=removeDeadEdges(c.leftEdges);
 		c.rightEdges=removeDeadEdges(c.rightEdges);
 	}
 	
+	/**
+	 * Removes edges pointing to used or associated contigs from an edge list.
+	 * Nullifies dead edges and condenses the list to remove gaps.
+	 * @param edges The edge list to clean
+	 * @return The cleaned edge list, or null if all edges were removed
+	 */
 	private ArrayList<Edge> removeDeadEdges(ArrayList<Edge> edges){
 		if(edges==null){return null;}
 		int removed=0;
@@ -434,6 +556,16 @@ public class BubblePopper {
 		return edges.isEmpty() ? null : edges;
 	}
 	
+	/**
+	 * Merges two contigs connected by a direct edge.
+	 * Concatenates sequence data, transfers edges from right to left,
+	 * updates coverage statistics, and marks the right contig as used.
+	 *
+	 * @param left The left (target) contig that will absorb the right contig
+	 * @param right The right (source) contig to be merged
+	 * @param leftEdge The connecting edge between them
+	 * @return true if merge completed successfully
+	 */
 	private boolean merge(Contig left, Contig right, Edge leftEdge){
 
 		//assert(validate(left));
@@ -496,6 +628,14 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Determines if a contig forms a self-loop structure.
+	 * Checks for loop codes or validates that all edges point back to itself
+	 * with correct orientations.
+	 *
+	 * @param c The contig to test
+	 * @return true if the contig is a loop
+	 */
 	boolean isLoop(Contig c){
 		if(c.leftCode==Tadpole.LOOP && c.rightCode==Tadpole.LOOP){return true;}
 		if(c.leftEdgeCount()!=1 || c.rightEdgeCount()!=1){return false;}
@@ -512,6 +652,15 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Validates the structural integrity of a contig and its edges.
+	 * Performs extensive consistency checks on edge relationships,
+	 * destination mappings, and contig states. Used for debugging
+	 * and ensuring graph correctness.
+	 *
+	 * @param c The contig to validate
+	 * @return true if all validation checks pass
+	 */
 	boolean validate(Contig c){
 		if(true){return true;}
 		if(c.used() || c.associate()){
@@ -566,6 +715,14 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Selects the best representative edge from a set of outbound edges.
+	 * Prioritizes edges to contigs meeting minimum length requirements,
+	 * then selects based on depth and contig length.
+	 *
+	 * @param edges The edges to choose from
+	 * @return The best representative edge, or null if none suitable
+	 */
 	private Edge findRepresentativeMidEdge(ArrayList<Edge> edges){
 		Edge midEdge=null;
 		Contig mid=null;
@@ -589,6 +746,14 @@ public class BubblePopper {
 		return midEdge;
 	}
 	
+	/**
+	 * Validates that all intermediate nodes in a bubble have consistent
+	 * connectivity patterns. Ensures all nodes connect to the same
+	 * left and right destinations with no self-loops or external connections.
+	 *
+	 * @param midNodes The intermediate nodes to validate
+	 * @return true if all nodes have consistent connectivity
+	 */
 	private boolean midNodesConcur(ArrayList<Contig> midNodes){
 		int leftDest=-1;
 		int rightDest=-1;
@@ -646,6 +811,15 @@ public class BubblePopper {
 		return leftDest>=0 && rightDest>=0;
 	}
 	
+	/**
+	 * Retrieves all intermediate contigs reachable through outbound edges.
+	 * Optionally flips contigs to ensure consistent orientation.
+	 * Returns null if any duplicate nodes or used nodes are encountered.
+	 *
+	 * @param outbound The edges leading to intermediate nodes
+	 * @param flipAsNeeded Whether to flip nodes for consistent orientation
+	 * @return List of intermediate contigs, or null if invalid structure
+	 */
 	private ArrayList<Contig> fetchMidNodes(ArrayList<Edge> outbound, boolean flipAsNeeded){
 		ArrayList<Contig> midNodes=new ArrayList<Contig>(outbound.size());
 		for(Edge e : outbound){
@@ -663,6 +837,14 @@ public class BubblePopper {
 		return midNodes;
 	}
 	
+	/**
+	 * Finds the mutual destination that all paths through intermediate nodes
+	 * converge to. Validates that all intermediate nodes have outbound edges
+	 * leading to the same destination with consistent orientation.
+	 *
+	 * @param edges The edges leading to intermediate nodes
+	 * @return The mutual destination contig ID, or negative if none found
+	 */
 	private int	findMutualDest(ArrayList<Edge> edges){
 		if(verbose){System.err.println("findMutualDest("+edges+")");}
 		lastMutualDest=-2;
@@ -795,24 +977,40 @@ public class BubblePopper {
 //		return (max-min>leeway ? -1 : max);
 //	}
 	
+	/** Complete list of all contigs in the assembly */
 	final ArrayList<Contig> allContigs;
+	/** Mapping from contig IDs to their incoming edge lists */
 	final HashMap<Integer, ArrayList<Edge>> destMap;
+	/** K-mer size used in the assembly */
 	final int kbig;
+	/** Minimum contig length for bubble resolution (2*kbig-1) */
 	final int minLen;
+	/** Reusable buffer for sequence concatenation operations */
 	final ByteBuilder bb=new ByteBuilder();
 	
+	/** Current center contig being processed for expansion */
 	Contig center=null;
+	/** Current destination contig in bubble resolution */
 	Contig dest=null;
 	
+	/** ID of the last found mutual destination contig */
 	int lastMutualDest=-1;
+	/** Orientation of the last found mutual destination */
 	int lastMutualDestOrientation=-1;
 	
+	/** Counter for successful expansion operations */
 	int expansions=0;
+	/** Counter for contigs merged or absorbed during operations */
 	int contigsAbsorbed=0;
+	/** Counter for branches removed during debranching operations */
 	long branchesRemoved=0;
 
+	/** Whether to print detailed debugging information */
 	static boolean verbose=false;
+	/** Whether direct path merging is enabled */
 	static boolean popDirect=true;
+	/** Whether indirect bubble popping is enabled */
 	static boolean popIndirect=true;
+	/** Whether debranching of dead ends is enabled */
 	static boolean debranch=false;
 }

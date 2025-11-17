@@ -348,6 +348,9 @@ public class IceCreamMaker {
 		}
 	}
 	
+	/**
+	 * Write identity histogram showing distribution of read accuracies to output file.
+	 */
 	private void writeIdHist(){
 		if(ffIdHist==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffIdHist);
@@ -441,6 +444,11 @@ public class IceCreamMaker {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generate random base according to genome GC content.
+	 * @param randy Random number generator
+	 * @return Random nucleotide base (A, T, G, C)
+	 */
 	private byte randomBase(Random randy) {
 		float rGC=randy.nextFloat();
 		if(rGC>=genomeGC){//AT
@@ -450,6 +458,13 @@ public class IceCreamMaker {
 		}
 	}
 	
+	/**
+	 * Generate random length with bias toward shorter values.
+	 * @param min Minimum length
+	 * @param max Maximum length
+	 * @param randy Random number generator
+	 * @return Random length between min and max (inclusive)
+	 */
 	private static int randomLength(int min, int max, Random randy) {
 		if(min==max){return min;}
 		int range=max-min+1;
@@ -461,6 +476,13 @@ public class IceCreamMaker {
 		return x;
 	}
 	
+	/**
+	 * Generate random rate with bias toward lower values using multiple random draws.
+	 * @param min Minimum rate
+	 * @param max Maximum rate
+	 * @param randy Random number generator
+	 * @return Random rate between min and max
+	 */
 	private static float randomRate(float min, float max, Random randy) {
 		if(min==max){return min;}
 		float range=max-min;
@@ -473,6 +495,11 @@ public class IceCreamMaker {
 		return x;
 	}
 	
+	/**
+	 * Generate synthetic genome with random bases according to GC content.
+	 * @param randy Random number generator
+	 * @return Synthetic genome sequence
+	 */
 	private byte[] genSynthGenome(Random randy){
 		assert(genomeSize<=MAX_GENOME_LENGTH) : genomeSize;
 		byte[] array=new byte[(int)genomeSize];
@@ -482,6 +509,13 @@ public class IceCreamMaker {
 		return array;
 	}
 	
+	/**
+	 * Load reference data from input stream, replacing undefined bases with random
+	 * nucleotides and concatenating all sequences.
+	 * @param cris Input stream containing reference sequences
+	 * @param randy Random number generator for base replacement
+	 * @return Concatenated reference sequence
+	 */
 	private byte[] loadData(ConcurrentReadInputStream cris, Random randy){
 
 		ByteBuilder bb=new ByteBuilder();
@@ -554,6 +588,12 @@ public class IceCreamMaker {
 		return bb.toBytes();
 	}
 	
+	/**
+	 * Add inverted repeats to reference sequence at random positions. Creates
+	 * chimeric sequences by copying and reverse-complementing regions.
+	 * @param bases Reference sequence to modify
+	 * @param randy Random number generator for positioning
+	 */
 	private void addInvertedRepeats(byte[] bases, Random randy){
 		
 		long added=0;
@@ -646,6 +686,11 @@ public class IceCreamMaker {
 			return reads;
 		}
 		
+		/**
+		 * Find median-length read from list, excluding first and last elements.
+		 * @param list List of ReadBuilder objects
+		 * @return ReadBuilder with median length, or null if insufficient reads
+		 */
 		private ReadBuilder median(ArrayList<ReadBuilder> list){
 			if(list.size()<3){return null;}
 			IntList lengths=new IntList(list.size()-2);
@@ -822,6 +867,12 @@ public class IceCreamMaker {
 			return rb;
 		}
 		
+		/**
+		 * Extract random fragment from reference sequence, checking for defined bases
+		 * and optionally reverse-complementing.
+		 * @param source Reference sequence
+		 * @return Random fragment or null if no valid region found
+		 */
 		private byte[] fetchBases(byte[] source){
 			
 			final int len=randomLength(minMoleculeLength, maxMoleculeLength, randy);
@@ -849,7 +900,9 @@ public class IceCreamMaker {
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
+		/** Atomic ZMW ID counter shared across threads */
 		private final AtomicLong atomicZmwID;
+		/** Number of reads to generate per batch */
 		private final int readsPerList=Shared.bufferLen();
 		
 		/** Random number source */
@@ -881,6 +934,7 @@ public class IceCreamMaker {
 	/** Primary output file path */
 	private String outIdHist=null;
 
+	/** Quality file output path */
 	private String qfout1=null;
 	
 	/** Override input file extension */
@@ -932,14 +986,20 @@ public class IceCreamMaker {
 	/** */
 	private long seed=-1;
 	
+	/** Histogram of read identity percentages */
 	private long[] idHist=new long[ID_BINS]; 
 	
 	//These should add to 1
+	/** Fraction of errors that are insertions */
 	private float insFraction=0.40f;
+	/** Fraction of errors that are deletions */
 	private float delFraction=0.35f;
+	/** Fraction of errors that are substitutions */
 	private float subFraction=0.25f;
 
+	/** Threshold for insertion errors */
 	private final float insThresh;
+	/** Threshold for deletion errors */
 	private final float delThresh;
 	
 	/*--------------------------------------------------------------*/
@@ -963,6 +1023,7 @@ public class IceCreamMaker {
 	/** Reference genome, max 2Gbp */
 	private byte[] ref;
 	
+	/** Thread-safe counter for ZMW identifiers */
 	private AtomicLong nextZmwID=new AtomicLong(0);
 	
 	/*--------------------------------------------------------------*/
@@ -982,11 +1043,15 @@ public class IceCreamMaker {
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Number of bins for identity histogram */
 	private static final int ID_BINS=201;
 	
+	/** Maximum reference genome length (2Gbp) */
 	private static final long MAX_GENOME_LENGTH=2000000000;
 
+	/** Standard PacBio adapter sequence */
 	public static final byte[] pacbioAdapter="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT".getBytes();
+	/** Length of PacBio adapter sequence */
 	public static final int adapterLen=pacbioAdapter.length;
 	
 	/*--------------------------------------------------------------*/

@@ -25,6 +25,12 @@ import stream.SamLine;
 public final class BBMap5 extends AbstractMapper  {
 	
 
+	/**
+	 * Program entry point for BBMap5 short-read aligner.
+	 * Initializes mapper, loads index, processes ambiguous reads if needed,
+	 * executes alignment, and reports timing statistics.
+	 * @param args Command-line arguments for alignment parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMap5 mapper=new BBMap5(args);
@@ -38,6 +44,11 @@ public final class BBMap5 extends AbstractMapper  {
 		clearStatics();
 	}
 	
+	/**
+	 * Constructs BBMap5 aligner with specified arguments.
+	 * Inherits argument parsing and configuration from AbstractMapper.
+	 * @param args Command-line arguments for mapper configuration
+	 */
 	public BBMap5(String[] args){
 		super(args);
 	}

@@ -93,6 +93,11 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 //		weightsOut=makeWeightsOutMatrix();
 	}
 	
+	/**
+	 * Creates optimized weight matrix structures for training performance.
+	 * Builds input and output weight matrices plus edge connectivity arrays
+	 * for both forward propagation and backpropagation computations.
+	 */
 	void makeWeightMatrices(){
 //		assert(check());
 		assert(weightsIn==null); //Ensure not already initialized
@@ -103,6 +108,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 //		assert(check());
 	}
 	
+	/**
+	 * Creates input weight matrix structure for forward propagation.
+	 * Returns 3D array [layer][neuron][weight] with direct references
+	 * to cell weight arrays for memory efficiency during training.
+	 * @return Input weight matrix with shared references to cell weights
+	 */
 	private float[][][] makeWeightsInMatrix(){
 		float[][][] x=new float[dims.length][][]; //[layer][neuron][weight]
 		for(int layer=1; layer<x.length; layer++){ //Skip input layer
@@ -134,6 +145,13 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return x;
 	}
 	
+	/**
+	 * Creates output weight matrix structure for backpropagation.
+	 * Allocates memory for transpose weight matrices used during
+	 * gradient computation in the backward pass. Size depends on
+	 * network density (full matrices for dense, sparse for sparse).
+	 * @return Output weight matrix for gradient propagation
+	 */
 	private float[][][] makeWeightsOutMatrix(){
 		float[][][] x=new float[dims.length][][]; //[layer][neuron][output_weight]
 		for(int layer=0; layer<x.length-1; layer++){ //All except final layer
@@ -173,6 +191,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return x;
 	}
 	
+	/**
+	 * Initializes network weights and connectivity patterns using random generation.
+	 * Creates edge topology based on density parameters, initializes weights with
+	 * mixed probability distributions, and optionally randomizes activation functions.
+	 * Uses seeded random number generation for reproducible network initialization.
+	 */
 	public void randomize() {
 		{
 			Random randy=Shared.threadLocalRandom(seed); //Thread-safe RNG
@@ -267,6 +291,17 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return matrix;
 	}
 	
+	/**
+	 * Creates network topology with properly configured neurons.
+	 * Instantiates Cell objects for each layer, sets up global indexing,
+	 * and links neurons to shared activation and gradient arrays.
+	 * Assigns default activation functions based on layer type.
+	 * @param dims Layer dimensions specifying neuron counts
+	 * @param list Global cell list for neuron storage
+	 * @param values Shared activation value arrays per layer
+	 * @param eOverNext Shared error gradient arrays per layer
+	 * @return 2D network structure [layer][neuron]
+	 */
 	private static Cell[][] makeNodes(int[] dims, ArrayList<Cell> list, float[][] values, float[][] eOverNext){
 		final Cell[][] net=new Cell[dims.length][];
 		assert(list.isEmpty()); //Must start with empty list
@@ -459,6 +494,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return bs;
 	}
 	
+	/**
+	 * Converts BitSet to integer array of set bit positions.
+	 * Extracts indices of all set bits in ascending order.
+	 * @param bs BitSet to convert
+	 * @return Array containing positions of set bits
+	 */
 	static int[] toArray(BitSet bs){
 		int[] array=new int[bs.cardinality()]; //Size equals number of set bits
 		for(int i=bs.nextSetBit(0), j=0; i>=0; i=bs.nextSetBit(i+1), j++){
@@ -467,6 +508,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return array;
 	}
 	
+	/**
+	 * Builds reverse connectivity mapping for sparse networks.
+	 * Creates output connection lists by inverting input connections.
+	 * Essential for backpropagation gradient computation in sparse networks.
+	 * @param net Network structure to process
+	 */
 	static void makeOutputSets(Cell[][] net){
 		final int cells; //Total neuron count
 		{
@@ -496,6 +543,14 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		}
 	}
 	
+	/**
+	 * Generates random bias value using mixed probability distributions.
+	 * Combines uniform and cubic distributions to create diverse bias initialization.
+	 * Ensures non-zero values to avoid degenerate neuron states.
+	 * @param randy Random number generator
+	 * @param probFlat Probability of uniform distribution (vs cubic)
+	 * @return Random bias value
+	 */
 	private static float randomBias(Random randy, float probFlat){
 		float weight=0;
 		while(Math.abs(weight)<=Float.MIN_NORMAL){ //Ensure non-zero
@@ -508,6 +563,13 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return weight;
 	}
 	
+	/**
+	 * Generates random weight using three-component probability distribution.
+	 * Combines uniform, exponential, and cubic distributions for diverse
+	 * weight initialization. Clamps extreme values to prevent training instability.
+	 * @param randy Random number generator
+	 * @return Random weight value within safe bounds
+	 */
 	private static float randomWeight(Random randy){
 		float weight=0;
 		while(Math.abs(weight)<=Float.MIN_NORMAL){ //Ensure non-zero
@@ -652,6 +714,12 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		return finalLayer[0].value(); // Return final output
 	}
 	
+	/**
+	 * Forward propagation for dense networks.
+	 * Processes all connections with optional vectorized optimizations.
+	 * Uses SPECIAL_FMA flag to enable fused multiply-add operations.
+	 * @return Output value from the final layer
+	 */
 	public float feedForwardDense(){
 		//assert(check());
 		for(int lnum=1; lnum<layers; lnum++){ // Process each layer

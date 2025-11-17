@@ -9,10 +9,24 @@ import fileIO.TextFile;
 import shared.Timer;
 import shared.Tools;
 
+/**
+ * Enhanced version for representing and parsing IMG (Integrated Microbial Genomes)
+ * record identifiers from text files. Converts IMG record text files into HashMap
+ * or array of ImgRecord2 objects for efficient lookup and processing.
+ * Handles tab-delimited IMG record files with image, taxonomy, and name information.
+ *
+ * @author Brian Bushnell
+ */
 public class ImgRecord2 implements Serializable {
 	
+	/** Serialization version identifier */
 	private static final long serialVersionUID = 8596055205924485293L;
 	
+	/**
+	 * Program entry point for IMG record processing.
+	 * Reads IMG records from input file and optionally writes serialized HashMap to output file.
+	 * @param args Command-line arguments: input_file [output_file]
+	 */
 	public static void main(String[] args){
 		String in=args[0];
 		String out=args.length>1 ? args[1] : null;
@@ -30,6 +44,11 @@ public class ImgRecord2 implements Serializable {
 		if(out!=null){ReadWrite.writeObjectInThread(map, out, false);}
 	}
 	
+	/**
+	 * Converts IMG record file to HashMap for efficient lookup by image ID.
+	 * @param fname Input file path containing IMG records
+	 * @return HashMap mapping image IDs to ImgRecord2 objects
+	 */
 	public static HashMap<Long, ImgRecord2> toMap(String fname){
 		ImgRecord2[] array=toArray(fname);
 		HashMap<Long, ImgRecord2> map=new HashMap<Long, ImgRecord2>((3+array.length*4)/3);
@@ -39,6 +58,12 @@ public class ImgRecord2 implements Serializable {
 		return map;
 	}
 	
+	/**
+	 * Parses IMG record file and returns array of ImgRecord2 objects.
+	 * Skips lines that don't start with digits and processes valid IMG records.
+	 * @param fname Input file path containing tab-delimited IMG records
+	 * @return Array of parsed ImgRecord2 objects
+	 */
 	public static ImgRecord2[] toArray(String fname){
 		TextFile tf=new TextFile(fname, false);
 		ArrayList<ImgRecord2> list=new ArrayList<ImgRecord2>();
@@ -54,6 +79,11 @@ public class ImgRecord2 implements Serializable {
 		return list.toArray(new ImgRecord2[0]);
 	}
 	
+	/**
+	 * Constructs ImgRecord2 from tab-delimited line.
+	 * Parses image ID, taxonomy ID, and optionally name from input line.
+	 * @param line Tab-delimited line containing imgID, taxID, and name fields
+	 */
 	public ImgRecord2(String line){
 		String[] split=line.split("\t");
 		
@@ -62,6 +92,14 @@ public class ImgRecord2 implements Serializable {
 		name=(storeName ? split[2] : null);
 	}
 	
+	/**
+	 * Extracts IMG identifier from sequence header using delimiter detection.
+	 * Searches for "img" followed by delimiter and parses the numeric ID.
+	 *
+	 * @param header Sequence header string containing IMG identifier
+	 * @param doAssertions Whether to enable assertion checks for validation
+	 * @return IMG identifier as long, or -1 if not found or invalid
+	 */
 	public static final long parseImgId(String header, boolean doAssertions){
 		final char delimiter=TaxTree.ncbiHeaderDelimiter(header);
 		assert(!doAssertions || delimiter!=' ') : header;
@@ -85,9 +123,13 @@ public class ImgRecord2 implements Serializable {
 		return img>0 ? img : -1;
 	}
 	
+	/** Controls whether to store name field in ImgRecord2 objects */
 	public static boolean storeName=true;
+	/** IMG database identifier for the microbial genome */
 	public final long imgID;
+	/** NCBI taxonomy identifier for the organism */
 	public final int taxID;
+	/** Organism or genome name (null if storeName is false) */
 	public final String name;
 	
 }

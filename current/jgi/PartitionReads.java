@@ -435,6 +435,11 @@ public class PartitionReads {
 		
 	}
 	
+	/**
+	 * Represents a single partition for base pair balanced distribution.
+	 * Tracks the partition identifier and accumulated base pairs for priority ordering.
+	 * Used by priority queue to select the partition with fewest base pairs.
+	 */
 	private static class Partition implements Comparable<Partition> {
 		public Partition(final int id_) {id=id_;}
 		@Override
@@ -442,7 +447,9 @@ public class PartitionReads {
 			long dif=bp-o.bp;
 			return (dif>0 ? 1 : dif<0 ? -1 : id-o.id);
 		}
+		/** Unique identifier for this partition */
 		public final int id;
+		/** Total number of base pairs accumulated in this partition */
 		public long bp=0;
 	}
 	
@@ -459,7 +466,9 @@ public class PartitionReads {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality file input path */
 	private String qfin1=null;
+	/** Secondary quality file input path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -467,7 +476,9 @@ public class PartitionReads {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Array of primary quality file output paths for each partition */
 	private String[] qfout1Array=null;
+	/** Array of secondary quality file output paths for each partition */
 	private String[] qfout2Array=null;
 	
 	/** Override input file extension */
@@ -512,6 +523,7 @@ public class PartitionReads {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Use shared header for SAM/BAM output files */
 	private boolean useSharedHeader=false;
 	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;

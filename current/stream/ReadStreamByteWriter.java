@@ -8,12 +8,31 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import structures.ByteBuilder;
 
+/**
+ * Thread-safe stream writer that outputs sequence reads in various formats using
+ * ByteBuilder for efficient buffering. Extends ReadStreamWriter to provide
+ * byte-based writing capabilities with format-specific output methods.
+ * Supports FASTA, FASTQ, SAM, attachment, header-only, sites-only, and
+ * proprietary formats like BREAD and FASTR.
+ *
+ * @author Brian Bushnell
+ */
 public class ReadStreamByteWriter extends ReadStreamWriter {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Constructs a ReadStreamByteWriter with specified format and parameters.
+	 *
+	 * @param ff File format specification for output
+	 * @param qfname_ Quality file name (may be null)
+	 * @param read1_ True if processing read1, false for read2
+	 * @param bufferSize Size of the internal buffer for writing
+	 * @param header Header text to include in output
+	 * @param useSharedHeader Whether to use a shared header across threads
+	 */
 	public ReadStreamByteWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean useSharedHeader){
 		super(ff, qfname_, read1_, bufferSize, header, buffered, useSharedHeader);
 	}
@@ -33,6 +52,12 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 		}
 	}
 	
+	/**
+	 * Internal execution method that performs the actual writing workflow.
+	 * Creates ByteBuilders for sequence and quality data, then processes
+	 * jobs from the queue until completion.
+	 * @throws IOException if writing operations fail
+	 */
 	private void run2() throws IOException{
 		writeHeader();
 		
@@ -47,6 +72,12 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes format-specific header information to the output stream.
+	 * Handles headers for FASTR, interleaved mode, sites-only mode,
+	 * and standard READ format headers.
+	 * @throws IOException if header writing fails
+	 */
 	private void writeHeader() throws IOException {
 		if(!OUTPUT_SAM && !OUTPUT_FASTQ && !OUTPUT_FASTA && !OUTPUT_ATTACHMENT && !OUTPUT_HEADER && !OUTPUT_ONELINE){
 			if(OUTPUT_FASTR){
@@ -620,7 +651,9 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to use buffered output streams for improved performance */
 	private static final boolean buffered=true;
+	/** Controls verbose logging output for debugging purposes */
 	private static final boolean verbose=false;
 	
 }

@@ -12,6 +12,8 @@ import stream.SiteScore;
 public final class MultiStateAligner11ts extends MSA{
 	
 	
+	/** Testing method that demonstrates deletion score calculation.
+	 * @param args Command line arguments where args[0] is parsed as an integer */
 	public static void main(String[] args){
 		
 		int x=Integer.parseInt(args[0]);
@@ -47,6 +49,14 @@ public final class MultiStateAligner11ts extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs a MultiStateAligner with specified maximum dimensions.
+	 * Allocates 3D scoring matrices, reference buffer, and limit arrays.
+	 * Initializes matrices with default values and boundary conditions.
+	 *
+	 * @param maxRows_ Maximum number of rows (query length) the aligner can handle
+	 * @param maxColumns_ Maximum number of columns (reference length) the aligner can handle
+	 */
 	public MultiStateAligner11ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -1596,6 +1606,12 @@ public final class MultiStateAligner11ts extends MSA{
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Converts gapped reference coordinate to original reference coordinate.
+	 * @param point Position in gapped reference
+	 * @param gref Gapped reference sequence
+	 * @return Corresponding position in original reference
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -1621,6 +1637,14 @@ public final class MultiStateAligner11ts extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Converts original reference coordinate to gapped reference coordinate.
+	 *
+	 * @param point Position in original reference
+	 * @param gref Gapped reference sequence
+	 * @param read Query sequence (used for error reporting)
+	 * @return Corresponding position in gapped reference
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref, byte[] read){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -2315,6 +2339,11 @@ public final class MultiStateAligner11ts extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates offset-adjusted deletion penalty score.
+	 * @param len Deletion length
+	 * @return Offset-adjusted penalty for deletion
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -2360,6 +2389,11 @@ public final class MultiStateAligner11ts extends MSA{
 		}
 	}
 	
+	/**
+	 * Calculates offset-adjusted insertion penalty score.
+	 * @param len Insertion length
+	 * @return Offset-adjusted penalty for insertion
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		if(AFFINE_ARRAYS){
@@ -2382,10 +2416,17 @@ public final class MultiStateAligner11ts extends MSA{
 	}
 	
 
+	/**
+	 * 3D scoring matrices for match/substitution, deletion, and insertion states
+	 */
 	private final int[][][] packed;
+	/** Buffer for storing gapped reference sequence */
 	private final byte[] grefbuffer;
+	/** Limit of valid data in gapped reference buffer */
 	private int greflimit=-1;
+	/** Secondary limit for gapped reference buffer with cushion */
 	private int greflimit2=-1;
+	/** Origin position of gapped reference relative to original reference */
 	private int grefRefOrigin=-1;
 	
 	
@@ -2395,7 +2436,9 @@ public final class MultiStateAligner11ts extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for banded alignment */
 	public final int[] vertLimit;
+	/** Horizontal score limits for banded alignment */
 	public final int[] horizLimit;
 
 	@Override
@@ -2412,6 +2455,14 @@ public final class MultiStateAligner11ts extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity percentage to minimum score ratio.
+	 * Uses weighted average of substitution, deletion, and insertion penalties
+	 * to estimate the score ratio needed for given identity threshold.
+	 *
+	 * @param minid Minimum identity (0-1 or 0-100 if >1)
+	 * @return Minimum score ratio for filtering alignments
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -2632,7 +2683,9 @@ public final class MultiStateAligner11ts extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Number of rows (query length) in current alignment */
 	private int rows;
+	/** Number of columns (reference length) in current alignment */
 	private int columns;
 	
 }

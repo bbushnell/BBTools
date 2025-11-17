@@ -159,6 +159,12 @@ public class GatherKapaStats {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing pipeline for Kapa contamination analysis.
+	 * Loads plate data from input, analyzes contamination patterns,
+	 * and writes results to output file with timing information.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -195,6 +201,14 @@ public class GatherKapaStats {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads plate information from input file and fetches detailed data from web API.
+	 * Parses tab-separated input with plate names and lot numbers,
+	 * then fetches full Kapa data from JGI web service.
+	 *
+	 * @param bf ByteFile containing plate names and lot numbers
+	 * @return ArrayList of populated Plate objects with well data
+	 */
 	private ArrayList<Plate> loadPlates(ByteFile bf){
 		
 		ArrayList<Plate> plates=new ArrayList<Plate>();
@@ -224,6 +238,12 @@ public class GatherKapaStats {
 		return plates;
 	}
 	
+	/**
+	 * Analyzes contamination patterns across all plates and wells.
+	 * Calculates parts-per-million contamination rates between different
+	 * Kapa tags and builds statistical data for reporting.
+	 * @param plates List of plates with well data to analyze
+	 */
 	private void analyzePlates(ArrayList<Plate> plates){
 		for(Plate p : plates){
 			for(Well w : p.wells){
@@ -246,6 +266,12 @@ public class GatherKapaStats {
 		}
 	}
 	
+	/**
+	 * Prints statistical summary of contamination results.
+	 * Outputs quartile statistics, averages, and standard deviations
+	 * for each tag-to-tag contamination relationship.
+	 * @param bsw ByteStreamWriter for output
+	 */
 	private void printResults(ByteStreamWriter bsw){
 		ArrayList<TagData> list=new ArrayList<TagData>();
 		list.addAll(tagMap.values());
@@ -300,6 +326,12 @@ public class GatherKapaStats {
 		}
 	}
 	
+	/**
+	 * Prints raw contamination data in comma-separated format.
+	 * Alternative raw output format showing all individual measurements
+	 * for each tag pair.
+	 * @param bsw ByteStreamWriter for output
+	 */
 	private void printRawResults0(ByteStreamWriter bsw){
 		ArrayList<TagData> list=new ArrayList<TagData>();
 		list.addAll(tagMap.values());
@@ -342,6 +374,12 @@ public class GatherKapaStats {
 		}
 	}
 	
+	/**
+	 * Prints detailed raw results with full well information.
+	 * Includes plate names, well identifiers, read counts, and calculated
+	 * contamination metrics in tabular format for detailed analysis.
+	 * @param bsw ByteStreamWriter for output
+	 */
 	private void printRawResults(ByteStreamWriter bsw){
 		ArrayList<TagData> list=new ArrayList<TagData>();
 		list.addAll(tagMap.values());
@@ -407,6 +445,11 @@ public class GatherKapaStats {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified file format.
+	 * @param ff FileFormat specification for output
+	 * @return Started ByteStreamWriter or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -418,13 +461,28 @@ public class GatherKapaStats {
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Represents a sequencing plate with associated wells and Kapa spike-in data.
+	 * Fetches detailed well information from JGI web API and maintains
+	 * mappings between Kapa tags and wells for contamination analysis.
+	 */
 	class Plate{
 		
+		/**
+		 * Constructs a Plate with name and lot number.
+		 * @param name_ Plate identifier
+		 * @param lot_ Lot number for the plate
+		 */
 		public Plate(String name_, String lot_){
 			name=name_;
 			lot=lot_;
 		}
 		
+		/**
+		 * Fetches complete well data from JGI web API and populates plate information.
+		 * Creates Well objects for each position and builds tag-to-well mapping
+		 * for contamination analysis.
+		 */
 		void fillFromWeb(){
 			JsonObject data=grabData();
 			int size=data.jmapSize();
@@ -445,6 +503,12 @@ public class GatherKapaStats {
 			}
 		}
 		
+		/**
+		 * Retrieves JSON data from JGI web API for this plate.
+		 * Constructs API URL, fetches data, and parses JSON response
+		 * containing well and Kapa information.
+		 * @return JsonObject containing plate data from web API
+		 */
 		JsonObject grabData(){
 			String address=addressPrefix+name+addressSuffix;
 //			System.err.println("Reading "+address);
@@ -461,14 +525,23 @@ public class GatherKapaStats {
 			return data;
 		}
 
+		/** Plate identifier name */
 		final String name;
+		/** Plate lot number */
 		final String lot;
 		
+		/** List of wells on this plate */
 		ArrayList<Well> wells;
+		/** Maps Kapa tags to their corresponding correct wells */
 		LinkedHashMap<String, Well> tagToCorrectWellMap=new LinkedHashMap<String, Well>();
 		
 	}
 	
+	/**
+	 * Represents a single well on a sequencing plate with library and Kapa data.
+	 * Contains sequencing metadata, read counts, and Kapa contamination information
+	 * including cross-contamination measurements from other wells.
+	 */
 	class Well{
 		
 //		"library_name":"CSNGW",
@@ -486,6 +559,14 @@ public class GatherKapaStats {
 //        "library_protocol":"Regular (DNA)",
 //        "run_configuration":"2x101",
 		
+		/**
+		 * Constructs a Well from JSON data retrieved from JGI API.
+		 * Parses library metadata, sequencing information, and Kapa contamination data.
+		 *
+		 * @param name_ Well position identifier (e.g., "A1", "B2")
+		 * @param jo JsonObject containing well data from API
+		 * @param plate Plate name for error reporting
+		 */
 		public Well(String name_, JsonObject jo, String plate){
 			name=name_;
 
@@ -517,6 +598,12 @@ public class GatherKapaStats {
 //        "kapa_stats_file":"dna/00/50/16/18//29495471-kapa.stats",
 //        "pct":0.9698492462311559
 		
+		/**
+		 * Loads Kapa spike-in contamination data from JSON object.
+		 * Parses correct and incorrect Kapa reads, contamination rates,
+		 * and cross-contamination data from other wells.
+		 * @param kapa JsonObject containing Kapa contamination statistics
+		 */
 		void loadKapa(JsonObject kapa){
 			correctKapaTag=kapa.getString("name");
 			correctKapaReads=kapa.getLong("hit");
@@ -554,23 +641,38 @@ public class GatherKapaStats {
 			return sb.toString();
 		}
 		
+		/** Well position identifier */
 		final String name;
 		
+		/** Library name for this well */
 		String library;
+		/** Sequencing instrument type used */
 		String instrument;
+		/** Date when sequencing was performed */
 		String date;
+		/** Container barcode for the well */
 		String alq_container_barcode;
+		/** Sequencing unit name/filename */
 		String seq_unit_name;
+		/** Sequencing project identifier */
 		String seq_proj_id;
+		/** Total number of raw reads for this well */
 		long reads;
+		/** Sequencing project name */
 		String seq_proj_name;
+		/** Sequencing run configuration (e.g., "2x101") */
 		String run_configuration;
 		
+		/** The correct Kapa tag assigned to this well */
 		String correctKapaTag;
+		/** Number of reads with correct Kapa tag */
 		long correctKapaReads;
+		/** Number of reads with incorrect Kapa tags */
 		long incorrectKapaReads;
+		/** Parts per million of converted off-target reads */
 		double converted_offtarget_reads_ppm;
 
+		/** Maps Kapa tag names to contamination entries for this well */
 		LinkedHashMap<String, KapaEntry> kapaMap;
 //		LinkedHashMap<String, Long> tagToReads=new LinkedHashMap<String, Long>();
 		
@@ -590,6 +692,11 @@ public class GatherKapaStats {
 		
 	}
 	
+	/**
+	 * Represents contamination data for a specific Kapa tag in a well.
+	 * Contains the source well name, number of contaminating reads,
+	 * and the tag identifier for cross-contamination analysis.
+	 */
 	class KapaEntry{
 		
 //		"offwells":[
@@ -600,6 +707,11 @@ public class GatherKapaStats {
 //                        "tag001"
 //                    ],
 
+		/**
+		 * Constructs KapaEntry from JSON array data.
+		 * Parses well name, read count, and tag name from API response format.
+		 * @param array Object array containing [wellName, ?, readCount, tagName]
+		 */
 		KapaEntry(Object[] array){
 			assert(array.length==4) : Arrays.toString(array);
 			wellName=(String)array[0];
@@ -607,6 +719,12 @@ public class GatherKapaStats {
 			tagName=(String)array[3];
 		}
 		
+		/**
+		 * Constructs KapaEntry with explicit parameters.
+		 * @param wellName_ Source well name for contamination
+		 * @param reads_ Number of contaminating reads
+		 * @param tagName_ Kapa tag identifier
+		 */
 		KapaEntry(String wellName_, long reads_, String tagName_){
 			wellName=wellName_;
 			reads=reads_;
@@ -618,20 +736,42 @@ public class GatherKapaStats {
 			return wellName+"\t"+tagName+"\t"+reads;
 		}
 		
+		/** Source well name where contamination originated */
 		String wellName;
+		/** Number of contaminating reads with this tag */
 		long reads;
+		/** Kapa tag identifier */
 		String tagName;
 		
 	}
 	
 	//Ugly because it was retrofitted to support unsorted arrays and plate names
+	/**
+	 * Aggregates contamination statistics for a specific Kapa tag across multiple observations.
+	 * Collects parts-per-million measurements from different plates and provides
+	 * statistical analysis methods for contamination reporting.
+	 */
 	class TagData implements Comparable<TagData> {
 		
+		/**
+		 * Constructs TagData for a specific tag and well combination.
+		 * @param name_ Kapa tag identifier
+		 * @param wellName_ Associated well name
+		 */
 		TagData(String name_, String wellName_){
 			name=name_;
 			wellName=wellName_;
 		}
 		
+		/**
+		 * Adds a contamination measurement for a specific tag and plate.
+		 * Records both the parts-per-million value and associated plate name
+		 * for later statistical analysis.
+		 *
+		 * @param tag Target tag that was contaminated
+		 * @param ppmk Parts per million of contamination
+		 * @param plate Plate name where measurement was taken
+		 */
 		void add(String tag, double ppmk, String plate){
 			ArrayList<Double> list=ppmMap.get(tag);
 			if(list==null){
@@ -648,16 +788,36 @@ public class GatherKapaStats {
 			list2.add(plate);
 		}
 		
+		/**
+		 * Gets array of parts-per-million values for a specific tag.
+		 * @param key Tag identifier to retrieve values for
+		 * @param sort Whether to sort values in ascending order
+		 * @return Array of PPM contamination values
+		 */
 		double[] getPpmArray(String key, boolean sort){
 			ArrayList<Double> list=ppmMap.get(key);
 			return toPpmArray(list, sort);
 		}
 		
+		/**
+		 * Gets array of plate names associated with contamination measurements.
+		 * @param key Tag identifier to retrieve plate names for
+		 * @param sort Whether to sort plate names alphabetically
+		 * @return Array of plate names where contamination was observed
+		 */
 		String[] getPlateNameArray(String key, boolean sort){
 			ArrayList<String> list=plateNameMap.get(key);
 			return toPlateArray(list, sort);
 		}
 		
+		/**
+		 * Converts ArrayList of PPM values to fixed-size array.
+		 * Pads with zeros to match expected observation count.
+		 *
+		 * @param list ArrayList of PPM values
+		 * @param sort Whether to sort values in ascending order
+		 * @return Fixed-size array of PPM values
+		 */
 		double[] toPpmArray(ArrayList<Double> list, boolean sort){
 			if(list==null){return null;}
 //			double[] array=new double[list.size()];
@@ -669,6 +829,14 @@ public class GatherKapaStats {
 			return array;
 		}
 		
+		/**
+		 * Converts ArrayList of plate names to fixed-size array.
+		 * Pads with nulls to match expected observation count.
+		 *
+		 * @param list ArrayList of plate names
+		 * @param sort Whether to sort names alphabetically
+		 * @return Fixed-size array of plate names
+		 */
 		String[] toPlateArray(ArrayList<String> list, boolean sort){
 			if(list==null){return null;}
 //			double[] array=new double[list.size()];
@@ -685,11 +853,16 @@ public class GatherKapaStats {
 			return name.compareTo(other.name);
 		}
 		
+		/** Kapa tag identifier */
 		final String name;
+		/** Associated well name for this tag */
 		final String wellName;
+		/** Number of times this tag has been observed across plates */
 		int timesSeen=0;
 
+		/** Maps tag names to lists of PPM contamination values */
 		LinkedHashMap<String, ArrayList<Double>> ppmMap=new LinkedHashMap<String, ArrayList<Double>>(203);
+		/** Maps tag names to lists of associated plate names */
 		LinkedHashMap<String, ArrayList<String>> plateNameMap=new LinkedHashMap<String, ArrayList<String>>(203);
 		
 	}
@@ -698,45 +871,66 @@ public class GatherKapaStats {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path containing plate names and lot numbers */
 	private String in1=null;
+	/** Output file path for contamination results */
 	private String out1=null;
 	
+	/** URL prefix for JGI API calls */
 	private String addressPrefix="https://rqc.jgi.doe.gov/api/plate_ui/page/";
+	/** URL suffix for JGI API Kapa data requests */
 	private String addressSuffix="/kapa spikein";//"/kapa spikein";
 	
+	/** Whether to output raw data instead of statistical summary */
 	private boolean printRaw=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of output lines written */
 	private long linesOut=0;
+	/** Number of input bytes processed */
 	private long bytesProcessed=0;
+	/** Number of output bytes written */
 	private long bytesOut=0;
 	
+	/** Maximum number of input lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
+	/** JSON parser for processing API responses */
 	private final JsonParser jp=new JsonParser();
 
+	/** Maps Kapa tag names to aggregated contamination data */
 	private final LinkedHashMap<String, TagData> tagMap=new LinkedHashMap<String, TagData>(203);
+	/** Maps plate names to Plate objects for analysis */
 	private final LinkedHashMap<String, Plate> plateMap=new LinkedHashMap<String, Plate>(203);
 	
+	/** Dummy well object used when source well is not found */
 	final Well dummy=new Well("X", new JsonObject(), "X");
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and errors */
 	private PrintStream outstream=System.err;
+	/** Whether to output detailed processing information */
 	public static boolean verbose=false;
+	/** Whether an error has occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

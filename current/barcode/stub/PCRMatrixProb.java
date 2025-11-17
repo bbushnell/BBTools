@@ -9,6 +9,15 @@ package barcode.stub;
  */
 public class PCRMatrixProb extends PCRMatrixProbAbstract {
 	
+	/**
+	 * Constructs a PCRMatrixProb stub with the specified parameters.
+	 * This empty constructor serves as a placeholder implementation.
+	 *
+	 * @param a First integer parameter
+	 * @param b Second integer parameter
+	 * @param c Third integer parameter
+	 * @param d Boolean parameter
+	 */
 	public PCRMatrixProb(int a, int b, int c, boolean d) {}
 	
 }

@@ -17,6 +17,12 @@ import shared.Timer;
  */
 public class IntHashSetList extends IntHashSet{
 	
+	/**
+	 * Test and benchmark program comparing IntHashSetList with standard HashSet.
+	 * Validates correctness through add/remove cycles and measures performance
+	 * for large-scale operations.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		IntHashSetList set=new IntHashSetList(20, 0.7f);
@@ -125,16 +131,25 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates an empty IntHashSetList with default capacity.
+	 * Initializes the internal tracking list with capacity 4. */
 	public IntHashSetList(){
 		super();
 		list=new IntList(4);
 	}
 	
+	/** Creates an empty IntHashSetList with specified initial capacity.
+	 * @param initialSize Initial capacity for the hash set */
 	public IntHashSetList(int initialSize){
 		super(initialSize);
 		list=new IntList(4);
 	}
 	
+	/**
+	 * Creates an empty IntHashSetList with specified capacity and load factor.
+	 * @param initialSize Initial capacity for the hash set
+	 * @param loadFactor_ Load factor threshold for rehashing (0.0 to 1.0)
+	 */
 	public IntHashSetList(int initialSize, float loadFactor_){
 		super(initialSize, loadFactor_);
 		list=new IntList(4);
@@ -192,6 +207,7 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Internal list tracking all added elements for optimized bulk operations */
 	private IntList list;
 	
 }

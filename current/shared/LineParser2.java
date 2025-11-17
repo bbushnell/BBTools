@@ -23,6 +23,8 @@ public final class LineParser2 implements LineParser {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
+	/** Test method for LineParser2 functionality.
+	 * @param args Command-line arguments: [filename/literal, delimiter] */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -48,8 +50,12 @@ public final class LineParser2 implements LineParser {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Constructs a LineParser2 with the specified byte delimiter.
+	 * @param delimiter_ The byte value to use as field delimiter */
 	public LineParser2(byte delimiter_) {delimiter=delimiter_;}
 
+	/** Constructs a LineParser2 with the specified ASCII delimiter.
+	 * @param delimiter_ ASCII value of delimiter (must be 0-127) */
 	public LineParser2(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=127);
 		delimiter=(byte)delimiter_;
@@ -88,26 +94,39 @@ public final class LineParser2 implements LineParser {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Advances to the next field and parses it as an integer.
+	 * @return The integer value of the next field */
 	public int parseInt() {
 		advance();
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/** Advances to the next field and parses it as a long.
+	 * @return The long value of the next field */
 	public long parseLong() {
 		advance();
 		return Parse.parseLong(line, a, b);
 	}
 	
+	/** Advances to the next field and parses it as a float.
+	 * @return The float value of the next field */
 	public float parseFloat() {
 		advance();
 		return Parse.parseFloat(line, a, b);
 	}
 	
+	/** Advances to the next field and parses it as a double.
+	 * @return The double value of the next field */
 	public double parseDouble() {
 		advance();
 		return Parse.parseDouble(line, a, b);
 	}
 	
+	/**
+	 * Advances to the next field and returns a byte at the specified offset.
+	 * @param offset Offset from the start of the current field
+	 * @return The byte at the specified offset within the field
+	 */
 	public byte parseByte(int offset) {
 		advance();
 		int index=a+offset;
@@ -115,6 +134,8 @@ public final class LineParser2 implements LineParser {
 		return line[index];
 	}
 	
+	/** Advances to the next field and parses it as a String.
+	 * @return The String value of the next field */
 	public String parseString() {
 		int len=advance();
 		return new String(line, a, len, StandardCharsets.US_ASCII);
@@ -190,6 +211,8 @@ public final class LineParser2 implements LineParser {
 		return new String(line, a, b-a, StandardCharsets.US_ASCII);
 	}
 
+	/** Returns the first byte of the current field without advancing.
+	 * @return The first byte of the current field */
 	public byte parseByteFromCurrentField() {
 		return line[a];
 	}
@@ -278,6 +301,11 @@ public final class LineParser2 implements LineParser {
 		return advanceTo(term);
 	}
 	
+	/**
+	 * Advances to the next field by moving past the delimiter.
+	 * Sets boundaries (a,b) to encompass the next field.
+	 * @return Length of the field that was advanced to
+	 */
 	public final int advance() {
 		currentTerm++;
 		b++;
@@ -286,6 +314,8 @@ public final class LineParser2 implements LineParser {
 		return b-a;
 	}
 	
+	/** Advances forward by the specified number of terms/fields.
+	 * @param terms Number of fields to advance */
 	public void advanceBy(int terms) {
 		for(; terms>0; terms--) {
 			advance();
@@ -293,6 +323,8 @@ public final class LineParser2 implements LineParser {
 	}
 	
 	//Advances to term before toTerm
+	/** Advances to the field just before the specified term number.
+	 * @param toTerm Target term number (will stop at toTerm-1) */
 	public void advanceToBefore(int toTerm) {
 		assert(toTerm>=currentTerm) : "Can't advance backwards: "+currentTerm+">"+toTerm;
 		for(toTerm--; currentTerm<toTerm;) {
@@ -301,6 +333,11 @@ public final class LineParser2 implements LineParser {
 	}
 	
 	//Advances to actual term
+	/**
+	 * Advances to the specified term number.
+	 * @param toTerm Target term number to advance to
+	 * @return Length of the field at the target term
+	 */
 	private int advanceTo(int toTerm) {
 		assert(toTerm>=currentTerm) : "Can't advance backwards: "+currentTerm+">"+toTerm;
 		for(toTerm--; currentTerm<=toTerm;) {
@@ -321,6 +358,11 @@ public final class LineParser2 implements LineParser {
 		return b-a;
 	}
 	
+	/**
+	 * Manually sets the field boundaries.
+	 * @param a_ Start position of current field
+	 * @param b_ End position of current field
+	 */
 	public void setBounds(int a_, int b_) {
 		a=a_;
 		b=b_;
@@ -345,6 +387,8 @@ public final class LineParser2 implements LineParser {
 		return /*toList().toString()+"\n"*/"a="+a+", b="+b+", line.length="+line.length;
 	}
 	
+	/** Parses all remaining fields in the line as Strings.
+	 * @return ArrayList containing all remaining fields as Strings */
 	public ArrayList<String> toList(){
 		ArrayList<String> list=new ArrayList<String>();
 		do{
@@ -357,11 +401,16 @@ public final class LineParser2 implements LineParser {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Start index of the current field */
 	private int a=-1;
+	/** End index of the current field (exclusive) */
 	private int b=-1;
+	/** Index of the current term/field being processed */
 	private int currentTerm=-1;
+	/** The line being parsed as a byte array */
 	private byte[] line;
 	
+	/** The byte value used as field delimiter */
 	public final byte delimiter;
 	
 }

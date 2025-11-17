@@ -10,6 +10,7 @@ import stream.Read;
  */
 public final class ReadLengthComparator extends ReadComparator {
 	
+	/** Private constructor to enforce singleton pattern */
 	private ReadLengthComparator(){}
 	
 	@Override
@@ -21,6 +22,14 @@ public final class ReadLengthComparator extends ReadComparator {
 		return ascending*x;
 	}
 
+	/**
+	 * Compares two individual reads by length only.
+	 * Handles null reads by placing them after non-null reads.
+	 *
+	 * @param a First read to compare (may be null)
+	 * @param b Second read to compare (may be null)
+	 * @return Length difference (a.length - b.length), or null ordering
+	 */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -29,8 +38,10 @@ public final class ReadLengthComparator extends ReadComparator {
 		return x;
 	}
 	
+	/** Singleton instance for length-based read comparison */
 	public static final ReadLengthComparator comparator=new ReadLengthComparator();
 	
+	/** Sort direction multiplier: -1 for descending (default), 1 for ascending */
 	private int ascending=-1;
 	
 	@Override

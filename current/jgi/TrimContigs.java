@@ -38,6 +38,8 @@ import structures.ListNum;
  */
 public class TrimContigs {
 
+	/** Program entry point for contig trimming.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		TrimContigs x=new TrimContigs(args);
@@ -47,6 +49,12 @@ public class TrimContigs {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes parameters.
+	 * Configures input/output files, coverage thresholds, trimming settings,
+	 * and file format handlers.
+	 * @param args Command-line arguments array
+	 */
 	public TrimContigs(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -187,6 +195,12 @@ public class TrimContigs {
 		assert(ffRange!=null) : "No coverage file specified.";
 	}
 	
+	/**
+	 * Main processing method that trims contigs based on coverage data.
+	 * Loads coverage ranges from file, processes each contig by trimming
+	 * uncovered regions, and writes clean/dirty sequences to output files.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 
 		final HashMap<String, ArrayList<Range>> map=new HashMap<String, ArrayList<Range>>(1024);
@@ -404,6 +418,17 @@ public class TrimContigs {
 		}
 	}
 
+	/**
+	 * Processes a single sequence by trimming to the specified coverage range.
+	 * Applies trimming based on coverage thresholds, minimum lengths, and
+	 * uncovered region limits. Marks sequences for discard if they don't meet criteria.
+	 *
+	 * @param seq The sequence to process
+	 * @param r Coverage range defining the region to keep
+	 * @param partnum Part number if contig is broken into multiple pieces
+	 * @param parts Total number of parts this contig is broken into
+	 * @return Processed sequence, possibly trimmed and marked as discarded
+	 */
 	private Read processSeq(Read seq, Range r, int partnum, int parts) {
 //		float cov=(r.depth*(r.b-r.a+1))/(seq.length());
 		float cov=r.depth;
@@ -449,6 +474,15 @@ public class TrimContigs {
 		return seq;
 	}
 	
+	/**
+	 * Processes GFF annotations to match trimmed contig coordinates.
+	 * Adjusts annotation coordinates based on trimming ranges and updates
+	 * phase information for coding sequences when necessary.
+	 *
+	 * @param ranges Coverage ranges that define trimming boundaries
+	 * @param gffLines Input GFF annotations for the contig
+	 * @param gffLinesOut Output collection for processed GFF annotations
+	 */
 	private static void processGff(ArrayList<Range> ranges, 
 			ArrayList<GffLine> gffLines, ArrayList<GffLine> gffLinesOut) {
 		if(ranges==null || gffLines==null || gffLines.isEmpty()) {return;}
@@ -489,6 +523,14 @@ public class TrimContigs {
 		}
 	}
 	
+	/**
+	 * Merges multiple coverage ranges into a single maximal range.
+	 * Combines ranges by finding the overall minimum and maximum coordinates
+	 * and computing the average coverage depth.
+	 *
+	 * @param ranges Collection of ranges to merge
+	 * @return Single range spanning from minimum to maximum coordinates
+	 */
 	private static Range toMaximalRange(Collection<Range> ranges) {
 		assert(ranges.size()>1) : ranges.size();
 		int min=Integer.MAX_VALUE;
@@ -542,6 +584,12 @@ public class TrimContigs {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads GFF annotations from file and organizes them by sequence ID.
+	 * Creates a mapping from sequence names to lists of GFF lines for
+	 * efficient lookup during contig processing.
+	 * @param s Path to GFF input file
+	 */
 	private void loadGff(String s) {
 		gffLinesIn=GffLine.loadGffFile(gffIn, null, false);
 		gffMap=new HashMap<String, ArrayList<GffLine>>();
@@ -557,22 +605,43 @@ public class TrimContigs {
 //		assert(false) : gffMap.size()+", "+gffLinesIn.size();
 	}
 	
+	/** Represents a coverage range with start/end coordinates and depth information.
+	 * Used to track regions of sufficient coverage within contigs for trimming decisions. */
 	private static class Range {
+		/**
+		 * Creates a range with specified coordinates.
+		 * @param a_ Start coordinate (inclusive)
+		 * @param b_ End coordinate (inclusive)
+		 */
 		public Range(int a_, int b_) {
 			a=a_;
 			b=b_;
 		}
+		/**
+		 * Creates a range with specified coordinates and coverage depth.
+		 * @param a_ Start coordinate (inclusive)
+		 * @param b_ End coordinate (inclusive)
+		 * @param depth_ Coverage depth for this range
+		 */
 		public Range(int a_, int b_, float depth_) {
 			a=a_;
 			b=b_;
 			depth=depth_;
 		}
+		/**
+		 * Merges another range into this one by expanding coordinates and averaging depth.
+		 * Updates start/end coordinates to encompass both ranges and recalculates
+		 * depth based on the combined coverage.
+		 * @param r Range to merge into this one
+		 */
 		public void absorb(Range r) {
 			float depthsum=depthSum()+r.depthSum();
 			a=Tools.min(a, r.a);
 			b=Tools.max(b, r.b);
 			depth=(depth==-1 ? -1 : depthsum/length());
 		}
+		/** Sets whether this range should be discarded.
+		 * @param discarded_ true if range should be discarded */
 		public void setDiscarded(boolean discarded_) {
 			discarded=discarded_;
 		}
@@ -580,44 +649,67 @@ public class TrimContigs {
 		public String toString() {
 			return name+"("+a+"-"+b+")";
 		}
+		/** Returns the length of this range in bases */
 		public int length() {return b-a+1;}
+		/** Returns the total coverage depth (depth * length) */
 		public float depthSum() {return depth*length();}
+		/** Start coordinate of the range (inclusive) */
 		int a;
+		/** End coordinate of the range (inclusive) */
 		int b;
+		/** Coverage depth for this range (-1 if unknown) */
 		float depth=-1;
+		/** Whether this range has been marked for discard */
 		boolean discarded=false;
+		/** Name identifier for this range */
 		String name;
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input sequence file path */
 	private String in1=null;
+	/** Coverage ranges file path containing coverage data for trimming */
 	private String covRanges=null;
+	/** Base name derived from input file */
 	private String name=null;
 	
+	/** Quality file input path */
 	private String qfin1=null;
 
+	/** Output file path for clean (retained) sequences */
 	private String outclean=null;
+	/** Output file path for dirty (discarded) sequences */
 	private String outdirty=null;
 
+	/** Quality file output path for clean sequences */
 	private String qfoutclean=null;
+	/** Quality file output path for dirty sequences */
 	private String qfoutdirty=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
+	/** Input GFF annotation file path */
 	private String gffIn=null;
+	/** Output GFF annotation file path */
 	private String gffOut=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** List of input GFF annotation lines */
 	private ArrayList<GffLine> gffLinesIn;
 //	private HashMap<StringNum, GffLine> lineMap;
+	/** Map from sequence IDs to their GFF annotation lines */
 	private HashMap<String, ArrayList<GffLine>> gffMap;
+	/** List of processed output GFF annotation lines */
 	private ArrayList<GffLine> gffLinesOut;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 
 	/** Scaffolds shorter than this will be discarded. */
@@ -641,29 +733,44 @@ public class TrimContigs {
 	
 	/** Permission to break apart contigs at uncovered areas */
 	boolean breakContigs=true;
+	/** Whether to skip poly-N regions when checking uncovered length */
 	boolean skipPolyN=true;
+	/** Output file for list of broken contig names */
 	String breakListFile;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format handler for input sequences */
 	private final FileFormat ffin1;
 //	private final FileFormat ffCov;
+	/** File format handler for coverage ranges file */
 	private final FileFormat ffRange;
 
+	/** File format handler for clean output sequences */
 	private final FileFormat ffoutclean;
+	/** File format handler for dirty output sequences */
 	private final FileFormat ffoutdirty;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for progress and error messages */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output messages */
 	public static boolean verbose=false;
+	/** Tracks whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Permission to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to append to existing log file */
 	private boolean logappend=false;
+	/** Log file path for results */
 	private String logfile=null;
+	/** Whether to include header in log output */
 	private boolean logheader=true;
+	/** Whether to print results for short contigs */
 	private static boolean PRINT_SHORT_CONTIG_RESULTS=false;
 	
 }

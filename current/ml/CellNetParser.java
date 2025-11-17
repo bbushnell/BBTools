@@ -11,24 +11,53 @@ import shared.Tools;
 import structures.FloatList;
 import structures.IntList;
 
+/**
+ * Parser for loading CellNet neural network configurations from text files.
+ * Supports both dense and sparse weight representations with various metadata.
+ * @author Brian Bushnell
+ */
 public class CellNetParser {
 	
+	/**
+	 * Parses a CellNet configuration from the specified file.
+	 * @param fname Path to the CellNet configuration file
+	 * @param nullOnFailure If true, returns null when file doesn't exist instead of throwing exception
+	 * @return Parsed CellNet object or null if file doesn't exist and nullOnFailure is true
+	 */
 	static CellNet parse(String fname, boolean nullOnFailure) {
 		if(nullOnFailure && !new File(fname).exists()) {return null;}
 		CellNetParser cnp=new CellNetParser(fname);
 		return cnp.net;
 	}
 
+	/**
+	 * Loads a CellNet from the specified file.
+	 * @param fname Path to the CellNet configuration file
+	 * @return Loaded CellNet object
+	 */
 	public static CellNet load(String fname) {return load(fname, true);}
+	/**
+	 * Loads a CellNet from the specified file with optional null handling.
+	 * @param fname Path to the CellNet configuration file
+	 * @param nullOnFailure If true, returns null when file doesn't exist instead of throwing exception
+	 * @return Loaded CellNet object or null if file doesn't exist and nullOnFailure is true
+	 */
 	public static CellNet load(String fname, boolean nullOnFailure) {
 		return parse(fname, nullOnFailure);
 	}
 	
+	/** Constructs a parser for the specified CellNet file.
+	 * @param fname_ Path to the CellNet configuration file */
 	private CellNetParser(String fname_){
 		this(ByteFile.toLines(fname_));
 		fname=fname_;
 	}
 	
+	/**
+	 * Constructs a parser from pre-loaded file lines.
+	 * Parses header information and creates the CellNet with appropriate edge parsing.
+	 * @param lines_ List of file lines as byte arrays
+	 */
 	private CellNetParser(ArrayList<byte[]> lines_){
 		lines=lines_;
 		
@@ -50,6 +79,8 @@ public class CellNetParser {
 		net.makeWeightMatrices();
 	}
 	
+	/** Parses header lines containing network metadata and configuration.
+	 * Processes version, layers, seed, density, dimensions, and other parameters. */
 	public void parseHeader() {
 		
 		//TODO: This should really use LineParser instead.
@@ -108,6 +139,8 @@ public class CellNetParser {
 //		assert(false) : pos+", "+new String(lines.get(pos));
 	}
 	
+	/** Parses dense weight representation where all connections are stored.
+	 * Each cell line contains bias and all weights in sequential order. */
 	private void parseEdgesDense() {
 		assert(concise);
 		pos=posFirstEdge;
@@ -155,6 +188,8 @@ public class CellNetParser {
 		assert(CellNet.DENSE || net.check());
 	}
 	
+	/** Parses sparse weight representation with explicit input indices.
+	 * Uses separate lines for cell weights (C/W) and input connections (I/H). */
 	private void parseEdgesSparse() {
 		assert(concise);
 		pos=posFirstEdge;
@@ -228,10 +263,14 @@ public class CellNetParser {
 		assert(net.check());
 	}
 	
+	/** Checks if more lines are available for parsing.
+	 * @return true if more lines exist, false otherwise */
 	boolean hasMore(){
 		return pos<lines.size();
 	}
 	
+	/** Returns the next line for parsing and advances the position.
+	 * @return Next line as byte array or null if no more lines */
 	byte[] nextLine(){
 		if(pos>=lines.size()){return null;}
 		byte[] line=lines.get(pos);
@@ -239,49 +278,89 @@ public class CellNetParser {
 		return line;
 	}
 	
+	/** Source filename for the parsed CellNet */
 	String fname;
+	/** Lines from the CellNet configuration file */
 	final ArrayList<byte[]> lines;
+	/** The parsed CellNet neural network */
 	private final CellNet net;
+	/** Random seed used for network initialization */
 	long seed;
 //	long annealSeed=-1;
+	/** Network connection density (1.0 = fully connected) */
 	float density=1f;
+	/** First layer connection density */
 	float density1=0f;
+	/** Block size for edge processing */
 	int edgeBlockSize=1;
+	/** Total edge count (unused) */
 	int edges=0;//unused
+	/** Number of training epochs completed */
 	long epochs=0;
+	/** Number of training samples processed */
 	long samples=0;
+	/** File format version number */
 	int version;
+	/** Number of network layers */
 	int layers=-1;
+	/** Whether the format uses concise representation */
 	boolean concise=false;
+	/** Whether to use dense weight storage (true) or sparse (false) */
 	boolean dense=true;
+	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
+	/** Current parsing position in the line list */
 	int pos=0;
+	/** Classification threshold cutoff value */
 	float cutoff=0.5f;
+	/** Position of the first edge/weight line in the file */
 	final int posFirstEdge;
+	/** Command lines used to generate this network */
 	ArrayList<String> commands=new ArrayList<String>();
 	
+	/** Delimiter character used for parsing (space) */
 	public static final byte delimiter=' ';
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Extracts string value after the first delimiter in a line.
+	 * @param line Line to parse
+	 * @return String portion after delimiter
+	 */
 	private static String parseString(byte[] line){
 		int idx=Tools.indexOf(line, delimiter);
 		String s=new String(line, idx+1, line.length-idx-1);
 		return s;
 	}
 	
+	/**
+	 * Extracts float value after the first delimiter in a line.
+	 * @param line Line to parse
+	 * @return Float value after delimiter
+	 */
 	private static float parseFloat(byte[] line){
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseFloat(line, idx+1, line.length);
 	}
 	
+	/**
+	 * Extracts integer value after the first delimiter in a line.
+	 * @param line Line to parse
+	 * @return Integer value after delimiter
+	 */
 	private static int parseInt(byte[] line){
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseInt(line, idx+1, line.length);
 	}
 	
+	/**
+	 * Extracts long value after the first delimiter in a line.
+	 * @param line Line to parse
+	 * @return Long value after delimiter
+	 */
 	private static long parseLong(byte[] line){
 		int idx=Tools.indexOf(line, delimiter);
 		return Parse.parseLong(line, idx+1, line.length);

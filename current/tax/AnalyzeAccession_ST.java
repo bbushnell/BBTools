@@ -34,6 +34,11 @@ import structures.StringNum;
  */
 public class AnalyzeAccession_ST {
 	
+	/**
+	 * Program entry point for accession pattern analysis.
+	 * Initializes timer, processes command-line arguments, and executes analysis.
+	 * @param args Command-line arguments including input files and options
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -48,6 +53,11 @@ public class AnalyzeAccession_ST {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and configures analysis.
+	 * Sets up input/output files, processing limits, and validation options.
+	 * @param args Command-line arguments array containing file paths and parameters
+	 */
 	public AnalyzeAccession_ST(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -126,6 +136,12 @@ public class AnalyzeAccession_ST {
 		}
 	}
 	
+	/**
+	 * Main processing method that analyzes all input files.
+	 * Processes each input file to count accession patterns, then outputs
+	 * results with pattern statistics and combinatorial analysis.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 
 		for(FileFormat ffin : ffina){
@@ -166,6 +182,11 @@ public class AnalyzeAccession_ST {
 		}
 	}
 	
+	/**
+	 * Processes a single input file for accession pattern analysis.
+	 * Reads lines from the input file and extracts patterns using the increment method.
+	 * @param ffin FileFormat object representing the input file to process
+	 */
 	void process_inner(FileFormat ffin){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -194,6 +215,14 @@ public class AnalyzeAccession_ST {
 		errorState|=bf.close();
 	}
 	
+	/**
+	 * Extracts and counts accession patterns from a single line.
+	 * Remaps characters to pattern symbols (D=digit, L=letter, -=separator)
+	 * and increments the count for the resulting pattern.
+	 *
+	 * @param line Raw line bytes containing the accession number
+	 * @param buffer StringBuilder for temporary pattern construction
+	 */
 	void increment(byte[] line, StringBuilder buffer){
 		buffer.setLength(0);
 		for(int i=0; i<line.length; i++){
@@ -207,6 +236,12 @@ public class AnalyzeAccession_ST {
 		else{countMap.put(key, new StringNum(key, 1));}
 	}
 	
+	/**
+	 * Calculates the number of possible combinations for a given pattern string.
+	 * Each 'D' contributes 10 possibilities (0-9), each 'L' contributes 26 (A-Z).
+	 * @param s Pattern string with 'D' for digits and 'L' for letters
+	 * @return Number of possible combinations, or Long.MAX_VALUE if overflow
+	 */
 	public static long combos(String s){
 		double combos=1;
 		for(int i=0; i<s.length(); i++){
@@ -217,6 +252,12 @@ public class AnalyzeAccession_ST {
 		return (combos>=Long.MAX_VALUE ? Long.MAX_VALUE : (long)Math.ceil(combos));
 	}
 	
+	/**
+	 * Calculates the number of possible combinations for a given pattern byte array.
+	 * Each 'D' contributes 10 possibilities (0-9), each 'L' contributes 26 (A-Z).
+	 * @param s Pattern byte array with 'D' for digits and 'L' for letters
+	 * @return Number of possible combinations, or -1 if overflow
+	 */
 	public static long combos(byte[] s){
 		double combos=1;
 		for(int i=0; i<s.length; i++){
@@ -229,6 +270,14 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads pattern code mapping from a file for efficient digitization.
+	 * Creates a map from pattern strings to integer codes, calculating bit
+	 * requirements and maximum pattern combinations.
+	 *
+	 * @param fname Filename containing pattern definitions
+	 * @return HashMap mapping pattern strings to their integer codes
+	 */
 	public static HashMap<String, Integer> loadCodeMap(String fname){
 		assert(codeMap==null);
 		TextFile tf=new TextFile(fname);
@@ -254,6 +303,14 @@ public class AnalyzeAccession_ST {
 		return map;
 	}
 	
+	/**
+	 * Converts an accession string to a compact long integer representation.
+	 * Combines the pattern code with the actual values using bit shifting
+	 * for efficient storage and lookup operations.
+	 *
+	 * @param s Accession string to convert
+	 * @return Long integer representation, or negative values for errors
+	 */
 	public static long digitize(String s){
 		String pattern=remap(s);
 		Integer code=codeMap.get(pattern);
@@ -278,6 +335,14 @@ public class AnalyzeAccession_ST {
 		return number;
 	}
 	
+	/**
+	 * Converts an accession byte array to a compact long integer representation.
+	 * Combines the pattern code with the actual values using bit shifting
+	 * for efficient storage and lookup operations.
+	 *
+	 * @param s Accession byte array to convert
+	 * @return Long integer representation, or negative values for errors
+	 */
 	public static long digitize(byte[] s){
 		String pattern=remap(s);
 		Integer code=codeMap.get(pattern);
@@ -302,6 +367,12 @@ public class AnalyzeAccession_ST {
 		return number;
 	}
 	
+	/**
+	 * Remaps an accession string to its pattern representation.
+	 * Converts letters to 'L', digits to 'D', and separators to '-'.
+	 * @param s Input accession string
+	 * @return Pattern string using D/L/- notation
+	 */
 	public static String remap(String s){
 		ByteBuilder buffer=new ByteBuilder(s.length());
 		for(int i=0; i<s.length(); i++){
@@ -312,6 +383,12 @@ public class AnalyzeAccession_ST {
 		return buffer.toString();
 	}
 	
+	/**
+	 * Remaps an accession byte array to its pattern representation.
+	 * Converts letters to 'L', digits to 'D', and separators to '-'.
+	 * @param s Input accession byte array
+	 * @return Pattern string using D/L/- notation
+	 */
 	public static String remap(byte[] s){
 		ByteBuilder buffer=new ByteBuilder(s.length);
 		for(int i=0; i<s.length; i++){
@@ -324,30 +401,50 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output file path for pattern analysis results */
 	private String out=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Map storing pattern counts for frequency analysis */
 	private HashMap<String, StringNum> countMap=new HashMap<String, StringNum>();
+	/** Global map from pattern strings to integer codes for digitization */
 	public static HashMap<String, Integer> codeMap;
+	/** Number of bits required to store pattern codes */
 	private static int codeBits=-1;
+	/** Length of the longest pattern found in the code map */
 	private static int longestPattern=-1;
 	
+	/** Total number of lines processed from input files */
 	private long linesProcessed=0;
+	/** Number of valid lines written to output */
 	private long linesOut=0;
+	/** Total bytes read from input files */
 	private long bytesProcessed=0;
+	/** Total bytes written to output files */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Array of input file format objects */
 	private final FileFormat[] ffina;
+	/** Output file format object */
 	private final FileFormat ffout;
 	
+	/** Character remapping array for converting accessions to patterns */
 	private static final byte[] remap=makeRemap();
 	
+	/**
+	 * Creates the character remapping array for pattern extraction.
+	 * Maps A-Z and a-z to 'L', 0-9 to 'D', underscore and hyphen to '-',
+	 * and all other characters to '?'.
+	 * @return Byte array for character-to-pattern mapping
+	 */
 	private static byte[] makeRemap(){
 		byte[] array=new byte[128];
 		Arrays.fill(array, (byte)'?');
@@ -360,10 +457,15 @@ public class AnalyzeAccession_ST {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

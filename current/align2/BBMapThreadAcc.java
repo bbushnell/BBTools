@@ -23,7 +23,11 @@ import stream.SiteScore;
  */
 public final class BBMapThreadAcc extends AbstractMapThread{
 	
+	/** Number of columns in the alignment matrix inherited from BBIndexAcc */
 	static final int ALIGN_COLUMNS=BBIndexAcc.ALIGN_COLUMNS;
+	/**
+	 * Number of rows in the alignment matrix, limiting maximum read length to 600 bases
+	 */
 	static final int ALIGN_ROWS=601;
 	
 	
@@ -35,32 +39,57 @@ public final class BBMapThreadAcc extends AbstractMapThread{
 	
 	/** Ratio of the points for a match of a single base needed to declare unambiguous.  1 SNP is currently about 2.57 */
 	public final float CLEARZONE_RATIOP=1.6f; //default 1.3f, which makes read ambiguous if there is 1 N in an alternate site.
+	/** Score ratio threshold for primary clearzone determination */
 	public final float CLEARZONE_RATIO1=2.0f;
+	/** Score ratio threshold for secondary clearzone determination */
 	public final float CLEARZONE_RATIO1b=2.6f;
+	/** Score ratio threshold for tertiary clearzone determination */
 	public final float CLEARZONE_RATIO1c=4.8f;
+	/** Score ratio threshold for ambiguity penalty clearzone determination */
 	public final float CLEARZONE_RATIO3=9.5f;
 	/** Max allowed number of sites within 1 edit (excluding primary site) */
 	public final int CLEARZONE_LIMIT1e=50;
+	/** Computed clearzone threshold for perfect matches */
 	public final int CLEARZONEP;
+	/** Computed clearzone threshold for primary alignment disambiguation */
 	public final int CLEARZONE1;
+	/** Computed clearzone threshold for secondary alignment disambiguation */
 	public final int CLEARZONE1b;
+	/** Computed clearzone threshold for tertiary alignment disambiguation */
 	public final int CLEARZONE1c;
 	//public final int CLEARZONE1e;
+	/** Computed clearzone threshold for ambiguity penalty application */
 	public final int CLEARZONE3;
+	/** Inverse of CLEARZONE3 for efficient division operations */
 	public final float INV_CLEARZONE3;
+	/** Flat ratio multiplier for CLEARZONE1b cutoff calculation */
 	public final float CLEARZONE1b_CUTOFF_FLAT_RATIO=12;//3f;
+	/** Computed flat cutoff threshold for CLEARZONE1b application */
 	public final float CLEARZONE1b_CUTOFF_FLAT;
+	/** Scale factor for CLEARZONE1b cutoff calculation */
 	public final float CLEARZONE1b_CUTOFF_SCALE=0.97f;
+	/** Flat ratio multiplier for CLEARZONE1c cutoff calculation */
 	public final float CLEARZONE1c_CUTOFF_FLAT_RATIO=26;//7f;
+	/** Computed flat cutoff threshold for CLEARZONE1c application */
 	public final float CLEARZONE1c_CUTOFF_FLAT;
+	/** Scale factor for CLEARZONE1c cutoff calculation */
 	public final float CLEARZONE1c_CUTOFF_SCALE=0.92f;
 	
+	/** Accurate k-mer index for sequence lookup and alignment operations */
 	public final BBIndexAcc index;
 	
 	
+	/**
+	 * Minimum number of alignment sites to retain when trimming single-end reads
+	 */
 	private final int MIN_TRIM_SITES_TO_RETAIN_SINGLE=3;
+	/**
+	 * Minimum number of alignment sites to retain when trimming paired-end reads
+	 */
 	private final int MIN_TRIM_SITES_TO_RETAIN_PAIRED=2;
 	
+	/** Prints warning that EXPECTED_SITES parameter is not valid for this thread type.
+	 * @param x The expected sites value (ignored) */
 	public static void setExpectedSites(int x){
 		System.err.println("Warning: EXPECTED_SITES is not valid for "+(new Object() { }.getClass().getEnclosingClass().getName()));
 	}
@@ -76,6 +105,60 @@ public final class BBMapThreadAcc extends AbstractMapThread{
 	@Override
 	final int CLEARZONE1(){return CLEARZONE1;}
 
+	/**
+	 * Constructs a BBMapThreadAcc with comprehensive alignment parameters.
+	 * Initializes clearzone thresholds, index, and calls superclass constructor.
+	 *
+	 * @param cris_ Input read stream
+	 * @param keylen_ K-mer length for indexing
+	 * @param pileup_ Coverage pileup tracker
+	 * @param SMITH_WATERMAN_ Enable Smith-Waterman alignment
+	 * @param THRESH_ Alignment score threshold
+	 * @param minChrom_ Minimum chromosome for processing
+	 * @param maxChrom_ Maximum chromosome for processing
+	 * @param keyDensity_ Target k-mer density
+	 * @param maxKeyDensity_ Maximum k-mer density
+	 * @param minKeyDensity_ Minimum k-mer density
+	 * @param maxDesiredKeys_ Maximum desired k-mers per read
+	 * @param REMOVE_DUPLICATE_BEST_ALIGNMENTS_ Remove duplicate best alignments
+	 * @param SAVE_AMBIGUOUS_XY_ Save ambiguous alignment coordinates
+	 * @param MINIMUM_ALIGNMENT_SCORE_RATIO_ Minimum score ratio threshold
+	 * @param TRIM_LIST_ Enable site list trimming
+	 * @param MAKE_MATCH_STRING_ Generate CIGAR match strings
+	 * @param QUICK_MATCH_STRINGS_ Use quick match string generation
+	 * @param outStream_ Primary output stream
+	 * @param outStreamMapped_ Mapped reads output stream
+	 * @param outStreamUnmapped_ Unmapped reads output stream
+	 * @param outStreamBlack_ Blacklisted reads output stream
+	 * @param SLOW_ALIGN_PADDING_ Padding for slow alignment
+	 * @param SLOW_RESCUE_PADDING_ Padding for rescue alignment
+	 * @param DONT_OUTPUT_UNMAPPED_READS_ Skip unmapped read output
+	 * @param DONT_OUTPUT_BLACKLISTED_READS_ Skip blacklisted read output
+	 * @param MAX_SITESCORES_TO_PRINT_ Maximum site scores to output
+	 * @param PRINT_SECONDARY_ALIGNMENTS_ Include secondary alignments in output
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS_ Require correct strand orientation for pairs
+	 * @param SAME_STRAND_PAIRS_ Allow same-strand pairs
+	 * @param KILL_BAD_PAIRS_ Remove improperly paired reads
+	 * @param RCOMP_MATE_ Reverse complement mate reads
+	 * @param PERFECTMODE_ Enable perfect match mode
+	 * @param SEMIPERFECTMODE_ Enable semi-perfect match mode
+	 * @param FORBID_SELF_MAPPING_ Prevent reads from mapping to themselves
+	 * @param TIP_DELETION_SEARCH_RANGE_ Search range for tip deletions
+	 * @param AMBIGUOUS_RANDOM_ Handle ambiguous alignments randomly
+	 * @param AMBIGUOUS_ALL_ Report all ambiguous alignments
+	 * @param KFILTER_ K-mer frequency filter threshold
+	 * @param IDFILTER_ Identity filter threshold
+	 * @param TRIM_LEFT_ Enable left-end trimming
+	 * @param TRIM_RIGHT_ Enable right-end trimming
+	 * @param UNTRIM_ Enable untrimming
+	 * @param TRIM_QUAL_ Quality threshold for trimming
+	 * @param TRIM_MIN_LEN_ Minimum length after trimming
+	 * @param LOCAL_ALIGN_ Enable local alignment
+	 * @param RESCUE_ Enable mate rescue
+	 * @param STRICT_MAX_INDEL_ Enforce strict indel limits
+	 * @param MSA_TYPE_ Multiple sequence alignment algorithm type
+	 * @param bloomFilter_ Bloom filter for contamination detection
+	 */
 	public BBMapThreadAcc(ConcurrentReadInputStream cris_, int keylen_,
 			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
 			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,

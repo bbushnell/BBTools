@@ -267,6 +267,12 @@ public class SendSketch extends SketchObject {
 		if(!allowMultithreadedFastq){Shared.capBufferLen(40);}
 	}
 	
+	/**
+	 * Configures sketch parameters based on the target database address.
+	 * Sets k-mer sizes, amino acid modes, and blacklists for different databases.
+	 * @param address Target server address or database identifier
+	 * @param setBlacklist Whether blacklist was explicitly set by user
+	 */
 	private void setFromAddress(String address, boolean setBlacklist){
 		if(address.equals(nrAddress())){
 			amino=true;
@@ -307,12 +313,23 @@ public class SendSketch extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that routes to appropriate processing mode.
+	 * Delegates to local, remote, or reference mode based on configuration.
+	 * @param t Timer for tracking execution time
+	 */
 	public void process(Timer t){
 		if(local){processLocal(t);}
 		else if(refNames!=null){processRefMode(t);}
 		else{processRemote(t);}
 	}
 	
+	/**
+	 * Processes sketches by sending them to a remote server for comparison.
+	 * Loads input sketches, sends them in chunks to prevent server overload,
+	 * and handles JSON response formatting for multiple sketch blocks.
+	 * @param t Timer for tracking execution time
+	 */
 	private void processRemote(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -574,6 +591,16 @@ public class SendSketch extends SketchObject {
 		return sn;
 	}
 	
+	/**
+	 * Sends a single sketch to remote server (deprecated version).
+	 *
+	 * @param sk Sketch to send
+	 * @param address Server address
+	 * @param format Output format code
+	 * @param chunkNum Chunk number for multi-part submissions
+	 * @return Server response string
+	 * @deprecated Use version with DisplayParams instead
+	 */
 	@Deprecated
 	public static String sendSketch(Sketch sk, String address, int format, int chunkNum){
 		DisplayParams params=defaultParams;
@@ -609,11 +636,21 @@ public class SendSketch extends SketchObject {
 		return null;
 	}
 	
+	/**
+	 * Checks server response for HTTP error indicators.
+	 * @param s Server response string to check
+	 * @return true if response contains error indicators, false otherwise
+	 */
 	private static boolean checkForError(String s){
 		if(s==null){return false;}
 		return s.contains("java.io.IOException: Server returned HTTP response code:");
 	}
 	
+	/**
+	 * Processes input files in local mode by sending file paths to server.
+	 * Used when server has direct access to the input files.
+	 * @param t Timer for tracking execution time
+	 */
 	private void processLocal(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -654,6 +691,11 @@ public class SendSketch extends SketchObject {
 		outstream.println("Total Time: \t"+ttotal);
 	}
 	
+	/**
+	 * Processes using reference mode with specific reference names or TaxIDs.
+	 * Sends query to server specifying which references to use for comparison.
+	 * @param t Timer for tracking execution time
+	 */
 	private void processRefMode(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -699,6 +741,14 @@ public class SendSketch extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds files to collection, handling comma-separated lists.
+	 * Checks if single string is a file or comma-separated list of files.
+	 *
+	 * @param a File path or comma-separated file list
+	 * @param list Collection to add files to
+	 * @return true if any files were added, false otherwise
+	 */
 	private static boolean addFiles(String a, Collection<String> list){
 		int initial=list.size();
 		if(a==null){return false;}
@@ -718,29 +768,44 @@ public class SendSketch extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file list */
 	private ArrayList<String> in=new ArrayList<String>();
 	
+	/** Output file for comparison results */
 	private String out="stdout.txt";
+	/** Output file for saving sketches */
 	private String outSketch=null;
 	
+	/** Taxonomic tree file path */
 	private String taxTreeFile=null;
 	
+	/** Sketch processing tool instance */
 	private final SketchTool tool;
 	
+	/** Loaded input sketches for processing */
 	private ArrayList<Sketch> inSketches;
 
+	/** Target server address */
 	private String address=null;
+	/** Whether to run in local mode */
 	private boolean local=false;
 	/** List of reference names or TaxIDs to use as queries */
 	private String refNames=null;
 	
 	/*Override metadata */
+	/** Override taxonomic name for output */
 	private String outTaxName=null;
+	/** Override file name for output */
 	private String outFname=null;
+	/** Override primary name for output */
 	private String outName0=null;
+	/** Override taxonomic ID for output */
 	private int outTaxID=-1;
+	/** Override species ID for output */
 	private long outSpid=-1;
+	/** Override IMG ID for output */
 	private long outImgID=-1;
+	/** Override metadata fields for output */
 	private ArrayList<String> outMeta=null;
 	
 	/*--------------------------------------------------------------*/
@@ -765,12 +830,19 @@ public class SendSketch extends SketchObject {
 	/** Append to existing output files */
 	private boolean append=false;
 	
+	/** Suppress status output */
 	private boolean silent=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts database name aliases to actual server addresses.
+	 * Maps common database names like "nt", "refseq", "silva" to their URLs.
+	 * @param b Database name or address alias
+	 * @return Full server address URL
+	 */
 	public static final String toAddress(String b){
 		String address=b;
 		if(b==null){
@@ -794,8 +866,11 @@ public class SendSketch extends SketchObject {
 		return address;
 	}
 	
+	/** Maximum bytes to buffer before sending to server */
 	public int SEND_BUFFER_MAX_BYTES=8000000;
+	/** Maximum sketches to buffer before sending to server */
 	public int SEND_BUFFER_MAX_SKETCHES=400;
+	/** Maximum number of sketches allowed to prevent server overload */
 	private static final int MAX_ALLOWED_SKETCHES=100000;
 	
 	private static AtomicInteger concurrency=new AtomicInteger(0);
@@ -805,13 +880,21 @@ public class SendSketch extends SketchObject {
 	/** Don't print caught exceptions */
 	public static boolean suppressErrors=false;
 	
+	/** Gets the NT database server address */
 	private static String ntAddress(){return Shared.ntSketchServer()+"sketch";}
+	/** Gets the RefSeq database server address */
 	private static String refseqAddress(){return Shared.refseqSketchServer()+"sketch";}
+	/** Gets the SILVA ribosomal database server address */
 	private static String silvaAddress(){return Shared.riboSketchServer()+"sketch";}
+	/** Gets the IMG database server address */
 	private static String imgAddress(){return null;}//Shared.SketchServer()+"sketch";
+	/** Gets the NR protein database server address */
 	private static String nrAddress(){return null;}//Shared.SketchServer()+"sketch";
+	/** Gets the prokaryotic protein database server address */
 	private static String prokProtAddress(){return Shared.proteinSketchServer()+"sketch";}
+	/** Gets the mitochondrial database server address */
 	private static String mitoAddress(){return null;}//Shared.SketchServer()+"sketch";
+	/** Gets the fungi database server address */
 	private static String fungiAddress(){return null;}//Shared.SketchServer()+"sketch";
 	
 }

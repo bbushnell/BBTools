@@ -16,6 +16,16 @@ import stream.SiteScore;
  */
 public abstract class MSA {
 	
+	/**
+	 * Creates appropriate MSA implementation based on specified class name.
+	 * Factory method supporting 7 specialized alignment variants with different performance characteristics.
+	 * Automatically selects JNI acceleration when available and requested.
+	 *
+	 * @param maxRows_ Maximum number of alignment matrix rows
+	 * @param maxColumns_ Maximum number of alignment matrix columns
+	 * @param classname Name of MSA implementation class to instantiate
+	 * @return MSA instance optimized for specified requirements
+	 */
 	public static final MSA makeMSA(int maxRows_, int maxColumns_, String classname){
 		flatMode=false;
 		if("MultiStateAligner9ts".equalsIgnoreCase(classname)){
@@ -43,6 +53,11 @@ public abstract class MSA {
 		}
 	}
 	
+	/**
+	 * Constructs MSA with specified matrix dimensions.
+	 * @param maxRows_ Maximum number of alignment matrix rows
+	 * @param maxColumns_ Maximum number of alignment matrix columns
+	 */
 	public MSA(int maxRows_, int maxColumns_){
 		maxRows=maxRows_;
 		maxColumns=maxColumns_;
@@ -57,6 +72,17 @@ public abstract class MSA {
 	 * Will not fill areas that cannot match minScore */
 	public abstract int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int[] gaps);
 	
+	/**
+	 * Fills alignment matrix using quality scores for enhanced alignment precision.
+	 * Quality-aware alignment incorporating base quality information into scoring.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param baseScores Quality scores for read bases
+	 * @param refStartLoc Starting position in reference sequence
+	 * @param refEndLoc Ending position in reference sequence
+	 * @return Array containing [rows, maxC, maxS, max] with optimal alignment coordinates
+	 */
 	@Deprecated
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public abstract int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc);
@@ -114,16 +140,50 @@ public abstract class MSA {
 		return score;
 	}
 	
+	/**
+	 * Convenience method for fillAndScoreLimited using SiteScore object.
+	 * Extracts alignment parameters from SiteScore and delegates to main implementation.
+	 *
+	 * @param read Query sequence to align
+	 * @param ss SiteScore containing reference coordinates and gap information
+	 * @param thresh Score threshold for alignment computation
+	 * @param minScore Minimum score threshold for matrix computation
+	 * @return Array containing [score, bestRefStart, bestRefStop] or null if alignment fails
+	 */
 	public final int[] fillAndScoreLimited(byte[] read, SiteScore ss, int thresh, int minScore){
 		return fillAndScoreLimited(read, ss.chrom, ss.start, ss.stop, thresh, minScore, ss.gaps);
 	}
 	
 //	public final int[] translateScoreFromGappedCoordinate(int[] score)
 	
+	/**
+	 * Chromosome-based alignment with automatic reference array retrieval.
+	 * Uses Data.getChromosome to access reference sequence and applies threshold padding.
+	 *
+	 * @param read Query sequence to align
+	 * @param chrom Chromosome number for reference lookup
+	 * @param start Starting coordinate on chromosome
+	 * @param stop Ending coordinate on chromosome
+	 * @param thresh Threshold value for coordinate padding
+	 * @param minScore Minimum score threshold for matrix computation
+	 * @param gaps Gap array for gapped alignment, null for ungapped
+	 * @return Array containing [score, bestRefStart, bestRefStop] or null if alignment fails
+	 */
 	public final int[] fillAndScoreLimited(byte[] read, int chrom, int start, int stop, int thresh, int minScore, int[] gaps){
 		return fillAndScoreLimited(read, Data.getChromosome(chrom).array, start-thresh, stop+thresh, minScore, gaps);
 	}
 	
+	/**
+	 * Quality-aware alignment with fillQ integration.
+	 * Deprecated method that performed quality-score-based alignment.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param refStartLoc Starting position in reference sequence
+	 * @param refEndLoc Ending position in reference sequence
+	 * @param baseScores Quality scores for read bases
+	 * @return Always returns null in current implementation
+	 */
 	@Deprecated
 	public final int[] fillAndScoreQ(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, byte[] baseScores){
 		int a=Tools.max(0, refStartLoc);
@@ -139,16 +199,46 @@ public abstract class MSA {
 		return null;
 	}
 	
+	/**
+	 * SiteScore-based quality alignment convenience method.
+	 * Deprecated wrapper around fillAndScoreQ with SiteScore parameter extraction.
+	 *
+	 * @param read Query sequence to align
+	 * @param ss SiteScore containing reference coordinates
+	 * @param thresh Score threshold for alignment computation
+	 * @param baseScores Quality scores for read bases
+	 * @return Result from fillAndScoreQ implementation
+	 */
 	@Deprecated
 	public final int[] fillAndScoreQ(byte[] read, SiteScore ss, int thresh, byte[] baseScores){
 		return fillAndScoreQ(read, ss.chrom, ss.start, ss.stop, thresh, baseScores);
 	}
 	
+	/**
+	 * Chromosome-based quality alignment with automatic reference retrieval.
+	 * Deprecated method combining chromosome lookup with quality-aware alignment.
+	 *
+	 * @param read Query sequence to align
+	 * @param chrom Chromosome number for reference lookup
+	 * @param start Starting coordinate on chromosome
+	 * @param stop Ending coordinate on chromosome
+	 * @param thresh Threshold value for coordinate padding
+	 * @param baseScores Quality scores for read bases
+	 * @return Result from fillAndScoreQ implementation
+	 */
 	@Deprecated
 	public final int[] fillAndScoreQ(byte[] read, int chrom, int start, int stop, int thresh, byte[] baseScores){
 		return fillAndScoreQ(read, Data.getChromosome(chrom).array, start-thresh, stop+thresh, baseScores);
 	}
 	
+	/**
+	 * Calculates alignment score without allowing insertions or deletions.
+	 * Simple alignment scoring using direct base-to-base comparison only.
+	 *
+	 * @param read Query sequence to score
+	 * @param ss SiteScore containing reference coordinates
+	 * @return Alignment score for ungapped alignment
+	 */
 	public final int scoreNoIndels(byte[] read, SiteScore ss){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, ss.start);
@@ -159,6 +249,15 @@ public abstract class MSA {
 		return scoreNoIndels(read, cha.array, refStart);
 	}
 	
+	/**
+	 * Quality-aware ungapped alignment scoring using SiteScore.
+	 * Incorporates base quality scores into ungapped alignment evaluation.
+	 *
+	 * @param read Query sequence to score
+	 * @param ss SiteScore containing reference coordinates
+	 * @param baseScores Quality scores for read bases
+	 * @return Quality-weighted alignment score for ungapped alignment
+	 */
 	public final int scoreNoIndels(byte[] read, SiteScore ss, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, baseScores, ss.start);
@@ -543,14 +642,40 @@ public abstract class MSA {
 		return score;
 	}
 	
+	/**
+	 * Calculates maximum possible quality score for given number of bases.
+	 * @param numBases Number of bases in sequence
+	 * @return Maximum achievable quality score
+	 */
 	public abstract int maxQuality(int numBases);
 	
+	/**
+	 * Calculates maximum quality score based on actual base quality values.
+	 * @param baseScores Array of base quality scores
+	 * @return Maximum achievable quality score for these specific base scores
+	 */
 	public abstract int maxQuality(byte[] baseScores);
 	
+	/**
+	 * Calculates maximum score for imperfect alignment with given number of bases.
+	 * @param numBases Number of bases in sequence
+	 * @return Maximum achievable score allowing for imperfect matches
+	 */
 	public abstract int maxImperfectScore(int numBases);
 	
+	/**
+	 * Calculates maximum imperfect score based on actual base quality values.
+	 * @param baseScores Array of base quality scores
+	 * @return Maximum achievable imperfect score for these specific base scores
+	 */
 	public abstract int maxImperfectScore(byte[] baseScores);
 	
+	/**
+	 * Formats integer array for display with fixed-width columns.
+	 * Creates aligned string representation for debugging and visualization.
+	 * @param a Integer array to format
+	 * @return Formatted string with fixed-width columns
+	 */
 	public static final String toString(int[] a){
 		
 		int width=7;
@@ -567,12 +692,33 @@ public abstract class MSA {
 		return sb.toString();
 	}
 	
+	/**
+	 * Prints all modes of packed alignment matrix for debugging.
+	 * Displays both time and score information for complete matrix visualization.
+	 *
+	 * @param packed 3D packed matrix containing alignment information
+	 * @param readlen Length of read sequence
+	 * @param reflen Length of reference sequence
+	 * @param TIMEMASK Bit mask for extracting time information
+	 * @param SCOREOFFSET Bit offset for extracting score information
+	 */
 	static void printMatrix(int[][][] packed, int readlen, int reflen, int TIMEMASK, int SCOREOFFSET){
 		for(int mode=0; mode<packed.length; mode++){
 			printMatrix(packed, readlen, reflen, TIMEMASK, SCOREOFFSET, mode);
 		}
 	}
 	
+	/**
+	 * Prints specific mode of packed alignment matrix for debugging.
+	 * Displays both time and score information for specified matrix mode.
+	 *
+	 * @param packed 3D packed matrix containing alignment information
+	 * @param readlen Length of read sequence
+	 * @param reflen Length of reference sequence
+	 * @param TIMEMASK Bit mask for extracting time information
+	 * @param SCOREOFFSET Bit offset for extracting score information
+	 * @param mode Specific matrix mode to display
+	 */
 	static void printMatrix(int[][][] packed, int readlen, int reflen, int TIMEMASK, int SCOREOFFSET, int mode){
 		final int ylim=Tools.min(readlen+1, packed[mode].length);
 		final int xlim=Tools.min(reflen+1, packed[mode].length);
@@ -586,6 +732,15 @@ public abstract class MSA {
 		System.out.println();
 	}
 	
+	/**
+	 * Extracts and formats time information from packed matrix row.
+	 * Creates fixed-width display of time values for matrix visualization.
+	 *
+	 * @param a Packed matrix row containing time and score information
+	 * @param TIMEMASK Bit mask for extracting time values
+	 * @param lim Maximum number of elements to process
+	 * @return Formatted string showing time values with fixed-width columns
+	 */
 	public static final String toTimePacked(int[] a, int TIMEMASK, int lim){
 		int width=6;
 		lim=Tools.min(lim, a.length);
@@ -603,6 +758,15 @@ public abstract class MSA {
 		return sb.toString();
 	}
 	
+	/**
+	 * Extracts and formats score information from packed matrix row.
+	 * Creates fixed-width display of score values with overflow protection for matrix visualization.
+	 *
+	 * @param a Packed matrix row containing time and score information
+	 * @param SCOREOFFSET Bit offset for extracting score values
+	 * @param lim Maximum number of elements to process
+	 * @return Formatted string showing score values with fixed-width columns
+	 */
 	public static final String toScorePacked(int[] a, int SCOREOFFSET, int lim){
 		int width=6;
 		lim=Tools.min(lim, a.length);
@@ -631,6 +795,12 @@ public abstract class MSA {
 		return sb.toString();
 	}
 	
+	/**
+	 * Formats byte array for display with fixed-width columns.
+	 * Creates aligned string representation for debugging byte sequences.
+	 * @param a Byte array to format
+	 * @return Formatted string with fixed-width columns
+	 */
 	public static final String toString(byte[] a){
 		
 		int width=6;
@@ -647,17 +817,38 @@ public abstract class MSA {
 		return sb.toString();
 	}
 	
+	/**
+	 * Extracts substring from byte array and converts to String.
+	 * Creates string representation of specified byte array region.
+	 *
+	 * @param ref Source byte array
+	 * @param startLoc Starting position (inclusive)
+	 * @param stopLoc Ending position (inclusive)
+	 * @return String representation of specified byte array region
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
 		return sb.toString();
 	}
 	
+	/**
+	 * Calculates score for consecutive matching bases.
+	 * Uses differential scoring with higher points for first match and lower points for additional matches.
+	 * @param len Number of consecutive matching bases
+	 * @return Total score for match run of specified length
+	 */
 	public final int calcMatchScore(int len){
 		assert(len>0) : len;
 		return POINTS_MATCH()+(len-1)*POINTS_MATCH2();
 	}
 	
+	/**
+	 * Calculates penalty score for consecutive substitutions.
+	 * Uses tiered penalty system with increasing penalties for longer substitution runs.
+	 * @param len Number of consecutive substitutions
+	 * @return Total penalty score for substitution run of specified length
+	 */
 	public final int calcSubScore(int len){
 		assert(len>0) : len;
 		final int lim3=LIMIT_FOR_COST_3();
@@ -672,14 +863,43 @@ public abstract class MSA {
 		return score;
 	}
 	
+	/**
+	 * Calculates score for bases aligned to no-reference regions.
+	 * @param len Number of bases in no-reference region
+	 * @return Score for no-reference alignment
+	 */
 	public final int calcNorefScore(int len){return len*POINTS_NOREF();}
 	
+	/**
+	 * Calculates score for bases aligned to no-call reference regions.
+	 * @param len Number of bases in no-call region
+	 * @return Score for no-call alignment
+	 */
 	public final int calcNocallScore(int len){return len*POINTS_NOCALL();}
 	
+	/**
+	 * Calculates penalty score for deletion operations.
+	 * @param len Length of deletion
+	 * @param approximateGaps Whether to use approximate gap penalty calculation
+	 * @return Penalty score for deletion of specified length
+	 */
 	public abstract int calcDelScore(int len, boolean approximateGaps);
 	
+	/**
+	 * Calculates penalty score for insertion operations.
+	 * @param len Length of insertion
+	 * @return Penalty score for insertion of specified length
+	 */
 	public abstract int calcInsScore(int len);
 	
+	/**
+	 * Converts minimum identity percentage to minimum ratio for specified MSA class.
+	 * Delegates to appropriate MSA implementation for class-specific ratio calculation.
+	 *
+	 * @param minid Minimum identity percentage (0.0 to 1.0)
+	 * @param classname Name of MSA implementation class
+	 * @return Minimum ratio value corresponding to specified identity threshold
+	 */
 	public static final float minIdToMinRatio(double minid, String classname){
 		if("MultiStateAligner9ts".equalsIgnoreCase(classname)){
 			return MultiStateAligner9ts.minIdToMinRatio(minid);
@@ -699,11 +919,17 @@ public abstract class MSA {
 		}
 	}
 	
+	/** Gap buffer size constant from Shared configuration */
 	static final int GAPBUFFER=Shared.GAPBUFFER;
+	/** Secondary gap buffer size constant from Shared configuration */
 	static final int GAPBUFFER2=Shared.GAPBUFFER2;
+	/** Gap length constant from Shared configuration */
 	static final int GAPLEN=Shared.GAPLEN;
+	/** Minimum gap size constant from Shared configuration */
 	static final int MINGAP=Shared.MINGAP;
+	/** Gap cost penalty constant from Shared configuration */
 	static final int GAPCOST=Shared.GAPCOST;
+	/** Gap character constant from Shared configuration */
 	static final byte GAPC=Shared.GAPC;
 	
 	/** Seemingly to clear out prior data from the gref.  Not sure what else it's used for. */
@@ -716,7 +942,17 @@ public abstract class MSA {
 //	public final int[] vertLimit;
 //	public final int[] horizLimit;
 
+	/**
+	 * Returns string representation of vertical alignment limits.
+	 * Debugging method for displaying vertical matrix boundaries.
+	 * @return CharSequence showing vertical alignment limits
+	 */
 	public abstract CharSequence showVertLimit();
+	/**
+	 * Returns string representation of horizontal alignment limits.
+	 * Debugging method for displaying horizontal matrix boundaries.
+	 * @return CharSequence showing horizontal alignment limits
+	 */
 	public abstract CharSequence showHorizLimit();
 
 ////	public static final int MODEBITS=2;
@@ -728,6 +964,8 @@ public abstract class MSA {
 //
 ////	public static final int MODEOFFSET=0; //Always zero.
 ////	public static final int TIMEOFFSET=0;
+	/** Returns bit offset for score information in packed matrix format.
+	 * @return Bit offset used to extract score values from packed integers */
 	public abstract int SCOREOFFSET();
 //
 ////	public static final int MODEMASK=~((-1)<<MODEBITS);
@@ -735,60 +973,134 @@ public abstract class MSA {
 //	public static final int TIMEMASK=~((-1)<<TIMEBITS);
 //	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
 	
+	/** Match/substitution mode constant for alignment state */
 	static final byte MODE_MS=0;
+	/** Deletion mode constant for alignment state */
 	static final byte MODE_DEL=1;
+	/** Insertion mode constant for alignment state */
 	static final byte MODE_INS=2;
+	/** Substitution mode constant for alignment state */
 	static final byte MODE_SUB=3;
 	
 	//These are to allow constants to be overridden
+	/** Returns scoring points for alignment to no-reference regions.
+	 * @return Point value for no-reference alignment */
 	public abstract int POINTS_NOREF();
+	/** Returns scoring points for alignment to no-call reference bases.
+	 * @return Point value for no-call alignment */
 	public abstract int POINTS_NOCALL();
+	/** Returns scoring points for first matching base in a run.
+	 * @return Point value for initial match */
 	public abstract int POINTS_MATCH();
+	/** Returns scoring points for additional matching bases in a run.
+	 * @return Point value for subsequent matches */
 	public abstract int POINTS_MATCH2();
+	/** Returns scoring points for compatible base alignments.
+	 * @return Point value for compatible alignment */
 	public abstract int POINTS_COMPATIBLE();
+	/** Returns penalty points for first substitution in a run.
+	 * @return Penalty value for initial substitution */
 	public abstract int POINTS_SUB();
+	/** Returns penalty points for reduced substitution scoring.
+	 * @return Reduced penalty value for specific substitution contexts */
 	public abstract int POINTS_SUBR();
+	/** Returns penalty points for second substitution in a run.
+	 * @return Penalty value for subsequent substitutions */
 	public abstract int POINTS_SUB2();
+	/** Returns penalty points for third and later substitutions in a run.
+	 * @return Penalty value for extended substitution runs */
 	public abstract int POINTS_SUB3();
+	/** Returns penalty points for match-substitution transitions.
+	 * @return Penalty value for match to substitution transitions */
 	public abstract int POINTS_MATCHSUB();
+	/** Returns penalty points for first insertion in a gap.
+	 * @return Penalty value for gap opening (insertion) */
 	public abstract int POINTS_INS();
+	/** Returns penalty points for second insertion in a gap.
+	 * @return Penalty value for gap extension (insertion) */
 	public abstract int POINTS_INS2();
+	/** Returns penalty points for third insertion in a gap.
+	 * @return Penalty value for extended insertion gaps */
 	public abstract int POINTS_INS3();
+	/** Returns penalty points for fourth and later insertions in a gap.
+	 * @return Penalty value for long insertion gaps */
 	public abstract int POINTS_INS4();
+	/** Returns penalty points for first deletion in a gap.
+	 * @return Penalty value for gap opening (deletion) */
 	public abstract int POINTS_DEL();
+	/** Returns penalty points for second deletion in a gap.
+	 * @return Penalty value for gap extension (deletion) */
 	public abstract int POINTS_DEL2();
+	/** Returns penalty points for third deletion in a gap.
+	 * @return Penalty value for extended deletion gaps */
 	public abstract int POINTS_DEL3();
+	/** Returns penalty points for fourth deletion in a gap.
+	 * @return Penalty value for long deletion gaps (fourth position) */
 	public abstract int POINTS_DEL4();
+	/** Returns penalty points for fifth and later deletions in a gap.
+	 * @return Penalty value for very long deletion gaps */
 	public abstract int POINTS_DEL5();
+	/** Returns penalty points for deletions aligned to N bases in reference.
+	 * @return Penalty value for deletions at ambiguous reference positions */
 	public abstract int POINTS_DEL_REF_N();
+	/** Returns penalty points for gap operations.
+	 * @return General penalty value for gap alignment */
 	public abstract int POINTS_GAP();
 
+	/** Returns time slip value for matrix computation.
+	 * @return Time slip parameter for alignment matrix calculations */
 	public abstract int TIMESLIP();
+	/** Returns bit mask for 5-bit operations.
+	 * @return 5-bit mask value for bitwise operations */
 	public abstract int MASK5();
 	
+	/** Returns barrier value for insertion state transitions.
+	 * @return Barrier value for insertion alignment state */
 	abstract int BARRIER_I1();
+	/** Returns barrier value for deletion state transitions.
+	 * @return Barrier value for deletion alignment state */
 	abstract int BARRIER_D1();
 
+	/** Returns length limit for applying third-tier penalty costs.
+	 * @return Length threshold for tier 3 penalty application */
 	public abstract int LIMIT_FOR_COST_3();
+	/** Returns length limit for applying fourth-tier penalty costs.
+	 * @return Length threshold for tier 4 penalty application */
 	public abstract int LIMIT_FOR_COST_4();
+	/** Returns length limit for applying fifth-tier penalty costs.
+	 * @return Length threshold for tier 5 penalty application */
 	public abstract int LIMIT_FOR_COST_5();
 	
+	/** Returns value representing invalid or bad alignment score.
+	 * @return Sentinel value for invalid alignment results */
 	public abstract int BAD();
 	
 	
+	/** Maximum number of rows in alignment matrix */
 	public final int maxRows;
+	/** Maximum number of columns in alignment matrix */
 	public final int maxColumns;
 
+	/** Count of limited alignment iterations performed */
 	public long iterationsLimited=0;
+	/** Count of unlimited alignment iterations performed */
 	public long iterationsUnlimited=0;
 
+	/** Enable verbose debugging output for alignment operations */
 	public boolean verbose=false;
+	/**
+	 * Enable additional verbose debugging output for detailed alignment analysis
+	 */
 	public boolean verbose2=false;
 
+	/** Fixed bandwidth constraint for banded alignment algorithms */
 	public static int bandwidth=0;
+	/** Proportional bandwidth constraint as ratio of sequence length */
 	public static float bandwidthRatio=0;
+	/** Enable flat memory layout mode for cache-optimized alignment */
 	public static boolean flatMode=false;
 	
+	/** Minimum score adjustment constant for alignment thresholding */
 	public static final int MIN_SCORE_ADJUST=120;
 
 }

@@ -8,8 +8,22 @@ import fileIO.FileFormat;
 import shared.Shared;
 import shared.Tools;
 
+/**
+ * Parses GenBank flat file (.gbff) format and converts it to GFF3 annotation files.
+ * Provides sequential file parsing for GenBank files, extracting genomic feature
+ * annotations from LOCUS records and transforming them into standardized GFF3 output.
+ * Supports command-line usage for direct file conversion with thread-safe processing.
+ *
+ * @author Brian Bushnell
+ */
 public class GbffFile {
 	
+	/**
+	 * Program entry point for GenBank to GFF conversion.
+	 * Accepts input GenBank file and optional output GFF file path.
+	 * Default output is "stdout.gff" if not specified.
+	 * @param args Command-line arguments: [input.gbff] [output.gff]
+	 */
 	public static void main(String[] args){
 		String gbff=args[0];
 		String gff=(args.length>1 ? args[1] : "stdout.gff");
@@ -37,6 +51,14 @@ public class GbffFile {
 //	##sequence-region NZ_FXTD01000001.1 1 528269
 //	##species https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=413815
 	
+	/**
+	 * Converts all GenBank locus records to GFF3 format and writes to stream.
+	 * Iterates through all locus records in the file, converting each to GFF format.
+	 * Optional header includes GFF version, BBTools version, and column specifications.
+	 *
+	 * @param bsw Output stream writer for GFF data
+	 * @param printHeader Whether to include GFF3 header with version information
+	 */
 	public void toGff(ByteStreamWriter bsw, boolean printHeader){
 		if(printHeader){
 			bsw.println("##gff-version 3".getBytes());
@@ -48,12 +70,23 @@ public class GbffFile {
 		}
 	}
 	
+	/**
+	 * Constructs a GbffFile parser for the specified GenBank file format.
+	 * Validates the input format is GBFF and initializes the file reader.
+	 * Automatically resets to beginning of file for parsing.
+	 * @param ff_ FileFormat object specifying the GenBank file to parse
+	 */
 	public GbffFile(FileFormat ff_) {
 		ff=ff_;
 		assert(ff.format()==FileFormat.GBFF) : ff;
 		reset();
 	}
 	
+	/**
+	 * Resets the file reader to the beginning of the GenBank file.
+	 * Thread-safe method that closes existing reader and creates new ByteFile reader.
+	 * Reads first line to prepare for locus parsing, handling empty files gracefully.
+	 */
 	public synchronized void reset(){
 		if(bf!=null){
 			bf.close();
@@ -64,6 +97,14 @@ public class GbffFile {
 		if(line==null){bf.close();}//empty
 	}
 	
+	/**
+	 * Parses and returns the next LOCUS record from the GenBank file.
+	 * Reads lines from current position until next LOCUS or end of file.
+	 * Skips sequence data (ORIGIN sections) and handles multi-line records.
+	 * Returns null when no more locus records are available.
+	 *
+	 * @return GbffLocus object containing parsed locus data, or null if end of file
+	 */
 	public GbffLocus nextLocus(){
 		assert(bf!=null);
 		if(line==null){return null;}
@@ -90,8 +131,11 @@ public class GbffFile {
 		return new GbffLocus(lines);
 	}
 	
+	/** FileFormat specification for the input GenBank file */
 	private final FileFormat ff;
+	/** ByteFile reader for processing the GenBank file line-by-line */
 	private ByteFile bf;
+	/** Current line being processed from the GenBank file */
 	private byte[] line=null;
 	
 }

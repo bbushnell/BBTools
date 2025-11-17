@@ -264,6 +264,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		ssudif=b.ssudif;
 	}
 	
+	/**
+	 * Aligns 16S or 18S rRNA sequences between query and reference Clades.
+	 * Uses the provided aligner to calculate sequence identity and updates ssudif.
+	 * @param ssa The ID aligner for sequence comparison
+	 * @return true if alignment was performed (both Clades have rRNA sequences), false otherwise
+	 */
 	public final boolean align(IDAligner ssa){
 		final byte[] q, r;
 		ssudif=1;
@@ -520,6 +526,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	/** 5-mer profile difference between query and reference */
 	float k5dif=1;
 	
+	/**
+	 * Small subunit rRNA sequence difference (1 - identity) between query and reference
+	 */
 	float ssudif=1;
 
 	/** Whether to use early exit optimization to avoid unnecessary calculations */

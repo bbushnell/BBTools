@@ -14,12 +14,27 @@ public class ChromLoadThread extends Thread {
 		
 	}
 	
+	/**
+	 * Creates a chromosome loading thread for a specific file and array position.
+	 * @param fname_ Filename of the chromosome data to load
+	 * @param id_ Index position in the array where loaded data will be stored
+	 * @param r_ Array of ChromosomeArray objects to populate
+	 */
 	public ChromLoadThread(String fname_, int id_, ChromosomeArray[] r_){
 		fname=fname_;
 		id=id_;
 		array=r_;
 	}
 	
+	/**
+	 * Factory method to create and start a chromosome loading thread.
+	 * Respects concurrency limits and only creates thread if array position is empty.
+	 *
+	 * @param fname Filename of chromosome data to load
+	 * @param id Array index where loaded data will be stored
+	 * @param r Array of ChromosomeArray objects to populate
+	 * @return ChromLoadThread instance or null if position already filled
+	 */
 	public static ChromLoadThread load(String fname, int id, ChromosomeArray[] r){
 		assert(r[id]==null);
 		ChromLoadThread clt=null;
@@ -31,6 +46,17 @@ public class ChromLoadThread extends Thread {
 		return clt;
 	}
 	
+	/**
+	 * Loads multiple chromosome files in parallel using filename pattern.
+	 * Pattern uses '#' as placeholder for chromosome number.
+	 * Blocks until all chromosomes are loaded before returning.
+	 *
+	 * @param pattern Filename pattern with '#' placeholder for chromosome numbers
+	 * @param min Minimum chromosome number to load (inclusive)
+	 * @param max Maximum chromosome number to load (inclusive)
+	 * @param r Array to store loaded chromosomes, created if null
+	 * @return Array containing loaded ChromosomeArray objects
+	 */
 	public static ChromosomeArray[] loadAll(String pattern, int min, int max, ChromosomeArray[] r){
 		if(r==null){r=new ChromosomeArray[max+1];}
 		assert(r.length>=max+1);
@@ -81,6 +107,12 @@ public class ChromLoadThread extends Thread {
 		increment(-1);
 	}
 	
+	/**
+	 * Thread-safe counter for managing concurrent loading operations.
+	 * Blocks when maximum concurrent threads reached, notifies when threads complete.
+	 * @param i Value to add to counter (negative values decrement)
+	 * @return Current counter value after modification
+	 */
 	private static final int increment(int i){
 		int r;
 		synchronized(lock){
@@ -103,11 +135,18 @@ public class ChromLoadThread extends Thread {
 		return r;
 	}
 	
+	/** Index position in array where loaded chromosome data will be stored */
 	private final int id;
+	/** Filename of chromosome data to load */
 	private final String fname;
+	/** Array of ChromosomeArray objects to populate with loaded data */
 	private final ChromosomeArray[] array;
 	
+	/**
+	 * Synchronization object and counter for managing concurrent thread execution
+	 */
 	public static final int[] lock=new int[1];
+	/** Maximum number of concurrent loading threads allowed */
 	public static int MAX_CONCURRENT=Shared.threads();
 	
 }

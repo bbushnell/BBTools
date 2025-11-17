@@ -14,9 +14,24 @@ import shared.Tools;
 import stream.FastaReadInputStream;
 import stream.Read;
 
+/**
+ * K-mer based sequence mapping structure with middle-masking support.
+ * Extends LongArrayListHashMap to store sequences indexed by masked k-mers,
+ * enabling efficient sequence similarity search and overlap detection.
+ * @author Brian Bushnell
+ */
 public class SeqMap extends LongArrayListHashMap<SeqPos> {
 
+	/** Creates a SeqMap with default parameters: k=11, maskMiddle=1, minCount=0 */
 	public SeqMap(){this(11,1,0);}
+	/**
+	 * Creates a SeqMap with specified k-mer parameters and middle-masking.
+	 * Computes bit mask to zero out middle bases for fuzzy k-mer matching.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param maskMiddle_ Number of middle bases to mask (0 disables masking)
+	 * @param minCount_ Minimum count threshold for sequences
+	 */
 	public SeqMap(int k_, int maskMiddle_, int minCount_){
 		super();
 
@@ -242,6 +257,12 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 		return lookups;
 	}
 	
+	/**
+	 * Sorts all sequence lists by their natural ordering and finds maximum count.
+	 * Iterates through all stored sequence lists, sorts each by count/score,
+	 * and returns the highest count value found.
+	 * @return Maximum count value across all stored sequences
+	 */
 	public int sort() {
 		int max=0;
 		for(ArrayList<SeqPos> list : values()) {
@@ -254,11 +275,36 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 		return max;
 	}
 	
+	/**
+	 * Loads sequences from a FASTA file into a new SeqMap.
+	 * Convenience method that reads the file and delegates to the main load method.
+	 *
+	 * @param ref Path to reference FASTA file
+	 * @param k K-mer length for indexing
+	 * @param mm Middle masking length
+	 * @param minCount Minimum count threshold for sequences
+	 * @param rcomp Whether to include reverse complements
+	 * @param net Neural network for scoring sequences (may be null)
+	 * @return New SeqMap containing the loaded sequences
+	 */
 	public static SeqMap load(String ref, int k, int mm, int minCount, boolean rcomp, CellNet net) {
 		ArrayList<Read> reads=FastaReadInputStream.toReads(ref, FileFormat.FASTA, -1);
 		return load(reads, k, mm, minCount, rcomp, net);
 	}
 	
+	/**
+	 * Loads sequences from Read objects into a new SeqMap with k-mer indexing.
+	 * Parses count and score information from read headers, applies neural network
+	 * scoring if provided, and optionally includes reverse complements.
+	 *
+	 * @param reads List of Read objects containing sequences and metadata
+	 * @param k K-mer length for indexing
+	 * @param mm Middle masking length (number of middle bases to ignore)
+	 * @param minCount Minimum count threshold - only sequences with count >= minCount are added
+	 * @param rcomp Whether to include reverse complement sequences
+	 * @param net Neural network for sequence scoring (may be null)
+	 * @return New SeqMap containing indexed sequences meeting the count threshold
+	 */
 	public static SeqMap load(ArrayList<Read> reads, int k, int mm, int minCount, boolean rcomp, CellNet net) {
 		SeqMap map=new SeqMap(k, mm, minCount);
 		int maxCount=0;
@@ -286,22 +332,38 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 		return map;
 	}
 	
+	/** K-mer length used for sequence indexing */
 	public final int k;
+	/** Number of middle bases to mask in k-mers for fuzzy matching */
 	public final int maskMiddle;
+	/** Minimum count threshold for sequences to be included */
 	public final int minCount;
+	/** Bit mask for zeroing out middle bases in k-mers */
 	private final long midMask;
+	/** Lookup table for converting DNA bases to numeric values */
 	private static final byte[] symbolToNumber=AminoAcid.baseToNumber;
 	
+	/**
+	 * Thread-local storage for reusable HashSet to avoid allocations during searches
+	 */
 	private final ThreadLocal<HashSet<SeqPosM>> localSet=new ThreadLocal<HashSet<SeqPosM>>(){
         @Override protected HashSet<SeqPosM> initialValue() {return new HashSet<SeqPosM>();}
     };
+	/**
+	 * Thread-local storage for reusable ArrayList to avoid allocations during searches
+	 */
 	private final ThreadLocal<ArrayList<SeqPosM>> localList=new ThreadLocal<ArrayList<SeqPosM>>(){
         @Override protected ArrayList<SeqPosM> initialValue() {return new ArrayList<SeqPosM>();}
     };
+	/**
+	 * Thread-local storage for reusable SeqPosM object to avoid allocations during comparisons
+	 */
 	private final ThreadLocal<SeqPosM> localSP=new ThreadLocal<SeqPosM>(){
         @Override protected SeqPosM initialValue() {return new SeqPosM(null, 0);}
     };
+	/** Counter for total number of search queries performed */
 	public final AtomicLong queries=new AtomicLong(0);
+	/** Counter for total number of k-mer lookups performed during searches */
 	public final AtomicLong setQueries=new AtomicLong(0);
 	
 }

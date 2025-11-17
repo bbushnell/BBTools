@@ -12,6 +12,12 @@ public class KCountArray3 extends KCountArray {
 	 */
 	private static final long serialVersionUID = -5466091642729698944L;
 	
+	/**
+	 * Constructs a KCountArray3 with specified cell count and bit width.
+	 * Creates a matrix of integer arrays for storing bit-packed count values.
+	 * @param cells_ Total number of cells in the array
+	 * @param bits_ Number of bits per cell for count storage
+	 */
 	public KCountArray3(long cells_, int bits_){
 		super(cells_, bits_);
 		long words=cells/cellsPerWord;
@@ -149,7 +155,9 @@ public class KCountArray3 extends KCountArray {
 		return x;
 	}
 	
+	/** Counter for the number of cells containing non-zero values */
 	private long cellsUsed;
+	/** Two-dimensional matrix storing bit-packed count values */
 	private final int[][] matrix;
 	
 }

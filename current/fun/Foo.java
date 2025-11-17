@@ -310,6 +310,12 @@ public class Foo {
 		System.out.println("P99 size:   \t"+sizes.get((int)(sizes.size*0.99)));
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given FileFormat.
+	 * Returns null if FileFormat is null, otherwise creates started writer.
+	 * @param ff FileFormat specification for output stream
+	 * @return Started ByteStreamWriter or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -332,11 +338,16 @@ public class Foo {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of valid output lines (files with type 'F') */
 	private long linesOut=0;
+	/** Total bytes read from input including line terminators */
 	private long bytesProcessed=0;
+	/** Total bytes written to output (currently unused) */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

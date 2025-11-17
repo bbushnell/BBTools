@@ -20,6 +20,11 @@ import structures.ListNum;
  */
 public class KmerCount6 extends KmerCountAbstract {
 	
+	/**
+	 * Program entry point for command-line k-mer counting.
+	 * Parses arguments for k-mer length, cell bits, and gap parameters.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -64,6 +69,12 @@ public class KmerCount6 extends KmerCountAbstract {
 		
 	}
 
+	/**
+	 * Prints detailed k-mer frequency statistics and distribution analysis.
+	 * Displays frequency bins, percentages, unique k-mer counts, and singleton ratios.
+	 * Output includes both individual frequencies and grouped frequency ranges.
+	 * @param count The k-mer count array containing frequency data
+	 */
 	public static void printStatistics(KCountArray count){
 		long[] freq=count.transformToFrequency();
 
@@ -103,6 +114,19 @@ public class KmerCount6 extends KmerCountAbstract {
 		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
 	}
 	
+	/**
+	 * Counts k-mers from paired sequence files using specified parameters.
+	 * Creates new count array if none provided, processes both files, and handles
+	 * reverse complement counting based on configuration.
+	 *
+	 * @param reads1 Primary input file path
+	 * @param reads2 Secondary input file path (may be null)
+	 * @param k K-mer length
+	 * @param cbits Bits per count cell
+	 * @param rcomp Whether to count reverse complements
+	 * @param count Existing count array or null to create new
+	 * @return Populated k-mer count array
+	 */
 	public static KCountArray count(String reads1, String reads2, int k, int cbits, boolean rcomp, KCountArray count){
 		assert(k<32 && k>=1 && (count!=null || k<20));
 		final int kbits=2*k;
@@ -138,6 +162,16 @@ public class KmerCount6 extends KmerCountAbstract {
 	}
 	
 	
+	/**
+	 * Processes reads from input stream and counts k-mers into provided array.
+	 * Handles both regular contiguous k-mers and split k-mer counting with gaps.
+	 * Processes paired reads when available and applies reverse complement counting.
+	 *
+	 * @param cris Concurrent read input stream
+	 * @param k K-mer length
+	 * @param rcomp Whether to count reverse complements
+	 * @param count Target k-mer count array
+	 */
 	public static void count(ConcurrentReadInputStream cris, int k, boolean rcomp, KCountArray count){
 		assert(k<32 && k>=1 && (count!=null || k<20));
 		

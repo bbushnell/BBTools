@@ -130,6 +130,12 @@ public final class LogLog8 extends CardinalityTracker {
 		add((LogLog8)log);
 	}
 	
+	/**
+	 * Merges another LogLog8 tracker by taking the maximum leading zero count
+	 * for each bucket position. This combines the cardinality estimates while
+	 * preserving the probabilistic properties of the LogLog algorithm.
+	 * @param log The LogLog8 tracker to merge with this one
+	 */
 	public void add(LogLog8 log){
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){

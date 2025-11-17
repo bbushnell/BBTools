@@ -24,6 +24,11 @@ import structures.LongList;
  */
 public class KmerPosition {
 
+	/**
+	 * Program entry point for k-mer positional analysis.
+	 * Creates a KmerPosition instance and executes the analysis pipeline.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -38,6 +43,12 @@ public class KmerPosition {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a KmerPosition analyzer with command-line arguments.
+	 * Parses input parameters including reference file, k-mer length,
+	 * input/output files, and processing options.
+	 * @param args Command-line arguments array
+	 */
 	public KmerPosition(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -86,6 +97,12 @@ public class KmerPosition {
 		ffref=FileFormat.testInput(ref, FileFormat.FASTA, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that executes k-mer positional analysis.
+	 * Creates reference k-mer set, processes input reads, and generates
+	 * positional distribution statistics for both read pairs.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		HashSet<String> kr=kmerReturn();
 		
@@ -148,6 +165,16 @@ public class KmerPosition {
 		assert(!errorState) : "An error was encountered.";
 	}
 	
+	/**
+	 * Outputs k-mer positional analysis results to specified output file.
+	 * Generates tab-delimited report with position, counts, and percentages
+	 * for both read1 and read2 in paired-end data.
+	 *
+	 * @param posCounts1 Position-specific k-mer match counts for read1
+	 * @param readCounts1 Total read counts at each position for read1
+	 * @param posCounts2 Position-specific k-mer match counts for read2
+	 * @param readCounts2 Total read counts at each position for read2
+	 */
 	private void outputResults(LongList posCounts1, LongList readCounts1, LongList posCounts2, LongList readCounts2){
 		if(ffout1==null) {return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout1);
@@ -181,6 +208,12 @@ public class KmerPosition {
 		errorState=bsw.poisonAndWait() | errorState;
 	}
 	
+	/**
+	 * Creates a HashSet of k-mers from the reference sequence file.
+	 * Reads reference sequences and extracts all k-mers of specified length
+	 * for use in positional matching analysis.
+	 * @return HashSet containing all unique k-mers from reference sequences
+	 */
 	private HashSet<String> kmerReturn(){
 		HashSet<String> hs=new HashSet<String>();
 		ArrayList<Read> readArray=ConcurrentReadInputStream.getReads(maxReads, false, ffref, null, null, null);
@@ -193,6 +226,15 @@ public class KmerPosition {
 		return hs;
 	}
 	
+	/**
+	 * Extracts all k-mers from a read and adds them to the provided HashSet.
+	 * Slides a window of size k across the read sequence, creating k-mer
+	 * strings and adding them to the set for reference matching.
+	 *
+	 * @param hs HashSet to store k-mers
+	 * @param r Read sequence to extract k-mers from
+	 * @return Number of k-mers extracted from the read
+	 */
 	private int addToSet(HashSet<String> hs, Read r) {
 		int countRead=0;
 		for(int i=0, j=k; j<=r.length(); i++, j++) {
@@ -204,6 +246,17 @@ public class KmerPosition {
 		return countRead;
 	}
 	
+	/**
+	 * Processes a single read for k-mer positional matching.
+	 * Extracts k-mers at each position and checks for matches against
+	 * reference k-mer set, updating position-specific counters.
+	 *
+	 * @param r Read to process for k-mer analysis
+	 * @param hs Reference k-mer HashSet for matching
+	 * @param count Position-specific match counter to update
+	 * @param readCount Total read counter at each position
+	 * @return Updated match count list
+	 */
 	private LongList processRead(Read r, HashSet<String> hs, LongList count, LongList readCount) {
 		for(int i=0, j=k; j<=r.length(); i++, j++) {
 			//String(byte[] bytes, int offset, int length)
@@ -225,29 +278,46 @@ public class KmerPosition {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for first read in paired-end data */
 	private String in1=null;
+	/** Input file path for second read in paired-end data */
 	private String in2=null;
+	/** Output file path for analysis results */
 	private String out1=null;
+	/** Reference sequence file path for k-mer extraction */
 	private String ref=null;
 	
+	/** File format handler for first input file */
 	private final FileFormat ffin1;
+	/** File format handler for second input file */
 	private final FileFormat ffin2;
+	/** File format handler for output file */
 	private final FileFormat ffout1;
+	/** File format handler for reference sequence file */
 	private final FileFormat ffref;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Error flag indicating processing problems */
 	private boolean errorState=false;
+	/** K-mer length for sequence analysis */
 	private int k=6;
+	/** Position-specific k-mer match counts for read1 */
 	private LongList counts1=new LongList();
+	/** Total read encounters at each position for read1 */
 	private LongList totalEncounter1=new LongList();
+	/** Position-specific k-mer match counts for read2 */
 	private LongList counts2=new LongList();
+	/** Total read encounters at each position for read2 */
 	private LongList totalEncounter2=new LongList();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
+	/** Flag controlling verbose output during processing */
 	public static boolean verbose=false;
 	
 }

@@ -5,16 +5,35 @@ import java.util.List;
 
 import shared.LineParserS1;
 
+/**
+ * Represents complete taxonomic lineage information with hierarchical structure.
+ * Manages taxonomic classification hierarchy from kingdom to species level,
+ * supporting both parsing from lineage strings and construction from taxonomy IDs.
+ * @author Brian Bushnell
+ */
 public class Lineage {
 	
+	/**
+	 * Constructs a Lineage by parsing a taxonomic lineage string.
+	 * @param line_ Semicolon-delimited lineage string in format like
+	 * "k__Bacteria;p__Actinomycetota;c__Actinomycetes;..."
+	 */
 	public Lineage(String line_) {
 		parse(line_);
 	}
 	
+	/** Constructs a Lineage from a taxonomy ID by traversing the taxonomic tree.
+	 * @param tid_ NCBI taxonomy ID to build lineage from */
 	public Lineage(int tid_) {
 		set(tid_);
 	}
 	
+	/**
+	 * Sets lineage information by traversing from the given taxonomy ID to root.
+	 * Clears existing lineage and populates nodes array with canonical ancestors
+	 * from the taxonomic tree.
+	 * @param tid_ NCBI taxonomy ID to set lineage from
+	 */
 	public void set(int tid_) {
 		clear();
 		tid=tid_;
@@ -31,6 +50,14 @@ public class Lineage {
 	
 	//sk__Bacteria;k__Bacillati;p__Actinomycetota;c__Actinomycetes;o__Micromonosporales;
 	//f__Micromonosporaceae;g__Salinispora;s__Salinispora arenicola
+	/**
+	 * Parses a semicolon-delimited taxonomic lineage string.
+	 * Expected format: "k__Bacteria;p__Actinomycetota;c__Actinomycetes;..."
+	 * where each field has format "level__name".
+	 *
+	 * @param line_ Semicolon-delimited lineage string to parse
+	 * @return The taxonomy ID of the most specific (lowest level) taxon found
+	 */
 	public int parse(String line_) {
 		clear();
 		line=line_;
@@ -60,15 +87,21 @@ public class Lineage {
 		return tid;
 	}
 	
+	/** Clears all lineage information, resetting to empty state.
+	 * Sets line to null, fills nodes array with nulls, and resets tid to -1. */
 	public void clear() {
 		line=null;
 		Arrays.fill(nodes, null);
 		tid=-1;
 	}
 	
+	/** Original lineage string that was parsed */
 	public String line;
+	/** Taxonomy ID of the most specific taxon in this lineage */
 	int tid=-1;
+	/** Taxonomic level of the most specific taxon in this lineage */
 	int level=-1;
+	/** Array of TaxNode objects indexed by taxonomic level, from root to species */
 	public final TaxNode[] nodes=new TaxNode[TaxTree.LIFE+1];
 	
 }

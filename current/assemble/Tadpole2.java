@@ -119,20 +119,39 @@ public class Tadpole2 extends Tadpole {
 	/*----------------        Recall Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Gets the count/depth for the specified k-mer */
 	public final int getCount(Kmer kmer){return tables.getCount(kmer);}
+	/** Attempts to claim ownership of a k-mer for the specified thread ID */
 	final boolean claim(Kmer kmer, int id){return tables.claim(kmer, id);}
+	/**
+	 * Attempts to claim ownership of all k-mers in the sequence for thread safety
+	 */
 	final boolean doubleClaim(ByteBuilder bb, int id/*, long rid*/, Kmer kmer){return tables.doubleClaim(bb, id/*, rid*/, kmer);}
+	/** Attempts to claim ownership of k-mers in sequence with early exit option */
 	final boolean claim(ByteBuilder bb, int id, /*long rid, */boolean earlyExit, Kmer kmer){return tables.claim(bb, id/*, rid*/, earlyExit, kmer);}
+	/**
+	 * Attempts to claim ownership of k-mers in byte array with early exit option
+	 */
 	final boolean claim(byte[] array, int len, int id, /*long rid, */boolean earlyExit, Kmer kmer){return tables.claim(array, len, id/*, rid*/, earlyExit, kmer);}
+	/** Returns the thread ID that owns the specified k-mer, or -1 if unowned */
 	final int findOwner(Kmer kmer){return tables.findOwner(kmer);}
+	/** Finds owner of k-mers in sequence using working k-mer for efficiency */
 	final int findOwner(ByteBuilder bb, int id, Kmer kmer){return tables.findOwner(bb, id, kmer);}
+	/** Finds owner of k-mers in byte array using working k-mer for efficiency */
 	final int findOwner(byte[] array, int len, int id, Kmer kmer){return tables.findOwner(array, len, id, kmer);}
+	/** Releases ownership of a k-mer from the specified thread ID */
 	final void release(Kmer kmer, int id){tables.release(kmer, id);}
+	/** Releases ownership of all k-mers in the sequence from thread */
 	final void release(ByteBuilder bb, int id, Kmer kmer){tables.release(bb, id, kmer);}
+	/** Releases ownership of all k-mers in byte array from thread */
 	final void release(byte[] array, int len, int id, Kmer kmer){tables.release(array, len, id, kmer);}
+	/** Fills array with counts for right-extension bases from the k-mer */
 	final int fillRightCounts(Kmer kmer, int[] counts){return tables.fillRightCounts(kmer, counts);}
+	/** Fills array with counts for left-extension bases from the k-mer */
 	final int fillLeftCounts(Kmer kmer, int[] counts){return tables.fillLeftCounts(kmer, counts);}
+	/** Converts k-mer to human-readable DNA sequence string */
 	final static StringBuilder toText(Kmer kmer){return AbstractKmerTableU.toText(kmer);}
+	/** Converts k-mer key array to human-readable DNA sequence string */
 	final static StringBuilder toText(long[] key, int k){return AbstractKmerTableU.toText(key, k);}
 	
 	/*--------------------------------------------------------------*/
@@ -153,6 +172,12 @@ public class Tadpole2 extends Tadpole {
 	 */
 	private class BuildThread extends AbstractBuildThread{
 		
+		/**
+		 * Constructs BuildThread with specified parameters.
+		 * @param id_ Thread identifier
+		 * @param mode_ Processing mode
+		 * @param crisa_ Array of input streams for read processing
+		 */
 		public BuildThread(int id_, int mode_, ConcurrentReadInputStream[] crisa_){
 			super(id_, mode_, crisa_);
 		}
@@ -191,6 +216,11 @@ public class Tadpole2 extends Tadpole {
 			}
 		}
 		
+		/**
+		 * Processes the next available k-mer table for contig building.
+		 * @param aint Atomic counter for table assignment
+		 * @return true if a table was processed, false if no more tables
+		 */
 		private boolean processNextTable(AtomicInteger aint){
 			final int tnum=aint.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
@@ -204,6 +234,11 @@ public class Tadpole2 extends Tadpole {
 			return true;
 		}
 		
+		/**
+		 * Processes overflow k-mers from forest data structure.
+		 * @param aint Atomic counter for forest assignment
+		 * @return true if a forest was processed, false if no more forests
+		 */
 		private boolean processNextVictims(AtomicInteger aint){
 			final int tnum=aint.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
@@ -218,6 +253,15 @@ public class Tadpole2 extends Tadpole {
 			return true;
 		}
 		
+		/**
+		 * Processes a single hash table cell for contig building.
+		 * Checks count threshold and ownership before attempting assembly.
+		 *
+		 * @param table Hash table containing the cell
+		 * @param cell Cell index to process
+		 * @param kmer Working k-mer object
+		 * @return Length of contig created, or 0 if none
+		 */
 		private int processCell(HashArrayU1D table, int cell, Kmer kmer){
 			int count=table.readCellValue(cell);
 			if(count<minCountSeedCurrent){
@@ -241,6 +285,11 @@ public class Tadpole2 extends Tadpole {
 			return processKmer(kmer);
 		}
 		
+		/**
+		 * Recursively traverses k-mer tree nodes for processing.
+		 * @param kn Root node of subtree to traverse
+		 * @return Total length of contigs created from this subtree
+		 */
 		private int traverseKmerNodeU(KmerNodeU kn){
 			int sum=0;
 			if(kn!=null){
@@ -255,6 +304,12 @@ public class Tadpole2 extends Tadpole {
 			return sum;
 		}
 		
+		/**
+		 * Processes a single k-mer node for contig building.
+		 * Checks count and ownership before attempting to build contig.
+		 * @param kn K-mer node to process
+		 * @return Length of contig created, or 0 if none
+		 */
 		private int processKmerNodeU(KmerNodeU kn){
 			final long[] key=kn.pivot();
 			final int count=kn.getValue(key);
@@ -274,6 +329,11 @@ public class Tadpole2 extends Tadpole {
 			return processKmer(myKmer);
 		}
 		
+		/**
+		 * Creates a contig from a seed k-mer with coverage filtering.
+		 * @param kmer Seed k-mer for contig building
+		 * @return Length of contig created, or 0 if filtered out
+		 */
 		private int processKmer(Kmer kmer){
 			Contig contig=makeContig(builderT, kmer, true);
 			if(contig!=null){
@@ -289,6 +349,8 @@ public class Tadpole2 extends Tadpole {
 			return 0;
 		}
 		
+		/** Processes reads from input stream for extension.
+		 * @param cris Concurrent read input stream */
 		private void run(ConcurrentReadInputStream cris){
 			
 			ListNum<Read> ln=cris.nextList();
@@ -314,6 +376,12 @@ public class Tadpole2 extends Tadpole {
 		}
 
 		//TODO: This appears to do read extension but is very confusing.
+		/**
+		 * Processes a read pair for extension or insert size estimation.
+		 * Handles insert mode, error correction, and contig creation from reads.
+		 * @param r1 First read of the pair
+		 * @param r2 Second read of the pair (may be null)
+		 */
 		private void processReadPair(Read r1, Read r2){
 			if(verbose){outstream.println("Considering read "+r1.id+" "+new String(r1.bases));}
 			
@@ -582,7 +650,9 @@ public class Tadpole2 extends Tadpole {
 		
 		/*--------------------------------------------------------------*/
 		
+		/** Thread-local k-mer object for assembly operations */
 		private final Kmer myKmer=new Kmer(kbig);
+		/** Second thread-local k-mer object for paired operations */
 		private final Kmer myKmer2=new Kmer(kbig);
 		
 	}
@@ -621,8 +691,18 @@ public class Tadpole2 extends Tadpole {
 		}
 	}
 
+	/**
+	 * Worker thread for processing contigs to find connecting edges.
+	 * Explores potential connections between contigs by following k-mer paths
+	 * and identifying junction points and branch structures.
+	 */
 	class ProcessContigThread extends AbstractProcessContigThread {
 
+		/**
+		 * Constructs ProcessContigThread with contig list and work counter.
+		 * @param contigs_ List of contigs to process
+		 * @param next_ Atomic counter for work distribution
+		 */
 		ProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_){
 			super(contigs_, next_);
 			kmerA=new Kmer(kbig);
@@ -707,6 +787,16 @@ public class Tadpole2 extends Tadpole {
 			}
 		}
 
+		/**
+		 * Explores rightward extension from k-mer until reaching owned k-mer or junction.
+		 * Builds path sequence and determines termination conditions and target contig.
+		 *
+		 * @param kmer Starting k-mer for exploration
+		 * @param leftCounts Buffer for left extension counts
+		 * @param rightCounts Buffer for right extension counts
+		 * @param bb ByteBuilder for path sequence
+		 * @return Owner ID of target contig, or -1 if no valid connection
+		 */
 		private int exploreRight(Kmer kmer, int[] leftCounts, int[] rightCounts, ByteBuilder bb){
 			final Kmer temp=kmerC;
 			int length=1;
@@ -789,6 +879,16 @@ public class Tadpole2 extends Tadpole {
 	/*--------------------------------------------------------------*/
 
 
+	/**
+	 * Estimates insert size between paired reads by measuring k-mer distance.
+	 *
+	 * @param r1 First read of pair
+	 * @param r2 Second read of pair
+	 * @param rightCounts Buffer for extension counts
+	 * @param kmer1 Working k-mer for first read
+	 * @param kmer2 Working k-mer for second read
+	 * @return Estimated insert size or -1 if measurement failed
+	 */
 	public int findInsertSize(Read r1, Read r2, int[] rightCounts, Kmer kmer1, Kmer kmer2){
 		kmer1=tables.rightmostKmer(r1.bases, r1.length(), kmer1);
 		kmer2=tables.rightmostKmer(r2.bases, r2.length(), kmer2);
@@ -1312,6 +1412,14 @@ public class Tadpole2 extends Tadpole {
 		return errorCorrect(r, leftCounts, rightCounts, counts, counts2, bb, bb2, tracker, bs, kmer, kmer2);
 	}
 	
+	/**
+	 * Quick error detection by sampling k-mers at regular intervals.
+	 * Looks for coverage drops indicating potential sequencing errors.
+	 *
+	 * @param bases Sequence to check
+	 * @param kmer Working k-mer object
+	 * @return true if errors are likely present
+	 */
 	boolean hasErrorsFast(byte[] bases, Kmer kmer){
 		if(bases.length<=kbig){return false;}
 		int prev=-99;
@@ -1716,6 +1824,9 @@ public class Tadpole2 extends Tadpole {
 	
 	@Override
 	public final KmerTableSetU tables(){return tables;}
+	/**
+	 * Unified k-mer table set for storing and accessing k-mer counts and ownership
+	 */
 	public final KmerTableSetU tables;
 	
 	/** Normal kmer length */

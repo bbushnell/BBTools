@@ -3,8 +3,22 @@ package driver;
 import dna.ChromosomeArray;
 import shared.Tools;
 
+/**
+ * Compares two chromosome arrays base-by-base and reports differences.
+ * Analyzes sequence variations including N-to-base changes, case differences,
+ * and length mismatches between two genomic sequences.
+ * @author Brian Bushnell
+ */
 public class CompareSequences {
 
+	/**
+	 * Program entry point that compares two chromosome arrays.
+	 * Takes two file paths as arguments, loads them as ChromosomeArrays,
+	 * performs base-by-base comparison, and reports statistics including
+	 * identical bases, differences, N-to-base conversions, and case changes.
+	 *
+	 * @param args Two file paths to chromosome array files to compare
+	 */
 	public static void main(String[] args){
 
 		ChromosomeArray cha1=ChromosomeArray.read(args[0]);

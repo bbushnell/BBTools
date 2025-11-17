@@ -330,10 +330,19 @@ class EnsembleRefiner extends AbstractRefiner {
      * Container for individual refiner results.
      */
     private static class RefinerResult {
+        /** Name identifying the refinement algorithm used */
         final String method;
+        /** List of contig index clusters from refinement */
         final ArrayList<IntHashSet> clusters;
+        /** Confidence score for this refinement result */
         final float confidence;
         
+        /**
+         * Creates a RefinerResult with method name, clusters, and confidence score.
+         * @param method Name identifying the refinement algorithm used
+         * @param clusters List of contig index clusters from refinement
+         * @param confidence Confidence score for this refinement result
+         */
         RefinerResult(String method, ArrayList<IntHashSet> clusters, float confidence) {
             this.method = method;
             this.clusters = clusters;
@@ -345,9 +354,16 @@ class EnsembleRefiner extends AbstractRefiner {
      * Container for consensus clustering result.
      */
     private static class ConsensusResult {
+        /** Final consensus clustering of contig indices */
         final ArrayList<IntHashSet> clusters;
+        /** Average confidence score across all cluster pairs */
         final float confidence;
         
+        /**
+         * Creates a ConsensusResult with final clusters and confidence score.
+         * @param clusters Final consensus clustering of contig indices
+         * @param confidence Average confidence score across all cluster pairs
+         */
         ConsensusResult(ArrayList<IntHashSet> clusters, float confidence) {
             this.clusters = clusters;
             this.confidence = confidence;
@@ -358,7 +374,9 @@ class EnsembleRefiner extends AbstractRefiner {
     private final Oracle oracle;
     /** Individual refiner instances */
     private final CrystalChamber crystalRefiner;
+    /** GraphRefiner instance for ensemble consensus */
     private final GraphRefiner graphRefiner;  
+    /** EvidenceRefiner instance for ensemble consensus */
     private final EvidenceRefiner evidenceRefiner;
     /** Consensus threshold for co-occurrence decisions */
     private final float consensusThreshold;

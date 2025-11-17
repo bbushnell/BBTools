@@ -12,6 +12,9 @@ import stream.Read;
  */
 public final class ReadComparatorClump extends ReadComparator {
 	
+	/**
+	 * Private constructor prevents external instantiation. Use static comparator instance.
+	 */
 	private ReadComparatorClump(){}
 	
 	@Override
@@ -22,6 +25,14 @@ public final class ReadComparatorClump extends ReadComparator {
 		return ascending*x;
 	}
 
+	/**
+	 * Internal comparison logic for individual reads.
+	 * Compares by numericID (k-mer signature), strand orientation, then start position.
+	 *
+	 * @param a First read (may be null)
+	 * @param b Second read (may be null)
+	 * @return Comparison result with null handling
+	 */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -116,13 +127,19 @@ public final class ReadComparatorClump extends ReadComparator {
 //		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 //	}
 	
+	/** Singleton instance for k-mer based read comparison */
 	public static final ReadComparatorClump comparator=new ReadComparatorClump();
 	
+	/** Sort direction multiplier: 1 for ascending, -1 for descending */
 	private int ascending=-1;
 	
+	/** K-mer length used for sequence hashing and comparison */
 	private static final int k=31;
+	/** Bit shift value for k-mer encoding (2 * k bits) */
 	private static final int shift=2*k;
+	/** Bit shift for reverse complement k-mer rolling (shift - 2) */
 	private static final int shift2=shift-2;
+	/** Bit mask for extracting k-mer values from rolling hash */
 	private static final long mask=(shift>63 ? -1L : ~((-1L)<<shift));;
 	
 }

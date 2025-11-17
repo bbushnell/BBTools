@@ -21,15 +21,40 @@ public abstract class KCountArray implements Serializable {
 	 */
 	private static final long serialVersionUID = 1590374813059942002L;
 
+	/**
+	 * Creates a new KCountArray with single hash function.
+	 * @param cells_ Number of storage cells
+	 * @param cbits_ Bits per cell (must be power of 2)
+	 * @return New KCountArray instance
+	 */
 	public static KCountArray makeNew(long cells_, int cbits_){
 		return makeNew(cells_, cbits_, 1);
 	}
 	
+	/**
+	 * Creates a new KCountArray with specified hash functions.
+	 *
+	 * @param cells_ Number of storage cells
+	 * @param cbits_ Bits per cell (must be power of 2)
+	 * @param hashes_ Number of hash functions to use
+	 * @return New KCountArray instance
+	 */
 	public static KCountArray makeNew(long cells_, int cbits_, int hashes_){
 		return makeNew(cells_, cbits_, hashes_, null, 0);
 	}
 	
 	//TODO: Get rid of keys_ arg.
+	/**
+	 * Creates a new KCountArray with prefilter support.
+	 * Uses KCountArray7MTA implementation with optional prefiltering for memory efficiency.
+	 *
+	 * @param cells_ Number of storage cells
+	 * @param cbits_ Bits per cell (must be power of 2)
+	 * @param hashes_ Number of hash functions to use
+	 * @param prefilter Optional prefilter array for reducing memory usage
+	 * @param prefilterLimit_ Minimum count threshold for prefilter
+	 * @return New initialized KCountArray instance
+	 */
 	public static KCountArray makeNew(long cells_, int cbits_, int hashes_, KCountArray prefilter, int prefilterLimit_){
 		KCountArray kca=new KCountArray7MTA(cells_, cbits_, hashes_, prefilter, prefilterLimit_);
 		kca.initialize();
@@ -95,14 +120,44 @@ public abstract class KCountArray implements Serializable {
 		}
 	}
 
+	/**
+	 * Reads the count value for a k-mer key.
+	 * @param key K-mer encoded as long integer
+	 * @return Count value stored for this k-mer
+	 */
 	public abstract int read(long key);
+	/**
+	 * Reads count for long k-mer represented as array.
+	 * Default implementation throws exception - override in subclasses supporting long k-mers.
+	 *
+	 * @param keys K-mer encoded as long array
+	 * @return Count value for this k-mer
+	 * @throws RuntimeException Always thrown in base implementation
+	 */
 	public int read(long keys[]){throw new RuntimeException("Unimplemented.");}
+	/**
+	 * Reads count for k-mer with optional canonical conversion.
+	 *
+	 * @param key K-mer encoded as long integer
+	 * @param k K-mer length in bases
+	 * @param makeCanonical Whether to convert to canonical form before lookup
+	 * @return Count value for this k-mer
+	 */
 	public final int read(long key, int k, boolean makeCanonical){return read(makeCanonical ? makeCanonical2(key, k) : key);}
 
+	/**
+	 * Sets the count value for a k-mer key.
+	 * @param key K-mer encoded as long integer
+	 * @param value Count value to store
+	 */
 	public abstract void write(long key, int value);
 
 	//TODO:  Consider adding a boolean for return old value.
+	/** Increments the count for a k-mer by 1.
+	 * @param key K-mer encoded as long integer */
 	public final void increment(long key){increment(key, 1);}
+	/** Decrements the count for a k-mer by 1.
+	 * @param key K-mer encoded as long integer */
 	public final void decrement(long key){decrement(key, 1);}
 
 	/** Returns nothing for simplicity. */
@@ -117,6 +172,15 @@ public abstract class KCountArray implements Serializable {
 //	}
 	
 	//For long kmers.
+	/**
+	 * Atomically increments count for long k-mer and returns previous value.
+	 * Default implementation throws exception - override in subclasses supporting long k-mers.
+	 *
+	 * @param keys K-mer encoded as long array
+	 * @param incr Amount to increment
+	 * @return Count value before increment
+	 * @throws RuntimeException Always thrown in base implementation
+	 */
 	public int incrementAndReturnUnincremented(long[] keys, int incr){
 		throw new RuntimeException("Unimplemented.");
 	}
@@ -126,6 +190,15 @@ public abstract class KCountArray implements Serializable {
 		throw new RuntimeException("This class "+getClass().getName()+" does not support decrement.");
 	}
 	
+	/**
+	 * Reads k-mer count with improved precision using adjacent k-mer information.
+	 * Averages counts of left and right adjacent k-mers to reduce hash collision effects.
+	 *
+	 * @param key K-mer encoded as long integer
+	 * @param k K-mer length in bases (must be ≤32)
+	 * @param makeCanonical Whether to convert to canonical form before lookup
+	 * @return More accurate count estimate using adjacent k-mers
+	 */
 	public final int readPrecise(long key, int k, boolean makeCanonical){
 		assert(k<=32);
 		int b=read(makeCanonical ? makeCanonical2(key, k) : key);
@@ -141,6 +214,15 @@ public abstract class KCountArray implements Serializable {
 //		return mid;
 	}
 	
+	/**
+	 * Reads k-mer count using minimum of center and adjacent k-mer counts.
+	 * Conservative estimate that returns the lowest count among adjacent k-mers.
+	 *
+	 * @param key K-mer encoded as long integer
+	 * @param k K-mer length in bases (must be ≤32)
+	 * @param makeCanonical Whether to convert to canonical form before lookup
+	 * @return Minimum count among this k-mer and its neighbors
+	 */
 	public final int readPreciseMin(long key, int k, boolean makeCanonical){
 		assert(k<=32);
 		int b=read(makeCanonical ? makeCanonical2(key, k) : key);
@@ -173,6 +255,12 @@ public abstract class KCountArray implements Serializable {
 	public int[] readAllRight(final long key, final int k, boolean makeCanonical, int[] rvec){throw new RuntimeException("Unsupported.");}
 
 	//Appears to never be used?  Should be a LongList now anyway
+	/**
+	 * Increments counts for multiple k-mers in synchronized block.
+	 * Deprecated - use LongList version instead for better performance.
+	 * @param keys Array of k-mer keys to increment
+	 * @deprecated Use increment(LongList) instead
+	 */
 	@Deprecated
 	public void increment(long[] keys){
 		synchronized(this){
@@ -183,6 +271,11 @@ public abstract class KCountArray implements Serializable {
 	}
 	
 	//TODO: Optionally, add flag to eliminate duplicates or bulk-add them here
+	/**
+	 * Increments counts for multiple k-mers from LongList.
+	 * Thread-safe bulk increment operation.
+	 * @param keys LongList containing k-mer keys to increment
+	 */
 	public void increment(LongList keys){
 		synchronized(this){
 			final long[] array=keys.array;
@@ -192,7 +285,18 @@ public abstract class KCountArray implements Serializable {
 		}
 	}
 	
+	/**
+	 * Generates frequency histogram of count values.
+	 * Returns array where index represents count value and value represents frequency.
+	 * @return Frequency distribution of counts across all cells
+	 */
 	public abstract long[] transformToFrequency();
+	/**
+	 * Generates frequency histogram from integer matrix storage.
+	 * Unpacks bit-packed cells and counts frequency of each value.
+	 * @param matrix Integer arrays containing bit-packed count data
+	 * @return Frequency distribution of counts (index=count, value=frequency)
+	 */
 	public final long[] transformToFrequency(int[][] matrix){
 		long[] freq=new long[100000];
 		int maxFreq=freq.length-1;
@@ -226,6 +330,12 @@ public abstract class KCountArray implements Serializable {
 		return freq;
 	}
 	
+	/**
+	 * Generates frequency histogram from AtomicIntegerArray storage.
+	 * Thread-safe version that unpacks bit-packed cells and counts frequencies.
+	 * @param matrix AtomicIntegerArrays containing bit-packed count data
+	 * @return Frequency distribution of counts (index=count, value=frequency)
+	 */
 	public final long[] transformToFrequency(AtomicIntegerArray[] matrix){
 		long[] freq=new long[100000];
 		int maxFreq=freq.length-1;
@@ -259,6 +369,11 @@ public abstract class KCountArray implements Serializable {
 		return freq;
 	}
 	
+	/**
+	 * Creates detailed description of array configuration and statistics.
+	 * Includes cell count, bit width, memory usage, and utilization metrics.
+	 * @return ByteBuilder containing formatted configuration details
+	 */
 	public final ByteBuilder description(){
 		ByteBuilder sb=new ByteBuilder();
 		long words=cells/cellsPerWord;
@@ -277,10 +392,17 @@ public abstract class KCountArray implements Serializable {
 		return sb;
 	}
 	
+	/** Creates compact summary of memory usage and utilization.
+	 * @return String with memory, cell count, and usage percentage */
 	public final String toShortString(){
 		return "mem = "+mem()+"   \tcells = "+toKMG(cells)+"   \tused = "+Tools.format("%.3f%%",usedFraction()*100);
 	}
 	
+	/**
+	 * Creates compact summary including hash function count.
+	 * @param hashes Number of hash functions used
+	 * @return String with hash count, memory, cells, and usage percentage
+	 */
 	public final String toShortString(int hashes){
 		return ("hashes = "+hashes+"   \t ")+
 				"mem = "+mem()+"   \tcells = "+toKMG(cells)+"   \tused = "+Tools.format("%.3f%%",usedFraction()*100);
@@ -291,14 +413,37 @@ public abstract class KCountArray implements Serializable {
 		return description().toString();
 	}
 	
+	/**
+	 * Returns string representation of array contents.
+	 * Implementation varies by subclass storage format.
+	 * @return String showing stored count values
+	 */
 	public abstract CharSequence toContentsString();
 	
+	/** Calculates fraction of cells with non-zero counts.
+	 * @return Proportion of occupied cells (0.0 to 1.0) */
 	public abstract double usedFraction();
 	
+	/**
+	 * Calculates fraction of cells with counts at or above threshold.
+	 * @param mindepth Minimum count threshold
+	 * @return Proportion of cells with count ≥ mindepth (0.0 to 1.0)
+	 */
 	public abstract double usedFraction(int mindepth);
 	
+	/**
+	 * Counts cells with counts at or above threshold.
+	 * @param mindepth Minimum count threshold
+	 * @return Number of cells with count ≥ mindepth
+	 */
 	public abstract long cellsUsed(int mindepth);
 	
+	/**
+	 * Estimates number of unique k-mers based on utilization and hash count.
+	 * Uses probabilistic formula accounting for hash collisions.
+	 * @param hashes Number of hash functions used
+	 * @return Estimated count of unique k-mers stored
+	 */
 	public final double estimateUniqueKmers(int hashes){
 		double f=usedFraction();
 		double f2=(1-Math.pow(1-f, 1.0/hashes));
@@ -306,6 +451,14 @@ public abstract class KCountArray implements Serializable {
 		return n;
 	}
 	
+	/**
+	 * Estimates unique k-mers with minimum depth threshold.
+	 * Uses probabilistic formula on cells meeting depth requirement.
+	 *
+	 * @param hashes Number of hash functions used
+	 * @param mindepth Minimum count threshold
+	 * @return Estimated count of unique k-mers with count ≥ mindepth
+	 */
 	public final double estimateUniqueKmers(int hashes, int mindepth){
 //		assert(false) : this.getClass().getName();
 		double f=usedFraction(mindepth);
@@ -314,6 +467,14 @@ public abstract class KCountArray implements Serializable {
 		return n;
 	}
 	
+	/**
+	 * Estimates unique k-mers from precomputed utilization fraction.
+	 * Avoids recalculating utilization for repeated estimations.
+	 *
+	 * @param hashes Number of hash functions used
+	 * @param usedFraction Fraction of cells with non-zero counts
+	 * @return Estimated count of unique k-mers
+	 */
 	public final double estimateUniqueKmersFromUsedFraction(int hashes, double usedFraction){
 		double f=usedFraction;
 		double f2=(1-Math.pow(1-f, 1.0/hashes));
@@ -321,6 +482,11 @@ public abstract class KCountArray implements Serializable {
 		return n;
 	}
 	
+	/**
+	 * Calculates and formats memory usage with appropriate units.
+	 * Returns KB, MB, or GB based on size.
+	 * @return Formatted memory usage string with units
+	 */
 	public final String mem(){
 		long mem=(cells*cellBits)/8;
 		if(mem<(1<<20)){
@@ -332,6 +498,12 @@ public abstract class KCountArray implements Serializable {
 		}
 	}
 	
+	/**
+	 * Formats large numbers with K/M/B suffixes.
+	 * Uses 1000-based units for readability.
+	 * @param x Number to format
+	 * @return Formatted string with appropriate suffix
+	 */
 	public static String toKMG(long x){
 		double div=1;
 		String ext="";
@@ -369,8 +541,16 @@ public abstract class KCountArray implements Serializable {
 		return matrix;
 	}
 	
+	/** Worker thread for parallel AtomicIntegerArray allocation.
+	 * Reduces memory allocation time by distributing work across threads. */
 	private static class AllocThread extends Thread{
 		
+		/**
+		 * Creates allocation thread with shared work parameters.
+		 * @param matrix_ Shared matrix to populate
+		 * @param next_ Atomic counter for work distribution
+		 * @param wordsPerArray_ Size of each array to allocate
+		 */
 		AllocThread(AtomicIntegerArray[] matrix_, AtomicInteger next_, int wordsPerArray_){
 			matrix=matrix_;
 			next=next_;
@@ -386,19 +566,54 @@ public abstract class KCountArray implements Serializable {
 			}
 		}
 		
+		/** Shared matrix being populated by allocation threads */
 		private final AtomicIntegerArray[] matrix;
+		/** Atomic counter for distributing work among threads */
 		private final AtomicInteger next;
+		/** Size of each AtomicIntegerArray to allocate */
 		private final int wordsPerArray;
 		
 	}
 	
 	
 //	long hash(long x, int y){throw new RuntimeException("Not supported.");}
+	/**
+	 * Computes hash value for k-mer key with hash function index.
+	 * Different subclasses implement different hash strategies.
+	 *
+	 * @param x K-mer encoded as long integer
+	 * @param y Hash function index
+	 * @return Hash value for array indexing
+	 */
 	abstract long hash(long x, int y);
 	
+	/**
+	 * Returns minimum of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return Smaller of x and y
+	 */
 	public static final int min(int x, int y){return x<y ? x : y;}
+	/**
+	 * Returns maximum of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return Larger of x and y
+	 */
 	public static final int max(int x, int y){return x>y ? x : y;}
+	/**
+	 * Returns minimum of two longs.
+	 * @param x First long
+	 * @param y Second long
+	 * @return Smaller of x and y
+	 */
 	public static final long min(long x, long y){return x<y ? x : y;}
+	/**
+	 * Returns maximum of two longs.
+	 * @param x First long
+	 * @param y Second long
+	 * @return Larger of x and y
+	 */
 	public static final long max(long x, long y){return x>y ? x : y;}
 	
 	/** Any necessary initialization. */
@@ -407,29 +622,51 @@ public abstract class KCountArray implements Serializable {
 	/** Any necessary shutdown steps. */
 	public void shutdown(){}
 	
+	/** Total number of storage cells in the array */
 	public final long cells;
+	/** Number of bits used per storage cell */
 	public final int cellBits;
 	/** Originally this was different than valueMask in the case that valueMask was negative, but now they are the same. */
 	public final int maxValue;
 	
+	/** Number of cells that fit in one 32-bit integer word */
 	protected final int cellsPerWord;
+	/** Bit shift amount for converting cell index to word index */
 	protected final int indexShift;
+	/** Bit mask for extracting cell position within a word */
 	protected final int cellMask;
+	/** Bit mask for extracting cell value from packed word */
 	protected final int valueMask;
 	
+	/** Minimum number of parallel arrays based on thread count */
 	protected static int minArrays=calcMinArrays();
+	/** Number of bits needed to index into array selection */
 	protected final int arrayBits;
+	/** Total number of parallel arrays used for storage */
 	protected final int numArrays;
+	/** Bit mask for selecting which parallel array to use */
 	protected final int arrayMask;
 	
+	/** Whether to print configuration details during construction */
 	public static boolean verbose=false;
 	
+	/**
+	 * Calculates minimum array count based on available threads.
+	 * Ensures result is power of 2 and at least 2.
+	 * @return Minimum number of arrays (power of 2, ≥2)
+	 */
 	private static final int calcMinArrays(){
 		int x=Tools.max(Shared.threads(), 2);
 		while(Integer.bitCount(x)!=1){x++;}
 		return x;
 	}
 	
+	/**
+	 * Tests if k-mer is in canonical form (lexicographically greater than reverse complement).
+	 * @param key K-mer encoded as long integer
+	 * @param k K-mer length in bases (4 < k ≤ 32)
+	 * @return true if k-mer is canonical, false otherwise
+	 */
 	public static final boolean isCanonical(long key, int k){
 		assert(k>3 && k<=32);
 		long b=AminoAcid.reverseComplementBinaryFast(key, k);
@@ -457,16 +694,28 @@ public abstract class KCountArray implements Serializable {
 		return r;
 	}
 	
+	/**
+	 * Returns associated prefilter array if supported.
+	 * Default implementation throws exception - override in subclasses.
+	 * @return Prefilter KCountArray instance
+	 * @throws RuntimeException If not supported by subclass
+	 */
 	public KCountArray prefilter(){
 		throw new RuntimeException("TODO: Override");
 	}
 	
+	/**
+	 * Clears or removes prefilter to free memory.
+	 * Default implementation throws exception - override in subclasses.
+	 * @throws RuntimeException If not supported by subclass
+	 */
 	public void purgeFilter(){
 		throw new RuntimeException("TODO: Override");
 	}
 	
 	/** Increases accuracy of overloaded multi-bit tables */
 	public static boolean LOCKED_INCREMENT=false;
+	/** Flag indicating if LOCKED_INCREMENT has been explicitly configured */
 	public static boolean SET_LOCKED_INCREMENT=false;
 	
 }

@@ -20,11 +20,22 @@ public final class HashArray1D extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a HashArray1D with scheduled resizing and core masking.
+	 * @param schedule_ Array of sizes for automatic resizing stages
+	 * @param coreMask_ Bit mask for restricting k-mer storage to specific cores
+	 */
 	public HashArray1D(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, false);
 		values=allocInt1D(prime+extra);
 	}
 	
+	/**
+	 * Creates a HashArray1D with fixed initial size and optional auto-resizing.
+	 * @param initialSize Initial capacity of the hash table
+	 * @param coreMask Bit mask for restricting k-mer storage to specific cores
+	 * @param autoResize_ Whether to automatically resize when load factor exceeds threshold
+	 */
 	public HashArray1D(int initialSize, long coreMask, boolean autoResize_){
 		super(initialSize, coreMask, autoResize_, false);
 		values=allocInt1D(prime+extra);
@@ -326,6 +337,8 @@ public final class HashArray1D extends HashArray {
 		return Arrays.toString(array);
 	}
 	
+	/** Creates an iterator for traversing all k-mers and their counts.
+	 * @return Walker1D instance for iterating over entries */
 	public Walker walk(){
 		return new Walker1D();
 	}
@@ -334,16 +347,23 @@ public final class HashArray1D extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing count values parallel to the k-mer array */
 	private int[] values;
 	
+	/** Provides access to the internal count values array.
+	 * @return The array containing all count values */
 	public int[] values(){return values;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Walker            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Iterator for traversing k-mers and counts in a HashArray1D.
+	 * Walks through both the main array and victim cache entries. */
 	public class Walker1D extends Walker {
 		
+		/** Creates a walker for the enclosing HashArray1D.
+		 * Initializes victim list for iteration. */
 		Walker1D(){
 			ha=HashArray1D.this;
 			victims=ha.victims().toList();
@@ -375,7 +395,9 @@ public final class HashArray1D extends HashArray {
 			return false;
 		}
 		
+		/** Gets the current k-mer from iteration */
 		public long kmer(){return kmer;}
+		/** Gets the current count value from iteration */
 		public int value(){return value;}
 		
 		/** Hash map over which this is walking */
@@ -383,7 +405,9 @@ public final class HashArray1D extends HashArray {
 		/** Victim list of the hash map */
 		private ArrayList<KmerNode> victims;
 		
+		/** Current k-mer during iteration */
 		private long kmer;
+		/** Current count value during iteration */
 		private int value;
 
 		/** Potential next kmer cell; may point to an empty cell */
@@ -393,8 +417,14 @@ public final class HashArray1D extends HashArray {
 	}
 	
 	//TODO: Remove after fixing array initialization
+	/** Sentinel value indicating empty cells in arrays */
 	private static final int NOT_XPRESENT=0;
 
+	/**
+	 * Calculates approximate memory usage of this hash table.
+	 * Includes k-mer array, values array, owners array, and victim cache.
+	 * @return Estimated memory usage in bytes
+	 */
 	public long calcMem() {
 		long mem=0;
 		mem+=(array.length*8);

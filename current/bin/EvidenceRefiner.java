@@ -382,6 +382,11 @@ class EvidenceRefiner extends AbstractRefiner {
         final ArrayList<IntHashSet> clusters;
         final IntHashSet noise;
         
+        /**
+         * Creates a DBSCANResult with identified clusters and noise points.
+         * @param clusters List of identified clusters
+         * @param noise Set of points classified as noise
+         */
         DBSCANResult(ArrayList<IntHashSet> clusters, IntHashSet noise) {
             this.clusters = clusters;
             this.noise = noise;

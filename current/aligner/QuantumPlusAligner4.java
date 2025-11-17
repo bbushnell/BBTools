@@ -35,6 +35,7 @@ public class QuantumPlusAligner4 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public QuantumPlusAligner4() {}
 
 	/*--------------------------------------------------------------*/
@@ -265,6 +266,20 @@ public class QuantumPlusAligner4 implements IDAligner{
 	
 	// Process the first topWidth rows using a dense approach
 //	@ForceInline // Apparently requires Java 9
+	/**
+	 * Processes the first topWidth rows using dense matrix approach.
+	 * Encodes sequences as longs for SIMD optimization and processes all columns
+	 * in top rows. Uses separate tail loop for handling deletions.
+	 *
+	 * @param query0 Query sequence in byte format
+	 * @param ref0 Reference sequence in byte format
+	 * @param prev Previous row scores array
+	 * @param curr Current row scores array
+	 * @param viz Optional visualizer for debugging (may be null)
+	 * @param topWidth Number of rows to process densely
+	 * @param rLen Reference sequence length
+	 * @return Array containing updated {curr, prev} score arrays
+	 */
 	private static final long[][] alignDense(byte[] query0, byte[] ref0, long[] prev, 
 			long[] curr, Visualizer viz, int topWidth, int rLen) {
 		
@@ -413,9 +428,14 @@ public class QuantumPlusAligner4 implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment matrix loops performed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the total number of alignment loops performed across all threads */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -423,30 +443,49 @@ public class QuantumPlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position encoding in score field */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion count encoding in score field */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score portion of encoded long value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from encoded score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from encoded score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw score from encoded long value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for sequence matches */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for alignments involving ambiguous bases (N) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value indicating invalid or uncomputed alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty and position increment for matrix traversal */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Whether to extend matching positions for finding deletions */
 	private static final boolean EXTEND_MATCH=true;
+	/** Whether to use loop-based or optimized loop-free position addition */
 	private static final boolean LOOP_VERSION=false;
+	/** Whether to build bridges to catch up with long deletions */
 	private static final boolean BUILD_BRIDGES=true;
+	/** Whether to use dense matrix computation for top alignment band */
 	private static final boolean DENSE_TOP=true;
+	/** Whether to print detailed alignment operation statistics for debugging */
 	private static final boolean PRINT_OPS=false;
+	/** Whether to perform global alignment (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

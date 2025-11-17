@@ -30,6 +30,11 @@ import tracker.ReadStats;
  */
 public class A_Sample_Unpaired {
 	
+	/**
+	 * Program entry point that sets up processing pipeline.
+	 * Creates timer, instantiates processor, executes main logic, and closes streams.
+	 * @param args Command-line arguments for configuration
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -44,6 +49,14 @@ public class A_Sample_Unpaired {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses arguments and initializes processing parameters.
+	 * Handles input/output file configuration, format detection, and validation.
+	 * Sets up shared system resources and validates file access permissions.
+	 *
+	 * @param args Command-line arguments containing file paths and options
+	 * @throws RuntimeException if required input files are missing or output files cannot be created
+	 */
 	public A_Sample_Unpaired(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -127,6 +140,14 @@ public class A_Sample_Unpaired {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Main processing loop that reads, processes, and writes sequence data.
+	 * Creates input/output streams, iterates through read lists, applies processing
+	 * logic via process(Read), and outputs statistics upon completion.
+	 *
+	 * @param t Timer for tracking execution duration
+	 * @throws RuntimeException if streams encounter errors or processing fails
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -209,6 +230,14 @@ public class A_Sample_Unpaired {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Placeholder method for custom read processing logic.
+	 * This template method should be overridden by subclasses to implement
+	 * specific read filtering, modification, or analysis functionality.
+	 *
+	 * @param r The read to process
+	 * @return true to retain the read in output, false to discard
+	 */
 	private boolean process(Read r){
 		assert(false);
 		return true;
@@ -216,34 +245,48 @@ public class A_Sample_Unpaired {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path for sequence reads */
 	private String in1=null;
 	
+	/** Quality file path for input sequences (if separate from main file) */
 	private String qfin1=null;
 
+	/** Primary output file path for processed reads */
 	private String out1=null;
 
+	/** Quality file path for output sequences (if separate from main file) */
 	private String qfout1=null;
 	
+	/** File extension override for input format detection */
 	private String extin=null;
+	/** File extension override for output format specification */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process; -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format descriptor for primary input stream */
 	private final FileFormat ffin1;
 
+	/** Output file format descriptor for primary output stream */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Print stream for status messages and error output */
 	private PrintStream outstream=System.err;
+	/** Global flag controlling detailed logging output across BBTools components */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

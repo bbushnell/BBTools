@@ -17,6 +17,12 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a distributed read output stream wrapper.
+	 * Master nodes wrap an existing output stream, slave nodes have null destination.
+	 * @param cros_ The underlying output stream for master nodes, null for slaves
+	 * @param master_ true if this is the master node that will write to files
+	 */
 	public ConcurrentReadOutputStreamD(ConcurrentReadOutputStream cros_, boolean master_){
 		super(cros_==null ? null : cros_.ff1, cros_==null ? null : cros_.ff2);
 		dest=cros_;
@@ -41,6 +47,8 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 		}
 	}
 	
+	/** Launches listener threads on master node to receive data from each slave rank.
+	 * Creates one ListenThread per slave rank to handle incoming read data. */
 	private void startThreads(){
 		assert(master);
 		for(int i=0; i<ranks; i++){
@@ -142,10 +150,26 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sends read list to specific rank via unicast MPI communication.
+	 * Convenience wrapper that creates ListNum object.
+	 *
+	 * @param list Read data to send
+	 * @param listnum List identifier
+	 * @param i Target rank number
+	 */
 	private void unicast(ArrayList<Read> list, long listnum, int i) {
 		unicast(new ListNum<Read>(list, listnum), i);
 	}
 	
+	/**
+	 * Sends packaged read data to specified rank using MPI unicast.
+	 * Currently incomplete with TODO placeholder for MPI implementation.
+	 *
+	 * @param ln Packaged read list with identifier
+	 * @param i Target rank to send data to
+	 * @throws RuntimeException Always thrown due to incomplete implementation
+	 */
 	protected void unicast(ListNum<Read> ln, int i) {
 		if(verbose){System.err.println("crosD "+(master?"master":"slave ")+":    Unicasting reads to "+i+".");}
 		assert(!master);
@@ -163,6 +187,15 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 		throw new RuntimeException("TODO");
 	}
 	
+	/**
+	 * Listens for incoming read data from specified rank using MPI.
+	 * Master nodes use this to receive data from slave ranks.
+	 * Currently incomplete with TODO placeholder for MPI implementation.
+	 *
+	 * @param i Source rank to listen for data from
+	 * @return Received read data package
+	 * @throws RuntimeException Always thrown due to incomplete implementation
+	 */
 	protected ListNum<Read> listen(int i){
 		if(verbose){System.err.println("crosD "+(master?"master":"slave ")+":    Listening for reads from "+i+".");}
 		assert(master);
@@ -261,8 +294,15 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread that listens for read data from a specific slave rank.
+	 * Master node creates one thread per slave to handle incoming data streams.
+	 * Processes received reads until termination signal, then notifies completion.
+	 */
 	private class ListenThread extends Thread{
 		
+		/** Creates listener thread for specified source rank.
+		 * @param sourceNum_ The rank number to listen for data from */
 		ListenThread(int sourceNum_){
 			sourceNum=sourceNum_;
 			assert(sourceNum_!=rank);
@@ -285,6 +325,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 			}
 		}
 		
+		/** The rank number this thread listens to for incoming data */
 		final int sourceNum;
 		
 	}
@@ -302,12 +343,17 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Thread-safe counter tracking number of slave nodes that have terminated */
 	protected final AtomicInteger terminatedCount=new AtomicInteger(0);
+	/** Self-reference for inner class access */
 	protected final ConcurrentReadOutputStreamD thisPointer=this;
 	
 	/** Wrapped destination of reads.  Null for slaves. */
 	protected ConcurrentReadOutputStream dest;
+	/** True if this node is the master that writes to files */
 	protected final boolean master;
+	/** Total number of MPI ranks in the computation */
+	/** This node's MPI rank identifier */
 	protected final int rank, ranks;
 	
 }

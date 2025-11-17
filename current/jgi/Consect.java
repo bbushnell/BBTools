@@ -284,6 +284,12 @@ public class Consect {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes arrays of reads to generate consensus for each position.
+	 * Groups reads by position and calls consensus method for each row.
+	 * @param array Arrays of reads from different input sources
+	 * @return The first array containing consensus reads
+	 */
 	private ArrayList<Read> consensus(ArrayList<Read>[] array){
 		Read[] row=new Read[array.length];
 		for(int i=0, max=array[0].size(); i<max; i++){
@@ -384,6 +390,7 @@ public class Consect {
 	/** Output file path */
 	private String out=null;
 	
+	/** Quality file output path */
 	private String qfout=null;
 	
 	/** Override input file extension */
@@ -391,6 +398,7 @@ public class Consect {
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** Whether to update quality scores in consensus sequences */
 	private boolean changeQuality=false;
 	
 	/*--------------------------------------------------------------*/
@@ -403,14 +411,26 @@ public class Consect {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Number of reads where all disagreements were resolved by consensus */
 	private long readsFullyCorrected=0;
+	/** Number of reads with some corrections but remaining disagreements */
 	private long readsPartlyCorrected=0;
+	/** Number of reads with disagreements but no consensus corrections */
 	private long readsNotCorrected=0;
+	/** Number of reads with no corrections or disagreements needed */
 	private long readsErrorFree=0;
+	/**
+	 * Number of reads containing positions where error-corrected versions disagree
+	 */
 	private long readsWithDisagreements=0;
+	/** Number of reads that received at least one consensus correction */
 	private long readsWithCorrections=0;
 	
+	/**
+	 * Total number of base positions with disagreements between error-corrected versions
+	 */
 	private long disagreements=0;
+	/** Total number of base corrections made through consensus */
 	private long corrections=0;
 	
 	/*--------------------------------------------------------------*/

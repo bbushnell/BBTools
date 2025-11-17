@@ -5,9 +5,21 @@ import dna.Gene;
 import fileIO.ChainLine;
 import shared.Shared;
 
+/**
+ * Genome coordinate translation utility for converting between different genome builds.
+ * Supports translation between genome builds 36 and 37, handling chromosome and strand mapping
+ * using ChainLine mapping for precise coordinate conversion.
+ * @author Brian Bushnell
+ */
 public class Translator2 {
 	
 	
+	/**
+	 * Program entry point for coordinate translation.
+	 * Translates genomic coordinates from command-line arguments between genome builds.
+	 * Expected arguments: fromBuild toBuild chromosome location1 location2 ...
+	 * @param args Command-line arguments: [fromBuild] [toBuild] [chromosome] [location...]
+	 */
 	public static void main(String[] args){
 		
 		int from=Gene.toBuild(args[0]);

@@ -297,6 +297,11 @@ public class KmerCountMulti {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes basic k-mer count output without statistical analysis.
+	 * Outputs k-mer length and average count across all hash functions.
+	 * This is a simplified version of writeOutput() method.
+	 */
 	private void writeOutput0(){
 		TextStreamWriter tsw=new TextStreamWriter(ffout);
 		tsw.start();
@@ -314,6 +319,11 @@ public class KmerCountMulti {
 		errorState|=tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Writes comprehensive k-mer count results with optional statistical analysis.
+	 * Calculates averages, weighted averages, and standard deviations across hash functions.
+	 * Formats output with alignment and includes statistical measures when enabled.
+	 */
 	private void writeOutput(){
 		TextStreamWriter tsw=new TextStreamWriter(ffout);
 		tsw.start();
@@ -462,7 +472,9 @@ public class KmerCountMulti {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file path for first input file */
 	private String qfin1=null;
+	/** Quality file path for second input file */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -484,7 +496,9 @@ public class KmerCountMulti {
 	/** Number of hash functions to use */
 	int ways=1;
 	
+	/** Whether to display standard deviation in output */
 	boolean showStdev=false;
+	/** Whether to use weighted average instead of simple average */
 	boolean useWavg=false;
 	
 	/*--------------------------------------------------------------*/
@@ -499,6 +513,7 @@ public class KmerCountMulti {
 	/** Primary output file */
 	private final FileFormat ffout;
 	
+	/** Array of MultiLogLog cardinality estimators for k-mer counting */
 	private final MultiLogLog[] mlogArray;
 	
 	/*--------------------------------------------------------------*/

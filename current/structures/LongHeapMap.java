@@ -8,6 +8,11 @@ package structures;
  */
 public class LongHeapMap implements LongHeapSetInterface {
 	
+	/**
+	 * Constructs a LongHeapMap with the specified capacity limit.
+	 * Initializes internal heap and hash map structures.
+	 * @param limit_ Maximum number of unique values to maintain
+	 */
 	public LongHeapMap(int limit_){
 		limit=limit_;
 		heap=new LongHeap(limit, true);
@@ -58,6 +63,11 @@ public class LongHeapMap implements LongHeapSetInterface {
 		assert(heap.size()==map.size());
 	}
 	
+	/**
+	 * Merges another LongHeapMap into this one by incrementing counts for all its keys.
+	 * Processes all key-value pairs from the source map, respecting capacity limits.
+	 * @param b The LongHeapMap to merge into this one
+	 */
 	public void add(LongHeapMap b){
 		assert(heap.size()==map.size());
 		final long[] keys=b.map.keys();
@@ -93,8 +103,11 @@ public class LongHeapMap implements LongHeapSetInterface {
 	@Override
 	public long peek(){return heap.peek();}
 	
+	/** Maximum number of unique values that can be stored */
 	final int limit;
+	/** Internal min-heap for maintaining smallest-to-largest ordering */
 	public LongHeap heap;
+	/** Hash map storing key-to-count associations */
 	public LongHashMap map;
 	
 }

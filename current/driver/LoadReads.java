@@ -363,6 +363,8 @@ public class LoadReads {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Calculates and updates memory usage statistics.
+	 * Tracks minimum, maximum, initial, and final memory usage values. */
 	private void calcMem(){
 		final long used=Shared.memUsed();
 		minMem=Tools.min(used, minMem);
@@ -384,12 +386,15 @@ public class LoadReads {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality file path */
 	private String qfin1=null;
+	/** Secondary quality file path */
 	private String qfin2=null;
 	
 	/** Override input file extension */
 	private String extin=null;
 	
+	/** Storage for accumulated read lists to measure memory usage */
 	private ArrayList<ArrayList<Read>> storage=new ArrayList<ArrayList<Read>>();
 	
 	/*--------------------------------------------------------------*/
@@ -413,15 +418,21 @@ public class LoadReads {
 	/** Maximal observed memory usage */
 	protected long maxMem=0;
 	
+	/** Initial memory usage measurement */
 	protected long initialMem=-1;
+	/** Final memory usage measurement */
 	protected long finalMem=-1;
 	
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Memory overhead estimation parameter */
 	private int overhead=0;
+	/** Whether to exit early during memory estimation */
 	private boolean earlyExit=false;
+	/** Whether to perform garbage collection and report memory after GC */
 	private boolean gc=false;
+	/** Whether to consider low complexity sequences in memory estimation */
 	private boolean lowComplexity=false;
 	
 	/*--------------------------------------------------------------*/

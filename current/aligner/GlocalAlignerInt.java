@@ -26,6 +26,7 @@ public class GlocalAlignerInt implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public GlocalAlignerInt() {}
 	
 	/*--------------------------------------------------------------*/
@@ -180,9 +181,14 @@ public class GlocalAlignerInt implements IDAligner{
 		return id;
 	}
 	
+	/** Thread-safe counter for tracking alignment loop iterations */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the loop counter for performance monitoring */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter for performance monitoring.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Output string for debugging or result storage */
 	public static String output=null;
 	
 	/*--------------------------------------------------------------*/
@@ -190,21 +196,33 @@ public class GlocalAlignerInt implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Position will use the lower 15 bits (sufficient for 32kbp)
+	/** Number of bits reserved for position storage in packed integers */
 	private static final int POSITION_BITS=15;
+	/** Bit mask for extracting position from packed score/position integers */
 	private static final int POSITION_MASK=(1 << POSITION_BITS)-1;
+	/** Bit mask for extracting score from packed score/position integers */
 	private static final int SCORE_MASK=~POSITION_MASK;
+	/** Number of bits to shift for score extraction from packed integers */
 	private static final int SCORE_SHIFT=POSITION_BITS;
 
 	// Equal weighting for operations
+	/** Score value for matching bases in alignment matrix */
 	private static final int MATCH=1 << SCORE_SHIFT;
+	/** Penalty score for mismatched bases in alignment matrix */
 	private static final int MISMATCH=(-1)*(1 << SCORE_SHIFT);
+	/** Penalty score for insertions in alignment matrix */
 	private static final int INS=(-1)*(1 << SCORE_SHIFT);
+	/** Penalty score for deletions in alignment matrix */
 	private static final int DEL=(-1)*(1 << SCORE_SHIFT);
+	/** Neutral score for alignments involving ambiguous bases (N) */
 	private static final int N_SCORE=0;
+	/** Very negative score indicating invalid or impossible alignment states */
 	private static final int BAD=Integer.MIN_VALUE/2;
 
 	// Run modes
+	/** Debug flag for printing alignment operations */
 	private static final boolean PRINT_OPS=false;
+	/** Flag indicating whether this is a global alignment algorithm */
 	public static final boolean GLOBAL=false;
 
 

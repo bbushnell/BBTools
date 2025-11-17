@@ -22,6 +22,11 @@ import tracker.ReadStats;
  */
 public class UnicodeToAscii {
 	
+	/**
+	 * Program entry point for Unicode to ASCII conversion.
+	 * Creates UnicodeToAscii instance and executes the conversion process.
+	 * @param args Command-line arguments including input/output file paths
+	 */
 	public static void main(String[] args){
 
 		
@@ -33,6 +38,14 @@ public class UnicodeToAscii {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs UnicodeToAscii with command-line argument parsing and validation.
+	 * Processes input/output file specifications, handles paired file notation with '#',
+	 * and validates file accessibility. Sets up compression threading and output stream.
+	 *
+	 * @param args Command-line arguments containing file paths and options
+	 * @throws RuntimeException if input file not specified or output files cannot be written
+	 */
 	public UnicodeToAscii(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -102,6 +115,11 @@ public class UnicodeToAscii {
 		}
 	}
 	
+	/**
+	 * Main processing coordinator that converts specified input files.
+	 * Processes in1/out1 and in2/out2 file pairs if both input and output are specified.
+	 * @param t Timer for tracking processing duration
+	 */
 	private void process(Timer t){
 
 		if(in1!=null && out1!=null){process(in1, out1);}
@@ -109,6 +127,14 @@ public class UnicodeToAscii {
 		
 	}
 		
+	/**
+	 * Converts a single text file from Unicode to ASCII encoding.
+	 * Attempts UTF-8 encoding first, falls back to UTF-16 if that fails.
+	 * Applies header cleanup to each processed line before writing output.
+	 *
+	 * @param infile Path to input Unicode text file
+	 * @param outfile Path to output ASCII text file
+	 */
 	private void process(String infile, String outfile){
 		TextFile tf=new TextFile(infile, true);
 		TextStreamWriter tsw=new TextStreamWriter(outfile, overwrite, append, true);
@@ -129,13 +155,17 @@ public class UnicodeToAscii {
 		tsw.poisonAndWait();
 	}
 	
+	/** Output stream for status messages and errors */
 	private PrintStream outstream=System.err;
 
 	private String in1, in2;
 	private String out1, out2;
+	/** Enable verbose output (currently unused in implementation) */
 	@SuppressWarnings("unused")
 	private boolean verbose=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

@@ -15,6 +15,14 @@ import shared.Tools;
  */
 public abstract class AbstractIntHashMap{
 	
+	/**
+	 * Comprehensive test method that validates hash map implementation correctness.
+	 * Tests basic operations (put, get, remove, contains), increment operations,
+	 * size tracking, and performance benchmarks against standard HashMap.
+	 * Includes both sequential and random data testing patterns.
+	 *
+	 * @param set The hash map implementation to test
+	 */
 	public static final void test(AbstractIntHashMap set){
 		Random randy2=Shared.threadLocalRandom();
 		HashMap<Integer, Integer> set2=new HashMap<Integer, Integer>(20, 0.7f);
@@ -172,16 +180,33 @@ public abstract class AbstractIntHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all key-value pairs from this map. */
 	public abstract void clear();
 	
+	/**
+	 * Tests whether the specified key is present in this map.
+	 * @param key The key to search for
+	 * @return true if the key exists, false otherwise
+	 */
 	public final boolean contains(int key){
 		return findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests whether the specified key is present in this map.
+	 * Functionally identical to contains().
+	 * @param key The key to search for
+	 * @return true if the key exists, false otherwise
+	 */
 	public final boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
 	
+	/**
+	 * Returns the value associated with the specified key.
+	 * @param key The key to look up
+	 * @return The value associated with the key, or implementation-defined default if not found
+	 */
 	public abstract int get(int key);
 	
 	/**
@@ -215,6 +240,11 @@ public abstract class AbstractIntHashMap{
 	 */
 	public abstract int increment(int key, int incr);
 
+	/**
+	 * Increments all keys in this map by their corresponding values from another map.
+	 * Only processes valid (non-invalid) key-value pairs from the source map.
+	 * @param map The source map containing increment values
+	 */
 	public final void incrementAll(AbstractIntHashMap map) {
 		final int[] keys=map.keys();
 		final int[] values=map.values();
@@ -234,8 +264,17 @@ public abstract class AbstractIntHashMap{
 	 */
 	public abstract boolean remove(int key);
 	
+	/**
+	 * Returns the number of key-value pairs in this map.
+	 * Alias for size().
+	 * @return The number of mappings
+	 */
 	public final int cardinality(){return size();}
+	/** Returns the number of key-value pairs in this map.
+	 * @return The number of mappings */
 	public abstract int size();
+	/** Returns true if this map contains no key-value pairs.
+	 * @return true if empty, false otherwise */
 	public abstract boolean isEmpty();
 	
 	/*--------------------------------------------------------------*/
@@ -247,6 +286,11 @@ public abstract class AbstractIntHashMap{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns a detailed string representation showing internal structure.
+	 * Includes array indices along with key-value pairs as (index, key, value) tuples.
+	 * @return Detailed string representation with indices
+	 */
 	public final String toStringSetView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -263,6 +307,11 @@ public abstract class AbstractIntHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a string representation of this map in list format.
+	 * Shows only key-value pairs as (key,value) tuples without internal indices.
+	 * @return String representation showing key-value pairs
+	 */
 	public final String toStringListView(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -284,6 +333,11 @@ public abstract class AbstractIntHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns an array containing all keys in this map.
+	 * Invalid entries are excluded from the result.
+	 * @return Array of all valid keys
+	 */
 	public final int[] toKeyArray(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys();
@@ -298,6 +352,11 @@ public abstract class AbstractIntHashMap{
 		return x;
 	}
 
+	/**
+	 * Creates a histogram of the values in this map.
+	 * Each unique value becomes a key in the result, mapped to its frequency count.
+	 * @return New IntHashMapBinary containing value frequency counts
+	 */
 	public final IntHashMapBinary toCountHistogram() {
 		IntHashMapBinary counts=new IntHashMapBinary(Tools.mid(1, size(), 64));
 		final int[] keys=keys();
@@ -313,6 +372,12 @@ public abstract class AbstractIntHashMap{
 		return counts;
 	}
 	
+	/**
+	 * Validates the internal consistency of this hash map.
+	 * Checks that key and value arrays have matching lengths, invalid entries
+	 * have zero values, and all keys can be found at their expected positions.
+	 * @return true if the hash map structure is valid, false if corrupted
+	 */
 	public final boolean verify(){
 		final int size=size(), invalid=invalid();
 		final int[] keys=keys(), values=values();
@@ -342,14 +407,28 @@ public abstract class AbstractIntHashMap{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Returns the internal array representation of this map.
+	 * Implementation-specific method for accessing underlying storage.
+	 * @return Array representation of the map data
+	 */
 	public abstract int[] toArray();
+	/** Returns the internal keys array.
+	 * @return Array containing all keys (including invalid entries) */
 	public abstract int[] keys();
+	/** Returns the internal values array.
+	 * @return Array containing all values */
 	public abstract int[] values();
+	/** Returns the sentinel value used to mark invalid/empty entries.
+	 * @return The invalid key marker value */
 	public abstract int invalid();
 	
+	/** Bit mask for positive integers (Integer.MAX_VALUE). */
 	static final int MASK=Integer.MAX_VALUE;
+	/** Bit mask for the minimum integer value (Integer.MIN_VALUE). */
 	static final int MINMASK=Integer.MIN_VALUE;
 	
+	/** Additional capacity factor for internal array sizing. */
 	static final int extra=10;
 	
 }

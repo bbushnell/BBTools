@@ -297,6 +297,11 @@ public class RenameAndMux {
 //		basesProcessedA.addAndGet(basesProcessed);
 //	}
 	
+	/**
+	 * Multithreaded implementation for processing input files.
+	 * Creates worker threads that process files concurrently and merge
+	 * results into shared output streams.
+	 */
 	private void renameAndMerge_MT(){
 		FileFormat ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, false, ordered);
 		FileFormat ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, false, ordered);
@@ -453,8 +458,12 @@ public class RenameAndMux {
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Worker thread that processes input files concurrently.
+	 * Each thread claims files atomically and processes them independently. */
 	private class MuxThread extends Thread{
 		
+		/** Constructs worker thread with output stream reference.
+		 * @param ros_ Output stream for writing processed reads */
 		MuxThread(ConcurrentReadOutputStream ros_){
 			ros=ros_;
 		}
@@ -466,6 +475,7 @@ public class RenameAndMux {
 			}
 		}
 		
+		/** Output stream reference for this worker thread */
 		final ConcurrentReadOutputStream ros;
 	}
 	
@@ -477,11 +487,14 @@ public class RenameAndMux {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	protected ArrayList<String> readPaths=new ArrayList<String>();
 	
 	protected String out1, out2;
 	
+	/** Input file extension override */
 	protected String extin;
+	/** Output file extension override */
 	protected String extout;
 	
 	/*--------------------------------------------------------------*/
@@ -491,8 +504,10 @@ public class RenameAndMux {
 	/** Number of bases processed */
 	protected AtomicLong basesProcessedA=new AtomicLong(0);
 	
+	/** Atomic counter for list numbering (unused in current implementation) */
 	protected AtomicLong nextListNumber=new AtomicLong(0);
 	
+	/** Atomic counter for thread-safe file path assignment */
 	protected AtomicInteger nextPathNumber=new AtomicInteger(0);
 
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -515,5 +530,6 @@ public class RenameAndMux {
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 	
+	/** Tracks whether interleaved status message has been printed */
 	private boolean printedInterleavedMessage=false;
 }

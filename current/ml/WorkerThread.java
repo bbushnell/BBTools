@@ -6,6 +6,15 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import shared.Tools;
 
+/**
+ * Manages parallel neural network processing tasks, enabling distributed
+ * computation across multiple threads with fine-grained job processing.
+ * Orchestrates thread-safe sample processing, network computation, and
+ * result collection during distributed machine learning training.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 class WorkerThread extends Thread implements Comparable<WorkerThread> {
 	//Constructor
 	WorkerThread(final int tid_, final ArrayBlockingQueue<JobData> wq,	/*final Object LOCK_, */final float cutoffForEvaluation_){
@@ -76,6 +85,11 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 //	SITF:
 //	W	473	44546439	212696	?	8404496	39325	0
 
+	/**
+	 * Retrieves next job from the blocking queue, handling interruption and
+	 * blocking until work becomes available.
+	 * @return Next job to process, or JobData.POISON for thread termination
+	 */
 	JobData getJob() {
 		JobData job=null;
 		while(job==null) {
@@ -91,6 +105,12 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		return job;
 	}
 
+	/**
+	 * Configures thread state for job execution including network setup,
+	 * sample assignment, and synchronization. Handles both copied and shared
+	 * network configurations based on job requirements.
+	 * @param job Job configuration containing network, samples, and parameters
+	 */
 	void prepareForWork(JobData job) {
 		epoch=job.epoch;
 		backprop=job.backprop;
@@ -131,6 +151,14 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		//			net.setFrom(job.net, false);
 	}
 
+	/**
+	 * Processes assigned samples through the neural network with thread-safe
+	 * synchronization. Handles both array-based and list-based sample sets
+	 * with configurable weight multiplication.
+	 *
+	 * @param weightMult Multiplier for sample weights during processing
+	 * @return Number of samples successfully processed
+	 */
 	int processSamples(float weightMult) {
 		//			System.err.println("processEpoch()");
 
@@ -172,6 +200,12 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		return samplesProcessed;
 	}
 
+	/**
+	 * Packages processing results and performance metrics into JobResults
+	 * and queues for collection by coordinator thread.
+	 * @param samplesProcessed Number of samples processed in this job
+	 * @param job Original job configuration for result correlation
+	 */
 	void sendResults(int samplesProcessed, JobData job) {
 		assert(maxSamples==samplesProcessed || samples==null) : maxSamples+", "+samplesProcessed+", "+(samples==null ? job.set.length : samples.size());
 		JobResults jr=new JobResults(maxSamples>0 ? net : null, epoch, samplesProcessed, tid, job.jid,
@@ -196,6 +230,12 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		linesProcessedT++;
 	}
 	
+	/**
+	 * Sorts samples by class (positive/negative) and error magnitude, then
+	 * interleaves them for balanced processing. Maintains separate positive
+	 * and negative sample lists during sorting.
+	 * @param job Job containing samples to sort
+	 */
 	void sortSamples(JobData job) {
 //		if(true) {return;}
 		//			positive.clear();
@@ -236,6 +276,11 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		negative.clear();//Avoids dangling references
 	}
 	
+	/**
+	 * Accumulates classification performance metrics from processed sample
+	 * including true/false positives/negatives and error magnitudes.
+	 * @param s Sample containing prediction results and target goals
+	 */
 	void addToStats(Sample s) {
 		for(int i=0; i<s.result.length; i++){
 //			boolean goal=(s.goal[0]>=Trainer.booleanCutoffGoal);
@@ -251,6 +296,7 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		weightedErrorSum+=s.weightedErrorMagnitude;
 	}
 
+	/** Resets accumulated performance statistics to zero for new job processing */
 	synchronized private void clearStats() {
 		errorSum=0;
 		weightedErrorSum=0;
@@ -262,20 +308,34 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 		return tid-o.tid;
 	}
 	
+	/** Current job being processed by this thread */
 	private JobData job;
 	
+	/** Blocking queue for receiving job assignments from coordinator */
 	private final ArrayBlockingQueue<JobData> jobQueue;
+	/** Threshold value for binary classification evaluation metrics */
 	private final float cutoffForEvaluation;
 
+	/** Accumulated raw error magnitude across processed samples */
 	private double errorSum=0;
+	/** Accumulated weighted error magnitude across processed samples */
 	private double weightedErrorSum=0;
+	/** Count of false negative predictions */
+	/** Count of false positive predictions */
+	/** Count of true negative predictions */
+	/** Count of true positive predictions */
 	private int tpSum=0, tnSum=0, fpSum=0, fnSum=0;
 
 	//		private Sample[] samples;
+	/** List of samples assigned to this thread for processing */
 	private ArrayList<Sample> samples;
+	/** Temporary storage for positive samples during sorting operations */
 	private final ArrayList<Sample> positive=new ArrayList<Sample>();
+	/** Temporary storage for negative samples during sorting operations */
 	private final ArrayList<Sample> negative=new ArrayList<Sample>();
+	/** Maximum number of samples to process in current job */
 	private int maxSamples=0;
+	/** Performance profiler for timing different processing phases */
 	final Profiler tprof=new Profiler("W", 7);
 
 	/** Number of reads processed by this thread */
@@ -284,17 +344,21 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 	/** Number of reads retained by this thread */
 	protected long linesOutT=0;
 
+	/** Flag indicating whether this thread encountered an error state */
 	protected boolean errorStateT=false;
 
 	/** True only if this thread has completed successfully */
 	boolean success=false;
 
+	/** Current training epoch number for this job */
 	private int epoch=0;
+	/** Whether to perform backpropagation during sample processing */
 	private boolean backprop;
 
 	/** Thread ID */
 	final int tid;
 
+	/** Neural network instance used by this thread for sample processing */
 	private CellNet net;
 	//		private final CellNet net;
 

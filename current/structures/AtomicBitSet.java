@@ -2,12 +2,31 @@ package structures;
 
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
+/**
+ * Thread-safe bit set implementation using atomic operations for concurrent access.
+ * Extends AbstractBitSet to provide lock-free bit manipulation operations
+ * suitable for high-performance multi-threaded applications.
+ * Each bit position represents a boolean value with atomic read/write guarantees.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class AtomicBitSet extends AbstractBitSet {
 
+	/** Constructs an AtomicBitSet with the specified capacity.
+	 * @param capacity_ The number of bits this set can hold */
 	public AtomicBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
+	/**
+	 * Constructs an AtomicBitSet with specified capacity plus extra space.
+	 * The extra parameter allows pre-allocation of additional cells to avoid
+	 * reallocation during growth.
+	 *
+	 * @param capacity_ The number of bits this set can hold
+	 * @param extra Additional cells to pre-allocate beyond minimum required
+	 */
 	public AtomicBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -89,12 +108,18 @@ public class AtomicBitSet extends AbstractBitSet {
 	@Override
 	public final int bits(){return 1;}
 	
+	/** Returns the underlying AtomicIntegerArray for direct access */
 	public AtomicIntegerArray array(){return array;}
 	
+	/** Maximum capacity allocated in the underlying array */
 	private long maxCapacity=0;
+	/** Current capacity (number of bits this set can hold) */
 	private long capacity=0;
+	/** Maximum length allocated in the underlying array */
 	private int maxLength=0;
+	/** Current length of the underlying array */
 	private int length=0;
+	/** Underlying atomic integer array storing the bit data */
 	private AtomicIntegerArray array;
 
 }

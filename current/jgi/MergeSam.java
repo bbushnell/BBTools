@@ -26,6 +26,8 @@ import stream.FastaReadInputStream;
  */
 public class MergeSam {
 	
+	/** Program entry point for merging SAM files.
+	 * @param args Command-line arguments including input/output paths and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MergeSam x=new MergeSam(args);
@@ -35,6 +37,12 @@ public class MergeSam {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams, validates file paths, and configures processing options.
+	 * @param args Command-line arguments array
+	 * @throws RuntimeException if no input files specified or output files cannot be written
+	 */
 	public MergeSam(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -102,6 +110,14 @@ public class MergeSam {
 		ffin=FileFormat.testInputList(in, FileFormat.SAM, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that merges SAM files and filters invalid entries.
+	 * Processes files sequentially, maintaining header order by only allowing
+	 * header lines (@-prefixed) while in header mode, then switching to alignment mode.
+	 *
+	 * @param t Timer for tracking execution time
+	 * @throws RuntimeException if processing encounters errors
+	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=null;
@@ -169,31 +185,46 @@ public class MergeSam {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input SAM file paths to be merged */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output file path for merged SAM data */
 	private String out="stdout.sam";
+	/** Output file path for invalid SAM entries (optional) */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines read from all input files */
 	private long linesProcessed=0;
+	/** Number of lines determined to be valid SAM entries */
 	private long linesValid=0;
+	/** Total bytes read from all input files */
 	private long bytesProcessed=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Array of FileFormat objects for input SAM files */
 	private final FileFormat[] ffin;
+	/** FileFormat object for the main output SAM file */
 	private final FileFormat ffout;
+	/** FileFormat object for invalid entries output file */
 	private final FileFormat ffoutInvalid;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Global flag controlling verbose output across multiple classes */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

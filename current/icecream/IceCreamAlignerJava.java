@@ -2,8 +2,17 @@ package icecream;
 
 import aligner.AlignmentResult;
 
+/**
+ * Java implementation of sequence alignment for DNA/protein sequences using
+ * dynamic programming. Performs forward and short-form alignments with
+ * configurable scoring parameters and early exit optimizations for performance.
+ * Uses Smith-Waterman-style local alignment with gap penalties.
+ *
+ * @author Brian Bushnell
+ */
 public final class IceCreamAlignerJava extends IceCreamAligner {
 
+	/** Package-private constructor for factory instantiation */
 	IceCreamAlignerJava(){}
 	
 	/**
@@ -214,16 +223,22 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Counter tracking total iterations in forward alignment operations */
 	long iters = 0;
+	/** Counter tracking total iterations in short alignment operations */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Points awarded for matching bases in alignment scoring */
 	public static final int pointsMatch = 1;
+	/** Penalty points for base substitutions in alignment scoring */
 	public static final int pointsSub = -1;
+	/** Penalty points for deletions in alignment scoring */
 	public static final int pointsDel = -2;
+	/** Penalty points for insertions in alignment scoring */
 	public static final int pointsIns = -2;
 	
 }

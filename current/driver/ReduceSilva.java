@@ -119,6 +119,15 @@ public class ReduceSilva {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Parses individual command line arguments.
+	 * Handles reads/maxreads parameter and other specific arguments.
+	 *
+	 * @param arg The full argument string
+	 * @param a The argument key (lowercase)
+	 * @param b The argument value
+	 * @return true if the argument was recognized and parsed, false otherwise
+	 */
 	public boolean parseArgument(String arg, String a, String b){
 		if(a.equals("reads") || a.equals("maxreads")){
 			maxReads=Parse.parseKMG(b);
@@ -275,43 +284,63 @@ public class ReduceSilva {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Hash table storing previously seen taxa to prevent duplicates */
 	private HashSet<String> table=new HashSet<String>();
 	
+	/** Primary input file path */
 	private String in1=null;
 
+	/** Primary output file path */
 	private String out1=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
+	/**
+	 * Column position (from right) in semicolon-delimited header containing taxon information
+	 */
 	private int column=1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Total number of reads processed */
 	protected long readsProcessed=0;
+	/** Total number of bases processed */
 	protected long basesProcessed=0;
 	
+	/** Number of reads written to output after filtering */
 	protected long readsOut=0;
+	/** Number of bases written to output after filtering */
 	protected long basesOut=0;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
 
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Flag to enable verbose output messages */
 	public static boolean verbose=false;
+	/** Flag indicating if the program encountered an error during execution */
 	public boolean errorState=false;
+	/** Flag to allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Flag to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

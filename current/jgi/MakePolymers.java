@@ -27,6 +27,8 @@ import tracker.ReadStats;
  */
 public class MakePolymers {
 	
+	/** Program entry point for generating k-mer polymer sequences.
+	 * @param args Command-line arguments including k-mer range and output settings */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MakePolymers x=new MakePolymers(args);
@@ -36,6 +38,12 @@ public class MakePolymers {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes the polymer generator.
+	 * Processes parameters for k-mer range (mink, maxk), minimum sequence length,
+	 * and output file settings.
+	 * @param args Command-line arguments array
+	 */
 	public MakePolymers(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -102,6 +110,12 @@ public class MakePolymers {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTA, null, true, overwrite, append, false);
 	}
 	
+	/**
+	 * Main processing method that generates polymer sequences for each k-mer length.
+	 * Creates output writer, iterates through k-mer sizes from mink to maxk,
+	 * and writes sequences containing all possible k-mers of each length.
+	 * @param t Timer for tracking execution time and reporting performance
+	 */
 	void process(Timer t){
 
 		final ByteStreamWriter bsw;
@@ -124,6 +138,14 @@ public class MakePolymers {
 		}
 	}
 	
+	/**
+	 * Writes polymer sequences containing all possible k-mers of length k.
+	 * Generates sequences by enumerating all 4^k possible k-mers and repeating
+	 * each k-mer enough times to meet the minimum sequence length requirement.
+	 *
+	 * @param k Length of k-mers to generate sequences for
+	 * @param bsw Output writer for FASTA formatted sequences
+	 */
 	private void writeSequence(int k, ByteStreamWriter bsw){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -155,6 +177,14 @@ public class MakePolymers {
 		}
 	}
 	
+	/**
+	 * Converts a k-mer encoded as a long integer to DNA sequence bytes.
+	 * Decodes the 2-bit per base encoding back to ACGT nucleotide characters.
+	 *
+	 * @param kmer K-mer encoded as long with 2 bits per base
+	 * @param k Length of the k-mer to decode
+	 * @param bb ByteBuilder to append the decoded sequence to
+	 */
 	public static final void toBytes(long kmer, int k, ByteBuilder bb){
 		for(int i=k-1; i>=0; i--){
 			int x=(int)((kmer>>(2*i))&3);
@@ -166,24 +196,36 @@ public class MakePolymers {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of sequences (reads) generated */
 	private long readsProcessed=0;
+	/** Total number of bases written to output */
 	private long basesProcessed=0;
 	
+	/** Maximum k-mer length to generate sequences for */
+	/** Minimum k-mer length to generate sequences for */
 	private int mink=1, maxk=1;
 	
+	/** Minimum length of generated polymer sequences */
 	private int minLen=31;
 	
+	/** Output file path for generated FASTA sequences */
 	private String out1=null;
 
+	/** File format specification for output file */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

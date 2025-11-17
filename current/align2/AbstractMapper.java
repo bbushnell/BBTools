@@ -43,6 +43,12 @@ import tracker.ReadStats;
  */
 public abstract class AbstractMapper {
 
+	/**
+	 * Constructs AbstractMapper and performs complete initialization sequence.
+	 * Processes command-line arguments, validates parameters, initializes I/O streams,
+	 * and prepares the mapper for alignment operations.
+	 * @param args Command-line arguments containing input/output paths and options
+	 */
 	public AbstractMapper(String[] args){
 		CoveragePileup.printCommand=false;
 		if(Shared.COMMAND_LINE==null){
@@ -61,6 +67,12 @@ public abstract class AbstractMapper {
 		checkFiles();
 	}
 	
+	/**
+	 * Terminates the mapper execution due to an error condition.
+	 * Closes all streams and invokes KillSwitch to halt processing.
+	 * @param mtts Array of mapping threads to shut down
+	 * @param message Error message to display (null for generic error)
+	 */
 	final void abort(AbstractMapThread[] mtts, String message){
 //		System.err.println("Attempting to abort.");
 		closeStreams(cris, rosA, rosM, rosU, rosB);
@@ -89,26 +101,55 @@ public abstract class AbstractMapper {
 		}
 	}
 	
+	/**
+	 * Sets default values for alignment parameters specific to the implementation
+	 */
 	abstract void setDefaults();
 	
+	/**
+	 * Performs implementation-specific preprocessing of command-line arguments.
+	 * @param args Raw command-line arguments
+	 * @return Preprocessed arguments for main parsing
+	 */
 	abstract String[] preparse(String[] args);
 	
+	/** Performs implementation-specific post-processing after argument parsing.
+	 * @param args Parsed command-line arguments */
 	abstract void postparse(String[] args);
 
+	/** Initializes implementation-specific components after parameter parsing */
 	abstract void setup();
 	
+	/** Loads the reference genome index required for alignment operations */
 	abstract void loadIndex();
 	
+	/**
+	 * Processes reads with ambiguous secondary alignments according to configured mode
+	 */
 	abstract void processAmbig2();
 	
+	/** Runs alignment speed benchmarks for performance testing.
+	 * @param args Benchmark configuration parameters */
 	abstract void testSpeed(String[] args);
 	
+	/**
+	 * Configures alignment parameters for semiperfect mode (allows some mismatches)
+	 */
 	abstract void setSemiperfectMode();
 	
+	/** Configures alignment parameters for perfect mode (no mismatches allowed) */
 	abstract void setPerfectMode();
 
+	/** Outputs current alignment settings for debugging and verification.
+	 * @param k K-mer length used for alignment */
 	abstract void printSettings(int k);
 	
+	/**
+	 * Parses command-line arguments and configures alignment parameters.
+	 * Handles all standard BBMap options including I/O files, quality settings,
+	 * alignment parameters, and output formats.
+	 * @param args Command-line arguments to parse
+	 */
 	private final void parse(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -732,6 +773,8 @@ public abstract class AbstractMapper {
 		}
 	}
 	
+	/** Validates input and output file paths and configurations.
+	 * Resolves file path patterns and ensures files are readable/writable. */
 	private final void checkFiles(){
 		if(in1!=null && in1.contains("#") && !new File(in1).exists()){
 			int pound=in1.lastIndexOf('#');
@@ -786,6 +829,12 @@ public abstract class AbstractMapper {
 		assert(synthReadlen<0 || synthReadlen>=keylen);
 	}
 	
+	/**
+	 * Initial preprocessing of command-line arguments before main parsing.
+	 * Handles null arguments and validates basic file existence.
+	 * @param args Raw command-line arguments
+	 * @return Cleaned argument array with nulls removed
+	 */
 	private final String[] preparse0(String[] args){
 		int nulls=0;
 		boolean foundInput=false;
@@ -847,6 +896,12 @@ public abstract class AbstractMapper {
 		return args;
 	}
 	
+	/**
+	 * Formats percentage values with padding for aligned output.
+	 * @param value Percentage value to format
+	 * @param places Number of decimal places
+	 * @return Padded percentage string
+	 */
 	static final String padPercent(double value, int places){
 		String x=Tools.format("%."+places+"f", value);
 		int desired=3+(places<1 ? 0 : 1+places);
@@ -854,18 +909,38 @@ public abstract class AbstractMapper {
 		return x;
 	}
 	
+	/**
+	 * Formats integer values with padding for aligned output.
+	 * @param value Integer value to format
+	 * @param places Minimum width for padding
+	 * @return Padded integer string
+	 */
 	static final String pad(long value, int places){
 		String x=""+value;
 		while(x.length()<places){x=" "+x;}
 		return x;
 	}
 	
+	/**
+	 * Formats percentage values for machine-readable output without padding.
+	 * @param value Percentage value to format
+	 * @param places Number of decimal places
+	 * @return Unpadded percentage string
+	 */
 	static final String padPercentMachine(double value, int places){
 		String x=Tools.format("%."+places+"f", value);
 		return x;
 	}
 	
 
+	/**
+	 * Opens and initializes all input and output streams.
+	 * Creates concurrent streams for reading input files and writing results.
+	 *
+	 * @param t Timer for tracking initialization time
+	 * @param args Command-line arguments for stream configuration
+	 * @return true if input streams are paired-end, false if single-end
+	 */
 	boolean openStreams(Timer t, String[] args){
 		
 		cris=getReadInputStream(in1, in2, qfin1, qfin2);
@@ -962,6 +1037,12 @@ public abstract class AbstractMapper {
 		return paired;
 	}
 	
+	/**
+	 * Shuts down mapping threads and waits for completion.
+	 * @param mtts Array of mapping threads to terminate
+	 * @param force If true, forcibly interrupt threads that don't terminate
+	 * @return Number of threads that failed to terminate properly
+	 */
 	static final int shutDownThreads(AbstractMapThread[] mtts, boolean force){
 		int broken=0;
 		long millis=force ? 500 : 8000;
@@ -1009,6 +1090,16 @@ public abstract class AbstractMapper {
 		return broken;
 	}
 	
+	/**
+	 * Closes all input and output streams and checks for errors.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param rosA Output stream for all reads
+	 * @param rosM Output stream for mapped reads
+	 * @param rosU Output stream for unmapped reads
+	 * @param rosB Output stream for blacklisted reads
+	 * @return true if any stream had errors during closure
+	 */
 	static final boolean closeStreams(ConcurrentReadInputStream cris, ConcurrentReadOutputStream rosA, ConcurrentReadOutputStream rosM, ConcurrentReadOutputStream rosU, ConcurrentReadOutputStream rosB){
 		errorState|=ReadWrite.closeStreams(cris, rosA, rosM, rosU, rosB);
 		if(BBSplitter.streamTable!=null){
@@ -1024,6 +1115,16 @@ public abstract class AbstractMapper {
 		return errorState;
 	}
 	
+	/**
+	 * Creates appropriate input stream based on file format and type.
+	 * Supports FASTQ, FASTA, SAM/BAM, synthetic, and sequential reads.
+	 *
+	 * @param in1 Primary input file path
+	 * @param in2 Secondary input file path (for paired reads)
+	 * @param qf1 Quality file for primary reads
+	 * @param qf2 Quality file for secondary reads
+	 * @return Configured concurrent read input stream
+	 */
 	static final ConcurrentReadInputStream getReadInputStream(String in1, String in2, String qf1, String qf2){
 		
 		assert(in1!=null);
@@ -2673,29 +2774,50 @@ public abstract class AbstractMapper {
 	/* ------------ Non-static fields ----------- */
 	
 
+	/** Input stream for reading sequence data */
 	ConcurrentReadInputStream cris;
 	ConcurrentReadOutputStream rosA=null, rosM=null, rosU=null, rosB=null;
 	
+	/** Fraction of genome to exclude from alignment consideration */
 	float fractionGenomeToExclude=-1;
+	/** Maximum size of single indel allowed in alignment */
 	int maxIndel1=-1;
+	/** Maximum total size of indels allowed in alignment */
 	int maxIndel2=-1;
+	/** Minimum number of approximate hits required to consider alignment */
 	int minApproxHits=-1;
+	/** Expected number of alignment sites for optimization */
 	int expectedSites=-1;
+	/** Mode for handling ambiguous alignments (best, all, random, toss) */
 	int ambigMode=AMBIG_BEST;
 //	int ambigMode2=AMBIG_BEST;
+	/** Enable fast alignment mode with reduced sensitivity */
 	boolean fast=false;
+	/** Enable slow alignment mode with increased sensitivity */
 	boolean slow=false;
+	/** Enable very slow alignment mode with maximum sensitivity */
 	boolean vslow=false;
+	/** Fraction of reads to exclude from processing */
 	float excludeFraction=-1;
+	/** Enable verbose output for debugging */
 	boolean verbose=false;
+	/** Reverse complement mate reads for alignment */
 	boolean rcompMate=false;
+	/** Output only alignment sites without full read sequences */
 	boolean outputSitesOnly=false;
+	/** Expected target genome size for optimization */
 	long targetGenomeSize=-1;
+	/** Compression level for output files (-1 for default) */
 	int ziplevel=-1;
+	/** Reference genome build number */
 	int build=1;
+	/** Path to reference genome file */
 	String reference=null;
+	/** Length of k-mers used for initial seed matching */
 	int keylen=13;
+	/** Whether to print alignment settings before processing */
 	boolean printSettings=true;
+	/** Whether to print alignment statistics after processing */
 	boolean printStats=true;
 	int idmodulo=1;
 	float samplerate=1f;
@@ -2717,20 +2839,28 @@ public abstract class AbstractMapper {
 	 * Very sensitive!  A value of 0.2 will potentially produce many false positives. */
 	float MINIMUM_ALIGNMENT_SCORE_RATIO;
 
+	/** Normal k-mer density for seed generation */
 	float keyDensity;//Normal key density
+	/** Maximum k-mer density when read quality is low */
 	float maxKeyDensity; //For situations where some of the read is too low quality, this is the max for the rest of the read.
+	/** Minimum k-mer density required for alignment */
 	float minKeyDensity;
+	/** Maximum number of k-mers to generate per read */
 	int maxDesiredKeys; //Don't go above this number of keys except to maintain minKeyDensity.
 	
 	/** Additional ref bases on each end of site mapping location in alignment window.
 	 * If there are no insertions or deletions, 0 is fine. */
 	int SLOW_ALIGN_PADDING;
+	/** Additional reference bases for mate rescue alignments */
 	int SLOW_RESCUE_PADDING;
+	/** Distance to search at chromosome ends for alignments */
 	int TIP_SEARCH_DIST;
 	
 	/** Class name of MSA to use */
 	String MSA_TYPE;
+	/** Maximum number of alignment sites to output per read */
 	int MAX_SITESCORES_TO_PRINT;
+	/** Whether to output secondary alignments in addition to primary */
 	boolean PRINT_SECONDARY_ALIGNMENTS;
 	
 	
@@ -2738,11 +2868,13 @@ public abstract class AbstractMapper {
 	int bloomFilterHashes=2;
 	int bloomFilterMinHits=3;
 	int bloomFilterK=31;
+	/** Bloom filter for pre-screening reads before alignment */
 	BloomFilter bloomFilter;
 	boolean bloomSerial=true;
 	
 	/* ------------ Coverage ----------- */
 	
+	/** Coverage calculation and output handler */
 	CoveragePileup pileup;
 	String coverageStats=null, coverageBinned=null, coverageBase=null, rangeCov=null, coverageHist=null, coverageRPKM=null, normcov=null, normcovOverall=null;
 	/** Force coverage calculation even if there is no output file */
@@ -2767,24 +2899,38 @@ public abstract class AbstractMapper {
 	
 	/* ------------ Static fields ----------- */
 
+	/** Count of read pairs where both reads were unmapped in last run */
 	public static long lastBothUnmapped=0;
+	/** Base count of read pairs where both reads were unmapped in last run */
 	public static long lastBothUnmappedBases=0;
 	
+	/** Count of read pairs where at least one read was mapped in last run */
 	public static long lastEitherMapped=0;
+	/** Base count of read pairs where at least one read was mapped in last run */
 	public static long lastEitherMappedBases=0;
 
+	/** Number of reads processed in last mapping run */
 	public static long lastReadsUsed=0;
+	/** Number of bases processed in last mapping run */
 	public static long lastBasesUsed=0;
 
+	/** Number of input reads in last mapping run */
 	public static long lastReadsIn=0;
+	/** Number of input bases in last mapping run */
 	public static long lastBasesIn=0;
 
+	/** Number of reads that passed Bloom filter in last run */
 	public static long lastReadsPassedBloomFilter=0;
+	/** Number of bases that passed Bloom filter in last run */
 	public static long lastBasesPassedBloomFilter=0;
 	
+	/** Ambiguous alignment mode: keep only best alignment */
 	static final int AMBIG_BEST=0;
+	/** Ambiguous alignment mode: discard ambiguous reads */
 	static final int AMBIG_TOSS=1;
+	/** Ambiguous alignment mode: randomly select one alignment */
 	static final int AMBIG_RANDOM=2;
+	/** Ambiguous alignment mode: output all alignments */
 	static final int AMBIG_ALL=3;
 	static int MIN_MAPQ=0;
 	static int MIN_MAPQ_UNPAIRED=0;
@@ -2908,6 +3054,7 @@ public abstract class AbstractMapper {
 	static boolean waitForMemoryClear=false;
 	static int DEFAULT_OUTPUT_FORMAT=FileFormat.SAM;
 	
+	/** Global flag indicating whether any errors occurred during processing */
 	public static boolean errorState=false;
 	
 }

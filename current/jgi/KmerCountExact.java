@@ -277,6 +277,11 @@ public class KmerCountExact {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Main processing method that executes the complete k-mer counting workflow.
+	 * Counts k-mers, generates histograms, calls peaks, and creates sketches as configured.
+	 * @param t Timer for tracking execution time across all phases
+	 */
 	public void process(Timer t){
 		
 		/* Check for output file collisions */
@@ -301,6 +306,11 @@ public class KmerCountExact {
 	}
 	
 	
+	/**
+	 * Core k-mer counting phase that fills hash tables with k-mer data.
+	 * Loads input sequences, extracts k-mers, applies optional shaving/rinsing,
+	 * and computes statistics on k-mer distribution.
+	 */
 	public void process2(){
 		
 		/* Start phase timer */
@@ -364,6 +374,11 @@ public class KmerCountExact {
 	/*----------------        Ref Processing        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes reference sequences for intersection analysis.
+	 * Creates a 2D matrix comparing k-mer counts between input reads and reference,
+	 * useful for contamination detection and coverage analysis.
+	 */
 	void processRef(){
 		long[][] counts=intersectionST(tables, tables2, histMax, refMax, bidirectional);
 		ByteStreamWriter bsw=new ByteStreamWriter(intersectionFile, overwrite, append, false);
@@ -797,6 +812,16 @@ public class KmerCountExact {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes low-abundance k-mers that are likely errors.
+	 * Shaving removes tip structures while rinsing removes bubbles in the k-mer graph.
+	 * This iterative process improves data quality by removing sequencing errors.
+	 *
+	 * @param shave Whether to perform tip removal
+	 * @param rinse Whether to perform bubble removal
+	 * @param maxShaveDepth Maximum number of shaving iterations to perform
+	 * @return Total number of k-mers removed across all iterations
+	 */
 	long shave(boolean shave, boolean rinse, int maxShaveDepth){
 		long sum=0;
 
@@ -813,6 +838,22 @@ public class KmerCountExact {
 		return sum;
 	}
 	
+	/**
+	 * Generates k-mer count histogram and optionally calls peaks.
+	 * Creates histogram showing distribution of k-mer frequencies,
+	 * applies optional smoothing, and identifies coverage peaks for genome size estimation.
+	 *
+	 * @param fname Histogram output file path
+	 * @param peaks Peak analysis output file path
+	 * @param cols Number of histogram columns to generate
+	 * @param max Maximum histogram length
+	 * @param printHeader Whether to include column headers
+	 * @param printZeros Whether to include zero-count bins
+	 * @param printTime Whether to include timing information
+	 * @param smoothKhist Whether to smooth the histogram data
+	 * @param smoothPeaks Whether to smooth data before peak calling
+	 * @return Average k-mer count from the histogram
+	 */
 	private double makeKhist(String fname, String peaks, int cols, int max, boolean printHeader, boolean printZeros, boolean printTime, boolean smoothKhist, boolean smoothPeaks){
 		if(fname==null && peaks==null){return -1;}
 		
@@ -835,6 +876,11 @@ public class KmerCountExact {
 		return avg;
 	}
 	
+	/**
+	 * Creates a MinHash sketch from the k-mer count data.
+	 * Sketches provide compact representations of k-mer sets for rapid comparison
+	 * and are useful for taxonomic classification and sequence similarity estimation.
+	 */
 	private void makeSketch(){
 		Timer ts=new Timer();
 		outstream.println("Generating sketch.");
@@ -854,6 +900,11 @@ public class KmerCountExact {
 		outstream.println("Sketch Time:                \t"+ts);
 	}
 	
+	/**
+	 * Coordinates histogram generation and k-mer dumping operations.
+	 * Uses multithreading when possible to parallelize histogram creation
+	 * and k-mer output for improved performance on large datasets.
+	 */
 	private void makeKhistAndPeaks(){
 		if(THREADS>1 && (outHist!=null || outPeaks!=null) && outKmers!=null){
 			Timer tout=new Timer();
@@ -895,8 +946,14 @@ public class KmerCountExact {
 	/*----------------        Helper Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for dumping k-mers to output files.
+	 * Allows k-mer output to proceed in parallel with histogram generation
+	 * for improved overall performance.
+	 */
 	private class DumpKmersThread extends Thread {
 		
+		/** Default constructor for k-mer dumping thread */
 		DumpKmersThread(){}
 		
 		@Override
@@ -906,8 +963,14 @@ public class KmerCountExact {
 		
 	}
 	
+	/**
+	 * Worker thread for histogram generation.
+	 * Allows histogram creation to proceed in parallel with k-mer output
+	 * for improved overall performance.
+	 */
 	private class MakeKhistThread extends Thread {
 		
+		/** Default constructor for histogram generation thread */
 		MakeKhistThread(){}
 		
 		@Override
@@ -922,17 +985,28 @@ public class KmerCountExact {
 	
 	/** Hold kmers. */
 	private final AbstractKmerTableSet tables;
+	/**
+	 * Secondary k-mer table set for reference sequences used in intersection analysis
+	 */
 	private AbstractKmerTableSet tables2;//ref kmers
 	
+	/** Whether to perform tip shaving to remove likely sequencing errors */
 	private boolean shave=false;
+	/** Whether to perform bubble rinsing to remove likely sequencing errors */
 	private boolean rinse=false;
+	/** Maximum depth for iterative shaving operations */
 	private int shaveDepth=1;
 	
+	/** Average count per unique k-mer in the dataset */
 	private double averageCount=-1;
+	/** Total number of bases processed from input sequences */
 	private long basesIn=-1;
+	/** Total number of reads processed from input files */
 	private long readsIn=-1;
+	/** Number of decimal places for displaying statistics */
 	private int decimals=3;
 	
+	/** Number of k-mers removed during shaving and rinsing operations */
 	private long kmersRemoved=0;
 	
 	/** Kmer count output file */
@@ -942,10 +1016,14 @@ public class KmerCountExact {
 	/** Histogram peak output file */
 	private String outPeaks=null;
 	
+	/** Radius for smoothing operations on histograms and peaks */
 	private int smoothRadius=1;
+	/** Whether to apply smoothing to the k-mer histogram */
 	private boolean smoothKhist=false;
+	/** Whether to apply smoothing before peak calling */
 	private boolean smoothPeaks=false;
 	
+	/** Flag indicating whether errors occurred during processing */
 	private boolean errorState=false;
 	
 	/** Histogram columns */
@@ -959,34 +1037,53 @@ public class KmerCountExact {
 	/** Add gc information to kmer histogram */
 	protected boolean gcHist=false;
 	
+	/** Whether to use logarithmic scaling for histogram bins */
 	boolean doLogScale=true;
+	/** Width parameter for logarithmic histogram binning */
 	double logWidth=0.1;
+	/** Number of passes for logarithmic histogram processing */
 	int logPasses=1;
 	
+	/** Minimum height requirement for peak calling */
 	private long minHeight=2;
+	/** Minimum volume (area under curve) requirement for peak calling */
 	private long minVolume=5;
+	/** Minimum width requirement for peak calling */
 	private int minWidth=3;
+	/** Minimum count value for peak detection */
 	private int minPeak=2;
+	/** Maximum count value for peak detection */
 	private int maxPeak=Integer.MAX_VALUE;
+	/** Maximum number of peaks to identify */
 	private int maxPeakCount=12;
 	
+	/** Expected ploidy level for peak calling analysis */
 	private int ploidy=-1;
 	
+	/** Output file path for MinHash sketch */
 	private String sketchPath=null;
+	/** Target length for MinHash sketch */
 	private int sketchLength=10000;
+	/** Name identifier for the generated sketch */
 	private String sketchName;
+	/** Numeric identifier for the generated sketch */
 	private int sketchID;
+	/** File format handler for sketch output */
 	private final FileFormat ffSketch;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Ref Counting         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Path to reference file for intersection analysis */
 	private String ref=null;
+	/** Output file path for intersection analysis results */
 	private String intersectionFile=null;
+	/** Whether to perform bidirectional intersection analysis */
 	private boolean bidirectional=true;
 	
 
+	/** Maximum reference count value for intersection matrix */
 	private int refMax=6;
 	
 	/*--------------------------------------------------------------*/
@@ -995,8 +1092,10 @@ public class KmerCountExact {
 	
 	/** min kmer count to dump to text */
 	private int minToDump=1;
+	/** Maximum k-mer count allowed for inclusion in output */
 	private int maxToDump=Integer.MAX_VALUE;
 
+	/** K-mer length used for counting operations */
 	final int k;
 	
 	/*--------------------------------------------------------------*/

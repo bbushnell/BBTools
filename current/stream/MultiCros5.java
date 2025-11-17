@@ -244,6 +244,11 @@ public class MultiCros5 extends BufferedMultiCros {
 	/*----------------          Profiling           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generates a detailed timing report for stream retirement operations.
+	 * Breaks down retirement time into phases for performance analysis.
+	 * @return Formatted string containing retirement timing statistics
+	 */
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -259,13 +264,24 @@ public class MultiCros5 extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Time spent in phase 1 of stream retirement (selection and sorting) */
 	private long retireTime1=0;
+	/** Time spent in phase 2 of stream retirement (dumping data) */
 	private long retireTime2=0;
+	/** Time spent in phase 3 of stream retirement (closing streams) */
 	private long retireTime3=0;
+	/** Time spent in phase 4 of stream retirement (joining threads) */
 	private long retireTime4=0;
+	/** Total number of streams retired across all retirement operations */
 	private long retireCount=0;
+	/** Number of times the retire method has been called */
 	private long retireCalls=0;
 	
+	/**
+	 * Generates a detailed timing report for stream creation operations.
+	 * Breaks down creation time into phases for performance analysis.
+	 * @return Formatted string containing creation timing statistics
+	 */
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -278,10 +294,17 @@ public class MultiCros5 extends BufferedMultiCros {
 		return bb.toString();
 	}
 	
+	/** Time spent in phase 1 of stream creation */
 	private long createTime1=0;
+	/** Time spent in phase 2 of stream creation */
 	private long createTime2=0;
+	/**
+	 * Time spent in phase 3 of stream creation (creating ConcurrentReadOutputStream)
+	 */
 	private long createTime3=0;
+	/** Time spent in phase 4 of stream creation (starting the stream) */
 	private long createTime4=0;
+	/** Time spent in phase 5 of stream creation (adding to queue) */
 	private long createTime5=0;
 	
 	/*--------------------------------------------------------------*/
@@ -295,6 +318,11 @@ public class MultiCros5 extends BufferedMultiCros {
 	 */
 	private class Buffer implements Comparable<Buffer>{
 		
+		/**
+		 * Creates a new buffer for the specified output name.
+		 * Initializes file formats, read list, and optional cardinality tracking.
+		 * @param name_ The output name used to generate file patterns
+		 */
 		Buffer(String name_){
 			name=name_;
 			timestamp=(bufferTimer++);
@@ -521,6 +549,7 @@ public class MultiCros5 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Global counter for assigning timestamps to buffer operations */
 	private long bufferTimer=0;
 	
 	/** Open stream names */

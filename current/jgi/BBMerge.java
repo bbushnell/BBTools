@@ -49,6 +49,11 @@ import ukmer.Kmer;
  */
 public class BBMerge {
 	
+	/**
+	 * Program entry point for BBMerge.
+	 * Processes paired-end reads to merge overlapping sequences.
+	 * @param args Command-line arguments for merge parameters
+	 */
 	public static void main(String[] args){
 //		boolean old=Shared.USE_JNI;
 //		Shared.USE_JNI=false; //TODO: This is for RQCFilter.  Can be removed.
@@ -64,6 +69,12 @@ public class BBMerge {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Preprocesses command-line arguments to handle preset modes.
+	 * Expands mode flags like strict, loose, fast into specific parameter sets.
+	 * @param args Original command-line arguments
+	 * @return Expanded arguments with mode-specific parameters
+	 */
 	private static String[] preparse(String[] args){
 		if(args==null){return new String[0];}
 		int nulls=0;
@@ -307,6 +318,12 @@ public class BBMerge {
 		return args2.toArray(new String[args2.size()]);
 	}
 	
+	/**
+	 * Constructs BBMerge instance and parses command-line arguments.
+	 * Initializes input/output files, merge parameters, and optional components
+	 * like Tadpole for kmer operations or BloomFilter for error correction.
+	 * @param args Command-line arguments
+	 */
 	public BBMerge(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -890,6 +907,8 @@ public class BBMerge {
 		else if(!netFile.equals(defaultNetFile)) {net0=CellNetParser.load(netFile);}
 	}
 	
+	/** Main processing method that executes the read merging pipeline.
+	 * Loads kmers if needed, runs merge phase, and outputs statistics. */
 	void process(){
 		Timer ttotal=new Timer();
 		ttotal.start();
@@ -999,6 +1018,11 @@ public class BBMerge {
 		outstream.println("10th percentile:     \t"+Tools.percentileHistogram(histTotal, .1));
 	}
 	
+	/**
+	 * Writes insert size histogram to file with optional statistics.
+	 * @param fname Output filename for histogram
+	 * @param percentMerged Percentage of read pairs that merged successfully
+	 */
 	public static void writeHistogram(String fname, double percentMerged){
 		if(fname==null){return;}
 		StringBuilder sb=new StringBuilder();
@@ -1103,6 +1127,14 @@ public class BBMerge {
 //	}
 
 	
+	/**
+	 * Runs a processing phase with specified parameters.
+	 * Sets up input/output streams and processes reads using multiple threads.
+	 *
+	 * @param join Whether to join overlapping reads into single sequences
+	 * @param maxReads Maximum number of reads to process
+	 * @param perfectonly Whether to only process perfect matches
+	 */
 	public void runPhase(boolean join, long maxReads, boolean perfectonly){
 		
 		Timer talign=new Timer();
@@ -1243,6 +1275,15 @@ public class BBMerge {
 //		outstream.println("Align time: "+talign);
 	}
 	
+	/**
+	 * Calculates the fraction of read pairs that can be merged.
+	 *
+	 * @param fname1 First input file
+	 * @param fname2 Second input file
+	 * @param numReads Maximum reads to sample
+	 * @param samplerate Sampling rate for analysis
+	 * @return Fraction of pairs that overlap and can be merged
+	 */
 	public static final float mergeableFraction(String fname1, String fname2, long numReads, float samplerate){
 		long[] hist=makeInsertHistogram(fname1, fname2, numReads, samplerate);
 		if(hist==null || hist.length<2){return 0;}
@@ -1250,6 +1291,15 @@ public class BBMerge {
 		return sum<1 ? 0 : (sum-hist[0])/(float)sum;
 	}
 	
+	/**
+	 * Creates insert size histogram by analyzing overlaps in read pairs.
+	 *
+	 * @param fname1 First input file
+	 * @param fname2 Second input file
+	 * @param numReads Maximum reads to analyze
+	 * @param samplerate Sampling rate
+	 * @return Array containing insert size counts
+	 */
 	public static final long[] makeInsertHistogram(String fname1, String fname2, long numReads, float samplerate){
 		assert(fname1!=null);
 		final ConcurrentReadInputStream cris;
@@ -1493,6 +1543,15 @@ public class BBMerge {
 		return ambig ? -1 : bestInsert;
 	}
 	
+	/**
+	 * Performs error correction on read pair using known insert size.
+	 * Creates joined read and corrects bases in overlap region.
+	 *
+	 * @param r1 First read to correct
+	 * @param r2 Second read to correct
+	 * @param insert Insert size for joining
+	 * @return Number of errors corrected
+	 */
 	public static int errorCorrectWithInsert(Read r1, Read r2, int insert){
 		if(insert>=r1.length()+r2.length()){return 0;}
 		assert(insert>0);
@@ -1535,6 +1594,14 @@ public class BBMerge {
 		return r1.errors+r2.errors;
 	}
 	
+	/**
+	 * Counts errors between original reads and joined sequence.
+	 *
+	 * @param r1 First original read
+	 * @param r2 Second original read
+	 * @param joined Merged read
+	 * @return Number of discrepancies found
+	 */
 	public static int countErrors(Read r1, Read r2, Read joined){
 		if(joined==null){return 0;}
 		final int insert=joined.length();
@@ -1584,6 +1651,11 @@ public class BBMerge {
 		return errors;
 	}
 
+	/**
+	 * Returns header string for output files.
+	 * Format depends on TAG_CUSTOM flag.
+	 * @return Header string for data output
+	 */
 	public static String header(){
 		if(TAG_CUSTOM) {
 			String i="##mo\tr1ee\tr2ee\talen\tblen\tbi\tbo\tbb\tbg\tbr\tbbi"+
@@ -1599,6 +1671,12 @@ public class BBMerge {
 		}
 	}
 	
+	/**
+	 * Performs quality trimming on read pair.
+	 * @param r1 First read to trim
+	 * @param r2 Second read to trim
+	 * @param iter Iteration number for trimming parameters
+	 */
 	private static void qtrim(Read r1, Read r2, int iter){
 		if(false /*untrim*/){
 			TrimRead.trim(r1, qtrimLeft, qtrimRight, trimq[iter], trimE[iter], 1);
@@ -1609,6 +1687,12 @@ public class BBMerge {
 		}
 	}
 	
+	/**
+	 * Creates adapter list from name or file.
+	 * Returns default adapters if name is "default" or "adapters".
+	 * @param name Adapter list name or filename
+	 * @return List of adapter sequences as byte arrays
+	 */
 	public static final ArrayList<byte[]> getAdapterList(String name){
 		if(name==null){return null;}
 		ArrayList<byte[]> alb;
@@ -1621,6 +1705,14 @@ public class BBMerge {
 		return alb;
 	}
 	
+	/**
+	 * Verifies adapter sequences at expected positions using static adapter list.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param bestInsert Insert size indicating adapter positions
+	 * @return true if adapters are verified, false otherwise
+	 */
 	private static boolean verifyAdaptersStatic(Read r1, Read r2, int bestInsert){
 		
 		if(staticAdapterList==null){return true;}
@@ -1719,6 +1811,8 @@ public class BBMerge {
 		return ret;
 	}
 	
+	/** Worker thread for processing read pairs in parallel.
+	 * Handles overlap detection, merging, and statistics collection. */
 	private class MateThread extends Thread{
 		
 		
@@ -2887,6 +2981,7 @@ public class BBMerge {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Resets all global statistics counters to zero */
 	public static void resetCounters(){
 
 		Arrays.fill(histTotal, 0);
@@ -2913,6 +3008,8 @@ public class BBMerge {
 		insertMaxTotal=0;
 	}
 	
+	/** Loads neural network from file for merge classification.
+	 * @param fname Neural network file path */
 	private static synchronized void loadNet(String fname) {
 		if(fname==null) {
 			netFile=null;
@@ -2929,18 +3026,29 @@ public class BBMerge {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** First input file path */
 	private String in1;
+	/** Second input file path */
 	private String in2;
 	
+	/** Additional input files */
 	private ArrayList<String> extra=new ArrayList<String>();
 
+	/** First output file for merged/good reads */
 	private String out1=null;
+	/** Second output file for merged/good reads */
 	private String out2=null;
+	/** First output file for unmerged/bad reads */
 	private String outb1=null;
+	/** Second output file for unmerged/bad reads */
 	private String outb2=null;
+	/** Output file for insert size information */
 	private String outinsert=null;
+	/** Output file for insert size histogram */
 	private String ihist=null;
+	/** Output file for adapter sequences */
 	private String outAdapter=null;
+	/** Output file for cardinality estimation */
 	private String outCardinality=null;
 
 	/** List of R1 adapters to look for to verify a short-insert overlap */
@@ -2950,19 +3058,30 @@ public class BBMerge {
 	/** Require short inserts to have adapter sequence at the expected location */
 	private boolean verifyAdapters=false;
 	
+	/** Tracker for unique kmer cardinality estimation */
 	final CardinalityTracker loglog;
 	
+	/** Maximum number of reads to process */
 	private long maxReads=-1;
+	/** Whether to join overlapping reads into single sequences */
 	private boolean join=true;
+	/** Whether to perform error correction */
 	private boolean ecco=false;
+	/** Whether to trim reads based on overlap detection */
 	private boolean trimByOverlap=false;
 	
+	/** Probability filter threshold for overlap validation */
 	private float pfilterRatio=0.00004f;
+	/** Expected error filter ratio for overlap validation */
 	private float efilterRatio=6f;
+	/** Expected error filter offset */
 	private float efilterOffset=0.05f;
+	/** Whether to use expected error filtering */
 	private boolean useEfilter=true;
+	/** Whether to use maximum expected errors filtering */
 	private boolean useMEEfilter=false;
 	
+	/** Whether to maintain read order in output */
 	private boolean ordered=false;
 	private boolean overlapUsingQuality=false;
 	private boolean overlapWithoutQuality=true;
@@ -3042,6 +3161,7 @@ public class BBMerge {
 
 	/** Recalibrate quality scores using matrices */
 	static boolean recalibrateQuality=false;
+	/** Whether to use quality scores in overlap detection */
 	static boolean useQuality=true;
 	static boolean qtrimRight=false;
 	static boolean qtrimLeft=false;
@@ -3113,7 +3233,9 @@ public class BBMerge {
 	static int insertMinTotal=999999999;
 	static int insertMaxTotal=0;
 	
+	/** Minimum number of overlapping bases required */
 	private static int MIN_OVERLAPPING_BASES=11;
+	/** Alternative minimum overlap threshold */
 	private static int MIN_OVERLAPPING_BASES_0=8;
 	private static int MISMATCH_MARGIN=2;
 	private static int MIN_OVERLAPPING_BASES_RATIO_REDUCTION=3;
@@ -3124,7 +3246,9 @@ public class BBMerge {
 	private static boolean showHistStats=true;
 	static boolean TRAINING=false;
 	
+	/** Whether to use ratio mode for overlap detection */
 	static boolean useRatioMode=true;
+	/** Whether to use flat mode for overlap detection */
 	static boolean useFlatMode=false;
 	static boolean requireRatioMatch=false;
 	static int MAX_MISMATCHES_R=20;
@@ -3133,14 +3257,22 @@ public class BBMerge {
 	static float RATIO_OFFSET=0.55f;
 	static float MIN_SECOND_RATIO=0.1f;
 	
+	/** Maximum allowed mismatches in overlap */
 	public static int MAX_MISMATCHES=3;
+	/** Alternative maximum mismatch threshold */
 	public static int MAX_MISMATCHES0=3;
+	/** Minimum quality score for base consideration */
 	public static byte MIN_QUALITY=10;
 	
+	/** Return code indicating no overlap solution found */
 	public static final int RET_NO_SOLUTION=-1;
+	/** Return code indicating ambiguous overlap */
 	public static final int RET_AMBIG=-2;
+	/** Return code indicating bad/unusable read pair */
 	public static final int RET_BAD=-3;
+	/** Return code indicating insert too short */
 	public static final int RET_SHORT=-4;
+	/** Return code indicating insert too long */
 	public static final int RET_LONG=-5;
 	
 	private static boolean overwrite=true;
@@ -3163,6 +3295,7 @@ public class BBMerge {
 	
 	public static boolean changeQuality=true;
 	
+	/** Output stream for messages and statistics */
 	static PrintStream outstream=System.err;
 	
 	private static int THREADS=-1;
@@ -3177,6 +3310,7 @@ public class BBMerge {
 			"TGGAATTCTCGGGTGC", "TCGGACTGTAGAACTC", "AGATCGGAAGAGCGGT"
 	};
 	
+	/** Default adapter sequences for verification */
 	public static ArrayList<byte[]> staticAdapterList=getAdapterList("default");
 	
 }

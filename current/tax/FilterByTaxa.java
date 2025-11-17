@@ -365,7 +365,9 @@ public class FilterByTaxa {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary input quality file path */
 	private String qfin1=null;
+	/** Secondary input quality file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -373,7 +375,9 @@ public class FilterByTaxa {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary output quality file path */
 	private String qfout1=null;
+	/** Secondary output quality file path */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -390,6 +394,9 @@ public class FilterByTaxa {
 	/** For listing what is present in the output */
 	public String resultsFile=null;
 	
+	/**
+	 * Collection of taxonomy nodes found in filtered output for results reporting
+	 */
 	public LinkedHashSet<TaxNode> nodes=null;
 	
 	/*--------------------------------------------------------------*/

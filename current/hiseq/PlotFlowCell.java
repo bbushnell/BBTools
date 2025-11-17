@@ -326,6 +326,11 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		KmerCountAbstract.KMERS_PER_READ=0;
 	}
 	
+	/**
+	 * Loads expected barcodes and initializes barcode statistics tracking.
+	 * @param expectedBarcodesFile Path to file containing expected barcodes
+	 * @return BarcodeStats object for barcode analysis
+	 */
 	BarcodeStats loadBarcodes(String expectedBarcodesFile) {
 		if(delimiter<0) {
 			delimiter=(byte)ffin1.barcodeDelimiter();
@@ -451,6 +456,12 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		}
 	}
 	
+	/**
+	 * Loads k-mers from a single read into counting data structures.
+	 * Supports both all-kmer and single-kmer per read modes.
+	 * @param r Read to process for k-mers
+	 * @param kmers Temporary list for k-mer storage
+	 */
 	private void loadKmers(Read r, LongList kmers) {
 		if(r==null || r.length()<k) {return;}
 //		if(!randy.nextBoolean()) {return;}//Speed optimization, I guess
@@ -556,6 +567,14 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		}
 	}
 	
+	/**
+	 * Processes k-mers for a read and updates tile statistics based on k-mer
+	 * analysis mode (single k-mer or all k-mers with Bloom filter).
+	 * @param r Read to process
+	 * @param mt MicroTile to update with statistics
+	 * @param kmers Temporary k-mer storage
+	 * @param counts Temporary count storage
+	 */
 	void processTileKmers(Read r, MicroTile mt, LongList kmers, IntList counts) {
 		if(r==null || r.length()<k) {return;}
 		
@@ -566,6 +585,12 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		}
 	}
 	
+	/**
+	 * Processes a single k-mer from a read and updates tile hit/miss statistics
+	 * based on k-mer frequency in the loaded k-mer sets.
+	 * @param r Read to process
+	 * @param mt MicroTile to update
+	 */
 	void processOneKmer(Read r, MicroTile mt) {
 //		final long kmer=toKmer(r.bases, randy.nextInt(r.length()-k2), k);
 		final long kmer=toKmer(r.bases, (int)((r.numericID+1)%(r.length()-k2)), k);
@@ -581,6 +606,14 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		else {mt.misses++;}
 	}
 	
+	/**
+	 * Processes all k-mers from a read using Bloom filter correction to identify
+	 * potential sequencing errors and update tile error statistics.
+	 * @param r Read to process
+	 * @param mt MicroTile to update
+	 * @param kmers K-mer storage
+	 * @param counts Count storage for k-mer frequencies
+	 */
 	void processAllKmers(Read r, MicroTile mt, LongList kmers, IntList counts) {
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
@@ -642,8 +675,18 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	@Override
 	public final boolean success() {return !errorState;}
 	
+	/**
+	 * Worker thread for parallel processing of flow cell tile data. Each thread
+	 * maintains its own FlowCell instance and processes a subset of reads
+	 * independently before results are accumulated.
+	 */
 	class WorkerThread extends Thread {
 		
+		/**
+		 * Constructs a worker thread with input stream and thread ID.
+		 * @param cris_ Shared concurrent read input stream
+		 * @param tid_ Thread identifier
+		 */
 		WorkerThread(ConcurrentReadInputStream cris_, int tid_){
 			cris=cris_;
 			tid=tid_;
@@ -690,6 +733,11 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			}
 		}
 		
+		/**
+		 * Processes a list of reads, validating each read and processing read pairs
+		 * through the tile analysis pipeline.
+		 * @param ln ListNum containing reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -761,9 +809,12 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		/** Thread ID */
 		final int tid;
 		
+		/** Thread-local flow cell data structure */
 		final FlowCell fc;
 		
+		/** Thread-local k-mer storage */
 		final LongList kmers=new LongList();
+		/** Thread-local count storage */
 		final IntList counts=new IntList();
 	}
 	
@@ -800,13 +851,17 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Additional input files */
 	private ArrayList<String> extra=new ArrayList<String>();
 	
 	/** Override input file extension */
 	private String extin=null;
 	
+	/** Enable pound symbol file substitution */
 	private boolean pound=true;
+	/** Output dump file path */
 	private String dump=null;
+	/** Input dump file path for loading existing data */
 	private String dumpIn=null;
 	
 	/*--------------------------------------------------------------*/
@@ -822,37 +877,57 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in keySets[Y] */
 	private AbstractKmerTable[] keySets;
 	
+	/** Bloom filter for memory-efficient k-mer counting */
 	private BloomFilter bloomFilter;
+	/** Bloom filter corrector for error detection */
 	private BloomFilterCorrector bloomCorrector;
 	
+	/** Use Bloom filter instead of hash tables for k-mer counting */
 	private boolean bloomMode=false;
+	/** Enable multithreaded k-mer loading */
 	private boolean multithreadedLoad=false;
+	/** Enable multithreaded tile filling */
 	private boolean multithreadedFill=false;
 
+	/** Whether to load and analyze k-mers */
 	private boolean loadKmers=true;
+	/** Number of k-mers to sample per read (0 = all k-mers) */
 	private int kmersPerRead=1;
+	/** Number of bits per cell in Bloom filter */
 	private int cbits=4;
+	/** Number of hash functions for Bloom filter */
 	private int hashes=3;
 	
+	/** Target average reads per tile for flow cell widening */
 	private int targetAverageReads=800;
 	
+	/** Number of hash table partitions for k-mer storage */
 	private static final int WAYS=31;
 	private static final int k=31, k2=30;
 	
 //	private final Random randy=Shared.threadLocalRandom();
+	/** Main flow cell data structure */
 	private FlowCell flowcell;
 
+	/** Reference genome path for alignment (default PhiX) */
 	private String refPath="phix";
 //	private byte[] ref;
 //	private LongHashMap refIndex;
+	/** Micro-aligner for reference mapping */
 	private MicroAligner3 mapper;
+	/** Minimum identity threshold for alignment */
 	float minIdentity=0.65f;
+	/** K-mer size for alignment (PhiX is unique down to k=13) */
 	int alignK=19; //Phix is unique down to k=13
 	
 	
+	/** Barcode delimiter character */
 	private byte delimiter='+';
+	/** Number of barcodes expected per read */
 	private int barcodesPerRead=2;
+	/** Path to file containing expected barcodes */
 	private String expectedBarcodes;
+	/** Barcode statistics and analysis object */
 	private BarcodeStats barcodeStats;
 //	private long minCountToUse=0;
 //	
@@ -869,6 +944,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

@@ -416,17 +416,28 @@ public class FungalRelease {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Minimum gap size in input scaffolds to be considered for inflation */
 	private int minGapIn = 1;
+	/** Target minimum gap size after inflation in output scaffolds */
 	private int minGapOut = 10;
+	/** Minimum scaffold length to retain in final output */
 	private int minScaf = 1;
+	/** Minimum contig length when breaking scaffolds at gaps */
 	private int minContig = 1;
+	/** Counter for generating sequential scaffold names when renaming */
 	private long scafNum = 1;
+	/** Counter for generating sequential contig names when renaming */
 	private long contigNum = 1;
 
+	/** Whether to sort scaffolds by length before output */
 	private boolean sortScaffolds = true;
+	/** Whether to sort contigs by length before output */
 	private boolean sortContigs = false;
+	/** Whether to reject scaffolds containing non-ACGTN bases */
 	private boolean banIupac = true;
+	/** Whether to rename scaffolds with standardized identifiers */
 	private boolean renameScaffolds = true;
+	/** Whether to rename contigs with standardized identifiers */
 	private boolean renameContigs = false;
 
 	/*--------------------------------------------------------------*/
@@ -436,16 +447,24 @@ public class FungalRelease {
 	/** Primary input file path */
 	private String in1 = null;
 
+	/** Quality file path for input sequences (may be null) */
 	private String qfin1 = null;
 
 	/** Primary output file path */
 	private String out1 = null;
+	/** Output file path for generated contigs */
 	private String outC = null;
 
+	/** Quality output file path for scaffolds (may be null) */
 	private String qfout1 = null;
+	/** Quality output file path for contigs (may be null) */
 	private String qfoutC = null;
 
+	/** Output path for AGP (A Golden Path) assembly metadata file */
 	private String agpFile = null;
+	/**
+	 * Output path for legend file mapping original to renamed sequence identifiers
+	 */
 	private String legendFile = null;
 
 	/** Override input file extension */
@@ -477,6 +496,7 @@ public class FungalRelease {
 
 	/** Primary output file */
 	private final FileFormat ffout1;
+	/** File format handler for contig output file */
 	private final FileFormat ffoutC;
 
 	/*--------------------------------------------------------------*/

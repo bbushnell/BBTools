@@ -971,12 +971,31 @@ public class DemuxByName2 {
 	}
 	
 
+	/**
+	 * Calculates Hamming distance between two barcode strings.
+	 * Uses either sum mode (total mismatches) or max mode (maximum of left/right distances)
+	 * depending on hdistSum configuration.
+	 *
+	 * @param q First barcode sequence
+	 * @param r Second barcode sequence
+	 * @return Hamming distance between sequences
+	 */
 	private int hdist(String q, String r) {
 		return hdistSum ? Barcode.hdist(q, r) : Tools.max(Barcode.hdistL(q, r), Barcode.hdistR(q, r));
 	}
 	
 	//TODO: Populate expectedList; currently this is unused.
 	//TODO: Decide to populate based on number of expected mutants.
+	/**
+	 * Finds the closest matching barcode within Hamming distance and clearzone constraints.
+	 * Searches expected barcode list for best match, ensuring sufficient separation
+	 * from second-best match to avoid ambiguous assignments.
+	 *
+	 * @param q Query barcode sequence
+	 * @param maxHDist Maximum allowable Hamming distance
+	 * @param clearzone Minimum distance advantage over second-best match
+	 * @return Closest matching barcode, or null if no unambiguous match found
+	 */
 	public String findClosest(String q, int maxHDist, int clearzone) {
 		assert(!expectedList.isEmpty());
 		
@@ -1183,14 +1202,17 @@ public class DemuxByName2 {
 	
 	/** Input reads */
 	long readsProcessed=0;
+	/** Total number of input bases processed during demultiplexing */
 	long basesProcessed=0;
 	
 	/** Demultiplexed output reads */
 	long readsOut=0;
+	/** Number of bases in successfully demultiplexed reads */
 	long basesOut=0;
 	
 	/** Output reads that did not get demultiplexed */
 	long readsUnmatched=0;
+	/** Number of bases in unmatched reads */
 	long basesUnmatched=0;
 
 	/** Stop after this many input reads */
@@ -1279,6 +1301,9 @@ public class DemuxByName2 {
 	private boolean setInterleaved=false;
 
 //	private IlluminaHeaderParser1 ihp1=new IlluminaHeaderParser1();
+	/**
+	 * Parser for extracting barcodes and tile information from Illumina read headers
+	 */
 	private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 	
 	/*--------------------------------------------------------------*/
@@ -1289,7 +1314,11 @@ public class DemuxByName2 {
 	private boolean rcIndex1=false;
 	private boolean rcIndex2=false;
 	
+	/**
+	 * Matrix for probabilistic barcode error correction using expected barcode frequencies
+	 */
 	private PCRMatrix pcrMatrix;
+	/** Whether to use PCR matrix for probabilistic barcode correction */
 	private boolean useMatrix=false;
 	private boolean hdistSum=true;
 	

@@ -42,6 +42,11 @@ public class MakeChimeras {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs MakeChimeras and parses command-line arguments.
+	 * Sets up input/output file formats, parameters, and validation.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public MakeChimeras(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -119,6 +124,14 @@ public class MakeChimeras {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Main processing pipeline that creates chimeric reads.
+	 * First loads all input reads into memory, then generates the specified number
+	 * of chimeric reads by randomly selecting and fusing read fragments.
+	 * Each chimera is created by joining pieces from two randomly selected reads.
+	 *
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		assert(readsOut>0) : "Please set the 'readsout' flag to a positive integer.";
 		
@@ -329,35 +342,52 @@ public class MakeChimeras {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for source reads */
 	private String in1=null;
 	
+	/** Quality file path for input reads (may be null) */
 	private String qfin1=null;
 
+	/** Output file path for generated chimeric reads */
 	private String out1=null;
 	
+	/** File extension override for input format detection */
 	private String extin=null;
+	/** File extension override for output format */
 	private String extout=null;
 
+	/**
+	 * Forces specific fragment length for first piece of each chimera (0=random)
+	 */
 	private int forceLength=0;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to load from input (-1=unlimited) */
 	private long readsIn=-1;
+	/** Number of chimeric reads to generate */
 	private long readsOut=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format object for input file parsing */
 	private final FileFormat ffin1;
 
+	/** File format object for output file writing */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

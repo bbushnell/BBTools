@@ -17,10 +17,18 @@ public class CoverageArray2A extends CoverageArray {
 	 */
 	private static final long serialVersionUID = 98483952072098494L;
 	
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//TODO
 	}
 	
+	/**
+	 * Constructs an atomic coverage array for the specified chromosome and length.
+	 * Allocates an AtomicIntegerArray to store packed 16-bit coverage values.
+	 * @param chrom Chromosome identifier
+	 * @param len Length of the coverage array in bases
+	 */
 	public CoverageArray2A(int chrom, int len){
 		super(chrom, len);
 		int intLen=intIdx(len)+1;
@@ -29,6 +37,12 @@ public class CoverageArray2A extends CoverageArray {
 		maxIndex=len-1;
 	}
 	
+	/**
+	 * Converts a base position to the corresponding integer array index.
+	 * Two 16-bit values are packed per integer, so array index is (idx+1)/2.
+	 * @param idx Base position in the coverage array
+	 * @return Integer array index containing the packed coverage value
+	 */
 	private static final int intIdx(int idx) {
 		return (idx+1)/2;
 	}
@@ -66,6 +80,15 @@ public class CoverageArray2A extends CoverageArray {
 		return overflow;
 	}
 	
+	/**
+	 * Atomically increments the upper 16-bit value at the specified integer index.
+	 * Uses compare-and-exchange loop to ensure atomic updates.
+	 * Preserves the lower 16-bit value while updating the upper value.
+	 *
+	 * @param intIdx Integer array index
+	 * @param amt Amount to increment by
+	 * @return true if overflow occurred (value reached 0xFFFF), false otherwise
+	 */
 	private boolean incrementUpper(int intIdx, int amt) {
 		boolean overflow=false;
 		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
@@ -85,6 +108,14 @@ public class CoverageArray2A extends CoverageArray {
 		incrementRange(min, max, amt);//Synchronized is not needed
 	}
 	
+	/**
+	 * Increments coverage values over a range using individual increment operations.
+	 * Safe but slower method that calls increment() for each position in the range.
+	 *
+	 * @param min Starting position (inclusive)
+	 * @param max Ending position (inclusive)
+	 * @param amt Amount to increment by
+	 */
 	public void incrementRangeSlow(int min, int max, int amt){
 		if(min<0){min=0;}
 		if(max>maxIndex){max=maxIndex;}
@@ -141,6 +172,15 @@ public class CoverageArray2A extends CoverageArray {
 		return false;
 	}
 	
+	/**
+	 * Atomically sets the upper 16-bit value at the specified integer index.
+	 * Uses compare-and-exchange loop to ensure atomic updates.
+	 * Preserves the lower 16-bit value while setting the upper value.
+	 *
+	 * @param intIdx Integer array index
+	 * @param amt Value to set in the upper 16 bits
+	 * @return Always returns false (no overflow possible with set operations)
+	 */
 	private boolean setUpper(int intIdx, int amt) {
 		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
 			oldVal=array.get(intIdx);
@@ -184,15 +224,21 @@ public class CoverageArray2A extends CoverageArray {
 		return array2;
 	}
 	
+	/** Atomic integer array storing packed 16-bit coverage values */
 	public final AtomicIntegerArray array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
 	@Override
 	public int arrayLength(){return array.length();}
 	
+	/**
+	 * Flag indicating whether any coverage value has overflowed the 16-bit limit
+	 */
 	private static boolean OVERFLOWED=false;
 	
+	/** Bit mask (0x0000FFFF) for extracting lower 16-bit coverage values */
 	private static final int lowerMask=0x0000FFFF;
+	/** Bit mask (0xFFFF0000) for extracting upper 16-bit coverage values */
 	private static final int upperMask=0xFFFF0000;
 	
 }

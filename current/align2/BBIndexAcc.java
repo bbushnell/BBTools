@@ -27,6 +27,12 @@ import structures.LongM;
 public final class BBIndexAcc extends AbstractIndex {
 	
 	
+	/**
+	 * Builds and writes a genome index to disk.
+	 * Parses command-line parameters for genome build, chromosome range, and key length,
+	 * then creates an optimized k-mer index for the specified genome.
+	 * @param args Command-line arguments including build, minchrom, maxchrom, and keylen parameters
+	 */
 	public static void main(String[] args){
 		
 		int k=13;
@@ -72,6 +78,17 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Creates a new BBIndexAcc instance for the specified chromosome range.
+	 * Initializes scoring parameters, penalty values, and working arrays
+	 * for efficient alignment operations.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param minChrom_ Minimum chromosome number to index
+	 * @param maxChrom_ Maximum chromosome number to index
+	 * @param kfilter_ K-mer filtering threshold
+	 * @param msa_ Multiple sequence alignment object for scoring
+	 */
 	public BBIndexAcc(int k_, int minChrom_, int maxChrom_, int kfilter_, MSA msa_){
 		super(k_, kfilter_, BASE_HIT_SCORE, minChrom_, maxChrom_, msa_);
 		INV_BASE_KEY_HIT_SCORE=1f/BASE_KEY_HIT_SCORE;
@@ -487,6 +504,21 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Core alignment search method for finding genomic alignment sites.
+	 * Searches both forward and reverse strands across all chromosome blocks,
+	 * applying various filtering and scoring strategies for optimal performance.
+	 *
+	 * @param basesP Forward strand sequence bases
+	 * @param basesM Reverse strand sequence bases
+	 * @param qual Quality scores for bases
+	 * @param baseScoresP Base-specific alignment scores
+	 * @param keyScoresP K-mer-specific alignment scores
+	 * @param offsetsP K-mer positions in the read
+	 * @param obeyLimits Whether to respect search limits for speed
+	 * @param id Read identifier for debugging
+	 * @return List of alignment sites with scores and positions
+	 */
 	public final ArrayList<SiteScore> find(byte[] basesP, byte[] basesM, byte[] qual,  byte[] baseScoresP, int[] keyScoresP, int[] offsetsP, boolean obeyLimits, long id){
 		
 		assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
@@ -1970,6 +2002,14 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Calculates maximum quick score based on k-mer scores and read span.
+	 * Used for rapid alignment quality estimation without full base-by-base scoring.
+	 *
+	 * @param offsets K-mer positions in the read
+	 * @param keyScores K-mer alignment scores
+	 * @return Maximum quick score achievable
+	 */
 	public final int maxQuickScore(int[] offsets, int[] keyScores){
 
 //		int x=offsets.length*BASE_KEY_HIT_SCORE;
@@ -2464,6 +2504,18 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 
+	/**
+	 * Scores alignment extension rightward from the center k-mer.
+	 * Adds scores for consecutive k-mer matches while penalizing indels.
+	 *
+	 * @param locs Genomic locations of k-mer hits
+	 * @param keyScores K-mer alignment scores
+	 * @param centerIndex Index of central k-mer
+	 * @param sizes Hit list sizes for each k-mer
+	 * @param penalizeIndels Whether to apply indel penalties
+	 * @param numHits Total number of hits
+	 * @return Rightward extension score
+	 */
 	private final int scoreRight(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels, int numHits){
 		
 		int score=0;
@@ -2499,6 +2551,17 @@ public final class BBIndexAcc extends AbstractIndex {
 		
 	}
 	
+	/**
+	 * Scores alignment extension leftward from the center k-mer.
+	 * Adds scores for consecutive k-mer matches while penalizing indels.
+	 *
+	 * @param locs Genomic locations of k-mer hits
+	 * @param keyScores K-mer alignment scores
+	 * @param centerIndex Index of central k-mer
+	 * @param sizes Hit list sizes for each k-mer
+	 * @param penalizeIndels Whether to apply indel penalties
+	 * @return Leftward extension score
+	 */
 	private final int scoreLeft(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels){
 		
 		callsToScore++;
@@ -2556,8 +2619,17 @@ public final class BBIndexAcc extends AbstractIndex {
 		return (number&SITE_MASK);
 	}
 
+	/**
+	 * Returns the minimum chromosome in the block containing the specified chromosome
+	 */
 	private static final int minChrom(int chrom){return Tools.max(MINCHROM, chrom&CHROM_MASK_HIGH);}
+	/**
+	 * Returns the base chromosome number for the block containing the specified chromosome
+	 */
 	private static final int baseChrom(int chrom){return Tools.max(0, chrom&CHROM_MASK_HIGH);}
+	/**
+	 * Returns the maximum chromosome in the block containing the specified chromosome
+	 */
 	private static final int maxChrom(int chrom){return Tools.max(MINCHROM, Tools.min(MAXCHROM, chrom|CHROM_MASK_LOW));}
 	
 	
@@ -2615,7 +2687,9 @@ public final class BBIndexAcc extends AbstractIndex {
 	private final int[][] shrinkReturn2=new int[3][];
 	private final int[][] shrinkReturn3=new int[5][];
 	private final int[][] prescanReturn=new int[2][];
+	/** Array for storing pre-computed scores during chromosome block scanning */
 	private final int[] prescoreArray;
+	/** Array for storing hit counts during chromosome block scanning */
 	private final int[] precountArray;
 
 	private final byte[][][] baseScoreArrays=new byte[2][601][];
@@ -2645,6 +2719,12 @@ public final class BBIndexAcc extends AbstractIndex {
 	/** Mask the chromosome's lower bits to get the high bits */
 	static int CHROM_MASK_HIGH=~CHROM_MASK_LOW;
 	
+	/**
+	 * Configures the number of bits used for chromosome encoding.
+	 * Adjusts bit masks and constants used for packing genomic coordinates
+	 * into integer indices.
+	 * @param x Number of bits to allocate for chromosome information
+	 */
 	static void setChromBits(int x){
 		
 		NUM_CHROM_BITS=x;
@@ -2663,21 +2743,34 @@ public final class BBIndexAcc extends AbstractIndex {
 		assert(Integer.numberOfLeadingZeros(SITE_MASK)==(NUM_CHROM_BITS+1)) : Integer.toHexString(SITE_MASK);
 	}
 	
+	/** Number of search cycles based on chromosome range and block structure */
 	private final int cycles;
 
+	/** Base score awarded for each matching k-mer hit */
 	public static final int BASE_HIT_SCORE=100;
+	/** Maximum number of alignment columns to process */
 	public static final int ALIGN_COLUMNS=3000;
+	/** Maximum indel length allowed during alignment */
 	public static int MAX_INDEL=16000; //Max indel length, min 0, default 400; longer is more accurate
+	/** Double the maximum indel length for extended search regions */
 	public static int MAX_INDEL2=2*MAX_INDEL;
 	
+	/** Inverse of base key hit score for weight calculations */
 	private final float INV_BASE_KEY_HIT_SCORE;
+	/** Penalty applied for insertion/deletion events during alignment */
 	private final int INDEL_PENALTY; //default (HIT_SCORE/2)-1
+	/** Multiplier for indel penalty based on indel length */
 	private final int INDEL_PENALTY_MULT; //default 20; penalty for indel length
+	/** Maximum penalty that can be applied for a single misaligned k-mer hit */
 	private final int MAX_PENALTY_FOR_MISALIGNED_HIT;
+	/** Z-score component when only one key is used in alignment */
 	private final int SCOREZ_1KEY;
 	
+	/** Whether to add Z-score component based on read coverage */
 	public static final boolean ADD_SCORE_Z=true; //Increases quality, decreases speed
+	/** Multiplier for Z-score component in final alignment score */
 	public static final int Z_SCORE_MULT=20;
+	/** Multiplier for Y-score component based on alignment span */
 	public static final int Y_SCORE_MULT=10;
 	
 	
@@ -2711,8 +2804,15 @@ public final class BBIndexAcc extends AbstractIndex {
 		MAX_INDEL2=0;
 	}
 	
+	/** Fraction of most frequent k-mers to exclude from searches */
 	static float FRACTION_GENOME_TO_EXCLUDE=0.003f; //Default .04; lower is slower and more accurate
 	
+	/**
+	 * Sets fraction of most frequent k-mers to exclude from searches.
+	 * Highly repetitive k-mers are filtered out to improve search performance
+	 * and reduce false positive alignments.
+	 * @param f Fraction between 0 and 1 representing portion of k-mers to exclude
+	 */
 	public static final void setFractionToExclude(float f){
 		assert(f>=0 && f<1);
 		FRACTION_GENOME_TO_EXCLUDE=f;

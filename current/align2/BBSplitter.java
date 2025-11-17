@@ -59,6 +59,14 @@ public class BBSplitter {
 		clearStatics();
 	}
 	
+	/**
+	 * Processes command line arguments and prepares them for mapping.
+	 * Parses reference file specifications, creates merged reference files,
+	 * and generates output file names based on reference sets.
+	 *
+	 * @param args Command line arguments
+	 * @return Modified arguments array ready for mapper execution
+	 */
 	public static String[] processArgs(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -194,6 +202,12 @@ public class BBSplitter {
 	}
 	
 	
+	/**
+	 * Remakes arguments array by extracting mapping mode and reference specifications.
+	 * Converts single reference argument into multiple ref_name arguments.
+	 * @param args Original command line arguments
+	 * @return Reconstructed arguments with expanded reference specifications
+	 */
 	public static String[] remakeArgs(String[] args){
 		
 		LinkedHashSet<String> set=new LinkedHashSet<String>();
@@ -251,6 +265,14 @@ public class BBSplitter {
 		return args2;
 	}
 	
+	/**
+	 * Processes reference file paths and extracts base names.
+	 * Strips compression extensions and file extensions to create reference set names.
+	 *
+	 * @param b Reference file path or pattern
+	 * @param set Set to store reference names
+	 * @param map Map from reference names to file paths
+	 */
 	private static void processRef(String b, LinkedHashSet<String> set, HashMap<String,LinkedHashSet<String>> map){
 		
 		ArrayList<String> files=(ArrayList<String>)Tools.getFileOrFiles(b, null, true, false, false, false);
@@ -274,6 +296,14 @@ public class BBSplitter {
 		}
 	}
 	
+	/**
+	 * Generates output file arguments based on reference names and basename pattern.
+	 * Replaces '%' in basename pattern with reference names to create output files.
+	 *
+	 * @param nameSet Set of reference names
+	 * @param basename Pattern string containing '%' placeholder
+	 * @return List of out_name=filename arguments for each reference
+	 */
 	public static ArrayList<String> gatherLists(LinkedHashSet<String> nameSet, String basename){
 		if(basename==null){return null;}
 		ArrayList<String> args=new ArrayList<String>();
@@ -286,6 +316,16 @@ public class BBSplitter {
 	}
 	
 	
+	/**
+	 * Merges multiple reference files into a single indexed reference.
+	 * Creates scaffold name prefixes to track which reference each scaffold came from.
+	 * Caches merged references to avoid rebuilding identical combinations.
+	 *
+	 * @param nameSet Set of reference names to merge
+	 * @param nameToFileTable Map from reference names to their file paths
+	 * @param build Build number for reference indexing
+	 * @return Path to merged reference file
+	 */
 	public static String mergeReferences(LinkedHashSet<String> nameSet, HashMap<String, LinkedHashSet<String>> nameToFileTable, int build){
 		LinkedHashSet<String> fnames=new LinkedHashSet<String>();
 //		nameSet.remove("blacklist");
@@ -492,6 +532,21 @@ public class BBSplitter {
 		return set;
 	}
 	
+	/**
+	 * Creates output streams for each reference set based on command line arguments.
+	 * Parses out_name=file arguments and creates corresponding output streams.
+	 * Handles paired-end files and ambiguous read output streams.
+	 *
+	 * @param args Command line arguments containing output specifications
+	 * @param OUTPUT_READS Whether to output reads
+	 * @param OUTPUT_ORDERED_READS Whether to maintain read order
+	 * @param buff Buffer size for output streams
+	 * @param paired Whether input is paired-end
+	 * @param overwrite_ Whether to overwrite existing files
+	 * @param append_ Whether to append to existing files
+	 * @param ambiguous Whether this is for ambiguous reads
+	 * @return Map from reference names to output streams
+	 */
 	public static synchronized HashMap<String, ConcurrentReadOutputStream> makeOutputStreams(String[] args, boolean OUTPUT_READS, boolean OUTPUT_ORDERED_READS,
 			int buff, boolean paired, boolean overwrite_, boolean append_, boolean ambiguous){
 //		assert(false) : Arrays.toString(args);
@@ -541,6 +596,11 @@ public class BBSplitter {
 	}
 	
 	
+	/**
+	 * Creates a table for tracking read counts per reference set.
+	 * Used for statistics collection when splitting reads.
+	 * @return Map from reference set names to count objects
+	 */
 	public static synchronized LinkedHashMap<String, SetCount> makeSetCountTable(){
 		assert(setCountTable==null);
 		HashSet<String> names=getScaffoldAffixes(true);
@@ -550,6 +610,11 @@ public class BBSplitter {
 	}
 	
 	
+	/**
+	 * Creates a table for tracking read counts per scaffold.
+	 * Used for detailed statistics at the scaffold level.
+	 * @return Map from scaffold names to count objects
+	 */
 	public static synchronized LinkedHashMap<String, SetCount> makeScafCountTable(){
 		assert(scafCountTable==null);
 		HashSet<String> names=getScaffoldAffixes(false);
@@ -795,6 +860,14 @@ public class BBSplitter {
 		if(clearA){splitTableA.clear();}
 	}
 	
+	/**
+	 * Updates scaffold-level read count statistics.
+	 * Counts mapped, ambiguous, and assigned reads per scaffold.
+	 *
+	 * @param r Read to count
+	 * @param clearzone Score difference threshold for ambiguity determination
+	 * @param hss0 Reusable set for scaffold name collection
+	 */
 	private static void addToScafCounts(Read r, int clearzone, HashSet<String> hss0){
 		if(r==null || !r.mapped()){return;}
 		assert((scafCountTable!=null)==TRACK_SCAF_STATS) : TRACK_SCAF_STATS;
@@ -851,6 +924,15 @@ public class BBSplitter {
 	
 	//*********************************
 	
+	/**
+	 * Extracts reference set names for primary and secondary alignments of a read pair.
+	 * Returns sets for read1 primary, read1 secondary, read2 primary, read2 secondary.
+	 *
+	 * @param r1 First read of the pair
+	 * @param clearzone Score difference threshold for including secondary alignments
+	 * @param sets Array of HashSets to populate with reference names
+	 * @return Array of sets containing reference names for each alignment category
+	 */
 	public static HashSet<String>[] getSets(Read r1, int clearzone, HashSet<String>[] sets){
 		Read r2=r1.mate;
 		if(!r1.mapped() && (r2==null || !r2.mapped())){return null;}
@@ -894,6 +976,16 @@ public class BBSplitter {
 	}
 	
 	
+	/**
+	 * Extracts scaffold names from read alignments within score threshold.
+	 * Collects all scaffolds where the read aligns within clearzone of the best score.
+	 *
+	 * @param r1 Read to extract scaffold names from
+	 * @param clearzone Score difference threshold for including alignments
+	 * @param set Set to populate with scaffold names
+	 * @param includeMate Whether to include mate's scaffold names
+	 * @return Set of scaffold names within score threshold
+	 */
 	public static HashSet<String> getScaffolds(Read r1, int clearzone, HashSet<String> set, boolean includeMate){
 		Read r2=(includeMate ? r1.mate : null);
 		if(!r1.mapped() && (r2==null || !r2.mapped())){return null;}
@@ -1051,6 +1143,14 @@ public class BBSplitter {
 		return map;
 	}
 	
+	/**
+	 * Clones a read for assignment to a specific reference.
+	 * Currently unimplemented - throws RuntimeException.
+	 *
+	 * @param r Read to clone
+	 * @param ref Reference name for the cloned read
+	 * @return Cloned read assigned to the reference
+	 */
 	private static Read cloneRead(Read r, String ref){
 		throw new RuntimeException("TODO");
 	}
@@ -1077,12 +1177,28 @@ public class BBSplitter {
 		return set;
 	}
 
+	/**
+	 * Adds all file names from a reference set to the master file list.
+	 * Helper method for reference merging process.
+	 *
+	 * @param fnames Master set of all file names
+	 * @param table Map from set names to their file collections
+	 * @param setName Name of the reference set to add
+	 */
 	private static void addNames(LinkedHashSet<String> fnames, HashMap<String, LinkedHashSet<String>> table, String setName){
 		LinkedHashSet<String> set=table.get(setName);
 		if(set==null){return;}
 		for(String s : set){fnames.add(s);}
 	}
 	
+	/**
+	 * Creates a shell script for converting SAM files to sorted, indexed BAM files.
+	 * Generates samtools commands for each SAM/BAM file in the output streams.
+	 *
+	 * @param outname Output script file name
+	 * @param list Additional SAM/BAM files to include
+	 * @param sams Variable arguments of SAM/BAM file names
+	 */
 	public static void makeBamScript(String outname, ArrayList<String> list, String...sams){
 		LinkedHashSet<String> set=new LinkedHashSet<String>();
 		if(sams!=null){
@@ -1162,8 +1278,15 @@ public class BBSplitter {
 		}
 	}
 	
+	/**
+	 * Statistics container for tracking read and base counts per reference set or scaffold.
+	 * Tracks mapped, ambiguous, and assigned counts separately for analysis.
+	 * @author Brian Bushnell
+	 */
 	public static class SetCount implements Comparable<SetCount>{
 		
+		/** Creates a new count tracker for the specified reference name.
+		 * @param s Name of the reference set or scaffold */
 		public SetCount(String s){
 			name=s;
 		}
@@ -1190,16 +1313,34 @@ public class BBSplitter {
 			return name+", "+mappedReads+", "+ambiguousReads+", "+mappedBases+", "+ambiguousBases;
 		}
 		
+		/** Name of the reference set or scaffold */
 		public final String name;
+		/** Number of unambiguously mapped reads */
 		public long mappedReads;
+		/** Number of ambiguously mapped reads */
 		public long ambiguousReads;
+		/** Number of reads assigned to this reference (primary assignment only) */
 		public long assignedReads;
+		/** Number of unambiguously mapped bases */
 		public long mappedBases;
+		/** Number of ambiguously mapped bases */
 		public long ambiguousBases;	
+		/** Number of bases assigned to this reference (primary assignment only) */
 		public long assignedBases;
 		
 	}
 	
+	/**
+	 * Writes read count statistics to a file.
+	 * Outputs mapped, ambiguous, and assigned read counts per reference set or scaffold.
+	 *
+	 * @param fname Output file name
+	 * @param map Map of reference/scaffold names to count objects
+	 * @param header Whether to include column headers
+	 * @param totalReads Total reads processed for percentage calculations
+	 * @param nzo Whether to include only non-zero counts
+	 * @param sort Whether to sort by read count
+	 */
 	public static void printCounts(String fname, LinkedHashMap<String, SetCount> map, boolean header, long totalReads, boolean nzo, boolean sort){
 		final ArrayList<SetCount> list=new ArrayList<SetCount>(map.size());
 		for(String name : map.keySet()){
@@ -1237,6 +1378,8 @@ public class BBSplitter {
 		tsw.poisonAndWait();
 	}
 	
+	/** Resets all static variables to default values.
+	 * Used to clean up state between runs. */
 	static final void clearStatics(){
 
 
@@ -1258,7 +1401,9 @@ public class BBSplitter {
 		MAP_MODE=MAP_NORMAL;
 	}
 
+	/** Table tracking read counts per reference set */
 	public static LinkedHashMap<String, SetCount> setCountTable=null;
+	/** Table tracking read counts per scaffold */
 	public static LinkedHashMap<String, SetCount> scafCountTable=null;
 	
 	/**
@@ -1270,27 +1415,48 @@ public class BBSplitter {
 	 * Holds named output streams for ambiguous (across different references) reads.
 	 */
 	public static HashMap<String, ConcurrentReadOutputStream> streamTableAmbiguous=null;
+	/** Ambiguous read handling mode: unset/default */
 	public static final int AMBIGUOUS2_UNSET=0;
+	/** Ambiguous read handling mode: use first/best alignment only */
 	public static final int AMBIGUOUS2_FIRST=1;
+	/** Ambiguous read handling mode: split reads to separate ambiguous streams */
 	public static final int AMBIGUOUS2_SPLIT=2;
+	/** Ambiguous read handling mode: discard ambiguous reads */
 	public static final int AMBIGUOUS2_TOSS=3;
+	/** Ambiguous read handling mode: randomly assign to one reference */
 	public static final int AMBIGUOUS2_RANDOM=4;
+	/** Ambiguous read handling mode: assign to all matching references */
 	public static final int AMBIGUOUS2_ALL=5;
+	/** Current ambiguous read handling mode */
 	public static int AMBIGUOUS2_MODE=AMBIGUOUS2_UNSET;
+	/** Whether to collect statistics per reference set */
 	public static boolean TRACK_SET_STATS=false;
+	/** Whether to collect statistics per scaffold */
 	public static boolean TRACK_SCAF_STATS=false;
+	/** Output file for scaffold-level statistics */
 	public static String SCAF_STATS_FILE=null;
+	/** Output file for reference set-level statistics */
 	public static String SET_STATS_FILE=null;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files */
 	public static boolean append=false;
+	/** Whether to print verbose output */
 	public static boolean verbose=false;
+	/** Whether to force rebuilding of merged reference files */
 	public static boolean forceRebuild=false;
+	/** Empty read list used as placeholder in output streams */
 	private static final ArrayList<Read> blank=new ArrayList<Read>(0);
 	
+	/** Mapping mode constant for normal BBMap */
 	public static final int MAP_NORMAL=1;
+	/** Mapping mode constant for accurate BBMapAcc */
 	public static final int MAP_ACC=2;
+	/** Mapping mode constant for PacBio BBMapPacBio */
 	public static final int MAP_PACBIO=3;
+	/** Mapping mode constant for PacBio skimmer BBMapPacBioSkimmer */
 	public static final int MAP_PACBIOSKIMMER=4;
+	/** Current mapping mode selection */
 	public static int MAP_MODE=MAP_NORMAL;
 	
 }

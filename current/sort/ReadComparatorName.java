@@ -10,6 +10,9 @@ import stream.Read;
 
 public final class ReadComparatorName extends ReadComparator {
 	
+	/**
+	 * Private constructor to prevent direct instantiation. Use static comparator instance.
+	 */
 	private ReadComparatorName(){}
 	
 	@Override
@@ -18,6 +21,15 @@ public final class ReadComparatorName extends ReadComparator {
 		return ascending*x;
 	}
 	
+	/**
+	 * Core comparison logic for sorting reads by name.
+	 * Null IDs are considered less than non-null IDs.
+	 * For reads with identical names, uses pair number as tiebreaker.
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 */
 	public static int compareInner(Read r1, Read r2) {
 		
 		if(r1.id==null && r2.id==null){return r1.pairnum()-r2.pairnum();}
@@ -28,6 +40,7 @@ public final class ReadComparatorName extends ReadComparator {
 		return x;
 	}
 	
+	/** Sort direction multiplier: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
 	@Override
@@ -35,6 +48,7 @@ public final class ReadComparatorName extends ReadComparator {
 		ascending=(asc ? 1 : -1);
 	}
 
+	/** Singleton instance for name-based read comparison */
 	public static final ReadComparatorName comparator=new ReadComparatorName();
 	
 }

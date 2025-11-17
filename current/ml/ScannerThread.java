@@ -118,6 +118,11 @@ public class ScannerThread extends Thread {
 		}
 	}
 
+	/**
+	 * Runs training epochs for the current network.
+	 * Alternates between training intervals and validation testing.
+	 * @return Number of epochs completed
+	 */
 	private int runEpochs() {
 		mprof.reset();
 		currentEpoch=0;
@@ -152,6 +157,8 @@ public class ScannerThread extends Thread {
 		return currentEpoch;
 	}
 	
+	/** Executes one training interval with backpropagation.
+	 * Selects training subset, launches jobs, gathers results, and applies weight changes. */
 	private void runTrainingInterval() {
 		float weightMult=0.5f;//TODO: Test high and low.  Or maybe 0.5f.
 		assert(training);
@@ -190,6 +197,8 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/** Executes testing interval on validation set without weight updates.
+	 * @param set Sample set to test on */
 	private void runTestingInterval(Sample[] set) {
 //		synchronized(LOCK) {
 			clearStats();
@@ -215,6 +224,7 @@ public class ScannerThread extends Thread {
 //		}
 	}
 	
+	/** Acquires write lock if setLock is enabled */
 	void lock() {
 //		System.err.println("Lock");
 		if(setLock!=null) {
@@ -223,6 +233,7 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/** Releases write lock and acquires read lock if setLock is enabled */
 	void unlock() {
 //		System.err.println("Unlock");
 		if(setLock!=null) {
@@ -233,6 +244,7 @@ public class ScannerThread extends Thread {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Inner thread that processes job launch requests from a queue */
 	private class LaunchThread extends Thread{
 		
 		//Called by start()
@@ -244,6 +256,8 @@ public class ScannerThread extends Thread {
 			}
 		}
 		
+		/** Retrieves next job from launch queue, blocking until available.
+		 * @return Next job data or poison pill to terminate */
 		JobData getJob() {
 			JobData job=null;
 			while(job==null) {
@@ -258,6 +272,16 @@ public class ScannerThread extends Thread {
 			
 	}
 	
+	/**
+	 * Launches training or testing jobs for network evaluation.
+	 * @param net0 Network to evaluate
+	 * @param set Sample set to process
+	 * @param numSamples Number of samples to use
+	 * @param backprop Whether to perform backpropagation
+	 * @param weightMult Weight multiplier for updates
+	 * @param sort Whether to sort samples
+	 * @return Number of jobs launched
+	 */
 	private int launchJobs(CellNet net0, Sample[] set, int numSamples, boolean backprop, 
 			float weightMult, boolean sort) {
 		if(launchInThread) {
@@ -271,6 +295,19 @@ public class ScannerThread extends Thread {
 	}
 	
 	//Does not seem faster...
+	/**
+	 * Internal job launching implementation without setLock.
+	 * Distributes samples across worker threads with optional sorting.
+	 * @param net0 Network to copy for workers
+	 * @param set Sample array to distribute
+	 * @param numSamples_ Requested number of samples
+	 * @param epoch Current training epoch
+	 * @param alpha Learning rate
+	 * @param backprop Whether to perform backpropagation
+	 * @param weightMult Weight multiplier
+	 * @param sort Whether to sort samples per thread
+	 * @return Number of jobs launched
+	 */
 	private int launchJobsInner(CellNet net0, Sample[] set, int numSamples_, int epoch, double alpha, 
 			boolean backprop, float weightMult, boolean sort) {
 		if(setLock!=null) {return launchJobs_SetLock(net0, set, numSamples_, epoch, alpha, backprop, weightMult, sort);}
@@ -341,6 +378,18 @@ public class ScannerThread extends Thread {
 		return jobs;
 	}
 	
+	/**
+	 * Job launching implementation with setLock for thread-safe network sharing.
+	 * @param net0 Network to share across workers
+	 * @param set Sample array to distribute
+	 * @param numSamples_ Number of samples to process
+	 * @param epoch Current training epoch
+	 * @param alpha Learning rate
+	 * @param backprop Whether to perform backpropagation
+	 * @param weightMult Weight multiplier
+	 * @param sort Whether to sort samples
+	 * @return Number of jobs launched
+	 */
 	private int launchJobs_SetLock(CellNet net0, Sample[] set, int numSamples_, int epoch, double alpha, 
 			boolean backprop, float weightMult, boolean sort) {
 		
@@ -439,6 +488,8 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/** Selects subset of training data for current epoch.
+	 * Adjusts sample count based on epoch and optionally sorts samples for hard example mining. */
 	private void selectTrainingSubset() {
 		currentSubset=data.currentSubset(currentEpoch);
 		currentSamples=currentSubset.samples;
@@ -469,12 +520,15 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/** Resets error and confusion matrix statistics to zero */
 	private void clearStats() {
 		rawErrorSum=0;
 		weightedErrorSum=0;
 		tpSum=tnSum=fpSum=fnSum=0;
 	}
 	
+	/** Accumulates statistics from completed job into totals.
+	 * @param job Job results containing error and confusion matrix data */
 	private void gatherStats(JobResults job) {
 		rawErrorSum+=job.errorSum;
 		weightedErrorSum+=job.weightedErrorSum;
@@ -484,6 +538,8 @@ public class ScannerThread extends Thread {
 		fnSum+=job.fnSum;
 	}
 	
+	/** Calculates final error rates and confusion matrix rates from accumulated statistics.
+	 * @param samples Total number of samples processed */
 	private void mergeStats(int samples) {
 		final double invSamples=1.0/samples;
 		final double invOutputs=1.0/data.matrix.numOutputs;
@@ -505,6 +561,8 @@ public class ScannerThread extends Thread {
 		setNetStats(net0);
 	}
 	
+	/** Revises classification cutoff based on target FPR, FNR, or crossover criteria.
+	 * Sorts validation set and calculates optimal cutoff for specified targets. */
 	void reviseCutoff() {
 		
 		SampleSet set=validateSet;
@@ -537,6 +595,8 @@ public class ScannerThread extends Thread {
 		setNetStats(net0);
 	}
 	
+	/** Updates network with current performance statistics.
+	 * @param net Network to update with error rates and cutoff */
 	private void setNetStats(CellNet net) {
 		net.fpRate=(float) fpRate;
 		net.fnRate=(float) fnRate;
@@ -552,96 +612,144 @@ public class ScannerThread extends Thread {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Returns whether execution completed without errors.
+	 * @return True if no error state encountered */
 	public final boolean success(){return !errorState;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Parent trainer that manages this scanner thread */
 	private final Trainer parent;
+	/** Base network dimensions template */
 	private final int[] dims0;
+	/** Minimum allowed network dimensions */
 	private final int[] minDims;
+	/** Maximum allowed network dimensions */
 	private final int[] maxDims;
+	/** Number of different network seeds to evaluate */
 	private final int seedsToEvaluate;
+	/** Number of best performing networks to return */
 	private final int seedsToReturn;
+	/** Initial random seed for first network */
 	private final long netSeed0;
+	/** Priority queue maintaining best networks found so far */
 	private final PriorityQueue<CellNet> heap;
+	/** Queue for returning best network seeds to parent */
 	final ArrayBlockingQueue<ArrayList<Seed>> returnQueue;
 	
+	/** Current network being evaluated and trained */
 	private CellNet net0;//Network being evaluated
 
 	/*--------------------------------------------------------------*/
 
+	/** Training data subset for this thread */
 	private SampleSet data;
+	/** Validation data set for performance testing */
 	private SampleSet validateSet;
 	
+	/** Current training data subset being used */
 	private Subset currentSubset;
+	/** Array of samples in current subset */
 	private Sample[] currentSamples;
 	
+	/** Lock for thread-safe network access (null if not using locks) */
 	private final ReentrantReadWriteLock setLock;
 	
 //	private CellNet bestNetwork;//Best observed network
 
 	/*--------------------------------------------------------------*/
 	
+	/** Number of parallel jobs to create per epoch */
 	private final int jobsPerEpoch;
 	
+	/** Whether to process job results in sequential order for determinism */
 	private final boolean orderedJobs; //Without ordered, very very slight nondeterminism.
+	/** Queue receiving completed job results from workers */
 	private final ArrayBlockingQueue<JobResults> jobResultsQueue;
+	/** Queue sending job data to worker threads */
 	private final ArrayBlockingQueue<JobData> workerQueue;
+	/** Queue for job launch requests when using separate launch thread */
 	private final ArrayBlockingQueue<JobData> launchQueue;
+	/** Performance profiler with 13 timing checkpoints */
 	final Profiler mprof=new Profiler("M", 13);
 	
+	/** Whether this thread performs training (vs testing only) */
 	private final boolean training;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of training epochs per network */
 	final int maxEpochs;
+	/** Maximum number of samples to use for training */
 	final int maxSamples;
+	/** Target error rate for early stopping */
 	final float targetError;
+	/** Target false positive rate for cutoff optimization */
 	final float targetFPR;
+	/** Target false negative rate for cutoff optimization */
 	final float targetFNR;
+	/** Multiplier for crossover-based cutoff calculation */
 	final float crossoverFpMult;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Whether to sort all samples for hard example mining */
 	final boolean sortAll;
+	/** Whether to enable sample sorting */
 	final boolean sort;
+	/** Whether to perform sorting within worker threads */
 	final boolean sortInThread;
+	/** Whether to shuffle subsets when sortInThread is enabled */
 	final boolean shuffleSubset; //Only if sortInThread is true
+	/** Whether to launch jobs using separate launch thread */
 	final boolean launchInThread;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Learning rate for weight updates */
 	final double alpha;
 	
+	/** Fraction of data to process per epoch */
 	private final float fractionPerEpoch;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Best error rate observed during training */
 	float bestErrorRate=999;
+	/** Best false negative rate observed */
 	float bestFNR=999;
 
+	/** Sum of raw errors across all processed samples */
 	double rawErrorSum=0;
+	/** Sum of weighted errors across all processed samples */
 	double weightedErrorSum=0;
 	long tpSum=0, tnSum=0, fpSum=0, fnSum=0;
 
+	/** Raw error rate calculated from rawErrorSum */
 	double rawErrorRate=999f;
+	/** Weighted error rate calculated from weightedErrorSum */
 	double weightedErrorRate=999f;
 	
 	double fpRate=0, fnRate=0, tpRate, tnRate, crossover;
+	/** Last calculated cutoff threshold for target performance */
 	double lastCutoffForTarget=1.0f;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of samples to process in current epoch */
 	private int samplesThisEpoch=-1;
+	/** Whether to run validation testing in current epoch */
 	private boolean validateThisEpoch=false;
+	/** Current training epoch number */
 	private int currentEpoch=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Random number generator for network generation */
 	final Random randy;
 	
 	/*--------------------------------------------------------------*/

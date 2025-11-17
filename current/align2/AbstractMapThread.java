@@ -167,12 +167,42 @@ public abstract class AbstractMapThread extends Thread {
 		PROCESS_EDIT_FILTER=(SUBFILTER>=0 || DELFILTER>=0 || INSFILTER>=0 || INDELFILTER>=0 || DELLENFILTER>=0 || INSLENFILTER>=0 || EDITFILTER>=0 || NFILTER>=0);
 	}
 	
+	/**
+	 * Returns the maximum number of columns in the alignment matrix.
+	 * Used to configure dynamic programming matrix dimensions for slow alignment.
+	 * @return Maximum columns allowed in alignment matrix
+	 */
 	public abstract int ALIGN_COLUMNS();
+	/**
+	 * Returns the maximum number of rows in the alignment matrix.
+	 * Used to configure dynamic programming matrix dimensions for slow alignment.
+	 * @return Maximum rows allowed in alignment matrix
+	 */
 	public abstract int ALIGN_ROWS();
+	/**
+	 * Returns the clearzone threshold for ambiguous hit filtering.
+	 * Sites with scores within this range of the best score are considered ambiguous.
+	 * @return Clearzone threshold value for scoring
+	 */
 	abstract int CLEARZONE1();
 	
+	/**
+	 * Returns the index used by this mapping thread for k-mer lookups.
+	 * Each thread may have its own index instance for thread safety.
+	 * @return The AbstractIndex instance for this thread
+	 */
 	abstract AbstractIndex index();
 	
+	/**
+	 * Applies post-alignment filtering pipeline to a mapped read.
+	 * Performs MAPQ filtering, identity filtering, and edit distance filtering.
+	 * Updates read mapping status and scores based on filter results.
+	 *
+	 * @param r The read to filter
+	 * @param basesM Reverse complement bases for the read
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 */
 	public final void postFilterRead(Read r, byte[] basesM, int maxImperfectSwScore, int maxSwScore){
 		if(!r.mapped() || r.perfect()){return;}
 		assert(Read.CHECKSITES(r, basesM));
@@ -215,6 +245,17 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Ensures that secondary site scores have match strings generated.
+	 * Generates match strings for sites that will be printed as secondary alignments.
+	 * Removes sites that cannot have valid match strings generated.
+	 *
+	 * @param r The read with sites to process
+	 * @param basesM Reverse complement bases for the read
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 * @return Number of sites removed due to match string generation failure
+	 */
 	final int ensureMatchStringsOnSiteScores(Read r, byte[] basesM, int maxImperfectSwScore, int maxSwScore){
 		if(!r.mapped() || r.numSites()<1){return 0;}
 		int removed=0;
@@ -288,6 +329,15 @@ public abstract class AbstractMapThread extends Thread {
 		return removed;
 	}
 	
+	/**
+	 * Filters reads based on mapping quality (MAPQ) scores.
+	 * Removes reads with MAPQ below specified thresholds for paired and unpaired reads.
+	 *
+	 * @param r The read to filter
+	 * @param minMapq Minimum MAPQ for paired reads
+	 * @param minMapqUnpaired Minimum MAPQ for unpaired reads
+	 * @return true if the read was filtered (removed), false otherwise
+	 */
 	public final boolean processMapqFilter(Read r, int minMapq, int minMapqUnpaired) {
 		if(minMapq<1 && minMapqUnpaired<1 || !r.mapped()) {return false;}
 		int mapq=SamLine.toMapq(r, null);
@@ -305,6 +355,17 @@ public abstract class AbstractMapThread extends Thread {
 	}
 
 	
+	/**
+	 * Filters reads and sites based on sequence identity percentage.
+	 * Removes alignments below the configured identity threshold.
+	 * Requires match strings to calculate identity.
+	 *
+	 * @param r The read to filter
+	 * @param basesM Reverse complement bases for the read
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 * @return true if the primary site was removed, false otherwise
+	 */
 	public final boolean processIDFilter(Read r, byte[] basesM, int maxImperfectSwScore, int maxSwScore){
 		if(IDFILTER<=0){return false;}
 		if(!r.mapped() || r.perfect()){return false;}
@@ -346,6 +407,17 @@ public abstract class AbstractMapThread extends Thread {
 		return removedTop;
 	}
 	
+	/**
+	 * Filters reads based on specific edit distance criteria.
+	 * Can filter on substitutions, insertions, deletions, indels, and N-calls.
+	 * Each edit type has configurable maximum thresholds.
+	 *
+	 * @param r The read to filter
+	 * @param basesM Reverse complement bases for the read
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 * @return true if the primary site was removed, false otherwise
+	 */
 	public final boolean processEditFilter(Read r, byte[] basesM, int maxImperfectSwScore, int maxSwScore){
 		if(!PROCESS_EDIT_FILTER || !r.mapped() || r.match==null || r.perfect()){return false;}
 		assert(r.match!=null) : "Edit Filter does not work with cigar strings disabled.";
@@ -418,6 +490,12 @@ public abstract class AbstractMapThread extends Thread {
 //		run2();
 //	}
 	
+	/**
+	 * Main thread execution method that processes read lists from the input stream.
+	 * Handles batch processing of reads with statistics collection, applies trimming,
+	 * performs mapping operations, and distributes results to output streams.
+	 * Continues until all input is consumed.
+	 */
 	public final void run() {
 		//System.err.println("Waiting on a list... (initial)");
 		
@@ -637,6 +715,15 @@ public abstract class AbstractMapThread extends Thread {
 		finish();
 	}
 	
+	/**
+	 * Distributes a processed read list to appropriate output streams.
+	 * Routes reads to mapped, unmapped, and blacklisted output streams based on mapping status.
+	 * Handles special processing for splitter statistics and attachment clearing.
+	 *
+	 * @param readlist List of reads to output
+	 * @param black Whether blacklist filtering is enabled
+	 * @param listNumID Unique identifier for this read list
+	 */
 	private final void writeList(ArrayList<Read> readlist, boolean black, long listNumID){
 		if(outStreamMapped!=null){
 			ArrayList<Read> x=new ArrayList<Read>(readlist.size());
@@ -1194,6 +1281,17 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Attempts to rescue the unmapped mate of a paired-end read using the mapped anchor.
+	 * Searches near the anchor alignment for potential sites for the loose read.
+	 * Uses distance constraints and strand orientation rules for paired-end sequencing.
+	 *
+	 * @param anchor The successfully mapped read
+	 * @param loose The unmapped read to rescue
+	 * @param basesP Forward strand bases of loose read
+	 * @param basesM Reverse complement bases of loose read
+	 * @param searchDist Maximum distance to search from anchor
+	 */
 	final void rescue(Read anchor, Read loose, byte[] basesP, byte[] basesM, int searchDist){
 		
 		if(mappedRetained2>1000 && numMated*20L<mappedRetained2){return;}//skip rescue; mating is not working.
@@ -1359,6 +1457,15 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Limits the number of alignment sites retained for a read.
+	 * Applies secondary site score filtering when printing secondary alignments.
+	 * Removes sites below configurable score thresholds.
+	 *
+	 * @param r The read whose site list to cap
+	 * @param cap Maximum number of sites to retain
+	 * @param printSecondary Whether secondary alignments will be printed
+	 */
 	protected static final void capSiteList(Read r, int cap, boolean printSecondary){
 		if(r==null || r.sites==null || cap<0){return;}
 		if(cap==0){r.sites=null;}
@@ -1381,6 +1488,14 @@ public abstract class AbstractMapThread extends Thread {
 //		assert(r.list.size()<2) : "\n"+max+", "+min+", "+r.list+"\n";
 	}
 	
+	/**
+	 * Removes duplicate alignment sites that may result from realignment processes.
+	 * Compares chromosome, strand, and coordinates to identify duplicates.
+	 * Logs anomalous duplicate detection for debugging.
+	 *
+	 * @param r The read to deduplicate sites for
+	 * @return Number of duplicate sites removed
+	 */
 	protected final static int removeDuplicateBestSites(Read r){
 		int x=0;
 		if(r.numSites()<2){return 0;}
@@ -1404,6 +1519,12 @@ public abstract class AbstractMapThread extends Thread {
 		return x;
 	}
 	
+	/**
+	 * Removes unmapped reads from a read list.
+	 * Checks both reads in paired-end cases to determine unmapped status.
+	 * Sets unmapped reads to null in the list.
+	 * @param list List of reads to filter
+	 */
 	protected final static void removeUnmapped(ArrayList<Read> list){
 		for(int i=0; i<list.size(); i++){
 			Read r=list.get(i);
@@ -1415,6 +1536,12 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Removes reads that map to blacklisted regions from the output list.
+	 * Uses the global blacklist to determine which reads to exclude.
+	 * Sets blacklisted reads to null in the list.
+	 * @param list List of reads to filter
+	 */
 	protected final static void removeBlacklisted(ArrayList<Read> list){
 		for(int i=0; i<list.size(); i++){
 			Read r=list.get(i);
@@ -1436,8 +1563,37 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Trims a list of alignment sites based on scoring criteria.
+	 * Implementation-specific algorithm for removing low-quality sites.
+	 * Balances performance with alignment accuracy.
+	 *
+	 * @param list List of sites to trim
+	 * @param retainPaired Whether to retain sites with paired scores
+	 * @param maxScore Maximum score in the list
+	 * @param specialCasePerfect Whether perfect matches get special handling
+	 * @param minSitesToRetain Minimum sites that must be kept
+	 * @param maxSitesToRetain Maximum sites that can be kept
+	 * @return Highest score among remaining sites
+	 */
 	public abstract int trimList(ArrayList<SiteScore> list, boolean retainPaired, int maxScore, boolean specialCasePerfect, int minSitesToRetain, int maxSitesToRetain);
 	
+	/**
+	 * Advanced site list trimming with multiple scoring criteria.
+	 * Uses area-under-curve calculations and configurable thresholds.
+	 * Handles both extended and standard scoring systems.
+	 *
+	 * @param list List of sites to trim
+	 * @param retainPaired Whether to retain sites with paired scores
+	 * @param retainSemiperfect Whether to retain semiperfect matches
+	 * @param maxScore Maximum score in the list
+	 * @param specialCasePerfect Whether perfect matches get special handling
+	 * @param minSitesToRetain Minimum sites that must be kept
+	 * @param maxSitesToRetain Maximum sites that can be kept
+	 * @param indexUsesExtendedScore Whether extended scoring is enabled
+	 * @param thresh Score threshold ratio for trimming
+	 * @return Highest score among remaining sites
+	 */
 	public final static int trimListAdvanced(ArrayList<SiteScore> list, boolean retainPaired, boolean retainSemiperfect, int maxScore, boolean specialCasePerfect,
 			int minSitesToRetain, int maxSitesToRetain, boolean indexUsesExtendedScore, float thresh){
 		if(list==null || list.size()==0){return -99999;}
@@ -1530,6 +1686,12 @@ public abstract class AbstractMapThread extends Thread {
 		return ambiguous;
 	}
 	
+	/**
+	 * Calculates the number of bases trimmed from a read during quality trimming.
+	 * Used for statistics collection when untrimming is enabled.
+	 * @param r The read to check for trimming information
+	 * @return Number of bases that were trimmed from this read
+	 */
 	int calcTrimmed(Read r){
 		assert(UNTRIM && (TRIM_LEFT || TRIM_RIGHT));
 		if(r==null || r.getObjectClass()!=TrimRead.class){return 0;}
@@ -1838,6 +2000,16 @@ public abstract class AbstractMapThread extends Thread {
 	
 	public abstract void processRead(Read r, final byte[] basesM);
 	
+	/**
+	 * Legacy clearzone application for ambiguous read scoring.
+	 * Applies score penalties based on proximity to secondary alignments.
+	 *
+	 * @deprecated Replaced by applyClearzone3 with improved algorithm
+	 * @param r The read to apply clearzone penalties to
+	 * @param CLEARZONE3 The clearzone threshold value
+	 * @param INV_CLEARZONE3 Inverse of the clearzone for calculations
+	 * @return true if penalties were applied
+	 */
 	@Deprecated
 	protected final static boolean applyClearzone3_old(Read r, int CLEARZONE3, float INV_CLEARZONE3){
 		
@@ -1886,6 +2058,16 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Applies clearzone scoring penalties to reduce confidence in ambiguous alignments.
+	 * Uses asymptotic penalty calculation based on score differences with secondary sites.
+	 * Helps distinguish between truly unique and ambiguous alignments.
+	 *
+	 * @param r The unpaired read to apply penalties to
+	 * @param CLEARZONE3 The clearzone threshold value
+	 * @param INV_CLEARZONE3 Inverse of the clearzone for calculations
+	 * @return true if penalties were applied to the read scores
+	 */
 	protected final boolean applyClearzone3(Read r, int CLEARZONE3, float INV_CLEARZONE3){
 		
 		assert(!r.paired()); //This is currently for unpaired reads
@@ -1959,6 +2141,17 @@ public abstract class AbstractMapThread extends Thread {
 //	}
 	
 	
+	/**
+	 * Calculates the clearzone penalty fraction based on score differences.
+	 * Uses polynomial scaling to determine penalty severity.
+	 * Higher penalties applied when scores are very close together.
+	 *
+	 * @param score1 Primary alignment score
+	 * @param score2 Secondary alignment score
+	 * @param CLEARZONE3 The clearzone threshold value
+	 * @param INV_CLEARZONE3 Inverse of the clearzone for calculations
+	 * @return Penalty fraction between 0 and 1
+	 */
 	protected float calcCZ3_fraction(int score1, int score2, int CLEARZONE3, float INV_CLEARZONE3){
 		
 		int dif=score1-score2;
@@ -1985,6 +2178,21 @@ public abstract class AbstractMapThread extends Thread {
 	
 	
 
+	/**
+	 * Final pairing step that validates distance and strand constraints for paired-end reads.
+	 * Calculates paired scores based on individual alignment scores and insert size deviation.
+	 * Applies strand orientation rules and distance limits for valid pairs.
+	 *
+	 * @param r First read of the pair
+	 * @param r2 Second read of the pair
+	 * @param trim Whether to trim sites after pairing
+	 * @param setScore Whether to update site scores with paired scores
+	 * @param MAX_PAIR_DIST Maximum allowed distance between paired reads
+	 * @param AVERAGE_PAIR_DIST Expected average distance between paired reads
+	 * @param SAME_STRAND_PAIRS Whether paired reads should be on the same strand
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS Whether to enforce strand orientation rules
+	 * @param maxTrimSitesToRetain Maximum sites to retain after trimming
+	 */
 	protected static void pairSiteScoresFinal(Read r, Read r2, boolean trim, boolean setScore, int MAX_PAIR_DIST, int AVERAGE_PAIR_DIST,
 			boolean SAME_STRAND_PAIRS, boolean REQUIRE_CORRECT_STRANDS_PAIRS, int maxTrimSitesToRetain){
 		
@@ -2163,6 +2371,20 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Determines if two alignment sites can form a valid paired-end alignment.
+	 * Checks chromosome compatibility, strand orientation rules, and distance constraints.
+	 * Used during the pairing process to filter invalid combinations.
+	 *
+	 * @param ss1 First read's alignment site
+	 * @param ss2 Second read's alignment site
+	 * @param len1 Length of first read
+	 * @param len2 Length of second read
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS Whether to enforce strand rules
+	 * @param SAME_STRAND_PAIRS Whether paired reads should be on same strand
+	 * @param MAX_PAIR_DIST Maximum allowed distance between reads
+	 * @return true if the sites can form a valid pair
+	 */
 	protected final static boolean canPair(SiteScore ss1, SiteScore ss2, int len1, int len2,
 			boolean REQUIRE_CORRECT_STRANDS_PAIRS, boolean SAME_STRAND_PAIRS, int MAX_PAIR_DIST){
 		if(ss1.chrom!=ss2.chrom){return false;}
@@ -2548,6 +2770,15 @@ public abstract class AbstractMapThread extends Thread {
 		return initial-ssl.size();
 	}
 	
+	/**
+	 * Removes alignment sites that overlap with the original known position.
+	 * Used when testing mapping accuracy or looking for next-best alignments.
+	 * Prevents reads from mapping back to their synthetic origin.
+	 *
+	 * @param ssl List of sites to filter
+	 * @param original The original/known correct position to avoid
+	 * @return Number of sites removed
+	 */
 	protected static final int forbidSelfMapping(ArrayList<SiteScore> ssl, SiteScore original){
 //		assert(original!=null);
 		if(ssl==null || ssl.isEmpty() || original==null){return 0;}
@@ -2667,6 +2898,14 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Applies a score penalty to a read and all its alignment sites.
+	 * Reduces mapping score and site scores by the specified penalty amount.
+	 * Used after tip penalty calculation to adjust alignment confidence.
+	 *
+	 * @param r The read to penalize
+	 * @param penalty Amount to subtract from scores
+	 */
 	public static void applyScorePenalty(Read r, int penalty){
 		if(penalty>0){
 			r.mapScore-=penalty;
@@ -2759,6 +2998,19 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Determines if an alignment site is correct within a distance threshold.
+	 * Compares both start and stop positions to the known true position.
+	 * Used for accuracy evaluation of synthetic read alignments.
+	 *
+	 * @param ss The alignment site to check
+	 * @param trueChrom True chromosome number
+	 * @param trueStrand True strand (0 for plus, 1 for minus)
+	 * @param trueStart True alignment start position
+	 * @param trueStop True alignment stop position
+	 * @param thresh Maximum allowed distance for correctness
+	 * @return true if the site is correct within the threshold
+	 */
 	public static final boolean isCorrectHit(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh){
 //		boolean b=(ss.chrom==trueChrom && ss.strand==trueStrand);
 		if(ss.chrom!=trueChrom || ss.strand!=trueStrand){return false;}
@@ -2779,6 +3031,19 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Determines if an alignment site is loosely correct within a distance threshold.
+	 * Only requires either start OR stop position to be within threshold.
+	 * More lenient than isCorrectHit for partially correct alignments.
+	 *
+	 * @param ss The alignment site to check
+	 * @param trueChrom True chromosome number
+	 * @param trueStrand True strand (0 for plus, 1 for minus)
+	 * @param trueStart True alignment start position
+	 * @param trueStop True alignment stop position
+	 * @param thresh Maximum allowed distance for correctness
+	 * @return true if either endpoint is correct within the threshold
+	 */
 	public static final boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh){
 //		boolean b=(ss.chrom==trueChrom && ss.strand==trueStrand);
 		if(ss.chrom!=trueChrom || ss.strand!=trueStrand){return false;}
@@ -2797,12 +3062,26 @@ public abstract class AbstractMapThread extends Thread {
 //		return true;
 	}
 	
+	/**
+	 * Creates a match string representing a perfect alignment with no mismatches.
+	 * Returns a byte array filled with 'm' characters indicating matches.
+	 * @param len Length of the match string to create
+	 * @return Byte array of 'm' characters representing perfect match
+	 */
 	protected static final byte[] makePerfectMatchString(int len){
 		byte[] r=new byte[len];
 		Arrays.fill(r, (byte)'m');
 		return r;
 	}
 	
+	/**
+	 * Calculates the absolute difference between two integers.
+	 * Helper method for distance calculations in alignment analysis.
+	 *
+	 * @param a First integer
+	 * @param b Second integer
+	 * @return Absolute difference |a - b|
+	 */
 	protected static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
@@ -2823,6 +3102,14 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Removes alignment sites that contain indels longer than the specified maximum.
+	 * Used when strict indel length limits are enforced for downstream processing.
+	 *
+	 * @param list List of alignment sites to filter
+	 * @param maxlen Maximum allowed indel length
+	 * @return Number of sites removed
+	 */
 	protected static final int removeLongIndels(ArrayList<SiteScore> list, int maxlen){
 		if(list==null || list.size()<1){return 0;}
 		int removed=0;
@@ -2836,6 +3123,14 @@ public abstract class AbstractMapThread extends Thread {
 		return removed;
 	}
 	
+	/**
+	 * Checks if a match string contains any indel longer than the specified maximum.
+	 * Scans for consecutive insertion (I), deletion (D), or other indel characters.
+	 *
+	 * @param match The match string to examine
+	 * @param maxlen Maximum allowed indel length
+	 * @return true if any indel exceeds the maximum length
+	 */
 	protected static final boolean hasLongIndel(byte[] match, int maxlen){
 		if(match==null || match.length<maxlen){return false;}
 		byte prev='0';
@@ -2864,16 +3159,32 @@ public abstract class AbstractMapThread extends Thread {
 		ArrayList<Read> subreads=r.split(minlen, maxlen);
 	}
 	
+	/**
+	 * Returns whether this thread has completed all processing.
+	 * Thread-safe method for checking completion status.
+	 * @return true if the thread has finished processing
+	 */
 	public final synchronized boolean finished(){return finished;}
 	
+	/**
+	 * Returns whether this thread is still actively processing.
+	 * Thread-safe method for checking active status.
+	 * @return true if the thread is still working
+	 */
 	public final synchronized boolean working(){return !finished;}
 	
+	/**
+	 * Marks this thread as finished and notifies any waiting threads.
+	 * Thread-safe method for signaling completion of processing.
+	 * Wakes up threads waiting on this object's monitor.
+	 */
 	final synchronized void finish(){
 		assert(!finished);
 		finished=true;
 		notifyAll();
 	}
 	
+	/** Thread completion status flag */
 	private boolean finished=false;
 	
 	private static final float[] CZ3_MULTS=new float[] {0f, 1f, .75f, 0.5f, 0.25f, 0.125f, 0.0625f};
@@ -2898,58 +3209,97 @@ public abstract class AbstractMapThread extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	
+	/** Multi-state alignment algorithm type identifier */
 	public final String MSA_TYPE;
+	/** Multi-state aligner instance for dynamic programming alignment */
 	final MSA msa;
+	/** Statistics collector for read processing metrics */
 	public final ReadStats readstats;
+	/** Coverage calculator for depth-of-coverage statistics */
 	public final CoveragePileup pileup;
 	public final int POINTS_MATCH, POINTS_MATCH2;
+	/** Length of k-mers used for initial sequence indexing and lookup */
 	public final int KEYLEN;
 	
+	/** Whether to only accept perfect matches with no mismatches */
 	protected final boolean PERFECTMODE; //Only look for perfect matches
+	/** Whether to only accept perfect and semiperfect matches */
 	protected final boolean SEMIPERFECTMODE; //Only look for perfect and semiperfect matches
+	/** Whether to prevent reads from mapping to their known origin position */
 	protected final boolean FORBID_SELF_MAPPING; //Do not allow reads to map to their official origin.  Allows you to find next-best matches (when supported)
+	/** Whether to reverse-complement the mate read prior to mapping */
 	protected final boolean RCOMP_MATE; //Reverse-complement mate prior to mapping
+	/** Whether to reverse-complement reads before mapping */
 	protected static boolean RCOMP=false;
 	/** True if this thread should generate a match string for the best match */
 	protected final boolean MAKE_MATCH_STRING;
 	
+	/** Whether to exclude unmapped reads from primary output stream */
 	protected final boolean OUTPUT_MAPPED_ONLY;
+	/** Whether to exclude reads mapping to blacklisted regions from output */
 	protected final boolean DONT_OUTPUT_BLACKLISTED_READS;
+	/** Whether to output secondary alignment sites in addition to primary */
 	protected final boolean PRINT_SECONDARY_ALIGNMENTS;
+	/** Whether to use fast match string generation for improved performance */
 	protected final boolean QUICK_MATCH_STRINGS;
+	/** Whether to use site-specific match strings for primary alignments */
 	protected final boolean USE_SS_MATCH_FOR_PRIMARY=true;
 
+	/** Maximum number of alignment sites to retain for output */
 	protected final int MAX_SITESCORES_TO_PRINT;
 	
 	/** Scores below the (max possible alignment score)*(MINIMUM_ALIGNMENT_SCORE_RATIO) will be discarded.
 	 * Default: 0.4 for synthetic data. */
 	protected final float MINIMUM_ALIGNMENT_SCORE_RATIO;
+	/** Minimum score ratio applied before mate rescue attempts */
 	protected final float MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE;
+	/** Minimum score ratio for paired-end alignments, typically more lenient */
 	protected final float MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED;
 
+	/** Target density of k-mers to extract from reads for indexing */
 	protected final float keyDensity;
+	/** Maximum k-mer density allowed for short reads */
 	protected final float maxKeyDensity;
+	/** Minimum k-mer density required for effective indexing */
 	protected final float minKeyDensity;
+	/** Maximum number of k-mers to extract from a single read */
 	protected final int maxDesiredKeys;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Extended clearzone threshold for advanced ambiguous alignment filtering */
 	final int CLEARZONE1e;
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Minimum number of approximate hits required to retain a read for slow alignment
+	 */
 	final int MIN_APPROX_HITS_TO_KEEP;
+	/** Whether to use extended scoring system with quality-based adjustments */
 	final boolean USE_EXTENDED_SCORE;
+	/** Whether to generate base scores from quality values during alignment */
 	public static final boolean GENERATE_BASE_SCORES_FROM_QUALITY=AbstractIndex.GENERATE_BASE_SCORES_FROM_QUALITY;
+	/** Base score awarded for each matching k-mer hit */
 	final int BASE_HIT_SCORE;
+	/** Base score for k-mer hits adjusted by k-mer length */
 	final int BASE_KEY_HIT_SCORE;
+	/**
+	 * Whether to use affine gap penalty scoring for more accurate alignment scores
+	 */
 	final boolean USE_AFFINE_SCORE;
+	/** Maximum expected alignment length to prevent matrix overflow */
 	final int EXPECTED_LEN_LIMIT;
+	/** Maximum indel size allowed in alignments */
 	final int MAX_INDEL;
 	
+	/** Whether to trim low-scoring sites from alignment lists */
 	final boolean TRIM_LIST;
+	/** Maximum distance to search for tip deletions at read ends */
 	final int TIP_DELETION_SEARCH_RANGE;
+	/** Whether to search for and correct deletions at read tips */
 	final boolean FIND_TIP_DELETIONS;
+	/** Abstract reference to maximum alignment matrix columns for this thread */
 	final int ALIGN_COLUMNS_ABSTRACT;
 	
 	/*--------------------------------------------------------------*/
@@ -2973,6 +3323,7 @@ public abstract class AbstractMapThread extends Thread {
 	protected final boolean UNTRIM;
 	/** Trim until 2 consecutive bases are encountered with at least this quality. */
 	protected final float TRIM_QUAL;
+	/** Error rate equivalent of the quality trimming threshold */
 	protected final float TRIM_ERROR_RATE;
 	/** Don't trim reads to be shorter than this */
 	protected final int TRIM_MIN_LENGTH;
@@ -3010,71 +3361,113 @@ public abstract class AbstractMapThread extends Thread {
 	/** Bandwidth of banded MSA */
 	protected final int BANDWIDTH;
 	
+	/** Whether the input reads are paired-end */
 	protected final boolean PAIRED;
+	/** Whether to enforce correct strand orientation for paired-end reads */
 	protected final boolean REQUIRE_CORRECT_STRANDS_PAIRS;
+	/** Whether paired-end reads should align to the same strand */
 	protected final boolean SAME_STRAND_PAIRS;
 	
+	/** Bloom filter for contamination detection and filtering */
 	protected final BloomFilter bloomFilter;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Initial estimate of average distance between paired-end reads */
 	static int INITIAL_AVERAGE_PAIR_DIST=100;
+	/** Current estimate of average distance between paired-end reads */
 	protected int AVERAGE_PAIR_DIST;
+	/** Current average rate of successful paired-end read pairing */
 	protected float AVERAGE_PAIRING_RATE=0;
 
 	/** Extra padding for when slow alignment fails. */
 	protected int EXTRA_PADDING=10;
 	
+	/** Whether to generate k-mer scores based on base quality values */
 	protected final boolean GENERATE_KEY_SCORES_FROM_QUALITY;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to apply score penalties for ambiguous base calls */
 	protected static boolean PENALIZE_AMBIG=true;
+	/** Maximum number of substitutions allowed (-1 for unlimited) */
 	protected static int SUBFILTER=-1;
+	/** Maximum number of deletion events allowed (-1 for unlimited) */
 	protected static int DELFILTER=-1;
+	/** Maximum number of insertion events allowed (-1 for unlimited) */
 	protected static int INSFILTER=-1;
+	/** Maximum total number of indel events allowed (-1 for unlimited) */
 	protected static int INDELFILTER=-1;
+	/** Maximum length of individual deletions allowed (-1 for unlimited) */
 	protected static int DELLENFILTER=-1;
+	/** Maximum length of individual insertions allowed (-1 for unlimited) */
 	protected static int INSLENFILTER=-1;
+	/** Maximum total edit distance allowed (-1 for unlimited) */
 	protected static int EDITFILTER=-1;
+	/** Maximum number of N-calls allowed in alignments (-1 for unlimited) */
 	protected static int NFILTER=-1;
 	
+	/** Whether output will be in SAM format */
 	protected static boolean OUTPUT_SAM=false;
 	
+	/** Score ratio threshold for retaining secondary alignment sites */
 	protected static float SECONDARY_SITE_SCORE_RATIO=.95f;
+	/** Whether to print secondary alignments only for ambiguous reads */
 	protected static boolean PRINT_SECONDARY_ALIGNMENTS_ONLY_FOR_AMBIGUOUS_READS=false;
 	
+	/** Whether to calculate detailed mapping and accuracy statistics */
 	protected static boolean CALC_STATISTICS=true;
+	/**
+	 * Minimum allowed distance between paired-end reads (negative allows overlap)
+	 */
 	protected static int MIN_PAIR_DIST=-160;
+	/** Maximum allowed distance between paired-end reads */
 	protected static int MAX_PAIR_DIST=32000;
+	/** Maximum distance to search when attempting mate rescue */
 	protected static int MAX_RESCUE_DIST=1200;
+	/** Maximum number of mismatches allowed during mate rescue */
 	protected static int MAX_RESCUE_MISMATCHES=32;
 	/** IMPORTANT!!!!  This option causes non-deterministic output. */
 	protected static boolean DYNAMIC_INSERT_LENGTH=true;
 	/** Counts undefined bases. */
 	protected static final boolean DISCARD_MOSTLY_UNDEFINED_READS=true;
+	/** Minimum average quality score required for read processing */
 	protected static float MIN_AVERAGE_QUALITY=0;
+	/** Number of bases to consider when calculating minimum average quality */
 	protected static int MIN_AVERAGE_QUALITY_BASES=0;
+	/** Whether to attach timing information to processed reads */
 	protected static boolean TIME_TAG=false;
+	/** Whether to clear attached objects from reads before output */
 	protected static boolean CLEAR_ATTACHMENT=true;
 	
+	/** Minimum quality required at read tips for tip deletion detection */
 	protected static final byte TIP_DELETION_MIN_QUALITY=6;
+	/** Minimum average quality required at read tips for tip deletion detection */
 	protected static final byte TIP_DELETION_AVG_QUALITY=14;
+	/** Maximum length of read tips to examine for deletion detection */
 	protected static final int TIP_DELETION_MAX_TIPLEN=8;
 	
+	/** Multiplier for calculating minimum outer distance between paired reads */
 	protected static final int OUTER_DIST_MULT=14;
 //	protected static final int OUTER_DIST_MULT2=OUTER_DIST_MULT-1;
+	/** Divisor for calculating minimum outer distance between paired reads */
 	protected static final int OUTER_DIST_DIV=32;
 	
+	/** Number of initial reads to skip during processing */
 	protected static long SKIP_INITIAL=0;
 	
+	/** Whether to output only successfully paired reads */
 	protected static boolean OUTPUT_PAIRED_ONLY=false;
 
+	/** Maximum read length allowed (0 for no limit) */
 	protected static int MAX_READ_LENGTH=0;
+	/** Minimum read length required (0 for no limit) */
 	protected static int MIN_READ_LENGTH=0;
 	
+	/** Whether to use modulo arithmetic in k-mer scoring calculations */
 	protected static boolean USE_MODULO=false;
 	
+	/** Maximum number of alignment sites to retain during trimming operations */
 	protected static int MAX_TRIM_SITES_TO_RETAIN=800;
 	
 //	static{if(OUTER_DIST_MULT2<1){throw new RuntimeException();}}
@@ -3097,70 +3490,129 @@ public abstract class AbstractMapThread extends Thread {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Whether to enable verbose debug output for this thread */
 	public boolean verbose=false;
+	/** Whether to enable static verbose debug output for all threads */
 	public static final boolean verboseS=false;
 
+	/** Number of first reads processed by this thread */
 	public long readsUsed1=0;
+	/** Number of second reads processed by this thread */
 	public long readsUsed2=0;
+	/** Number of bases processed from first reads */
 	public long basesUsed1=0;
+	/** Number of bases processed from second reads */
 	public long basesUsed2=0;
+	/** Total number of first reads input to this thread */
 	public long readsIn1=0;
+	/** Total number of second reads input to this thread */
 	public long readsIn2=0;
+	/** Total number of bases from first reads input to this thread */
 	public long basesIn1=0;
+	/** Total number of bases from second reads input to this thread */
 	public long basesIn2=0;
+	/** Number of reads that passed the Bloom filter contamination check */
 	public long readsPassedBloomFilter=0;
+	/** Number of bases from reads that passed the Bloom filter */
 	public long basesPassedBloomFilter=0;
+	/** Number of read pairs that were successfully paired */
 	public long numMated=0;
+	/** Number of bases from successfully paired reads */
 	public long numMatedBases=0;
+	/** Number of read pairs that could not be properly paired */
 	public long badPairs=0;
+	/** Number of bases from read pairs that could not be properly paired */
 	public long badPairBases=0;
+	/** Sum of inner distances for all properly paired reads */
 	public long innerLengthSum=0;
+	/** Sum of outer distances for all properly paired reads */
 	public long outerLengthSum=0;
+	/** Sum of insert sizes for all properly paired reads */
 	public long insertSizeSum=0;
+	/** Total number of k-mers used for indexing by this thread */
 	public long keysUsed=0;
+	/** Number of synthetic reads processed (for testing purposes) */
 	public long syntheticReads=0;
+	/** Number of read pairs where both reads remained unmapped */
 	public long bothUnmapped=0;
+	/** Number of bases from read pairs where both reads remained unmapped */
 	public long bothUnmappedBases=0;
+	/** Number of read pairs where at least one read was mapped */
 	public long eitherMapped=0;
+	/** Number of bases from read pairs where at least one read was mapped */
 	public long eitherMappedBases=0;
 
+	/** Number of first reads that were successfully mapped */
 	public long mapped1=0;
+	/** Number of first reads that were mapped and retained after filtering */
 	public long mappedRetained1=0;
+	/** Number of bases from first reads that were mapped and retained */
 	public long mappedRetainedBases1=0;
+	/** Number of first reads rescued on the plus strand */
 	public long rescuedP1=0;
+	/** Number of first reads rescued on the minus strand */
 	public long rescuedM1=0;
+	/** Number of correctly mapped first reads on the plus strand */
 	public long truePositiveP1=0;
+	/** Number of correctly mapped first reads on the minus strand */
 	public long truePositiveM1=0;
+	/** Number of incorrectly mapped first reads */
 	public long falsePositive1=0;
+	/** Total number of correct alignment sites found for first reads */
 	public long totalCorrectSites1=0;
 
+	/** Number of first reads with correct primary site on plus strand */
 	public long firstSiteCorrectP1=0;
+	/** Number of first reads with correct primary site on minus strand */
 	public long firstSiteCorrectM1=0;
+	/** Number of first reads with incorrect primary site */
 	public long firstSiteIncorrect1=0;
+	/** Number of first reads with loosely correct primary site */
 	public long firstSiteCorrectLoose1=0;
+	/** Number of first reads with loosely incorrect primary site */
 	public long firstSiteIncorrectLoose1=0;
+	/** Number of correctly paired first reads with correct primary site */
 	public long firstSiteCorrectPaired1=0;
+	/** Number of unpaired first reads with correct primary site */
 	public long firstSiteCorrectSolo1=0;
+	/** Number of rescued first reads with correct primary site */
 	public long firstSiteCorrectRescued1=0;
 
+	/** Total count of substitutions in first read alignments */
 	public long matchCountS1=0;
+	/** Total count of insertions in first read alignments */
 	public long matchCountI1=0;
+	/** Total count of deletions in first read alignments */
 	public long matchCountD1=0;
+	/** Total count of matches in first read alignments */
 	public long matchCountM1=0;
+	/** Total count of N-calls in first read alignments */
 	public long matchCountN1=0;
 
+	/** Number of first reads with any type of alignment error */
 	public long readCountE1=0;
+	/** Number of first reads with substitution errors */
 	public long readCountS1=0;
+	/** Number of first reads with insertion errors */
 	public long readCountI1=0;
+	/** Number of first reads with deletion errors */
 	public long readCountD1=0;
+	/** Number of first reads with N-call errors */
 	public long readCountN1=0;
+	/** Number of first reads with splice junction alignments */
 	public long readCountSplice1=0;
 	
+	/** Number of first reads with perfect quick alignment scores */
 	public long perfectHit1=0; //Highest quick score is max quick score
+	/** Number of first reads with unique best alignment scores */
 	public long uniqueHit1=0; //Only one hit has highest score
+	/** Number of first reads with unique correct alignment */
 	public long correctUniqueHit1=0; //unique highest hit on answer site
+	/** Number of first reads with non-unique correct alignment */
 	public long correctMultiHit1=0;  //non-unique highest hit on answer site
+	/** Number of first reads with correct but non-primary alignment */
 	public long correctLowHit1=0;  //hit on answer site, but not highest scorer
+	/** Number of first reads with no alignment found */
 	public long noHit1=0;
 	
 	/** Number of perfect hit sites found */
@@ -3169,59 +3621,106 @@ public abstract class AbstractMapThread extends Thread {
 	public long semiPerfectHitCount1=0;
 	
 	
+	/** Number of first reads with perfect slow alignment scores */
 	public long perfectMatch1=0; //Highest slow score is max slow score
+	/** Number of first reads with semiperfect alignments */
 	public long semiperfectMatch1=0;
+	/** Number of bases from first reads with perfect alignments */
 	public long perfectMatchBases1=0;
+	/** Number of bases from first reads with semiperfect alignments */
 	public long semiperfectMatchBases1=0;
+	/** Number of first reads with ambiguous best alignments */
 	public long ambiguousBestAlignment1=0;
+	/** Number of bases from first reads with ambiguous best alignments */
 	public long ambiguousBestAlignmentBases1=0;
 
+	/** Sum of initial alignment sites found for first reads */
 	public long initialSiteSum1=0;
+	/** Sum of alignment sites remaining after trimming for first reads */
 	public long postTrimSiteSum1=0;
+	/** Sum of alignment sites after mate rescue for first reads */
 	public long postRescueSiteSum1=0;
+	/** Final sum of alignment sites for first reads */
 	public long siteSum1=0;
+	/** Sum of top-scoring alignment sites for first reads */
 	public long topSiteSum1=0;
 	
+	/** Number of first reads discarded due to low quality */
 	public long lowQualityReadsDiscarded1=0;
+	/** Number of bases from first reads discarded due to low quality */
 	public long lowQualityBasesDiscarded1=0;
 	
+	/** Number of second reads that were successfully mapped */
 	public long mapped2=0;
+	/** Number of second reads that were mapped and retained after filtering */
 	public long mappedRetained2=0;
+	/** Number of bases from second reads that were mapped and retained */
 	public long mappedRetainedBases2=0;
+	/** Number of second reads rescued on the plus strand */
 	public long rescuedP2=0;
+	/** Number of second reads rescued on the minus strand */
 	public long rescuedM2=0;
+	/** Number of correctly mapped second reads on the plus strand */
 	public long truePositiveP2=0;
+	/** Number of correctly mapped second reads on the minus strand */
 	public long truePositiveM2=0;
+	/** Number of incorrectly mapped second reads */
 	public long falsePositive2=0;
+	/** Total number of correct alignment sites found for second reads */
 	public long totalCorrectSites2=0;
 
+	/** Number of second reads with correct primary site on plus strand */
 	public long firstSiteCorrectP2=0;
+	/** Number of second reads with correct primary site on minus strand */
 	public long firstSiteCorrectM2=0;
+	/** Number of second reads with incorrect primary site */
 	public long firstSiteIncorrect2=0;
+	/** Number of second reads with loosely correct primary site */
 	public long firstSiteCorrectLoose2=0;
+	/** Number of second reads with loosely incorrect primary site */
 	public long firstSiteIncorrectLoose2=0;
+	/** Number of correctly paired second reads with correct primary site */
 	public long firstSiteCorrectPaired2=0;
+	/** Number of unpaired second reads with correct primary site */
 	public long firstSiteCorrectSolo2=0;
+	/** Number of rescued second reads with correct primary site */
 	public long firstSiteCorrectRescued2=0;
 	
+	/** Total count of substitutions in second read alignments */
 	public long matchCountS2=0;
+	/** Total count of insertions in second read alignments */
 	public long matchCountI2=0;
+	/** Total count of deletions in second read alignments */
 	public long matchCountD2=0;
+	/** Total count of matches in second read alignments */
 	public long matchCountM2=0;
+	/** Total count of N-calls in second read alignments */
 	public long matchCountN2=0;
 
+	/** Number of second reads with any type of alignment error */
 	public long readCountE2=0;
+	/** Number of second reads with substitution errors */
 	public long readCountS2=0;
+	/** Number of second reads with insertion errors */
 	public long readCountI2=0;
+	/** Number of second reads with deletion errors */
 	public long readCountD2=0;
+	/** Number of second reads with N-call errors */
 	public long readCountN2=0;
+	/** Number of second reads with splice junction alignments */
 	public long readCountSplice2=0;
 	
+	/** Number of second reads with perfect quick alignment scores */
 	public long perfectHit2=0; //Highest quick score is max quick score
+	/** Number of second reads with unique best alignment scores */
 	public long uniqueHit2=0; //Only one hit has highest score
+	/** Number of second reads with unique correct alignment */
 	public long correctUniqueHit2=0; //unique highest hit on answer site
+	/** Number of second reads with non-unique correct alignment */
 	public long correctMultiHit2=0;  //non-unique highest hit on answer site
+	/** Number of second reads with correct but non-primary alignment */
 	public long correctLowHit2=0;  //hit on answer site, but not highest scorer
+	/** Number of second reads with no alignment found */
 	public long noHit2=0;
 	
 	/** Number of perfect hit sites found */
@@ -3229,23 +3728,37 @@ public abstract class AbstractMapThread extends Thread {
 	/** Number of sites found that are perfect except for no-ref */
 	public long semiPerfectHitCount2=0;
 	
+	/** Number of second reads with perfect slow alignment scores */
 	public long perfectMatch2=0; //Highest slow score is max slow score
+	/** Number of second reads with semiperfect alignments */
 	public long semiperfectMatch2=0;
+	/** Number of bases from second reads with perfect alignments */
 	public long perfectMatchBases2=0;
+	/** Number of bases from second reads with semiperfect alignments */
 	public long semiperfectMatchBases2=0;
+	/** Number of second reads with ambiguous best alignments */
 	public long ambiguousBestAlignment2=0;
+	/** Number of bases from second reads with ambiguous best alignments */
 	public long ambiguousBestAlignmentBases2=0;
 
+	/** Sum of initial alignment sites found for second reads */
 	public long initialSiteSum2=0;
+	/** Sum of alignment sites remaining after trimming for second reads */
 	public long postTrimSiteSum2=0;
+	/** Sum of alignment sites after mate rescue for second reads */
 	public long postRescueSiteSum2=0;
+	/** Final sum of alignment sites for second reads */
 	public long siteSum2=0;
+	/** Sum of top-scoring alignment sites for second reads */
 	public long topSiteSum2=0;
 	
+	/** Number of second reads discarded due to low quality */
 	public long lowQualityReadsDiscarded2=0;
+	/** Number of bases from second reads discarded due to low quality */
 	public long lowQualityBasesDiscarded2=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Modulo value used for thread identification in distributed processing */
 	int idmodulo;
 }

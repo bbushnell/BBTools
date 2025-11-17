@@ -292,6 +292,11 @@ public class MultiCros6 extends BufferedMultiCros {
 		retireCalls++;
 	}
 	
+	/**
+	 * Adds buffer to the priority heap for size-based processing.
+	 * Resizes heap if necessary to accommodate new buffer.
+	 * @param b Buffer to add to heap (must not already be in heap)
+	 */
 	private void addToHeap(Buffer b) {
 		assert(b.loc()<0);
 		assert(b.list.size()>0);
@@ -306,6 +311,12 @@ public class MultiCros6 extends BufferedMultiCros {
 	/*----------------          Profiling           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generates detailed timing report for stream retirement operations.
+	 * Breaks down retirement time into component phases for performance
+	 * analysis and optimization.
+	 * @return Formatted timing report string
+	 */
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -321,13 +332,24 @@ public class MultiCros6 extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Time spent in retirement phase 1: sorting and selection */
 	private long retireTime1=0;
+	/** Time spent in retirement phase 2: buffer dumping */
 	private long retireTime2=0;
+	/** Time spent in retirement phase 3: stream closing */
 	private long retireTime3=0;
+	/** Time spent in retirement phase 4: stream joining and cleanup */
 	private long retireTime4=0;
+	/** Total number of individual streams retired */
 	private long retireCount=0;
+	/** Total number of retire() method calls */
 	private long retireCalls=0;
 	
+	/**
+	 * Generates detailed timing report for stream creation operations.
+	 * Provides breakdown of creation time phases for performance monitoring.
+	 * @return Formatted timing report string
+	 */
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -340,10 +362,15 @@ public class MultiCros6 extends BufferedMultiCros {
 		return bb.toString();
 	}
 	
+	/** Time spent in creation phase 1: pre-processing */
 	private long createTime1=0;
+	/** Time spent in creation phase 2: preparation */
 	private long createTime2=0;
+	/** Time spent in creation phase 3: stream object creation */
 	private long createTime3=0;
+	/** Time spent in creation phase 4: stream startup */
 	private long createTime4=0;
+	/** Time spent in creation phase 5: queue management */
 	private long createTime5=0;
 	
 	/*--------------------------------------------------------------*/
@@ -357,6 +384,14 @@ public class MultiCros6 extends BufferedMultiCros {
 	 */
 	private class Buffer implements SetLoc<Buffer> {
 		
+		/**
+		 * Constructs buffer for specified output name.
+		 * Creates file formats, initializes read list, and sets up cardinality
+		 * tracking if enabled. Files configured for append mode to handle
+		 * stream retirement and recreation.
+		 *
+		 * @param name_ Buffer identifier used in file pattern substitution
+		 */
 		Buffer(String name_){
 			name=name_;
 			timestamp=(bufferTimer++);
@@ -602,6 +637,11 @@ public class MultiCros6 extends BufferedMultiCros {
 		
 	}
 	
+	/**
+	 * Comparator for sorting buffers by timestamp for retirement ordering.
+	 * Ensures oldest streams are retired first to maintain LRU behavior.
+	 * @author Brian Bushnell
+	 */
 	private static final class TimestampComparator implements Comparator<Buffer>{
 
 		private TimestampComparator() {}
@@ -612,6 +652,7 @@ public class MultiCros6 extends BufferedMultiCros {
 			return a.timestamp<b.timestamp ? -1 : 1;
 		}
 		
+		/** Singleton instance of timestamp comparator */
 		static final TimestampComparator instance=new TimestampComparator();
 		
 	}
@@ -623,6 +664,7 @@ public class MultiCros6 extends BufferedMultiCros {
 	/** Essentially the number of dumps.  Does not distinguish by dump size. */
 	private long bufferTimer=0;
 	
+	/** Priority heap containing buffers ordered by size for dump prioritization */
 	private HeapLoc<Buffer> heap;
 	
 	/** Open stream names */

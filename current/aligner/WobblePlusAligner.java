@@ -34,6 +34,7 @@ public class WobblePlusAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for WobblePlusAligner instances */
 	public WobblePlusAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -271,9 +272,16 @@ public class WobblePlusAligner implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/**
+	 * Gets the total number of alignment matrix cells processed across all alignments
+	 */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter for performance tracking.
+	 * @param x New value for loop counter */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -281,26 +289,47 @@ public class WobblePlusAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits used to encode reference positions (21 bits = ~2M positions)
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used to encode deletion counts in score values */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for raw alignment scores in encoded values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from encoded scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion counts from encoded scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw alignment scores from encoded values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases (+1 in high bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 in high bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in high bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in high bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base alignments (neutral, 0 penalty) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid or uncomputed alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/**
+	 * Combined deletion penalty and position increment for tracking alignment path
+	 */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Debug flag for printing detailed operation counts during alignment */
 	private static final boolean PRINT_OPS=false;
+	/**
+	 * Flag controlling global vs local alignment mode (currently false for local)
+	 */
 	public static final boolean GLOBAL=false;
 
 }

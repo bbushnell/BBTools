@@ -62,15 +62,26 @@ public class DumpThread extends Thread{
 		success=true;
 	}
 	
+	/** K-mer length for output formatting */
 	final int k;
+	/** Minimum k-mer count threshold for inclusion in output */
 	final int mincount;
+	/** Maximum k-mer count threshold for inclusion in output */
 	final int maxcount;
+	/**
+	 * Atomic counter tracking remaining k-mers to be processed across all threads
+	 */
 	final AtomicLong remaining;
+	/** Atomic index for work distribution - indicates next table to process */
 	final AtomicInteger nextTable;
+	/** Array of k-mer tables to process for k-mer extraction */
 	final AbstractKmerTable[] tables;
+	/** ByteStreamWriter for serializing k-mer output to stream */
 	final ByteStreamWriter bsw;
+	/** Flag indicating whether this thread completed processing successfully */
 	boolean success=false;
 	
+	/** Override for thread count; if negative, uses automatic thread calculation */
 	public static int NUM_THREADS=-1;
 	
 }

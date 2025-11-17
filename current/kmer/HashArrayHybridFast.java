@@ -20,6 +20,12 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a new HashArrayHybridFast with specified scheduling and core mask.
+	 * Initializes the values array and setList for multi-value storage.
+	 * @param schedule_ Resize schedule for the hash array
+	 * @param coreMask_ Core mask for kmer hashing
+	 */
 	public HashArrayHybridFast(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt1D(prime+extra);
@@ -343,7 +349,9 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing count values corresponding to kmers in the main array */
 	private int[] values;
+	/** List storage for cells containing multiple values per kmer */
 	private IntList3 setList;
 	
 }

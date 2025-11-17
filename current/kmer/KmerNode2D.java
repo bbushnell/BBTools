@@ -21,10 +21,17 @@ public class KmerNode2D extends KmerNode {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Constructs a KmerNode2D with specified pivot k-mer.
+	 * @param pivot_ The k-mer value to use as pivot for tree balancing */
 	public KmerNode2D(long pivot_){
 		super(pivot_);
 	}
 	
+	/**
+	 * Constructs a KmerNode2D with pivot and single initial value.
+	 * @param pivot_ The k-mer value to use as pivot for tree balancing
+	 * @param value_ Initial value to store (must be >= 0 or -1 for empty)
+	 */
 	public KmerNode2D(long pivot_, int value_){
 		super(pivot_);
 		assert(value_>=0 || value_==-1);
@@ -32,6 +39,12 @@ public class KmerNode2D extends KmerNode {
 		numValues=1;
 	}
 	
+	/**
+	 * Constructs a KmerNode2D with pivot and array of initial values.
+	 * @param pivot_ The k-mer value to use as pivot for tree balancing
+	 * @param vals_ Array of values to store
+	 * @param vlen Number of valid values in the array
+	 */
 	public KmerNode2D(long pivot_, int[] vals_, int vlen){
 		super(pivot_);
 		values=vals_;
@@ -153,6 +166,11 @@ public class KmerNode2D extends KmerNode {
 		return 0;
 	}
 	
+	/**
+	 * Counts the number of valid (non-negative) values in an array.
+	 * @param vals Array to count values in
+	 * @return Number of non-negative values before first negative value
+	 */
 	private final int countValues(int[] vals){
 		if(vals==null) {return 0;}
 		int count=0;
@@ -297,8 +315,11 @@ public class KmerNode2D extends KmerNode {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing multiple integer values for this k-mer */
 	int[] values;
+	/** Count of valid values currently stored in the values array */
 	private int numValues;
+	/** Maximum number of recent values to check for duplicates during insertion */
 	private static final int slowAddLimit=4;
 	
 }

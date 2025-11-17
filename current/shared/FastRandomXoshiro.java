@@ -12,6 +12,7 @@ import java.util.Random;
  */
 public final class FastRandomXoshiro extends Random {
 
+	/** Serialization version identifier for compatibility */
 	private static final long serialVersionUID=1L;
 
 	// State variables for xoshiro256+

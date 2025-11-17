@@ -7,16 +7,41 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 
+/**
+ * Thread management utility for k-mer table ownership operations.
+ * Provides multi-threaded initialization and clearing of ownership data
+ * across collections of AbstractKmerTableU instances.
+ * @author Brian Bushnell
+ */
 public class OwnershipThread extends Thread {
 	
+	/**
+	 * Clears ownership data from all tables using multi-threaded processing.
+	 * Distributes work across available threads for optimal performance.
+	 * @param tables Array of k-mer tables to clear ownership data from
+	 */
 	public static void clear(AbstractKmerTableU[] tables){
 		process(tables, CLEAR);
 	}
 	
+	/**
+	 * Initializes ownership data for all tables using multi-threaded processing.
+	 * Distributes work across available threads for optimal performance.
+	 * @param tables Array of k-mer tables to initialize ownership data for
+	 */
 	public static void initialize(AbstractKmerTableU[] tables){
 		process(tables, INITIALIZE);
 	}
 	
+	/**
+	 * Processes ownership operations on k-mer tables using multi-threading.
+	 * For small table arrays (<2 elements), executes operations directly.
+	 * For larger arrays, spawns worker threads and distributes work using
+	 * atomic indexing for load balancing.
+	 *
+	 * @param tables Array of k-mer tables to process
+	 * @param mode Operation mode (INITIALIZE or CLEAR)
+	 */
 	private static void process(AbstractKmerTableU[] tables, int mode){
 		if(tables.length<2){
 			if(mode==INITIALIZE){
@@ -46,6 +71,12 @@ public class OwnershipThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Constructs an OwnershipThread for processing k-mer table operations.
+	 * @param tables_ Array of k-mer tables to process
+	 * @param mode_ Operation mode (INITIALIZE or CLEAR)
+	 * @param next_ Atomic counter for work distribution across threads
+	 */
 	public OwnershipThread(AbstractKmerTableU[] tables_, int mode_, AtomicInteger next_){
 		tables=tables_;
 		mode=mode_;
@@ -65,11 +96,16 @@ public class OwnershipThread extends Thread {
 		}
 	}
 	
+	/** Array of k-mer tables to process */
 	private final AbstractKmerTableU[] tables;
+	/** Atomic counter for thread-safe work distribution across tables */
 	private final AtomicInteger next;
+	/** Operation mode: INITIALIZE (0) or CLEAR (1) */
 	private final int mode;
 
+	/** Mode constant for initializing k-mer table ownership data */
 	public static final int INITIALIZE=0;
+	/** Mode constant for clearing k-mer table ownership data */
 	public static final int CLEAR=1;
 	
 }

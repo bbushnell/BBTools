@@ -14,8 +14,20 @@ import stream.ReadInputStream;
 import structures.FloatList;
 import tracker.EntropyTracker;
 
+/**
+ * Calculates and compensates for entropy variations across different GC content
+ * levels in genomic sequences. Generates random sequences with specified GC content
+ * and measures their k-mer entropy to create compensation references.
+ * @author Brian Bushnell
+ */
 public class AdjustEntropy {
 	
+	/**
+	 * Program entry point for entropy analysis and compensation.
+	 * Generates random sequences across GC content range, measures entropy,
+	 * and optionally processes input file with compensation metrics.
+	 * @param args Command-line arguments: k, window, step, length, trials, [filename]
+	 */
 	public static void main(String[] args) {
 
 		int k=Integer.parseInt(args[0]);
@@ -50,6 +62,12 @@ public class AdjustEntropy {
 		}
 	}
 	
+	/**
+	 * Processes FASTA file to calculate GC-compensated entropy and strandedness
+	 * metrics for each sequence read.
+	 * @param fname Input FASTA filename to process
+	 * @param et EntropyTracker configured with appropriate k-mer parameters
+	 */
 	static void processFile(String fname, EntropyTracker et) {
 		ArrayList<Read> reads=ReadInputStream.toReads(fname, FileFormat.FASTA, 2000);
 		System.out.println("#GC\tgcCompEntropy\tstrandedness");
@@ -63,6 +81,14 @@ public class AdjustEntropy {
 		}
 	}
 	
+	/**
+	 * Calculates maximum expected entropy for a given GC content using linear
+	 * interpolation between adjacent values in the reference entropy array.
+	 *
+	 * @param gc GC content fraction (0.0 to 1.0)
+	 * @param array Reference entropy values indexed by GC content steps
+	 * @return Interpolated maximum entropy value for the specified GC content
+	 */
 	static float maxEntropy(float gc, float[] array) {
 		int steps=array.length-1;
 		float stepSize=1f/steps;
@@ -76,16 +102,28 @@ public class AdjustEntropy {
 		return max;
 	}
 	
+	/** Loads default entropy compensation data using k=4 and window=150. */
 	public static synchronized void load() {
 		load(4, 150);
 	}
 	
+	/**
+	 * Loads entropy compensation data for specified k-mer length and window size.
+	 * Constructs filename pattern and locates entropy reference file.
+	 * @param k K-mer length for entropy calculation
+	 * @param window Sliding window size for entropy measurement
+	 */
 	public static synchronized void load(int k, int window) {
 		String fname="?entropy_k"+k+"_w"+window+".tsv";
 		fname=Data.findPath(fname);
 		setEntropyFile(fname);
 	}
 	
+	/**
+	 * Sets the entropy reference file if different from currently loaded file.
+	 * Prevents redundant file loading by checking filename against cached value.
+	 * @param fname Entropy reference file path to load
+	 */
 	private static synchronized void setEntropyFile(String fname) {
 		assert(fname!=null);
 		if(fnameLoaded==null || !fnameLoaded.equals(fname)) {
@@ -93,6 +131,14 @@ public class AdjustEntropy {
 		}
 	}
 	
+	/**
+	 * Parses entropy reference file containing GC-entropy mapping data.
+	 * Extracts k-mer and window parameters from header lines and entropy
+	 * values from data lines.
+	 *
+	 * @param fname Path to entropy reference file
+	 * @return Array of entropy values indexed by GC content steps
+	 */
 	private static float[] loadEntropyFile(String fname) {
 		ArrayList<byte[]> lines=ByteFile.toLines(fname);
 		FloatList floats=new FloatList(lines.size());
@@ -118,6 +164,17 @@ public class AdjustEntropy {
 		return Tools.min(1, 1-(max-entropy));//entropy/max;
 	}
 	
+	/**
+	 * Generates multiple random sequences and calculates statistical entropy
+	 * measures. Uses top quartile samples to compute robust entropy estimate
+	 * that avoids low outliers.
+	 *
+	 * @param len Length of random sequences to generate
+	 * @param gc Target GC content fraction
+	 * @param et EntropyTracker for calculating k-mer entropy
+	 * @param trials Number of random sequences to generate for statistics
+	 * @return Average entropy from top-performing samples
+	 */
 	float randomSequenceEntropy(int len, float gc, EntropyTracker et, int trials) {
 		FloatList fl=new FloatList(trials);
 		for(int i=0; i<trials; i++) {fl.add(randomSequenceEntropy(len, gc, et));}
@@ -163,11 +220,29 @@ public class AdjustEntropy {
 		return mid;
 	}
 	
+	/**
+	 * Generates single random sequence with specified GC content and measures
+	 * its k-mer entropy using the provided EntropyTracker.
+	 *
+	 * @param len Length of random sequence to generate
+	 * @param gc Target GC content fraction
+	 * @param et EntropyTracker for calculating k-mer entropy
+	 * @return Entropy value of the generated random sequence
+	 */
 	static float randomSequenceEntropy(int len, float gc, EntropyTracker et) {
 		byte[] bases=randomSequence(len, gc);
 		return et.averageEntropy(bases, false);
 	}
 	
+	/**
+	 * Generates random DNA sequence with specified length and GC content.
+	 * Uses probabilistic base selection where high GC bases (C,G) are chosen
+	 * with probability 'gc' and low GC bases (A,T) with probability '1-gc'.
+	 *
+	 * @param len Length of sequence to generate
+	 * @param gc Target GC content fraction (0.0 to 1.0)
+	 * @return Byte array containing random DNA sequence
+	 */
 	static byte[] randomSequence(int len, float gc) {
 		byte[] bases=new byte[len];
 		Random randy=Shared.threadLocalRandom();
@@ -182,9 +257,15 @@ public class AdjustEntropy {
 	}
 	
 	float min, mid, max;
+	/** Filename of currently loaded entropy reference file, null if none loaded */
 	private static String fnameLoaded=null;
+	/** K-mer length parameter from loaded entropy reference file */
 	public static int kLoaded=0;
+	/** Window size parameter from loaded entropy reference file */
 	public static int wLoaded=0;
+	/**
+	 * Array of entropy values indexed by GC content steps for compensation calculations
+	 */
 	private static float[] entropyArray=null;
 	
 }

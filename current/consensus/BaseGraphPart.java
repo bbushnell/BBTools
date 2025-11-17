@@ -20,6 +20,11 @@ public abstract class BaseGraphPart extends ConsensusObject implements Serializa
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Constructs a graph part with specified type.
+	 * Validates that type is one of REF, INS, or DEL.
+	 * @param type_ The graph element type (REF=2, INS=1, DEL=0)
+	 */
 	public BaseGraphPart(int type_){
 		type=type_;
 		assert(type==REF || type==INS || type==DEL) : type;

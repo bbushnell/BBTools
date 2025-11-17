@@ -33,6 +33,7 @@ public final class ReadErrorComparator implements Comparator<Read>{
 		return 0;
 	}
 	
+	/** Singleton instance of ReadErrorComparator for reuse */
 	public static final ReadErrorComparator comparator=new ReadErrorComparator();
 	
 }

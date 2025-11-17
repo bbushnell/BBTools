@@ -15,10 +15,51 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		Shared.loadJNI();
 	}
 
+	/**
+	 * Native method for unlimited alignment matrix computation.
+	 * Performs dynamic programming alignment without score cutoffs using JNI.
+	 *
+	 * @param read The query sequence to align
+	 * @param ref The reference sequence
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param result Output array containing alignment results
+	 * @param iterationsUnlimited Iteration counter array
+	 * @param packed Packed scoring matrix
+	 * @param POINTSoff_SUB_ARRAY Substitution penalty array
+	 * @param POINTSoff_INS_ARRAY Insertion penalty array
+	 * @param maxRows Maximum matrix rows
+	 * @param maxColumns Maximum matrix columns
+	 */
 	private native void fillUnlimitedJNI(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int[] result, long[] iterationsUnlimited, int[] packed, int[] POINTSoff_SUB_ARRAY, int[] POINTSoff_INS_ARRAY, int maxRows, int maxColumns);
 
+	/**
+	 * Native method for limited alignment matrix computation with score cutoffs.
+	 * Performs banded dynamic programming alignment with minimum score thresholds using JNI.
+	 *
+	 * @param read The query sequence to align
+	 * @param ref The reference sequence
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param minScore Minimum alignment score threshold
+	 * @param result Output array containing alignment results
+	 * @param iterationsLimited Iteration counter array
+	 * @param packed Packed scoring matrix
+	 * @param POINTSoff_SUB_ARRAY Substitution penalty array
+	 * @param POINTSoff_INS_ARRAY Insertion penalty array
+	 * @param maxRows Maximum matrix rows
+	 * @param maxColumns Maximum matrix columns
+	 * @param bandwidth Alignment bandwidth constraint
+	 * @param bandwidthRatio Bandwidth ratio parameter
+	 * @param vertLimit Vertical score limits
+	 * @param horizLimit Horizontal score limits
+	 * @param baseToNumber Base to numeric conversion array
+	 * @param POINTSoff_INS_ARRAY_C Cumulative insertion penalty array
+	 */
 	private native void fillLimitedXJNI(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, int[] result, long[] iterationsLimited, int[] packed, int[] POINTSoff_SUB_ARRAY, int[] POINTSoff_INS_ARRAY, int maxRows, int maxColumns, int bandwidth, float bandwidthRatio, int[] vertLimit, int[] horizLimit, byte[] baseToNumber, int[] POINTSoff_INS_ARRAY_C);
 
+	/** Test main method for alignment demonstration.
+	 * @param args Command line arguments containing read and reference sequences */
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
@@ -46,6 +87,12 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		System.out.println("Score: "+Arrays.toString(score));
 	}
 	
+	/**
+	 * Constructs aligner with specified matrix dimensions.
+	 * Initializes native data structures and scoring arrays.
+	 * @param maxRows_ Maximum number of rows in alignment matrix
+	 * @param maxColumns_ Maximum number of columns in alignment matrix
+	 */
 	public MultiStateAligner11tsJNI(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -716,6 +763,14 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		return gref;
 	}
 	
+	/**
+	 * Translates gapped coordinate to original reference coordinate.
+	 * Converts position in gapped reference back to original reference position.
+	 *
+	 * @param point Position in gapped reference
+	 * @param gref Gapped reference array
+	 * @return Corresponding position in original reference
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -738,6 +793,14 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Translates original reference coordinate to gapped coordinate.
+	 * Converts position in original reference to gapped reference position.
+	 *
+	 * @param point Position in original reference
+	 * @param gref Gapped reference array
+	 * @return Corresponding position in gapped reference
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -1335,6 +1398,12 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion score with bit-shifted offset encoding.
+	 * Computes deletion penalty using length-dependent scoring tiers.
+	 * @param len Length of deletion
+	 * @return Offset-encoded deletion score
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -1380,6 +1449,12 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		}
 	}
 	
+	/**
+	 * Calculates insertion score with bit-shifted offset encoding.
+	 * Computes insertion penalty using array or tiered scoring system.
+	 * @param len Length of insertion
+	 * @return Offset-encoded insertion score
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		if(AFFINE_ARRAYS){
@@ -1401,10 +1476,15 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		}
 	}
 	
+	/** Packed alignment matrix storing scores and state information */
 	private final int[]packed;
+	/** Buffer for gapped reference sequence construction */
 	private final byte[] grefbuffer;
+	/** Current limit position in gapped reference buffer */
 	private int greflimit=-1;
+	/** Extended limit position in gapped reference buffer */
 	private int greflimit2=-1;
+	/** Origin position mapping between gapped and original reference */
 	private int grefRefOrigin=-1;
 	
 	@Override
@@ -1413,7 +1493,9 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for banded alignment */
 	public final int[] vertLimit;
+	/** Horizontal score limits for banded alignment */
 	public final int[] horizLimit;
 
 	@Override
@@ -1430,6 +1512,12 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity percentage to minimum score ratio.
+	 * Calculates score ratio threshold based on average mismatch penalties.
+	 * @param minid Minimum identity (0-1 or 0-100 percent)
+	 * @return Minimum score ratio for filtering
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -1518,14 +1606,22 @@ public final class MultiStateAligner11tsJNI extends MSA{
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
 	public static final boolean AFFINE_ARRAYS=true;
+	/** Array of insertion penalty values by position */
 	public static final int[] POINTS_INS_ARRAY;
+	/** Array of bit-shifted insertion penalty values */
 	public static final int[] POINTSoff_INS_ARRAY;
+	/** Cumulative insertion penalty array */
 	public static final int[] POINTS_INS_ARRAY_C;
+	/** Cumulative bit-shifted insertion penalty array */
 	public static final int[] POINTSoff_INS_ARRAY_C;
 
+	/** Array of substitution penalty values by position */
 	public static final int[] POINTS_SUB_ARRAY;
+	/** Array of bit-shifted substitution penalty values */
 	public static final int[] POINTSoff_SUB_ARRAY;
+	/** Cumulative substitution penalty array */
 	public static final int[] POINTS_SUB_ARRAY_C;
+	/** Cumulative bit-shifted substitution penalty array */
 	public static final int[] POINTSoff_SUB_ARRAY_C;
 	
 	static{
@@ -1644,7 +1740,9 @@ public final class MultiStateAligner11tsJNI extends MSA{
 	@Override
 	public final int BAD(){return BAD;}
 	
+	/** Current number of rows in alignment matrix */
 	private int rows;
+	/** Current number of columns in alignment matrix */
 	private int columns;
 	
 }

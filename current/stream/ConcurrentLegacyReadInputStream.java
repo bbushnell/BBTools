@@ -5,8 +5,22 @@ import java.util.concurrent.TimeUnit;
 
 import structures.ListNum;
 
+/**
+ * Legacy implementation of concurrent read input stream with producer-consumer buffering.
+ * Wraps a ReadInputStream and provides thread-safe buffered access to sequence reads
+ * using a depot-based queuing system with configurable buffer sizes.
+ * Supports both single-read and list-based read processing modes.
+ *
+ * @author Brian Bushnell
+ */
 public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	
+	/**
+	 * Constructs a concurrent read stream with specified maximum read limit.
+	 * Initializes the depot buffering system and sets up producer stream.
+	 * @param source The underlying ReadInputStream to wrap
+	 * @param maxReadsToGenerate Maximum reads to generate (negative for unlimited)
+	 */
 	public ConcurrentLegacyReadInputStream(ReadInputStream source, long maxReadsToGenerate){
 		super(source.fname());
 		producer=source;
@@ -64,6 +78,11 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //		System.err.println(depot.full.size()+", "+depot.empty.size());
 	}
 	
+	/**
+	 * Adds poison pill lists to signal end-of-stream to all consumers.
+	 * Creates one poison list per buffer to ensure all consumer threads
+	 * receive the shutdown signal.
+	 */
 	private final void addPoison(){
 		//System.err.println("Adding poison.");
 		//Add poison pills
@@ -88,6 +107,12 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		//System.err.println("Added poison.");
 	}
 	
+	/**
+	 * Producer mode for reading entire lists from the source stream.
+	 * More efficient when the underlying producer supports list operations.
+	 * Handles both bulk operations and individual read transfers with
+	 * sampling support when configured.
+	 */
 	private final void readLists(){
 		
 		ArrayList<Read> buffer=null;
@@ -168,6 +193,7 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 
 	}
 	
+	/** Flag indicating whether shutdown has been initiated */
 	private boolean shutdown=false;
 	
 	@Override
@@ -229,24 +255,35 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	/** TODO */
 	private boolean errorState=false;
 	
+	/** Sampling rate for random read sampling (1.0 = no sampling) */
 	private float samplerate=1f;
+	/** Random number generator for read sampling (null when no sampling) */
 	private java.util.Random randy=null;
 	
 	@Override
 	public Object[] producers(){return new Object[] {producer};}
 
+	/** Array containing the producer thread */
 	private Thread[] threads;
 
+	/** The underlying read input stream being wrapped */
 	public final ReadInputStream producer;
+	/** Depot managing full and empty buffer queues for producer-consumer pattern */
 	private ConcurrentDepot<Read> depot;
 	
+	/** Global verbose logging flag for debugging output */
 	public static boolean verbose=false;
 	
+	/** Total number of bases read from the input stream */
 	private long basesIn=0;
+	/** Total number of reads processed from the input stream */
 	private long readsIn=0;
 	
+	/** Maximum number of reads to generate before stopping */
 	private long maxReads;
+	/** Number of reads generated so far by the producer */
 	private long generated=0;
+	/** Sequential number assigned to each list returned by nextList() */
 	private long listnum=0;
 	
 

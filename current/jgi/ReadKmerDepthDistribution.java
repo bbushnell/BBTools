@@ -39,6 +39,12 @@ import tracker.ReadStats;
  */
 public class ReadKmerDepthDistribution {
 
+	/**
+	 * Program entry point for k-mer depth distribution analysis.
+	 * Parses arguments, builds k-mer count tables, processes reads,
+	 * and generates coverage histograms and statistics.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -423,6 +429,11 @@ public class ReadKmerDepthDistribution {
 	}
 	
 	
+	/**
+	 * Prints depth topology statistics showing the distribution of
+	 * coverage patterns: spikes, peaks, valleys, slopes, and flats.
+	 * Calculates percentages of each topology type across all processed reads.
+	 */
 	public static void printTopology(){
 		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();
 		double mult=100.0/total;
@@ -447,6 +458,21 @@ public class ReadKmerDepthDistribution {
 	}
 
 
+	/**
+	 * Counts k-mer depths in input reads and generates coverage statistics.
+	 * Sets up input/output streams and delegates to downsample method for processing.
+	 *
+	 * @param in1 Primary input file path
+	 * @param in2 Secondary input file path (may be null)
+	 * @param kca K-mer count array containing pre-built k-mer frequencies
+	 * @param k K-mer length
+	 * @param maxReads Maximum number of reads to process
+	 * @param outKeep Output file path for reads passing filters
+	 * @param overwrite Whether to overwrite existing output files
+	 * @param histFile Output file for histogram data
+	 * @param estUnique Estimated number of unique k-mers
+	 * @return Total number of bases processed
+	 */
 	public static long count(String in1, String in2, KCountArray kca, int k, long maxReads,
 			String outKeep, boolean overwrite, String histFile, long estUnique) {
 		final ConcurrentReadInputStream cris;
@@ -500,6 +526,21 @@ public class ReadKmerDepthDistribution {
 	
 	
 	
+	/**
+	 * Processes reads in parallel to analyze k-mer depth distributions.
+	 * Creates processing threads, collects coverage histograms, and writes
+	 * results including depth statistics and histogram data.
+	 *
+	 * @param cris Input stream for reading sequence data
+	 * @param kca K-mer count array for depth lookups
+	 * @param k K-mer length
+	 * @param maxReads Maximum reads to process
+	 * @param rosKeep Output stream for filtered reads
+	 * @param histFile Output file for histogram data
+	 * @param overwrite Whether to overwrite existing files
+	 * @param estUnique Estimated unique k-mer count
+	 * @return Total bases processed
+	 */
 	public static long downsample(ConcurrentReadInputStream cris, KCountArray kca, int k, long maxReads, ConcurrentReadOutputStream rosKeep,
 			String histFile, boolean overwrite, long estUnique) {
 		Timer tdetect=new Timer();
@@ -690,6 +731,16 @@ public class ReadKmerDepthDistribution {
 			}
 		}
 	}
+	/**
+	 * Advanced spike correction using precise k-mer lookups.
+	 * Validates suspicious peaks by performing more accurate count queries
+	 * and corrects edge positions if they show inconsistent depths.
+	 *
+	 * @param array Coverage values for each position
+	 * @param kmers K-mer values for each position
+	 * @param kca K-mer count array for precise lookups
+	 * @param k K-mer length
+	 */
 	private static void fixSpikes(int[] array, long[] kmers, KCountArray kca, int k){
 		if(array.length<3){return;}
 		if(array[1]-array[0]>1){
@@ -737,6 +788,14 @@ public class ReadKmerDepthDistribution {
 	}
 	
 	
+	/**
+	 * Analyzes coverage topology patterns in a read.
+	 * Classifies each position as peak, valley, spike, flat, or slope
+	 * and updates global topology counters for statistical reporting.
+	 *
+	 * @param array Coverage values across read positions
+	 * @param width Analysis window width (currently unused)
+	 */
 	private static void analyzeSpikes(int[] array, int width){
 		if(array.length<3){return;}
 		int peakcount=0, valleycount=0, spikecount=0, flatcount=0, slopecount=0;
@@ -764,6 +823,18 @@ public class ReadKmerDepthDistribution {
 		if(slopecount>0){slopes.addAndGet(slopecount);}
 	}
 	
+	/**
+	 * Generates k-mer coverage profile for a read with k <= 31.
+	 * Computes depth for each k-mer position, applies spike fixing if enabled,
+	 * and analyzes topology patterns.
+	 *
+	 * @param r Input read to analyze
+	 * @param kca K-mer count array for depth lookups
+	 * @param k K-mer length (must be <= 31)
+	 * @param out Preallocated output array (may be null)
+	 * @param kmers Array to store k-mer values (may be null)
+	 * @return Array of coverage depths for each k-mer position
+	 */
 	public static int[] generateCoverage(Read r, KCountArray kca, int k, int[] out, long[] kmers) {
 		if(k>31){return generateCoverageLong(r, kca, k, out);}
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
@@ -810,6 +881,17 @@ public class ReadKmerDepthDistribution {
 		return out;
 	}
 	
+	/**
+	 * Generates k-mer coverage profile for reads with k > 31.
+	 * Uses extended k-mer representation for longer k-mer lengths
+	 * that exceed 32-bit integer capacity.
+	 *
+	 * @param r Input read to analyze
+	 * @param kca K-mer count array for depth lookups
+	 * @param k K-mer length (must be > 31)
+	 * @param out Preallocated output array (may be null)
+	 * @return Array of coverage depths for each k-mer position
+	 */
 	public static int[] generateCoverageLong(Read r, KCountArray kca, int k, int[] out) {
 		assert(k>31);
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
@@ -857,8 +939,21 @@ public class ReadKmerDepthDistribution {
 	}
 	
 	
+	/**
+	 * Worker thread for parallel processing of reads.
+	 * Analyzes k-mer coverage patterns, filters reads based on depth criteria,
+	 * and maintains thread-local histograms for coverage statistics.
+	 */
 	private static class ProcessThread extends Thread{
 		
+		/**
+		 * Constructs a processing thread with required resources.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param kca_ K-mer count array for depth queries
+		 * @param k_ K-mer length
+		 * @param rosk_ Output stream for filtered reads
+		 */
 		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, int k_, ConcurrentReadOutputStream rosk_){
 			cris=cris_;
 			kca=kca_;
@@ -871,6 +966,11 @@ public class ReadKmerDepthDistribution {
 			countInThread();
 		}
 		
+		/**
+		 * Main processing loop for analyzing reads in this thread.
+		 * Processes batches of reads, generates coverage profiles, applies filters,
+		 * and accumulates statistics for histogram generation.
+		 */
 		void countInThread() {
 			
 			ListNum<Read> ln=cris.nextList();
@@ -956,6 +1056,16 @@ public class ReadKmerDepthDistribution {
 			if(verbose){System.err.println("Returned list");}
 		}
 		
+		/**
+		 * Generates coverage profile and updates histogram statistics.
+		 * Computes k-mer depths, sorts them in descending order, and
+		 * increments histogram bins with coverage counts.
+		 *
+		 * @param r Read to analyze
+		 * @param cov Preallocated coverage array
+		 * @param kmers Array for k-mer storage
+		 * @return Sorted coverage array (descending order)
+		 */
 		private final int[] getSortedCoverageAndIncrementHistogram(Read r, int[] cov, long[] kmers){
 			assert(r!=null && r.bases!=null && r.length()>=k) : r;
 			cov=generateCoverage(r, kca, k, cov, kmers);
@@ -967,6 +1077,12 @@ public class ReadKmerDepthDistribution {
 			return cov;
 		}
 		
+		/**
+		 * Updates histogram bins with sorted coverage values.
+		 * Efficiently processes sorted coverage arrays by counting consecutive
+		 * equal values and updating histogram bins in batches.
+		 * @param cov Sorted coverage array (descending order)
+		 */
 		private final void incrementHistogramSorted(int[] cov){
 			if(hist==null || cov==null || cov.length==0){return;}
 			
@@ -999,53 +1115,89 @@ public class ReadKmerDepthDistribution {
 //			assert(sum2==cov.length) : sum2+", "+cov.length+", "+last+", "+sum;
 		}
 		
+		/** Input stream for reading sequence data */
 		private final ConcurrentReadInputStream cris;
+		/** K-mer count array for depth lookups */
 		private final KCountArray kca;
+		/** K-mer length for analysis */
 		private final int k;
 		/** Stream for kept reads */
 		private final ConcurrentReadOutputStream rosk;
+		/** Thread-local histogram for coverage depth counts */
 		public final long[] hist=new long[THREAD_HIST_LEN];//(USE_HISTOGRAM ? new long[HIST_LEN] : null);
 		
+		/** Total bases processed by this thread */
 		private long totalBases=0;
+		/** Total reads processed by this thread */
 		private long totalReads=0;
 
+		/** Number of reads retained after filtering */
 		public long readsKept=0;
+		/** Number of reads discarded by filters */
 		public long readsTossed=0;
+		/** Total bases in retained reads */
 		public long basesKept=0;
+		/** Total bases in discarded reads */
 		public long basesTossed=0;
 	}
 	
+	/** Output stream for program messages and statistics */
 	public static PrintStream outstream=System.err;
 
+	/** Length of thread-local histogram arrays */
 	public static int THREAD_HIST_LEN=1<<12;
+	/** Maximum length of depth histogram */
 	public static int HIST_LEN=1<<20;
+	/** Number of histogram bins to print in output */
 	public static long HIST_LEN_PRINT=HIST_LEN;
+	/** Whether to generate and output histogram data */
 	public static boolean USE_HISTOGRAM=false;
+	/** Whether to include zero-coverage bins in histogram output */
 	public static boolean PRINT_ZERO_COVERAGE=false;
+	/** Global histogram accumulating coverage counts from all threads */
 	public static AtomicLongArray histogram_total;
 	
+	/** Number of processing threads to use */
 	private static int THREADS=8;
+	/** Whether to print verbose debugging information */
 	private static boolean verbose=false;
 	
 	
+	/** Target coverage depth for read selection */
 	private static int TARGET_DEPTH=50;
+	/** Maximum allowed coverage depth */
 	private static int MAX_DEPTH=-1;
+	/** Minimum coverage depth threshold */
 	private static int MIN_DEPTH=3;
+	/** Minimum number of k-mers above minimum depth required to keep read */
 	private static int MIN_KMERS_OVER_MIN_DEPTH=10;
+	/** Percentile of coverage distribution to use for depth calculation */
 	private static float DEPTH_PERCENTILE=0.5f;
 	
 	
+	/** Whether to use canonical k-mer representation */
 	public static boolean CANONICAL=true;
+	/** Whether to include zero-count k-mers in histogram bin 0 */
 	public static boolean ZERO_BIN=false;
+	/** Whether to apply spike correction to coverage profiles */
 	public static boolean FIX_SPIKES=true;
+	/** Whether to maintain read order in output */
 	public static boolean ordered=false;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files */
 	public static boolean append=false;
+	/** Whether to use prefiltering to improve accuracy */
 	public static boolean prefilter=false;
 
+	/** Global counter for coverage peaks across all reads */
 	public static AtomicLong peaks=new AtomicLong();
+	/** Global counter for coverage spikes across all reads */
 	public static AtomicLong spikes=new AtomicLong();
+	/** Global counter for flat coverage regions across all reads */
 	public static AtomicLong flats=new AtomicLong();
+	/** Global counter for coverage valleys across all reads */
 	public static AtomicLong valleys=new AtomicLong();
+	/** Global counter for coverage slopes across all reads */
 	public static AtomicLong slopes=new AtomicLong();
 }

@@ -21,6 +21,14 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a new HashArrayHybrid with specified schedule and core mask.
+	 * Initializes the values array and setList for storing k-mer counts and
+	 * overflow handling.
+	 *
+	 * @param schedule_ Array defining resize schedule for the hash array
+	 * @param coreMask_ Bit mask for k-mer core extraction
+	 */
 	public HashArrayHybrid(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt1D(prime+extra);
@@ -372,7 +380,9 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing count values corresponding to k-mers in the main array */
 	private int[] values;
+	/** List of integer arrays for storing multiple values per k-mer when needed */
 	private IntList2 setList;
 	
 }

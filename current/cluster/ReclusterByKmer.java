@@ -32,6 +32,11 @@ import structures.ListNum;
  */
 public class ReclusterByKmer {
 	
+	/**
+	 * Program entry point for k-mer based read clustering.
+	 * Initializes the clustering pipeline and processes input reads.
+	 * @param args Command-line arguments specifying input files and clustering parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReclusterByKmer x=new ReclusterByKmer(args);
@@ -41,6 +46,12 @@ public class ReclusterByKmer {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs ReclusterByKmer instance with command-line configuration.
+	 * Parses arguments to set up input/output files, k-mer parameters, and clustering modes.
+	 * Initializes dual k-mer lengths (k1 and k2) and validates parameter ranges.
+	 * @param args Command-line arguments for configuration
+	 */
 	public ReclusterByKmer(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -185,6 +196,12 @@ public class ReclusterByKmer {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that reads input and writes output without clustering.
+	 * Currently implements a pass-through mode that processes reads but does not
+	 * perform actual clustering operations.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		
@@ -270,6 +287,14 @@ public class ReclusterByKmer {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Retrieves or creates a cluster with the specified ID.
+	 * Thread-safe method that ensures cluster list capacity and initializes
+	 * new clusters as needed with dual k-mer support.
+	 *
+	 * @param x The cluster ID to fetch or create
+	 * @return The cluster instance for the specified ID
+	 */
 	Cluster fetchCluster(int x){
 		if(x>clusterList.size()){
 			synchronized(clusterList){
@@ -371,8 +396,21 @@ public class ReclusterByKmer {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for processing reads in clustering operations.
+	 * Handles both cluster creation and reclustering modes with configurable
+	 * ambiguity resolution strategies for optimal read assignment.
+	 */
 	private class ClusterThread extends Thread{
 		
+		/**
+		 * Constructs a ClusterThread for read processing.
+		 *
+		 * @param id_ Thread identifier for this worker
+		 * @param clusterMode_ Clustering operation mode (CREATE or RECLUSTER)
+		 * @param ambigMode_ Strategy for handling ambiguous cluster assignments
+		 * @param cris_ Input stream for reading sequences
+		 */
 		public ClusterThread(int id_, int clusterMode_, int ambigMode_, ConcurrentReadInputStream cris_){
 			id=id_;
 			ambigModeT=ambigMode_;
@@ -431,6 +469,16 @@ public class ReclusterByKmer {
 			}
 		}
 		
+		/**
+		 * Adds read pair to appropriate clusters during initial cluster creation.
+		 * If both reads belong to the same cluster, adds them once. If they belong
+		 * to different clusters, adds them to both clusters.
+		 *
+		 * @param r1 First read of the pair
+		 * @param r2 Second read of the pair (may be null for single-end)
+		 * @param rt1 ReadTag metadata for first read
+		 * @param rt2 ReadTag metadata for second read (may be null)
+		 */
 		private void addToCluster(Read r1, Read r2, ReadTag rt1, ReadTag rt2){
 			final int cn1=rt1.cluster0;
 			final int cn2=rt2==null ? cn1 : rt2.cluster0;
@@ -448,6 +496,16 @@ public class ReclusterByKmer {
 			}
 		}
 		
+		/**
+		 * Reassigns read pair to optimal clusters based on k-mer similarity scores.
+		 * Evaluates all existing clusters and selects best matches using configured
+		 * ambiguity resolution strategy when reads have conflicting assignments.
+		 *
+		 * @param r1 First read of the pair
+		 * @param r2 Second read of the pair (may be null for single-end)
+		 * @param rt1 ReadTag metadata for first read
+		 * @param rt2 ReadTag metadata for second read (may be null)
+		 */
 		private void reCluster(Read r1, Read r2, ReadTag rt1, ReadTag rt2){
 
 			assert(false) : "TODO";
@@ -512,14 +570,21 @@ public class ReclusterByKmer {
 
 		}
 
+		/** Unique identifier for this worker thread */
 		final int id;
+		/** Clustering operation mode for this thread */
 		final int clusterMode;
+		/** Thread-local ambiguity resolution strategy */
 		final int ambigModeT;
+		/** Input stream for reading sequences in this thread */
 		final ConcurrentReadInputStream cris;
 		
+		/** Random number generator for probabilistic cluster assignment */
 		Random randy;
 		
+		/** Thread-local count of reads processed */
 		long readsInT;
+		/** Thread-local count of bases processed */
 		long basesInT;
 		
 	}
@@ -532,8 +597,10 @@ public class ReclusterByKmer {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
+	/** Thread-safe list of all clusters created during processing */
 	final ArrayList<Cluster> clusterList=new ArrayList<Cluster>(256);
 	
 	/** 'big' kmer */
@@ -541,23 +608,37 @@ public class ReclusterByKmer {
 	/** 'small' kmer */
 	public final int k2;
 
+	/**
+	 * Array length for k1-based k-mer storage, calculated as maxCanonicalKmer(k1)+1
+	 */
 	public final int arraylen1;
+	/**
+	 * Array length for k2-based k-mer storage, calculated as maxCanonicalKmer(k2)+1
+	 */
 	public final int arraylen2;
 	
+	/** Primary input file path for reads */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 
+	/** Primary output file path for processed reads */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 	
 	private String extin=null;
 	private String extout=null;
 	
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
+	/** Strategy for handling ambiguous cluster assignments */
 	private int ambigMode=AMBIG_MODE_RAND;
 	
 	private final FileFormat ffin1;
@@ -566,21 +647,31 @@ public class ReclusterByKmer {
 	private final FileFormat ffout1;
 	private final FileFormat ffout2;
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
 	
+	/** Number of worker threads for concurrent processing */
 	private int THREADS=Shared.threads();
 	
 	/*--------------------------------------------------------------*/
 
+	/** Enables verbose logging output for debugging */
 	public static boolean verbose=false;
 
+	/** Clustering mode constant for initial cluster creation */
 	public static final int CLUSTER_MODE_CREATE=0;
+	/** Clustering mode constant for reassigning reads to clusters */
 	public static final int CLUSTER_MODE_RECLUSTER=1;
+	/** Clustering mode constant for refining existing cluster assignments */
 	public static final int CLUSTER_MODE_REFINE=2;
 	
+	/** Ambiguity resolution mode: assign to best-scoring cluster */
 	public static final int AMBIG_MODE_BEST=0;
+	/** Ambiguity resolution mode: assign to both competing clusters */
 	public static final int AMBIG_MODE_BOTH=1;
+	/** Ambiguity resolution mode: discard ambiguous reads */
 	public static final int AMBIG_MODE_TOSS=2;
+	/** Ambiguity resolution mode: randomly assign based on score weights */
 	public static final int AMBIG_MODE_RAND=3;
 	
 }

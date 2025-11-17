@@ -2,8 +2,18 @@ package icecream;
 
 import shared.Parse;
 
+/**
+ * Parses and extracts structured metadata from Pacific Biosciences
+ * sequencing run headers.
+ * Handles complex header strings with format: runID/zmwID/start_stop
+ * (e.g., "m64021_190821_100154/102/32038_35649").
+ *
+ * @author Brian Bushnell
+ */
 public class PBHeader {
 
+	/** Constructs a PBHeader by parsing the provided header string.
+	 * @param s PacBio header string to parse */
 	public PBHeader(String s){
 		setFrom(s);
 	}
@@ -39,10 +49,15 @@ public class PBHeader {
 		return zmwID;
 	}
 	
+	/** Original unparsed header string */
 	public String original;
+	/** Run identifier extracted from header (e.g., "m64021_190821_100154") */
 	public String runID;
+	/** Zero-Mode Waveguide identifier extracted from header */
 	public int zmwID;
+	/** Movie start coordinate extracted from header */
 	public int start;
+	/** Movie stop coordinate extracted from header */
 	public int stop;
 	
 }

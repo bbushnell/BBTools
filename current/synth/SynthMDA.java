@@ -39,6 +39,8 @@ public class SynthMDA {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Program entry point for MDA simulation.
+	 * @param args Command-line arguments for MDA configuration */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		SynthMDA x=new SynthMDA(args);
@@ -48,6 +50,11 @@ public class SynthMDA {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs SynthMDA instance and parses command-line arguments.
+	 * Configures input/output files, amplification parameters, and validation settings.
+	 * @param args Command-line arguments containing MDA simulation parameters
+	 */
 	public SynthMDA(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -167,6 +174,12 @@ public class SynthMDA {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that executes the MDA simulation pipeline.
+	 * Reads input reference sequences, performs iterative amplification cycles,
+	 * writes amplified reference output, and optionally generates synthetic reads.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ByteBuilder bb=new ByteBuilder();
@@ -312,6 +325,18 @@ public class SynthMDA {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Performs single amplification cycle by random fragment sampling.
+	 * Randomly selects fragments from source sequence in forward or reverse orientation,
+	 * amplifies content by the specified ratio until target size is reached.
+	 *
+	 * @param source Source sequence data to amplify from
+	 * @param retain Whether to retain original source data in output
+	 * @param minlen Minimum fragment length for amplification
+	 * @param maxlen Maximum fragment length for amplification
+	 * @param ratio Target amplification factor for this cycle
+	 * @return ByteBuilder containing amplified sequence data
+	 */
 	private ByteBuilder amplify(ByteBuilder source, boolean retain, int minlen, int maxlen, float ratio){
 		assert(minlen<=maxlen && minlen>0 && maxlen>0);
 		final int range=maxlen-minlen+1;
@@ -367,46 +392,72 @@ public class SynthMDA {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input reference file path */
 	private String ref=null;
+	/** Output amplified reference file path */
 	private String out1=null;
 	
+	/** File extension override for reference input */
 	private String extref=null;
+	/** File extension override for amplified reference output */
 	private String extout=null;
 	
+	/** File format handler for reference input */
 	private final FileFormat ffref;
+	/** File format handler for amplified reference output */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Minimum fragment length for amplification sampling */
 	private int minlen=10000;
+	/** Secondary minimum length threshold for fragment retention */
 	private int minlen2=4000;
+	/** Maximum fragment length for amplification sampling */
 	private int maxlen=150000;
+	/** Number of amplification cycles to perform */
 	private int cycles=9;
+	/** Amplification ratio for the first cycle */
 	private float initialRatio=1.3f;
+	/** Amplification ratio for subsequent cycles */
 	private float ratio=2;
 	
+	/** Prefix for generated sequence identifiers */
 	private String prefix=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of synthetic reads to generate if specified */
 	private long reads=12000000;
+	/** Length of synthetic reads to generate */
 	private int readlength=150;
+	/** Amplification factor for synthetic read generation */
 	private int amp=200;
+	/** Whether to generate paired-end synthetic reads */
 	private boolean paired=true;
+	/** Genome build version for synthetic read generation */
 	private int build=7;
+	/** Output file path for synthetic reads */
 	private String readsOut=null;
+	/** Fraction of synthetic reads to generate without errors */
 	private float perfectrate=0;
 	
+	/** Thread-local random number generator for fragment sampling */
 	private final Random randy=Shared.threadLocalRandom();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Global flag controlling verbose output across components */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

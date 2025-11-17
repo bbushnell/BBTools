@@ -23,6 +23,14 @@ public class MicroAligner3 implements MicroAligner {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a MicroAligner3 with specified index and alignment parameters.
+	 * Initializes internal state including k-mer parameters and thread-local resources.
+	 *
+	 * @param index_ The k-mer index for the reference sequence
+	 * @param minIdentity_ Minimum identity threshold for accepting alignments
+	 * @param shared_ Whether to use shared thread-local resources or private instances
+	 */
 	public MicroAligner3(MicroIndex3 index_, float minIdentity_, boolean shared_) {
 		index=index_;
 		minIdentity=minIdentity_;
@@ -71,6 +79,19 @@ public class MicroAligner3 implements MicroAligner {
 		return id;
 	}
 	
+	/**
+	 * Performs alignment of read to reference sequence within specified bounds.
+	 * First attempts quick alignment, then falls back to full dynamic programming
+	 * alignment if quick alignment fails to meet identity threshold.
+	 *
+	 * @param r The read to align
+	 * @param ref Reference sequence bytes
+	 * @param a Start position in reference
+	 * @param b End position in reference
+	 * @param pad Padding bases to extend alignment window
+	 * @param minid Minimum identity threshold
+	 * @return Identity score of the alignment
+	 */
 	public float align(Read r, byte[] ref, int a, int b, int pad, float minid){
 		assert(!r.mapped());
 		{
@@ -151,16 +172,31 @@ public class MicroAligner3 implements MicroAligner {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Gets SingleStateAligner instance for dynamic programming alignment.
+	 * Returns private instance if not shared, otherwise uses shared thread-local instance.
+	 * @return SingleStateAlignerFlat2 instance for alignment operations
+	 */
 	private final SingleStateAlignerFlat2 getSSA() {
 		if(!shared) {return mySSA;}
 		return GeneCaller.getSSA();
 	}
 	
+	/**
+	 * Gets ByteBuilder instance for building match strings.
+	 * Returns private instance if not shared, otherwise uses shared thread-local instance.
+	 * @return ByteBuilder instance for constructing alignment strings
+	 */
 	private final ByteBuilder getBuffer() {
 		if(!shared) {return myBuffer;}
 		return buffer();
 	}
 	
+	/**
+	 * Gets thread-local ByteBuilder instance for shared usage.
+	 * Creates new instance if none exists for current thread.
+	 * @return Thread-local ByteBuilder instance
+	 */
 	private static final ByteBuilder buffer() {
 		ByteBuilder buffer=bufferHolder.get();
 		if(buffer==null) {
@@ -174,24 +210,38 @@ public class MicroAligner3 implements MicroAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the k-mer hash map from the underlying index.
+	 * @return Hash map containing k-mer to position mappings */
 	public LongHashMap getMap() {return index.map;}
 	
+	/** Minimum identity threshold for accepting alignments */
 	final float minIdentity;
+	/** Maximum fraction of substitutions allowed (1 - minIdentity) */
 	final float maxSubFraction;
+	/** K-mer length used for indexing and alignment */
 	final int k;
+	/** K-mer length minus 1, used for rolling hash calculations */
 	final int k2;
+	/** Bit mask for middle-masking k-mers during fuzzy matching */
 	final long middleMask;
+	/** K-mer index containing reference sequence and hash map */
 	final MicroIndex3 index;
+	/** Private SingleStateAligner instance when not using shared resources */
 	final SingleStateAlignerFlat2 mySSA;
+	/** Private ByteBuilder instance when not using shared resources */
 	final ByteBuilder myBuffer;
+	/** Whether to use shared thread-local resources or private instances */
 	final boolean shared;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Statics           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Multiplier constant for N base handling in identity calculations */
 	private static final float nMult=1024;
+	/** Inverse multiplier constant for N base handling in identity calculations */
 	private static final float nMultInv=1.0f/nMult;
+	/** Thread-local holder for shared ByteBuilder instances */
 	private static final ThreadLocal<ByteBuilder> bufferHolder=new ThreadLocal<ByteBuilder>();
 //	final ByteBuilder buffer=new ByteBuilder();
 	

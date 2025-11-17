@@ -27,6 +27,14 @@ import ukmer.Kmer;
  */
 public abstract class AbstractKmerTableSet {
 	
+	/**
+	 * Checks if a command-line argument is valid for k-mer table configuration.
+	 * Validates arguments related to input files, table sizing, threading, filtering,
+	 * and processing parameters.
+	 *
+	 * @param a The argument string to validate
+	 * @return true if the argument is recognized and valid, false otherwise
+	 */
 	public static final boolean isValidArgument(String a){
 			if(a.equals("in") || a.equals("in1")){
 			}else if(a.equals("in2")){
@@ -68,6 +76,12 @@ public abstract class AbstractKmerTableSet {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Main processing method that executes the complete k-mer loading pipeline.
+	 * Counts k-mers from input files, tracks timing statistics, and handles error states.
+	 * @param t Timer for tracking execution time
+	 * @throws RuntimeException if processing encounters errors
+	 */
 	public final void process(Timer t){
 		
 		/* Count kmers */
@@ -85,9 +99,16 @@ public abstract class AbstractKmerTableSet {
 	}
 
 	
+	/** Clears all k-mer data from the table set, freeing memory for reuse */
 	public abstract void clear();
 	
 	
+	/**
+	 * Processes all input files to build k-mer tables with optional prefiltering.
+	 * Creates prefilter arrays for memory efficiency, allocates main tables,
+	 * and loads k-mers from all specified input sources.
+	 * @return Number of k-mers successfully added to tables
+	 */
 	public final long processInput(){
 		
 		/* Start phase timer */
@@ -230,6 +251,12 @@ public abstract class AbstractKmerTableSet {
 	}
 	
 	
+	/**
+	 * Displays processing statistics including read counts, k-mer counts, and timing.
+	 * Shows memory usage information and throughput statistics if enabled.
+	 * @param t Timer containing elapsed processing time
+	 * @param added Number of unique k-mers loaded into tables
+	 */
 	public final void showStats(Timer t, long added){
 		
 		if(!DISPLAY_STATS){return;}
@@ -256,6 +283,12 @@ public abstract class AbstractKmerTableSet {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads k-mers from all configured input files including paired-end handling.
+	 * Processes both primary input files (in1/in2) and extra reference files.
+	 * Handles automatic paired-end file detection using '#' placeholder syntax.
+	 * @return Total number of k-mers loaded across all files
+	 */
 	private final long loadKmers(){
 		//allocateTables();
 		assert(allocated);
@@ -295,20 +328,54 @@ public abstract class AbstractKmerTableSet {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Regenerates k-mer counts up to specified depth limit.
+	 * Used for error correction and quality improvement operations.
+	 * @param limit Maximum count value to regenerate
+	 * @return Number of k-mers regenerated
+	 */
 	public abstract long regenerate(int limit);
 	
+	/**
+	 * Retrieves a specific table from the table set by index.
+	 * @param tnum Table number/index to retrieve
+	 * @return The table object at the specified index
+	 */
 	public abstract Object getTable(int tnum);
 	
+	/**
+	 * Creates a histogram of k-mer count frequencies up to specified maximum.
+	 * @param histMax Maximum count value to include in histogram
+	 * @return Array where index represents count and value represents frequency
+	 */
 	public abstract long[] fillHistogram(int histMax);
 
+	/**
+	 * Counts GC bases in k-mers up to specified maximum count.
+	 * @param gcCounts Array to store GC count results (modified in place)
+	 * @param max Maximum k-mer count to consider
+	 */
 	public abstract void countGC(long[] gcCounts, int max);
 	
+	/**
+	 * Creates and fills an array with GC content counts for k-mers.
+	 * @param histMax Maximum count value to process
+	 * @return Array of GC counts indexed by k-mer frequency
+	 */
 	public final long[] fillGcCounts(int histMax){
 		long[] gcCounts=new long[histMax+1];
 		countGC(gcCounts, histMax);
 		return gcCounts;
 	}
 	
+	/**
+	 * Creates a GC content histogram as fractions from count and GC data.
+	 * Calculates GC percentage for each frequency bin based on k-mer length.
+	 *
+	 * @param counts K-mer frequency counts per bin
+	 * @param gcCounts GC base counts per bin
+	 * @return Array of GC fractions (0.0 to 1.0) indexed by frequency
+	 */
 	public final float[] makeGcHistogram(long[] counts, long[] gcCounts){
 		float[] gcHist=new float[counts.length];
 		final long k=kbig();
@@ -320,27 +387,98 @@ public abstract class AbstractKmerTableSet {
 		return gcHist;
 	}
 	
+	/** Initializes ownership tracking for thread-safe k-mer table access */
 	public abstract void initializeOwnership();
 	
+	/** Clears all ownership claims on k-mer table entries */
 	public abstract void clearOwnership();
 	
+	/** Returns the number of ways (hash table segments) in the table set.
+	 * @return Number of parallel table segments for load balancing */
 	public abstract int ways();
 	
+	/**
+	 * Fills count values for all k-mers in a sequence.
+	 * Convenience method that calls fillSpecificCounts without position filtering.
+	 *
+	 * @param bases Sequence bases to process
+	 * @param counts List to store k-mer counts (modified in place)
+	 * @param kmer Reusable Kmer object for efficiency
+	 * @return Number of k-mers processed
+	 */
 	public final int fillCounts(byte[] bases, IntList counts, Kmer kmer){
 		return fillSpecificCounts(bases, counts, null, kmer);
 	}
 	
+	/**
+	 * Fills count values for k-mers at specific positions in a sequence.
+	 *
+	 * @param bases Sequence bases to process
+	 * @param counts List to store k-mer counts (modified in place)
+	 * @param positions BitSet indicating which positions to process (null for all)
+	 * @param kmer Reusable Kmer object for efficiency
+	 * @return Number of k-mers processed
+	 */
 	public abstract int fillSpecificCounts(byte[] bases, IntList counts, BitSet positions, Kmer kmer);
 	
+	/**
+	 * Regenerates k-mer counts for a sequence, tracking which positions changed.
+	 *
+	 * @param bases Sequence bases to process
+	 * @param counts List to store updated k-mer counts (modified in place)
+	 * @param kmer Reusable Kmer object for efficiency
+	 * @param changed BitSet tracking which positions were modified (modified in place)
+	 * @return Number of k-mers regenerated
+	 */
 	public abstract int regenerateCounts(byte[] bases, IntList counts, Kmer kmer, BitSet changed);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Printing Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Dumps k-mers to file in binary format within specified count range.
+	 * Single-threaded implementation.
+	 *
+	 * @param fname Output file path
+	 * @param mincount Minimum k-mer count to include
+	 * @param maxcount Maximum k-mer count to include
+	 * @param printTime Whether to display timing information
+	 * @param remaining Counter for remaining k-mers to process
+	 * @return true if dump completed successfully, false on error
+	 */
 	public abstract boolean dumpKmersAsBytes(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining);
+	/**
+	 * Dumps k-mers to file in binary format within specified count range.
+	 * Multi-threaded implementation for improved performance on large datasets.
+	 *
+	 * @param fname Output file path
+	 * @param mincount Minimum k-mer count to include
+	 * @param maxcount Maximum k-mer count to include
+	 * @param printTime Whether to display timing information
+	 * @param remaining Counter for remaining k-mers to process
+	 * @return true if dump completed successfully, false on error
+	 */
 	public abstract boolean dumpKmersAsBytes_MT(String fname, int mincount, int maxcount, boolean printTime, AtomicLong remaining);
 	
+	/**
+	 * Creates and optionally writes a k-mer count histogram with various analysis options.
+	 * Supports smoothing, log scaling, GC content analysis, and flexible output formatting.
+	 *
+	 * @param fname Output file path (null to skip file output)
+	 * @param cols Number of columns in output format
+	 * @param max Maximum count value to include in histogram
+	 * @param printHeader Whether to include column headers in output
+	 * @param printZeros Whether to include zero-count entries
+	 * @param printTime Whether to display timing information
+	 * @param smooth Whether to apply progressive smoothing to histogram
+	 * @param calcGC Whether to calculate GC content statistics
+	 * @param doLogScale Whether to apply logarithmic scaling
+	 * @param logWidth Width parameter for log scaling
+	 * @param logPasses Number of passes for log scaling
+	 * @param smoothRadius Radius for smoothing operations
+	 * @return 2D array containing [counts, gc_counts] histograms
+	 */
 	public final long[][] makeKhist(String fname, int cols, int max, boolean printHeader, boolean printZeros, boolean printTime, 
 			boolean smooth, boolean calcGC, boolean doLogScale, double logWidth, int logPasses, int smoothRadius){
 		Timer t=new Timer();
@@ -410,6 +548,7 @@ public abstract class AbstractKmerTableSet {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to display processing statistics */
 	public boolean showStats=true;
 	
 //	public boolean silent=false;
@@ -422,6 +561,7 @@ public abstract class AbstractKmerTableSet {
 	/** Fill the prefilter at the same time as the main table */
 	public boolean onePass=false;
 	
+	/** Whether to process amino acid sequences instead of nucleotides */
 	public boolean amino=false;
 	/** Number of hashes used by prefilter */
 	public int prehashes=2;
@@ -433,9 +573,12 @@ public abstract class AbstractKmerTableSet {
 	/** Fraction of available memory preallocated to arrays */
 	public double preallocFraction=1.0;
 	
+	/** The active prefilter array for k-mer frequency estimation */
 	public KCountArray prefilterArray=null;
 	
+	/** Whether to use minimum probability filtering during prefilter phase */
 	public boolean minProbPrefilter=true;
+	/** Whether to use minimum probability filtering during main processing */
 	public boolean minProbMain=true;
 
 	/** Input reads for kmers */
@@ -447,45 +590,81 @@ public abstract class AbstractKmerTableSet {
 	/** Maximum input reads (or pairs) to process.  Does not apply to references.  -1 means unlimited. */
 	public long maxReads=-1;
 	
+	/** Buffer length for I/O operations */
 	public int buflen=1000;
 	
 	/** Filter kmers up to this level; don't store them in primary data structure */
 	protected int filterMax=0;
+	/** Secondary filter maximum after prefilter adjustment */
 	protected int filterMax2=0;
 	
+	/** Total number of reads processed */
 	public long readsIn=0;
+	/** Total number of bases processed */
 	public long basesIn=0;
+	/** Number of reads with low quality scores */
 	public long lowqReads=0;
+	/** Number of bases with low quality scores */
 	public long lowqBases=0;
+	/** Number of reads that were trimmed during processing */
 	public long readsTrimmed=0;
+	/** Number of bases removed during trimming operations */
 	public long basesTrimmed=0;
 	
+	/** Total number of k-mers encountered in input */
 	public long kmersIn=0;
+	/** Number of k-mers successfully loaded into tables */
 	public long kmersLoaded=0;
 	
+	/** Current preprocessing pass number for multi-pass filtering */
 	private int currentPass=0;
+	/** Total number of preprocessing passes to perform */
 	protected int prepasses=1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the k-mer length used by this table set.
+	 * @return Length of k-mers in bases */
 	public abstract int kbig();
+	/**
+	 * Calculates memory allocated for filtering operations in specified pass.
+	 * @param pass Pass number to calculate memory for
+	 * @return Memory allocation in bytes
+	 */
 	public abstract long filterMemory(int pass);
+	/** Returns total memory used by the main k-mer tables.
+	 * @return Memory usage in bytes */
 	public abstract long tableMemory();
+	/** Estimates the maximum number of k-mers this table set can hold.
+	 * @return Estimated k-mer capacity */
 	public abstract long estimatedKmerCapacity();
+	/** Returns whether error correction and counting overlap is enabled.
+	 * @return true if ECCO mode is active, false otherwise */
 	public abstract boolean ecco();
+	/** Returns whether quality trimming from left end is enabled.
+	 * @return true if left-end quality trimming is active */
 	public abstract boolean qtrimLeft();
+	/** Returns whether quality trimming from right end is enabled.
+	 * @return true if right-end quality trimming is active */
 	public abstract boolean qtrimRight();
+	/** Returns the minimum average quality score required for sequences.
+	 * @return Minimum average quality threshold */
 	public abstract float minAvgQuality();
+	/** Returns the maximum k-mer count for prefiltering */
 	public final int filterMax(){return filterMax;}
+	/** Returns whether reverse complement processing is enabled.
+	 * @return true if reverse complement k-mers are processed */
 	public abstract boolean rcomp();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Allocates memory for the main k-mer tables based on current configuration */
 	protected abstract void allocateTables();
+	/** Whether the main k-mer tables have been allocated */
 	protected boolean allocated=false;
 
 	/** Print messages to this stream */
@@ -507,7 +686,9 @@ public abstract class AbstractKmerTableSet {
 	/** Number of ProcessThreads */
 	public static int THREADS=Shared.threads();
 	
+	/** Maximum number of N bases allowed in k-mers */
 	public static int maxNs=Integer.MAX_VALUE;
+	/** Minimum sequence length to process */
 	public static int minLen=0;
 	
 	/** Increment owner by this much to indicate claim is final. */
@@ -516,19 +697,28 @@ public abstract class AbstractKmerTableSet {
 	/** Default initial table size */
 	public static final int initialSizeDefault=128000;
 	
+	/** Probability lookup table for base quality scores */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 127);
+	/** Inverse probability lookup table for base quality scores */
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 127);
 	
+	/** Whether to ignore unrecognized command-line arguments */
 	public static boolean IGNORE_UNKNOWN_ARGS=true;
 
+	/** Constant indicating hash collision occurred during lookup */
+	/** Constant indicating k-mer is not present in table */
 	public static final int NOT_PRESENT=AbstractKmerTable.NOT_PRESENT, HASH_COLLISION=AbstractKmerTable.HASH_COLLISION;
+	/** Constant indicating k-mer has no thread ownership */
 	public static final int NO_OWNER=AbstractKmerTable.NO_OWNER;
 	
+	/** Default minimum probability threshold for k-mer inclusion */
 	public static double defaultMinprob=0;
 	
 	/** IIRC this has to do with allowing 32-mers */
 	public static boolean MASK_CORE=false;
+	/** Whether to mask the middle region of k-mers */
 	public static boolean MASK_MIDDLE=false;
+	/** Whether to use fast filling algorithm for table population */
 	public static boolean FAST_FILL=true;
 	
 }

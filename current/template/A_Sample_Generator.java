@@ -332,6 +332,12 @@ public class A_Sample_Generator {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads all input reads into memory for use as templates or references.
+	 * Processes reads from input stream and maintains processing counters.
+	 * @param cris Input stream to read from
+	 * @return ArrayList containing all loaded reads
+	 */
 	private ArrayList<Read> loadData(ConcurrentReadInputStream cris){
 		
 		ArrayList<Read> input=new ArrayList<Read>();
@@ -452,8 +458,11 @@ public class A_Sample_Generator {
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
+		/** Shared atomic counter for assigning sequential read IDs across threads */
 		private final AtomicLong atomicReadID;
+		/** Maximum total reads to generate across all threads */
 		private final long maxReads;
+		/** Number of reads to generate per batch for optimal buffer utilization */
 		private final int readsPerList=Shared.bufferLen();
 		
 		/** Shared output stream */
@@ -474,7 +483,9 @@ public class A_Sample_Generator {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Quality scores output file path for first reads */
 	private String qfout1=null;
+	/** Quality scores output file path for second reads */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -500,6 +511,7 @@ public class A_Sample_Generator {
 	/** Input read storage, if needed */
 	private ArrayList<Read> data=new ArrayList<Read>();
 	
+	/** Atomic counter for assigning sequential IDs to generated reads */
 	private AtomicLong nextReadID=new AtomicLong(0);
 	
 	/*--------------------------------------------------------------*/

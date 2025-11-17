@@ -22,6 +22,11 @@ public final class LineParserS3 implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
+	/**
+	 * Testing method for LineParserS3 functionality.
+	 * Accepts a filename or literal string and a single-character delimiter.
+	 * @param args Command-line arguments: [filename/literal] [delimiter]
+	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -46,8 +51,12 @@ public final class LineParserS3 implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new LineParserS3 with the specified delimiter character.
+	 * @param delimiter_ Primary delimiter character to use for parsing */
 	public LineParserS3(char delimiter_) {delimiter=delimiter_;}
 
+	/** Creates a new LineParserS3 with the specified delimiter as an integer.
+	 * @param delimiter_ Primary delimiter character as integer value */
 	public LineParserS3(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=Character.MAX_VALUE);
 		delimiter=(char)delimiter_;
@@ -114,6 +123,7 @@ public final class LineParserS3 implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the number of parsed terms in the current line */
 	public int terms() {return bounds.size();}
 	
 	@Override
@@ -303,6 +313,11 @@ public final class LineParserS3 implements LineParserS {
 		return b-a;
 	}
 	
+	/**
+	 * Advances parsing position to the next delimiter boundary.
+	 * Increments position counters and scans until reaching a delimiter character.
+	 * @return Length of the parsed term
+	 */
 	private int advance() {
 		b++;
 		a=b;
@@ -310,6 +325,12 @@ public final class LineParserS3 implements LineParserS {
 		return b-a;
 	}
 	
+	/**
+	 * Tests whether a character is considered a delimiter.
+	 * Returns true for the primary delimiter, space, or tab characters.
+	 * @param c Character to test
+	 * @return true if the character is a delimiter
+	 */
 	private boolean isDelimiter(char c) {
 		return c==delimiter || c==' ' || c=='\t';
 	}
@@ -332,6 +353,11 @@ public final class LineParserS3 implements LineParserS {
 		return list;
 	}
 	
+	/**
+	 * Finds the first occurrence of whitespace (space or tab) in the delimiter list.
+	 * Returns the index of the first non-primary delimiter found.
+	 * @return Index of first whitespace delimiter, or -1 if none found
+	 */
 	public int indexOfWhitespace() {
 		for(int i=0; i<delimiterList.length; i++) {
 			if(delimiterList.get(i)!=delimiter) {return i;}
@@ -343,14 +369,21 @@ public final class LineParserS3 implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the bounds list containing term boundary positions */
 	public IntList bounds() {return bounds;}
+	/** List of boundary positions for parsed terms */
 	private final IntList bounds=new IntList();
+	/** Builder containing the actual delimiter characters found during parsing */
 	private final ByteBuilder delimiterList=new ByteBuilder();
 	
+	/** Start position of current parsing term */
 	private int a=-1;
+	/** End position of current parsing term */
 	private int b=-1;
+	/** Current line being parsed */
 	private String line;
 	
+	/** Primary delimiter character specified during construction */
 	public final char delimiter;
 	
 }

@@ -394,6 +394,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Adds files to a list, parsing comma-separated file paths or clearing the list.
+	 * @param b File path string (single file or comma-separated list) or null to clear
+	 * @param list List to add files to or clear
+	 */
 	private static void addFiles(String b, ArrayList<String> list){
 		if(b==null){list.clear();}
 		else{
@@ -404,6 +409,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Parses a parameter as either an integer or boolean value.
+	 *
+	 * @param b String to parse
+	 * @param defaultTrue Value to return if parsing as true
+	 * @param defaultFalse Value to return if parsing as false
+	 * @return Parsed integer or appropriate default value
+	 */
 	private static final int parseIntOrBool(String b, int defaultTrue, int defaultFalse) {
 		if(b==null || Tools.startsWithLetter(b)) {
 			boolean x=Parse.parseBoolean(b);
@@ -412,6 +425,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		return Integer.parseInt(b);
 	}
 	
+	/**
+	 * Creates a bit mask for middle-masking k-mers during homopolymer detection.
+	 * Masks the middle 1-2 bases of k-mers to allow fuzzy matching.
+	 *
+	 * @param maskMiddle Whether to apply middle masking
+	 * @param k K-mer length
+	 * @return Bit mask with middle bases zeroed, or -1L if no masking
+	 */
 	public static long makeMidMask(boolean maskMiddle, int k) {
 		if(!maskMiddle) {return -1L;}
 		int bitsPerBase=2;
@@ -423,6 +444,16 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		return middleMask;
 	}
 	
+	/**
+	 * Creates a hash set of k-mers representing homopolymers with allowed mutations.
+	 * Generates all k-mers for each polymer base type within hamming distance.
+	 *
+	 * @param polymers Array of polymer bases to generate k-mers for
+	 * @param k K-mer length
+	 * @param hdist Maximum hamming distance for mutations
+	 * @param midMask Bit mask for middle-masking k-mers
+	 * @return Hash set containing all polymer k-mer variants
+	 */
 	public static LongHashSet makeSet(byte[] polymers, int k, int hdist, long midMask) {
 		if(polymers==null || polymers.length<1) {return null;}
 		LongHashSet set=new LongHashSet(1024);
@@ -450,6 +481,17 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Scans a read for k-mers matching the homopolymer set.
+	 * Uses rolling k-mer generation with middle-masking for fuzzy matching.
+	 *
+	 * @param r Read to scan for homopolymer k-mers
+	 * @param k K-mer length
+	 * @param kmerMask Bit mask for k-mer bounds
+	 * @param midMask Bit mask for middle-masking
+	 * @param set Hash set of target homopolymer k-mers
+	 * @return true if any k-mer in the read matches the homopolymer set
+	 */
 	public static boolean kmerScan(Read r, int k, long kmerMask, long midMask, LongHashSet set) {
 		if(r==null || r.length()<k) {return false;}
 		final byte[] bases=r.bases;
@@ -723,6 +765,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		return Tools.max(current, max);
 	}
 	
+	/**
+	 * Trims homopolymer sequences from both ends of a read.
+	 * @param r Read to trim
+	 * @return Total number of bases trimmed
+	 */
 	public int trimRead(Read r) {
 		if(r==null) {return 0;}
 		int trimmed=0;
@@ -738,6 +785,8 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Worker thread for processing reads through homopolymer and quality filters.
+	 * Handles merging, trimming, and multi-criteria filtering of sequence reads. */
 	class ProcessThread extends Thread {
 		
 		//Constructor
@@ -849,6 +898,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Determines if a read should be discarded based on multiple quality criteria.
+		 * Evaluates homopolymer content, entropy, base quality, and depth coverage.
+		 *
+		 * @param r Read to evaluate
+		 * @param insert Insert size if read is part of merged pair
+		 * @return true if read should be discarded
+		 */
 		private boolean isJunk(Read r, int insert) {
 			if(r==null) {return false;}
 			
@@ -910,8 +967,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
+		/** Number of reads trimmed by this thread */
 		protected long readsTrimmedT=0;
+		/** Number of bases trimmed by this thread */
 		protected long basesTrimmedT=0;
+		/** Number of reads merged by this thread */
 		protected long readsMergedT=0;
 		
 		/** Number of reads retained by this thread */
@@ -931,11 +991,16 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		/** Thread ID */
 		final int tid;
 		
+		/** Entropy tracker for calculating sequence complexity */
 		final EntropyTracker eTracker;
 		
+		/** Per-thread counters for reads flagged for each polymer type */
 		final long[] polymerFlaggedT=new long[polymers.length];
+		/** Number of reads flagged for low entropy by this thread */
 		long entropyFlaggedT=0;
+		/** Number of reads flagged for low quality by this thread */
 		long qualityFlaggedT=0;
+		/** Number of reads flagged for low depth by this thread */
 		long depthFlaggedT=0;
 	}
 	
@@ -943,7 +1008,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** List of reference files for bloom filter construction */
 	private ArrayList<String> ref=new ArrayList<String>();
+	/** Additional reference files for bloom filter construction */
 	private ArrayList<String> extra=new ArrayList<String>();
 	
 	/** Primary input file path */
@@ -979,6 +1046,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	public long readsTrimmed=0;
 	/** Number of bases trimmed */
 	public long basesTrimmed=0;
+	/** Number of paired reads successfully merged */
 	protected long readsMerged=0;
 
 	/** Number of reads retained */
@@ -989,9 +1057,13 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Number of reads output from last run */
 	public static long lastReadsOut=-1;
+	/** Number of reads removed from last run */
 	public static long lastReadsRemoved=-1;
+	/** Number of bases output from last run */
 	public static long lastBasesOut=-1;
+	/** Number of bases removed from last run */
 	public static long lastBasesRemoved=-1;
 	
 	/*--------------------------------------------------------------*/
@@ -1013,49 +1085,91 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	/** Secondary output file for matching reads */
 	private final FileFormat ffoutm2;
 	
+	/** Bloom filter for depth-based read filtering */
 	final BloomFilter filter;
 
+	/** K-mer size for bloom filter operations */
 	final int kbloom;
+	/** Smaller k-mer size for initial bloom filter construction */
 	final int ksmall;
+	/** Number of hash functions used in bloom filter */
 	final int hashes;
+	/** Number of bits per bloom filter cell */
 	final int bits;
+	/** Whether to use reverse complement k-mers in bloom filter */
 	final boolean rcomp;
+	/** Whether to discard low-quality k-mers during filter construction */
 	final boolean tossjunk;
+	/** Whether to attempt merging paired reads for better filtering */
 	final boolean merge;
+	/** Width parameter for smoothing low-quality regions */
 	int junkWidth=1;
+	/** Fraction of available memory to use for bloom filter */
 	float memFraction=1.0f;
+	/** Maximum allowed bloom filter load factor before crashing */
 	float maxLoad=1.0f; //Crash if this is exceeded
 
+	/** Number of bases to trim from left end for homopolymer removal */
 	int trimLeft=6;
+	/** Number of bases to trim from right end for homopolymer removal */
 	int trimRight=6;
+	/** Minimum read length to retain after trimming */
 	int minLength=50;
+	/** Maximum non-polymer bases allowed in homopolymer trimming regions */
 	int maxNonPoly=2;
 	
+	/** K-mer size for homopolymer detection */
 	int kpoly=29;
+	/** Maximum hamming distance for homopolymer k-mer mutations */
 	int hdist=2;
+	/** Bit mask for middle-masking homopolymer k-mers */
 	long midMask=-1;
+	/** Bit mask for k-mer bounds in homopolymer detection */
 	long kmerMask=-1;
+	/** Whether to apply middle-masking to homopolymer k-mers */
 	boolean maskMiddle=true;
+	/** Hash set containing homopolymer k-mers and their mutations */
 	LongHashSet set=null;
 	
+	/** Minimum k-mer count threshold for bloom filter depth filtering */
 	int minCount=2;
+	/**
+	 * Maximum fraction of low-count k-mers allowed in reads with short homopolymers
+	 */
 	float lowCountFraction=0.24f;
+	/** Maximum fraction of low-count k-mers allowed for strict filtering */
 	float lowCountFraction2=1.1f;
+	/**
+	 * Minimum homopolymer length for conditional filtering based on other criteria
+	 */
 	int minPolymer=20;
+	/** Minimum homopolymer length for unconditional read discarding */
 	int minPolymer2=29;
+	/** Minimum entropy required for reads with medium homopolymer content */
 	float entropyCutoff=0.67f;
+	/** Minimum entropy required for strict entropy-based filtering */
 	float entropyCutoff2=0.20f;
+	/** Minimum average quality score for reads with medium homopolymer content */
 	float qualityCutoff=12.5f;
+	/** Minimum average quality score for strict quality-based filtering */
 	float qualityCutoff2=7.5f;
+	/** Maximum allowed fraction of non-polymer bases in homopolymer detection */
 	float nonPolyFraction=1-0.85f;//0.15f;//These numbers are slightly different.
+	/** Array of polymer bases to detect and filter */
 	byte[] polymers="GC".getBytes();
+	/** Array of polymer bases to trim from read ends */
 	byte[] trimPolymers=null;
 	
+	/** Counters for reads flagged for each type of polymer */
 	long[] polymerFlagged;
+	/** Number of reads discarded for low entropy */
 	long entropyFlagged;
+	/** Number of reads discarded for low quality scores */
 	long qualityFlagged;
+	/** Number of reads discarded for low depth coverage */
 	long depthFlagged;
 	
+	/** Whether to use high-pass filtering for entropy calculations */
 	boolean entropyHighpass=true;
 
 	/** Quantize quality scores to reduce file size */

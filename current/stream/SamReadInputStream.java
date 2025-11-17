@@ -23,6 +23,11 @@ import structures.ListNum;
  */
 public class SamReadInputStream extends ReadInputStream {
 	
+	/**
+	 * Test method demonstrating SamReadInputStream usage.
+	 * Reads the first SAM record and prints both text and object representations.
+	 * @param args Command-line arguments; expects filename as first argument
+	 */
 	public static void main(String[] args){
 		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, -1, -1);
 		

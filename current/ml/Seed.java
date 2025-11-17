@@ -1,7 +1,18 @@
 package ml;
 
+/**
+ * Represents a deterministic seed configuration for neural network training.
+ * Provides a comparable representation of network initialization states and performance metrics.
+ * Used to ensure reproducible random states and facilitate seed comparison during model training.
+ * @author Brian Bushnell
+ */
 public class Seed implements Comparable<Seed>{
 
+	/**
+	 * Constructs a Seed with network seed and performance pivot.
+	 * @param netSeed_ The network initialization seed value
+	 * @param pivot_ The performance pivot value for comparison
+	 */
 	Seed(long netSeed_, float pivot_){
 		netSeed=netSeed_;
 		pivot=pivot_;
@@ -32,6 +43,11 @@ public class Seed implements Comparable<Seed>{
 		return equals((Seed)o);
 	}
 	
+	/**
+	 * Checks equality with another Seed based on network seed only.
+	 * @param s The Seed to compare against
+	 * @return true if network seeds are equal, false otherwise
+	 */
 	public boolean equals(Seed s) {
 		return s.netSeed==netSeed;// && s.annealSeed==annealSeed;
 	}
@@ -41,8 +57,10 @@ public class Seed implements Comparable<Seed>{
 		return netSeed+/*", "+annealSeed+*/", "+pivot;
 	}
 	
+	/** The network initialization seed value used for reproducible random states */
 	final long netSeed;
 //	final long annealSeed;
+	/** The performance pivot value used for seed comparison and sorting */
 	final float pivot;
 	
 }

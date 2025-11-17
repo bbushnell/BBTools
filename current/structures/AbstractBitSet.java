@@ -1,7 +1,22 @@
 package structures;
 
+/**
+ * Abstract base class for bit manipulation structures with variable bits per element.
+ * Provides factory methods and common operations for bit set implementations.
+ * Supports both single-bit (RawBitSet) and multi-bit (MultiBitSet) storage modes.
+ * @author Brian Bushnell
+ */
 public abstract class AbstractBitSet {
 	
+	/**
+	 * Factory method to create appropriate bit set implementation based on bits per element.
+	 * Creates RawBitSet for 1-bit elements or MultiBitSet for 2-bit elements.
+	 *
+	 * @param elements Number of elements to store
+	 * @param bitsPerElement Bits per element (must be 1 or 2)
+	 * @return RawBitSet for 1-bit elements, MultiBitSet for 2-bit elements
+	 * @throws RuntimeException if bitsPerElement is not 1 or 2
+	 */
 	public static AbstractBitSet make(int elements, int bitsPerElement){
 		assert(bitsPerElement==1 || bitsPerElement==2) : bitsPerElement;
 		assert(Integer.bitCount(bitsPerElement)==1) : bitsPerElement;
@@ -17,10 +32,22 @@ public abstract class AbstractBitSet {
 	}
 	
 //	public final void set(int x){increment(x);}
+	/** Increments the count at position x by 1.
+	 * @param x Position to increment */
 	public final void increment(int x){increment(x, 1);}
+	/**
+	 * Increments the count at position x by the specified amount.
+	 * @param x Position to increment
+	 * @param incr Amount to increment by
+	 */
 	public abstract void increment(int x, int incr);
 	
 //	public final boolean get(int x){return getCount(x)>0;}
+	/**
+	 * Returns the count value at position x.
+	 * @param x Position to query
+	 * @return Count value at position x
+	 */
 	public abstract int getCount(int x);
 	
 	/** Clears the input BitSet */
@@ -61,16 +88,32 @@ public abstract class AbstractBitSet {
 		}
 	}
 	
+	/**
+	 * Sets each position to the maximum of this BitSet and the input BitSet.
+	 * Dispatches to type-specific setToMax methods based on input type.
+	 * @param bs BitSet to compare against for maximum values
+	 * @throws RuntimeException if bs is not a recognized BitSet type
+	 */
 	public final void setToMax(AbstractBitSet bs){
 		if(bs.getClass()==RawBitSet.class){setToMax((RawBitSet)bs);}
 		else if(bs.getClass()==MultiBitSet.class){setToMax((MultiBitSet)bs);}
 		else{throw new RuntimeException("Bad class: "+bs.getClass());}
 	}
 	
+	/**
+	 * Sets each position to the maximum of this BitSet and the RawBitSet.
+	 * For RawBitSet this is equivalent to the add operation.
+	 * @param bs RawBitSet to compare against for maximum values
+	 */
 	public void setToMax(RawBitSet bs) {
 		add(bs);
 	}
 	
+	/**
+	 * Sets each position to the maximum of this BitSet and the MultiBitSet.
+	 * Both BitSets must be the same type, have same bits per element, and same capacity.
+	 * @param bs MultiBitSet to compare against for maximum values
+	 */
 	public void setToMax(MultiBitSet bs) {
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		assert(bits()==bs.bits());
@@ -86,11 +129,25 @@ public abstract class AbstractBitSet {
 	public abstract void addToCell(final int cell, final int mask);
 	public abstract void setToMax(final int cell, final int mask);
 	
+	/** Clears all values in the BitSet, resetting all positions to zero */
 	public abstract void clear();
+	/**
+	 * Sets the capacity of the BitSet with optional extra space.
+	 * @param capacity Target capacity in elements
+	 * @param extra Additional elements to allocate beyond capacity
+	 */
 	public abstract void setCapacity(long capacity, int extra);
+	/** Returns the number of non-zero positions in the BitSet.
+	 * @return Count of positions with non-zero values */
 	public abstract long cardinality();
+	/** Returns the maximum number of elements this BitSet can store.
+	 * @return Maximum element capacity */
 	public abstract long capacity();
+	/** Returns the length of the underlying storage array.
+	 * @return Storage array length */
 	public abstract int length();
+	/** Returns the number of bits used per element.
+	 * @return Bits per element (typically 1 or 2) */
 	public abstract int bits(); //per element
 	
 	@Override

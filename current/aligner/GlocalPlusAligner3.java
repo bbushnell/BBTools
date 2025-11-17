@@ -30,6 +30,7 @@ public class GlocalPlusAligner3 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public GlocalPlusAligner3() {}
 	
 	/*--------------------------------------------------------------*/
@@ -158,6 +159,18 @@ public class GlocalPlusAligner3 implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}
 
+	/**
+	 * Processes final alignment row to extract identity score and positions.
+	 * Finds optimal score, extracts position information from bit fields,
+	 * and calculates operation counts to determine identity percentage.
+	 *
+	 * @param prev Final row of alignment matrix
+	 * @param qLen Query sequence length
+	 * @param bandStart Start of alignment band
+	 * @param bandEnd End of alignment band
+	 * @param posVector Optional output array for alignment positions
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
 		long maxScore=Long.MIN_VALUE;
@@ -239,9 +252,16 @@ public class GlocalPlusAligner3 implements IDAligner{
 		return id;
 	}
 	
+	/** Atomic counter tracking total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/**
+	 * Returns the total number of alignment matrix cells processed across all instances
+	 */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for visualization data */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -249,26 +269,41 @@ public class GlocalPlusAligner3 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position encoding in bit field */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion count encoding in bit field */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score portion of bit field */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from bit field */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from bit field */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score portion from bit field */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Bit-shifted score increment for match operations */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Bit-shifted score penalty for substitution operations */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Bit-shifted score penalty for insertion operations */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Bit-shifted score penalty for deletion operations */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base (N) alignment - neither penalty nor bonus */
 	private static final long N_SCORE=0L;
+	/** Sentinel value representing invalid alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined increment for deletion operations including position tracking */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
+	/** Flag controlling global vs local alignment mode */
 	public static boolean GLOBAL=false;
 
 }

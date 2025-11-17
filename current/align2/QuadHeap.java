@@ -1,7 +1,18 @@
 package align2;
 
+/**
+ * Min-heap implementation for Quad objects used in alignment operations.
+ * Implements a binary heap data structure optimized for coordinate-based comparisons
+ * where Quad objects are prioritized by site position and column coordinates.
+ * @author Brian Bushnell
+ */
 public final class QuadHeap {
 	
+	/**
+	 * Constructs a QuadHeap with specified maximum capacity.
+	 * Allocates an internal array with size maxSize+1 (rounded to even number).
+	 * @param maxSize Maximum number of Quad objects this heap can hold
+	 */
 	public QuadHeap(int maxSize){
 		
 		int len=maxSize+1;
@@ -12,6 +23,12 @@ public final class QuadHeap {
 //		queue=new PriorityQueue<T>(maxSize);
 	}
 	
+	/**
+	 * Adds a Quad object to the heap and maintains heap property.
+	 * Inserts the element at the end and percolates down to restore min-heap order.
+	 * @param t The Quad object to add to the heap
+	 * @return true (always succeeds)
+	 */
 	public boolean add(Quad t){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -26,6 +43,11 @@ public final class QuadHeap {
 		return true;
 	}
 	
+	/**
+	 * Returns the minimum Quad object without removing it from the heap.
+	 * The minimum is always at the root position (index 1).
+	 * @return The minimum Quad object, or null if heap is empty
+	 */
 	public Quad peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -39,6 +61,11 @@ public final class QuadHeap {
 		return array[1];
 	}
 	
+	/**
+	 * Removes and returns the minimum Quad object from the heap.
+	 * Replaces root with last element and percolates up to restore heap order.
+	 * @return The minimum Quad object, or null if heap is empty
+	 */
 	public Quad poll(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -88,6 +115,12 @@ public final class QuadHeap {
 //		}
 //	}
 	
+	/**
+	 * Percolates element at given location down toward the root.
+	 * Used when adding elements to maintain min-heap property by moving
+	 * smaller elements closer to the root position.
+	 * @param loc Index of element to percolate down
+	 */
 	private void percDown(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0);
@@ -108,6 +141,12 @@ public final class QuadHeap {
 		array[loc]=a;
 	}
 	
+	/**
+	 * Percolates element at given location up toward leaves recursively.
+	 * Compares with children and swaps with smaller child to maintain heap order.
+	 * Recursively continues down the affected subtree.
+	 * @param loc Index of element to percolate up
+	 */
 	private void percUp(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -140,6 +179,12 @@ public final class QuadHeap {
 		}
 	}
 	
+	/**
+	 * Iterative version of percolate up operation.
+	 * Moves element down the tree iteratively rather than recursively,
+	 * which may provide better performance for deep trees.
+	 * @param loc Index of element to percolate up iteratively
+	 */
 	private void percUpIter(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -183,26 +228,43 @@ public final class QuadHeap {
 		array[loc]=a;
 	}
 	
+	/** Returns true if the heap contains no elements */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
+	/** Removes all elements from the heap by resetting size to zero */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=null;}
 		size=0;
 	}
 	
+	/** Returns the current number of elements in the heap */
 	public int size(){
 		return size;
 	}
 	
+	/**
+	 * Calculates the tier level of an integer based on bit position.
+	 * Returns 31 minus the number of leading zeros, effectively
+	 * computing floor(log2(x)) for the highest set bit position.
+	 *
+	 * @param x Integer to analyze
+	 * @return Tier level (0-31) representing the position of highest bit
+	 */
 	public static int tier(int x){
 		int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
 	
+	/**
+	 * Tests heap integrity by checking for duplicate object references.
+	 * Performs O(n²) comparison of all array elements to detect
+	 * reference duplicates which would indicate heap corruption.
+	 * @return true if no duplicate references found, false if duplicates exist
+	 */
 	public boolean testForDuplicates(){
 		for(int i=0; i<array.length; i++){
 			for(int j=i+1; j<array.length; j++){
@@ -223,8 +285,11 @@ public final class QuadHeap {
 		return sb.toString();
 	}
 	
+	/** Internal array storing heap elements with 1-based indexing */
 	private final Quad[] array;
+	/** Maximum number of elements this heap can hold */
 	private final int CAPACITY;
+	/** Current number of elements in the heap */
 	private int size=0;
 	
 }

@@ -15,6 +15,12 @@ import sketch.SketchTool;
 /** Renames files with top sketch hit taxid */
 public class FileRenamer {
 
+	/**
+	 * Program entry point that renames files based on their top taxonomic hits.
+	 * For each input file, creates a sketch, queries RefSeq database, identifies
+	 * the best taxonomic match, and renames the file to "tid_{taxid}_{originalname}".
+	 * @param args Input file paths to process and rename
+	 */
 	public static void main(String[] args) {
 		PreParser pp=new PreParser(args, null, false);
 		args=pp.args;

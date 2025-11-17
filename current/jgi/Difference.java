@@ -9,6 +9,14 @@ import fileIO.TextFile;
  */
 public class Difference {
 	
+	/**
+	 * Compares two text files specified as command-line arguments.
+	 * Reads files line by line, reports differences to stderr, and exits
+	 * if more than 4 differences are found or files have different lengths.
+	 *
+	 * @param args Command-line arguments: args[0] = first file, args[1] = second file
+	 * @throws AssertionError If more than 4 differences found or files have different lengths
+	 */
 	public static void main(String[] args){
 
 		TextFile tf1=new TextFile(args[0], false);

@@ -10,8 +10,20 @@ import sketch.SketchMakerMini;
 import stream.Read;
 import structures.ByteBuilder;
 
+/**
+ * Represents a genomic contig with sequence and metadata for bioinformatics analysis.
+ * Manages contig sequence data, provides iterator, and supports sketch generation.
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class Contig extends Bin {
 
+	/**
+	 * Constructs a new Contig with specified name, sequence bases, and identifier.
+	 * @param name_ Contig name/identifier
+	 * @param bases_ Genomic sequence as byte array
+	 * @param id_ Unique numeric identifier for this contig
+	 */
 	public Contig(String name_, byte[] bases_, int id_) {
 		name=name_;
 		shortName=ContigRenamer.toShortName(name);
@@ -38,6 +50,11 @@ public class Contig extends Bin {
 		return new Cluster(this);
 	}
 	
+	/**
+	 * Checks if this contig belongs to the same cluster as the specified bin.
+	 * @param b Bin to compare cluster membership with
+	 * @return true if both belong to the same cluster
+	 */
 	boolean sameCluster(Bin b) {
 		return cluster!=null && cluster.contigSet.contains(b.id());
 	}
@@ -86,6 +103,11 @@ public class Contig extends Bin {
 		return true;
 	}
 	
+	/**
+	 * Loads k-mer frequency counts and GC content from the sequence.
+	 * Calculates tetramers, optionally trimers and pentamers based on configuration.
+	 * Also computes GC sum by counting G and C nucleotides in the sequence.
+	 */
 	public void loadCounts() {
 		assert(numTetramers==0);
 		tetramers=new int[canonicalKmers[4]];
@@ -133,6 +155,12 @@ public class Contig extends Bin {
 		return smm.toSketch(0);
 	}
 	
+	/**
+	 * Generates coverage output format containing contig metadata and depth values.
+	 * Includes name, ID, size, depth values for all samples, and edge information.
+	 * @param bb ByteBuilder to use, created if null
+	 * @return ByteBuilder containing formatted coverage data
+	 */
 	public final ByteBuilder toCov(ByteBuilder bb) {
 		if(bb==null) {bb=new ByteBuilder();}
 		bb.append(shortName);
@@ -159,6 +187,7 @@ public class Contig extends Bin {
 		return new ContigIterator();
 	}
 	
+	/** Iterator implementation that returns this single contig exactly once. */
 	private class ContigIterator implements Iterator<Contig> {
 
 		@Override
@@ -173,14 +202,20 @@ public class Contig extends Bin {
 			return Contig.this;
 		}
 		
+		/** Flag tracking whether the iterator has more elements to return */
 		boolean hasMore=true;
 		
 	}
 	
+	/** Numeric identifier for this contig */
 	private int id=-1;
+	/** The cluster this contig belongs to, or null if not clustered */
 	public Cluster cluster=null;
+	/** Full name/identifier of this contig */
 	public final String name;
+	/** Shortened version of the contig name for display purposes */
 	public final String shortName;
+	/** Genomic sequence data as byte array */
 	public final byte[] bases;
 	
 }

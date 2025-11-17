@@ -536,6 +536,14 @@ public class CountBarcodes2 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and starts a concurrent read input stream from file formats.
+	 *
+	 * @param ff1 Primary input file format
+	 * @param ff2 Secondary input file format (may be null)
+	 * @param printPaired Whether to print pairing status
+	 * @return Started concurrent read input stream
+	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff1, FileFormat ff2, boolean printPaired){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2, 
 				null, null);
@@ -828,9 +836,13 @@ public class CountBarcodes2 {
 	
 	/** Pre-counted barcodes */
 	private String countsIn=null;
+	/** Minimum count threshold for including barcodes in output */
 	private long minCount0=0;
+	/** Minimum count for refinement operations */
 	private long minCountR=4;
+	/** Minimum count for assignment operations */
 	private long minCountA=4;
+	/** Minimum count percentile threshold for filtering */
 	private float minCountPercentile=0.0f;
 
 	/** Primary output file path */
@@ -841,40 +853,61 @@ public class CountBarcodes2 {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Output file for transition/substitution analysis */
 	private String transitionsOut=null;
+	/** Output file for PCR matrix data */
 	private String matrixOut=null;
+	/** Output file for probability matrix */
 	private String probsOut=null;
+	/** Output file for accuracy analysis */
 	private String accuracyOut=null;
+	/** Output file for barcode assignment mapping */
 	private String mapOut=null;
+	/** Output file for processed barcode list */
 	private String barcodesOut=null;
+	/** Output file for contamination analysis results */
 	private String contamOut=null;
+	/** File specifying which barcodes to include in quantification */
 	private String quantSetFile=null;
+	/** Whether to quantify contamination from source perspective */
 	private boolean quantifySource=false;
+	/** Whether to exclude unknown barcodes from accuracy calculations */
 	private boolean excludeUnknownInAccuracy=true;
 	
+	/** Whether to use client-server mode for barcode analysis */
 	private boolean useServer=false;
+	/** Whether useServer was explicitly set by user */
 	private boolean setUseServer=false;
 	
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 
+	/** Map storing contamination counts per barcode */
 	private HashMap<String, LongPair> contamMap;
 	
+	/** Barcode statistics accumulator and analyzer */
 	private BarcodeStats bs;
+	/** Whether to calculate detailed statistics */
 	private boolean calcStats=true;
+	/** Whether to print statistics to standard error */
 	private boolean printStats=true;
 	
+	/** Delimiter character separating paired barcodes */
 	byte delimiter=-1;
+	/** Number of barcodes expected per read */
 	int barcodesPerRead=-1;
 	
 //	private PCRMatrix pcrMatrix;
+	/** Whether to use PCR matrix for barcode analysis */
 	private boolean useMatrix=false;
 	
 //	private LineParserS2 lp=new LineParserS2(':');
+	/** Parser for extracting barcodes from Illumina sequence headers */
 	private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of barcodes processed across all reads */
 	long totalBarcodes=0;
 
 	/** Number of reads processed */
@@ -905,6 +938,7 @@ public class CountBarcodes2 {
 	private PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static boolean verbose=false;
+	/** Whether to print verbose messages in client mode */
 	public static boolean verboseClient=true;
 	/** True if an error was encountered */
 	public boolean errorState=false;

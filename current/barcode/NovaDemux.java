@@ -415,6 +415,11 @@ public class NovaDemux {
 		}
 	}
 	
+	/**
+	 * Configures header delimiter parsing for delimiter-based barcode extraction.
+	 * Optimizes for single-character delimiters using LineParserS2 for speed.
+	 * Compiles regex patterns for multi-character delimiters.
+	 */
 	private void processHeaderDelimiter() {
 		//For length-1 delimiters, use a char instead of a String
 		assert(column<0 || headerDelimiter!=null) : "Column may not be set if there is no delimiter.";
@@ -435,6 +440,12 @@ public class NovaDemux {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates barcode assignment map using PCR matrix analysis or client-server processing.
+	 * Counts observed barcodes and assigns them to expected samples based on error correction.
+	 * Supports both local processing and remote server computation.
+	 * @return Map from observed barcodes to assigned sample names
+	 */
 	private HashMap<String, String> makeAssignmentMap() {
 		if(mapIn!=null) {return BarcodeCounter.loadAssignmentMap(mapIn);}
 		
@@ -499,6 +510,14 @@ public class NovaDemux {
 		return map;
 	}
 	
+	/**
+	 * Filters assignment map to include only specified output subset.
+	 * Used to restrict output to selected barcodes when outSubset is defined.
+	 *
+	 * @param map Original assignment map
+	 * @param set Set of allowed output values
+	 * @return Filtered assignment map containing only subset entries
+	 */
 	private HashMap<String, String> filterAssignmentMap(HashMap<String, String> map, Set<String> set) {
 		if(map==null || set==null || map.isEmpty() || set.isEmpty()) {return map;}
 		HashMap<String, String> filtered=new HashMap<String, String>();
@@ -727,6 +746,12 @@ public class NovaDemux {
 		}
 	}
 	
+	/**
+	 * Appends sample assignment name to read headers.
+	 * Used when reads should be labeled with their assigned barcode.
+	 * @param r Read to rename (includes mate if paired)
+	 * @param name Sample name to append or "UNKNOWN" if null
+	 */
 	private void rename(Read r, String name) {
 		if(name==null) {name="UNKNOWN";}
 		r.id=r.id+"\t"+name;
@@ -932,7 +957,9 @@ public class NovaDemux {
 	/** Output for barcode assignment counts */
 	private String barcodesOut=null;
 	
+	/** Whether to append sample names to read headers */
 	private boolean rename=false;
+	/** Whether to send all reads to unmatched output instead of splitting */
 	private boolean nosplit=false;
 	
 	/** 
@@ -951,17 +978,27 @@ public class NovaDemux {
 	/** Assignment map output */
 	private String mapOut=null;
 
+	/** Whether to use client-server mode for barcode analysis */
 	private boolean useServer=false;
+	/** Whether useServer was explicitly configured by user */
 	private boolean setUseServer=false;
 	
 	//This is for a spike-in like PhiX
+	/** Label to assign to reads matching spike-in reference */
 	private String spikeLabel=null;
+	/** Path to spike-in reference sequences */
 	private String refPath="phix";
+	/** Aligner for mapping reads to spike-in reference */
 	private MicroAligner2 spikeMapper;
+	/** K-mer length for spike-in reference alignment */
 	private int kSpike=27;
+	/** Mask for selective k-mer lookup during spike-in mapping */
 	private int skipMask=3;
+	/** Minimum identity required for spike-in reference mapping */
 	float minSpikeIdentity=0.7f;
+	/** Whether to map unexpected barcodes to spike-in reference */
 	boolean mapUnexpectedToSpike=false;
+	/** Whether to attempt spike-in mapping for all reads */
 	boolean mapAllToSpike=false;
 	
 	/*--------------------------------------------------------------*/
@@ -976,14 +1013,17 @@ public class NovaDemux {
 	
 	/** Input reads */
 	long readsProcessed=0;
+	/** Total number of input bases processed */
 	long basesProcessed=0;
 	
 	/** Demultiplexed output reads */
 	long readsOut=0;
+	/** Number of bases in successfully demultiplexed reads */
 	long basesOut=0;
 	
 	/** Output reads that did not get demultiplexed */
 	long readsUnmatched=0;
+	/** Number of bases in unmatched reads */
 	long basesUnmatched=0;
 
 	/** Stop after this many input reads */
@@ -998,6 +1038,7 @@ public class NovaDemux {
 	/** For splitting headers faster if the delimiter is just one character */
 	private char delimiterChar=0;
 	
+	/** Fast line parser for single-character delimiters */
 	private LineParserS2 lp=null;
 	
 	/** Precompiled pattern matching the delimiter */
@@ -1019,6 +1060,7 @@ public class NovaDemux {
 	/** Prevents issuing warnings multiple times */
 	private boolean warned=false;
 	
+	/** Whether to print detailed timing information for stream retirement */
 	private boolean printRetireTime=false;
 	
 	/** 
@@ -1038,27 +1080,39 @@ public class NovaDemux {
 	 */
 	private HashMap<String, String> assignmentMap=null;//new HashMap<String, String>();
 
+	/** Set of expected barcode sequences from user specification */
 	private LinkedHashSet<String> expectedSet=null;
+	/** Subset of expected barcodes to actually output */
 	private LinkedHashSet<String> outSubset=null;
 	
 	/** Whether input file interleaving was explicitly set */
 	private boolean setInterleaved=false;
 	
+	/** Parser for extracting barcodes from Illumina sequence headers */
 	private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 
 	//Legacy file stuff
 //	final ReadStats readstats;
+	/** Sequencing lane number for legacy file output */
 	private int lane=0;
+	/** Output directory path for legacy format files */
 	private String legacyPath;
+	/** Path to file mapping barcodes to sample names */
 	private String sampleMapFile;
+	/** Writer for generating legacy-format output files */
 	private final LegacyFileWriter legacyWriter;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Character code for barcode delimiter in file formats */
 	private int barcodeDelimiter=0;
+	/** Expected length of first barcode index */
 	private int barcodeLength1=0;
+	/** Expected length of second barcode index */
 	private int barcodeLength2=0;
+	/** Whether to reverse complement first barcode index */
 	private boolean rcIndex1=false;
+	/** Whether to reverse complement second barcode index */
 	private boolean rcIndex2=false;
 	
 	/*--------------------------------------------------------------*/
@@ -1091,12 +1145,15 @@ public class NovaDemux {
 	/** Operation mode for selection of key */
 	public static final int BARCODE_MODE=1, PREFIX_MODE=2, SUFFIX_MODE=3, DELIMITER_MODE=4, HEADER_MODE=5;
 	
+	/** Empty string constant */
 	private static final String empty="";
 	
 	/** Verbose messages for debugging */
 	public static boolean verbose=false;
+	/** Flag for verbose output from client-server operations */
 	public static boolean verboseClient=true;
 	
+	/** Whether to perform statistics calculation only without demultiplexing */
 	public static boolean statsOnly=false;
 	
 }

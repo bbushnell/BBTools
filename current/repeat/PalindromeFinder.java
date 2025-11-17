@@ -130,6 +130,20 @@ public class PalindromeFinder {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a palindrome finder with specified constraints.
+	 * Sets up parameters for minimum palindrome length, loop size bounds,
+	 * matching requirements, and tail length restrictions.
+	 *
+	 * @param minPLen_ Minimum palindromic sequence length
+	 * @param minLoop_ Minimum loop size allowed
+	 * @param maxLoop_ Maximum loop size allowed
+	 * @param minMatches_ Minimum number of matching base pairs required
+	 * @param maxMismatches_ Maximum number of mismatches allowed
+	 * @param minTail_ Minimum tail length on each side
+	 * @param maxTail_ Maximum tail length on each side
+	 * @param maxTailDif_ Maximum difference between left and right tail lengths
+	 */
 	public PalindromeFinder(int minPLen_, int minLoop_, int maxLoop_, 
 			int minMatches_, int maxMismatches_, int minTail_, int maxTail_, int maxTailDif_) {
 		minLoop=minLoop_;
@@ -155,6 +169,11 @@ public class PalindromeFinder {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Finds the longest palindrome in the entire sequence.
+	 * @param s The sequence to search for palindromes
+	 * @return The longest palindrome found, or null if none meets criteria
+	 */
 	public Palindrome longestPalindrome(byte[] s){
 		return longestPalindrome(s, 0, s.length-1);
 	}
@@ -413,10 +432,23 @@ public class PalindromeFinder {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if two bases form a matching pair in a palindrome.
+	 * Uses reverse complement matching if rcomp flag is true, direct matching otherwise.
+	 *
+	 * @param a First base
+	 * @param b Second base
+	 * @return true if bases match according to current matching mode
+	 */
 	static boolean matches(byte a, byte b) {
 		return a==(rcomp ? baseToComp[b] : b);
 	}
 	
+	/**
+	 * Creates lookup table for base complement conversion.
+	 * Maps DNA bases to their complements: A<->T, C<->G, handling both cases.
+	 * @return Array mapping base characters to complement characters
+	 */
 	static byte[] makeBaseToComp() {
 		byte[] array=new byte[128];
 		Arrays.fill(array, (byte)'~');//Nothing should match this since it is invalid
@@ -431,33 +463,52 @@ public class PalindromeFinder {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Temporary palindrome object for best palindrome tracking */
 	private final Palindrome tempB=new Palindrome();
+	/** Temporary palindrome object for current palindrome evaluation */
 	private final Palindrome tempC=new Palindrome();
+	/** Temporary palindrome object for intermediate best palindrome storage */
 	private final Palindrome tempD=new Palindrome();
+	/** List for tracking mismatch positions during palindrome analysis */
 	private final IntList mismatchList=new IntList();
 
+	/** Tracks and summarizes palindromes found during analysis */
 	public PalindromeTracker tracker=new PalindromeTracker();
+	/** Full tracking of all palindromes for detailed analysis */
 	public PalindromeTracker trackerFull=new PalindromeTracker();
 
+	/** Maximum number of mismatches allowed in palindromic sequence */
 	public final int maxMismatches;
+	/** Minimum number of matching base pairs required */
 	public final int minMatches;//Should be >=1
+	/** Minimum loop size allowed between palindromic arms */
 	public final int minLoop;//must be>=0
+	/** Maximum loop size allowed between palindromic arms */
 	public final int maxLoop;
+	/** Minimum total palindromic sequence length required */
 	public final int minPLen;
 	
+	/** Minimum tail length required on each side of palindrome */
 	public final int minTail;
+	/** Maximum tail length allowed on each side of palindrome */
 	public final int maxTail;
+	/** Maximum difference allowed between left and right tail lengths */
 	public final int maxTailDif;
 	
+	/** Half of minimum loop size for odd-length palindromes */
 	public final int halfMinLoopOdd;
+	/** Half of minimum loop size for even-length palindromes */
 	public final int halfMinLoopEven;
+	/** Half of minimum total palindrome length for search bounds */
 	public final int halfMinLength;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Flag indicating whether to use reverse complement matching */
 	static final boolean rcomp=true;
+	/** Lookup table for converting bases to their complements */
 	static final byte[] baseToComp=makeBaseToComp();
 	
 }

@@ -39,14 +39,34 @@ import structures.IntLongHashMap;
 import structures.ListNum;
 import ukmer.Kmer;
 
+/**
+ * Loads and processes assembly contigs and alignment data for binning analysis.
+ * Handles multiple data sources including FASTA assemblies, SAM/BAM alignments,
+ * coverage files, and coverage statistics. Calculates depth profiles across samples
+ * and builds contig graphs for downstream binning.
+ *
+ * @author Brian Bushnell
+ */
 public class DataLoader extends BinObject {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constructs DataLoader with specified output stream.
+	 * @param outstream_ Output stream for logging and status messages */
 	DataLoader(PrintStream outstream_){outstream=outstream_;}
 	
+	/**
+	 * Parses command-line arguments and configuration options.
+	 * Handles numerous parameters including file paths, thresholds, network settings,
+	 * and coverage calculation options.
+	 *
+	 * @param arg Full argument string
+	 * @param a Parameter name (key)
+	 * @param b Parameter value
+	 * @return true if argument was recognized and parsed, false otherwise
+	 */
 	boolean parse(String arg, String a, String b) {
 	
 		if(a.equals("tree")){
@@ -221,6 +241,12 @@ public class DataLoader extends BinObject {
 		return true;
 	}
 	
+	/**
+	 * Determines if a file path appears to be a coverage file.
+	 * Checks file extension and filename patterns for coverage indicators.
+	 * @param s File path to examine
+	 * @return true if file appears to be a coverage file
+	 */
 	static boolean looksLikeCovFile(String s) {
 		if(s==null) {return false;}
 		String ext=ReadWrite.rawExtension(s);
@@ -244,6 +270,8 @@ public class DataLoader extends BinObject {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
+	/** Validates input files and configuration parameters.
+	 * Currently a placeholder for input validation logic. */
 	void checkInput() {
 		//TODO; validate input files
 	}
@@ -252,6 +280,12 @@ public class DataLoader extends BinObject {
 	/*----------------            Wrapper           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Main data loading workflow that orchestrates all loading operations.
+	 * Loads contigs, validates edges, sketches contigs if requested, loads networks,
+	 * and sets up depth calculations.
+	 * @return List of loaded contigs with calculated depth profiles
+	 */
 	ArrayList<Contig> loadData() {
 		ArrayList<Contig> contigs=loadContigs(ref);
 
@@ -298,6 +332,14 @@ public class DataLoader extends BinObject {
 		return removed;
 	}
 
+	/**
+	 * Loads contigs from FASTA file and calculates depth profiles.
+	 * Handles both single-threaded and multi-threaded loading modes.
+	 * Calculates depth from coverage files, SAM alignments, or headers.
+	 *
+	 * @param fname Path to FASTA assembly file
+	 * @return List of loaded contigs with depth information
+	 */
 	public ArrayList<Contig> loadContigs(String fname){
 		
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
@@ -340,11 +382,25 @@ public class DataLoader extends BinObject {
 		return contigs;//not necessarily optimal
 	}
 	
+	/**
+	 * Loads and processes contigs using either single-threaded or multi-threaded mode.
+	 * @param fname Path to assembly file
+	 * @param parseCov Whether to parse coverage from contig headers
+	 * @return List of processed contigs
+	 */
 	public ArrayList<Contig> loadAndProcessContigs(String fname, boolean parseCov) {
 		return streamContigs ? loadAndProcessContigsMT(fname, parseCov) : 
 			loadAndProcessContigsST(fname, parseCov);
 	}
 	
+	/**
+	 * Multi-threaded contig loading with concurrent stream processing.
+	 * Uses SpectraCounter for parallel kmer frequency analysis and depth calculation.
+	 *
+	 * @param fname Path to assembly file
+	 * @param parseCov Whether to parse coverage from headers
+	 * @return List of loaded contigs sorted by size
+	 */
 	public ArrayList<Contig> loadAndProcessContigsMT(String fname, boolean parseCov) {
 		final ArrayList<Contig> contigs=new ArrayList<Contig>();
 		boolean parseTID=validation;
@@ -371,6 +427,14 @@ public class DataLoader extends BinObject {
 		return contigs;
 	}
 	
+	/**
+	 * Single-threaded contig loading and processing.
+	 * Loads contigs sequentially then calculates spectra using SpectraCounter.
+	 *
+	 * @param fname Path to assembly file
+	 * @param parseCov Whether to parse coverage from headers
+	 * @return List of processed contigs
+	 */
 	public ArrayList<Contig> loadAndProcessContigsST(String fname, boolean parseCov) {
 		final ArrayList<Contig> contigs=loadContigsST(ref, minContigToLoad);
 		boolean parseTID=false;
@@ -385,6 +449,16 @@ public class DataLoader extends BinObject {
 	/*----------------         Data Loading         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads neural network model for binning classification.
+	 * Handles auto-detection of appropriate network files based on sample count.
+	 *
+	 * @param fname Network file path or "auto" for automatic selection
+	 * @param size Network size category ("small", "mid", or "large")
+	 * @param cutoff Classification cutoff threshold
+	 * @param samples Number of samples for network dimensionality
+	 * @return Loaded neural network or null if unavailable
+	 */
 	CellNet loadNetwork(String fname, String size, float cutoff, int samples) {
 		if(fname==null) {return null;}
 		String d=(samples<2 ? "1" : "N");
@@ -397,6 +471,14 @@ public class DataLoader extends BinObject {
 		return net0;
 	}
 	
+	/**
+	 * Calculates depth profiles for all contigs from various data sources.
+	 * Supports coverage files, coverage statistics, SAM/BAM alignments,
+	 * contig headers, and Bloom filters.
+	 *
+	 * @param contigs List of contigs to calculate depth for
+	 * @return Number of depth profiles calculated
+	 */
 	int calculateDepth(ArrayList<Contig> contigs) {
 		final boolean sam=(!readFiles.isEmpty() && FileFormat.isSamOrBamFile(readFiles.get(0)));
 
@@ -477,6 +559,14 @@ public class DataLoader extends BinObject {
 		return contigs.isEmpty() ? 0 : contigs.get(0).numDepths();
 	}
 	
+	/**
+	 * Calculates depth sum statistics and sample entropy across all contigs.
+	 * Computes total sequenced bases, inverse depth weightings, and entropy measures
+	 * for multi-sample depth normalization.
+	 *
+	 * @param contigs List of contigs with depth information
+	 * @return Sample entropy measure indicating depth profile diversity
+	 */
 	public static double calcDepthSum(ArrayList<Contig> contigs) {
 		final int numDepths=contigs.get(0).numDepths();
 		if(numDepths<2) {return 1;}
@@ -513,6 +603,12 @@ public class DataLoader extends BinObject {
 		return sampleEntropy;
 	}
 	
+	/**
+	 * Validates contig pairing edges against known taxonomy for quality assessment.
+	 * Analyzes edge accuracy by comparing taxonomic assignments of linked contigs.
+	 * Reports statistics on good, bad, and reciprocal edges for debugging.
+	 * @param contigs List of contigs with edge information and taxonomy labels
+	 */
 	void validateEdges(ArrayList<Contig> contigs) {
 		//TODO: add cov file only flag to quickbin
 		//TODO: have BBMap suppress ambig or low-Q alignments
@@ -581,12 +677,25 @@ public class DataLoader extends BinObject {
 		outstream.println("Weights:    \t"+Arrays.toString(weightCount));
 	}
 	
+	/**
+	 * Converts contig collection to name-keyed map for efficient lookups.
+	 * @param list Collection of contigs to index
+	 * @return HashMap mapping short names to contigs
+	 */
 	HashMap<String, Contig> toMap(Collection<Contig> list){
 		HashMap<String, Contig> map=new HashMap<String, Contig>(list.size());
 		for(Contig c : list) {map.put(c.shortName, c);}
 		return map;
 	}
 	
+	/**
+	 * Single-threaded contig loading from FASTA file with size filtering.
+	 * Reads contigs sequentially and filters by minimum length requirement.
+	 *
+	 * @param fname Path to FASTA assembly file
+	 * @param minlen Minimum contig length to retain
+	 * @return List of loaded contigs sorted by size
+	 */
 	ArrayList<Contig> loadContigsST(String fname, int minlen){
 		//Turn off read validation in the input threads to increase speed
 		assert(fname!=null) : "No contigs specified.";
@@ -636,6 +745,14 @@ public class DataLoader extends BinObject {
 		return list;
 	}
 	
+	/**
+	 * Creates a Contig object from a Read with optional taxonomy parsing.
+	 * Tracks loading statistics and applies length filtering.
+	 *
+	 * @param r Read containing contig sequence and metadata
+	 * @param minlen Minimum length requirement for retention
+	 * @return Contig object or null if too short
+	 */
 	Contig loadContig(Read r, int minlen) {
 		contigsLoaded++;
 		basesLoaded+=r.length();
@@ -656,6 +773,14 @@ public class DataLoader extends BinObject {
 		return c;
 	}
 	
+	/**
+	 * Creates Bloom filter from sequence files for kmer-based depth estimation.
+	 * Configures filter parameters and builds kmer database from reads.
+	 *
+	 * @param in1 Primary input file path
+	 * @param in2 Secondary input file path (may be null)
+	 * @return Configured Bloom filter containing kmers from input sequences
+	 */
 	BloomFilter makeBloomFilter(String in1, String in2) {
 //		if(ffin1.samOrBam()) {return null;}
 		outstream.print("Making Bloom filter: \t");
@@ -669,6 +794,15 @@ public class DataLoader extends BinObject {
 		return filter;
 	}
 	
+	/**
+	 * Calculates contig depths from BBMap coverage statistics file.
+	 * Parses tab-delimited coverage data and assigns depths to matching contigs.
+	 *
+	 * @param fname Path to coverage statistics file
+	 * @param sample Sample index for multi-sample data
+	 * @param contigMap Map of contig names to objects
+	 * @param minlen Minimum contig length filter
+	 */
 	void calcDepthFromCovStats(String fname, int sample, HashMap<String, Contig> contigMap, int minlen) {
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		outstream.print("Loading covstats file ("+fname+"): \t");
@@ -745,6 +879,12 @@ public class DataLoader extends BinObject {
 		}
 	}
 	
+	/**
+	 * Parses depth information directly from contig headers.
+	 * Supports multiple assembly formats including SPAdes, Tadpole, and generic patterns.
+	 * Handles multi-sample coverage data embedded in sequence names.
+	 * @param list Collection of contigs to parse depth information for
+	 */
 	public void calcDepthFromHeader(Collection<Contig> list) {
 		outstream.print("Parsing depth from contig headers: \t");
 		phaseTimer.start();
@@ -759,6 +899,15 @@ public class DataLoader extends BinObject {
 		phaseTimer.stopAndPrint();
 	}
 	
+	/**
+	 * Parses and sets depth information from contig name using multiple formats.
+	 * Recognizes SPAdes, Tadpole, and generic coverage patterns in sequence headers.
+	 *
+	 * @param c Contig to set depth information for
+	 * @param lps Line parser for underscore-delimited fields
+	 * @param lpt Line parser for comma/equals-delimited fields
+	 * @return true if depth was successfully parsed and set
+	 */
 	public static boolean parseAndSetDepth(Contig c, LineParserS1 lps, LineParserS4 lpt) {
 		String name=c.name;
 		c.clearDepth();
@@ -794,6 +943,14 @@ public class DataLoader extends BinObject {
 		return true;
 	}
 	
+	/**
+	 * Calculates depth for contigs using kmer frequencies from Bloom filter.
+	 * Estimates average coverage by querying contig kmers against filter.
+	 *
+	 * @param list Collection of contigs to calculate depth for
+	 * @param bf Bloom filter containing kmer frequencies from reads
+	 * @param sample Sample index for depth assignment
+	 */
 	public void calcDepthFromBloomFilter(Collection<Contig> list, BloomFilter bf, int sample) {
 		outstream.print("Calculating depth from Bloom filter: \t");
 		for(Contig c : list) {c.setDepth(bf.averageCount(c.bases), sample);}
@@ -801,6 +958,12 @@ public class DataLoader extends BinObject {
 		phaseTimer.stopAndPrint();
 	}
 	
+	/**
+	 * Loads coverage data from file into name-indexed map.
+	 * Parses header information and creates depth profiles for each contig.
+	 * @param fname Path to coverage file
+	 * @return Map of contig names to depth profile lists
+	 */
 	public static HashMap<String, FloatList> loadCovFile(String fname) {
 		System.err.print("Loading coverage from "+fname+": ");
 		Timer t=new Timer(System.err, false);
@@ -885,6 +1048,16 @@ public class DataLoader extends BinObject {
 		phaseTimer.stopAndPrint();
 	}
 	
+	/**
+	 * Trims contig pair graph edges based on weight and reciprocity criteria.
+	 * Performs multiple passes to reduce edge density while preserving strong connections.
+	 *
+	 * @param contigs List of contigs with edge information
+	 * @param maxEdges Maximum edges per contig to retain
+	 * @param minWeight Minimum edge weight threshold
+	 * @param reciprocal Whether to require reciprocal edges
+	 * @return Number of edges removed during trimming
+	 */
 	public long trimEdges(ArrayList<Contig> contigs, int maxEdges, int minWeight, boolean reciprocal) {
 		phaseTimer.start();
 		long trimmed=trimEdgesPass(contigs, maxEdges+99, minWeight, reciprocal);
@@ -893,6 +1066,16 @@ public class DataLoader extends BinObject {
 		return trimmed;
 	}
 	
+	/**
+	 * Single pass of edge trimming with specified criteria.
+	 * Sorts edges by weight and retains only the highest-weight connections.
+	 *
+	 * @param contigs List of contigs to trim edges for
+	 * @param maxEdges Maximum edges per contig
+	 * @param minWeight Minimum edge weight threshold
+	 * @param reciprocal Whether to require reciprocal edges
+	 * @return Number of edges removed in this pass
+	 */
 	public long trimEdgesPass(ArrayList<Contig> contigs, int maxEdges, int minWeight, boolean reciprocal) {
 //		Timer t=new Timer(outstream);
 		long trimmed=0;
@@ -918,6 +1101,15 @@ public class DataLoader extends BinObject {
 		return trimmed;
 	}
 	
+	/**
+	 * Writes coverage file with depth profiles and edge information.
+	 * Outputs tab-delimited format with contig metadata and multi-sample depths.
+	 *
+	 * @param fname Output file path
+	 * @param contigs Collection of contigs to write
+	 * @param numDepths Number of depth profiles per contig
+	 * @param outstream Output stream for status messages
+	 */
 	public static void writeCov(String fname, Collection<Contig> contigs, int numDepths, PrintStream outstream) {
 		outstream.print("Writing coverage to "+fname+": ");
 		Timer t=new Timer(outstream);
@@ -944,12 +1136,17 @@ public class DataLoader extends BinObject {
 
 	/** Assembly path */
 	String ref=null;
+	/** Coverage input file path */
 	String covIn=null;
 
+	/** Neural network file path for small contigs */
 	String netFileSmall="auto";
+	/** Neural network file path for medium contigs */
 	String netFileMid="auto";
+	/** Neural network file path for large contigs */
 	String netFileLarge="auto";
 	
+	/** List of coverage statistics file paths */
 	private final ArrayList<String> covstats=new ArrayList<String>();
 	
 	/** Primary read input file path */
@@ -958,53 +1155,89 @@ public class DataLoader extends BinObject {
 //	/** Primary read input file */
 //	FileFormat ffin1;
 	
+	/** Whether depth profiles have been calculated for contigs */
 	boolean depthCalculated=false;
+	/**
+	 * Whether to ignore contigs referenced in coverage files but missing from assembly
+	 */
 	boolean ignoreMissingContigs=false;
 	
+	/** Total number of contigs loaded from assembly file */
 	long contigsLoaded=0;
+	/** Total number of bases loaded from assembly file */
 	long basesLoaded=0;
 	
+	/** Number of contigs retained after size filtering */
 	long contigsRetained=0;
+	/** Number of bases retained after contig size filtering */
 	long basesRetained=0;
 	
+	/** Kmer length for Bloom filter construction */
 	private int bloomkbig=31;
+	/** Bits per kmer counter in Bloom filter */
 	private int cbits=16;
+	/** Number of hash functions for Bloom filter */
 	private int hashes=3;
 	
+	/** Sketcher for generating contig fingerprints */
 	BinSketcher sketcher;
 
+	/** Minimum contig length to load from assembly */
 	int minContigToLoad=100;
+	/** Minimum mapping quality for SAM/BAM alignments */
 	int minMapq=20;
+	/** Minimum alignment identity for depth calculation */
 	float minID=0.96f;//Optimal results so far are from 0.98 but that is pretty high
+	/** Minimum mate alignment identity for paired-end reads */
 	float minMateID=0.97f;
+	/** Maximum substitutions allowed in alignments */
 	int maxSubs=999;
+	/** Minimum sequence entropy filter for alignments */
 	float minEntropy=0;
+	/** Maximum tip length for contig graph edge validation */
 	int tipLimit=100;
+	/** Minimum aligned bases required for depth contribution */
 	int minAlignedBases=1;
+	/** Gap parameter for alignment operations */
 	int gap=0;
 	
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Map tracking contig sizes by taxonomy ID for validation */
 	IntLongHashMap sizeMap;
+	/** Array of adjacency maps for contig pair graph construction */
 	IntHashMap[] graph;
 	
+	/** Maximum number of depth samples to load per contig */
 	static int MAX_DEPTH_COUNT=999;
+	/** Maximum number of edges to include in coverage output */
 	static int MAX_EDGES_TO_PRINT=8;
+	/** Whether to load SAM/BAM files serially instead of parallel */
 	static boolean loadSamSerial=false;
+	/**
+	 * Whether to use flat depth mode (uniform coverage) instead of calculated depth
+	 */
 	static boolean flatMode=false;
+	/** Whether to construct contig pair graph from alignments */
 	boolean makePairGraph=true;
+	/** Number of depth profiles per contig */
 	int numDepths=0;
+	/** Whether to use streaming mode for contig processing */
 	static boolean streamContigs=true;
+	/** Flag indicating whether errors occurred during processing */
 	boolean errorState=false;
 	
+	/** Static reference to all loaded contigs for global access */
 	static ArrayList<Contig> allContigs;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Timer for tracking execution phases */
 	final Timer phaseTimer=new Timer();
+	/** Output stream for logging and status messages */
 	final PrintStream outstream;
 //	static final Pattern covPattern=Pattern.compile(" cov_");
 	

@@ -32,6 +32,8 @@ import tracker.ReadStats;
  */
 public class InvertKey extends SketchObject {
 	
+	/** Entry point that processes command-line arguments and executes k-mer search.
+	 * @param args Command-line arguments including input files, keys, and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		InvertKey x=new InvertKey(args);
@@ -41,6 +43,12 @@ public class InvertKey extends SketchObject {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs InvertKey instance and parses command-line arguments.
+	 * Configures k-mer length, hash parameters, input/output files, and search keys.
+	 * Supports single keys, comma-separated key lists, and sketch file inputs.
+	 * @param args Command-line arguments array
+	 */
 	public InvertKey(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -168,6 +176,12 @@ public class InvertKey extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Processes input sequences to find matching k-mers and write results.
+	 * Sets up concurrent input stream, output writer, and processes reads sequentially.
+	 * Outputs matching k-mers in FASTA format with position and read information.
+	 * @param t Timer for performance tracking
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -237,6 +251,15 @@ public class InvertKey extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Searches a single read for target k-mers using rolling hash computation.
+	 * Computes forward and reverse k-mer hashes, checks against target keys,
+	 * and outputs matches with position information and canonical k-mer sequence.
+	 * @param key2 Primary target key (unused if using key set)
+	 * @param r Read sequence to search
+	 * @param bsw Output writer for matches
+	 * @return true if search should terminate (when printOnce enabled and match found)
+	 */
 	private boolean invert(long key2, Read r, ByteStreamWriter bsw) {
 		final byte[] bases=r.bases;
 		
@@ -276,40 +299,60 @@ public class InvertKey extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary target k-mer hash value, or -1 if using key set */
 	final long key0;
+	/** Set of target k-mer hash values when multiple keys specified */
 	final LongHashSet set;
 	
+	/** Bit shift amount for k-mer encoding (2*k) */
 	final int shift;
+	/** Bit shift for reverse complement rolling hash (shift-2) */
 	final int shift2;
+	/** Bit mask for k-mer hash truncation */
 	final long mask;
 	
+	/** Whether to stop after first match of each target k-mer */
 	boolean printOnce=true;
+	/** Count of k-mers examined during processing */
 	long kmersProcessed=0;
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Whether to output in FASTA format with headers */
 	boolean fasta;
+	/** Whether input key is a sketch file */
 	boolean sketch;
+	/** Raw key specification string from command line */
 	private String keyString=null;
 
+	/** Primary output file path */
 	private String out1="stdout.fa";
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
 
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status and error messages */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

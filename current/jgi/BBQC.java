@@ -908,6 +908,7 @@ public class BBQC {
 		return sdf.format(new Date());
 	}
 	
+	/** Returns filename with directory path stripped */
 	private static String stripDirs(String path){
 		return ReadWrite.stripPath(path);
 	}
@@ -916,22 +917,39 @@ public class BBQC {
 	/*----------------      BBNorm Parameters       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to remove human reads using BBMap alignment */
 	private boolean removehuman=true;
+	/** Whether to normalize read depth using BBNorm */
 	private boolean normalize=false;
+	/** Whether to perform error correction */
 	private boolean ecc=false;
+	/** Whether to use aggressive error correction */
 	private boolean aecc=false;
+	/** Whether to use conservative error correction */
 	private boolean cecc=false;
+	/** Mark errors only flag */
 	private boolean meo=false;
+	/** Trim after marking flag */
 	private boolean tam=false;
+	/** Whether to quality trim after filtering phase */
 	private boolean trimAfterFiltering=true;
+	/** Mark untrusted errors flag */
 	private boolean mue=false;
+	/** Mark wrong-1 flag */
 	private boolean mw1=false;
+	/** Maximum depth for normalization */
 	private int maxdepth=-1;
+	/** Minimum depth for normalization */
 	private int mindepth=6;
+	/** Target depth for normalization */
 	private int target=50;
+	/** Number of prehashes for normalization */
 	private int prehashes=3;
+	/** Number of normalization passes */
 	private int passes=2;
+	/** Number of hash functions for normalization */
 	private int hashes=4;
+	/** Number of bits per cell in normalization table */
 	private int bits=16;
 	
 	/*--------------------------------------------------------------*/
@@ -998,17 +1016,27 @@ public class BBQC {
 	/** Captures the command line "zl" flag */
 	private String zl;
 	
+	/** Minimum alignment ratio for human read removal */
 	private float minratio=0.84f;
+	/** Maximum indel length for mapping */
 	private int maxindel=6;
+	/** K-mer filter length for mapping */
 	private int kfilter=0;
+	/** Minimum k-mer hits required for mapping */
 	private int minhits=1;
+	/** Use fast mapping mode */
 	private boolean fast=true;
+	/** Use local alignment mode */
 	private boolean local=true;
+	/** Copy undefined parameters to other tools */
 	private boolean copyUndefined=false;
 	
+	/** Print verbose output */
 	private boolean verbose=false;
+	/** Overwrite existing output files */
 	private boolean overwrite=true;
 //	private boolean append=false;
+	/** Compress output files */
 	private boolean compress=true;
 	
 	/** Arguments to pass to BBDuk */
@@ -1028,6 +1056,7 @@ public class BBQC {
 	/** Directory in which to write all temp files */
 	private String tmpDir=Shared.tmpdir();
 	
+	/** Unique salt for temporary file names */
 	private final String tempSalt;
 	
 	/** Primary input reads file (required) */
@@ -1051,14 +1080,21 @@ public class BBQC {
 	/*----------------           Log Files          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Log file name for recording pipeline status */
 	private String logName="status.log";
+	/** File containing list of output files */
 	private String fileListName="file-list.txt";
 	
+	/** RQC statistics file name */
 	private String rqcStatsName="filterStats.txt";
+	/** K-mer statistics file name */
 	private String kmerStatsName="kmerStats.txt";
+	/** Scaffold statistics file name */
 	private String scaffoldStatsName="scaffoldStats.txt";
+	/** K-mer histogram file name */
 	private String kmerHistName="khist.txt";
 	
+	/** Insert size histogram file name */
 	private String ihistName=null;
 	
 	/** ktrim phase rqc stats file */
@@ -1072,17 +1108,28 @@ public class BBQC {
 	/*----------------        Reference Files       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Path to main artifact reference database file */
 	private String mainArtifactFile = "/global/dna/shared/rqc/ref_databases/qaqc/databases/illumina.artifacts/Illumina.artifacts.2013.12.no_DNA_RNA_spikeins.fa";
+	/** Path to RNA artifact reference database file */
 	private String artifactFileRna = "/global/dna/shared/rqc/ref_databases/qaqc/databases/illumina.artifacts/RNA_spikeins.artifacts.2012.10.NoPolyA.fa";
+	/** Path to DNA artifact reference database file */
 	private String artifactFileDna = "/global/dna/shared/rqc/ref_databases/qaqc/databases/illumina.artifacts/DNA_spikeins.artifacts.2012.10.fa";
+	/** Path to PhiX reference sequence file */
 	private String phixRef = "/global/dna/shared/rqc/ref_databases/qaqc/databases/phix174_ill.ref.fa";
+	/** Path to lambda phage reference sequence file */
 	private String lambdaRef = "/global/dna/shared/rqc/ref_databases/qaqc/databases/lambda.fa.gz";
+	/** Path to pJET vector reference sequence file */
 	private String pjetRef = "/global/dna/shared/rqc/ref_databases/qaqc/databases/pJET1.2.fasta";
 
+	/** Path to latest comprehensive artifact database file */
 	private String allArtifactsLatest = "/global/projectb/sandbox/rqc/qcdb/illumina.artifacts/Illumina.artifacts.fa";
+	/** Path to fragment adapter sequences file */
 	private String fragAdapters = "/global/cfs/cdirs/bbtools/data/adapters.fa";
+	/** Path to TruSeq RNA adapter sequences file */
 	private String rnaAdapter = "/global/cfs/cdirs/bbtools/data/truseq_rna.fa.gz";
+	/** Path to human reference genome index */
 	private String indexPath = "/global/cfs/cdirs/bbtools/hg19/";
+	/** Direct reference file for mapping instead of using index */
 	private String mapRef = null;
 	
 	/*--------------------------------------------------------------*/

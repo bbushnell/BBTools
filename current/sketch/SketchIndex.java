@@ -15,8 +15,21 @@ import structures.IntHashMap;
 import structures.IntHashSetList;
 import structures.IntList;
 
+/**
+ * Index structure for fast k-mer lookup across multiple reference sketches.
+ * Provides efficient search capabilities using hash tables distributed across multiple ways.
+ * Supports both list-based and map-based search algorithms for different performance needs.
+ * Used for rapid similarity searches in large sketch databases.
+ *
+ * @author Brian Bushnell
+ */
 public class SketchIndex extends SketchObject {
 	
+	/**
+	 * Constructs a SketchIndex with reference sketches and allocates hash tables.
+	 * Creates KmerTableSet with specified ways and preallocated space for efficient indexing.
+	 * @param refs ArrayList of reference sketches to index
+	 */
 	public SketchIndex(ArrayList<Sketch> refs){
 		refSketches=refs;
 		tables=new KmerTableSet(new String[] {"ways="+WAYS, "tabletype="+AbstractKmerTable.ARRAYHF, "prealloc="+(prealloc>0 ? ""+prealloc : "f")}, 
@@ -25,6 +38,8 @@ public class SketchIndex extends SketchObject {
 		tableArray=tables.tables();
 	}
 	
+	/** Loads the index by spawning indexing threads and optionally initializing whitelist.
+	 * Populates hash tables with k-mers from all reference sketches using multithreading. */
 	public void load(){
 		spawnIndexThreads();
 		if(useWhitelist){
@@ -85,6 +100,14 @@ public class SketchIndex extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main entry point for sketch similarity search.
+	 * Delegates to either map-based or list-based search algorithm based on useIntMap setting.
+	 *
+	 * @param a Query sketch to search for
+	 * @param params Display and filtering parameters
+	 * @return SketchResults containing matching reference sketches
+	 */
 	public SketchResults getSketches(Sketch a, DisplayParams params){
 		if(useIntMap){
 			return getSketchesMap(a, params);
@@ -197,6 +220,14 @@ public class SketchIndex extends SketchObject {
 	
 //	static ThreadLocal<IntHashMap> intMapHolder=new ThreadLocal<IntHashMap>();
 	
+	/**
+	 * Retrieves sketch IDs that contain the specified k-mer key.
+	 * Uses hash table lookup with key modulo WAYS for distribution.
+	 *
+	 * @param key K-mer hash code to search for
+	 * @param singleton Reusable array for single value results
+	 * @return Array of sketch IDs containing the key, or null if not found
+	 */
 	public final int[] getSketchIdsMap(long key, int[] singleton){
 		AbstractKmerTable set=tableArray[(int)(key%WAYS)];
 		final int[] ids=set.getValues(key, singleton);
@@ -292,8 +323,21 @@ public class SketchIndex extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for parallel indexing of reference sketches.
+	 * Processes assigned sketches by adding their k-mers to hash tables with sketch IDs.
+	 * Uses HashBuffer for efficient batch insertions and tracks processing statistics.
+	 */
 	public class IndexThread extends Thread {
 		
+		/**
+		 * Constructs IndexThread with shared counters for work distribution.
+		 * Initializes HashBuffer for efficient k-mer insertion into hash tables.
+		 *
+		 * @param nextIndex_ Atomic counter for next sketch to process
+		 * @param keyCount_ Atomic counter for total k-mers processed
+		 * @param uniqueKeyCount_ Atomic counter for unique k-mers added
+		 */
 		public IndexThread(AtomicInteger nextIndex_, AtomicLong keyCount_, AtomicLong uniqueKeyCount_){
 			buffer=new HashBuffer(tableArray, 1000, 31, true, false);
 			nextIndex=nextIndex_;
@@ -331,28 +375,43 @@ public class SketchIndex extends SketchObject {
 			}
 		}
 		
+		/** Shared counter for thread work distribution across reference sketches */
 		AtomicInteger nextIndex;
+		/** Total number of k-mer keys processed by all threads */
 		AtomicLong keyCount;
+		/** Number of unique k-mer keys added to the index */
 		AtomicLong uniqueKeyCount;
+		/** Thread-local counter of k-mer codes processed by this thread */
 		long codesProcessedT=0;
+		/** Buffer for efficient batch insertion of k-mers into hash tables */
 		HashBuffer buffer;
+		/** Indicates successful completion of this thread's indexing work */
 		boolean success=false;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Set of hash tables for distributed k-mer storage */
 	public final KmerTableSet tables;
+	/** Array of individual hash tables from the table set */
 	public final AbstractKmerTable[] tableArray;
+	/** Reference sketches being indexed for similarity searches */
 	public final ArrayList<Sketch> refSketches;
 	
+	/** Indicates if an error occurred during indexing operations */
 	public boolean errorState=false;
 
+	/** Debug flag to enable timing output for performance analysis */
 	private static final boolean printTime=false;
+	/** Controls whether to use IntHashMap or IntList for hit accumulation */
 	public static boolean useIntMap=true;
 //	public static boolean useIntMapBinary=false;
+	/** Initial size for IntHashMap when using map-based search algorithm */
 	public static int intMapSize=1000;
+	/** Maximum number of k-mers to index per sketch */
 	public static int indexLimit=Integer.MAX_VALUE;
+	/** Number of hash table ways for distributing k-mers across tables */
 	public static final int WAYS=31;
 	
 }

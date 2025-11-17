@@ -14,17 +14,53 @@ import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.SamLine;
 
+/**
+ * Side channel mapper for performing lightweight alignment of reads to reference sequences.
+ * Uses dual k-mer based indices for fast mapping with configurable identity thresholds.
+ * Provides concurrent output streams for mapped and unmapped reads with statistics tracking.
+ * @author Brian Bushnell
+ */
 public class SideChannel3 {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          Constructor         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a SideChannel3 mapper with single k-mer configuration.
+	 * Creates indices and aligners using the specified k-mer size and identity threshold.
+	 *
+	 * @param ref_ Reference sequence file path
+	 * @param out_ Output file for mapped reads
+	 * @param outu_ Output file for unmapped reads
+	 * @param k1_ K-mer size for indexing
+	 * @param minid1 Minimum identity threshold for alignment
+	 * @param midMaskLen1 Length of middle masking for fuzzy k-mer matching
+	 * @param overwrite_ Whether to overwrite existing output files
+	 * @param ordered_ Whether to maintain input order in output
+	 */
 	public SideChannel3(String ref_, String out_, String outu_, int k1_, float minid1, 
 			int midMaskLen1, boolean overwrite_, boolean ordered_) {
 		this(ref_, out_, outu_, k1_, -1, minid1, 1, midMaskLen1, 0, overwrite_, ordered_);
 	}
 	
+	/**
+	 * Constructs a SideChannel3 mapper with dual k-mer configuration.
+	 * Creates two indices with different k-mer sizes for improved sensitivity.
+	 * The larger k-mer is used for initial mapping, smaller for unmapped reads.
+	 *
+	 * @param ref_ Reference sequence file path
+	 * @param out_ Output file for mapped reads
+	 * @param outu_ Output file for unmapped reads
+	 * @param k1_ First k-mer size (will be set to max of k1_, k2_)
+	 * @param k2_ Second k-mer size (will be set to min of k1_, k2_)
+	 * @param minid1 Minimum identity threshold for first mapper
+	 * @param minid2 Minimum identity threshold for second mapper
+	 * @param midMaskLen1 Middle masking length for first k-mer size
+	 * @param midMaskLen2 Middle masking length for second k-mer size
+	 * @param overwrite_ Whether to overwrite existing output files
+	 * @param ordered_ Whether to maintain input order in output
+	 */
 	public SideChannel3(String ref_, String out_, String outu_, int k1_, int k2_, float minid1, float minid2, 
 			int midMaskLen1, int midMaskLen2, boolean overwrite_, boolean ordered_) {
 		Timer t=new Timer();
@@ -63,10 +99,29 @@ public class SideChannel3 {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Maps a read pair using the configured aligners.
+	 * Convenience method that delegates to the main mapping method.
+	 *
+	 * @param r1 First read of the pair
+	 * @param r2 Second read of the pair (may be null for single-end)
+	 * @return true if at least one read mapped successfully
+	 */
 	public boolean map(Read r1, Read r2) {
 		return map(r1, r2, mapper1, mapper2);
 	}
 	
+	/**
+	 * Maps a read pair using specified aligners with dual k-mer strategy.
+	 * Uses the first mapper for initial alignment, then tries the second mapper
+	 * on unmapped reads. Sets proper pair flags for paired reads on same chromosome.
+	 *
+	 * @param r1 First read of the pair
+	 * @param r2 Second read of the pair (may be null for single-end)
+	 * @param mapper1 Primary aligner (larger k-mer)
+	 * @param mapper2 Secondary aligner (smaller k-mer, may be null)
+	 * @return true if at least one read mapped with sufficient identity
+	 */
 	public boolean map(Read r1, Read r2, MicroAligner3 mapper1, MicroAligner3 mapper2) {
 		float id1=mapper1.map(r1);
 		float id2=mapper1.map(r2);
@@ -91,6 +146,14 @@ public class SideChannel3 {
 		return true;
 	}
 	
+	/**
+	 * Generates alignment statistics summary string.
+	 * Reports mapped read counts, percentages, and average identity.
+	 *
+	 * @param readsIn Total number of input reads processed
+	 * @param basesIn Total number of input bases processed
+	 * @return Formatted statistics string with counts and percentages
+	 */
 	public String stats(long readsIn, long basesIn) {
 		long ro, bo, idsum, rm;
 		ro=readsOut; bo=basesOut; idsum=identitySum; rm=readsMapped;
@@ -103,11 +166,18 @@ public class SideChannel3 {
 	/*----------------             I/O              ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Starts the concurrent output streams for writing results.
+	 * Must be called before writing mapped or unmapped reads. */
 	public void start() {
 		if(cros!=null) {cros.start();}
 		if(crosu!=null) {crosu.start();}
 	}
 	
+	/**
+	 * Shuts down output streams and finalizes output files.
+	 * Should be called when all reads have been processed.
+	 * @return true if any errors occurred during shutdown
+	 */
 	public boolean shutdown() {
 		errorState=ReadWrite.closeOutputStreams(cros, crosu)|errorState;
 		return errorState;
@@ -247,6 +317,15 @@ public class SideChannel3 {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses comma-separated k-mer values from command line argument.
+	 * Returns array with up to 2 k-mer values for dual k-mer configuration.
+	 *
+	 * @param arg Original argument name (unused)
+	 * @param a Argument key (unused)
+	 * @param b Comma-separated k-mer values
+	 * @return Array containing parsed k-mer integers
+	 */
 	public static int[] parseK(String arg, String a, String b) {
 		int[] ret=new int[2];
 		String[] terms=b.split(",");
@@ -256,12 +335,24 @@ public class SideChannel3 {
 		return ret;
 	}
 	
+	/**
+	 * Normalizes identity values to 0-1 range.
+	 * Converts percentage values (>1) to decimal format.
+	 * @param id Identity value to normalize
+	 * @return Normalized identity in 0-1 range
+	 */
 	static float fixID(float id) {
 		if(id>1) {id=id/100;}
 		assert(id<=1);
 		return id;
 	}
 	
+	/**
+	 * Resolves reference file paths, handling special cases.
+	 * Converts "phix" shorthand to full PhiX reference path.
+	 * @param refPath Original reference path
+	 * @return Resolved reference file path
+	 */
 	static String fixRefPath(String refPath) {
 		if(refPath==null || Tools.isReadableFile(refPath)) {return refPath;}
 		if("phix".equalsIgnoreCase(refPath)){return Data.findPath("?phix2.fa.gz");}
@@ -272,43 +363,67 @@ public class SideChannel3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary k-mer index for first alignment pass */
 	public final MicroIndex3 index1;
+	/** Secondary k-mer index for second alignment pass (may be null) */
 	public final MicroIndex3 index2;
+	/** Primary aligner using index1 */
 	public final MicroAligner3 mapper1;
+	/** Secondary aligner using index2 (may be null) */
 	public final MicroAligner3 mapper2;
 	
+	/** Primary k-mer size (larger of the two k values) */
 	public final int k1;
+	/** Secondary k-mer size (smaller of the two k values) */
 	public final int k2;
+	/** Minimum identity threshold for primary aligner */
 	public final float minIdentity1;
+	/** Minimum identity threshold for secondary aligner */
 	public final float minIdentity2;
 	
+	/** Reference sequence file path */
 	public final String ref;
+	/** Output file path for mapped reads */
 	public final String out;
+	/** Output file path for unmapped reads */
 	public final String outu;
+	/** Whether output format is SAM/BAM */
 	public final boolean samOut;
+	/** File format specification for mapped output */
 	public final FileFormat ffout;
+	/** File format specification for unmapped output */
 	public final FileFormat ffoutu;
+	/** Concurrent output stream for mapped reads */
 	private final ConcurrentReadOutputStream cros;
+	/** Concurrent output stream for unmapped reads */
 	private final ConcurrentReadOutputStream crosu;
 	
+	/** Count of reads that successfully mapped */
 	public long readsMapped=0;
+	/** Total count of reads written to output */
 	public long readsOut=0;
+	/** Total count of bases written to output */
 	public long basesOut=0;
+	/** Cumulative identity sum scaled by 10000 (0-10000 scale per read) */
 	public long identitySum=0;//x100%; 0-10000 scale. 
 	
+	/** Whether to overwrite existing output files */
 	public final boolean overwrite;
+	/** Whether to maintain input order in output files */
 	public final boolean ordered;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Global flag controlling whether to track alignment statistics */
 	public static boolean TRACK_STATS=true;
 
 }

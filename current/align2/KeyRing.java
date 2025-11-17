@@ -6,8 +6,18 @@ import dna.AminoAcid;
 import dna.ChromosomeArray;
 import shared.Tools;
 
+/**
+ * Utility class for generating k-mer keys and calculating offset positions for sequence alignment.
+ * Provides methods to create evenly-spaced k-mer sampling positions across reads with density control,
+ * quality-based filtering, and reverse complement key generation for bidirectional alignment.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public final class KeyRing {
 	
+	/** Test harness for offset generation functionality.
+	 * @param args Command-line arguments: [length] [density] [chunksize] */
 	public static final void main(String[] args){
 		int len=Integer.parseInt(args[0]);
 		float density=(float) Double.parseDouble(args[1]);
@@ -21,6 +31,15 @@ public final class KeyRing {
 		System.out.println(Arrays.toString(offsets));
 	}
 	
+	/**
+	 * Generates k-mer keys from sequence at specified offset positions.
+	 * Converts sequence chunks to numeric keys using binary encoding.
+	 *
+	 * @param s Input sequence as byte array
+	 * @param offsets Array of starting positions for k-mer extraction
+	 * @param chunksize Length of each k-mer (must be >0 and <16)
+	 * @return Array of numeric k-mer keys, or null if offsets is null
+	 */
 	public static int[] makeKeys(byte[] s, int[] offsets, int chunksize){
 		if(offsets==null){return null;}
 		assert(chunksize>0 && chunksize<16);
@@ -36,6 +55,14 @@ public final class KeyRing {
 		return keys;
 	}
 	
+	/**
+	 * Creates reverse complement versions of k-mer keys in reverse order.
+	 * Used for bidirectional alignment to match sequences in both orientations.
+	 *
+	 * @param keys Array of forward k-mer keys
+	 * @param k Length of k-mers for proper reverse complement calculation
+	 * @return Array of reverse complement keys in reverse order
+	 */
 	public static int[] reverseComplementKeys(int[] keys, int k){
 //		assert(!cs);
 		int[] r=new int[keys.length];
@@ -45,12 +72,26 @@ public final class KeyRing {
 		return r;
 	}
 	
+	/**
+	 * Creates reverse complement of a single k-mer key.
+	 * @param key Numeric k-mer key to reverse complement
+	 * @param k Length of k-mer for proper bit manipulation
+	 * @return Reverse complement of the input key
+	 */
 	public static int reverseComplementKey(int key, int k){
 //		return cs ? reverseComplementKey_old(key, k, cs) : AminoAcid.reverseComplementBinaryFast(key, k);
 		return AminoAcid.reverseComplementBinaryFast(key, k);
 	}
 	
 	
+	/**
+	 * Decodes a numeric k-mer key back to its DNA sequence string.
+	 * Used for debugging and verification of key generation.
+	 *
+	 * @param key Numeric k-mer key to decode
+	 * @param chunksize Length of the k-mer
+	 * @return DNA sequence string representation of the key
+	 */
 	public static final String decode(int key, int chunksize){
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<chunksize; i++){
@@ -137,6 +178,16 @@ public final class KeyRing {
 		return offsetsM;
 	}
 	
+	/**
+	 * Calculates evenly-spaced offset positions based on desired k-mer density.
+	 * Always includes first and last positions for maximum coverage.
+	 *
+	 * @param readlen Length of the sequence
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target density of k-mers per base
+	 * @param minKeysDesired Minimum number of keys to generate
+	 * @return Array of offset positions for k-mer extraction
+	 */
 	public static final int[] makeOffsetsWithDensity(int readlen, int blocksize, float density, int minKeysDesired){
 		assert(blocksize>0);
 		assert(density<blocksize);
@@ -184,6 +235,15 @@ public final class KeyRing {
 	}
 	
 	
+	/**
+	 * Calculates evenly-spaced offset positions for a specific number of keys.
+	 * Uses smart spacing algorithms to avoid clustering at sequence ends.
+	 *
+	 * @param readlen Length of the sequence
+	 * @param blocksize Size of each k-mer block
+	 * @param maxKeys Maximum number of keys to generate
+	 * @return Array of offset positions, or null if blocksize > readlen
+	 */
 	public static final int[] makeOffsetsWithNumberOfKeys(int readlen, int blocksize, int maxKeys){
 		assert(maxKeys>0);
 //		System.err.println("readlen, blocksize, maxKeys = "+readlen+","+blocksize+","+maxKeys);
@@ -267,6 +327,16 @@ public final class KeyRing {
 //		return middles+2;
 //	}
 	
+	/**
+	 * Calculates the optimal number of keys based on sequence length and desired density.
+	 * Ensures minimum requirements are met while respecting physical constraints.
+	 *
+	 * @param readlen Length of the sequence
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target k-mer density per base
+	 * @param minKeysDesired Minimum number of keys required
+	 * @return Optimal number of keys to generate
+	 */
 	public static final int desiredKeysFromDensity(int readlen, int blocksize, float density, int minKeysDesired){
 		assert(blocksize>0);
 		assert(density<=blocksize) : density+", "+blocksize;
@@ -297,6 +367,16 @@ public final class KeyRing {
 		return offsets;
 	}
 	
+	/**
+	 * Generates offsets based on quality scores, avoiding low-quality regions.
+	 * Trims sequence ends with quality scores below 1 before offset calculation.
+	 *
+	 * @param qual Quality score array for the sequence
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target k-mer density per base
+	 * @param minKeysDesired Minimum number of keys required
+	 * @return Array of offset positions adjusted for quality-trimmed sequence
+	 */
 	public static final int[] makeOffsets(byte[] qual, int blocksize, float density, int minKeysDesired){
 		int readlen=qual.length;
 		assert(blocksize>0);
@@ -506,6 +586,9 @@ public final class KeyRing {
 		return offsets;
 	}
 	
+	/**
+	 * Whether to retain k-mers from low-quality positions during offset generation
+	 */
 	public static boolean KEEP_BAD_KEYS=false;
 	
 }

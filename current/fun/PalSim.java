@@ -2,8 +2,32 @@ package fun;
 
 import java.util.Random;
 
+/**
+ * Monte Carlo simulation for analyzing product distribution and placement of
+ * random float triples within constrained ranges.
+ *
+ * Performs probabilistic simulations to calculate placement metrics for
+ * three-dimensional product spaces, comparing base input values against
+ * randomly generated values within the range [1.0, 1.3].
+ *
+ * @author Brian Bushnell
+ */
 public class PalSim {
 	
+	/**
+	 * Executes Monte Carlo simulation to analyze product placement statistics.
+	 *
+	 * Takes three float parameters representing multipliers (a0, b0, c0) and
+	 * optionally the number of simulations to run. Calculates four different
+	 * placement metrics: simulation-based probability, raw product placement,
+	 * cubic root placement, and linear placement.
+	 *
+	 * @param args Command line arguments:
+	 * [0] a0 - First multiplier (auto-scaled if >0.3)
+	 * [1] b0 - Second multiplier (auto-scaled if >0.3)
+	 * [2] c0 - Third multiplier (auto-scaled if >0.3)
+	 * [3] sims - Number of simulations (optional, default 1000000)
+	 */
 	public static void main(String[] args) {
 		float a0=Float.parseFloat(args[0]);
 		float b0=Float.parseFloat(args[1]);

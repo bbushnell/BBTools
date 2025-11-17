@@ -2,21 +2,43 @@ package structures;
 
 import shared.Tools;
 
+/**
+ * Mutable version of SeqCount that tracks variable occurrence counts and scores.
+ * While the parent SeqCount is immutable with fixed count of 1, SeqCountM allows
+ * incremental counting of sequence occurrences and maintains an optional score.
+ * Used for applications requiring accumulation of sequence statistics.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class SeqCountM extends SeqCount {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a mutable SeqCountM from an existing SeqCount.
+	 * Copies the sequence data and initializes count to the source count.
+	 * @param sq Source SeqCount to copy from
+	 */
 	public SeqCountM(SeqCount sq) {
 		super(sq.bases);
 		count=sq.count();
 	}
 	
+	/**
+	 * Creates a SeqCountM from a subsequence of bases with initial count of 1.
+	 * @param s Source sequence array
+	 * @param start Starting index (inclusive)
+	 * @param stop Ending index (exclusive)
+	 */
 	public SeqCountM(byte[] s, int start, int stop) {
 		super(s, start, stop);
 	}
 	
+	/** Creates a SeqCountM from a complete sequence array with initial count of 1.
+	 * @param s Sequence bases to track */
 	public SeqCountM(byte[] s) {
 		super(s);
 	}
@@ -62,7 +84,9 @@ public class SeqCountM extends SeqCount {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Number of occurrences observed for this sequence */
 	public int count=1;
+	/** Optional score associated with this sequence, defaults to -1 */
 	public float score=-1;
 	
 }

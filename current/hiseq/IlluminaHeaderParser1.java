@@ -17,6 +17,11 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Test method for parsing Illumina headers and displaying extracted metadata.
+	 * Enables comment parsing and uses default test header if none provided.
+	 * @param args Command-line arguments; first argument used as test header
+	 */
 	public static void main(String[] args) {
 		PARSE_COMMENT=true;
 		IlluminaHeaderParser1 ihp=new IlluminaHeaderParser1();
@@ -59,6 +64,14 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses an Illumina header string to extract all available metadata.
+	 * Resets internal state and extracts coordinates and comment information
+	 * based on static parsing flags.
+	 *
+	 * @param id_ The Illumina header string to parse
+	 * @return This parser instance for method chaining
+	 */
 	public IlluminaHeaderParser1 parse(String id_) {
 		reset(id_);
 		
@@ -245,6 +258,11 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 		return c;
 	}
 	
+	/**
+	 * Returns a formatted string representation of all parsed header fields.
+	 * Displays lane, tile, coordinates, pair info, barcode, and chastity status.
+	 * @return Formatted string with tab-separated field values
+	 */
 	public String toString() {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("lane:\t").append(lane).nl();

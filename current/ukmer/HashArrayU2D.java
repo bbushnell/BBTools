@@ -20,6 +20,14 @@ public final class HashArrayU2D extends HashArrayU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a new HashArrayU2D with specified sizing schedule and k-mer parameters.
+	 * Initializes the hash array with two-dimensional value storage.
+	 *
+	 * @param schedule_ Array of prime sizes for hash table growth
+	 * @param k_ K-mer length in bases
+	 * @param kbig_ Extended k-mer length for multi-part storage
+	 */
 	public HashArrayU2D(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, true);
 		values=allocInt2D(prime+extra);
@@ -306,6 +314,7 @@ public final class HashArrayU2D extends HashArrayU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Two-dimensional array storing int values associated with k-mers */
 	private int[][] values;
 	
 

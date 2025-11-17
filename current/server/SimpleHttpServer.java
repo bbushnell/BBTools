@@ -19,6 +19,7 @@ import shared.Tools;
  *
  */
 public class SimpleHttpServer {
+	/** Default port number for the HTTP server */
 	public static int port = 8321;
 
 	public static void main(String[] args) throws Exception {
@@ -28,6 +29,8 @@ public class SimpleHttpServer {
 		server.start();
 	}
 
+	/** HTTP request handler that processes GET requests and returns JSON responses.
+	 * Parses RESTful-style URL parameters and constructs appropriate JSON output. */
 	static class GetHandler implements HttpHandler {
 		@Override
 		public void handle(HttpExchange t) throws IOException {

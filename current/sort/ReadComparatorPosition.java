@@ -12,6 +12,7 @@ import var2.ScafMap;
 
 public final class ReadComparatorPosition extends ReadComparator {
 	
+	/** Private constructor to enforce singleton pattern */
 	private ReadComparatorPosition(){}
 	
 	@Override
@@ -20,6 +21,14 @@ public final class ReadComparatorPosition extends ReadComparator {
 		return ascending*x;
 	}
 	
+	/**
+	 * Core comparison logic for reads using SAM alignment data and read IDs.
+	 * Delegates to SAM-based comparison, then falls back to read ID comparison.
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 */
 	public static int compareInner(Read r1, Read r2) {
 		int x=compareInner(r1.samline, r2.samline);
 		if(x!=0){return x;}
@@ -29,6 +38,15 @@ public final class ReadComparatorPosition extends ReadComparator {
 		return r1.id.compareTo(r2.id);
 	}
 	
+	/**
+	 * Compares SAM alignment records by genomic position and metadata.
+	 * Hierarchical comparison: scaffold number, position, strand, mate position, pair number.
+	 * Sets scaffold numbers from ScafMap if not already assigned.
+	 *
+	 * @param a First SAM alignment record
+	 * @param b Second SAM alignment record
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public static int compareInner(SamLine a, SamLine b) {
 		if(a.scafnum<0){a.setScafnum(scafMap);}
 		if(b.scafnum<0){b.setScafnum(scafMap);}
@@ -40,6 +58,7 @@ public final class ReadComparatorPosition extends ReadComparator {
 		return 0;
 	}
 	
+	/** Multiplier for sort direction: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
 	@Override
@@ -47,7 +66,9 @@ public final class ReadComparatorPosition extends ReadComparator {
 		ascending=(asc ? 1 : -1);
 	}
 
+	/** Singleton instance for position-based read comparison */
 	public static final ReadComparatorPosition comparator=new ReadComparatorPosition();
+	/** Scaffold mapping used to resolve scaffold numbers from names */
 	public static ScafMap scafMap=null;
 	
 }

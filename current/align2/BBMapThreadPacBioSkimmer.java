@@ -25,6 +25,7 @@ import stream.SiteScore;
 public final class BBMapThreadPacBioSkimmer extends AbstractMapThread{
 
 	static final int ALIGN_COLUMNS=BBIndexPacBioSkimmer.ALIGN_COLUMNS;
+	/** Maximum number of rows in the alignment matrix for PacBio reads */
 	static final int ALIGN_ROWS=4020;
 	
 	
@@ -36,33 +37,54 @@ public final class BBMapThreadPacBioSkimmer extends AbstractMapThread{
 	
 	/** Ratio of the points for a match of a single base needed to declare unambiguous */
 	public final float CLEARZONE_RATIOP=1.5f;
+	/** Score ratio threshold for primary clearzone filtering */
 	public final float CLEARZONE_RATIO1=2.2f;
+	/** Score ratio threshold for secondary clearzone filtering */
 	public final float CLEARZONE_RATIO1b=2.8f;
+	/** Score ratio threshold for tertiary clearzone filtering */
 	public final float CLEARZONE_RATIO1c=4.8f;
+	/** Score ratio threshold for extended clearzone filtering */
 	public final float CLEARZONE_RATIO3=8f;
 	/** Max allowed number of sites within 1 edit (excluding primary site) */
 	public final int CLEARZONE_LIMIT1e=4;
 	//public final int CLEARZONE1e;
+	/** Computed clearzone threshold for perfect matches */
 	public final int CLEARZONEP;
+	/** Computed clearzone threshold for primary filtering */
 	public final int CLEARZONE1;
+	/** Computed clearzone threshold for secondary filtering */
 	public final int CLEARZONE1b;
+	/** Computed clearzone threshold for tertiary filtering */
 	public final int CLEARZONE1c;
 	//public final int CLEARZONE1e;
+	/** Computed clearzone threshold for extended filtering */
 	public final int CLEARZONE3;
+	/** Inverse of CLEARZONE3 for efficient division operations */
 	public final float INV_CLEARZONE3;
+	/** Score cutoff for applying CLEARZONE1b filtering */
 	public final float CLEARZONE1b_CUTOFF=0.92f;
+	/** Score cutoff for applying CLEARZONE1c filtering */
 	public final float CLEARZONE1c_CUTOFF=0.82f;
 	
+	/** PacBio-optimized index for k-mer lookups and scoring */
 	public final BBIndexPacBioSkimmer index;
 	
 	
+	/** Minimum sites to retain when trimming single-end reads */
 	private static int MIN_TRIM_SITES_TO_RETAIN_SINGLE=2;
+	/** Minimum sites to retain when trimming paired-end reads */
 	private static int MIN_TRIM_SITES_TO_RETAIN_PAIRED=1;
 	
 	/** TODO - perhaps I can rewrite cz3 to penalize reads that map similarly to more than the expected number of places */
 	public static final boolean USE_CLEARZONE3=false;
 
+	/** Expected number of correct alignment sites per read */
 	private static int EXPECTED_SITES=1;
+	/**
+	 * Sets the expected number of correct alignment sites and adjusts retention thresholds.
+	 * Updates minimum site retention counts and maximum trim limits based on expected sites.
+	 * @param x Expected number of alignment sites per read
+	 */
 	public static void setExpectedSites(int x){
 		EXPECTED_SITES=x;
 		MIN_TRIM_SITES_TO_RETAIN_SINGLE=Tools.max((int)(EXPECTED_SITES*4)+1, MIN_TRIM_SITES_TO_RETAIN_SINGLE);
@@ -81,6 +103,61 @@ public final class BBMapThreadPacBioSkimmer extends AbstractMapThread{
 	@Override
 	final int CLEARZONE1(){return CLEARZONE1;}
 	
+	/**
+	 * Constructs a PacBio mapping thread with comprehensive configuration options.
+	 * Initializes clearzone thresholds, creates PacBio-optimized index, and sets up
+	 * alignment parameters for long-read processing.
+	 *
+	 * @param cris_ Input read stream
+	 * @param keylen_ K-mer length for indexing
+	 * @param pileup_ Coverage accumulator
+	 * @param SMITH_WATERMAN_ Enable Smith-Waterman alignment
+	 * @param THRESH_ Score threshold for alignment acceptance
+	 * @param minChrom_ Minimum chromosome to process
+	 * @param maxChrom_ Maximum chromosome to process
+	 * @param keyDensity_ K-mer density for seed placement
+	 * @param maxKeyDensity_ Maximum k-mer density
+	 * @param minKeyDensity_ Minimum k-mer density
+	 * @param maxDesiredKeys_ Maximum k-mers per read
+	 * @param REMOVE_DUPLICATE_BEST_ALIGNMENTS_ Remove duplicate best alignments
+	 * @param SAVE_AMBIGUOUS_XY_ Save ambiguous alignment coordinates
+	 * @param MINIMUM_ALIGNMENT_SCORE_RATIO_ Minimum score ratio threshold
+	 * @param TRIM_LIST_ Enable site list trimming
+	 * @param MAKE_MATCH_STRING_ Generate CIGAR match strings
+	 * @param QUICK_MATCH_STRINGS_ Use fast match string generation
+	 * @param outStream_ Primary output stream
+	 * @param outStreamMapped_ Mapped reads output stream
+	 * @param outStreamUnmapped_ Unmapped reads output stream
+	 * @param outStreamBlack_ Blacklisted reads output stream
+	 * @param SLOW_ALIGN_PADDING_ Padding for slow alignment
+	 * @param SLOW_RESCUE_PADDING_ Padding for mate rescue
+	 * @param DONT_OUTPUT_UNMAPPED_READS_ Skip unmapped read output
+	 * @param DONT_OUTPUT_BLACKLISTED_READS_ Skip blacklisted read output
+	 * @param MAX_SITESCORES_TO_PRINT_ Maximum sites to output
+	 * @param PRINT_SECONDARY_ALIGNMENTS_ Output secondary alignments
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS_ Enforce correct strand pairing
+	 * @param SAME_STRAND_PAIRS_ Require same-strand pairs
+	 * @param KILL_BAD_PAIRS_ Remove incorrectly paired reads
+	 * @param RCOMP_MATE_ Reverse complement mate reads
+	 * @param PERFECTMODE_ Perfect match mode
+	 * @param SEMIPERFECTMODE_ Semi-perfect match mode
+	 * @param FORBID_SELF_MAPPING_ Prevent self-mapping
+	 * @param TIP_DELETION_SEARCH_RANGE_ Range for tip deletion search
+	 * @param AMBIGUOUS_RANDOM_ Handle ambiguous alignments randomly
+	 * @param AMBIGUOUS_ALL_ Output all ambiguous alignments
+	 * @param KFILTER_ K-mer filter threshold
+	 * @param IDFILTER_ Identity filter threshold
+	 * @param TRIM_LEFT_ Enable left-end trimming
+	 * @param TRIM_RIGHT_ Enable right-end trimming
+	 * @param UNTRIM_ Disable trimming
+	 * @param TRIM_QUAL_ Quality threshold for trimming
+	 * @param TRIM_MIN_LEN_ Minimum length after trimming
+	 * @param LOCAL_ALIGN_ Enable local alignment
+	 * @param RESCUE_ Enable mate rescue
+	 * @param STRICT_MAX_INDEL_ Enforce maximum indel limits
+	 * @param MSA_TYPE_ Multiple sequence alignment algorithm
+	 * @param bloomFilter_ Bloom filter for contamination detection
+	 */
 	public BBMapThreadPacBioSkimmer(ConcurrentReadInputStream cris_, int keylen_,
 			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
 			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,

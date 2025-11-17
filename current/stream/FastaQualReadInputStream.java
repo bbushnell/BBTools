@@ -9,8 +9,18 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Input stream for reading FASTA sequences with separate quality files.
+ * Combines sequence data from FASTA files with quality scores from
+ * corresponding quality files, creating complete Read objects.
+ * Supports both numeric and ASCII-encoded quality scores.
+ *
+ * @author Brian Bushnell
+ */
 public class FastaQualReadInputStream extends ReadInputStream {
 	
+	/** Program entry point for testing.
+	 * @param args Command-line arguments [sequence_file, quality_file] */
 	public static void main(String[] args){
 		
 		FastaQualReadInputStream fris=new FastaQualReadInputStream(args[0], args[1], true);
@@ -25,10 +35,22 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		
 	}
 	
+	/**
+	 * Constructs input stream from sequence and quality file names.
+	 * @param fname FASTA sequence file name
+	 * @param qfname Quality scores file name
+	 * @param allowSubprocess_ Whether to allow subprocess reading
+	 */
 	public FastaQualReadInputStream(String fname, String qfname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, null, allowSubprocess_, false), qfname);
 	}
 	
+	/**
+	 * Constructs input stream from FileFormat and quality file name.
+	 * Validates that the FileFormat represents a FASTA file.
+	 * @param ff FileFormat for the sequence file
+	 * @param qfname Quality scores file name
+	 */
 	public FastaQualReadInputStream(FileFormat ff, String qfname){
 		
 		if(!ff.fasta() && !ff.stdio()){
@@ -64,6 +86,11 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
+	/**
+	 * Fills the internal read buffer by parsing sequences and quality scores.
+	 * Closes input streams when fewer reads than buffer size are read.
+	 * Updates generation statistics and error state.
+	 */
 	private synchronized void fillBuffer(){
 		if(builder==null){builder=new ByteBuilder(2000);}
 		if(verbose){System.err.println("Filling buffer.  buffer="+(buffer==null ? null : buffer.size()));}
@@ -87,6 +114,14 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		if(verbose){System.err.println("generated="+generated);}
 	}
 	
+	/**
+	 * Wrapper method for toReadList with assertion checks.
+	 *
+	 * @param maxReadsToReturn Maximum number of reads to return
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether reads are paired/interleaved
+	 * @return ArrayList of Read objects
+	 */
 	private ArrayList<Read> toReads(int maxReadsToReturn, long numericID, boolean interleaved){
 		ArrayList<Read> list=toReadList(maxReadsToReturn, numericID, interleaved);
 		if(list==null){assert(finished);}
@@ -94,6 +129,16 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Parses sequence and quality files to create Read objects.
+	 * Handles both single and paired/interleaved read formats.
+	 * Validates that sequence and quality headers match.
+	 *
+	 * @param maxReadsToReturn Maximum number of reads to return
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether reads are paired/interleaved
+	 * @return ArrayList of Read objects
+	 */
 	private ArrayList<Read> toReadList(int maxReadsToReturn, long numericID, boolean interleaved){
 		if(finished){return null;}
 		if(verbose){System.err.println("FastaQualRIS fetching a list.");}
@@ -151,6 +196,14 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Reads sequence bases from FASTA file until next header is encountered.
+	 * Accumulates sequence lines into a single byte array.
+	 *
+	 * @param btf ByteFile for reading sequence data
+	 * @param bb ByteBuilder for accumulating sequence bytes
+	 * @return Byte array containing sequence bases
+	 */
 	private final byte[] nextBases(ByteFile btf, ByteBuilder bb){
 		assert(bb.length()==0);
 		byte[] line=btf.nextLine();
@@ -173,6 +226,15 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
+	/**
+	 * Reads quality scores from quality file until next header is encountered.
+	 * Handles both numeric (space-separated) and ASCII-encoded quality formats.
+	 * Converts ASCII qualities by subtracting FASTQ offset.
+	 *
+	 * @param qtf ByteFile for reading quality data
+	 * @param bb ByteBuilder for accumulating quality bytes
+	 * @return Byte array containing quality scores
+	 */
 	private final byte[] nextQualities(ByteFile qtf, ByteBuilder bb){
 		assert(bb.length()==0);
 		byte[] line=qtf.nextLine();
@@ -210,6 +272,14 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
+	/**
+	 * Creates a Read object from current sequence and quality data.
+	 * Validates that sequence and quality arrays have equal length.
+	 * Converts sequence bases to uppercase and removes header prefix.
+	 *
+	 * @param numericID Numeric identifier for the read
+	 * @return Read object or null if no more data available
+	 */
 	private Read makeRead(long numericID){
 		if(finished){
 			if(verbose){System.err.println("Returning null because finished.");}
@@ -287,6 +357,8 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		return interleaved;
 	}
 	
+	/** Marks the input stream as finished reading.
+	 * Sets internal finished flag to prevent further read attempts. */
 	private synchronized void finish(){
 		if(verbose){System.err.println("FastaQualRIS setting finished "+finished+" -> "+true);}
 		finished=true;
@@ -295,31 +367,48 @@ public class FastaQualReadInputStream extends ReadInputStream {
 	@Override
 	public String fname(){return btf.name()+","+qtf.name();}
 
+	/** Internal buffer for storing parsed reads */
 	private ArrayList<Read> buffer=null;
+	/** Index of next read to return from buffer */
 	private int next=0;
 
+	/** ByteFile for reading sequence data */
 	private final ByteFile btf;
+	/** ByteFile for reading quality score data */
 	private final ByteFile qtf;
+	/** Whether reads are paired and interleaved */
 	private final boolean interleaved;
 
+	/** Buffer length for batch read operations */
 	private final int BUF_LEN=Shared.bufferLen();;
 
+	/** Total number of reads generated from input files */
 	public long generated=0;
+	/** Total number of reads consumed by client code */
 	public long consumed=0;
+	/** Numeric ID to assign to the next read */
 	private long nextReadID=0;
 	
+	/** Whether quality scores are numeric (space-separated) rather than ASCII */
 	public static boolean NUMERIC_QUAL=true;
 	
+	/** Enable verbose debug output */
 	public static boolean verbose=false;
 
+	/** Next header from sequence file */
 	private byte[] nextHeaderB=null;
+	/** Next header from quality file */
 	private byte[] nextHeaderQ=null;
 	
+	/** Current header being processed */
 	private byte[] currentHeader=null;
 	
+	/** ByteBuilder for accumulating sequence and quality data */
 	private ByteBuilder builder=null;
 	
+	/** Whether input stream has finished reading all data */
 	private boolean finished=false, closed=false;
+	/** FASTA header prefix character '>' */
 	private final byte carrot='>', space=' ', zero='0';
 	
 }

@@ -9,10 +9,29 @@ import stream.Read;
 import stream.SamLine;
 import structures.ByteBuilder;
 
+/**
+ * Represents a spatial tile region on HiSeq flow cells for quality assessment.
+ * Accumulates quality metrics, error rates, and base composition statistics
+ * for reads originating from a defined rectangular coordinate region.
+ * Used for spatial quality analysis and tile-based filtering.
+ *
+ * @author Brian Bushnell
+ */
 public class MicroTile implements Comparable<MicroTile>{
 
+	/** Creates a MicroTile with default zero coordinates */
 	public MicroTile(){this(0,0,0,0,0,0);}
 
+	/**
+	 * Creates a MicroTile with specified spatial coordinates.
+	 *
+	 * @param lane_ HiSeq lane number
+	 * @param tile_ Tile identifier within the lane
+	 * @param x1_ Left boundary x-coordinate
+	 * @param x2_ Right boundary x-coordinate
+	 * @param y1_ Bottom boundary y-coordinate
+	 * @param y2_ Top boundary y-coordinate
+	 */
 	public MicroTile(int lane_, int tile_, int x1_, int x2_, int y1_, int y2_){
 		lane=lane_;
 		tile=tile_;
@@ -22,10 +41,17 @@ public class MicroTile implements Comparable<MicroTile>{
 		y2=y2_;
 	}
 	
+	/** Processes the cycle tracker if cycle tracking is enabled */
 	void process(){
 		if(tracker!=null){tracker.process();}
 	}
 	
+	/**
+	 * Tests if coordinates fall within this tile's boundaries.
+	 * @param x X-coordinate to test
+	 * @param y Y-coordinate to test
+	 * @return true if coordinates are within tile boundaries
+	 */
 	public boolean contains(int x, int y){
 		return x>=x1 && x<=x2 && y>=y1 && y<=y2;
 	}
@@ -35,32 +61,50 @@ public class MicroTile implements Comparable<MicroTile>{
 		return lane+", "+tile+", "+x1+", "+x2+", "+y1+", "+y2;
 	}
 	
+	/** Calculates average read quality using probability-weighted scoring.
+	 * @return Average quality score by probability, or 0 if no reads processed */
 	public double averageReadQualityByProb(){
 		return readCount==0 ? 0 : readQualityByProbSum/readCount;
 	}
 	
+	/** Calculates expected base error rate from quality scores.
+	 * @return Average expected error probability per base */
 	public double averageExpectedBaseErrorRate(){
 		return baseCount==0 ? 0 : baseErrorProbSum/baseCount;
 	}
 	
+	/** Converts expected base error rate to Phred scale.
+	 * @return Expected base error rate as Phred quality score */
 	public double averageExpectedBaseErrorRatePhred(){
 		return QualityTools.probErrorToPhredDouble(averageExpectedBaseErrorRate());
 	}
 	
+	/** Calculates percentage of reads expected to be error-free.
+	 * @return Percentage of error-free reads based on quality scores */
 	public double percentErrorFree(){
 		return readCount==0 ? 0 : probErrorFreeSum/readCount;
 	}
 	
+	/** Calculates fraction of k-mers with high quality scores.
+	 * @return Ratio of good k-mers to total k-mers */
 	public double goodKmerFraction(){
 		double kmers=goodKmerSum+validKmerSum;
 		return goodKmerSum/Tools.max(kmers, 1);
 	}
 	
+	/** Calculates fraction of reads that aligned successfully.
+	 * @return Alignment rate as ratio of aligned to total reads */
 	public double alignmentRate(){
 		return readCount==0 ? 0 : alignedReadCount/(double)readCount;
 	}
 	
 	//Small sample sizes will drift toward 23. 
+	/**
+	 * Calculates empirical quality score from alignment error counts.
+	 * Applies Bayesian smoothing with pseudocounts for small samples.
+	 * Small samples drift toward Phred 23 due to prior assumptions.
+	 * @return True quality score in Phred scale based on alignment errors
+	 */
 	public double trueQuality(){
 		double e=baseErrorCount+1;
 		double b=alignedBaseCount+200;
@@ -71,6 +115,12 @@ public class MicroTile implements Comparable<MicroTile>{
 	}
 	
 	//Small sample sizes will drift toward 0.2. 
+	/**
+	 * Calculates per-read error rate from alignment data.
+	 * Applies Bayesian smoothing with 0.2 pseudocount for stability.
+	 * Small samples drift toward 0.2 error rate.
+	 * @return Error rate per read
+	 */
 	public double readErrorRate(){
 		double e=readErrorCount+0.2;
 		double b=alignedReadCount+1;
@@ -79,6 +129,12 @@ public class MicroTile implements Comparable<MicroTile>{
 	}
 	
 	//Small sample sizes will drift toward 0.002. 
+	/**
+	 * Calculates per-base error rate from alignment data.
+	 * Applies Bayesian smoothing with 0.002 pseudocount for stability.
+	 * Small samples drift toward 0.002 error rate.
+	 * @return Error rate per base
+	 */
 	public double baseErrorRate(){
 		double e=baseErrorCount+0.002;
 		double b=alignedBaseCount+1;
@@ -86,6 +142,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		return rate;
 	}
 	
+	/** Calculates insertion rate per read from alignment data.
+	 * @return Fraction of reads containing insertions */
 	public double readInsRate(){
 //		System.err.println(alignedReadCount+", "+readInsCount+", "+
 //		(readInsCount/(double)alignedReadCount));
@@ -98,6 +156,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		return rate;
 	}
 	 
+	/** Calculates deletion rate per read from alignment data.
+	 * @return Fraction of reads containing deletions */
 	public double readDelRate(){
 		if(alignedReadCount==0) {return 0;}
 //		double e=readDelCount+0.01;
@@ -108,6 +168,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		return rate;
 	}
 	 
+	/** Calculates k-mer-based error rate per read.
+	 * @return Rate of reads with k-mer-detected errors */
 	public double kmerErrorRateR(){
 		if(readCount==0) {return 0;}
 		double e=kmerReadErrorCount;
@@ -116,6 +178,8 @@ public class MicroTile implements Comparable<MicroTile>{
 		return rate;
 	}
 	 
+	/** Calculates k-mer-based error rate per base.
+	 * @return Rate of bases with k-mer-detected errors per read */
 	public double kmerErrorRateB(){
 		if(readCount==0) {return 0;}
 		double e=kmerBaseErrorCount;
@@ -124,42 +188,63 @@ public class MicroTile implements Comparable<MicroTile>{
 		return rate;
 	}
 	
+	/** Calculates percentage of k-mers found in reference database.
+	 * @return Percentage of k-mer hits */
 	public double hitPercent(){
 		long count=kmerCount();
 		return count==0 ? 0 : hits*100.0/count;
 	}
 	
+	/** Calculates percentage of unique k-mers not found in database.
+	 * @return Percentage of unique k-mers */
 	public double uniquePercent(){
 		long count=kmerCount();
 		return count==0 ? 0 : misses*100.0/count;
 	}
 	
+	/** Calculates percentage of reads with poly-G contamination.
+	 * @return Percentage of reads exceeding minimum poly-G threshold */
 	public double polyGPercent(){
 		long count=readCount;
 		return count==0 ? 0 : homoPolyGCount*100.0/count;
 	}
 	
+	/** Calculates average k-mer depth from database lookups.
+	 * @return Average depth per k-mer */
 	public double depth(){
 		long count=kmerCount();
 		return depthSum*1.0/count;
 	}
 	
+	/** Gets average G content from cycle tracker.
+	 * @return Average G percentage, or 0 if tracking disabled */
 	public double avgG(){
 		return tracker==null ? 0 : tracker.avg('G');
 	}
 	
+	/** Gets maximum G content from cycle tracker.
+	 * @return Maximum G percentage, or 0 if tracking disabled */
 	public double maxG(){
 		return tracker==null ? 0 : tracker.max('G');
 	}
 	
+	/**
+	 * Calculates implied error rate from base error rate function.
+	 * Uses unique k-mer percentage to estimate per-base error rates.
+	 * @param berf Base error rate function coefficients [intercept, slope]
+	 * @return Estimated per-base error rate
+	 */
 	public double impliedErrorRate(double[] berf) {
 		if(berf==null) {return 0;}
 		double rootBer=Tools.mid(0.000001, 0.75, berf[0]+berf[1]*uniquePercent());
 		return rootBer*rootBer;
 	}
 
+	/** Gets total k-mer count (hits plus misses) */
 	public long kmerCount(){return hits+misses;}
 	
+	/** Resets all statistics counters to zero.
+	 * Clears k-mer counts, error counts, base composition, and quality metrics. */
 	public void clear() {
 		hits=0;
 		misses=0;
@@ -196,6 +281,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		mergeErrorSum=0;
 	}
 	
+	/**
+	 * Adds statistics from another MicroTile to this one.
+	 * Merges all counters including reads, errors, k-mers, and composition.
+	 * @param mt MicroTile to merge statistics from
+	 */
 	public void add(MicroTile mt) {
 		hits+=mt.hits;
 		misses+=mt.misses;
@@ -234,6 +324,12 @@ public class MicroTile implements Comparable<MicroTile>{
 		mergeErrorSum+=mt.mergeErrorSum;
 	}
 	
+	/**
+	 * Multiplies all statistics by a scaling factor.
+	 * Used for normalizing tile statistics or creating projections.
+	 * Does not handle cycle tracker multiplication.
+	 * @param mult Scaling factor to apply to all counters
+	 */
 	public void multiplyBy(double mult) {
 		hits=(long)(mult*hits);
 		misses=(long)(mult*misses);
@@ -273,6 +369,15 @@ public class MicroTile implements Comparable<MicroTile>{
 		mergeErrorSum=(long)(mult*mergeErrorSum);
 	}
 	
+	/**
+	 * Counts and scores k-mers based on quality values.
+	 * Uses sliding window to calculate probability of k-mer correctness.
+	 * Updates goodKmerSum and validKmerSum statistics.
+	 *
+	 * @param quals Quality score array
+	 * @param k K-mer length for scoring window
+	 * @return Total quality-weighted k-mer score
+	 */
 	private float countGoodKmers(byte[] quals, int k) {
 		int valid=0;
 		float good=0;
@@ -300,6 +405,12 @@ public class MicroTile implements Comparable<MicroTile>{
 		return good;
 	}
 	
+	/**
+	 * Processes a read and updates all relevant statistics.
+	 * Analyzes quality scores, alignment information, base composition,
+	 * poly-G content, and k-mer quality metrics.
+	 * @param r Read to process and extract statistics from
+	 */
 	public void add(Read r){
 		if(r==null){return;}
 		final int len=r.length();
@@ -391,6 +502,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		}
 	}
 	
+	/**
+	 * Generates column headers for tabular output.
+	 * Returns either short or long format headers based on shortHeader flag.
+	 * @return Tab-delimited header string for statistics output
+	 */
 	public static String header() {
 		if(shortHeader) {
 			return "lane\ttile\tx1\tx2\ty1\ty2"
@@ -425,6 +541,18 @@ public class MicroTile implements Comparable<MicroTile>{
 		+ "\tAvgInsertSize\tMergeRate\tMergeBaseErrorRate";
 	}
 	
+	/**
+	 * Formats all tile statistics as tab-delimited text output.
+	 * Includes coordinate information, quality metrics, error rates,
+	 * base composition, and derived statistics.
+	 *
+	 * @param bb ByteBuilder to append formatted output to
+	 * @param k K-mer length for calculations
+	 * @param HG High-depth genomic k-mer fraction
+	 * @param rerf Read error rate function coefficients
+	 * @param berf Base error rate function coefficients
+	 * @return ByteBuilder with appended statistics line
+	 */
 	public ByteBuilder toText(ByteBuilder bb, int k, double HG, double[] rerf, double[] berf){
 		bb.append(lane).tab();
 		bb.append(tile).tab();
@@ -549,51 +677,86 @@ public class MicroTile implements Comparable<MicroTile>{
 		return 0;
 	}
 	
+	/** Number of k-mers found in reference database */
 	public long hits;
+	/** Number of k-mers not found in reference database */
 	public long misses;
+	/** Sum of k-mer depths from database lookups */
 	public long depthSum;
+	/** Total number of reads processed */
 	public long readCount;
+	/** Total number of bases in all reads */
 	public long baseCount;
+	/** Number of reads that aligned successfully */
 	public long alignedReadCount;
+	/** Number of bases in aligned reads */
 	public long alignedBaseCount;
+	/** Number of aligned reads containing errors */
 	public long readErrorCount;//Reads aligned with errors
+	/** Number of bases aligned with errors */
 	public long baseErrorCount;//Bases aligned with errors
+	/** Number of reads with k-mer-detected errors */
 	public long kmerReadErrorCount;//Reads with errors detected
+	/** Number of bases detected as errors by k-mer analysis */
 	public long kmerBaseErrorCount;//Bases detected as errors
+	/** Number of reads containing insertions */
 	public long readInsCount;//Number of reads containing insertions
+	/** Number of reads containing deletions */
 	public long readDelCount;//Number of reads containing deletions
+	/** Sum of read qualities weighted by error probability */
 	public double readQualityByProbSum;
+	/** Sum of error-free probabilities across all reads */
 	public double probErrorFreeSum;
+	/** Sum of expected error probabilities for all bases */
 	public double baseErrorProbSum;
 	
+	/** Sum of quality-weighted k-mer scores */
 	public double goodKmerSum;
+	/** Total number of valid k-mers processed */
 	public long validKmerSum;
 	
+	/** Base composition counts for A, C, G, T, N */
 	public long[] acgtn=new long[5];
+	/** Number of reads with poly-G runs exceeding threshold */
 	public long homoPolyGCount;
+	/** Total length of poly-G runs across all reads */
 	public long homoPolyGSum;
 	
+	/** Counter for discarded reads */
 	public int discard=0;
 	
+	/** HiSeq lane number for this tile */
 	public final int lane;
+	/** Tile identifier within the lane */
 	public final int tile;
 	public final int x1, x2;
 	public final int y1, y2;
 	
 //	long[] barcodeHDist=new long[4];
+	/** Number of barcodes processed */
 	long barcodes;
+	/** Sum of barcode Hamming distances */
 	long barcodeHDistSum=0;
+	/** Number of barcodes containing homopolymer runs */
 	long barcodePolymers=0;
 	
+	/** Number of successfully merged paired reads */
 	long mergedReads=0;
+	/** Sum of insert sizes for merged reads */
 	long insertSum=0;
+	/** Sum of overlap lengths for merged reads */
 	long overlapSum=0;
+	/** Sum of errors detected during read merging */
 	long mergeErrorSum=0;
 	
+	/** Cycle-by-cycle quality tracking, null if tracking disabled */
 	public final CycleTracker tracker=TRACK_CYCLES ? new CycleTracker() : null;
 
+	/** Minimum poly-G length threshold for contamination detection */
 	public static int MIN_POLY_G=15;
+	/** Whether to enable cycle-by-cycle quality tracking */
 	public static boolean TRACK_CYCLES=false;
+	/** Whether to use abbreviated column headers in output */
 	public static boolean shortHeader=true;
 	
 }

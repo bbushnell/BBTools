@@ -421,6 +421,12 @@ public class TaxServer {
 		return server;
 	}
 	
+	/**
+	 * Returns usage information to client in plain text format.
+	 * Includes server statistics and timing information.
+	 * @param startTime Request start time for latency calculation
+	 * @param t HTTP exchange for response
+	 */
 	public void returnUsage(long startTime, HttpExchange t){
 		if(useHtml){
 			returnUsageHtml(startTime, t);
@@ -437,6 +443,12 @@ public class TaxServer {
 		lastTimeUsage.set(elapsed);
 	}
 	
+	/**
+	 * Returns usage information to client in HTML format.
+	 * Provides formatted web interface with embedded statistics.
+	 * @param startTime Request start time for latency calculation
+	 * @param t HTTP exchange for response
+	 */
 	public void returnUsageHtml(long startTime, HttpExchange t){
 		if(logUsage){System.err.println("usage");}
 		String s=makeUsageHtml();
@@ -449,6 +461,12 @@ public class TaxServer {
 		lastTimeUsage.set(elapsed);
 	}
 	
+	/**
+	 * Returns detailed server statistics to client.
+	 * Includes query counts, timing metrics, and performance data.
+	 * @param startTime Request start time for latency calculation
+	 * @param t HTTP exchange for response
+	 */
 	public void returnStats(long startTime, HttpExchange t){
 		if(logUsage){System.err.println("stats");}
 		String stats=makeStats();
@@ -565,6 +583,12 @@ public class TaxServer {
 			if(verbose2){outstream.println("Done.");}
 		}
 		
+		/**
+		 * Loads sketch objects from HTTP request body.
+		 * Parses sketch data from string format and applies whitelist filtering.
+		 * @param body Request body containing sketch data
+		 * @return List of loaded sketches, or null if parsing fails
+		 */
 		private ArrayList<Sketch> loadSketchesFromBody(String body){
 			//List of query sketches
 			ArrayList<Sketch> sketches=null;
@@ -580,6 +604,14 @@ public class TaxServer {
 			return sketches;
 		}
 		
+		/**
+		 * Loads sketches from local file system.
+		 * Creates sketches from sequence files using specified parameters.
+		 *
+		 * @param fname Path to sequence file
+		 * @param params Display parameters for sketch creation
+		 * @return List of sketches created from file
+		 */
 		private ArrayList<Sketch> loadSketchesFromFile(String fname, DisplayParams params){
 			//List of query sketches
 			ArrayList<Sketch> sketches=null;
@@ -860,6 +892,12 @@ public class TaxServer {
 		
 	}
 	
+	/**
+	 * Finds reference sketch by taxonomic ID or name.
+	 * Searches loaded reference sketches using numeric ID or organism name.
+	 * @param s Taxonomic ID (numeric) or organism name
+	 * @return Cloned reference sketch if found, null otherwise
+	 */
 	private Sketch findRefSketch(String s){
 		assert(s!=null);
 		if(s==null || s.length()<1){return null;}
@@ -879,6 +917,8 @@ public class TaxServer {
 	/** Handles taxonomy lookups */
 	class TaxHandler implements HttpHandler {
 		
+		/** Constructs taxonomy query handler.
+		 * @param skipNonCanonical_ Whether to skip non-canonical taxonomic ranks */
 		public TaxHandler(boolean skipNonCanonical_){
 			skipNonCanonical=skipNonCanonical_;
 		}
@@ -974,6 +1014,12 @@ public class TaxServer {
 	/*----------------            Helpers           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads request body from HTTP exchange.
+	 * Extracts string content from input stream.
+	 * @param t HTTP exchange containing request
+	 * @return Request body as string
+	 */
 	static String getBody(HttpExchange t){
 		if(verbose2){System.err.println("getBody");}
 		InputStream is=t.getRequestBody();
@@ -1218,6 +1264,15 @@ public class TaxServer {
 		return makeChildrenObject(list, originalLevel, printRange, mononomial);
 	}
 	
+	/**
+	 * Converts list of tax nodes to JSON children object.
+	 *
+	 * @param list List of child tax nodes
+	 * @param originalLevel Whether to use original taxonomy level names
+	 * @param printRange Whether to include taxonomic range information
+	 * @param mononomial Whether to use mononomial naming
+	 * @return JSON object representation of children
+	 */
 	JsonObject makeChildrenObject(ArrayList<TaxNode> list, boolean originalLevel, boolean printRange, boolean mononomial){
 		if(list==null || list.isEmpty()){return null;}
 		JsonObject j=new JsonObject();
@@ -1520,6 +1575,12 @@ public class TaxServer {
 		return j;
 	}
 	
+	/**
+	 * Constructs file path for taxonomic node based on data source.
+	 * @param tn Tax node to generate path for
+	 * @param source Data source type (REFSEQ, SILVA, IMG)
+	 * @return File path to sequence data, or "null" if not found
+	 */
 	String toPath(TaxNode tn, int source){
 		if(tn==null){return "null";}
 		String path;
@@ -1538,6 +1599,11 @@ public class TaxServer {
 		return path;
 	}
 	
+	/**
+	 * Constructs file path for IMG taxonomic identifier.
+	 * @param imgID IMG database identifier
+	 * @return File path to IMG sequence data, or "null" if not found
+	 */
 	String toPathIMG(long imgID){
 		String path="/global/dna/projectdirs/microbial/img_web_data/taxon.fna/"+imgID+".fna";
 		if(!new File(path).exists()){path="null";}
@@ -1588,6 +1654,12 @@ public class TaxServer {
 		return list;
 	}
 	
+	/**
+	 * Removes version suffix from accession number.
+	 * Strips characters after dot or colon to get base accession.
+	 * @param s Accession string with potential version suffix
+	 * @return Base accession without version, or original string if no suffix
+	 */
 	public static final String stripAccession(String s){
 		if(s==null){return null;}
 		s=s.toUpperCase();
@@ -1598,9 +1670,20 @@ public class TaxServer {
 		return s;
 	}
 
+	/**
+	 * Converts IMG identifier string to NCBI taxonomic ID.
+	 * @param imgID IMG database identifier as string
+	 * @return NCBI taxonomic ID, or -1 if not found
+	 */
 	private final int imgToTaxid(String imgID) {
 		return imgToTaxid(Long.parseLong(imgID));
 	}
+	/**
+	 * Converts IMG identifier to NCBI taxonomic ID.
+	 * Searches both IMG file and accession databases.
+	 * @param imgID IMG database identifier
+	 * @return NCBI taxonomic ID, or -1 if not found
+	 */
 	private final int imgToTaxid(long imgID) {
 		int ncbi=-1;
 		if(imgFile!=null) {
@@ -1610,6 +1693,12 @@ public class TaxServer {
 		return AccessionToTaxid.getImg(imgID);
 	}
 	
+	/**
+	 * Resolves accession number to taxonomic ID.
+	 * Handles distributed server queries if needed.
+	 * @param accession Sequence accession number
+	 * @return NCBI taxonomic ID, or -1 if not found
+	 */
 	private int accessionToTaxid(String accession){
 		if(accession==null){return -1;}
 		int tid=AccessionToTaxid.get(accession);
@@ -1674,6 +1763,11 @@ public class TaxServer {
 	/*----------------     Data Initialization      ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates mapping from URL query strings to numeric query types.
+	 * Maps various query format strings to internal type constants.
+	 * @return HashMap mapping query strings to type integers
+	 */
 	private static HashMap<String, Integer> makeTypeMap() {
 		HashMap<String, Integer> map=new HashMap<String, Integer>(63);
 		map.put("gi", GI);
@@ -1722,6 +1816,11 @@ public class TaxServer {
 		return map;
 	}
 	
+	/**
+	 * Creates mapping from common organism names to scientific names.
+	 * Includes common animals, plants, and model organisms for user convenience.
+	 * @return HashMap mapping common names to scientific names
+	 */
 	public static HashMap<String, String> makeCommonMap(){
 		HashMap<String, String> map=new HashMap<String, String>();
 		map.put("human", "homo sapiens");
@@ -1789,6 +1888,11 @@ public class TaxServer {
 	}
 	
 	//Customize usage message to include domain
+	/**
+	 * Generates usage information text for server help responses.
+	 * Creates detailed usage instructions for both taxonomy and sketch modes.
+	 * @return Formatted usage string with examples and instructions
+	 */
 	private String makeUsagePrefix(){
 		if(!sketchOnly){
 			return "Welcome to the JGI taxonomy server!\n"
@@ -1865,6 +1969,11 @@ public class TaxServer {
 		}
 	}
 	
+	/**
+	 * Generates HTML-formatted usage information.
+	 * Embeds current statistics into HTML template.
+	 * @return HTML page with usage information and statistics
+	 */
 	private String makeUsageHtml(){
 		String html=rawHtml;
 		html=html.replace("STATISTICSSTRING", makeStats());
@@ -1873,12 +1982,19 @@ public class TaxServer {
 		return html;
 	}
 	
+	/** Loads HTML template file from resources.
+	 * @return Raw HTML template string */
 	private String loadRawHtml(){
 		String path=Data.findPath("?tax_server.html");
 		String html=ReadWrite.readString(path);
 		return html;
 	}
 	
+	/**
+	 * Generates comprehensive server statistics report.
+	 * Includes query counts, timing data, and configuration information.
+	 * @return Formatted statistics string
+	 */
 	private String makeStats(){
 		ByteBuilder sb=new ByteBuilder();
 		
@@ -1911,6 +2027,11 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
+	/**
+	 * Generates extended statistics for sketch server mode.
+	 * Includes version distribution and query timing by sketch count.
+	 * @return Extended statistics string
+	 */
 	public String makeExtendedStats(){
 		ByteBuilder sb=new ByteBuilder();
 		sb.append('\n');
@@ -1941,12 +2062,22 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
+	/**
+	 * Combines usage prefix with basic statistics.
+	 * @param prefix Usage text prefix
+	 * @return Combined usage and statistics string
+	 */
 	public String USAGE(String prefix){
 		if(!countQueries){return prefix;}
 		String basicStats=basicStats();
 		return (prefix==null ? basicStats : prefix+"\n"+basicStats);
 	}
 	
+	/**
+	 * Generates basic server performance statistics.
+	 * Includes query counts, timing metrics, and request type breakdown.
+	 * @return Formatted basic statistics string
+	 */
 	public String basicStats(){
 		if(!countQueries){return "";}
 		StringBuilder sb=new StringBuilder(500);
@@ -2034,6 +2165,24 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
+	/**
+	 * Updates query counters and determines if request is internal.
+	 * Tracks various query statistics for performance monitoring.
+	 *
+	 * @param t HTTP exchange for client identification
+	 * @param local Whether query uses local file access
+	 * @param refMode Whether query is in reference mode
+	 * @param simple Whether simplified taxonomy is requested
+	 * @param ancestor Whether ancestor lookup is requested
+	 * @param plaintext Whether plaintext response is requested
+	 * @param semicolon Whether semicolon-delimited response is requested
+	 * @param path Whether path response is requested
+	 * @param printChildren Whether to include children in response
+	 * @param printPath Whether to include paths in response
+	 * @param printSize Whether to include size information
+	 * @param type Query type identifier
+	 * @return true if request originates from internal network
+	 */
 	public boolean incrementQueries(HttpExchange t, boolean local, boolean refMode, boolean simple, boolean ancestor, 
 			boolean plaintext, boolean semicolon, boolean path, boolean printChildren, boolean printPath, boolean printSize, int type){
 		final boolean internal=ServerTools.isInternalQuery(t, addressPrefix, allowLocalHost, printIP, printHeaders);
@@ -2082,6 +2231,14 @@ public class TaxServer {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Compares query sketches against reference database.
+	 * Uses multithreading for large sketch sets to improve performance.
+	 *
+	 * @param inSketches List of query sketches to compare
+	 * @param params Display parameters controlling output format
+	 * @return Formatted comparison results
+	 */
 	String compare(ArrayList<Sketch> inSketches, DisplayParams params){
 		boolean success=true;
 		final int inSize=inSketches.size();
@@ -2191,6 +2348,7 @@ public class TaxServer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether server operates in sketch-only mode without taxonomy features */
 	public boolean sketchOnly=false;
 	
 	/*--------------------------------------------------------------*/
@@ -2275,10 +2433,15 @@ public class TaxServer {
 	/*----------------            Params            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to log client IP addresses */
 	public boolean printIP=false;
+	/** Whether to log HTTP request headers */
 	public boolean printHeaders=false;
+	/** Whether to track query statistics */
 	public boolean countQueries=true;
+	/** Memory preallocation fraction for hash tables */
 	public float prealloc=0;
+	/** Whether to provide HTML-formatted responses */
 	public boolean useHtml=false;
 
 	/** Location of GiTable file */
@@ -2292,6 +2455,7 @@ public class TaxServer {
 	/** Location of accession pattern file */
 	private String patternFile=null;
 	
+	/** Path to taxonomic size information file */
 	private String sizeFile=null;
 
 	/** Location of sequence directory tree */
@@ -2307,6 +2471,7 @@ public class TaxServer {
 	
 	/** Hash taxonomic names for lookup */
 	private boolean hashNames=true;
+	/** Whether to hash dot-formatted taxonomic names */
 	private boolean hashDotFormat=true;
 
 	/** Kill code of prior server instance (optional) */
@@ -2317,8 +2482,11 @@ public class TaxServer {
 	/** Address of current server instance (optional) */
 	public String domain=null;
 
+	/** Maximum threads for concurrent sketch comparisons */
 	public int maxConcurrentSketchCompareThreads=8;//TODO: This might be too high when lots of concurrent sessions are active
+	/** Maximum threads for concurrent sketch loading from files */
 	public int maxConcurrentSketchLoadThreads=4;//TODO: This might be too high when lots of concurrent sessions are active
+	/** Number of HTTP request handler threads */
 	public int handlerThreads=-1;
 	
 	/*--------------------------------------------------------------*/
@@ -2340,6 +2508,7 @@ public class TaxServer {
 	/** Code to validate kill requests */
 	public final String killCode;
 	
+	/** HTTP server instance handling client requests */
 	public final HttpServer httpServer;
 
 	/** Bit to set for plaintext query types */
@@ -2372,10 +2541,14 @@ public class TaxServer {
 	/** Tool for comparing query sketches to reference sketches */
 	public final SketchSearcher searcher=new SketchSearcher();
 
+	/** Whether server has sketch database loaded */
 	public final boolean hasSketches;
 
+	/** Whether to allow remote clients to access server filesystem */
 	final boolean allowRemoteFileAccess;
+	/** Whether to allow localhost connections */
 	final boolean allowLocalHost;
+	/** IP address prefix for internal network identification */
 	final String addressPrefix;
 	private boolean clearMem=true;
 	

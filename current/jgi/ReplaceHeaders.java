@@ -398,7 +398,9 @@ public class ReplaceHeaders {
 	/** Secondary header input file path */
 	private String hin2=null;
 	
+	/** Primary quality file input path */
 	private String qfin1=null;
+	/** Secondary quality file input path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -406,7 +408,9 @@ public class ReplaceHeaders {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary quality file output path */
 	private String qfout1=null;
+	/** Secondary quality file output path */
 	private String qfout2=null;
 	
 	/** Override input file extension */

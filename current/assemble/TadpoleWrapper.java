@@ -23,6 +23,8 @@ import ukmer.Kmer;
 public class TadpoleWrapper {
 	
 
+	/** Program entry point that processes command-line arguments and runs k-mer optimization.
+	 * @param args Command-line arguments including k-mer values and output settings */
 	public static void main(String[] args){
 		process(args);
 		
@@ -31,6 +33,15 @@ public class TadpoleWrapper {
 	}
 		
 	
+	/**
+	 * Main processing method that runs Tadpole with multiple k-mer values and selects the best.
+	 * Parses arguments to extract k-mer values, runs Tadpole for each k-mer, compares assembly
+	 * statistics, and optionally performs bisection/expansion to refine the optimal k-mer.
+	 * Handles output file naming and cleanup of intermediate assemblies if requested.
+	 *
+	 * @param args Command-line arguments containing k-mer values, output paths, and options
+	 * @return The optimal k-mer value that produced the best assembly metrics
+	 */
 	public static int process(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -176,6 +187,18 @@ public class TadpoleWrapper {
 		return bestK;
 	}
 	
+	/**
+	 * Expands search to smaller k-mer values when the best k-mer is at the left boundary.
+	 * Tests a k-mer that is 70% of the current best k-mer value. If the new k-mer produces
+	 * better results, recursively continues expanding leftward.
+	 *
+	 * @param list List of assembly records for different k-mer values
+	 * @param best Index of current best assembly in the list
+	 * @param argList Command-line arguments template for Tadpole execution
+	 * @param contigsName Output filename template with % placeholder for k-mer value
+	 * @param recur Whether to recursively continue expansion if improvement found
+	 * @return Updated index of the best assembly after expansion
+	 */
 	static int expandLeft(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur){
 		assert(best==0);
 		Record mid=list.get(best);
@@ -202,6 +225,18 @@ public class TadpoleWrapper {
 		return best;
 	}
 	
+	/**
+	 * Expands search to larger k-mer values when the best k-mer is at the right boundary.
+	 * Tests a k-mer that is min(current+40, current*1.25+10). If the new k-mer produces
+	 * better results, recursively continues expanding rightward.
+	 *
+	 * @param list List of assembly records for different k-mer values
+	 * @param best Index of current best assembly in the list
+	 * @param argList Command-line arguments template for Tadpole execution
+	 * @param contigsName Output filename template with % placeholder for k-mer value
+	 * @param recur Whether to recursively continue expansion if improvement found
+	 * @return Updated index of the best assembly after expansion
+	 */
 	static int expandRight(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur){
 		assert(best==list.size()-1);
 		Record mid=list.get(best);
@@ -227,6 +262,19 @@ public class TadpoleWrapper {
 		return best;
 	}
 	
+	/**
+	 * Performs bisection search to find optimal k-mer between tested values.
+	 * If expand mode is enabled, first expands boundaries. Then tests intermediate k-mer
+	 * values between the best k-mer and its neighbors. If better results are found,
+	 * recursively continues bisection search to refine the optimal k-mer.
+	 *
+	 * @param list List of assembly records for different k-mer values
+	 * @param best Index of current best assembly in the list
+	 * @param argList Command-line arguments template for Tadpole execution
+	 * @param contigsName Output filename template with % placeholder for k-mer value
+	 * @param recur Whether to recursively continue bisection if improvement found
+	 * @return Updated index of the best assembly after bisection
+	 */
 	static int bisect(ArrayList<Record> list, int best, ArrayList<String> argList, String contigsName, boolean recur){
 		
 		if(expand){
@@ -290,10 +338,26 @@ public class TadpoleWrapper {
 		return best;
 	}
 	
+	/**
+	 * Stores assembly statistics and quality metrics for a specific k-mer value.
+	 * Used to compare assemblies from different k-mer lengths and determine the optimal k-mer.
+	 * Implements Comparable to rank assemblies by quality using multiple metrics with tolerances.
+	 */
 	private static class Record implements Comparable<Record>{
 		
+		/** Default constructor for Record */
 		public Record(){}
 		
+		/**
+		 * Creates a Record with assembly statistics for a specific k-mer value.
+		 *
+		 * @param k_ K-mer length used for this assembly
+		 * @param L50_ L50 statistic (number of contigs containing 50% of assembly)
+		 * @param L90_ L90 statistic (number of contigs containing 90% of assembly)
+		 * @param contigLen_ Total length of all contigs in assembly
+		 * @param contigs_ Total number of contigs in assembly
+		 * @param maxContig_ Length of the longest contig in assembly
+		 */
 		public Record(int k_, long L50_, long L90_, long contigLen_, long contigs_, long maxContig_){
 			k=k_;
 			L50=L50_;
@@ -334,20 +398,36 @@ public class TadpoleWrapper {
 			return b.k-k;
 		}
 		
+		/** K-mer length used for this assembly */
 		int k;
+		/** L50 statistic - number of contigs containing 50% of total assembly length */
 		long L50;
+		/** L90 statistic - number of contigs containing 90% of total assembly length */
 		long L90;
+		/** Total length of all contigs in the assembly */
 		long contigLen;
+		/** Total number of contigs in the assembly */
 		long contigs;
+		/** Length of the longest contig in the assembly */
 		long maxContig;
 		
 	}
 	
+	/** Array of k-mer values to test for assembly optimization */
 	private static int[] kmers;
+	/** Whether to stop testing k-mers early when metrics stop improving */
 	private static boolean quitEarly=false;
+	/** Whether to delete intermediate assembly files after finding optimal k-mer */
 	private static boolean delete=false;
+	/**
+	 * Whether to expand search beyond initial k-mer range when best is at boundary
+	 */
 	private static boolean expand=false;
+	/**
+	 * Whether to perform bisection search to refine optimal k-mer between tested values
+	 */
 	private static boolean bisect=false;
+	/** Filename of the assembly produced with the optimal k-mer value */
 	private static String bestAssembly=null;
 	
 	/** Print status messages to this output stream */

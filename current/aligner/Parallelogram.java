@@ -9,8 +9,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * Utility for converting parallelogram-shaped text layouts to rectangular format.
+ * Reads text files where content is arranged in a parallelogram pattern and
+ * transforms coordinates to create rectangular output by shifting characters
+ * upward based on their column position.
+ *
+ * @author Brian Bushnell
+ */
 public class Parallelogram {
 	
+	/**
+	 * Program entry point for parallelogram to rectangle conversion.
+	 * Expects two command-line arguments: input file and output file paths.
+	 * @param args Command-line arguments [inputFile, outputFile]
+	 */
 	public static void main(String[] args) {
 		try {
 			convertParallelogramToRectangle(args[0], args[1]);

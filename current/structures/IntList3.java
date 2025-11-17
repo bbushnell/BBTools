@@ -168,6 +168,8 @@ public final class IntList3{
 		set(loc, set2, unique);
 	}
 	
+	/** Determines if the list is ready for use based on shrinking status and mode.
+	 * @return true if ready to use, false if shrinkToUnique needs to be called */
 	private boolean readyToUse(){
 		return shrunk || mode==ASCENDING || mode==UNIQUE;
 	}
@@ -255,6 +257,7 @@ public final class IntList3{
 	
 	/** Should be set prior to creation, e.g. by Seal or Sketch */
 	public static int defaultMode=ASCENDING;
+	/** Default initial capacity for new IntList3 instances */
 	public static int defaultInitialSize=256;
 	
 }

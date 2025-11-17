@@ -20,10 +20,15 @@ public class ZMW extends ArrayList<Read> {
 	 */
 	private static final long serialVersionUID = -2580124131008824113L;
 
+	/** Creates an empty ZMW container */
 	public ZMW(){super();}
 	
+	/** Creates a ZMW container with specified initial capacity
+	 * @param initialSize Expected number of reads from this ZMW */
 	public ZMW(int initialSize){super(initialSize);}
 
+	/** Counts total bases across all reads in this ZMW
+	 * @return Total number of bases in all reads */
 	public long countBases(){
 		long x=0;
 		for(Read r : this){
@@ -32,6 +37,12 @@ public class ZMW extends ArrayList<Read> {
 		return x;
 	}
 	
+	/**
+	 * Calculates median read length excluding first and last reads.
+	 * First and last reads are typically adapter/primer sequences.
+	 * @param includeDiscarded Whether to include discarded reads in calculation
+	 * @return Median length of interior reads, or -1 if fewer than 3 reads
+	 */
 	public int medianLength(boolean includeDiscarded){
 		if(size()<3){return -1;}
 		IntList lengths=new IntList(size()-2);
@@ -47,6 +58,11 @@ public class ZMW extends ArrayList<Read> {
 		return median;
 	}
 	
+	/**
+	 * Finds the length of the longest read in this ZMW
+	 * @param includeDiscarded Whether to consider discarded reads
+	 * @return Length of longest read, or 0 if no valid reads
+	 */
 	public int longestLength(boolean includeDiscarded){
 		int max=0;
 		for(Read r : this){
@@ -57,6 +73,12 @@ public class ZMW extends ArrayList<Read> {
 		return max;
 	}
 	
+	/**
+	 * Returns a read with median length from interior reads.
+	 * Falls back to longest read if median calculation fails.
+	 * @param includeDiscarded Whether to consider discarded reads
+	 * @return Read with median length, or null if no suitable read found
+	 */
 	public Read medianRead(boolean includeDiscarded){
 		int len=medianLength(includeDiscarded);
 		if(len<0){return longestRead(includeDiscarded);}
@@ -69,6 +91,11 @@ public class ZMW extends ArrayList<Read> {
 		return null;
 	}
 	
+	/**
+	 * Returns the longest read in this ZMW
+	 * @param includeDiscarded Whether to consider discarded reads
+	 * @return Longest read, or null if no valid reads
+	 */
 	public Read longestRead(boolean includeDiscarded){
 		Read max=null;
 		for(Read r : this){
@@ -77,15 +104,27 @@ public class ZMW extends ArrayList<Read> {
 		return max;
 	}
 	
+	/** Gets the PacBio-assigned ZMW ID, parsing from first read if needed
+	 * @return ZMW identifier from PacBio headers */
 	public int zid(){
 		if(zid==-1){parseZID();}
 		return zid;
 	}
 	
+	/** Extracts ZMW ID from the first read's header
+	 * @return Parsed ZMW ID, or -1 if no reads or parsing fails */
 	private int parseZID(){
 		return (size()<1 ? -1 : PBHeader.parseZMW(get(0).id));
 	}
 	
+	/**
+	 * Updates read header coordinates after trimming operations.
+	 * Modifies PacBio header format to reflect new start/stop positions
+	 * after left and right trimming. Also updates SAM optional fields.
+	 * @param r Read to modify
+	 * @param leftTrim Number of bases trimmed from left end
+	 * @param rightTrim Number of bases trimmed from right end
+	 */
 	public static void fixReadHeader(Read r, int leftTrim, int rightTrim){
 		leftTrim=Tools.max(0, leftTrim);
 		rightTrim=Tools.max(0, rightTrim);
@@ -133,12 +172,19 @@ public class ZMW extends ArrayList<Read> {
 		}
 	}
 	
+	/** Marks all reads in this ZMW as discarded or not discarded
+	 * @param b True to discard all reads, false to keep all reads */
 	public void setDiscarded(boolean b){
 		for(Read r : this){
 			r.setDiscarded(b);
 		}
 	}
 
+	/**
+	 * Returns array of read lengths in order
+	 * @return Array where each element is length of corresponding read,
+	 * or -1 for null reads
+	 */
 	public int[] lengths() {
 		final int size=size();
 		int[] array=new int[size];
@@ -149,6 +195,12 @@ public class ZMW extends ArrayList<Read> {
 		return array;
 	}
 	
+	/**
+	 * Estimates total number of sequencing passes through the DNA molecule.
+	 * Uses median read length as reference and calculates fractional passes
+	 * for first/last reads based on their relative lengths.
+	 * @return Estimated number of passes (interior reads + fractional ends)
+	 */
 	public float estimatePasses(){
 		final int size=size();
 		if(size<1){return 0;}
@@ -162,12 +214,21 @@ public class ZMW extends ArrayList<Read> {
 		return size-2+estimatePasses(first, median)+estimatePasses(last, median);
 	}
 	
+	/**
+	 * Estimates fractional passes for a read based on its length ratio
+	 * to median. Uses asymptotic formula to prevent overestimation.
+	 * @param len Length of read to estimate
+	 * @param median Reference median length
+	 * @return Fractional passes (0.0 to 0.99)
+	 */
 	private float estimatePasses(int len, int median){
 		float ratio=len/(float)median;
 		//TODO: I want this to be more asymptotic
 		return Tools.min(0.99f, ratio/(1+0.05f*ratio));
 	}
 
+	/** Checks if all reads in this ZMW are discarded
+	 * @return True if all reads are discarded, false if any read is kept */
 	public boolean discarded() {
 		for(Read r : this){
 			if(!r.discarded()){return false;}
@@ -186,7 +247,9 @@ public class ZMW extends ArrayList<Read> {
 	 */
 	private int zid=-1;
 
+	/** Returns first read in this ZMW (typically adapter/primer) */
 	public Read first(){return get(0);}
+	/** Returns last read in this ZMW (typically adapter/primer) */
 	public Read last(){return get(size()-1);}
 	
 }

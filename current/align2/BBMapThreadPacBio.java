@@ -23,7 +23,9 @@ import stream.SiteScore;
  */
 public final class BBMapThreadPacBio extends AbstractMapThread{
 	
+	/** Number of columns for alignment matrix, inherited from BBIndexPacBio */
 	static final int ALIGN_COLUMNS=BBIndexPacBio.ALIGN_COLUMNS;
+	/** Number of rows for alignment matrix, sized for long PacBio reads */
 	static final int ALIGN_ROWS=6020;
 	
 	
@@ -35,29 +37,49 @@ public final class BBMapThreadPacBio extends AbstractMapThread{
 	
 	/** Ratio of the points for a match of a single base needed to declare unambiguous */
 	public final float CLEARZONE_RATIOP=1.5f;
+	/** Primary clearzone ratio for distinguishing top alignments */
 	public final float CLEARZONE_RATIO1=2.2f;
+	/** Secondary clearzone ratio for high-quality alignment separation */
 	public final float CLEARZONE_RATIO1b=2.8f;
+	/** Tertiary clearzone ratio for medium-quality alignment separation */
 	public final float CLEARZONE_RATIO1c=4.8f;
+	/** Ambiguous base penalty clearzone ratio for final filtering */
 	public final float CLEARZONE_RATIO3=8f;
 	/** Max allowed number of sites within 1 edit (excluding primary site) */
 	public final int CLEARZONE_LIMIT1e=4;
 	//public final int CLEARZONE1e;
+	/** Clearzone threshold for perfect alignments, computed from ratio */
 	public final int CLEARZONEP;
+	/** Primary clearzone threshold for alignment disambiguation */
 	public final int CLEARZONE1;
+	/** Secondary clearzone threshold for high-quality alignments */
 	public final int CLEARZONE1b;
+	/** Tertiary clearzone threshold for medium-quality alignments */
 	public final int CLEARZONE1c;
 	//public final int CLEARZONE1e;
+	/** Ambiguous base penalty clearzone threshold */
 	public final int CLEARZONE3;
+	/** Inverse of CLEARZONE3 for efficient division operations */
 	public final float INV_CLEARZONE3;
+	/** Score fraction cutoff for applying CLEARZONE1b instead of CLEARZONE1 */
 	public final float CLEARZONE1b_CUTOFF=0.92f;
+	/** Score fraction cutoff for applying CLEARZONE1c instead of CLEARZONE1b */
 	public final float CLEARZONE1c_CUTOFF=0.82f;
 	
+	/** PacBio-specific index for k-mer lookup and alignment */
 	public final BBIndexPacBio index;
 	
 	
+	/** Minimum sites to retain when trimming single-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_SINGLE=3;
+	/** Minimum sites to retain when trimming paired-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_PAIRED=2;
 	
+	/**
+	 * Warning method for unsupported EXPECTED_SITES parameter.
+	 * This parameter is not valid for BBMapThreadPacBio implementation.
+	 * @param x The attempted expected sites value (ignored)
+	 */
 	public static void setExpectedSites(int x){
 		System.err.println("Warning: EXPECTED_SITES is not valid for "+(new Object() { }.getClass().getEnclosingClass().getName()));
 	}
@@ -73,6 +95,60 @@ public final class BBMapThreadPacBio extends AbstractMapThread{
 	@Override
 	final int CLEARZONE1(){return CLEARZONE1;}
 
+	/**
+	 * Constructs a BBMapThreadPacBio with comprehensive alignment parameters.
+	 * Initializes clearzone values based on scoring mode and creates PacBio index.
+	 *
+	 * @param cris_ Input read stream
+	 * @param keylen_ K-mer length for indexing
+	 * @param pileup_ Coverage tracking object
+	 * @param SMITH_WATERMAN_ Enable Smith-Waterman alignment
+	 * @param THRESH_ Minimum score threshold
+	 * @param minChrom_ Minimum chromosome to process
+	 * @param maxChrom_ Maximum chromosome to process
+	 * @param keyDensity_ Target k-mer density
+	 * @param maxKeyDensity_ Maximum k-mer density
+	 * @param minKeyDensity_ Minimum k-mer density
+	 * @param maxDesiredKeys_ Maximum keys per read
+	 * @param REMOVE_DUPLICATE_BEST_ALIGNMENTS_ Remove duplicate top alignments
+	 * @param SAVE_AMBIGUOUS_XY_ Save ambiguous XY coordinate info
+	 * @param MINIMUM_ALIGNMENT_SCORE_RATIO_ Minimum score ratio to keep
+	 * @param TRIM_LIST_ Enable site list trimming
+	 * @param MAKE_MATCH_STRING_ Generate alignment match strings
+	 * @param QUICK_MATCH_STRINGS_ Use fast match string generation
+	 * @param outStream_ Primary output stream
+	 * @param outStreamMapped_ Mapped reads output stream
+	 * @param outStreamUnmapped_ Unmapped reads output stream
+	 * @param outStreamBlack_ Blacklisted reads output stream
+	 * @param SLOW_ALIGN_PADDING_ Padding for slow alignment
+	 * @param SLOW_RESCUE_PADDING_ Padding for rescue alignment
+	 * @param DONT_OUTPUT_UNMAPPED_READS_ Suppress unmapped output
+	 * @param DONT_OUTPUT_BLACKLISTED_READS_ Suppress blacklisted output
+	 * @param MAX_SITESCORES_TO_PRINT_ Maximum sites to report
+	 * @param PRINT_SECONDARY_ALIGNMENTS_ Include secondary alignments
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS_ Enforce proper pair orientation
+	 * @param SAME_STRAND_PAIRS_ Allow same-strand pairs
+	 * @param KILL_BAD_PAIRS_ Remove incorrectly paired reads
+	 * @param RCOMP_MATE_ Reverse complement mate sequences
+	 * @param PERFECTMODE_ Only report perfect matches
+	 * @param SEMIPERFECTMODE_ Allow near-perfect matches
+	 * @param FORBID_SELF_MAPPING_ Prevent self-mapping
+	 * @param TIP_DELETION_SEARCH_RANGE_ Range for tip deletion search
+	 * @param AMBIGUOUS_RANDOM_ Random selection for ambiguous reads
+	 * @param AMBIGUOUS_ALL_ Report all ambiguous alignments
+	 * @param KFILTER_ K-mer frequency filter threshold
+	 * @param IDFILTER_ Identity filter threshold
+	 * @param TRIM_LEFT_ Enable left-end trimming
+	 * @param TRIM_RIGHT_ Enable right-end trimming
+	 * @param UNTRIM_ Disable all trimming
+	 * @param TRIM_QUAL_ Quality threshold for trimming
+	 * @param TRIM_MIN_LEN_ Minimum length after trimming
+	 * @param LOCAL_ALIGN_ Enable local alignment
+	 * @param RESCUE_ Enable mate rescue
+	 * @param STRICT_MAX_INDEL_ Strict indel length limits
+	 * @param MSA_TYPE_ Multiple sequence alignment type
+	 * @param bloomFilter_ Bloom filter for contamination detection
+	 */
 	public BBMapThreadPacBio(ConcurrentReadInputStream cris_, int keylen_,
 			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
 			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,

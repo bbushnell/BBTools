@@ -28,6 +28,8 @@ import tax.TaxTree;
  */
 public class SummarizeContamReport {
 	
+	/** Program entry point for contamination report summarization.
+	 * @param args Command-line arguments including input files and parameters */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -42,6 +44,11 @@ public class SummarizeContamReport {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a SummarizeContamReport instance and parses command-line arguments.
+	 * Initializes file formats, taxonomy tree, and processing parameters.
+	 * @param args Command-line arguments containing input files, output options, and filters
+	 */
 	public SummarizeContamReport(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -116,6 +123,11 @@ public class SummarizeContamReport {
 		if(tree!=null){tree.loadSizeFile(sizeFile);}
 	}
 	
+	/**
+	 * Main processing method that reads input files and generates summary output.
+	 * Processes each input file, aggregates contamination data, and prints results.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		for(FileFormat ff : ffinArray){
@@ -136,6 +148,11 @@ public class SummarizeContamReport {
 		}
 	}
 	
+	/**
+	 * Processes a single contamination report file.
+	 * Parses the file line by line, extracting taxonomy and count information.
+	 * @param ff FileFormat object representing the input file to process
+	 */
 	void processOneFile(FileFormat ff){
 
 		
@@ -170,6 +187,11 @@ public class SummarizeContamReport {
 		errorState|=tf.close();
 	}
 	
+	/**
+	 * Generates and writes the summarized contamination report output.
+	 * Sorts results by sequence units, applies filters, and enriches with taxonomy data.
+	 * Output includes taxonomy names, counts, tax IDs, and genome size information.
+	 */
 	private void printOutput(){
 		final TextStreamWriter tsw;
 		{
@@ -217,6 +239,11 @@ public class SummarizeContamReport {
 		errorState|=tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Parses a single line from a contamination report file.
+	 * Extracts taxonomy name and numeric values, aggregating counts in the global map.
+	 * @param line Input line containing pipe-separated contamination data
+	 */
 	private void processLine(String line){
 		String[] split=line.split("\\|");
 		String[] split2=split[1].split(";");
@@ -245,6 +272,8 @@ public class SummarizeContamReport {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Comparator for sorting StringLongLong objects primarily by field 'a' (sequence units).
+	 * Sorts in descending order by sequence units, then by reads, then alphabetically by name. */
 	class ComparatorA implements Comparator<StringLongLong> {
 
 		@Override
@@ -256,6 +285,8 @@ public class SummarizeContamReport {
 		
 	}
 	
+	/** Comparator for sorting StringLongLong objects primarily by field 'b' (read counts).
+	 * Sorts in descending order by reads, then by sequence units, then alphabetically by name. */
 	class ComparatorB implements Comparator<StringLongLong> {
 
 		@Override
@@ -267,54 +298,84 @@ public class SummarizeContamReport {
 		
 	}
 	
+	/** Container class holding a string name and two long values.
+	 * Used to store taxonomy names with associated sequence unit and read counts. */
 	class StringLongLong {
 		
+		/** Constructs a StringLongLong with only a string value.
+		 * @param s_ The string value to store */
 		StringLongLong(String s_){
 			s=s_;
 		}
 		
+		/**
+		 * Constructs a StringLongLong with string and two long values.
+		 * @param s_ The string value (typically taxonomy name)
+		 * @param a_ First long value (typically sequence units)
+		 * @param b_ Second long value (typically read count)
+		 */
 		StringLongLong(String s_, long a_, long b_){
 			s=s_;
 			a=a_;
 			b=b_;
 		}
 		
+		/** String value, typically containing taxonomy name */
 		final String s;
+		/** First numeric value, typically sequence units count */
 		long a;
+		/** Second numeric value, typically read count */
 		long b;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output file path for the summarized report */
 	private String out1=null;
+	/** Path to taxonomy tree file, defaults to "auto" */
 	private String treeFile="auto";
+	/** Path to genome size file, defaults to "auto" */
 	private String sizeFile="auto";
 	
+	/** Taxonomy tree for resolving taxonomic information */
 	TaxTree tree=null;
+	/** Map storing aggregated counts by taxonomy name */
 	private HashMap<String, StringLongLong> map=new HashMap<String, StringLongLong>();
 	
 	/*--------------------------------------------------------------*/
 
+	/** Minimum read count threshold for output filtering */
 	long minReads=0;
+	/** Minimum sequence units threshold for output filtering */
 	long minSeqUnits=0;
 	
+	/** Counter for total lines processed from input files */
 	long linesProcessed=0;
+	/** Counter for total characters processed from input files */
 	long charsProcessed=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Array of FileFormat objects for input files */
 	private final FileFormat ffinArray[];
+	/** FileFormat object for the primary output file */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Print stream for status messages and logging output */
 	private PrintStream outstream=System.err;
+	/** Flag controlling verbosity of status output */
 	public static boolean verbose=false;
+	/** Flag indicating if an error occurred during processing */
 	public boolean errorState=false;
+	/** Flag controlling whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Flag controlling whether to append to existing output files */
 	private boolean append=false;
 	
 }

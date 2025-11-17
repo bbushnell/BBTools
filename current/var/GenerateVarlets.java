@@ -26,8 +26,23 @@ import stream.SiteScore;
 import stream.SiteScoreR;
 import structures.ListNum;
 
+/**
+ * Generates sequence variation calls (varlets) from aligned reads.
+ * Processes read alignments to identify SNPs, insertions, deletions, and complex
+ * variations, outputting them in chromosome-specific files for variant calling pipelines.
+ * Supports both single-threaded and multi-threaded processing with configurable
+ * output buffering and variant condensation.
+ *
+ * @author Brian Bushnell
+ */
 public class GenerateVarlets {
 	
+	/**
+	 * Program entry point for command-line variant generation.
+	 * Parses arguments including input reads, output patterns, chromosome ranges,
+	 * and processing parameters before launching the variant calling pipeline.
+	 * @param args Command-line arguments including read files and parameters
+	 */
 	public static void main(String[] args){
 		
 		Data.GENOME_BUILD=-1;
@@ -92,11 +107,35 @@ public class GenerateVarlets {
 		gv.process();
 	}
 	
+	/**
+	 * Constructs a GenerateVarlets instance from file paths.
+	 * Creates input stream from specified files and initializes variant processing
+	 * for the given chromosome range.
+	 *
+	 * @param fname1 Path to first input file (required)
+	 * @param fname2 Path to second input file (may be null for single-end)
+	 * @param outname_ Output file pattern with '#' placeholder for chromosome
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 * @param maxReads Maximum reads to process (-1 for unlimited)
+	 * @param sitesfile_ Path to sites file for multi-alignment processing (may be null)
+	 */
 	public GenerateVarlets(String fname1, String fname2, String outname_, int minChrom, int maxChrom, long maxReads, String sitesfile_){
 		this(new RTextInputStream(fname1, fname2, maxReads), outname_, minChrom, maxChrom, maxReads, sitesfile_);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
 	
+	/**
+	 * Constructs a GenerateVarlets instance from an existing input stream.
+	 * Initializes output streams for each chromosome and sets up processing infrastructure.
+	 *
+	 * @param stream_ Pre-configured input stream for reading sequences
+	 * @param outname_ Output file pattern with '#' placeholder for chromosome
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 * @param maxReads Maximum reads to process (-1 for unlimited)
+	 * @param sitesfile_ Path to sites file for multi-alignment processing (may be null)
+	 */
 	public GenerateVarlets(RTextInputStream stream_, String outname_, int minChrom, int maxChrom, long maxReads, String sitesfile_){
 		sitesfile=sitesfile_;
 		stream=stream_;
@@ -115,6 +154,11 @@ public class GenerateVarlets {
 		if(CONDENSE_SNPS){assert(!SPLIT_SUBS);}
 	}
 	
+	/**
+	 * Closes all output streams and cleans up resources.
+	 * Flushes buffers, closes ZIP streams properly, and shuts down input streams.
+	 * Must be called after processing completes to ensure data integrity.
+	 */
 	public void finish(){
 		
 		for(int i=0; i<printArray.length; i++){
@@ -149,6 +193,11 @@ public class GenerateVarlets {
 		else{stream.close();}
 	}
 	
+	/**
+	 * Main processing method that coordinates variant calling from reads.
+	 * Loads sites file if specified, launches worker threads, collects results,
+	 * and reports comprehensive statistics on variants generated.
+	 */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -267,6 +316,11 @@ public class GenerateVarlets {
 	}
 	
 
+	/**
+	 * Writes a list of variants to the appropriate chromosome-specific output file.
+	 * Thread-safe method that synchronizes access to output streams.
+	 * @param list List of variants for a single chromosome
+	 */
 	private void writeList(ArrayList<Varlet> list){
 		
 		assert(list!=null && list.size()>0);
@@ -282,8 +336,15 @@ public class GenerateVarlets {
 	}
 	 
 	
+	/**
+	 * Worker thread that processes reads and generates variants.
+	 * Each thread maintains its own output buffers and statistics,
+	 * processing reads independently before merging results.
+	 */
 	private final class ProcessThread extends Thread {
 		
+		/** Initializes worker thread with output buffers for each chromosome.
+		 * Pre-allocates ArrayList buffers to reduce memory allocation overhead. */
 		public ProcessThread(){
 			for(int i=1; i<lists.length; i++){
 				lists[i]=new ArrayList<Varlet>(WRITE_BUFFER);
@@ -331,6 +392,12 @@ public class GenerateVarlets {
 			synchronized(this){this.notifyAll();}
 		}
 		
+		/**
+		 * Processes a list of reads for variant calling.
+		 * Handles both single-end and paired-end reads, with optional filtering
+		 * for unpaired reads based on TOSS_SOLO flags.
+		 * @param reads List of reads to process for variants
+		 */
 		private void processReads(ArrayList<Read> reads){
 
 			if(sitemap==null){
@@ -388,6 +455,12 @@ public class GenerateVarlets {
 			}
 		}
 		
+		/**
+		 * Processes a read with multiple alignment sites from sites file.
+		 * Iterates through all alignment positions for the read and generates
+		 * variants for each valid alignment.
+		 * @param r Read with multiple potential alignment positions
+		 */
 		private void multiprocessRead(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
@@ -431,6 +504,14 @@ public class GenerateVarlets {
 			return null;
 		}
 		
+		/**
+		 * Finds a matching SiteScore in a list based on SiteR.
+		 * Used for matching site references with read alignment data.
+		 *
+		 * @param sr Site reference to match
+		 * @param list List of site scores to search
+		 * @return Matching SiteScore or null if not found
+		 */
 		private SiteScore find(SiteR sr, ArrayList<SiteScore> list) {
 			for(SiteScore ss : list){
 				if(sr.equals(ss)){return ss;}
@@ -439,6 +520,12 @@ public class GenerateVarlets {
 		}
 		
 
+		/**
+		 * Core method that processes a single read to generate variants.
+		 * Handles alignment validation, match string generation, variant calling,
+		 * and filtering based on end distance and other quality criteria.
+		 * @param r Read to process for variant generation
+		 */
 		private void processRead(Read r){
 			
 			boolean flag=false;
@@ -564,6 +651,11 @@ public class GenerateVarlets {
 //			System.out.println(varsMade+", "+norefsMade);
 		}
 		
+		/**
+		 * Adds a variant to the appropriate chromosome buffer.
+		 * Manages buffer overflow by flushing to disk when buffer size exceeds threshold.
+		 * @param v Variant to add to output buffers
+		 */
 		private void addVar(Varlet v){
 			ArrayList<Varlet> list=lists[v.chromosome];
 			list.add(v);
@@ -580,6 +672,12 @@ public class GenerateVarlets {
 			}
 		}
 		
+		/**
+		 * Merges identical variants in a sorted list to reduce redundancy.
+		 * Combines variant counts and statistics for variants at the same position
+		 * with the same sequence changes.
+		 * @param vars Sorted list of variants to merge
+		 */
 		private void mergeEqualVarlets(ArrayList<Varlet> vars){
 
 			Shared.sort(vars);
@@ -604,7 +702,9 @@ public class GenerateVarlets {
 			Tools.condenseStrict(vars);
 		}
 
+		/** Returns whether this processing thread has completed execution */
 		protected boolean finished(){return finished;}
+		/** Signals this processing thread to terminate gracefully */
 		protected void terminate(){terminate=true;}
 		
 		private final TranslateColorspaceRead tcr=new TranslateColorspaceRead(PAC_BIO_MODE ?
@@ -625,34 +725,59 @@ public class GenerateVarlets {
 		
 	}
 
+	/** Output file name pattern with '#' placeholder for chromosome numbers */
 	public final String outname;
+	/** Path to sites file for multi-alignment processing (may be null) */
 	public final String sitesfile;
 //	private HashMap<Long, ArrayList<SiteScoreR>> sitemap=null;
+	/** Map from read numeric ID to alignment sites for multi-processing */
 	private HashMap<Long, SiteR> sitemap=null;
+	/** Input stream for reading sequence data */
 	private final RTextInputStream stream;
+	/** Concurrent input stream wrapper for multi-threaded processing */
 	private final ConcurrentLegacyReadInputStream cris;
+	/** Array of output streams indexed by chromosome number */
 	private final OutputStream[] outArray;
+	/** Array of print writers for formatted output, indexed by chromosome */
 	private final PrintWriter[] printArray;
 	
+	/**
+	 * Whether to use concurrent input stream for better multi-threading performance
+	 */
 	public static boolean USE_CRIS=true; //Similar speed either way.  "true" may be better with many threads.
 	
+	/** Number of processing threads to use for parallel variant calling */
 	public static int THREADS=5;
+	/**
+	 * Buffer size for output batching; larger values use more memory but reduce I/O
+	 */
 	public static int WRITE_BUFFER=20000; //Bigger number uses more memory, for less frequent writes.
 
+	/** Whether to condense adjacent variants into complex variations */
 	public static boolean CONDENSE=true;
+	/** Whether to condense adjacent SNPs into multi-nucleotide variants */
 	public static boolean CONDENSE_SNPS=true;
+	/** Whether to split complex substitutions into separate variant calls */
 	public static boolean SPLIT_SUBS=false;
 
+	/** Whether to exclude read 1 when its mate is unmapped */
 	public static boolean TOSS_SOLO1=false;
+	/** Whether to exclude read 2 when its mate is unmapped */
 	public static boolean TOSS_SOLO2=false;
 	
+	/** Whether to merge identical variants to reduce output redundancy */
 	public static boolean MERGE_EQUAL_VARLETS=false;
+	/** Whether to use PacBio-optimized alignment parameters for long reads */
 	public static boolean PAC_BIO_MODE=true;
+	/** Number of rows in alignment matrix for sequence alignment */
 	public static int ALIGN_ROWS=2020;
+	/** Number of columns in alignment matrix for sequence alignment */
 	public static int ALIGN_COLUMNS=3000;
 	
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	public static long MAX_READS=-1;
+	/** Minimum distance from read end required for variant calls */
 	public static final int MIN_END_DIST=4;
 	
 }

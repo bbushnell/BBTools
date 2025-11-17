@@ -32,6 +32,7 @@ public class GlocalPlusAligner4 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for creating aligner instances */
 	public GlocalPlusAligner4() {}
 	
 	/*--------------------------------------------------------------*/
@@ -150,6 +151,23 @@ public class GlocalPlusAligner4 implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}
 
+	/**
+	 * Extracts final alignment statistics from completed DP matrix.
+	 * Finds optimal score position and unpacks bit fields to calculate identity.
+	 * Solves system of equations to determine match/substitution/indel counts.
+	 *
+	 * System of equations solved:
+	 * 1. M + S + I = qLen
+	 * 2. M + S + D = refAlnLength
+	 * 3. Score = M - S - I - D
+	 *
+	 * @param prev Final DP row containing scores
+	 * @param qLen Query sequence length
+	 * @param bandStart Start of scoring band
+	 * @param bandEnd End of scoring band
+	 * @param posVector Output array for alignment positions [start, end]
+	 * @return Identity score calculated as M/(M+S+I+D)
+	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
 		long maxScore=Long.MIN_VALUE;
@@ -231,9 +249,14 @@ public class GlocalPlusAligner4 implements IDAligner{
 		return id;
 	}
 	
+	/** Thread-safe counter for total DP matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns total number of DP matrix cells processed across all alignments */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to specified value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Output file path for visualization data (null disables visualization) */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -241,26 +264,43 @@ public class GlocalPlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits used for encoding alignment start position (21 bits = 2MB limit)
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used for encoding deletion count in score field */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount to access score portion of packed long value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position bits from packed score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score portion from packed value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases (+1 in upper bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 in upper bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in upper bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in upper bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base matches (neutral, no penalty) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid/uninitialized DP matrix cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined score penalty and position increment for deletions */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag to print detailed alignment operation counts */
 	private static final boolean PRINT_OPS=false;
+	/** Mode flag: true for global alignment, false for local alignment */
 	public static boolean GLOBAL=false;
 
 }

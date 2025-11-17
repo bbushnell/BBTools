@@ -398,6 +398,12 @@ public class Shuffle2 {
 		
 	}
 	
+	/**
+	 * Blocks until outstanding memory usage drops below target threshold.
+	 * Used for memory pressure management during multi-threaded processing.
+	 * @param outstandingMem Atomic counter tracking memory in use by background threads
+	 * @param target Maximum memory threshold to wait for
+	 */
 	private void waitOnMemory(AtomicLong outstandingMem, long target){
 		if(outstandingMem.get()>target){
 			if(verbose){outstream.println("Syncing; outstandingMem="+outstandingMem);}
@@ -447,6 +453,14 @@ public class Shuffle2 {
 		return currentList;
 	}
 	
+	/**
+	 * Merges multiple sorted temporary files into output files.
+	 * Adjusts buffer sizes for efficiency and delegates to mergeAndDump.
+	 *
+	 * @param inList List of temporary file paths to merge
+	 * @param ff1 Primary output file format
+	 * @param ff2 Secondary output file format (may be null)
+	 */
 	public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2){
 		final int oldBuffers=Shared.numBuffers();
 		final int oldBufferLen=Shared.bufferLen();
@@ -461,6 +475,11 @@ public class Shuffle2 {
 		Shared.setBuffers(oldBuffers);
 	}
 	
+	/**
+	 * Creates a temporary file for storing sorted read batches.
+	 * Uses system temp directory and appropriate file extension.
+	 * @return Path to created temporary file
+	 */
 	private String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -476,6 +495,14 @@ public class Shuffle2 {
 		return temp;
 	}
 	
+	/**
+	 * Merges temporary files and writes to configured output files.
+	 * Performs recursive merge if file count or size exceeds limits.
+	 *
+	 * @param fnames List of temporary file paths to merge
+	 * @param useHeader Whether to preserve SAM/BAM headers
+	 * @return true if any errors occurred during merge
+	 */
 	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader) {
 		if(fnames.size()*maxLengthObserved>2000000000 || fnames.size()>64){
 			outstream.println("Performing recursive merge to reduce open files.");
@@ -484,6 +511,19 @@ public class Shuffle2 {
 		return mergeAndDump(fnames, /*dumpCount,*/ ffout1, ffout2, delete, useHeader, outstream);
 	}
 	
+	/**
+	 * Merges multiple sorted files using concurrent input containers.
+	 * Adjusts buffer sizes, creates output stream, and manages file cleanup.
+	 * Uses randomized selection from input files to maintain shuffled order.
+	 *
+	 * @param fnames List of input file paths to merge
+	 * @param ffout1 Primary output file format
+	 * @param ffout2 Secondary output file format (may be null)
+	 * @param delete Whether to delete temporary files after merge
+	 * @param useHeader Whether to preserve SAM/BAM headers
+	 * @param outstream Stream for progress messages
+	 * @return true if any errors occurred during merge
+	 */
 	public boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */FileFormat ffout1, FileFormat ffout2, boolean delete, boolean useHeader, PrintStream outstream) {
 		
 		final int oldBuffers=Shared.numBuffers();
@@ -598,6 +638,11 @@ public class Shuffle2 {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Background thread for writing shuffled reads to files.
+	 * Shuffles read collection and writes to output stream in batches
+	 * while managing memory usage tracking.
+	 */
 	private static class WriteThread extends Thread{
 		
 		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, String fname_, boolean useHeader_, PrintStream outstream_){
@@ -649,12 +694,19 @@ public class Shuffle2 {
 			}
 		}
 		
+		/** List of reads to be written by WriteThread */
 		final ArrayList<Read> storage;
+		/** Memory usage of the read storage */
 		final long currentMem;
+		/** Atomic counter tracking memory used by background threads */
 		final AtomicLong outstandingMem;
+		/** Output file path for WriteThread */
 		final String fname;
+		/** Whether WriteThread should preserve SAM/BAM headers */
 		final boolean useHeader;
+		/** Error state for WriteThread execution */
 		boolean errorState=false;
+		/** Output stream for WriteThread progress messages */
 		final PrintStream outstream;
 		
 	}
@@ -668,7 +720,9 @@ public class Shuffle2 {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary input quality file path */
 	private String qfin1=null;
+	/** Secondary input quality file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -676,6 +730,7 @@ public class Shuffle2 {
 	/** Secondary output file path */
 	private String out2=null;
 	
+	/** List of temporary file paths created during sorting */
 	private ArrayList<String> outTemp=new ArrayList<String>();
 	
 	/** Override input file extension */
@@ -683,10 +738,12 @@ public class Shuffle2 {
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** File extension used for temporary files during sorting */
 	private String tempExt=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum read length observed during processing for buffer sizing */
 	long maxLengthObserved=0;
 	
 	/** Number of reads processed */
@@ -697,21 +754,28 @@ public class Shuffle2 {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Whether to delete temporary files after merging */
 	private boolean delete=true;
 	
+	/** Whether to preserve shared headers in SAM/BAM files */
 	private boolean useSharedHeader=false;
 	
+	/** Whether temporary files are allowed when memory limits are exceeded */
 	private boolean allowTempFiles=true;
 	
+	/** Minimum read length to retain during processing */
 	private int minlen=0;
 	
+	/** Memory usage multiplier for determining when to spill to disk */
 	private float memMult=0.35f;
 	
 	/** Max files to merge per pass */
 	private int maxFiles=16;
 	
+	/** Random seed for deterministic shuffling; -1 for random */
 	private long seed=-1;
 	
+	/** Thread-local random number generator for shuffling operations */
 	static Random randy=Shared.threadLocalRandom();
 	
 	/*--------------------------------------------------------------*/

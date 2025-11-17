@@ -74,6 +74,11 @@ public class SketchMaker extends SketchObject {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Delegates to CompareSketch for per-file, per-sequence, or per-header modes.
+	 * Modifies arguments to replace "out=" with "outsketch=" and adds "sketchonly" flag.
+	 * @param args Original command-line arguments
+	 */
 	private static void recallCompareSketch(String[] args){
 		ArrayList<String> list=new ArrayList<String>(args.length+1);
 		for(int i=0; i<args.length; i++){
@@ -313,6 +318,16 @@ public class SketchMaker extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Creates an array of FileFormat objects for multiple output files.
+	 * Handles filename pattern substitution for numbered output files.
+	 *
+	 * @param fname0 Base filename pattern (may contain # for substitution)
+	 * @param files Number of output files to create
+	 * @param overwrite Whether to overwrite existing files
+	 * @param append Whether to append to existing files
+	 * @return Array of FileFormat objects, null if no files specified
+	 */
 	private static FileFormat[] makeFFArray(String fname0, int files, boolean overwrite, boolean append){
 		if(files<1 || fname0==null){return null;}
 		String[] fnames=new String[files];
@@ -344,6 +359,11 @@ public class SketchMaker extends SketchObject {
 //		return tsw;
 //	}
 	
+	/**
+	 * Creates and starts ByteStreamWriter threads for output FileFormats.
+	 * @param ff Array of FileFormat objects
+	 * @return Array of started ByteStreamWriter objects, null if input null/empty
+	 */
 	private static ByteStreamWriter[] makeTSWArray(FileFormat[] ff){
 		if(ff==null || ff.length==0){return null;}
 		ByteStreamWriter[] tsw=new ByteStreamWriter[ff.length];
@@ -359,6 +379,12 @@ public class SketchMaker extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 	//Makes a list of genome sizes (bases, not kmers) per taxa.
+	/**
+	 * Pre-scans input to create size list of genome bases per taxa.
+	 * Used for prefiltering in per-taxa mode to determine appropriate sketch sizes.
+	 * Parses taxonomic IDs from read headers and accumulates sequence lengths.
+	 * @return LongList mapping taxa IDs to total genome sizes in bases
+	 */
 	private LongList sizeList(){
 		Timer t=new Timer();
 		Shared.GC_BEFORE_PRINT_MEMORY=true;
@@ -438,6 +464,12 @@ public class SketchMaker extends SketchObject {
 	}
 	
 	//Makes a list of genome sizes (bases, not kmers) per img.
+	/**
+	 * Pre-scans input to create size map of genome bases per IMG ID.
+	 * Used for prefiltering in per-IMG mode to determine appropriate sketch sizes.
+	 * Parses IMG IDs from read headers and accumulates sequence lengths.
+	 * @return HashMap mapping IMG IDs to total genome sizes in bases
+	 */
 	private HashMap<Long, Long> sizeMap(){
 		Timer t=new Timer();
 		t.start("Making img prefilter.");
@@ -562,6 +594,11 @@ public class SketchMaker extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Multi-threaded processing for single sketch mode.
+	 * Uses SketchTool.processReadsMT for parallel k-mer processing
+	 * with automatic thread management and memory optimization.
+	 */
 	private void singleSketchMT(){
 		Timer t=new Timer();
 		Sketch sketch=tool.processReadsMT(ffin1, ffin2, Shared.threads(), 
@@ -719,6 +756,14 @@ public class SketchMaker extends SketchObject {
 	/*----------------          I/O Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes accumulated sketches from hash maps using parallel WriteThreads.
+	 * Distributes sketches across multiple output files based on hash codes
+	 * and applies size filtering before writing.
+	 *
+	 * @param maps Array of hash maps containing accumulated SketchHeaps
+	 * @return true if all write operations succeeded
+	 */
 	private boolean writeMap(HashMap<Long, SketchHeap>[] maps){
 		
 		//Determine how many threads may be used
@@ -773,8 +818,15 @@ public class SketchMaker extends SketchObject {
 		return success;
 	}
 	
+	/** Thread for writing sketches to output files in parallel.
+	 * Processes queued SketchHeaps, converts to Sketches, and writes using ByteStreamWriter. */
 	private class WriteThread extends Thread{
 		
+		/**
+		 * Constructor for WriteThread.
+		 * @param tnum_ Thread number for output file selection
+		 * @param queue_ Queue of SketchHeaps to process
+		 */
 		WriteThread(int tnum_, ArrayDeque<SketchHeap> queue_){
 			tnum=tnum_;
 			queue=queue_;
@@ -802,11 +854,16 @@ public class SketchMaker extends SketchObject {
 			queue=null;
 		}
 		
+		/** Queue of SketchHeaps waiting to be written */
 		ArrayDeque<SketchHeap> queue;
+		/** Thread number used for output file selection */
 		final int tnum;
+		/** Thread-local ByteBuilder for string construction */
 		private ByteBuilder bb=new ByteBuilder();
 //		long sketchesMadeT=0;
+		/** Number of sketches written by this thread */
 		long sketchesWrittenT=0;
+		/** Thread execution success status */
 		boolean success=false;
 	}
 	
@@ -826,6 +883,8 @@ public class SketchMaker extends SketchObject {
 	/*----------------          Tax Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Loads the GI to TaxID translation table for taxonomic mapping.
+	 * Initializes the GiToTaxid system with the configured table file. */
 	private void loadGiToTaxid(){
 		Timer t=new Timer();
 		outstream.println("Loading gi to taxa translation table.");
@@ -846,6 +905,11 @@ public class SketchMaker extends SketchObject {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Thread for processing reads and creating sketches.
+	 * Handles taxonomic parsing, sketch heap management, and mode-specific logic
+	 * for ONE_SKETCH, PER_TAXA, PER_SEQUENCE, and PER_IMG modes.
+	 */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
@@ -919,6 +983,14 @@ public class SketchMaker extends SketchObject {
 //			System.out.println(cntr1+", "+cntr2+", "+cntr3+", "+cntr4);
 		}
 		
+		/**
+		 * Processes a read pair for sketch creation.
+		 * Handles taxonomic ID parsing, sketch heap management, size filtering,
+		 * and mode-specific logic for different sketching strategies.
+		 *
+		 * @param r1 Primary read
+		 * @param r2 Mate read (may be null)
+		 */
 		void processReadPair(Read r1, Read r2){
 			
 			if(mode==PER_TAXA){
@@ -1091,6 +1163,8 @@ public class SketchMaker extends SketchObject {
 			}
 		}
 		
+		/** Manages sketch heap for per-sequence mode.
+		 * Immediately writes each sequence's sketch upon completion. */
 		private void manageHeap_perSequence(){
 			assert(mode==PER_SEQUENCE);
 			writeHeap(smm.heap);
@@ -1213,6 +1287,11 @@ public class SketchMaker extends SketchObject {
 			}
 		}
 		
+		/**
+		 * Transfers locally accumulated sketch heaps to global maps.
+		 * Handles heap merging, size-based completion detection, and
+		 * synchronized access to shared data structures.
+		 */
 		private void dumpLocalMap(){
 
 			for(Entry<Long, SketchHeap> e : localMap.entrySet()){
@@ -1263,6 +1342,14 @@ public class SketchMaker extends SketchObject {
 			localMap.clear();
 		}
 		
+		/**
+		 * Converts SketchHeap to Sketch and writes to output.
+		 * Applies size filtering, adds metadata, handles subunit parsing,
+		 * and coordinates thread-safe writing to output streams.
+		 *
+		 * @param heap SketchHeap to convert and write
+		 * @return true if sketch was written successfully
+		 */
 		private boolean writeHeap(SketchHeap heap){
 			sketchesMadeT++;
 //			assert(heap.size()>0) : heap.size(); //Not really necessary
@@ -1309,7 +1396,9 @@ public class SketchMaker extends SketchObject {
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
+		/** Number of sketches created by this thread */
 		long sketchesMadeT=0;
+		/** Number of sketches written by this thread */
 		long sketchesWrittenT=0;
 		
 		/** True only if this thread has completed successfully */
@@ -1319,9 +1408,12 @@ public class SketchMaker extends SketchObject {
 		private final ConcurrentReadInputStream cris;
 		/** Thread ID */
 		final int threadID;
+		/** Thread-local ByteBuilder for string operations */
 		private ByteBuilder bb=new ByteBuilder();
 		
+		/** SketchMakerMini instance for k-mer processing */
 		final SketchMakerMini smm;
+		/** Thread-local map of taxonomic IDs to sketch heaps */
 		final HashMap<Long, SketchHeap> localMap;
 	}
 	
@@ -1340,19 +1432,31 @@ public class SketchMaker extends SketchObject {
 	/** Override input file extension */
 	private String extin=null;
 	
+	/** Path to GI to TaxID mapping table file */
 	private String giTableFile=null;
+	/** Path to taxonomic tree file */
 	private String taxTreeFile=null;
+	/** Path to accession to TaxID mapping file */
 	private String accessionFile=null;
+	/** Path to IMG database file */
 	private String imgFile=null;
 	
 	/*Override metadata */
+	/** Override taxonomic name for output sketches */
 	String outTaxName=null;
+	/** Override file name for output sketches */
 	String outFname=null;
+	/** Override primary name for output sketches */
 	String outName0=null;
+	/** Override taxonomic ID for output sketches */
 	int outTaxID=-1;
+	/** Override species ID for output sketches */
 	long outSpid=-1;
+	/** Override IMG ID for output sketches */
 	long outImgID=-1;
+	/** Override metadata list for output sketches */
 	ArrayList<String> outMeta=null;
+	/** Whether to parse and add subunit metadata from sequence names */
 	static boolean parseSubunit=false;
 	
 	/*--------------------------------------------------------------*/
@@ -1371,10 +1475,14 @@ public class SketchMaker extends SketchObject {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Precomputed list of genome sizes per taxonomic ID */
 	final LongList sizeList;
+	/** Precomputed map of genome sizes per IMG ID */
 	final HashMap<Long, Long> sizeMap;
 
+	/** Array of hash maps for distributing sketch heaps across threads */
 	private HashMap<Long, SketchHeap> longMaps[];
+	/** Array of output stream writers for parallel writing */
 	private ByteStreamWriter tsw[];
 	
 	/*--------------------------------------------------------------*/
@@ -1391,8 +1499,10 @@ public class SketchMaker extends SketchObject {
 	/** Number of output files */
 	private final int files;
 	
+	/** Sketching mode (ONE_SKETCH, PER_TAXA, PER_SEQUENCE, etc.) */
 	final int mode;
 	
+	/** SketchTool instance for sketch creation and management */
 	private final SketchTool tool;
 	
 	/** Don't make sketches from sequences smaller than this */
@@ -1400,15 +1510,22 @@ public class SketchMaker extends SketchObject {
 	/** Don't make sketches from sequences smaller than this */
 	final int minSizeKmers;
 	
+	/** Taxonomic level for sketch grouping */
 	private int taxLevel=1;
+	/** Whether to use prefiltering based on genome sizes */
 	private boolean prefilter=false;
+	/** Whether to discard sequences with low-quality taxonomic assignments */
 	private boolean tossJunk=true;
+	/** Whether to use best-effort taxonomic parsing for ambiguous headers */
 	boolean bestEffort=true;
 //	private final HashMap<Integer, byte[]> ssuMap=null;
 	
+	/** Atomic counter for assigning IDs to unknown taxonomic sequences */
 	private final AtomicInteger nextUnknown=new AtomicInteger(minFakeID);
 
+	/** Number of hash map partitions for thread distribution */
 	private static final int MAP_WAYS=32;
+	/** Bit mask for hash map partition selection */
 	private static final int MAP_MASK=MAP_WAYS-1;
 	
 	

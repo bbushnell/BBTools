@@ -77,6 +77,12 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Protected constructor for subclasses.
+	 * Initializes file formats and determines if output should be ordered.
+	 * @param ff1_ Primary file format
+	 * @param ff2_ Secondary file format (may be null)
+	 */
 	ConcurrentReadOutputStream(FileFormat ff1_, FileFormat ff2_){
 		ff1=ff1_;
 		ff2=ff2_;
@@ -86,6 +92,7 @@ public abstract class ConcurrentReadOutputStream {
 	/** Must be called before writing to the stream */
 	public abstract void start();
 	
+	/** Returns whether the stream has been started */
 	public final boolean started(){return started;}
 	
 	/*--------------------------------------------------------------*/
@@ -99,17 +106,22 @@ public abstract class ConcurrentReadOutputStream {
 	 */
 	public abstract void add(ArrayList<Read> list, long listnum);
 	
+	/** Closes the output stream and releases resources */
 	public abstract void close();
 	
+	/** Waits for all writing threads to complete */
 	public abstract void join();
 	
+	/** Resets the next list ID counter for ordered output */
 	public abstract void resetNextListID();
 	
+	/** Returns the filename of the primary output file */
 	public abstract String fname();
 	
 	/** Return true if this stream has detected an error */
 	public abstract boolean errorState();
 
+	/** Returns true if the stream finished successfully without errors */
 	public abstract boolean finishedSuccessfully();
 	
 	/*--------------------------------------------------------------*/
@@ -120,6 +132,11 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Returns the total number of bases written across all output streams.
+	 * Sums bases from both primary and secondary ReadStreamWriters.
+	 * @return Total bases written
+	 */
 	public long basesWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -129,6 +146,11 @@ public abstract class ConcurrentReadOutputStream {
 		return x;
 	}
 	
+	/**
+	 * Returns the total number of reads written across all output streams.
+	 * Sums reads from both primary and secondary ReadStreamWriters.
+	 * @return Total reads written
+	 */
 	public long readsWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -138,7 +160,9 @@ public abstract class ConcurrentReadOutputStream {
 		return x;
 	}
 	
+	/** Returns the primary ReadStreamWriter */
 	public abstract ReadStreamWriter getRS1();
+	/** Returns the secondary ReadStreamWriter (may be null) */
 	public abstract ReadStreamWriter getRS2();
 	
 	/*--------------------------------------------------------------*/
@@ -146,16 +170,21 @@ public abstract class ConcurrentReadOutputStream {
 	/*--------------------------------------------------------------*/
 	
 	public final FileFormat ff1, ff2;
+	/** Whether output should maintain input order */
 	public final boolean ordered;
 	
+	/** Tracks whether an error has occurred in the stream */
 	boolean errorState=false;
+	/** Tracks whether the stream finished successfully */
 	boolean finishedSuccessfully=false;
+	/** Tracks whether the stream has been started */
 	boolean started=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Global flag for verbose output during stream operations */
 	public static boolean verbose=false;
 	
 }

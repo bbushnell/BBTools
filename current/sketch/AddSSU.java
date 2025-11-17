@@ -213,6 +213,12 @@ public class AddSSU {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that coordinates SSU addition to sketch files.
+	 * Loads SSU reference maps, processes input sketches, and outputs
+	 * modified sketches with SSU sequences added according to configuration.
+	 * @param t Timer for performance tracking
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -246,6 +252,11 @@ public class AddSSU {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given FileFormat.
+	 * @param ff FileFormat to create writer for, or null
+	 * @return Started ByteStreamWriter, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -320,6 +331,13 @@ public class AddSSU {
 //		}
 //	}
 	
+	/**
+	 * Core processing loop that reads sketch file line by line.
+	 * Parses sketch headers, accumulates SSU sequence lines, and processes
+	 * complete sketch headers before writing modified sketches to output.
+	 * @param bf Input ByteFile containing sketch data
+	 * @param bsw Output ByteStreamWriter for modified sketches
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		SSUMap.load(outstream);
 		
@@ -382,6 +400,13 @@ public class AddSSU {
 		}
 	}
 	
+	/**
+	 * Processes a single sketch header to add, replace, or remove SSU sequences.
+	 * Determines organism type (eukaryote/prokaryote) using taxonomy tree,
+	 * applies SSU mapping preferences, and modifies header SSU content
+	 * according to configuration flags.
+	 * @param header SketchHeader to process and modify
+	 */
 	void processHeader(SketchHeader header){
 		
 		if(verbose){System.err.println("Processing tid "+header.tid+":\n"+header.toBytes()+"\n");}
@@ -406,6 +431,13 @@ public class AddSSU {
 		if(clear18S || (clear18SEuks && euk) || (clear18SProks && prok)){header.r18S=null;}
 	}
 	
+	/**
+	 * Extracts taxonomic ID from a sketch header line.
+	 * Searches tab-separated fields for "ID:" or "TAXID:" prefixes
+	 * and returns the numeric identifier.
+	 * @param line Header line to parse
+	 * @return Taxonomic ID, or -1 if not found
+	 */
 	int parseTaxID(byte[] line){
 		String[] split=Tools.tabPattern.split(new String(line));
 		for(String s : split){
@@ -421,12 +453,25 @@ public class AddSSU {
 	/*--------------------------------------------------------------*/
 	
 	//A very limited parser
+	/**
+	 * Limited parser for sketch header information.
+	 * Maintains taxonomic ID, field list, and associated SSU sequences
+	 * for a single sketch entry during processing.
+	 */
 	private class SketchHeader {
 		
+		/** Constructs SketchHeader from byte array line.
+		 * @param line Header line starting with '#SZ:' */
 		SketchHeader(byte[] line){
 			this(new String(line, 1, line.length-1));
 		}
 		
+		/**
+		 * Constructs SketchHeader by parsing tab-separated fields.
+		 * Extracts taxonomic ID and builds field list while filtering
+		 * out existing SSU sequence references.
+		 * @param line Header line starting with 'SZ:'
+		 */
 		SketchHeader(String line){
 			if(line.charAt(0)=='#'){line=line.substring(1);}
 			assert(line.startsWith("SZ:"));
@@ -448,6 +493,12 @@ public class AddSSU {
 			tid=tid_;
 		}
 		
+		/**
+		 * Adds SSU sequence line to this header.
+		 * Parses 16S or 18S sequence data and stores the sequence bytes
+		 * after removing the type prefix.
+		 * @param line SSU sequence line starting with '#16S:' or '#18S:'
+		 */
 		void addLine(byte[] line){
 			assert(line[0]=='#');
 			assert(line[1]=='1' || line[1]=='S') : new String(line);
@@ -464,6 +515,12 @@ public class AddSSU {
 			}
 		}
 		
+		/**
+		 * Converts header back to byte representation for output.
+		 * Reconstructs the header line with all fields and SSU length indicators,
+		 * followed by the actual SSU sequence lines.
+		 * @return ByteBuilder containing complete header representation
+		 */
 		ByteBuilder toBytes(){
 			ByteBuilder bb=new ByteBuilder(1000);
 			bb.append('#');
@@ -479,9 +536,13 @@ public class AddSSU {
 			return bb;
 		}
 		
+		/** Taxonomic identifier for this sketch */
 		final int tid;
+		/** Header fields excluding SSU sequence information */
 		ArrayList<String> fields;
+		/** 16S rRNA sequence data */
 		byte[] r16S;
+		/** 18S rRNA sequence data */
 		byte[] r18S;
 	}
 	
@@ -489,60 +550,97 @@ public class AddSSU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input sketch file path */
 	private String in1=null;
+	/** Output sketch file path */
 	private String out1=null;
+	/** 16S rRNA reference file path */
 	private String r16SFile="auto";
+	/** 18S rRNA reference file path */
 	private String r18SFile="auto";
+	/** Taxonomic tree file path for organism classification */
 	private String treeFile="auto";
 
+	/** Prefer SSU sequences from reference map over existing sequences */
 	boolean preferSSUMap=false;
+	/** Prefer SSU map sequences specifically for eukaryotic organisms */
 	boolean preferSSUMapEuks=false;
+	/** Prefer SSU map sequences specifically for prokaryotic organisms */
 	boolean preferSSUMapProks=false;
+	/** Use only SSU sequences from reference map, ignoring existing sequences */
 	boolean useSSUMapOnly=false;
+	/** Use SSU map exclusively for eukaryotic organisms */
 	boolean useSSUMapOnlyEuks=false;
+	/** Use SSU map exclusively for prokaryotic organisms */
 	boolean useSSUMapOnlyProks=false;
+	/** Remove all 16S sequences from output */
 	boolean clear16S=false;
+	/** Remove all 18S sequences from output */
 	boolean clear18S=false;
+	/** Remove 16S sequences specifically from eukaryotic organisms */
 	boolean clear16SEuks=false;
+	/** Remove 18S sequences specifically from eukaryotic organisms */
 	boolean clear18SEuks=false;
+	/** Remove 16S sequences specifically from prokaryotic organisms */
 	boolean clear16SProks=false;
+	/** Remove 18S sequences specifically from prokaryotic organisms */
 	boolean clear18SProks=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of input lines processed */
 	private long linesProcessed=0;
+	/** Count of output lines written */
 	private long linesOut=0;
+	/** Total bytes read from input */
 	private long bytesProcessed=0;
+	/** Total bytes written to output */
 	private long bytesOut=0;
 	
+	/** Number of sketch entries processed */
 	private long sketchCount=0;
 	
+	/** Count of 16S sequences found in input */
 	private long r16Sin=0;
+	/** Count of 16S sequences written to output */
 	private long r16Sout=0;
+	/** Count of 16S sequences added from reference map */
 	private long r16SfromMap=0;
+	/** Count of 18S sequences found in input */
 	private long r18Sin=0;
+	/** Count of 18S sequences written to output */
 	private long r18Sout=0;
+	/** Count of 18S sequences added from reference map */
 	private long r18SfromMap=0;
 	
+	/** Maximum number of lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
+	/** Taxonomic tree for organism classification */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
+	/** Indicates whether processing encountered errors */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

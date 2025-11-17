@@ -18,6 +18,11 @@ import stream.SiteScoreR;
  */
 public class ProcessStackedSitesNormalized {
 	
+	/**
+	 * Program entry point. Parses command-line parameters and executes site processing.
+	 * Accepts input/output files and various filtering parameters.
+	 * @param args Command-line arguments including input file, output file, and parameters
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -109,6 +114,16 @@ public class ProcessStackedSitesNormalized {
 		buffer.close();
 	}
 	
+	/**
+	 * Processes alignment sites within a specific genomic interval.
+	 * Separates sites by strand, applies distance filtering from read ends,
+	 * and calculates normalized scores for qualifying sites.
+	 *
+	 * @param buffer Buffer containing stacked site data
+	 * @param chrom Chromosome identifier
+	 * @param start Start position of the interval
+	 * @param stop End position of the interval
+	 */
 	private static void processInterval(Buffer buffer, int chrom, int start, int stop){
 
 		ArrayList<SiteScoreR> plus=new ArrayList<SiteScoreR>();
@@ -184,6 +199,14 @@ public class ProcessStackedSitesNormalized {
 //		return retain;
 //	}
 	
+	/**
+	 * Marks alignment sites for retention based on scoring hierarchy.
+	 * Applies tiered retention fractions and assigns retention votes
+	 * with highest weight for best-scoring sites.
+	 *
+	 * @param list List of alignment sites to evaluate
+	 * @return Number of sites marked for retention
+	 */
 	private static final int markRetain(ArrayList<SiteScoreR> list){
 //		Shared.sort(list, SiteScoreR.NCOMP);
 //		assert(list.size()<2 || list.get(0).normalizedScore>=list.get(1).normalizedScore) : list.get(0)+"\t"+list.get(1);
@@ -230,6 +253,14 @@ public class ProcessStackedSitesNormalized {
 		return retain;
 	}
 	
+	/**
+	 * Parses a tab-delimited string into a SiteScoreR array wrapper.
+	 * Extracts alignment scores, determines genomic bounds, and tracks
+	 * best/worst scores across all sites in the line.
+	 *
+	 * @param s Tab-delimited string containing alignment site data
+	 * @return Ssra object containing parsed alignment sites and metadata
+	 */
 	public static Ssra toSrar(String s){
 		String[] split=s.split("\t");
 		SiteScoreR[] scores=new SiteScoreR[split.length];
@@ -260,6 +291,15 @@ public class ProcessStackedSitesNormalized {
 		return ssra;
 	}
 	
+	/**
+	 * Calculates normalized score for an alignment site.
+	 * Applies insertion/deletion bias correction and center-weighting
+	 * to prioritize sites near interval centers.
+	 *
+	 * @param ssr Alignment site to score
+	 * @param endDist Distance from interval center
+	 * @return Normalized score value
+	 */
 	public static float normalizedScore(SiteScoreR ssr, int endDist){
 		final float lim1=0.008f;
 		final float lim2=-lim1;
@@ -294,10 +334,22 @@ public class ProcessStackedSitesNormalized {
 		return best;
 	}
 	
+	/** Container for SiteScoreR array with genomic bounds and score statistics.
+	 * Tracks chromosome, position range, and best/worst scores for efficient processing. */
 	public static class Ssra{
 
 		public Ssra(){}
 		
+		/**
+		 * Constructs Ssra with alignment sites and precomputed metadata.
+		 *
+		 * @param array_ Array of alignment sites
+		 * @param chrom_ Chromosome identifier
+		 * @param min_ Minimum genomic position
+		 * @param max_ Maximum genomic position
+		 * @param best_ Highest alignment score
+		 * @param worst_ Lowest alignment score
+		 */
 		public Ssra(SiteScoreR[] array_, int chrom_, int min_, int max_, int best_, int worst_){
 			array=array_;
 			chrom=chrom_;
@@ -322,8 +374,21 @@ public class ProcessStackedSitesNormalized {
 		
 	}
 	
+	/**
+	 * Sliding window buffer for processing alignment site files.
+	 * Maintains array of Ssra objects for efficient interval-based processing
+	 * with automatic file I/O and genomic coordinate tracking.
+	 */
 	public static class Buffer{
 		
+		/**
+		 * Constructs buffer with specified size and file paths.
+		 * Initializes file readers/writers and fills initial buffer contents.
+		 *
+		 * @param size Number of Ssra objects to buffer simultaneously
+		 * @param infname_ Input file path
+		 * @param outfname_ Output file path
+		 */
 		public Buffer(int size, String infname_, String outfname_){
 			assert(!infname_.equalsIgnoreCase(outfname_)) : infname_+" == "+outfname_; //Not a complete test
 			array=new Ssra[size];
@@ -337,6 +402,11 @@ public class ProcessStackedSitesNormalized {
 			
 		}
 		
+		/**
+		 * Reads next line from input file and parses into Ssra object.
+		 * Updates global site count statistics.
+		 * @return Parsed Ssra object, or null if end of file reached
+		 */
 		public Ssra read(){
 			String s=tf.nextLine();
 			if(s==null){
@@ -348,6 +418,11 @@ public class ProcessStackedSitesNormalized {
 			return ssra;
 		}
 		
+		/**
+		 * Advances buffer by one position, adding next Ssra and writing oldest.
+		 * Maintains sliding window behavior for continuous processing.
+		 * @return true if advancement succeeded, false if no more data
+		 */
 		private boolean advance(){
 			if(nextSsra==null){return false;}
 			
@@ -388,6 +463,8 @@ public class ProcessStackedSitesNormalized {
 			return chrom==c && Tools.overlap(a, b, min, max);
 		}
 		
+		/** Writes all buffered Ssra objects to output and clears the buffer.
+		 * Used when switching chromosomes or finishing processing. */
 		private void purge() {
 			for(int i=0; i<array.length; i++){
 				Ssra ssra=array[i];
@@ -396,6 +473,11 @@ public class ProcessStackedSitesNormalized {
 			}
 		}
 		
+		/**
+		 * Writes Ssra object to output file after applying retention filtering.
+		 * Only outputs sites with sufficient retention votes, updating statistics.
+		 * @param ssra Ssra object containing sites to potentially write
+		 */
 		private void write(Ssra ssra) {
 			String tab="";
 			StringBuilder sb=new StringBuilder(ssra.array.length*48);
@@ -421,6 +503,12 @@ public class ProcessStackedSitesNormalized {
 			tsw.print(sb);
 		}
 
+		/**
+		 * Adds new Ssra to buffer using sliding window mechanism.
+		 * Maintains buffer size by returning oldest Ssra when buffer is full.
+		 * @param s New Ssra object to add to buffer
+		 * @return Oldest Ssra that was displaced, or null if buffer had space
+		 */
 		public Ssra add(Ssra s){
 			
 			assert(array[0]==null || array[0].chrom==s.chrom);
@@ -447,6 +535,8 @@ public class ProcessStackedSitesNormalized {
 			return r;
 		}
 		
+		/** Recalculates genomic bounds across all buffered Ssra objects.
+		 * Updates min, max, and chrom fields based on current buffer contents. */
 		private void setLimits(){
 			max=Integer.MIN_VALUE;
 			min=Integer.MAX_VALUE;
@@ -459,6 +549,8 @@ public class ProcessStackedSitesNormalized {
 			}
 		}
 		
+		/** Closes buffer and associated file streams.
+		 * Writes any remaining buffered data and properly terminates I/O. */
 		public void close(){
 			purge();
 			while(fill()){purge();}
@@ -466,36 +558,63 @@ public class ProcessStackedSitesNormalized {
 			tsw.poison();
 		}
 		
+		/** Maximum genomic position across all currently buffered Ssra objects */
 		public int max=-1;
+		/** Minimum genomic position across all currently buffered Ssra objects */
 		public int min=-1;
+		/** Current chromosome identifier for all buffered data */
 		public int chrom=-1;
 		
+		/**
+		 * Fixed-size array holding buffered Ssra objects for sliding window processing
+		 */
 		public final Ssra[] array;
+		/** Next Ssra object read from file, waiting to be added to buffer */
 		private Ssra nextSsra;
+		/** Input file path for reading alignment site data */
 		public final String infname;
+		/** Output file path for writing filtered alignment results */
 		public final String outfname;
+		/** Text file reader for input alignment data */
 		private TextFile tf;
+		/** Text stream writer for output filtered results */
 		private TextStreamWriter tsw;
 		
 	}
 	
+	/** Minimum read length required for a site to be considered for retention */
 	public static int MIN_LENGTH_TO_RETAIN=0;
+	/** If true, bypasses normal filtering and retains all qualifying sites */
 	public static boolean RETAIN_ALL=false;
 	
+	/** Total count of input alignment sites processed */
 	public static long sitesIn=0;
+	/** Count of correct input alignment sites (for accuracy tracking) */
 	public static long correctIn=0;
+	/** Total count of output alignment sites after filtering */
 	public static long sitesOut=0;
+	/** Count of correct output alignment sites (for accuracy tracking) */
 	public static long correctOut=0;
+	/** Primary fraction of sites to retain in first tier of filtering */
 	public static float FRACTION_TO_RETAIN1=0.75f;
+	/** Secondary fraction applied to excess sites beyond SITES_TO_RETAIN1 */
 	public static float FRACTION_TO_RETAIN2=0.3f;
+	/** Minimum number of lowest-scoring sites to always discard */
 	public static int MIN_SITES_TO_DISCARD=0;
+	/** Maximum sites retained at primary fraction before secondary filtering */
 	public static int SITES_TO_RETAIN1=8;
+	/** Absolute maximum number of sites to retain regardless of fractions */
 	public static int SITES_TO_RETAIN2=16;
+	/** Minimum retention votes required for a site to be written to output */
 	public static int MIN_VOTES_TO_RETAIN=5;
 //	public static int MIN_DIST_FROM_READ_ENDS=25;
+	/** Minimum distance from read ends as fraction of read length for inclusion */
 	public static float MIN_FRACTION_FROM_READ_ENDS=0.35f;
+	/** Score difference threshold as fraction of best score for retention cutoff */
 	public static float SCORE_THRESH=0.034f;
+	/** Weighting factor for prioritizing sites centered within intervals */
 	public static float CENTER_WEIGHT=0.015f;
+	/** Size of genomic intervals for processing alignment sites */
 	public static int INTERVAL=12;
 	
 }

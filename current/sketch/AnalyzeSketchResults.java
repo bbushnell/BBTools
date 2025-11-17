@@ -194,6 +194,14 @@ public class AnalyzeSketchResults {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing pipeline for sketch result analysis.
+	 * Handles shrink-only mode, processes input files through ResultLineParser,
+	 * generates accuracy statistics with SSU validation, creates ANI/AAI mappings,
+	 * and outputs formatted results with timing information.
+	 *
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		if(verbose){System.err.println("process()");}
 
@@ -247,6 +255,12 @@ public class AnalyzeSketchResults {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes input in shrink-only mode for data reduction.
+	 * Parses sketch results, sorts and filters records, then outputs
+	 * only the essential data without full analysis or statistics.
+	 * @param bf Input ByteFile containing sketch comparison results
+	 */
 	private void runShrinkOnly(ByteFile bf){
 		if(verbose){System.err.println("runShrinkOnly("+bf.name()+")");}
 		ResultLineParser parser=new ResultLineParser(mode, tree, null, null, true);
@@ -288,6 +302,15 @@ public class AnalyzeSketchResults {
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 	}
 	
+	/**
+	 * Core processing loop for reading and parsing sketch result lines.
+	 * Reads input file line by line, parses each result through ResultLineParser,
+	 * and populates the provided map with processed data.
+	 *
+	 * @param bf Input ByteFile to process
+	 * @param parser ResultLineParser for processing sketch result lines
+	 * @param map HashMap to store processed results (ANI or AAI mappings)
+	 */
 	private void processInner(ByteFile bf, ResultLineParser parser, HashMap<Long, Float> map){
 		if(verbose){System.err.println("processInner("+bf.name()+")");}
 		byte[] line=bf.nextLine();
@@ -306,6 +329,11 @@ public class AnalyzeSketchResults {
 		errorState|=bf.close();
 	}
 	
+	/**
+	 * Multi-threaded processing of RecordSet collection for SSU analysis.
+	 * Creates worker threads to process SSU rRNA data in parallel,
+	 * with each thread handling record sorting and SSU validation.
+	 */
 	private void processSetsThreaded(){
 		if(verbose){System.err.println("processSetsThreaded("+Shared.threads()+")");}
 		final int threads=Shared.threads();
@@ -319,6 +347,12 @@ public class AnalyzeSketchResults {
 		if(!success){errorState=true;}
 	}
 	
+	/**
+	 * Generates accuracy statistics across taxonomic levels.
+	 * Evaluates correctness of taxonomic assignments by comparing sketch results
+	 * with SSU rRNA validation, reporting correct, incorrect, and missing classifications.
+	 * @param bswAcc Output stream for accuracy results, or null for stdout
+	 */
 	private void printAccuracy(ByteStreamWriter bswAcc){
 		if(verbose){System.err.println("printAccuracy("+bswAcc+")");}
 		int[][] results=new int[taxLevels][16];
@@ -354,6 +388,12 @@ public class AnalyzeSketchResults {
 		}
 	}
 	
+	/**
+	 * Outputs ANI/AAI mapping results in tabular format.
+	 * Correlates query and reference IDs with their calculated ANI and AAI values
+	 * for comparative genomics analysis.
+	 * @param bsw Output stream for mapping results, or null for stdout
+	 */
 	private void printMap(ByteStreamWriter bsw){
 		if(verbose){System.err.println("printMap("+bsw+")");}
 		ByteBuilder bb=new ByteBuilder();
@@ -375,6 +415,14 @@ public class AnalyzeSketchResults {
 		}
 	}
 	
+	/**
+	 * Outputs aggregated statistics across taxonomic levels.
+	 * Reports average ANI and SSU values, standard deviations, and sample counts
+	 * for each taxonomic rank that meets minimum sample requirements.
+	 *
+	 * @param parser ResultLineParser containing accumulated statistics
+	 * @param bsw Output stream for results, or null for stdout
+	 */
 	private void printResults(ResultLineParser parser, ByteStreamWriter bsw){
 		if(verbose){System.err.println("printResults("+bsw+")");}
 		ByteBuilder bb=new ByteBuilder();
@@ -413,6 +461,14 @@ public class AnalyzeSketchResults {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified FileFormat.
+	 * Returns null if FileFormat is null, otherwise initializes and starts
+	 * the writer for output operations.
+	 *
+	 * @param ff FileFormat specification for output, may be null
+	 * @return Started ByteStreamWriter or null if no output specified
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(verbose){System.err.println("makeBSW("+ff+")");}
 		if(ff==null){return null;}
@@ -421,6 +477,14 @@ public class AnalyzeSketchResults {
 		return bsw;
 	}
 	
+	/**
+	 * Creates a bitmask for taxonomic levels to include in output.
+	 * Converts taxonomic level names to bit positions and combines
+	 * them into a single long value for efficient level filtering.
+	 *
+	 * @param printLevelsArray Array of taxonomic level names to include
+	 * @return Bitmask representing selected taxonomic levels
+	 */
 	private static long makePrintLevelsMask(String[] printLevelsArray){
 		long mask=0;
 		for(String s : printLevelsArray){
@@ -436,6 +500,8 @@ public class AnalyzeSketchResults {
 	
 	private class SSUThread extends Thread{
 		
+		/** Constructor for SSU processing worker thread.
+		 * @param atom_ Atomic counter for thread-safe work distribution */
 		SSUThread(AtomicInteger atom_){
 			atom=atom_;
 		}
@@ -449,6 +515,7 @@ public class AnalyzeSketchResults {
 			}
 		}
 		
+		/** Thread-safe counter for distributing work across SSU processing threads */
 		private final AtomicInteger atom;
 	}
 	
@@ -460,56 +527,97 @@ public class AnalyzeSketchResults {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary input file path for sketch comparison results */
 	private String in1=null;
+	/** Secondary input file path for additional sketch results (optional) */
 	private String in2=null;
+	/** Primary output file path for aggregated results */
 	private String out1="stdout.txt";
+	/** Output file path for ANI/AAI mapping results */
 	private String outMap=null;
+	/** Output file path for accuracy statistics and validation results */
 	private String outAccuracy=null;
+	/** Output file path for records failing validation or accuracy checks */
 	private String outBad=null;
+	/** Path to taxonomic tree file for classification validation */
 	private String treeFile=null;
 	
+	/** Output stream writer for records failing validation checks */
 	private ByteStreamWriter bswBad=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of input lines processed from sketch result files */
 	private long linesProcessed=0;
+	/** Count of lines written to output files */
 	private long linesOut=0;
+	/** Total bytes read from input files during processing */
 	private long bytesProcessed=0;
+	/** Total bytes written to output files */
 	private long bytesOut=0;
 	
+	/** Flag to enable shrink-only mode for data reduction without full analysis */
 	private boolean shrinkOnly=false;
 	
+	/**
+	 * Minimum number of samples required to report statistics for a taxonomic level
+	 */
 	int minSamples=1;
+	/**
+	 * Maximum number of input lines to process, used for limiting analysis scope
+	 */
 	private long maxLines=Long.MAX_VALUE;
 	
+	/** Number of taxonomic levels supported by the classification system */
 	final static int taxLevels=TaxTree.numTaxLevelNamesExtended;
 
+	/** Mapping of query-reference ID pairs to Average Nucleotide Identity values */
 	final HashMap<Long, Float> aniMap=new HashMap<Long, Float>();
+	/** Mapping of query-reference ID pairs to Average Amino acid Identity values */
 	final HashMap<Long, Float> aaiMap=new HashMap<Long, Float>();
 	
+	/**
+	 * Taxonomic tree structure for classification validation and hierarchy traversal
+	 */
 	final TaxTree tree;
+	/** Collection of RecordSet objects for accuracy validation and SSU analysis */
 	final ArrayList<RecordSet> recordSets;
 	
 //	static HashMap<Integer, byte[]> ssuMap;
 	
+	/** Array of taxonomic level names to include in output reports */
 	static final String[] printLevels=new String[] {"strain", "species", "genus", "family", "order", "class", "phylum", "superkingdom", "life"};
+	/** Bitmask for efficient filtering of taxonomic levels in output generation */
 	static final long printLevelsMask=makePrintLevelsMask(printLevels);
 	
 	/*--------------------------------------------------------------*/
 
+	/** Status code indicating no classification hit was found */
 	static int NOHIT=0;
+	/** Status code indicating correct taxonomic classification */
 	static int CORRECT=1;
+	/** Status flag for incorrect taxonomic assignment */
 	static int INCORRECT_TAX=2;
+	/** Status flag for incorrect SSU rRNA classification */
 	static int INCORRECT_SSU=4;
+	/** Status flag indicating missing SSU rRNA data for validation */
 	static int MISSING_SSU=8;
+	/** Composite status for incorrect taxonomy but correct SSU classification */
 	private static int INCORRECT_TAX_CORRECT_SSU=INCORRECT_TAX;
+	/** Composite status for incorrect taxonomy and incorrect SSU classification */
 	private static int INCORRECT_TAX_INCORRECT_SSU=INCORRECT_TAX|INCORRECT_SSU;
+	/** Composite status for incorrect taxonomy with missing SSU data */
 	private static int INCORRECT_TAX_MISSING_SSU=INCORRECT_TAX|MISSING_SSU;
 	
+	/** Analysis mode constant for BBSketch output format */
 	static final int BBSKETCH_MODE=0;
+	/** Analysis mode constant for Mash output format */
 	static final int MASH_MODE=1;
+	/** Analysis mode constant for Sourmash output format */
 	static final int SOURMASH_MODE=2;
+	/** Analysis mode constant for BLAST output format */
 	static final int BLAST_MODE=3;
+	/** Current analysis mode determining input format parsing strategy */
 	static int mode=BBSKETCH_MODE;
 	
 	
@@ -517,21 +625,32 @@ public class AnalyzeSketchResults {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** FileFormat specification for primary input file */
 	private final FileFormat ffin1;
+	/** FileFormat specification for secondary input file */
 	private final FileFormat ffin2;
+	/** FileFormat specification for primary output file */
 	private final FileFormat ffout1;
+	/** FileFormat specification for ANI/AAI mapping output file */
 	private final FileFormat ffoutMap;
+	/** FileFormat specification for accuracy statistics output file */
 	private final FileFormat ffoutAccuracy;
+	/** FileFormat specification for failed validation records output file */
 	private final FileFormat ffoutBad;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging information */
 	private PrintStream outstream=System.err;
+	/** Flag enabling detailed diagnostic output during processing */
 	public static boolean verbose=false;
+	/** Flag indicating whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Flag allowing existing output files to be overwritten */
 	private boolean overwrite=true;
+	/** Flag enabling append mode for output files instead of overwriting */
 	private boolean append=false;
 	
 }

@@ -22,6 +22,15 @@ import structures.ListNum;
  */
 public class ZMWStreamer implements Runnable {
 	
+	/**
+	 * Constructs a ZMWStreamer with file format and processing limits.
+	 * Creates either a ConcurrentReadInputStream or SamReadStreamer based on format.
+	 *
+	 * @param ff File format for input reads
+	 * @param queuelen_ Queue capacity (clamped between 4 and 64)
+	 * @param maxReads_ Maximum reads to process (-1 for unlimited)
+	 * @param maxZMWs_ Maximum ZMWs to process (-1 for unlimited)
+	 */
 	public ZMWStreamer(FileFormat ff, int queuelen_, long maxReads_, long maxZMWs_){
 		Data.USE_SAMBAMBA=false;//Sambamba changes PacBio headers.
 		queuelen=Tools.mid(4, queuelen_, 64);
@@ -49,6 +58,12 @@ public class ZMWStreamer implements Runnable {
 		queue=new ArrayBlockingQueue<ZMW>(queuelen);
 	}
 	
+	/**
+	 * Starts the streaming process either in a new thread or current thread.
+	 * @param makeThread If true, creates and starts a new thread; if false, runs
+	 * in current thread
+	 * @return New thread if makeThread is true, null otherwise
+	 */
 	public Thread runStreamer(boolean makeThread){
 		if(makeThread){
 			Thread t=new Thread(this);
@@ -69,6 +84,11 @@ public class ZMWStreamer implements Runnable {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ConcurrentReadInputStream for non-SAM formats.
+	 * @param ff File format specification
+	 * @return Started ConcurrentReadInputStream
+	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null, null, null);
 		cris.start(); //Start the stream
@@ -194,6 +214,8 @@ public class ZMWStreamer implements Runnable {
 		addPoison();
 	}
 	
+	/** Adds poison pill to queue to signal end of data to consumers.
+	 * Consumers receiving the POISON object know no more ZMWs are available. */
 	private void addPoison(){
 //		//Notify worker threads that there is no more data
 //		for(int i=0; i<threads; i++){
@@ -202,6 +224,11 @@ public class ZMWStreamer implements Runnable {
 		addToQueue(POISON);
 	}
 	
+	/**
+	 * Thread-safe method to add ZMW to the blocking queue.
+	 * Blocks until space is available in the queue.
+	 * @param buffer ZMW to add to queue (may be POISON pill)
+	 */
 	private void addToQueue(ZMW buffer){
 		if(verbose) {System.err.println("Adding to queue "+(buffer==POISON ? "poison" : buffer.get(0).id));}
 		while(buffer!=null) {
@@ -215,6 +242,14 @@ public class ZMWStreamer implements Runnable {
 		}
 	}
 	
+	/**
+	 * Retrieves the next ZMW from the queue for consumers.
+	 * Blocks until a ZMW is available. Returns null when POISON pill received,
+	 * indicating no more ZMWs are available. Re-adds POISON to queue for other
+	 * consumers.
+	 *
+	 * @return Next ZMW or null if stream is finished
+	 */
 	public ZMW nextZMW(){
 		ZMW buffer=null;
 		while(buffer==null) {
@@ -234,22 +269,39 @@ public class ZMWStreamer implements Runnable {
 		}
 	}
 	
+	/**
+	 * ConcurrentReadInputStream for non-SAM format input (mutually exclusive with ss)
+	 */
 	private final ConcurrentReadInputStream cris;
 	private final Streamer ss;
+	/** Maximum capacity of the blocking queue (clamped between 4 and 64) */
 	private final int queuelen;
+	/** Count of ZMWs processed so far */
 	public long ZMWs=0;
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private final long maxReads;
+	/** Maximum number of ZMWs to process (-1 for unlimited) */
 	private final long maxZMWs;
+	/** Indicates if an error occurred during stream processing */
 	public boolean errorState=false;
 	public boolean ordered=true;
 	
+	/**
+	 * Thread-safe blocking queue for passing ZMWs between producer and consumers
+	 */
 	private final ArrayBlockingQueue<ZMW> queue;
+	/** Sentinel object used to signal end of data stream to consumers */
 	private static final ZMW POISON=new ZMW(0);
+	/** Global flag for verbose debug output during ZMW processing */
 	public static boolean verbose=false;
 	
 	//Streamer seems to give more highly variable timings... sometimes.  And it's not really needed.
+	/**
+	 * Flag to prefer SamReadStreamer over ConcurrentReadInputStream for SAM/BAM files
+	 */
 	public static boolean useStreamer=false;
 	//Only 1 thread for now to force ordered input
+	/** Number of threads for SamReadStreamer (fixed at 1 to maintain read order) */
 	public static final int streamerThreads=-1;
 	
 }

@@ -22,6 +22,11 @@ import structures.ListNum;
  */
 public class Concatenate {
 
+	/**
+	 * Program entry point for file concatenation.
+	 * Creates a timer, instantiates Concatenate, processes files, and closes streams.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -36,6 +41,12 @@ public class Concatenate {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a Concatenate instance and parses command-line arguments.
+	 * Handles input file specification, output file configuration, and parser setup.
+	 * Supports multiple input files via 'in' parameter or direct file arguments.
+	 * @param args Command-line arguments including input/output file specifications
+	 */
 	public Concatenate(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -81,6 +92,12 @@ public class Concatenate {
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);
 	}
 	
+	/**
+	 * Main processing method that concatenates all input files to output.
+	 * Creates output stream writer, validates file names don't conflict,
+	 * and processes each input file sequentially.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 
 		final ByteStreamWriter bsw;
@@ -108,6 +125,14 @@ public class Concatenate {
 		}
 	}
 	
+	/**
+	 * Processes a single input file by reading all lines and writing to output stream.
+	 * Creates ByteFile from input filename, reads line batches, and tracks statistics.
+	 * Updates line and byte counters for performance reporting.
+	 *
+	 * @param fname Input filename to process
+	 * @param bsw ByteStreamWriter for output (may be null for stdout)
+	 */
 	void processInner(String fname, ByteStreamWriter bsw) {
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.TXT, null, true, true);
 		
@@ -129,19 +154,26 @@ public class Concatenate {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input filenames to concatenate */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output filename for concatenated result (default: stdout.txt) */
 	private String out1="stdout.txt";
 	
+	/** FileFormat object for output file format detection and handling */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Counter for total lines processed across all input files */
 	private long linesProcessed=0, bytesProcessed=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Print stream for status messages and error output (default: stderr) */
 	private java.io.PrintStream outstream=System.err;
+	/** Controls verbose output messages during processing */
 	public static boolean verbose=false;
 	
 }

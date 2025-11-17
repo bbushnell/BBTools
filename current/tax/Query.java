@@ -10,6 +10,12 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
+/**
+ * Provides HTTP-based query interface for taxonomic database lookups and identifier resolution.
+ * Handles communication with taxonomic servers to retrieve GI numbers and accession mappings.
+ * Supports performance testing and throughput measurement for database queries.
+ * @author Brian Bushnell
+ */
 public class Query {
 	
 	/** For testing throughput */
@@ -80,14 +86,32 @@ public class Query {
 //		}
 	}
 	
+	/**
+	 * Retrieves GI numbers for given taxonomic identifiers.
+	 * @param args Variable number of taxonomic identifiers to query
+	 * @return Array of GI numbers corresponding to the input identifiers
+	 */
 	public static int[] getGi(String...args){
 		return get("pt_gi", args);
 	}
 	
+	/**
+	 * Retrieves accession numbers for given taxonomic identifiers.
+	 * @param args Variable number of taxonomic identifiers to query
+	 * @return Array of accession numbers corresponding to the input identifiers
+	 */
 	public static int[] getAccession(String...args){
 		return get("pt_accession", args);
 	}
 	
+	/**
+	 * Generic method for retrieving taxonomic data of specified type.
+	 * Constructs query URL and parses comma-separated response into integer array.
+	 *
+	 * @param type Query type identifier (e.g., "pt_gi", "pt_accession")
+	 * @param args Variable number of taxonomic identifiers to query
+	 * @return Array of integers parsed from server response
+	 */
 	public static int[] get(String type, String...args){
 		String host=Shared.taxServer();
 		StringBuilder sb=new StringBuilder(host.length()+32);
@@ -109,6 +133,12 @@ public class Query {
 		return ret;
 	}
 	
+	/**
+	 * Executes HTTP request and returns response as string.
+	 * Reads input stream into dynamically expanding buffer and handles IOException.
+	 * @param x URL string for the HTTP request
+	 * @return Response content as string, or null if request fails
+	 */
 	public static String request(String x){
 		InputStream is=toStream(x);
 		if(is==null){return null;}
@@ -138,6 +168,12 @@ public class Query {
 		return null;
 	}
 	
+	/**
+	 * Converts URL string to InputStream for reading HTTP response.
+	 * Handles MalformedURLException and IOException with error printing.
+	 * @param x URL string to convert
+	 * @return InputStream for reading response, or null if URL is invalid or connection fails
+	 */
 	public static InputStream toStream(String x){
 		URL url=null;
 		

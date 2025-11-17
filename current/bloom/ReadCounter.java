@@ -32,6 +32,11 @@ import ukmer.Kmer;
  */
 public class ReadCounter extends KmerCountAbstract {
 	
+	/**
+	 * Program entry point for standalone k-mer counting operations.
+	 * Parses command-line arguments and executes k-mer counting on specified files.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -129,6 +134,11 @@ public class ReadCounter extends KmerCountAbstract {
 		assert(k>0);
 	}
 
+	/**
+	 * Prints detailed k-mer frequency distribution statistics.
+	 * Displays frequency histogram, unique k-mer counts, and useful statistics.
+	 * @param counts The KCountArray containing k-mer frequency data
+	 */
 	public void printStatistics(KCountArray counts){
 		long[] freq=counts.transformToFrequency();
 
@@ -168,6 +178,25 @@ public class ReadCounter extends KmerCountAbstract {
 		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
 	}
 	
+	/**
+	 * Creates a KCountArray from ArrayList inputs with comprehensive parameters.
+	 * Converts ArrayList inputs to standard format and delegates to makeKca.
+	 *
+	 * @param fname1 Primary input files as ArrayList
+	 * @param fname2 Secondary input files as ArrayList (for paired reads)
+	 * @param extraFiles Additional input files to process
+	 * @param cbits Bits per count cell in the array
+	 * @param cells Total number of cells in the count array
+	 * @param hashes Number of hash functions to use
+	 * @param minqual Minimum quality score for k-mer inclusion
+	 * @param maxreads Maximum number of reads to process
+	 * @param passes Number of processing passes for multi-pass counting
+	 * @param thresh1 Threshold for first pass filtering
+	 * @param thresh2 Threshold for final pass filtering
+	 * @param prefilter Optional prefilter for two-stage counting
+	 * @param prefilterLimit_ Prefilter threshold limit
+	 * @return Populated KCountArray with k-mer counts
+	 */
 	public KCountArray makeKca_als(ArrayList<String> fname1, ArrayList<String> fname2, Iterable<String> extraFiles,
 			int cbits, long cells, int hashes, int minqual,
 			long maxreads, int passes, int thresh1, int thresh2, 
@@ -196,12 +225,44 @@ public class ReadCounter extends KmerCountAbstract {
 				prefilter, prefilterLimit_);
 	}
 	
+	/**
+	 * Creates a KCountArray with default quality and read limits.
+	 *
+	 * @param fname1 Primary input file
+	 * @param fname2 Secondary input file (for paired reads)
+	 * @param extraFiles Additional input files to process
+	 * @param cbits Bits per count cell in the array
+	 * @param cells Total number of cells in the count array
+	 * @param hashes Number of hash functions to use
+	 * @param prefilter Optional prefilter for two-stage counting
+	 * @param prefilterLimit Prefilter threshold limit
+	 * @return Populated KCountArray with k-mer counts
+	 */
 	public KCountArray makeKca(String fname1, String fname2, Iterable<String> extraFiles,
 			int cbits, long cells, int hashes,
 			KCountArray prefilter, int prefilterLimit){
 		return makeKca(fname1, fname2, extraFiles, cbits, cells, hashes, 0, -1, 1, 1, 1, prefilter, prefilterLimit);
 	}
 	
+	/**
+	 * Creates a KCountArray by processing input files with specified parameters.
+	 * Handles comma-separated file lists, multi-pass counting, and trusted k-mer filtering.
+	 *
+	 * @param fname1 Primary input file
+	 * @param fname2 Secondary input file (for paired reads)
+	 * @param extraFiles Additional input files to process
+	 * @param cbits Bits per count cell in the array
+	 * @param cells Total number of cells in the count array
+	 * @param hashes Number of hash functions to use
+	 * @param minqual Minimum quality score for k-mer inclusion
+	 * @param maxreads Maximum number of reads to process (-1 for unlimited)
+	 * @param passes Number of processing passes (1 for single-pass, >1 for multi-pass)
+	 * @param thresh1 Threshold for early pass filtering
+	 * @param thresh2 Threshold for final pass filtering
+	 * @param prefilter Optional prefilter for two-stage counting
+	 * @param prefilterLimit_ Prefilter threshold limit
+	 * @return Populated KCountArray with k-mer counts
+	 */
 	public KCountArray makeKca(String fname1, String fname2, Iterable<String> extraFiles,
 			int cbits, long cells, int hashes, int minqual,
 			long maxreads, int passes, int thresh1, int thresh2,
@@ -343,6 +404,16 @@ public class ReadCounter extends KmerCountAbstract {
 		return kca;
 	}
 	
+	/**
+	 * Counts k-mers from input files using multithreaded processing.
+	 * Handles file format detection, paired read processing, and automatic pound-sign expansion.
+	 *
+	 * @param reads1 Primary input file path
+	 * @param reads2 Secondary input file path (null for single-end)
+	 * @param counts KCountArray to increment with k-mer counts
+	 * @return The updated KCountArray
+	 * @throws Exception If file I/O or processing errors occur
+	 */
 	public KCountArray count(String reads1, String reads2, KCountArray counts) throws Exception{
 //		System.err.println("countFastq...  making a new cris");
 		assert(counts!=null);
@@ -468,6 +539,15 @@ public class ReadCounter extends KmerCountAbstract {
 		return counts;
 	}
 	
+	/**
+	 * Finds overlap between paired reads for merging or error correction.
+	 * Uses either strict or very strict overlap detection algorithms.
+	 *
+	 * @param r1 First read of the pair
+	 * @param r2 Second read of the pair
+	 * @param ecc Whether this is for error correction (affects algorithm choice)
+	 * @return Overlap length in bases, or negative if no suitable overlap found
+	 */
 	private final int findOverlap(Read r1, Read r2, boolean ecc){
 		if(vstrict){
 			return BBMerge.findOverlapVStrict(r1, r2, ecc);
@@ -939,19 +1019,35 @@ public class ReadCounter extends KmerCountAbstract {
 		private final LongList buffer=(BUFFERED ? new LongList(BUFFERLEN) : null);
 	}
 	
+	/**
+	 * Number of bases to skip when detecting errors during trusted k-mer processing
+	 */
 	public int detectStepsize=1;//Jump this many bases when detecting errors
 	
+	/** K-mer length used for counting */
 	private final int k;
+	/** K-mer length minus 1, used for boundary calculations */
 	private final int k2;
+	/** Bit shift amount for amino acid encoding */
 	private final int aminoShift;
+	/** Total bit shift for k-mer encoding */
 	private final int shift;
+	/** Bit shift for reverse complement k-mer construction */
 	private final int shift2;
+	/** Bit mask for extracting k-mer bits from rolling hash */
 	private final long mask;
+	/** Whether to use reverse complement canonical k-mers */
 	private final boolean rcomp;
+	/** Whether error correction is enabled */
 	private final boolean ecco;
+	/** Whether to merge overlapping paired reads */
 	private final boolean merge;
+	/** Whether processing amino acid sequences instead of nucleotides */
 	private final boolean amino;
 	
+	/**
+	 * Whether to use very strict overlap detection instead of regular strict mode
+	 */
 	public static boolean vstrict=false;
 	
 }

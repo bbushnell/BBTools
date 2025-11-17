@@ -14,6 +14,11 @@ import stream.SiteScore;
  * Based on MSA9ts, with transform scores tweaked for PacBio. */
 public final class MSAViz implements Aligner, IDAligner {
 
+	/**
+	 * Test harness for alignment algorithm performance and accuracy validation.
+	 * Accepts sequence strings as arguments and performs iterative alignment testing.
+	 * @param args Command-line arguments: query sequence, reference sequence, output file, iterations
+	 */
 	public static void main(String[] args) {
 		byte[] a=Test.toSequence(args[0]);
 		byte[] b=Test.toSequence(args[1]);
@@ -35,6 +40,7 @@ public final class MSAViz implements Aligner, IDAligner {
 				+ "\tloops="+loops/iters+"\t"+String.format("%.2f%%", loops*100f/(iters*1f*a.length*b.length)));
 	}
 	
+	/** Output file path for alignment matrix visualization */
 	String output=null;
 
 	@Override
@@ -48,6 +54,18 @@ public final class MSAViz implements Aligner, IDAligner {
 	@Override
 	public float align(byte[] q, byte[] r, int[] posVector, int rStart, int rStop) {return align(q, r, posVector, rStart, rStop, 0);}
 	
+	/**
+	 * Main alignment method with full parameter control.
+	 * Performs optimal sequence swapping and matrix filling with score thresholding.
+	 *
+	 * @param q Query sequence
+	 * @param r Reference sequence
+	 * @param pos Position output array for alignment coordinates
+	 * @param from Reference start position
+	 * @param to Reference stop position
+	 * @param minScore Minimum score threshold for early termination
+	 * @return Alignment identity as fraction
+	 */
 	public float align(byte[] q, byte[] r, int[] pos, int from, int to, int minScore) {
 		if(q.length>r.length && pos==null) {byte[] s=q; q=r; r=s;}
 		assert(q.length<=r.length);
@@ -72,12 +90,21 @@ public final class MSAViz implements Aligner, IDAligner {
 	public long loops() {
 		return iterationsLimited+iterationsUnlimited;
 	}
+	/** Sets loop counter (not supported in this implementation).
+	 * @param x Loop count value (ignored) */
 	public void setLoops(long x) {};//Not supported
 	
 	
+	/** Default constructor initializing alignment matrices */
 	public MSAViz(){}
 	
 	
+	/**
+	 * Initializes dynamic programming matrices with gap penalties.
+	 * Expands matrix dimensions if needed and fills initial gap penalties.
+	 * @param rows_ Query sequence length
+	 * @param columns_ Reference sequence length
+	 */
 	private void initialize(int rows_, int columns_){
 		rows=rows_;
 		columns=columns_;
@@ -1139,6 +1166,12 @@ public final class MSAViz implements Aligner, IDAligner {
 	
 	
 
+	/**
+	 * Scores alignment without insertions or deletions using site information.
+	 * @param read Query sequence
+	 * @param ss Site score object containing alignment coordinates
+	 * @return Alignment score
+	 */
 	public final static int scoreNoIndels(byte[] read, SiteScore ss){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, ss.start, ss);
@@ -1149,6 +1182,14 @@ public final class MSAViz implements Aligner, IDAligner {
 		return scoreNoIndels(read, cha.array, refStart, null);
 	}
 	
+	/**
+	 * Scores alignment without indels using base quality scores.
+	 *
+	 * @param read Query sequence
+	 * @param ss Site score object
+	 * @param baseScores Quality scores for each base
+	 * @return Alignment score including quality bonuses
+	 */
 	public final static int scoreNoIndels(byte[] read, SiteScore ss, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, baseScores, ss.start, ss);
@@ -1441,14 +1482,29 @@ public final class MSAViz implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Calculates maximum possible alignment score for given sequence length.
+	 * @param numBases Sequence length
+	 * @return Maximum achievable score assuming perfect matches
+	 */
 	public static final int maxQuality(int numBases){
 		return POINTS_MATCH+(numBases-1)*(POINTS_MATCH2);
 	}
 	
+	/**
+	 * Calculates maximum score including base quality bonuses.
+	 * @param baseScores Quality score array
+	 * @return Maximum score with quality contributions
+	 */
 	public static final int maxQuality(byte[] baseScores){
 		return POINTS_MATCH+(baseScores.length-1)*(POINTS_MATCH2)+Tools.sumInt(baseScores);
 	}
 	
+	/**
+	 * Calculates maximum score for imperfect alignment with single indel.
+	 * @param numBases Sequence length
+	 * @return Maximum score allowing one insertion or deletion
+	 */
 	public static final int maxImperfectScore(int numBases){
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
@@ -1462,6 +1518,11 @@ public final class MSAViz implements Aligner, IDAligner {
 		return maxI;
 	}
 	
+	/**
+	 * Calculates maximum imperfect score with quality bonuses.
+	 * @param baseScores Quality score array
+	 * @return Maximum imperfect score including quality
+	 */
 	public static final int maxImperfectScore(byte[] baseScores){
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
@@ -1566,6 +1627,12 @@ public final class MSAViz implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
+	/**
+	 * Calculates deletion penalty for given deletion length.
+	 * Uses tiered penalty system with increasing costs.
+	 * @param len Deletion length
+	 * @return Total deletion penalty
+	 */
 	public static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL;
@@ -1584,6 +1651,11 @@ public final class MSAViz implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion penalty with score offset for matrix operations.
+	 * @param len Deletion length
+	 * @return Offset-adjusted deletion penalty
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -1602,6 +1674,11 @@ public final class MSAViz implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion penalty for given insertion length.
+	 * @param len Insertion length
+	 * @return Total insertion penalty
+	 */
 	public static int calcInsScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_INS;
@@ -1620,6 +1697,11 @@ public final class MSAViz implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion penalty with score offset for matrix operations.
+	 * @param len Insertion length
+	 * @return Offset-adjusted insertion penalty
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -1643,19 +1725,26 @@ public final class MSAViz implements Aligner, IDAligner {
 	public int columns(){return columns;}
 	
 	
+	/** Maximum allocated matrix rows */
 	public int maxRows;
+	/** Maximum allocated matrix columns */
 	public int maxColumns;
 
+	/** Three-dimensional packed scoring matrix [state][row][column] */
 	private int[][][] packed;
 
+	/** Vertical pruning limits for score-based optimization */
 	public int[] vertLimit;
+	/** Horizontal pruning limits for score-based optimization */
 	public int[] horizLimit;
 
+	/** Returns formatted string showing vertical pruning limits for debugging */
 	CharSequence showVertLimit(){
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<=rows; i++){sb.append(vertLimit[i]>>SCOREOFFSET).append(",");}
 		return sb;
 	}
+	/** Returns formatted string showing horizontal pruning limits for debugging */
 	CharSequence showHorizLimit(){
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<=columns; i++){sb.append(horizLimit[i]>>SCOREOFFSET).append(",");}
@@ -1703,24 +1792,37 @@ public final class MSAViz implements Aligner, IDAligner {
 //	public static final int POINTS_DEL4=-14;
 //	public static final int POINTS_DEL_REF_N=-10;
 	
+	/** Penalty for alignment to undefined reference base */
 	public static final int POINTS_NOREF=-6;
+	/** Penalty for alignment involving ambiguous query base */
 	public static final int POINTS_NOCALL=-6;
+	/** Score bonus for first match in streak */
 	public static final int POINTS_MATCH=45;
+	/** Score bonus for consecutive matches */
 	public static final int POINTS_MATCH2=50;
 	public static final int POINTS_COMPATIBLE=25;
+	/** Penalty for first substitution */
 	public static final int POINTS_SUB=-72;
+	/** Increased substitution penalty after short match streak */
 	public static final int POINTS_SUBR=-81; //increased penalty if prior match streak was at most 1
+	/** Penalty for substitutions in medium streaks */
 	public static final int POINTS_SUB2=-30;
+	/** Penalty for substitutions in long streaks */
 	public static final int POINTS_SUB3=-18;
 	public static final int POINTS_MATCHSUB=-5;
+	/** Penalty for first insertion */
 	public static final int POINTS_INS=-107;
+	/** Penalty for insertions in medium streaks */
 	public static final int POINTS_INS2=-27;
 	public static final int POINTS_INS3=-20;
 	public static final int POINTS_INS4=-9;
+	/** Penalty for first deletion */
 	public static final int POINTS_DEL=-129;
+	/** Penalty for deletions in medium streaks */
 	public static final int POINTS_DEL2=-18;
 	public static final int POINTS_DEL3=-13;
 	public static final int POINTS_DEL4=-7;
+	/** Reduced penalty for deletion of N reference bases */
 	public static final int POINTS_DEL_REF_N=-5;
 	
 	
@@ -1753,13 +1855,19 @@ public final class MSAViz implements Aligner, IDAligner {
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
+	/** Current matrix row dimension */
 	private int rows;
+	/** Current matrix column dimension */
 	private int columns;
 
+	/** Count of limited matrix iterations for performance tracking */
 	public long iterationsLimited=0;
+	/** Count of unlimited matrix iterations for performance tracking */
 	public long iterationsUnlimited=0;
 
+	/** Enable basic debugging output */
 	public boolean verbose=false;
+	/** Enable detailed debugging output including matrix contents */
 	public boolean verbose2=false;
 	
 }

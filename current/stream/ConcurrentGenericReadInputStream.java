@@ -13,8 +13,19 @@ import shared.Timer;
 import shared.Tools;
 import structures.ListNum;
 
+/**
+ * Concurrent input stream for reading sequence data from multiple sources.
+ * Manages dual input streams with separate threads for optimal I/O performance.
+ * Supports paired-end reads, sampling, and configurable buffering strategies.
+ * @author Brian Bushnell
+ */
 public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream {
 	
+	/**
+	 * Test program for demonstrating stream functionality.
+	 * Creates input streams from command-line arguments and processes all reads.
+	 * @param args Command-line arguments: input1 [input2] [options]
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -123,6 +134,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		System.out.println("Time:      \t"+t);
 	}
 	
+	/**
+	 * Creates a concurrent read input stream from one or two sources.
+	 * Initializes threading infrastructure and buffer queues for optimal performance.
+	 *
+	 * @param source1 Primary input stream (required)
+	 * @param source2 Secondary input stream for paired reads (may be null)
+	 * @param maxReadsToGenerate Maximum number of reads to process
+	 */
 	public ConcurrentGenericReadInputStream(ReadInputStream source1, ReadInputStream source2, long maxReadsToGenerate){
 		super((source1==null ? "null" : source1.fname())+","+(source2==null ? "null" : source2.fname()));
 		assert(source1!=source2);
@@ -186,6 +205,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 	}
 	
+	/**
+	 * Core streaming logic that coordinates producer threads and data flow.
+	 * Starts ReadThread instances for each input source and manages synchronization.
+	 * Processes reads in batches and handles shutdown sequencing.
+	 */
 	private void run0() {
 //		producer.start();
 		synchronized(running){
@@ -230,6 +254,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(verbose){System.err.println("crisG:    cris thread terminated. Final depot size: "+depot.full.size()+", "+depot.empty.size());}
 	}
 	
+	/** Adds poison pills to signal consumer threads to terminate.
+	 * Ensures all buffers receive termination signals during shutdown. */
 	private final void addPoison(){
 		//System.err.println("crisG:    Adding poison.");
 		//Add poison pills
@@ -308,6 +334,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //		}
 //	}
 	
+	/**
+	 * Main read processing loop that coordinates data from producer threads.
+	 * Manages buffer allocation, read pairing, and data flow control.
+	 * Handles sampling, quality filtering, and buffer size constraints.
+	 */
 	private final void readLists(){
 		ArrayList<Read> buffer1=null;
 		ArrayList<Read> buffer2=null;
@@ -498,6 +529,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(p2q!=null){p2q.clear();}
 	}
 	
+	/**
+	 * Pairs reads from dual input streams into mate relationships.
+	 * Sets mate pointers and pair numbers for proper paired-end handling.
+	 * Handles unequal buffer lengths when ALLOW_UNEQUAL_LENGTHS is enabled.
+	 *
+	 * @param buffer1 Reads from first input stream
+	 * @param buffer2 Reads from second input stream
+	 */
 	private final void pair(ArrayList<Read> buffer1, ArrayList<Read> buffer2){
 		final int len1=buffer1.size(), len2=buffer2.size();
 		assert(ALLOW_UNEQUAL_LENGTHS || len1==len2) : "\nThere appear to be different numbers of reads in the paired input files." +
@@ -534,6 +573,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 	}
 	
+	/**
+	 * Removes reads marked as discarded from input buffers.
+	 * Condenses arrays to maintain efficient memory usage.
+	 *
+	 * @param buffer1 Primary read buffer
+	 * @param buffer2 Secondary read buffer (may be null)
+	 * @return Number of reads removed
+	 */
 	private static final int removeDiscarded(ArrayList<Read> buffer1, ArrayList<Read> buffer2){
 		int removed=0;
 		if(buffer2==null){
@@ -654,7 +701,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	@Override
 	public boolean verbose(){return verbose;}
 	
+	/** Worker thread for reading data from a single input stream.
+	 * Operates independently to maximize I/O throughput and minimize blocking. */
 	private class ReadThread extends Thread{
+		/**
+		 * Creates a read thread for the specified input stream.
+		 * @param producer_ Input stream to read from
+		 * @param pq_ Output queue for processed read lists
+		 */
 		ReadThread(ReadInputStream producer_, ArrayBlockingQueue<ArrayList<Read>> pq_){
 			producer=producer_;
 			pq=pq_;
@@ -669,6 +723,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			}
 		}
 		
+		/**
+		 * Core reading loop that processes input stream data.
+		 * Reads lists of sequences and forwards them to the output queue.
+		 * Handles read count limits and graceful termination.
+		 */
 		private final void readLists(){
 			
 			ArrayList<Read> list=null;
@@ -764,11 +823,19 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 
 		}
 		
+		/** Output queue for this thread's processed read lists */
 		private final ArrayBlockingQueue<ArrayList<Read>> pq;
+		/** Input stream managed by this read thread */
 		private final ReadInputStream producer;
+		/** Number of reads generated by this specific thread */
 		private long generatedLocal=0;
 	}
 	
+	/**
+	 * Updates read generation counter and displays progress if enabled.
+	 * Tracks timing information for performance monitoring.
+	 * @param amt Number of reads to add to counter
+	 */
 	private void incrementGenerated(long amt){
 		generated+=amt;
 		if(SHOW_PROGRESS && generated>=nextProgress){
@@ -811,37 +878,56 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	/** TODO */
 	private boolean errorState=false;
 	
+	/** Flag indicating if shutdown has been initiated */
 	private boolean shutdown=false;
 	
+	/** Array tracking running state of threads (synchronized access) */
 	private boolean[] running=new boolean[] {false};
 	
+	/** Fraction of reads to keep during sampling (1.0 = all reads) */
 	private float samplerate=1f;
+	/** Random number generator for read sampling */
 	private java.util.Random randy=null;
 	
+	/** Queue for buffering read lists from first producer thread */
 	private ArrayBlockingQueue<ArrayList<Read>> p1q;
+	/** Queue for buffering read lists from second producer thread */
 	private ArrayBlockingQueue<ArrayList<Read>> p2q;
 	
 	
 	@Override
 	public Object[] producers(){return producer2==null ? new Object[] {producer1} : new Object[] {producer1, producer2};}
 
+	/** Array of all threads managed by this stream */
 	private Thread[] threads;
 	
+	/** Primary input stream for reading sequence data */
 	public final ReadInputStream producer1;
+	/** Secondary input stream for paired-end reads (may be null) */
 	public final ReadInputStream producer2;
+	/** Buffer management system for coordinating producer and consumer threads */
 	private ConcurrentDepot<Read> depot;
 	
+	/** Total number of bases processed from input streams */
 	private long basesIn=0;
+	/** Total number of reads processed from input streams */
 	private long readsIn=0;
 	
+	/** Maximum number of reads to process before stopping */
 	private long maxReads;
+	/** Number of reads generated and passed to consumer */
 	private long generated=0;
+	/** Sequential number assigned to each list returned to consumer */
 	private long listnum=0;
+	/** Read count threshold for next progress update */
 	private long nextProgress=PROGRESS_INCR;
+	/** Timestamp of last progress update in nanoseconds */
 	private long lastTime=System.nanoTime();
 	
+	/** Global flag enabling verbose debug output for all instances */
 	public static boolean verbose=false;
 	
+	/** Singleton poison pill used to signal thread termination */
 	private static final ArrayList<Read> poison=new ArrayList<Read>(0);
 	
 }

@@ -24,12 +24,25 @@ import structures.IntList3;
 import tax.TaxTree;
 import tracker.EntropyTracker;
 
+/**
+ * Core utility class for sketch-based sequence analysis and comparison.
+ * Provides parameter parsing, hashing algorithms, ANI calculations, and coordinate
+ * transformations for k-mer sketching operations. Supports multiple modes including
+ * DNA, amino acid, and translated sequence analysis with configurable k-mer lengths.
+ *
+ * @author Brian Bushnell
+ */
 public class SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Test harness for performance testing of ANI conversion methods.
+	 * Runs wkidToAniExact method 1 million times for benchmarking.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		for(int i=0; i<1000000; i++){
@@ -39,6 +52,16 @@ public class SketchObject {
 		System.out.println(t);
 	}
 	
+	/**
+	 * Parses sketch-specific command-line flags and parameters.
+	 * Handles k-mer settings, size parameters, hashing options, coding modes,
+	 * and various analysis flags for sketch generation and comparison.
+	 *
+	 * @param arg Original argument string for error reporting
+	 * @param a Parameter name (key)
+	 * @param b Parameter value
+	 * @return true if the parameter was recognized and processed
+	 */
 	public static boolean parseSketchFlags(String arg, String a, String b){
 		
 		if(parseCoding(arg, a, b)){
@@ -231,6 +254,15 @@ public class SketchObject {
 		return true;
 	}
 	
+	/**
+	 * Parses encoding-related parameters for sketch output format.
+	 * Supports delta encoding, hexadecimal, ASCII-48, and raw output modes.
+	 *
+	 * @param arg Original argument string for error reporting
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return true if the parameter was recognized and processed
+	 */
 	private static boolean parseCoding(String arg, String a, String b){
 		if(a.equalsIgnoreCase("deltaout") || a.equalsIgnoreCase("delta")){
 			deltaOut=Parse.parseBoolean(b);
@@ -252,6 +284,12 @@ public class SketchObject {
 		return true;
 	}
 	
+	/**
+	 * Parses command-line arguments to determine sketch generation mode.
+	 * Scans all arguments for mode-specific flags and returns the final mode.
+	 * @param args Command-line argument array
+	 * @return Mode constant (ONE_SKETCH, PER_SEQUENCE, PER_TAXA, etc.)
+	 */
 	static int parseMode(String[] args){
 		int mode=defaultParams.mode;
 		for(String arg : args){
@@ -264,6 +302,15 @@ public class SketchObject {
 		return mode;
 	}
 	
+	/**
+	 * Parses individual mode-related arguments.
+	 * Converts string mode names to integer constants.
+	 *
+	 * @param arg Original argument string for error reporting
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return Mode constant or -1 if not a mode parameter
+	 */
 	static int parseMode(String arg, String a, String b){
 		int mode_=-1;
 		if(a.equalsIgnoreCase("mode")){
@@ -303,6 +350,12 @@ public class SketchObject {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads and sets the taxonomic tree for sketch analysis.
+	 * Thread-safe method that initializes the global taxonomy reference.
+	 * @param taxTreeFile Path to taxonomy tree file, or null to clear
+	 * @param outstream Output stream for loading messages
+	 */
 	static synchronized void setTaxtree(String taxTreeFile, PrintStream outstream){
 		if(taxTreeFile==null){
 			taxtree=null;
@@ -316,6 +369,8 @@ public class SketchObject {
 		taxtree=TaxTree.loadTaxTree(taxTreeFile, outstream, hashNames, false);
 	}
 	
+	/** Resets static parameters to default values.
+	 * Clears postparse state and reinitializes configuration parameters. */
 	public static synchronized void reset(){
 		postparsed=false;
 		blacklist=null;
@@ -326,6 +381,11 @@ public class SketchObject {
 		sixframes=false;
 	}
 	
+	/**
+	 * Performs post-parsing initialization and validation.
+	 * Sets up hashing parameters, bit manipulation constants, gene calling,
+	 * and alignment thread pools based on parsed configuration.
+	 */
 	public static synchronized void postParse(){
 		if(postparsed){return;}
 		postparsed=true;
@@ -423,6 +483,11 @@ public class SketchObject {
 	/*----------------           Hashing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Regenerates hash code lookup tables with new seed value.
+	 * Updates both 2D and 1D code arrays with fresh random values.
+	 * @param hashSeed New seed for random number generation
+	 */
 	private static void remakeCodes(long hashSeed){
 		long[][] codes2=makeCodes(maxCycles, codeIncrement, hashSeed, false);
 		long[] codes1D2=makeCodes1D(codes2);
@@ -436,6 +501,17 @@ public class SketchObject {
 		}
 	}
 	
+	/**
+	 * Generates random hash code lookup tables for k-mer hashing.
+	 * Creates anti-aliased random values with balanced bit patterns
+	 * to minimize hash collisions and improve distribution quality.
+	 *
+	 * @param symbols Number of symbol types (cycles)
+	 * @param modes Number of modes per symbol (code increment)
+	 * @param seed Random seed for reproducible generation
+	 * @param positive If true, forces positive values only
+	 * @return 2D array of hash codes for lookup table
+	 */
 	public static long[][] makeCodes(int symbols, int modes, long seed, boolean positive){
 		Random randy=new Random(seed);
 		long mask=positive ? Long.MAX_VALUE : -1L;
@@ -451,12 +527,24 @@ public class SketchObject {
 		return r;
 	}
 	
+	/**
+	 * Applies anti-aliasing to 2D hash code matrix.
+	 * Ensures balanced bit patterns across all arrays in the matrix.
+	 * @param matrix 2D hash code array to process
+	 * @param randy Random number generator for modifications
+	 */
 	private static void antialias(long[][] matrix, Random randy){
 		for(long[] array : matrix){
 			antialias(array, randy);
 		}
 	}
 	
+	/**
+	 * Applies comprehensive anti-aliasing to hash code array.
+	 * Balances both individual numbers and bit positions across the array.
+	 * @param array Hash code array to process
+	 * @param randy Random number generator for modifications
+	 */
 	private static void antialias(long[] array, Random randy){
 		for(int i=0; i<64; i++){
 			antialiasNumbers(array, randy);
@@ -464,6 +552,14 @@ public class SketchObject {
 		}
 	}
 	
+	/**
+	 * Balances a specific bit position across all values in array.
+	 * Ensures roughly equal numbers of 0s and 1s at the given bit position.
+	 *
+	 * @param array Array to modify
+	 * @param randy Random number generator for selecting modification targets
+	 * @param bit Bit position to balance (0-63)
+	 */
 	private static void antialiasBit(long[] array, Random randy, int bit){
 		int half=array.length/2;
 		long ones=0;
@@ -490,12 +586,26 @@ public class SketchObject {
 		}
 	}
 	
+	/**
+	 * Applies anti-aliasing to individual numbers in the array.
+	 * Ensures each number has a balanced bit count.
+	 * @param array Array of numbers to process
+	 * @param randy Random number generator for modifications
+	 */
 	private static void antialiasNumbers(long[] array, Random randy){
 		for(int i=0; i<array.length; i++){
 			array[i]=antialiasNumber(array[i], randy);
 		}
 	}
 	
+	/**
+	 * Balances the bit count of an individual number.
+	 * Adjusts number to have between 31-33 bits set for better hash distribution.
+	 *
+	 * @param number Input number to balance
+	 * @param randy Random number generator for bit selection
+	 * @return Number with balanced bit count
+	 */
 	private static long antialiasNumber(long number, Random randy){
 		int ones=Long.bitCount(number);
 		while(Long.bitCount(number)<31){
@@ -517,6 +627,12 @@ public class SketchObject {
 //		return r;
 //	}
 	
+	/**
+	 * Converts 2D hash code matrix to 1D array for faster lookup.
+	 * Flattens the matrix in row-major order for linear access patterns.
+	 * @param codes2D 2D hash code matrix
+	 * @return 1D array containing all values from the matrix
+	 */
 	public static long[] makeCodes1D(long[][] codes2D){
 		final int len=codes2D.length*codes2D[0].length;
 		long[] codes1D=new long[len];
@@ -530,11 +646,28 @@ public class SketchObject {
 		return codes1D;
 	}
 	
+	/**
+	 * Generates hash code from single k-mer value.
+	 * Computes reverse complement if needed and delegates to hash(kmer, rkmer).
+	 * Note: Avoid using this method for performance-critical code.
+	 *
+	 * @param kmer K-mer to hash
+	 * @return Hash code
+	 */
 	public static final long hash(long kmer){//Avoid using this.
 		return rcomp ? hash(kmer, AminoAcid.reverseComplementBinaryFast(kmer,  k), rcomp) : 
 			hash(kmer, kmer, rcomp);
 	}
 	
+	/**
+	 * Primary hashing method for k-mer pairs.
+	 * Selects appropriate hash algorithm based on k2 configuration and
+	 * delegates to optimized hash1, hash2, or hash3 methods.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Hash code
+	 */
 	public static final long hash(long kmer, long rkmer){
 		assert(postparsed);
 		if(useToValue2){return hashToValue2(kmer, rkmer, rcomp);}
@@ -542,6 +675,15 @@ public class SketchObject {
 		return k2<1 ? hash1(key) : k2submask==0 ? hash2(key) : hash3(key);
 	}
 	
+	/**
+	 * Hashing method with explicit reverse complement control.
+	 * Allows override of global rcomp setting for specific hash operations.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param rcomp Whether to use reverse complement logic
+	 * @return Hash code
+	 */
 	public static final long hash(long kmer, long rkmer, boolean rcomp){
 		assert(postparsed);
 		if(useToValue2){return hashToValue2(kmer, rkmer, rcomp);}
@@ -694,11 +836,27 @@ public class SketchObject {
 	/*----------------      Convenience Methods     ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Performs sequence alignment between query and reference.
+	 * Uses SingleStateAligner for computing alignment identity.
+	 *
+	 * @param query Query sequence bases
+	 * @param ref Reference sequence bases
+	 * @return Alignment identity fraction
+	 */
 	public static final float align(byte[] query, byte[] ref){
 		IDAligner ssa=GeneCaller.getSSA();
 		return ssa.align(query, ref);
 	}
 	
+	/**
+	 * Aligns read to reference and populates alignment information.
+	 * Updates read object with match string, start/stop positions, and mapping status.
+	 *
+	 * @param r Read object to align and update
+	 * @param ref Reference sequence
+	 * @return Alignment identity fraction
+	 */
 	public static final float alignAndMakeMatch(Read r, byte[] ref){
 		byte[] query=r.bases;
 		SingleStateAlignerFlat2 ssa=GeneCaller.getSSA();
@@ -719,6 +877,15 @@ public class SketchObject {
 		return id;
 	}
 	
+	/**
+	 * Weighted alignment with position-specific scoring.
+	 * Uses float-based aligner with reference position weights for enhanced accuracy.
+	 *
+	 * @param r Read object to align and update
+	 * @param ref Reference sequence
+	 * @param refWeights Position-specific weights for reference bases
+	 * @return Weighted alignment identity fraction
+	 */
 	public static final float alignAndMakeMatch(Read r, byte[] ref, float[] refWeights/*, float[] insWeights, float[] delWeights*/){
 		byte[] query=r.bases;
 		SingleStateAlignerFlatFloat ssa=GeneCaller.getSSAF();
@@ -741,6 +908,12 @@ public class SketchObject {
 		return id;
 	}
 	
+	/**
+	 * Cleans and validates metadata strings.
+	 * Removes null entries and replaces tabs with spaces for proper formatting.
+	 * @param s Metadata string to clean
+	 * @return Cleaned string or null if invalid
+	 */
 	static String fixMeta(String s){
 		if(s==null){return null;}
 		int colon=s.indexOf(':');
@@ -749,6 +922,12 @@ public class SketchObject {
 		return s.replace('\t', ' ');
 	}
 	
+	/**
+	 * Processes metadata string list by cleaning and sorting.
+	 * Removes invalid entries, sorts remaining strings, and trims capacity.
+	 * @param list List of metadata strings to process
+	 * @return Cleaned and sorted list, or null if empty
+	 */
 	static ArrayList<String> fixMeta(ArrayList<String> list){
 		if(list==null || list.isEmpty()){return null;}
 		for(int i=0; i<list.size(); i++){
@@ -810,6 +989,15 @@ public class SketchObject {
 		return (float)aniEst;
 	}
 	
+	/**
+	 * Converts ANI to wkid using specified k-mer lengths.
+	 * Handles both useToValue2 and legacy algorithms for backward compatibility.
+	 *
+	 * @param ani Average nucleotide identity
+	 * @param A First k-mer length
+	 * @param B Second k-mer length
+	 * @return Weighted k-mer identity
+	 */
 	public static double aniToWkid(double ani, int A, int B){
 		if(A<B){int C=A; A=B; B=C;}//Swap
 		double aPow=Math.pow(ani, A);
@@ -826,6 +1014,14 @@ public class SketchObject {
 //                (1 + (1 - Math.pow(ANI, K2-K1))*Math.pow(ANI, K1))*Math.pow(ANI, K1));
 //	}
 	
+	/**
+	 * Single k-mer length ANI to wkid conversion.
+	 * Simple power function for single k-mer sketches.
+	 *
+	 * @param ani Average nucleotide identity
+	 * @param A K-mer length
+	 * @return Weighted k-mer identity
+	 */
 	public static double aniToWkid(double ani, int A){
 		return Math.pow(ani, A);
 	}
@@ -868,6 +1064,11 @@ public class SketchObject {
 //		Shared.sort(kmers);
 //	}
 	
+	/**
+	 * Converts hash value array to sketch format.
+	 * Transforms hashes to distance-based values and sorts for sketch representation.
+	 * @param keys Array of hash values to convert in-place
+	 */
 	public static void hashArrayToSketchArray(long[] keys){
 		for(int i=0; i<keys.length; i++){
 			long hash=keys[i];
@@ -878,6 +1079,14 @@ public class SketchObject {
 		Shared.sort(keys);
 	}
 	
+	/**
+	 * Estimates genome size from minimum hash value and sketch length.
+	 * Uses statistical relationship between hash distribution and sequence space.
+	 *
+	 * @param min Minimum hash value in sketch
+	 * @param length Number of hash values in sketch
+	 * @return Estimated genome size in bases
+	 */
 	public static final long genomeSizeEstimate(long min, int length) {
 		if(length==0){return 0;}
 		double est=((double)Long.MAX_VALUE)*2*length/(Tools.max(min, 1));
@@ -887,6 +1096,16 @@ public class SketchObject {
 		return (long)Math.ceil(est);
 	}
 	
+	/**
+	 * Determines optimal sketch size based on genome size metrics.
+	 * Prioritizes size estimate, then k-mer count, then base count for calculation.
+	 *
+	 * @param genomeSizeBases Genome size in bases
+	 * @param genomeSizeKmers Genome size in k-mers
+	 * @param genomeSizeEstimate Statistical size estimate
+	 * @param maxSketchSize Maximum allowed sketch size
+	 * @return Recommended sketch size
+	 */
 	public static final int toSketchSize(long genomeSizeBases, long genomeSizeKmers, long genomeSizeEstimate, int maxSketchSize){
 //		assert(false) : genomeSizeBases+", "+genomeSizeKmers+", "+genomeSizeEstimate+", "+maxSketchSize+", "+useSizeEstimate;
 		if(genomeSizeEstimate>0 && useSizeEstimate){
@@ -900,10 +1119,25 @@ public class SketchObject {
 		return toSketchSizeBases(genomeSizeBases, maxSketchSize);
 	}
 	
+	/**
+	 * Converts genome base count to sketch size recommendation.
+	 * @param genomeSizeBases Genome size in bases
+	 * @param maxSketchSize Maximum allowed sketch size
+	 * @return Recommended sketch size
+	 */
 	private static final int toSketchSizeBases(long genomeSizeBases, int maxSketchSize) {
 		return toSketchSizeKmers(Tools.max(0, genomeSizeBases-k+1), maxSketchSize);
 	}
 	
+	/**
+	 * Calculates sketch size from k-mer count using adaptive algorithms.
+	 * Supports autosize, linear density, and fixed fraction modes with different
+	 * formulas for amino acid vs nucleotide sequences.
+	 *
+	 * @param genomeSizeKmers Number of k-mers in genome
+	 * @param maxSketchSize Maximum allowed sketch size
+	 * @return Calculated optimal sketch size
+	 */
 	private static final int toSketchSizeKmers(long genomeSizeKmers, int maxSketchSize) {
 //		System.err.println(genomeSizeKmers+", "+maxSketchSize);
 //		new Exception().printStackTrace();
@@ -996,6 +1230,14 @@ public class SketchObject {
 //		return value;
 //	}
 	
+	/**
+	 * Legacy method for k-mer canonicalization.
+	 * Returns canonical k-mer value based on rcomp setting when not using toValue2.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Canonical k-mer value
+	 */
 	private static final long toValue(long kmer, long rkmer){
 //		assert(toValue2(kmer, rkmer)==toValue2(rkmer, kmer));
 		assert(!useToValue2);
@@ -1015,8 +1257,10 @@ public class SketchObject {
 	/** ASCII-48 6-bit encoding */
 	public static final int A48=2;
 	
+	/** Character codes corresponding to encoding types */
 	public static final char[] codingArray={'R', 'H', 'A'};
 	
+	/** Lookup table for hexadecimal character to byte conversion */
 	static final byte[] hexTable=new byte[128];
 	static {
 		Arrays.fill(hexTable, (byte)-1);
@@ -1029,6 +1273,11 @@ public class SketchObject {
 		hexTable['x']=hexTable['X']=hexTable['-']=hexTable['+']=0;
 	}
 
+	/** Mode constant for creating one sketch per input file */
+	/** Mode constant for creating one sketch per IMG genome */
+	/** Mode constant for creating one sketch per taxonomic group */
+	/** Mode constant for creating one sketch per sequence */
+	/** Mode constant for creating single combined sketch */
 	public static final int ONE_SKETCH=1, PER_SEQUENCE=2, PER_TAXA=3, PER_IMG=4/*, PER_HEADER=5*/, PER_FILE=6;
 	
 	/*--------------------------------------------------------------*/
@@ -1041,6 +1290,14 @@ public class SketchObject {
 //	public static ArrayList<String> REFSEQ_PATH(){return makePaths(REFSEQ_PATH, 31);}
 //	public static ArrayList<String> SILVA_PATH(){return makePaths(SILVA_PATH, 31);}
 	
+	/**
+	 * Generates file path list by expanding numbered pattern.
+	 * Replaces "#" placeholder with sequential numbers 0 through files-1.
+	 *
+	 * @param pattern Path pattern containing "#" placeholder
+	 * @param files Number of files to generate paths for
+	 * @return List of expanded file paths
+	 */
 	private static ArrayList<String> makePaths(String pattern, int files){
 		ArrayList<String> list=new ArrayList<String>(files);
 		for(int i=0; i<files; i++){
@@ -1080,50 +1337,99 @@ public class SketchObject {
 	private static final String MITO_PATH_AWS=null;
 	private static final String FUNGI_PATH_AWS=null;
 
+	/**
+	 * Returns IMG database sketch file path based on environment.
+	 * Selects appropriate path for IGBVM, AWS, or default NERSC environment.
+	 * @return IMG sketch database path
+	 */
 	public static final String IMG_PATH(){return Shared.IGBVM ? IMG_PATH_IGBVM : Shared.AWS ? IMG_PATH_AWS : IMG_PATH;}
+	/** Returns NCBI NT database sketch file path based on environment.
+	 * @return NT sketch database path */
 	public static final String NT_PATH(){return Shared.IGBVM ? NT_PATH_IGBVM : Shared.AWS ? NT_PATH_AWS : NT_PATH;}
+	/** Returns NCBI NR database sketch file path based on environment.
+	 * @return NR sketch database path */
 	public static final String NR_PATH(){return Shared.IGBVM ? NR_PATH_IGBVM : Shared.AWS ? NR_PATH_AWS : NR_PATH;}
+	/** Returns RefSeq database sketch file path based on environment.
+	 * @return RefSeq sketch database path */
 	public static final String REFSEQ_PATH(){return Shared.IGBVM ? REFSEQ_PATH_IGBVM : Shared.AWS ? REFSEQ_PATH_AWS : REFSEQ_PATH;}
+	/** Returns RefSeq large database sketch file path.
+	 * @return RefSeq big sketch database path */
 	public static final String REFSEQ_PATH_BIG(){return Shared.IGBVM ? REFSEQ_PATH_BIG_IGBVM : REFSEQ_PATH_BIG;}
+	/** Returns SILVA ribosomal database sketch file path based on environment.
+	 * @return SILVA sketch database path */
 	public static final String SILVA_PATH(){return Shared.IGBVM ? SILVA_PATH_IGBVM : Shared.AWS ? SILVA_PATH_AWS : SILVA_PATH;}
+	/** Returns prokaryotic protein database sketch file path based on environment.
+	 * @return Prokaryotic protein sketch database path */
 	public static final String PROKPROT_PATH(){return Shared.IGBVM ? PROKPROT_PATH_IGBVM : Shared.AWS ? PROKPROT_PATH_AWS : PROKPROT_PATH;}
+	/** Returns prokaryotic protein large database sketch file path.
+	 * @return Prokaryotic protein big sketch database path */
 	public static final String PROKPROT_PATH_BIG(){return Shared.IGBVM ? PROKPROT_PATH_BIG_IGBVM : PROKPROT_PATH_BIG;}
+	/** Returns mitochondrial database sketch file path based on environment.
+	 * @return Mitochondrial sketch database path */
 	public static final String MITO_PATH(){return Shared.IGBVM ? MITO_PATH_IGBVM : Shared.AWS ? MITO_PATH_AWS : MITO_PATH;}
+	/** Returns fungal database sketch file path based on environment.
+	 * @return Fungal sketch database path */
 	public static final String FUNGI_PATH(){return Shared.IGBVM ? FUNGI_PATH_IGBVM : Shared.AWS ? FUNGI_PATH_AWS : FUNGI_PATH;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns current whitelist usage setting.
+	 * @return true if whitelist filtering is enabled */
 	public static boolean useWhitelist() {return useWhitelist;}
+	/** Returns current blacklist file path setting.
+	 * @return blacklist file path or null if not set */
 	public static String blacklist() {return blacklist;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Current output encoding format (RAW, HEX, or A48) */
 	public static int CODING=A48;
+	/** Whether to use delta encoding for output compression */
 	public static boolean deltaOut=true;
+	/** Whether to use reverse complement canonical k-mers */
 	public static boolean rcomp=true;
 
+	/** Default k-mer length for DNA sequences */
 	public static final int defaultK=32;
+	/** Default secondary k-mer length for DNA sequences */
 	public static final int defaultK2=24;
+	/** Default k-mer length for amino acid sequences */
 	public static final int defaultKAmino=12;
+	/** Default secondary k-mer length for amino acid sequences */
 	public static final int defaultK2Amino=9;
+	/** Current primary k-mer length */
 	public static int k=defaultK;
+	/** Current secondary k-mer length (0 if not using dual k-mer) */
 	public static int k2=defaultK2;
+	/** K-mer length used for entropy calculations */
 	public static int entropyK=3;
+	/** Whether k-mer length has been explicitly set by user */
 	public static boolean setK=false;
+	/** Whether to process amino acid sequences directly */
 	public static boolean amino=false;
+	/** Whether to use 8-letter amino acid alphabet */
 	public static boolean amino8=false;
+	/** Whether to translate DNA sequences to amino acids */
 	public static boolean translate=false;
+	/** Whether to translate in all six reading frames */
 	public static boolean sixframes=false;
+	/** Whether to identify and process 16S/18S rRNA sequences */
 	public static boolean processSSU=true;
+	/** Minimum length for SSU rRNA sequence identification */
 	public static int min_SSU_len=1000;
+	/** Hash algorithm version number for compatibility */
 	public static int HASH_VERSION=2;
+	/** Path to prokaryotic gene model file for gene calling */
 	public static String pgmFile=null;
+	/** Loaded prokaryotic gene model for ORF prediction */
 	public static GeneModel pgm=null;
 	
+	/** Checks if amino acid or translation mode is active.
+	 * @return true if processing amino acids or translating sequences */
 	static boolean aminoOrTranslate(){return amino | translate;}
 	
 	private static int bitsPerCycle=8; //Optimal speed for K=31 is 9bpc (15% faster than 8). 9, 10, and 11 are similar.
@@ -1158,34 +1464,65 @@ public class SketchObject {
 	public static double sketchHeapFactor=8;
 //	static int minKeyOccuranceCount=1;
 	
+	/** Minimum allowable sketch size */
 	public static int minSketchSize=3;
+	/** Target sketch size when not using autosize */
 	public static int targetSketchSize=10000;
+	/** Whether to automatically determine sketch sizes based on genome size */
 	public static boolean AUTOSIZE=true;
+	/** Multiplier applied to autosize calculations */
 	public static float AUTOSIZE_FACTOR=1;
+	/** Whether autosize factor has been explicitly set */
 	public static boolean SET_AUTOSIZE_FACTOR=false;
+	/** Whether autosize mode has been explicitly set */
 	public static boolean SET_AUTOSIZE=false;
+	/** Whether target size has been explicitly set */
 	public static boolean SET_TARGET_SIZE=false;
+	/** Whether to use linear density for autosize calculations */
 	public static boolean AUTOSIZE_LINEAR=false;
+	/** Density value for linear autosize mode */
 	public static double AUTOSIZE_LINEAR_DENSITY=0.001;
+	/** Maximum fraction of genome k-mers to include in sketch */
 	public static float maxGenomeFraction=0.04f;//Was 0.015, but that is often too sparse
+	/** Maximum genome fraction for small genomes */
 	public static float maxGenomeFractionSmall=0.125f;
+	/** Base sketch size for small genomes in autosize mode */
 	public static int smallSketchSize=150;
+	/** Whether to create searchable indices for sketches */
 	public static boolean makeIndex=true;
+	/** Preallocation factor for data structures (0=disabled, 1=full prealloc) */
 	public static float prealloc=0;
+	/** Whether to perform all-vs-all comparisons */
 	public static boolean allToAll=false;
+	/** Whether to compare sketches against themselves */
 	public static boolean compareSelf=false;
+	/** Whether to skip comparison phase entirely */
 	public static boolean skipCompare=false;
+	/** Number of bits per entry in bitset data structures */
 	public static final int bitSetBits=2; //Needs to be 2 for unique counts.
 
 	private static double keyFraction=0.16;
 	private static double keyFraction2=keyFraction*1.2;
+	/** Minimum hash value threshold for sketch inclusion */
 	public static long minHashValue=setMinHashValue();
+	/** Returns current key fraction setting for sketch sampling.
+	 * @return fraction of k-mers to retain in sketches */
 	public static double keyFraction(){return keyFraction;}
+	/**
+	 * Sets key fraction for sketch sampling with bounds checking.
+	 * Updates both primary and secondary fraction values.
+	 * @param d New key fraction (clamped to 0.0001-0.5 range)
+	 */
 	public static void setKeyFraction(double d){
 		assert(d>0);
 		keyFraction=Tools.mid(0.0001, d, 0.5);
 		keyFraction2=Tools.mid(0.0001, keyFraction*1.2, 0.5);
 	}
+	/**
+	 * Calculates and sets minimum hash value threshold based on key fraction.
+	 * Used to determine which hash values are retained in sketches.
+	 * @return Calculated minimum hash value threshold
+	 */
 	public static long setMinHashValue(){
 		double mult=1-2*keyFraction;
 		minHashValue=(long)(mult*Long.MAX_VALUE);
@@ -1193,10 +1530,12 @@ public class SketchObject {
 		return minHashValue;
 	}
 	
+	/** Starting value for synthetic taxonomic IDs */
 	public static int minFakeID=1900000000;
 	static boolean hashNames=false;
 	static boolean skipNonCanonical=true;
 	static boolean useSizeEstimate=true;
+	/** Whether to allow multithreaded FASTQ processing */
 	public static boolean allowMultithreadedFastq=false;
 	static boolean forceDisableMultithreadedFastq=false;
 	
@@ -1207,24 +1546,33 @@ public class SketchObject {
 	static boolean ban18SForProks=true;
 	static boolean ban16SForEuks=true;
 	
+	/** Random seed for sampling operations (-1 for random) */
 	public static long sampleseed=-1L;
 	
+	/** Global taxonomic tree for species identification */
 	public static TaxTree taxtree=null;
 	private static String treefile=null;
 	static String blacklist=null;
 	static boolean useWhitelist=false;
 	private static boolean postparsed=false;
+	/** Whether it's safe to terminate processing early */
 	public static boolean KILL_OK=false;
+	/** Whether to use exact ANI calculations instead of approximations */
 	public static boolean EXACT_ANI=true;
+	/** Whether to use SingleStateAligner for alignments */
 	public static boolean useSSA=true;
+	/** Whether to use SingleStateAligner version 3 */
 	public static boolean useSSA3=false;
 	
 	//Needs to be last due to dependencies.
+	/** Default display and output parameters for sketch operations */
 	public static DisplayParams defaultParams=new DisplayParams();
 	
 	static AlignmentThreadPool alignerPool=null;
 	
+	/** Extended verbosity flag for detailed debugging output */
 	public static boolean verbose2=false;
+	/** Whether to use version 2 of the sketch file loader */
 	public static boolean LOADER2=true;
 	
 }

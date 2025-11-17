@@ -221,6 +221,16 @@ public class Foo6 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core file processing logic that reads lines and extracts file metadata.
+	 * Parses each line to extract file size and access time information,
+	 * performs statistical analysis including percentile calculations,
+	 * and outputs summary statistics about file access patterns.
+	 *
+	 * @param bf Input ByteFile for reading data
+	 * @param bsw Output ByteStreamWriter for valid data (currently unused)
+	 * @param bswInvalid Output ByteStreamWriter for invalid data (currently unused)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		
 		Timer t=new Timer();
@@ -287,8 +297,19 @@ public class Foo6 {
 		t.start();
 	}
 
+	/** Pipe character used as field delimiter in input files */
 	static final byte delimiter=(byte)'|';
 	
+	/**
+	 * Processes a single line of delimited file metadata.
+	 * Parses pipe-delimited fields to extract file size and access time,
+	 * filters lines based on file type (must contain 'F' in 7th field),
+	 * and adds combined time/size data to the processing list.
+	 *
+	 * @param line Raw byte array representing one line of input
+	 * @param list LongList for accumulating processed file metadata
+	 * @return File size if line is valid, -1 if filtered out
+	 */
 	long processLine(byte[] line, LongList list) {
 		int a=0, b=0;
 
@@ -349,6 +370,11 @@ public class Foo6 {
 		return size;
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter from a FileFormat.
+	 * @param ff FileFormat specification for output
+	 * @return Started ByteStreamWriter, or null if FileFormat is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -356,6 +382,11 @@ public class Foo6 {
 		return bsw;
 	}
 	
+	/**
+	 * Converts millisecond timestamp to PST-formatted date string.
+	 * @param time Millisecond timestamp
+	 * @return Formatted date string in "yyyy-MM-dd HH:mm:ss" format
+	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
@@ -363,12 +394,24 @@ public class Foo6 {
 		return sdf.format(new Date(time));
 	}
 	
+	/** Number of bits used for storing compressed size data */
 	static final int LOWER_BITS=31;
+	/** Number of bits used for size value mantissa in compression */
 	static final int MANTISSA_BITS=24;
+	/** Number of bits used for size value exponent in compression */
 	static final int EXP_BITS=LOWER_BITS-MANTISSA_BITS;
+	/** Number of bits used for storing timestamp data */
 	static final int UPPER_BITS=64-MANTISSA_BITS;
+	/** Bit mask for extracting lower bits containing compressed size */
 	static final long LOWER_MASK=~((-1L)<<LOWER_BITS);
+	/** Bit mask for extracting mantissa bits from compressed size */
 	static final long MANTISSA_MASK=~((-1L)<<MANTISSA_BITS);
+	/**
+	 * Compresses large size values using floating-point-like representation.
+	 * Uses mantissa and exponent encoding to reduce storage space for large values.
+	 * @param raw Original size value
+	 * @return Compressed representation using mantissa/exponent encoding
+	 */
 	static final long compress(long raw) {
 		if(raw<=MANTISSA_MASK){return raw;}
 		int leading=Long.numberOfLeadingZeros(raw);
@@ -376,18 +419,42 @@ public class Foo6 {
 		assert(exp>=1);
 		return (raw>>>exp)|(exp<<MANTISSA_BITS);
 	}
+	/**
+	 * Decompresses size values from mantissa/exponent representation.
+	 * Reverses the compression process to retrieve approximate original values.
+	 * @param f Compressed value with mantissa and exponent
+	 * @return Decompressed size value
+	 */
 	static final long decompress(long f) {
 		if(f<=MANTISSA_MASK){return f;}
 		int exp=(int)(f>>>MANTISSA_BITS);
 		assert(exp>=1);
 		return (f&MANTISSA_MASK)<<exp;
 	}
+	/**
+	 * Combines timestamp and compressed size into a single long value.
+	 * Uses bit shifting to pack time in upper bits and compressed size in lower bits.
+	 *
+	 * @param time Access timestamp
+	 * @param size File size value
+	 * @return Combined value with time and compressed size
+	 */
 	static final long combine(long time, long size) {
 		return (time<<LOWER_BITS) | compress(size);
 	}
+	/**
+	 * Extracts timestamp from combined time/size value.
+	 * @param combined Combined value containing time and size
+	 * @return Extracted timestamp from upper bits
+	 */
 	static final long getTime(long combined) {
 		return combined>>>LOWER_BITS;
 	}
+	/**
+	 * Extracts and decompresses file size from combined time/size value.
+	 * @param combined Combined value containing time and compressed size
+	 * @return Decompressed file size from lower bits
+	 */
 	static final long getSize(long combined) {
 		return decompress(combined&LOWER_MASK);
 	}
@@ -407,11 +474,16 @@ public class Foo6 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Counter for total number of lines processed from input */
 	private long linesProcessed=0;
+	/** Counter for number of valid lines that passed filtering */
 	private long linesOut=0;
+	/** Counter for total bytes read from input files */
 	private long bytesProcessed=0;
+	/** Counter for bytes written to output files */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

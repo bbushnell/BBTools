@@ -20,6 +20,14 @@ import shared.Vector;
 import structures.ByteBuilder;
 
 
+/**
+ * Utilities for reading, writing, and processing FASTQ sequence files.
+ * Handles quality score detection, interleaving detection, format conversion,
+ * and read parsing for various sequencing platforms. Supports both ASCII-33
+ * and ASCII-64 quality encodings with automatic detection.
+ *
+ * @author Brian Bushnell
+ */
 public class FASTQ {
 	
 //	public static boolean isInterleaved(String fname){
@@ -79,6 +87,12 @@ public class FASTQ {
 //		return testPairNames(oct[0], oct[4]);
 //	}
 	
+	/**
+	 * Extracts the first two FASTA headers from a file for interleaving analysis.
+	 * Used to determine if FASTA files contain paired reads.
+	 * @param fname Path to the FASTA file
+	 * @return Array containing the first two headers, or null if unavailable
+	 */
 	private static String[] getFirstTwoFastaHeaders(String fname){
 		if(fname==null){return null;}
 		if(fname.equalsIgnoreCase("stdin") || fname.toLowerCase().startsWith("stdin.")){return null;}
@@ -104,6 +118,12 @@ public class FASTQ {
 		return headers;
 	}
 	
+	/**
+	 * Detects quality score encoding (ASCII-33 vs ASCII-64) from file.
+	 * Reads the first octet of lines to determine the appropriate offset.
+	 * @param fname Path to the FASTQ file
+	 * @return ASCII offset (33 or 64) for quality scores
+	 */
 	public static byte testQuality(String fname){
 		if(fname==null){return ASCII_OFFSET;}
 		if(!DETECT_QUALITY || fname.equalsIgnoreCase("stdin") || fname.toLowerCase().startsWith("stdin.")){return ASCII_OFFSET;}
@@ -122,6 +142,15 @@ public class FASTQ {
 		return FORCE_INTERLEAVED;
 	}
 	
+	/**
+	 * Tests interleaving status from pre-loaded file lines.
+	 * Validates FASTQ format and analyzes read name patterns for pairing.
+	 *
+	 * @param oct List of first few lines from the file
+	 * @param fname Original filename for error reporting
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if lines suggest interleaved paired reads
+	 */
 	public static boolean testInterleaved(ArrayList<String> oct, String fname, boolean allowIdentical){
 		if(oct==null || oct.size()<8){return false;}
 		for(String s : oct){
@@ -140,11 +169,25 @@ public class FASTQ {
 		return b;
 	}
 	
+	/**
+	 * Tests if a FASTA file contains interleaved paired sequences.
+	 * @param fname Path to the FASTA file
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if the file appears to contain interleaved pairs
+	 */
 	public static boolean testInterleavedFasta(String fname, boolean allowIdentical){
 		String[] headers=getFirstTwoFastaHeaders(fname);
 		return testInterleavedFasta(headers, fname, allowIdentical);
 	}
 	
+	/**
+	 * Tests interleaving status from FASTA headers.
+	 *
+	 * @param headers Array of FASTA headers to analyze
+	 * @param fname Original filename for error reporting
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if headers suggest interleaved paired sequences
+	 */
 	private static boolean testInterleavedFasta(String[] headers, String fname, boolean allowIdentical){
 		if(headers==null || headers.length<2){return false;}
 		for(int i=0; i<headers.length; i++){
@@ -160,6 +203,14 @@ public class FASTQ {
 		return testPairNames(headers[0], headers[1], allowIdentical);
 	}
 	
+	/**
+	 * Detects quality encoding from pre-loaded FASTQ lines.
+	 * Analyzes quality characters to determine ASCII-33 vs ASCII-64 encoding.
+	 * Updates global ASCII_OFFSET based on detected values.
+	 *
+	 * @param oct List of FASTQ lines including quality lines
+	 * @return Detected ASCII offset (33 or 64)
+	 */
 	public static byte testQuality(ArrayList<String> oct){
 		if(SET_QIN || oct==null || oct.size()<4 || oct.get(0)==null){return ASCII_OFFSET;}
 		if(verbose){System.err.println("testQuality()");}
@@ -235,6 +286,14 @@ public class FASTQ {
 		return ASCII_OFFSET;
 	}
 	
+	/**
+	 * Tests if two reads form a valid pair based on their names.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if reads appear to be paired
+	 */
 	public static boolean testPairNames(Read r1, Read r2, boolean allowIdentical){
 		if(r1==null || r2==null){return false;}
 		boolean b=testPairNames(r1.id, r2.id, allowIdentical);
@@ -243,6 +302,16 @@ public class FASTQ {
 		return b;
 	}
 	
+	/**
+	 * Analyzes read names to determine if they represent a paired read.
+	 * Checks for common paired-end naming conventions including slash and space
+	 * delimited formats (e.g., "/1" and "/2", or " 1:" and " 2:").
+	 *
+	 * @param id1 First read identifier
+	 * @param id2 Second read identifier
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if the names suggest paired reads
+	 */
 	public static boolean testPairNames(String id1, String id2, boolean allowIdentical){
 
 		final int len1=id1.length();
@@ -292,6 +361,15 @@ public class FASTQ {
 		return (allowIdentical && id1.equals(id2));
 	}
 	
+	/**
+	 * Legacy implementation of pair name testing.
+	 *
+	 * @param id1 First read identifier
+	 * @param id2 Second read identifier
+	 * @param allowIdentical Whether identical names indicate pairing
+	 * @return true if the names suggest paired reads
+	 * @deprecated Use testPairNames instead
+	 */
 	@Deprecated
 	public static boolean testPairNames_old(String id1, String id2, boolean allowIdentical){
 		
@@ -349,6 +427,12 @@ public class FASTQ {
 		return false;
 	}
 	
+	/**
+	 * Calculates the character length of a read in FASTQ format.
+	 * Accounts for header, sequence, separator, and quality lines.
+	 * @param r The read to measure
+	 * @return Total character count for FASTQ representation
+	 */
 	private static int fastqLength(Read r){
 		int len=6; //newlines, @, +
 		len+=(r.id==null ? Tools.stringLength(r.numericID) : r.id.length());
@@ -357,6 +441,15 @@ public class FASTQ {
 		return len;
 	}
 	
+	/**
+	 * Converts a Read object to FASTQ format in a ByteBuilder.
+	 * Generates standard 4-line FASTQ entries with proper quality encoding.
+	 * Handles custom headers and missing quality scores.
+	 *
+	 * @param r The read to convert
+	 * @param bb ByteBuilder to append to (created if null)
+	 * @return ByteBuilder containing FASTQ-formatted data
+	 */
 	public static ByteBuilder toFASTQ(Read r, ByteBuilder bb){
 		int len=fastqLength(r);
 		final String id;
@@ -462,12 +555,27 @@ public class FASTQ {
 //	}
 	
 	
+	/**
+	 * Parses FASTQ file into an array of Read objects.
+	 *
+	 * @param tf Text file containing FASTQ data
+	 * @param maxReadsToReturn Maximum number of reads to parse
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether to treat input as interleaved paired reads
+	 * @return Array of parsed Read objects
+	 */
 	public static Read[] toReads(TextFile tf, int maxReadsToReturn, long numericID, boolean interleaved){
 		ArrayList<Read> list=toReadList(tf, maxReadsToReturn, numericID, interleaved);
 		assert(list.size()<=maxReadsToReturn);
 		return list.toArray(new Read[list.size()]);
 	}
 	
+	/**
+	 * Extracts read ID from a FASTQ header line.
+	 * Removes '@' prefix and optionally trims comments after whitespace.
+	 * @param s Header line from FASTQ file
+	 * @return Clean read identifier, or null if invalid
+	 */
 	public static final String makeId(String s){
 		if(s==null || s.length()<1){return null;}
 		char c=s.charAt(0);
@@ -484,6 +592,12 @@ public class FASTQ {
 		return stop<=start ? null : start==0 && stop==s.length() ? s : s.substring(start, stop);
 	}
 	
+	/**
+	 * Extracts read ID from a FASTQ header line in byte array form.
+	 * Removes '@' prefix and optionally trims comments after whitespace.
+	 * @param s Header line from FASTQ file as byte array
+	 * @return Clean read identifier, or null if invalid
+	 */
 	public static final String makeId(byte[] s){//Seems fast enough
 		if(s==null || s.length<1){return null;}
 		byte c=s[0];
@@ -508,6 +622,17 @@ public class FASTQ {
 		return id;
 	}
 	
+	/**
+	 * Parses FASTQ file into a list of Read objects with quality detection.
+	 * Handles interleaved pairing, custom header parsing, and quality score
+	 * conversion. Supports both ASCII-33 and ASCII-64 encodings.
+	 *
+	 * @param tf Text file containing FASTQ data
+	 * @param maxReadsToReturn Maximum number of reads to parse
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether to treat input as interleaved paired reads
+	 * @return List of parsed Read objects
+	 */
 	public static ArrayList<Read> toReadList(TextFile tf, int maxReadsToReturn, long numericID, boolean interleaved){
 		String s=null;
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(16384, maxReadsToReturn));
@@ -1041,6 +1166,16 @@ public class FASTQ {
 		return r;
 	}
 	
+	/**
+	 * Parses SCARF-formatted file into Read objects.
+	 * SCARF is a compact format used by some sequencing platforms.
+	 *
+	 * @param tf ByteFile containing SCARF data
+	 * @param maxReadsToReturn Maximum number of reads to parse
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether to treat input as interleaved paired reads
+	 * @return List of parsed Read objects
+	 */
 	public static ArrayList<Read> toScarfReadList(ByteFile tf, int maxReadsToReturn, long numericID, boolean interleaved){
 		byte[] s=null;
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(16384, maxReadsToReturn));
@@ -1079,6 +1214,12 @@ public class FASTQ {
 		return list;
 	}
 	
+	/**
+	 * Converts quality score array to ASCII string representation.
+	 * Applies the current ASCII offset to generate proper quality characters.
+	 * @param quals Quality scores in internal format
+	 * @return ASCII-encoded quality string
+	 */
 	public static String qualToString(byte[] quals){
 		byte[] q2=KillSwitch.allocByte1D(quals.length);
 		for(int i=0; i<quals.length; i++){
@@ -1089,48 +1230,83 @@ public class FASTQ {
 	
 	/** Return true if this has detected an error */
 	public static boolean errorState(){return errorState;}
+	/**
+	 * Sets or clears the error state flag.
+	 * @param b New error state value
+	 * @return The error state value that was set
+	 */
 	public static boolean setErrorState(boolean b){return errorState=b;}
 	
+	/** Internal flag tracking error conditions during processing */
 	private static boolean errorState=false;
+	/** Flag indicating quality scores below -5 have been encountered */
 	private static boolean negativeFive=false;
 	
+	/** Thread-safe incrementer for generating unique numeric IDs.
+	 * @return Next available numeric ID */
 	private static synchronized long incr(){return incr++;}
+	/** Counter for generating unique numeric IDs */
 	private static long incr=10000000000L;
 
+	/** Enables parsing of custom header formats with embedded coordinates */
 	public static boolean PARSE_CUSTOM=false;
+	/** Use new custom header parsing implementation */
 	public static boolean PARSE_NEW=true;
+	/** Display warnings when custom header parsing fails */
 	public static boolean PARSE_CUSTOM_WARNING=true;
+	/** Add custom coordinate tags to output headers */
 	public static boolean TAG_CUSTOM=false;
+	/** Use simplified custom tagging format */
 	public static boolean TAG_CUSTOM_SIMPLE=false;
+	/** Remove original read names when using custom headers */
 	public static boolean DELETE_OLD_NAME=false;
+	/** ASCII offset for input quality scores (33 or 64) */
 	public static byte ASCII_OFFSET=33;
+	/** ASCII offset for output quality scores (33 or 64) */
 	public static byte ASCII_OFFSET_OUT=33;
 	
 	/** Autodetect interleaving based on read names */
 	public static boolean TEST_INTERLEAVED=true;
+	/** Test for barcode sequences in read headers */
 	public static boolean TEST_BARCODE=false;
 	
 	/** Override autodetection and treat input as interleaved */
 	public static boolean FORCE_INTERLEAVED=false;
+	/** Automatically detect quality score encoding */
 	public static boolean DETECT_QUALITY=true;
+	/** Automatically detect output quality score encoding */
 	public static boolean DETECT_QUALITY_OUT=true;
+	/** Add pair number suffix to custom read IDs */
 	public static boolean ADD_PAIRNUM_TO_CUSTOM_ID=true;
+	/** Add slash and pair number to custom read IDs */
 	public static boolean ADD_SLASH_PAIRNUM_TO_CUSTOM_ID=false;
+	/** Use space before slash in pair numbering */
 	public static boolean SPACE_SLASH=false;
+	/** Flag indicating fast parsing has failed and fallback is needed */
 	public static boolean FAST_FAILED=false;
+	/** Reduce header length to save memory */
 	public static boolean SHRINK_HEADERS=false;
 	
+	/** Maintain mate relationships for paired reads */
 	public static boolean PAIR_READS=true;
+	/** Reverse complement the second read in pairs */
 	public static boolean FLIP_R2=false;
 
+	/** Minimum read length to force ASCII-33 quality encoding */
 	public static final int MIN_LENGTH_TO_FORCE_ASCII_33=200;
+	/** Quality threshold for detecting ASCII encoding issues */
 	public static final int QUAL_THRESH=54;
+	/** Continue processing despite quality score issues */
 	public static boolean IGNORE_BAD_QUALITY=false;
+	/** Quality input encoding has been manually set */
 	public static boolean SET_QIN=false;
+	/** Enable verbose debug output */
 	public static boolean verbose=false;
 	
+	/** Display warnings when quality encoding changes are detected */
 	public static boolean warnQualityChange=true;
 	
+	/** Early abort flag from shared configuration */
 	private static boolean EA=Shared.EA();
 	
 }

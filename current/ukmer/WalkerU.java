@@ -1,5 +1,11 @@
 package ukmer;
 
+/**
+ * Abstract iterator for traversing k-mer hash tables and data structures.
+ * Provides unified iteration interface for k-mer table traversal and data extraction.
+ * Supports sequential access to k-mer entries with key-value pair retrieval.
+ * @author Brian Bushnell
+ */
 public abstract class WalkerU {
 	
 	/** 

@@ -17,6 +17,12 @@ import structures.Range;
 
 
 
+/**
+ * Represents a genomic variation such as SNPs, insertions, deletions, or complex variations.
+ * Provides coordinate-based comparisons, overlap detection, and gene interaction analysis.
+ * Supports various variation types from reference matches to complex substitutions.
+ * @author Brian Bushnell
+ */
 public class Variation implements Comparable<Variation>, Serializable, Cloneable {
 	
 //	>locus  ploidy  haplotype       chromosome      begin   end     varType reference       alleleSeq       totalScore      hapLink xRef
@@ -26,6 +32,11 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 	 */
 	private static final long serialVersionUID = -3847258470952802740l;
 
+	/**
+	 * Creates a variation from a parsed VarLine object.
+	 * Validates consistency between begin/end locations and variation type.
+	 * @param line The VarLine containing variation data to convert
+	 */
 	public Variation(VarLine line){
 //		this(line.chromosome, line.beginLoc, line.endLoc, line.xRef, line.varType, line.ref, line.call);
 		this(line.chromosome, line.beginLoc, line.endLoc, line.varType, line.ref, line.call);
@@ -55,6 +66,11 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 //
 //	}
 	
+	/**
+	 * Copy constructor that creates a new variation from an existing one.
+	 * Performs deep validation to ensure consistency of copied data.
+	 * @param line The variation to copy
+	 */
 	public Variation(Variation line){
 		this(line.chromosome, line.beginLoc, line.endLoc, line.varType, line.ref, line.call);
 		
@@ -65,6 +81,16 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		
 	}
 	
+	/**
+	 * Creates a variation with specified genomic coordinates and sequence details.
+	 *
+	 * @param chr Chromosome number (0-based indexing)
+	 * @param bLoc Begin location on chromosome (0-based)
+	 * @param eLoc End location on chromosome (0-based, inclusive)
+	 * @param vType Variation type constant (REF, SNP, INS, DEL, etc.)
+	 * @param rf Reference sequence at this location
+	 * @param ca Called/alternate sequence at this location
+	 */
 	public Variation(int chr, int bLoc, int eLoc, byte vType, String rf, String ca){
 		chromosome=chr;
 		beginLoc=bLoc;
@@ -77,6 +103,7 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		
 	}
 	
+	/** Default constructor for creating empty variation objects */
 	public Variation(){}
 	
 	
@@ -93,6 +120,14 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 	}
 	
 	
+	/**
+	 * Converts an array of VarLine objects to a set of unique Variation objects.
+	 * Optionally filters out reference-equal variations to focus on actual changes.
+	 *
+	 * @param array Array of VarLine objects to convert
+	 * @param retainEqual Whether to include variations that match reference
+	 * @return Set containing unique variations from the input array
+	 */
 	public static final HashSet<Variation> toVariations(VarLine[] array, boolean retainEqual){
 		HashSet<Variation> set=new HashSet<Variation>(array.length);
 		for(VarLine line : array){
@@ -106,6 +141,14 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return set;
 	}
 	
+	/**
+	 * Converts multiple VarLine arrays into a single sorted array of unique variations.
+	 * Combines all input arrays before deduplication and sorting.
+	 *
+	 * @param array Two-dimensional array of VarLine objects
+	 * @param retainEqual Whether to include reference-equal variations
+	 * @return Sorted array of unique variations from all input arrays
+	 */
 	public static final Variation[] toVariationArray(VarLine[][] array, boolean retainEqual){
 		HashSet<Variation> set=toVariations(array[0], retainEqual);
 		for(int i=1; i<array.length; i++){
@@ -116,6 +159,12 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return vars;
 	}
 	
+	/**
+	 * Converts a single VarLine array into a sorted array of unique variations.
+	 * @param array Array of VarLine objects to convert
+	 * @param retainEqual Whether to include reference-equal variations
+	 * @return Sorted array of unique variations from the input
+	 */
 	public static final Variation[] toVariationArray(VarLine[] array, boolean retainEqual){
 		HashSet<Variation> set=toVariations(array, retainEqual);
 		Variation[] vars=set.toArray(new Variation[set.size()]);
@@ -123,6 +172,14 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return vars;
 	}
 	
+	/**
+	 * Converts a Set of comparable objects to a sorted array of the specified type.
+	 * Uses reflection to create appropriately typed arrays.
+	 *
+	 * @param c The class type for the returned array
+	 * @param set Set of objects to convert to array
+	 * @return Sorted array containing all elements from the set
+	 */
 	@SuppressWarnings("unchecked")
 	public static final <X extends Comparable<? super X>> X[] toArray(Class<X> c, Set<X> set){
 		
@@ -140,6 +197,15 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 	}
 	
 	
+	/**
+	 * Filters variations to include only those intersecting coding regions or nearby areas.
+	 * Uses gene annotation data to determine which variations affect coding sequences.
+	 *
+	 * @param variances Array of variations to filter
+	 * @param chrom Chromosome number to analyze
+	 * @param nearby If true, include variations near coding regions; if false, only overlapping
+	 * @return Array containing only coding-relevant variations
+	 */
 	public static VarLine[] filterCodingVariances(VarLine[] variances, int chrom, boolean nearby){
 		Range[] ranges=(nearby ? Data.geneNearbyRangeMatrix(chrom) : Data.geneCodeAndExonRangeMatrix(chrom));
 		
@@ -221,7 +287,19 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return ra2.toArray(new Range[ra2.size()]);
 	}
 	
+	/**
+	 * Extracts rsID number from a reference identifier string.
+	 * Handles various dbSNP reference formats including prefixes.
+	 * @param s Reference string containing rsID information
+	 * @return Numeric rsID, or -1 if not found or invalid
+	 */
 	public static final int toRsid(String s){return xRefToId(s);}
+	/**
+	 * Converts external reference strings to numeric identifiers.
+	 * Parses strings containing colons, prefixes, and other formatting to extract IDs.
+	 * @param s External reference string to parse
+	 * @return Numeric identifier, or -1 if parsing fails
+	 */
 	public static final int xRefToId(String s){
 //		System.out.println(s);
 		if(s==null || s.length()==0){return -1;}
@@ -240,7 +318,18 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return Integer.parseInt(s);
 	}
 	
+	/**
+	 * Extracts multiple rsID numbers from a comma or semicolon separated string.
+	 * @param s String containing multiple reference identifiers
+	 * @return Array of numeric rsIDs, or null if no valid IDs found
+	 */
 	public static final int[] toRsidArray(String s){return xRefToIdArray(s);}
+	/**
+	 * Converts multiple external reference strings to an array of numeric identifiers.
+	 * Splits on commas and semicolons to handle multi-ID strings.
+	 * @param s String containing multiple external references
+	 * @return Array of numeric identifiers, or null if no valid IDs found
+	 */
 	public static final int[] xRefToIdArray(String s){
 		if(s==null || s.length()<1){return null;}
 		String[] array=s.split("[,;]");
@@ -257,6 +346,12 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return r;
 	}
 	
+	/**
+	 * Determines if this variation exactly matches another variation.
+	 * Compares chromosome, coordinates, type, and sequence content for equality.
+	 * @param line Variation to compare against
+	 * @return true if variations are identical, false otherwise
+	 */
 	public boolean matches(Variation line){
 		if(line==null || chromosome!=line.chromosome || beginLoc!=line.beginLoc || endLoc!=line.endLoc || varType!=line.varType){
 			return false;
@@ -290,6 +385,15 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		}
 	}
 	
+	/**
+	 * Internal method to check sequence compatibility for specific variation types.
+	 * Handles type-specific matching logic for different variation classes.
+	 *
+	 * @param type Variation type to check
+	 * @param ref2 Reference sequence to compare
+	 * @param call2 Called sequence to compare
+	 * @return true if sequences are compatible for the given type
+	 */
 	private boolean matches(int type, String ref2, String call2){
 		if(type==REF || type==REFPOINT || type==DEL || type==NOCALL){
 			return true;
@@ -298,6 +402,15 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		
 	}
 	
+	/**
+	 * Internal method to set reference and call sequences based on variation type.
+	 * Applies type-specific rules for which sequences should be stored.
+	 * Automatically interns strings to reduce memory usage.
+	 *
+	 * @param vt Variation type constant
+	 * @param rf Reference sequence string
+	 * @param ca Called/alternate sequence string
+	 */
 	private void setDetails(byte vt, String rf, String ca){
 		
 		ref=null;
@@ -352,10 +465,20 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		intern();
 	}
 	
+	/**
+	 * Returns a formatted string representing the genomic location.
+	 * Uses 0-based coordinates by default.
+	 * @return Location string in format "(start)" or "(start - end)"
+	 */
 	public String locationString(){
 		return locationString(0);
 	}
 	
+	/**
+	 * Returns a formatted string representing the genomic location with specified base offset.
+	 * @param base Base offset (0 for 0-based, 1 for 1-based coordinates)
+	 * @return Location string adjusted by the base offset
+	 */
 	public String locationString(int base){
 		assert(base==0 || base==1);
 		
@@ -370,6 +493,7 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 //		return (beginLoc+base)+"-"+(endLoc+base);
 	}
 	
+	/** Returns the same output as toString() for compatibility */
 	public String toSuperString(){return toString();}
 	
 	@Override
@@ -377,6 +501,11 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return toString(0);
 	}
 	
+	/**
+	 * Returns a formatted string representation with specified coordinate base.
+	 * @param base Base offset for coordinates (0 for 0-based, 1 for 1-based)
+	 * @return Tab-separated string with adjusted coordinates
+	 */
 	public String toString(int base){
 		StringBuilder sb=new StringBuilder();
 		
@@ -395,6 +524,11 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a string formatted for source file output compatibility.
+	 * Uses specific coordinate adjustments for different variation types.
+	 * @return Tab-separated string in source file format
+	 */
 	public String toSourceString(){
 		StringBuilder sb=new StringBuilder(64);
 		
@@ -414,11 +548,15 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return sb.toString();
 	}
 	
+	/** Returns the standard header line for variation file output.
+	 * @return Tab-separated header string */
 	public static String header(){
 		
 		return "chrom\tstart\tstop\ttype\tref\tcall\trsID";
 	}
 	
+	/** Returns a compact string representation containing only essential information.
+	 * @return Shortened tab-separated string with location, type, and sequences */
 	public String toShortString(){
 		StringBuilder sb=new StringBuilder();
 		
@@ -433,6 +571,12 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 	}
 	
 	
+	/**
+	 * Finds the index of a string within an array using exact matching.
+	 * @param a String to search for
+	 * @param array Array to search within
+	 * @return Index of the string, or -1 if not found
+	 */
 	public static final int find(String a, String[] array){
 		for(int i=0; i<array.length; i++){
 			if(a.equals(array[i])){return i;}
@@ -441,6 +585,11 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return -1;
 	}
 	
+	/**
+	 * Returns the length of the reference sequence affected by this variation.
+	 * Handles type-specific length calculations for different variation classes.
+	 * @return Length of reference sequence in bases
+	 */
 	public final int lengthRef(){
 		switch(varType){
 			case SNP: {
@@ -467,10 +616,18 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return endLoc-beginLoc+1;
 	}
 
+	/** Returns the maximum of reference length and variation length */
 	public final int lengthMax(){return max(lengthRef(), lengthVar());}
+	/** Returns the minimum of reference length and variation length */
 	public final int lengthMin(){return min(lengthRef(), lengthVar());}
+	/** Returns the difference between variation length and reference length */
 	public final int lengthDif(){return isNR_or_NC() ? 0 : lengthVar()-lengthRef();}
 	
+	/**
+	 * Returns the length of the variant sequence for this variation.
+	 * Handles type-specific calculations including insertions and complex variations.
+	 * @return Length of variant sequence in bases
+	 */
 	public final int lengthVar(){
 		switch(varType){
 			
@@ -537,26 +694,32 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 //		return endLoc-beginLoc+1;
 //	}
 	
+	/** Returns true if this is a point variation (insertion or reference point) */
 	public final boolean isPoint(){
 		return varType==INS || varType==REFPOINT;
 	}
 	
+	/** Returns true if this variation matches the reference sequence */
 	public final boolean isRef(){
 		return varType==REF || varType==REFPOINT;
 	}
 	
+	/** Returns true if this represents an actual sequence change from reference */
 	public final boolean isTrueVariation(){
 		return varType==SNP || varType==INS || varType==DEL || varType==DELINS;
 	}
 	
+	/** Returns true if this variation represents a no-call or uncertain region */
 	public final boolean isNoCall(){
 		return varType==NOCALL || varType==REFCON || varType==REFINCON;
 	}
 	
+	/** Returns true if this is a no-ref or no-call variation type */
 	public final boolean isNR_or_NC(){
 		return varType==NOCALL || varType==NOREF || varType==REFCON || varType==REFINCON;
 	}
 	
+	/** Returns true if this variation has uncertain or ambiguous status */
 	public final boolean isUnsureVariation(){
 		return varType==NOCALL || varType==NOREF || varType==REFINCON || varType==REFCON;
 	}
@@ -682,24 +845,39 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return false;
 	}
 	
+	/** Start coordinate of the variation (0-based, inclusive) */
 	public int beginLoc=-2;
+	/** End coordinate of the variation (0-based, inclusive) */
 	public int endLoc=-2;
 	
+	/** Chromosome number (0-based indexing) */
 	public int chromosome=-1;
+	/** Variation type constant (REF, SNP, INS, DEL, etc.) */
 	public byte varType=-1;
 	
+	/** Reference sequence at this genomic location */
 	public String ref=null;
+	/** Called/alternate sequence at this genomic location */
 	public String call=null;
 	
 	
+	/** Static mapping between ploidy values and their string representations */
 	public static final HashMap<Object, Object> ploidyMap=makePloidyMap();
+	/** Array mapping haplotype indices to string representations */
 	public static final String[] haploMap={"0","1","2","all"};
 	
+	/** Array mapping variation type constants to string names */
 	public static final String[] varTypeMap={"ref","snp","ins","del","sub",
 		"no-call-rc","no-call-ri","no-call","no-ref","PAR-called-in-X","null","refpoint"};
 	
+	/** Reverse mapping from variation type strings to byte constants */
 	public static final HashMap<String, Byte> varTypeMap2=makeVarTypeMap();
 	
+	/**
+	 * Creates the reverse mapping from variation type strings to byte constants.
+	 * Includes aliases and alternative names for variation types.
+	 * @return HashMap mapping string names to variation type constants
+	 */
 	private static final HashMap<String, Byte> makeVarTypeMap(){
 		HashMap<String, Byte> r=new HashMap<String, Byte>(32);
 		
@@ -714,25 +892,44 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return r;
 	}
 
+	/** Constant for reference-matching variations */
 	public static final byte REF=0;
+	/** Constant for single nucleotide polymorphisms */
 	public static final byte SNP=1;
+	/** Constant for insertion variations */
 	public static final byte INS=2;
+	/** Constant for deletion variations */
 	public static final byte DEL=3;
+	/** Constant for deletion-insertion (complex substitution) variations */
 	public static final byte DELINS=4;
+	/** Constant for reference-consistent no-call variations */
 	public static final byte REFCON=5;
+	/** Constant for reference-inconsistent no-call variations */
 	public static final byte REFINCON=6;
+	/** Constant for general no-call variations */
 	public static final byte NOCALL=7;
+	/** Constant for no-reference variations */
 	public static final byte NOREF=8;
+	/** Constant for pseudoautosomal region variations */
 	public static final byte PAR=9;
+	/** Constant for null/undefined variations */
 	public static final byte NULL=10;
+	/** Constant for reference point variations (zero-length) */
 	public static final byte REFPOINT=11;
 	
+	/** Interns reference and call strings to reduce memory usage.
+	 * Uses Data.intern() to share common sequence strings across variations. */
 	public void intern(){
 //		assert(false) : ref+", "+call+", "+this;
 		if(ref!=null){ref=Data.intern(ref);}
 		if(call!=null){call=Data.intern(call);}
 	}
 	
+	/**
+	 * Creates bidirectional mapping between ploidy values and string representations.
+	 * Supports both byte and integer keys with string values and reverse mapping.
+	 * @return HashMap containing ploidy mappings
+	 */
 	private static HashMap<Object, Object> makePloidyMap(){
 		HashMap<Object, Object> hashy=new HashMap<Object, Object>(64);
 		for(int i=0; i<10; i++){
@@ -746,7 +943,9 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return hashy;
 	}
 	
+	/** Returns the smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	@Override
@@ -780,14 +979,30 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return equals((Variation)other);
 	}
 	
+	/**
+	 * Tests equality with another variation using compareTo for consistency.
+	 * @param other Variation to compare against
+	 * @return true if variations are equivalent
+	 */
 	public boolean equals(Variation other){
 		return compareTo(other)==0;
 	}
 	
+	/**
+	 * Tests if a genomic coordinate intersects this variation's span.
+	 * @param point Genomic coordinate to test
+	 * @return true if point falls within this variation's coordinates
+	 */
 	public boolean intersects(int point){
 		return point>=beginLoc && point<=endLoc;
 	}
 	
+	/**
+	 * Tests if a genomic coordinate is adjacent to this variation.
+	 * Includes positions one base before or after the variation.
+	 * @param point Genomic coordinate to test
+	 * @return true if point is within one base of this variation
+	 */
 	public boolean touches(int point){
 		return point>=beginLoc-1 && point<=endLoc+1;
 	}
@@ -797,6 +1012,16 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1 && b2>=a1;
 	}
+	/**
+	 * Tests if two genomic intervals overlap or are adjacent.
+	 * Extends overlap detection to include touching intervals.
+	 *
+	 * @param a1 Start of first interval
+	 * @param b1 End of first interval
+	 * @param a2 Start of second interval
+	 * @param b2 End of second interval
+	 * @return true if intervals overlap or touch
+	 */
 	public static boolean touch(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=(b1+1) && b2>=(a1-1);
@@ -808,18 +1033,54 @@ public class Variation implements Comparable<Variation>, Serializable, Cloneable
 		return a1>=a2 && b1<=b2;
 	}
 	
+	/**
+	 * Tests if the first interval is contained within the second without touching edges.
+	 * Requires strict containment with gaps at both ends.
+	 *
+	 * @param a1 Start of first interval
+	 * @param b1 End of first interval
+	 * @param a2 Start of second interval
+	 * @param b2 End of second interval
+	 * @return true if first interval is strictly within second interval
+	 */
 	public static boolean isWithinNotTouching(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a1>a2 && b1<b2;
 	}
 	
 	//Slow if not inlined
+	/**
+	 * Tests if this variation overlaps with the specified genomic interval.
+	 * @param a2 Start coordinate of interval
+	 * @param b2 End coordinate of interval
+	 * @return true if this variation overlaps the specified interval
+	 */
 	public boolean intersects(int a2, int b2){return overlap(beginLoc, endLoc, a2, b2);}
 
+	/**
+	 * Tests if this variation is completely contained within the specified interval.
+	 * @param a2 Start coordinate of containing interval
+	 * @param b2 End coordinate of containing interval
+	 * @return true if this variation is within the specified interval
+	 */
 	public boolean isWithin(int a2, int b2){return isWithin(beginLoc, endLoc, a2, b2);}
 	
+	/**
+	 * Tests if this variation is strictly contained within the specified interval.
+	 * @param a2 Start coordinate of containing interval
+	 * @param b2 End coordinate of containing interval
+	 * @return true if this variation is strictly within the specified interval
+	 */
 	public boolean isWithinNotTouching(int a2, int b2){return isWithinNotTouching(beginLoc, endLoc, a2, b2);}
 	
+	/**
+	 * Complex method to determine if two variations intersect or overlap.
+	 * Handles special cases for different variation types including point mutations,
+	 * insertions, deletions, and no-call regions with sophisticated overlap logic.
+	 *
+	 * @param v Variation to test intersection against
+	 * @return true if variations intersect or overlap
+	 */
 	public boolean intersects(Variation v){
 		
 		if(v.chromosome!=chromosome){

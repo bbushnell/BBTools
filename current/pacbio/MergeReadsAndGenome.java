@@ -28,6 +28,14 @@ import tracker.ReadStats;
 public class MergeReadsAndGenome {
 	
 	
+	/**
+	 * Program entry point that merges genome-derived and real sequencing reads.
+	 * Parses command-line arguments, generates synthetic reads from genome if specified,
+	 * processes input read files, and writes all reads to a single output file.
+	 *
+	 * @param args Command-line arguments including genome build, input files, output file,
+	 * read parameters, and processing options
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -137,6 +145,16 @@ public class MergeReadsAndGenome {
 		tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Reads sequences from input stream and writes them to output after processing.
+	 * Processes both paired reads (main read and mate) by correcting IDs and trimming
+	 * N bases, then writes valid reads to the output stream.
+	 *
+	 * @param cris Input stream providing read data
+	 * @param tsw Output writer for processed reads
+	 * @param id Starting numeric ID for read numbering
+	 * @return Next available ID after processing all reads
+	 */
 	public static long appendReads(ConcurrentReadInputStream cris, TextStreamWriter tsw, long id){
 		ListNum<Read> ln=cris.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -167,6 +185,17 @@ public class MergeReadsAndGenome {
 		return id;
 	}
 	
+	/**
+	 * Corrects read ID and trims terminal N bases from read sequence.
+	 * Updates the read's numeric and string IDs, then removes N bases from
+	 * both ends of the sequence. Reads shorter than 50 bases after trimming
+	 * are rejected.
+	 *
+	 * @param r Read to process (may be null)
+	 * @param id New numeric ID to assign to the read
+	 * @return Corrected read with new ID and trimmed sequence, or null if
+	 * input is null or read becomes too short after trimming
+	 */
 	public static Read correctRead(Read r, long id){
 		if(r==null){return null;}
 		r.numericID=id;
@@ -185,6 +214,7 @@ public class MergeReadsAndGenome {
 		return r;
 	}
 	
+	/** Controls verbose output for debugging read processing steps */
 	public static boolean verbose=false;
 	
 }

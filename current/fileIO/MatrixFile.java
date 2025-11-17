@@ -3,8 +3,20 @@ import dna.Matrix;
 
 
 
+/**
+ * File reader for matrix data files in BBTools format.
+ * Parses text files containing formatted matrix data with metadata headers.
+ * Extends TextFile to provide specialized matrix parsing capabilities.
+ * @author Brian Bushnell
+ */
 public class MatrixFile extends TextFile{
 	
+	/**
+	 * Program entry point for testing matrix file reading.
+	 * Reads and prints all lines from the specified matrix file.
+	 * @param args Command-line arguments; first argument should be matrix file name
+	 * @throws RuntimeException If file cannot be read or other error occurs
+	 */
 	public static void main(String[] args){
 		
 		try {
@@ -25,6 +37,8 @@ public class MatrixFile extends TextFile{
 	}
 	
 	
+	/** Constructs a MatrixFile reader for the specified file.
+	 * @param name Path to the matrix file to read */
 	public MatrixFile(String name){super(name, false);}
 	
 	@Override
@@ -37,6 +51,15 @@ public class MatrixFile extends TextFile{
 		return line;
 	}
 	
+	/**
+	 * Parses the next complete matrix from the file.
+	 * Reads metadata headers (name, size, prefix, count) followed by matrix data rows.
+	 * Matrix data is expected in bracket-enclosed, comma-separated format.
+	 *
+	 * @return Parsed Matrix object or null if end of file or "//end" marker reached
+	 * @throws AssertionError If matrix format is invalid or expected headers missing
+	 * @throws NumberFormatException If numeric values cannot be parsed
+	 */
 	public Matrix nextMatrix(){
 		String line;
 		String[] split;

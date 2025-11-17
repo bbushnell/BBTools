@@ -26,10 +26,20 @@ public class FastaToChromArrays2 {
 //	jgi.FastaToChromArrays ecoli_K12.fa 1 writeinthread=false genscaffoldinfo=true retain waitforwriting=false
 //	gzip=true chromc=false maxlen=536670912 writechroms=true minscaf=1 midpad=300 startpad=8000 stoppad=8000 nodisk=false
 	
+	/** Program entry point that delegates to main2.
+	 * @param args Command-line arguments for FASTA processing */
 	public static void main(String[] args){
 		main2(args);
 	}
 	
+	/**
+	 * Main processing method that parses arguments and converts FASTA to ChromosomeArrays.
+	 * Handles both info-only mode and full conversion mode.
+	 * Supports legacy argument parsing for backward compatibility.
+	 *
+	 * @param args Command-line arguments including input file, genome build, and options
+	 * @return ArrayList of ChromosomeArray objects if RETAIN=true, null otherwise
+	 */
 	public static ArrayList<ChromosomeArray> main2(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -157,9 +167,18 @@ public class FastaToChromArrays2 {
 		return r;
 	}
 	
+	/** Private constructor to prevent external instantiation */
 	private FastaToChromArrays2(){}
 	
 	
+	/**
+	 * Counts statistics for a ChromosomeArray including contigs, defined/undefined bases, and padding.
+	 * Identifies contig boundaries based on gaps longer than contigTrigger.
+	 * Calculates start and stop padding based on terminal undefined regions.
+	 *
+	 * @param ca The ChromosomeArray to analyze
+	 * @return Array: [chromosome, scaffolds=1, contigs, length, defined, undefined, startPad, stopPad]
+	 */
 	private static int[] countInfo(ChromosomeArray ca){
 		int contigs=0;
 		int startPad=0;
@@ -192,6 +211,18 @@ public class FastaToChromArrays2 {
 		return new int[] {ca.chromosome, 1, contigs, (ca.maxIndex+1), defined, undefined, startPad, stopPad};
 	}
 	
+	/**
+	 * Writes genome information files for pre-existing ChromosomeArrays.
+	 * Creates info.txt with per-chromosome statistics and summary.txt with totals.
+	 * Deprecated in favor of generating info during conversion.
+	 *
+	 * @param genome Genome build number
+	 * @param chroms Number of chromosomes to process
+	 * @param name Genome name for metadata
+	 * @param source Source file path for metadata
+	 * @param unload Whether to unload chromosomes after processing
+	 * @param scafNamePrefix Whether scaffold names include prefixes
+	 */
 	@Deprecated
 	public static void writeInfo(int genome, int chroms, String name, String source, boolean unload, boolean scafNamePrefix){
 		Data.GENOME_BUILD=genome;
@@ -250,6 +281,21 @@ public class FastaToChromArrays2 {
 		info.waitForFinish();
 	}
 	
+	/**
+	 * Core conversion method that processes FASTA file into ChromosomeArrays.
+	 * Creates output directories, processes scaffolds into chromosomes with padding,
+	 * generates metadata files, and optionally writes chromosome objects to disk.
+	 * Handles both disk and memory-only modes based on NODISK flag.
+	 *
+	 * @param fname Input FASTA file path
+	 * @param outRoot Output directory root path
+	 * @param genomeName Genome name for metadata
+	 * @param genScaffolds Whether to generate scaffold information
+	 * @param writeChroms Whether to write ChromosomeArray objects to disk
+	 * @param r ArrayList to store ChromosomeArrays if RETAIN=true
+	 * @param scafNamePrefix Whether scaffold names include prefixes
+	 * @return Number of chromosomes created
+	 */
 	private int makeChroms(String fname, String outRoot, String genomeName, boolean genScaffolds, boolean writeChroms, ArrayList<ChromosomeArray> r,
 			boolean scafNamePrefix){
 		
@@ -428,6 +474,20 @@ public class FastaToChromArrays2 {
 		return chrom-1;
 	}
 	
+	/**
+	 * Creates the next ChromosomeArray by reading scaffolds and applying padding.
+	 * Merges multiple scaffolds into single chromosome if MERGE_SCAFFOLDS=true.
+	 * Applies START_PADDING, MID_PADDING between scaffolds, and END_PADDING.
+	 * Respects MAX_LENGTH limit and MIN_SCAFFOLD filtering.
+	 *
+	 * @param tf ByteFile1 for reading FASTA input
+	 * @param chrom Chromosome number being created
+	 * @param infoWriter TextStreamWriter for info.txt output
+	 * @param scafWriter TextStreamWriter for scaffolds.txt.gz output
+	 * @param infolist ArrayList for info data if NODISK=true
+	 * @param scaflist ArrayList for scaffold data if NODISK=true
+	 * @return ChromosomeArray with scaffolds and padding, null if no more data
+	 */
 	private ChromosomeArray makeNextChrom(ByteFile1 tf, int chrom, TextStreamWriter infoWriter, TextStreamWriter scafWriter, ArrayList<String> infolist, ArrayList<String> scaflist){
 		ChromosomeArray ca=new ChromosomeArray(chrom, (byte)Shared.PLUS, 0, 120000+START_PADDING);
 		ca.maxIndex=-1;
@@ -523,6 +583,15 @@ public class FastaToChromArrays2 {
 	}
 	
 	
+	/**
+	 * Reads the next scaffold sequence from FASTA file.
+	 * Accumulates sequence lines until next header or end of file.
+	 * Updates nextHeader field with the header line for the following scaffold.
+	 *
+	 * @param sb ByteBuilder to reuse for sequence accumulation
+	 * @param tf ByteFile1 for reading FASTA input
+	 * @return ByteBuilder containing scaffold sequence, null if no more scaffolds
+	 */
 	private ByteBuilder nextScaffold(ByteBuilder sb, ByteFile1 tf){
 		if(sb==null){sb=new ByteBuilder(100);}
 		else{sb.setLength(0);}
@@ -549,36 +618,64 @@ public class FastaToChromArrays2 {
 		return sb;
 	}
 	
+	/** Header line from the previously processed scaffold */
 	private String lastHeader;
+	/** Header line for the next scaffold to be processed */
 	private String nextHeader;
+	/** ByteBuilder containing the current scaffold sequence being processed */
 	private ByteBuilder currentScaffold;
+	/** Running count of total scaffolds processed across all chromosomes */
 	private long scaffoldSum=0;
+	/** Running sum of total bases across all chromosomes */
 	private long lengthSum=0;
+	/** Running sum of defined (non-N) bases across all chromosomes */
 	private long definedSum=0;
+	/** Running sum of undefined (N) bases across all chromosomes */
 	private long undefinedSum=0;
+	/** Running sum of total contigs across all chromosomes */
 	private long contigSum=0;
 	
 	
+	/** Returns the current version number for format compatibility */
 	public static final int currentVersion(){return VERSION;}
 	
+	/** Whether to merge multiple scaffolds into single chromosomes */
 	public static boolean MERGE_SCAFFOLDS=true;
+	/** Whether to write ChromosomeArray objects in background threads */
 	public static boolean WRITE_IN_THREAD=false;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	public static boolean append=false;
+	/** Number of N bases to add at the beginning of each chromosome */
 	public static int START_PADDING=8000; //Always applied
+	/** Number of N bases to insert between merged scaffolds */
 	public static int MID_PADDING=300; //Applied when merging scaffolds
+	/** Number of N bases to ensure at the end of each chromosome */
 	public static int END_PADDING=8000; //Only applied if not enough terminal Ns
+	/** Minimum scaffold length in bases to include in output */
 	public static int MIN_SCAFFOLD=1;
+	/** Minimum gap length in bases to trigger a new contig boundary */
 	public static int contigTrigger=10;
+	/** Format version number for compatibility tracking */
 	public static int VERSION=5;
+	/** Maximum allowed length for a single chromosome in bases */
 	public static int MAX_LENGTH=(1<<29)-200000;
 //	public static boolean TRANSLATE_U_TO_T;
 	
+	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
+	/** Whether to retain ChromosomeArray objects in memory for return */
 	public static boolean RETAIN=false;
+	/** Whether to wait for background writing threads to complete */
 	public static boolean WAIT_FOR_WRITING=true;
+	/** Whether to avoid disk I/O and store all data in memory lists */
 	public static boolean NODISK=false;
+	/** Genome build number associated with current in-memory lists */
 	public static int LISTBUILD=-1;
+	/** In-memory list of summary.txt lines when NODISK=true */
+	/** In-memory list of scaffold information lines when NODISK=true */
+	/** In-memory list of info.txt lines when NODISK=true */
 	public static ArrayList<String> INFO_LIST, SCAF_LIST, SUMMARY_LIST;
 	
 //	public static boolean GENERATE_SCAFFOLD_INFO=true;

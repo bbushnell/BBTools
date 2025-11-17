@@ -35,6 +35,7 @@ public class WobblePlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public WobblePlusAligner2() {}
 
 	/*--------------------------------------------------------------*/
@@ -283,9 +284,14 @@ public class WobblePlusAligner2 implements IDAligner{
 		return id;
 	}
 
+	/** Counter for total alignment matrix cells processed across all alignments */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns total number of alignment matrix cells processed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter for alignment statistics.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -293,26 +299,41 @@ public class WobblePlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits for encoding position information in packed scores */
 	private static final int POSITION_BITS=21;
+	/** Number of bits for encoding deletion count in packed scores */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score portion of packed values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score portion from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Base score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for aligning ambiguous bases (N characters) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid/uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined score penalty and position increment for deletions */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Debug flag for printing alignment operation statistics */
 	private static final boolean PRINT_OPS=false;
+	/** Flag for global vs local alignment mode */
 	public static final boolean GLOBAL=false;
 
 }

@@ -42,6 +42,12 @@ public class KmerPosition3 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Program entry point for k-mer position analysis.
+	 * Initializes timer, creates KmerPosition3 instance, processes input files,
+	 * and handles output stream cleanup.
+	 * @param args Command-line arguments for input/output files and parameters
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();

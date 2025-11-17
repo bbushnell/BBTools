@@ -186,6 +186,7 @@ public class IDTree {
 	/** Number of lines processed */
 	protected long linesProcessed=0;
 	
+	/** Maximum number of lines to process (-1 for unlimited) */
 	protected long maxLines=-1;
 	
 	/*--------------------------------------------------------------*/

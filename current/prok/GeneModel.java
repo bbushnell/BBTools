@@ -33,12 +33,16 @@ public class GeneModel extends ProkObject {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new GeneModel with optional container initialization.
+	 * @param fill Whether to initialize the statistics containers with k-mer parameters */
 	public GeneModel(boolean fill){
 		if(fill){
 			fillContainers();
 		}
 	}
 	
+	/** Initializes all statistics containers with appropriate k-mer lengths and frame offsets.
+	 * Sets up CDS containers with 3-frame analysis and RNA containers with single-frame analysis. */
 	void fillContainers(){
 		statsCDS.setInner(kInnerCDS, 3);
 		statsCDS.setStart(kStartCDS, startFrames, startLeftOffset);
@@ -69,6 +73,12 @@ public class GeneModel extends ProkObject {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes a genome and GFF file to build gene model statistics.
+	 * @param genomeFname Path to FASTA genome file
+	 * @param gffFname Path to GFF annotation file
+	 * @return true if error occurred, false if successful
+	 */
 	public boolean process(String genomeFname, String gffFname){
 		FileFormat fnaFile=FileFormat.testInput(genomeFname, FileFormat.FA, null, true, true);
 		FileFormat gffFile=FileFormat.testInput(gffFname, FileFormat.GFF, null, true, true);
@@ -87,6 +97,16 @@ public class GeneModel extends ProkObject {
 		return process(reads, cds, rrna, trna);
 	}
 	
+	/**
+	 * Processes genome sequences and annotation data to extract gene model statistics.
+	 * Analyzes both plus and minus strands for CDS, rRNA, and tRNA features.
+	 *
+	 * @param genome List of genome sequences as Read objects
+	 * @param cds List of coding sequence annotations
+	 * @param rrna List of ribosomal RNA annotations (may be null)
+	 * @param trna List of transfer RNA annotations (may be null)
+	 * @return true if error occurred, false if successful
+	 */
 	public boolean process(ArrayList<Read> genome, 
 			ArrayList<GffLine> cds, ArrayList<GffLine> rrna, ArrayList<GffLine> trna){
 		numFiles++;
@@ -135,7 +155,15 @@ public class GeneModel extends ProkObject {
 		return false;
 	}
 	
+	/**
+	 * When true, merging models only adds CDS statistics to avoid corrupting non-CDS numbers
+	 */
 	public static boolean ADD_CDS_ONLY=false;//Sometimes merging in a custom model messes up non-CDS numbers
+	/**
+	 * Merges another GeneModel into this one by combining statistics and counts.
+	 * If ADD_CDS_ONLY is true and this model has processed reads, only CDS stats are merged.
+	 * @param pgm The GeneModel to merge into this one
+	 */
 	public void add(GeneModel pgm){
 		if(ADD_CDS_ONLY && readsProcessed>0) {
 //			System.err.println("Adding CDS; readsProcessed="+readsProcessed+", ADD_CDS_ONLY="+ADD_CDS_ONLY);
@@ -166,6 +194,11 @@ public class GeneModel extends ProkObject {
 		Tools.add(baseCounts, pgm.baseCounts);
 	}
 	
+	/**
+	 * Scales all statistics and counts by a multiplication factor.
+	 * Used for normalizing or adjusting model weights.
+	 * @param mult The multiplication factor to apply
+	 */
 	public void multiplyBy(double mult) {
 		for(int i=0; i<allContainers.length; i++){
 			allContainers[i].multiplyBy(mult);
@@ -185,6 +218,8 @@ public class GeneModel extends ProkObject {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Calculates the GC content percentage of processed sequences.
+	 * @return GC content as a fraction between 0.0 and 1.0 */
 	public float gc(){
 		long a=baseCounts[0];
 		long c=baseCounts[1];
@@ -193,6 +228,12 @@ public class GeneModel extends ProkObject {
 		return (float)((g+c)/Tools.max(1.0, a+t+g+c));
 	}
 	
+	/**
+	 * Creates a mapping from scaffold names to ScafData objects.
+	 * Also creates entries for name prefixes to handle space-separated identifiers.
+	 * @param scafList List of scaffold data objects
+	 * @return HashMap mapping scaffold names to ScafData objects
+	 */
 	HashMap<String, ScafData> makeScafMap(ArrayList<ScafData> scafList){
 		HashMap<String, ScafData> scafMap=new HashMap<String, ScafData>(scafList.size()*3);
 		for(ScafData sd : scafList){scafMap.put(sd.name, sd);}
@@ -211,6 +252,12 @@ public class GeneModel extends ProkObject {
 		return scafMap;
 	}
 	
+	/**
+	 * Associates CDS annotations with their corresponding scaffold data.
+	 * Only processes if CDS calling is enabled.
+	 * @param cdsLines List of CDS annotation lines from GFF
+	 * @param scafMap Mapping from scaffold names to ScafData objects
+	 */
 	public void fillScafDataCDS(ArrayList<GffLine> cdsLines, HashMap<String, ScafData> scafMap){
 		if(!callCDS){return;}
 		for(GffLine gline : cdsLines){
@@ -220,6 +267,12 @@ public class GeneModel extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Associates RNA annotations with their corresponding scaffold data.
+	 * Filters by RNA type to only process supported types.
+	 * @param rnaLines List of RNA annotation lines from GFF
+	 * @param scafMap Mapping from scaffold names to ScafData objects
+	 */
 	public void fillScafDataRNA(ArrayList<GffLine> rnaLines, HashMap<String, ScafData> scafMap){
 		for(GffLine gline : rnaLines){
 			ScafData sd=scafMap.get(gline.seqid);
@@ -230,6 +283,12 @@ public class GeneModel extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Processes all scaffolds for a specific strand orientation.
+	 * Analyzes both CDS and RNA features on the given strand.
+	 * @param scafList List of scaffold data objects
+	 * @param strand Strand orientation (Shared.PLUS or Shared.MINUS)
+	 */
 	public void processStrand(ArrayList<ScafData> scafList, int strand){
 		for(ScafData sd : scafList){
 			processCDS(sd, strand);
@@ -258,6 +317,14 @@ public class GeneModel extends ProkObject {
 	/*----------------        Finding Codons        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Identifies stop codon positions in a DNA sequence.
+	 * Also adds synthetic noise sites at regular intervals for statistical comparison.
+	 *
+	 * @param bases DNA sequence as byte array
+	 * @param list Output list to store stop codon positions
+	 * @param valid BitSet tracking already identified positions to avoid duplicates
+	 */
 	private static void findStopCodons(byte[] bases, IntList list, BitSet valid){
 		final int k=3;
 		final int mask=~((-1)<<(2*k));
@@ -287,6 +354,14 @@ public class GeneModel extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Identifies start codon positions in a DNA sequence.
+	 * Also adds synthetic noise sites at regular intervals for statistical comparison.
+	 *
+	 * @param bases DNA sequence as byte array
+	 * @param list Output list to store start codon positions
+	 * @param valid BitSet tracking already identified positions to avoid duplicates
+	 */
 	private static void findStartCodons(byte[] bases, IntList list, BitSet valid){
 		final int k=3;
 		final int mask=~((-1)<<(2*k));
@@ -320,6 +395,12 @@ public class GeneModel extends ProkObject {
 	/*----------------     Processing GffLines      ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes a single gene annotation to extract CDS statistics.
+	 * Handles coordinate transformation for minus strand genes and marks coding frames.
+	 * @param gline GFF annotation line for the gene
+	 * @param sd Scaffold data containing sequence and frame information
+	 */
 	private static void processGene(GffLine gline, ScafData sd){
 		if(gline.length()<2){return;}
 		final int strand=gline.strand;
@@ -406,6 +487,18 @@ public class GeneModel extends ProkObject {
 		return true;
 	}
 	
+	/**
+	 * Aligns a query sequence against a reference region using single-state alignment.
+	 * Returns identity score and optionally stores alignment coordinates.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence
+	 * @param start Start position in reference
+	 * @param stop Stop position in reference
+	 * @param minIdentity Minimum required identity for valid alignment
+	 * @param coords Output array for storing alignment coordinates (may be null)
+	 * @return Identity fraction of the alignment
+	 */
 	private float align(byte[] query, byte[] ref, int start, int stop, float minIdentity, int[] coords){
 //		final int a=0, b=ref.length-1;
 		SingleStateAlignerFlat2 ssa=GeneCaller.getSSA();
@@ -455,6 +548,12 @@ public class GeneModel extends ProkObject {
 	/*----------------        Counting Kmers        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Extracts k-mer statistics from coding sequences on a scaffold.
+	 * Processes both valid gene regions and random non-coding positions for comparison.
+	 * @param sd Scaffold data containing sequences and annotations
+	 * @param strand Strand orientation being processed
+	 */
 	private void processCDS(ScafData sd, int strand){
 		if(!callCDS){return;}
 		ArrayList<GffLine> glines=sd.cdsLines[strand];
@@ -476,6 +575,14 @@ public class GeneModel extends ProkObject {
 		processEnds(sd.bases, statsCDS.stop, sd.stops, 0);
 	}
 	
+	/**
+	 * Determines the RNA type and validates length constraints for a GFF annotation.
+	 * Returns -1 for invalid or out-of-bounds annotations.
+	 *
+	 * @param gline GFF annotation line
+	 * @param sd Scaffold data for bounds checking
+	 * @return RNA type constant or -1 if invalid
+	 */
 	private static int getGlineType(GffLine gline, ScafData sd){
 		if(!gline.inbounds(sd.length()) || gline.partial()){return -1;}
 
@@ -499,6 +606,12 @@ public class GeneModel extends ProkObject {
 		return -1;
 	}
 	
+	/**
+	 * Processes all RNA annotations on a scaffold strand.
+	 * Validates RNA types and lengths before extracting statistics.
+	 * @param sd Scaffold data containing sequences and annotations
+	 * @param strand Strand orientation being processed
+	 */
 	private void processRNA(ScafData sd, int strand){
 		sd.clear();
 		ArrayList<GffLine> lines=sd.rnaLines[strand];
@@ -515,6 +628,8 @@ public class GeneModel extends ProkObject {
 		processRnaEnds(sd);
 	}
 	
+	/** Extracts k-mer statistics from RNA interior regions.
+	 * Uses frame markings to distinguish RNA regions from background sequence. */
 	void processRnaInner(ScafData sd){
 		byte[] bases=sd.bases;
 		byte[] frames=sd.frames;
@@ -541,6 +656,8 @@ public class GeneModel extends ProkObject {
 		}
 	}
 	
+	/** Extracts k-mer statistics from RNA start and stop regions.
+	 * Counts all k-mers in the sequence and adds them to RNA containers as background. */
 	void processRnaEnds(ScafData sd){
 		byte[] bases=sd.bases;
 
@@ -576,6 +693,15 @@ public class GeneModel extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Processes k-mer statistics at gene start or stop positions.
+	 *
+	 * @param bases DNA sequence
+	 * @param stats Statistics container for the endpoint type
+	 * @param list List of positions to process
+	 * @param valid Whether these are valid (1) or invalid (0) endpoints
+	 * @return BitSet marking all processed positions
+	 */
 	private static BitSet processEnds(byte[] bases, FrameStats stats, IntList list, int valid){
 		BitSet points=new BitSet(bases.length);
 		for(int i=0; i<list.size; i++){
@@ -677,6 +803,12 @@ public class GeneModel extends ProkObject {
 		return appendTo(new ByteBuilder()).toString();
 	}
 	
+	/**
+	 * Appends gene model statistics to a ByteBuilder in standardized format.
+	 * Includes file counts, taxonomy IDs, base counts, GC content, and all container statistics.
+	 * @param bb ByteBuilder to append statistics to
+	 * @return The same ByteBuilder for method chaining
+	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 
 //		Collections.sort(fnames);
@@ -726,14 +858,22 @@ public class GeneModel extends ProkObject {
 	/*----------------            Stats             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Statistics container for coding sequences */
 	public final StatsContainer statsCDS=new StatsContainer(CDS);
+	/** Statistics container for transfer RNA */
 	public final StatsContainer statstRNA=new StatsContainer(tRNA);
+	/** Statistics container for 16S ribosomal RNA */
 	public final StatsContainer stats16S=new StatsContainer(r16S);
+	/** Statistics container for 23S ribosomal RNA */
 	public final StatsContainer stats23S=new StatsContainer(r23S);
+	/** Statistics container for 5S ribosomal RNA */
 	public final StatsContainer stats5S=new StatsContainer(r5S);
+	/** Statistics container for 18S ribosomal RNA (eukaryotic) */
 	public final StatsContainer stats18S=new StatsContainer(r18S);
 	
+	/** Array of RNA statistics containers for batch processing */
 	final StatsContainer[] rnaContainers=new StatsContainer[] {statstRNA, stats16S, stats23S, stats5S, stats18S};
+	/** Array of all statistics containers (CDS and RNA) for batch processing */
 	final StatsContainer[] allContainers=new StatsContainer[] {statsCDS, statstRNA, stats16S, stats23S, stats5S, stats18S};
 	//public static int CDS=0, tRNA=1, r16S=2, r23S=3, r5S=4, r18S=5, r28S=6, RNA=7;
 	
@@ -753,7 +893,9 @@ public class GeneModel extends ProkObject {
 	/*--------------------------------------------------------------*/
 	
 //	public ArrayList<String> fnames=new ArrayList<String>();
+	/** Number of files processed by this model */
 	public int numFiles=0;
+	/** List of taxonomy IDs for organisms processed */
 	public IntList taxIds=new IntList();
 
 	
@@ -761,18 +903,26 @@ public class GeneModel extends ProkObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process, or -1 for no limit */
 	private long maxReads=-1;
 	
+	/** Total number of scaffold sequences processed */
 	long readsProcessed=0;
+	/** Total number of bases processed across all sequences */
 	long basesProcessed=0;
+	/** Total number of genes processed (CDS, rRNA, tRNA combined) */
 	long genesProcessed=0;
+	/** Number of genome files successfully processed */
 	long filesProcessed=0;
+	/** Counts of each base type: A, C, G, T, other */
 	long[] baseCounts=new long[5];
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Setters        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Synchronizes static k-mer parameters with container settings.
+	 * Sets global k-mer lengths and offsets from the statistics containers. */
 	public synchronized void setStatics(){
 //		assert(!setStatics);
 		kInnerCDS=statsCDS.inner.k;
@@ -829,9 +979,19 @@ public class GeneModel extends ProkObject {
 //		assert(false) : endLeftOffset+", "+endRightOffset+", "+endFrames;
 	}
 	
+	/**
+	 * Tests if a numeric codon code represents a start codon.
+	 * @param code Numeric representation of the codon
+	 * @return true if the code is a valid start codon
+	 */
 	public static final boolean isStartCodon(int code){
 		return code>=0 && code<=63 && isStartCodon[code];
 	}
+	/**
+	 * Tests if a numeric codon code represents a stop codon.
+	 * @param code Numeric representation of the codon
+	 * @return true if the code is a valid stop codon
+	 */
 	public static final boolean isStopCodon(int code){
 		return code>=0 && code<=63 && isStopCodon[code];
 	}
@@ -840,6 +1000,11 @@ public class GeneModel extends ProkObject {
 	/*----------------          Class Init          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a boolean lookup table for codon recognition.
+	 * @param codons Array of codon strings (e.g., "ATG", "TAA")
+	 * @return Boolean array indexed by numeric codon code
+	 */
 	private static boolean[] makeIsCodon(String[] codons){
 		boolean[] array=new boolean[64];
 		for(String s : codons){
@@ -849,8 +1014,11 @@ public class GeneModel extends ProkObject {
 		return array;
 	}
 	
+	/** K-mer length for interior CDS regions */
 	public static int kInnerCDS=6;
+	/** K-mer length for CDS start regions */
 	public static int kStartCDS=3;
+	/** K-mer length for CDS stop regions */
 	public static int kStopCDS=3;
 	
 	static int startLeftOffset(){return startLeftOffset;}
@@ -872,16 +1040,24 @@ public class GeneModel extends ProkObject {
 	/*--------------------------------------------------------------*/
 	
 	//E. coli uses 83% AUG (3542/4284), 14% (612) GUG, 3% (103) UUG[7] and one or two others (e.g., an AUU and possibly a CUG).[8][9]
+	/** Standard prokaryotic start codons: ATG, GTG, TTG */
 	public static String[] startCodons=new String[] {"ATG", "GTG", "TTG"};
+	/** Extended set of start codons including rare variants */
 	public static String[] extendedStartCodons=new String[] {"ATG", "GTG", "TTG", "ATT", "CTG", "ATA"};
+	/** Universal stop codons: TAG, TAA, TGA */
 	public static String[] stopCodons=new String[] {"TAG", "TAA", "TGA"};
+	/** Boolean lookup table for start codon recognition by numeric code */
 	public static boolean[] isStartCodon=makeIsCodon(startCodons);
+	/** Boolean lookup table for stop codon recognition by numeric code */
 	public static boolean[] isStopCodon=makeIsCodon(stopCodons);
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for debug messages */
 	private static PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
+	/** Tracks whether an error has occurred during processing */
 	public static boolean errorState=false;
 	
 }

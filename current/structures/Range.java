@@ -8,12 +8,23 @@ import shared.Tools;
 /** A numeric range, assuming 0-based, base-centered numbering. */
 public class Range implements Comparable<Range>, Cloneable{
 	
+	/**
+	 * Constructs a range from start to end coordinates.
+	 * @param aa Start coordinate (inclusive)
+	 * @param bb End coordinate (inclusive)
+	 */
 	public Range(int aa, int bb){
 		assert(aa<=bb) : aa+">"+bb;
 		a=aa;
 		b=bb;
 	}
 	
+	/**
+	 * Constructs a range with an associated object.
+	 * @param aa Start coordinate (inclusive)
+	 * @param bb End coordinate (inclusive)
+	 * @param oo Object to associate with this range
+	 */
 	public Range(int aa, int bb, Object oo){
 		assert(aa<=bb) : aa+">"+bb;
 		a=aa;
@@ -21,6 +32,8 @@ public class Range implements Comparable<Range>, Cloneable{
 		obj1=oo;
 	}
 	
+	/** Creates a shallow copy of this range.
+	 * @return Cloned Range instance */
 	public Range clone() {
 		try {
 			return (Range) super.clone();
@@ -31,66 +44,142 @@ public class Range implements Comparable<Range>, Cloneable{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if this range includes a specific position.
+	 * @param p Position to test
+	 * @return true if position is within range bounds (inclusive)
+	 */
 	public boolean includes(int p){
 		return p>=a && p<=b;
 	}
 	
+	/**
+	 * Tests if this range intersects with another range defined by coordinates.
+	 * @param p1 Start coordinate of test range
+	 * @param p2 End coordinate of test range
+	 * @return true if ranges overlap
+	 */
 	public boolean intersects(int p1, int p2){
 		return overlaps(a, b, p1, p2);
 	}
 	
+	/**
+	 * Tests if this range overlaps with a Feature.
+	 * @param f Feature to test against
+	 * @return true if this range overlaps the feature's coordinates
+	 */
 	public <K extends Feature> boolean overlaps(K f) {
 		return intersects(f.start(), f.stop());
 	}
 	
+	/**
+	 * Tests if this range overlaps with another range.
+	 * @param f Range to test against
+	 * @return true if ranges overlap
+	 */
 	public boolean overlaps(Range f) {
 		return intersects(f.a, f.b);
 	}
 	
+	/**
+	 * Calculates the overlap length between this range and another.
+	 * @param f Range to calculate overlap with
+	 * @return Number of overlapping bases
+	 */
 	public int overlap(Range f) {
 		return overlap(a, b, f.a, f.b);
 	}
 	
+	/**
+	 * Tests if this range is adjacent to another range.
+	 * @param p1 Start coordinate of test range
+	 * @param p2 End coordinate of test range
+	 * @return true if ranges touch but don't overlap
+	 */
 	public boolean adjacent(int p1, int p2) {
 		return adjacent(a, b, p1, p2);
 	}
 	
+	/**
+	 * Tests if this range is adjacent to a specific position.
+	 * @param p1 Position to test
+	 * @return true if position is adjacent to range boundary
+	 */
 	public boolean adjacent(int p1) {
 		return adjacent(a, b, p1);
 	}
 	
+	/**
+	 * Tests if this range touches another range (overlaps or is adjacent).
+	 * @param p1 Start coordinate of test range
+	 * @param p2 End coordinate of test range
+	 * @return true if ranges touch or overlap
+	 */
 	public boolean touches(int p1, int p2) {
 		return touch(a, b, p1, p2);
 	}
 	
+	/**
+	 * Tests if this range touches a specific position.
+	 * @param p1 Position to test
+	 * @return true if position touches or overlaps the range
+	 */
 	public boolean touches(int p1) {
 		return touch(a, b, p1);
 	}
 	
+	/**
+	 * Tests if this range completely includes another range.
+	 * @param p1 Start coordinate of test range
+	 * @param p2 End coordinate of test range
+	 * @return true if test range is completely contained within this range
+	 */
 	public boolean includes(int p1, int p2){
 		return include(a, b, p1, p2);
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if this range intersects with another range.
+	 * @param r Range to test against
+	 * @return true if ranges overlap
+	 */
 	public boolean intersects(Range r){
 		return intersects(r.a, r.b);
 	}
 	
+	/**
+	 * Tests if this range touches another range (overlaps or is adjacent).
+	 * @param r Range to test against
+	 * @return true if ranges touch or overlap
+	 */
 	public boolean touches(Range r){
 		return (intersects(r.a, r.b) || adjacent(r.a, r.b));
 	}
 	
+	/**
+	 * Tests if this range completely includes another range.
+	 * @param r Range to test
+	 * @return true if test range is completely contained within this range
+	 */
 	public boolean includes(Range r){
 		return includes(r.a, r.b);
 	}
 	
+	/** Returns the length of this range in bases (inclusive of both endpoints) */
 	public int length() {
 		return b-a+1;
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a new range that encompasses both this range and another.
+	 * Ranges must touch (overlap or be adjacent) for merging to be valid.
+	 * @param r Range to merge with
+	 * @return New range spanning both input ranges
+	 */
 	public Range merge(Range r){
 		assert(touches(r));
 		Range r2=new Range(min(a, r.a), max(b, r.b), obj1);
@@ -101,18 +190,30 @@ public class Range implements Comparable<Range>, Cloneable{
 		return r2;
 	}
 	
+	/**
+	 * Extends this range to encompass another range.
+	 * Modifies this range in-place rather than creating a new one.
+	 * @param r Range to absorb
+	 */
 	public void absorb(Range r){
 		assert(touches(r));
 		a=min(a, r.a);
 		b=max(b, r.b);
 	}
 	
+	/** Extends this range to include a specific position.
+	 * @param p Position to absorb into the range */
 	public void absorb(int p){
 		assert(touches(p));
 		a=min(a, p);
 		b=max(b, p);
 	}
 	
+	/**
+	 * Constrains range boundaries to valid sequence coordinates.
+	 * Ensures start is non-negative and end doesn't exceed sequence length.
+	 * @param length Maximum sequence length (exclusive upper bound)
+	 */
 	public void fixBounds(int length) {
 		a=Tools.max(0, a);
 		b=Tools.min(length-1, b);
@@ -128,6 +229,11 @@ public class Range implements Comparable<Range>, Cloneable{
 		return equals((Range)r);
 	}
 	
+	/**
+	 * Tests equality with another range based on coordinates.
+	 * @param r Range to compare with
+	 * @return true if ranges have identical start and end coordinates
+	 */
 	public boolean equals(Range r){
 		return a==r.a && b==r.b;
 	}
@@ -143,6 +249,11 @@ public class Range implements Comparable<Range>, Cloneable{
 		return a+(a==b ? "" : ("-"+b));
 	}
 	
+	/**
+	 * Appends range representation to a ByteBuilder.
+	 * @param bb ByteBuilder to append to
+	 * @return The modified ByteBuilder
+	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append(a);
 		return (b==a ? bb : bb.dash().append(b));
@@ -150,6 +261,14 @@ public class Range implements Comparable<Range>, Cloneable{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Merges overlapping and adjacent ranges in a list.
+	 * Modifies the input list by consolidating touching ranges and removing nulls.
+	 *
+	 * @param ranges List of ranges to merge
+	 * @param sort Whether to sort the list first
+	 * @return Number of ranges that were merged and removed
+	 */
 	public static int mergeList(ArrayList<Range> ranges, boolean sort) {
 		if(ranges.size()<2){return 0;}
 		if(sort){Collections.sort(ranges);}
@@ -172,21 +291,57 @@ public class Range implements Comparable<Range>, Cloneable{
 		return removed;
 	}
 	
+	/**
+	 * Tests if a coordinate range includes a specific position.
+	 *
+	 * @param a1 Range start coordinate
+	 * @param b1 Range end coordinate
+	 * @param p Position to test
+	 * @return true if position is within range bounds (inclusive)
+	 */
 	public static boolean include(int a1, int b1, int p){
 		assert(a1<=b1) : a1+", "+b1+", "+p;
 		return p>=a1 && p<=b1;
 	}
 	
+	/**
+	 * Tests if one coordinate range completely includes another.
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return true if second range is completely contained within first
+	 */
 	public static boolean include(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2>=a1 && b2<=b1;
 	}
 	
+	/**
+	 * Tests if two coordinate ranges overlap.
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return true if ranges overlap
+	 */
 	public static boolean overlaps(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1 && b2>=a1;
 	}
 	
+	/**
+	 * Calculates overlap length between two coordinate ranges.
+	 * Returns negative value if ranges don't overlap.
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return Number of overlapping bases, or negative if no overlap
+	 */
 	public static int overlap(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		if(a1>a2) {return overlap(a2, b2, a1, b1);}
@@ -198,6 +353,16 @@ public class Range implements Comparable<Range>, Cloneable{
 		
 	}
 	
+	/**
+	 * Calculates asymmetry between two ranges when aligned.
+	 * Measures how much one range extends beyond the other on each side.
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return Measure of range asymmetry
+	 */
 	public static int lopsidedness(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		if(a1>a2) {return lopsidedness(a2, b2, a1, b1);}
@@ -207,23 +372,57 @@ public class Range implements Comparable<Range>, Cloneable{
 		return Tools.mid(0, left, right);
 	}
 	
+	/**
+	 * Tests if a coordinate range touches a position (overlaps or is adjacent).
+	 *
+	 * @param a1 Range start coordinate
+	 * @param b1 Range end coordinate
+	 * @param p Position to test
+	 * @return true if position touches or overlaps the range
+	 */
 	public static boolean touch(int a1, int b1, int p){
 		assert(a1<=b1) : a1+", "+b1+", "+p;
 		return p<=b1+1 && p>=a1-1;
 	}
 	
 	//Adjacent or overlapping
+	/**
+	 * Tests if two coordinate ranges touch (overlap or are adjacent).
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return true if ranges touch or overlap
+	 */
 	public static boolean touch(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1+1 && b2>=a1-1;
 	}
 	
+	/**
+	 * Tests if a position is adjacent to a coordinate range.
+	 *
+	 * @param a1 Range start coordinate
+	 * @param b1 Range end coordinate
+	 * @param p Position to test
+	 * @return true if position is exactly adjacent to range boundary
+	 */
 	public static boolean adjacent(int a1, int b1, int p){
 		assert(a1<=b1) : a1+", "+b1+", "+p;
 		return p==b1+1 || p==a1-1;
 	}
 	
 	//Touch but don't overlap
+	/**
+	 * Tests if two coordinate ranges are adjacent but don't overlap.
+	 *
+	 * @param a1 First range start
+	 * @param b1 First range end
+	 * @param a2 Second range start
+	 * @param b2 Second range end
+	 * @return true if ranges touch but don't overlap
+	 */
 	public static boolean adjacent(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2==b1+1 || b2==a1-1;
@@ -332,6 +531,12 @@ public class Range implements Comparable<Range>, Cloneable{
 		return ranges.isEmpty() ? null : ranges.toArray(new Range[ranges.size()]);//These are still empty and need to be populated.
 	}
 	
+	/**
+	 * Associates features with ranges that overlap them.
+	 * Populates each range's obj1 field with a list of overlapping features.
+	 * @param ranges Array of ranges to populate
+	 * @param features List of features to associate with ranges
+	 */
 	public static <K extends Feature> void populateRanges(Range[] ranges, ArrayList<K> features) {
 		for(K f : features) {
 			//TODO: I could maintain a start that occasionally gets incremented rather than
@@ -352,6 +557,14 @@ public class Range implements Comparable<Range>, Cloneable{
 		}
 	}
 	
+	/**
+	 * Finds the index of the range containing a specific position.
+	 * Uses binary search for efficiency on sorted range arrays.
+	 *
+	 * @param p Position to search for
+	 * @param ranges Sorted array of ranges
+	 * @return Index of containing range, or negative insertion point if not found
+	 */
 	public static int findIndex(int p, Range[] ranges) {
 		final int x=findIndexBinary(p, ranges);
 //		final int y=findIndexLinear(p, ranges);
@@ -362,6 +575,14 @@ public class Range implements Comparable<Range>, Cloneable{
 		return x;
 	}
 	
+	/**
+	 * Linear search implementation for finding range index.
+	 * Used for debugging and verification against binary search.
+	 *
+	 * @param p Position to search for
+	 * @param ranges Array of ranges
+	 * @return Index of containing range, or negative insertion point if not found
+	 */
 	private static int findIndexLinear(int p, Range[] ranges) {
 		if(verbose) {System.err.println("findIndexLinear("+p+", ranges)");}
 //		if(ranges==null) {return -1;}
@@ -381,6 +602,14 @@ public class Range implements Comparable<Range>, Cloneable{
 		return -ranges.length-1;
 	}
 	
+	/**
+	 * Binary search implementation for finding range index.
+	 * More efficient than linear search for large range arrays.
+	 *
+	 * @param p Position to search for
+	 * @param ranges Sorted array of ranges
+	 * @return Index of containing range, or negative insertion point if not found
+	 */
 	private static int findIndexBinary(int p, Range[] ranges) {
 //		final int idxl=findIndexLinear(p, ranges);
 //		if(ranges==null) {return -1;}
@@ -455,6 +684,12 @@ public class Range implements Comparable<Range>, Cloneable{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a string representation into a Range object.
+	 * Accepts various formats including single positions and ranges with separators.
+	 * @param s String to parse (e.g., "100", "100-200", "[100-200]")
+	 * @return Range object representing the parsed coordinates
+	 */
 	public static Range toRange(String s){
 		String[] s2=s.replace("[","").replace("]","").replace("(","").replace(")","").replace(",","").split("-");
 		
@@ -587,10 +822,14 @@ public class Range implements Comparable<Range>, Cloneable{
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Start coordinate of the range (inclusive) */
 	public int a;
+	/** End coordinate of the range (inclusive) */
 	public int b;
 
+	/** Optional object associated with this range */
 	public Object obj1=null;
+	/** Debug flag for verbose output during range operations */
 	public static final boolean verbose=false;
 	
 }

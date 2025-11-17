@@ -1,7 +1,18 @@
 package dna;
 
+/**
+ * Simple DNA motif implementation supporting exact and extended nucleotide matching.
+ * Handles standard ACGT bases and IUPAC extended nucleotide codes for pattern searching.
+ * Uses byte arrays for efficient sequence matching with case-insensitive comparisons.
+ * @author Brian Bushnell
+ */
 public class MotifSimple extends Motif {
 	
+	/**
+	 * Test program demonstrating motif matching functionality.
+	 * Creates a motif from first argument and counts matches in second argument.
+	 * @param args Command-line arguments: [motif_pattern] [sequence_to_search]
+	 */
 	public static void main(String args[]){
 		
 		String s1="ATN";
@@ -18,6 +29,14 @@ public class MotifSimple extends Motif {
 		System.out.println(x+" matches.");
 	}
 	
+	/**
+	 * Constructs a motif from a DNA sequence string with specified center position.
+	 * Converts sequence to uppercase and lowercase byte arrays, determines if extended
+	 * nucleotides are present, and pre-computes numeric representations for matching.
+	 *
+	 * @param s DNA sequence string containing the motif pattern
+	 * @param cen Center position within the motif for alignment purposes
+	 */
 	public MotifSimple(String s, int cen){
 		super(s, s.length(), cen);
 		
@@ -86,11 +105,18 @@ public class MotifSimple extends Motif {
 	}
 	
 
+	/** Motif sequence as uppercase ASCII bytes for case-insensitive matching */
 	public final byte[] lettersUpper;
+	/** Motif sequence as lowercase ASCII bytes for case-insensitive matching */
 	public final byte[] lettersLower;
+	/** Numeric representation of motif bases for standard ACGT matching */
 	public final byte[] numbers;
+	/** Extended numeric representation supporting IUPAC nucleotide codes */
 	public final byte[] numbersExtended;
 	
+	/**
+	 * Flag indicating whether motif contains extended nucleotide codes beyond ACGT
+	 */
 	public final boolean extended;
 	
 }

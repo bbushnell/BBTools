@@ -6,9 +6,28 @@ import shared.Timer;
 import shared.Tools;
 import stream.SamLine;
 
+/**
+ * Utility to split SAM files into separate files based on read strand orientation.
+ * Separates mapped reads into plus-strand and minus-strand files, with unmapped reads
+ * going to a third file. Optionally includes SAM headers in output files.
+ * @author Brian Bushnell
+ */
 public class SplitSamFile {
 	
 	
+	/**
+	 * Program entry point for SAM file splitting by strand.
+	 * Processes command-line arguments and performs the split operation.
+	 *
+	 * Arguments:
+	 * - args[0]: Input SAM file path
+	 * - args[1]: Output file for plus-strand reads (optional)
+	 * - args[2]: Output file for minus-strand reads (optional)
+	 * - args[3]: Output file for unmapped reads (optional)
+	 * - args[4]: "header" to include SAM headers in outputs (optional)
+	 *
+	 * @param args Command-line arguments specifying input and output files
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -83,5 +102,6 @@ public class SplitSamFile {
 		
 	}
 	
+	/** Controls whether SAM headers are included in output files */
 	private static boolean includeHeader=false;
 }

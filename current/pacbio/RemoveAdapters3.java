@@ -31,6 +31,11 @@ import tracker.ReadStats;
  */
 public class RemoveAdapters3 {
 
+	/**
+	 * Program entry point for adapter removal.
+	 * Parses command-line arguments and initiates the processing pipeline.
+	 * @param args Command-line arguments including input files, output paths, and parameters
+	 */
 	public static void main(String[] args){
 		
 		boolean verbose=false;
@@ -142,6 +147,15 @@ public class RemoveAdapters3 {
 		process(cris, ros, query, splitReads);
 	}
 	
+	/**
+	 * Main processing pipeline for adapter removal.
+	 * Creates worker threads, manages I/O streams, and coordinates the removal process.
+	 *
+	 * @param cris Input read stream
+	 * @param ros Output read stream (may be null)
+	 * @param query Adapter sequence to search for
+	 * @param split Whether to split reads at adapter locations
+	 */
 	public static void process(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, String query, boolean split){
 
 		Timer t=new Timer();
@@ -190,6 +204,11 @@ public class RemoveAdapters3 {
 		
 	}
 	
+	/**
+	 * Aggregates and prints processing statistics from all worker threads.
+	 * Reports adapter detection counts, accuracy metrics, and false positive/negative rates.
+	 * @param pts Array of processing threads to collect statistics from
+	 */
 	public static void printStatistics(ProcessThread[] pts){
 
 		long plusAdaptersFound=0;
@@ -237,8 +256,23 @@ public class RemoveAdapters3 {
 		
 	}
 	
+	/**
+	 * Worker thread that processes reads for adapter removal.
+	 * Performs sequence alignment, adapter detection, and read modification.
+	 * Each thread maintains its own alignment objects and statistics counters.
+	 */
 	private static class ProcessThread extends Thread{
 		
+		/**
+		 * Constructs a ProcessThread with alignment parameters and I/O streams.
+		 * Initializes alignment matrices, score thresholds, and reverse-complement buffers.
+		 *
+		 * @param cris_ Input read stream
+		 * @param ros_ Output read stream
+		 * @param minRatio_ Minimum alignment score ratio for adapter detection
+		 * @param query_ Adapter sequence to search for
+		 * @param split_ Whether to split reads at adapter locations
+		 */
 		public ProcessThread(ConcurrentReadInputStream cris_,
 				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_) {
 			cris=cris_;
@@ -526,41 +560,80 @@ public class RemoveAdapters3 {
 			return r;
 		}
 		
+		/** Reusable buffer for sequence padding operations */
 		private byte[] padbuffer=null;
+		/** Buffer for reverse-complement testing of left flanking sequence */
 		private final byte[] rcomp1, rcomp2;
+		/** Forward adapter sequence in byte array format */
 		private final byte[] query1, query2;
+		/** Input stream for reading sequences */
 		private final ConcurrentReadInputStream cris;
+		/** Output stream for writing processed sequences */
 		private final ConcurrentReadOutputStream ros;
+		/** Minimum alignment score ratio for this thread */
 		private final float minRatio;
+		/** Alignment object optimized for PacBio adapter detection */
 		private final MultiStateAligner9PacBioAdapter msa;
+		/** Standard alignment object for reverse-complement validation */
 		private final MultiStateAligner9PacBio msaR;
+		/** Number of rows in alignment matrix */
 		private final int ALIGN_ROWS;
+		/** Number of columns in alignment matrix */
 		private final int ALIGN_COLUMNS;
+		/** Step size for sliding window alignment (95% of adapter length) */
 		private final int stride;
+		/** Window size for alignment operations (2.5x adapter length + 10) */
 		private final int window;
+		/** Whether this thread should split reads at adapter locations */
 		private final boolean SPLIT;
 
+		/** Count of forward-orientation adapters detected by this thread */
 		long plusAdaptersFound=0;
+		/** Count of reverse-orientation adapters detected by this thread */
 		long minusAdaptersFound=0;
+		/** Count of reads without adapters processed by this thread */
 		long goodReadsFound=0;
+		/** Count of reads with adapters detected by this thread */
 		long badReadsFound=0;
+		/**
+		 * Count of correctly identified adapter-containing reads (for synthetic data)
+		 */
 		long truepositive=0;
+		/** Count of correctly identified clean reads (for synthetic data) */
 		long truenegative=0;
+		/**
+		 * Count of incorrectly identified adapter-containing reads (for synthetic data)
+		 */
 		long falsepositive=0;
+		/** Count of missed adapter-containing reads (for synthetic data) */
 		long falsenegative=0;
+		/** Count of reads expected to contain adapters (for synthetic data) */
 		long expected=0;
+		/** Count of reads not expected to contain adapters (for synthetic data) */
 		long unexpected=0;
 		
+		/** Maximum possible alignment score for the adapter sequence */
 		private final int maxSwScore;
+		/** Minimum alignment score required for high-confidence adapter detection */
 		private final int minSwScore;
+		/** Minimum alignment score for suspect adapter detection (lower threshold) */
 		private final int minSwScoreSuspect;
+		/** Minimum alignment score for reverse-complement validation */
 		private final int minSwScoreRcomp;
+		/** Maximum alignment score for imperfect matches */
 		private final int maxImperfectSwScore;
 		
+		/** Count of synthetic (simulated) reads processed by this thread */
 		long syntheticReads=0;
 		
 	}
 	
+	/**
+	 * Removes discarded reads from the list by setting them to null.
+	 * Maintains list structure while marking unwanted reads for cleanup.
+	 * @param list List of reads to filter
+	 * @return Number of reads removed
+	 */
 	private static int removeDiscarded(ArrayList<Read> list){
 		int removed=0;
 		for(int i=0; i<list.size(); i++){
@@ -575,23 +648,40 @@ public class RemoveAdapters3 {
 		return removed;
 	}
 
+	/** Controls whether reads with detected adapters are written to output */
 	public static boolean DONT_OUTPUT_BROKEN_READS;
 	/** Permission to overwrite existing files */
 	private static boolean overwrite=true;
 	/** Permission to append to existing files */
 	private static boolean append=false;
+	/** Number of worker threads for parallel processing */
 	private static int THREADS=Shared.LOGICAL_PROCESSORS;
+	/** Whether to write processed reads to output files */
 	private static boolean OUTPUT_READS=false;
+	/** Whether to maintain input order in output */
 	private static boolean ordered=false;
+	/** Perfect mode flag for enhanced accuracy */
 	private static boolean PERFECTMODE=false;
+	/**
+	 * Minimum alignment score ratio for adapter detection (default 0.31f for ~1% FP, 94% TP)
+	 */
 	private static float MINIMUM_ALIGNMENT_SCORE_RATIO=0.31f; //0.31f: At 250bp reads, approx 0.01% false-positive and 94% true-positive.
+	/** Enable reverse-complement testing for adapter validation */
 	public static boolean RCOMP=true;
+	/** Number of 'N' bases to pad sequences for alignment boundary protection */
 	private static int npad=35;
+	/** Minimum length of contiguous sequence to retain when splitting reads */
 	public static int minContig=20;
+	/** Maximum distance between suspected adapter locations for clustering */
 	public static int suspectDistance=100;
+	/** Length of flanking sequences to compare for reverse-complement validation */
 	public static int rcompDistance=80;
 	
+	/** Default PacBio adapter sequence for removal */
 	public static final String pacbioAdapter="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT";
+	/**
+	 * PacBio standard v1 adapter sequence (longer version with additional elements)
+	 */
 	public static final String pacbioStandard_v1="TCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAGAAGGCTGGGCAGGCTATGCACCCTGGTCCAGGTCAAA" +
 			"AGCTGCGGAACCCGCTAGCGGCCATCTTGGCCACTAGGGGTCCCGCAGATTCATATTGTCGTCTAGCATGCACAATGCTGCAAACCCAGCTTGCAATGCCCACAGCA" +
 			"AGCGGCCAATCTTTACGCCACGTTGAATTGTTTATTACCTGTGACTGGCTATGGCTTGCAACGCCACTCGTAAAACTAGTACTTTGCGGTTAGGGGAAGTAGACAAA" +

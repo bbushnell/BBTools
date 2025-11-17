@@ -12,6 +12,15 @@ import shared.Tools;
  */
 public class AssemblyStatsWrapper {
 	
+	/**
+	 * Main entry point for the assembly statistics wrapper.
+	 * Processes command-line arguments to separate input files from parameters,
+	 * then iteratively runs AssemblyStats2 on each input file with consistent
+	 * parameter configuration. Handles comma-separated file lists and manages
+	 * output headers and appending for multi-file processing.
+	 *
+	 * @param args Command-line arguments containing file paths and parameters
+	 */
 	public static void main(String[] args){
 		ArrayList<String> alist=new ArrayList<String>();
 		ArrayList<String> ilist=new ArrayList<String>();

@@ -4,9 +4,22 @@ import dna.Data;
 import dna.Gene;
 import shared.Shared;
 
+/**
+ * Represents a genomic coordinate chain for genome-to-genome coordinate translation.
+ * Stores mapping information between target and query coordinate systems with
+ * chromosome, strand, and position data for both reference and query sequences.
+ * Supports binary search operations and coordinate transformations between genome builds.
+ *
+ * @author Brian Bushnell
+ */
 public class ChainLine implements Comparable<ChainLine> {
 	
 	
+	/**
+	 * Program entry point for testing coordinate translation functionality.
+	 * Loads chain file and translates coordinate positions from command line arguments.
+	 * @param args Command-line arguments: chromosome name followed by coordinates to translate
+	 */
 	public static void main(String[] args){
 
 		int chrom=Gene.toChromosome(args[0]);
@@ -23,6 +36,18 @@ public class ChainLine implements Comparable<ChainLine> {
 	}
 	
 	
+	/**
+	 * Constructs a ChainLine with target and query coordinate information.
+	 *
+	 * @param chromT Target chromosome number
+	 * @param strandT Target strand (+ or -)
+	 * @param startT Target start coordinate
+	 * @param stopT Target stop coordinate
+	 * @param chromQ Query chromosome number
+	 * @param strandQ Query strand (+ or -)
+	 * @param startQ Query start coordinate
+	 * @param stopQ Query stop coordinate
+	 */
 	public ChainLine(int chromT, byte strandT, int startT, int stopT, int chromQ, byte strandQ, int startQ, int stopQ){
 		tChrom=chromT;
 		tStrand=strandT;
@@ -43,11 +68,27 @@ public class ChainLine implements Comparable<ChainLine> {
 	}
 	
 	
+	/**
+	 * Performs binary search to find ChainLine containing the specified location.
+	 * @param loc Target coordinate to search for
+	 * @param array Sorted array of ChainLine objects
+	 * @return Index of ChainLine containing the location, or -1 if not found
+	 */
 	public static int binarySearch(int loc, ChainLine[] array){
 		return binarySearch(loc, array, 0, array.length-1);
 	}
 	
 	
+	/**
+	 * Recursive binary search implementation with specified bounds.
+	 * Searches for ChainLine containing the target location within array range.
+	 *
+	 * @param loc Target coordinate to search for
+	 * @param array Sorted array of ChainLine objects
+	 * @param first Starting index for search range
+	 * @param last Ending index for search range
+	 * @return Index of ChainLine containing the location, or -1 if not found
+	 */
 	public static int binarySearch(int loc, ChainLine[] array, int first, int last){
 //		if(first>=last){
 //			if(first>last){return -1;}
@@ -72,6 +113,12 @@ public class ChainLine implements Comparable<ChainLine> {
 		return cl.translate(loc);
 	}
 		
+	/**
+	 * Translates a single coordinate from target to query coordinate system.
+	 * Handles both plus and minus strand transformations with proper coordinate arithmetic.
+	 * @param loc Target coordinate to translate
+	 * @return Array containing {qChrom, qStrand, translated_coordinate} or null if invalid
+	 */
 	public int[] translate(int loc){
 		if(loc<tStart || loc>tStop){return null;}
 //		assert(loc>=tStart && loc<=tStop);
@@ -85,12 +132,23 @@ public class ChainLine implements Comparable<ChainLine> {
 	}
 	
 	
+	/**
+	 * Checks if the target coordinate range [a,b] is completely contained within this ChainLine.
+	 * @param a Start of coordinate range
+	 * @param b End of coordinate range
+	 * @return true if range is completely contained, false otherwise
+	 */
 	public boolean contains(int a, int b){
 		assert(b>=a);
 		return a>=tStart && b<=tStop;
 	}
 	
 	
+	/**
+	 * Checks if the specified coordinate falls within this ChainLine's target range.
+	 * @param a Coordinate to test
+	 * @return true if coordinate is within tStart to tStop range, false otherwise
+	 */
 	public boolean contains(int a){
 		return a>=tStart && a<=tStop;
 	}
@@ -112,14 +170,22 @@ public class ChainLine implements Comparable<ChainLine> {
 		return temp;
 	}
 	
+	/** Target chromosome number */
 	public int tChrom;
+	/** Target strand orientation (+ or -) */
 	public byte tStrand;
+	/** Target sequence start coordinate */
 	public int tStart;
+	/** Target sequence stop coordinate */
 	public int tStop;
 	
+	/** Query chromosome number */
 	public int qChrom;
+	/** Query strand orientation (+ or -) */
 	public byte qStrand;
+	/** Query sequence start coordinate */
 	public int qStart;
+	/** Query sequence stop coordinate */
 	public int qStop;
 	
 }

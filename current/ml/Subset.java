@@ -8,8 +8,19 @@ import shared.Shared;
 import shared.Tools;
 import structures.FloatList;
 
+/**
+ * Manages subsets of machine learning training samples for neural network training.
+ * Separates samples into positive and negative classes and provides methods for
+ * sorting, triaging, and shuffling samples to improve training efficiency.
+ * @author Brian Bushnell
+ */
 public class Subset {
 
+	/**
+	 * Creates a subset by separating samples into positive and negative classes.
+	 * Samples with goal[0] >= 0.5 are classified as positive, others as negative.
+	 * @param sampleList List of training samples to partition
+	 */
 	public Subset(ArrayList<Sample> sampleList) {
 		final Sample[] x=new Sample[0];
 		final ArrayList<Sample> pos=new ArrayList<Sample>();
@@ -28,6 +39,12 @@ public class Subset {
 	}
 	
 	//Sorts the samples by error magnitude, then interleaves positive and negative errors
+	/**
+	 * Sorts samples by error magnitude then interleaves positive and negative samples.
+	 * Only sorts the specified fraction of each class to optimize performance.
+	 * @param fraction Fraction of samples to sort (0.0-1.0)
+	 * @param allowMultithreadedSort Whether to use parallel sorting
+	 */
 	void sortSamples(float fraction, boolean allowMultithreadedSort) {
 		fraction=(Tools.min(fraction, 1f));
 //		for(Sample s : samples) {
@@ -71,6 +88,16 @@ public class Subset {
 	}
 	
 	//Sorts the samples by error magnitude, then interleaves positive and negative errors
+	/**
+	 * Advanced sorting that limits both the fraction sorted and total samples used.
+	 * Supports pivot-based sorting for improved performance with large datasets.
+	 * Interleaves positive and negative samples after sorting.
+	 *
+	 * @param sortFraction Fraction of samples to sort (0.0-1.0)
+	 * @param useSamples Maximum number of samples to use from each class
+	 * @param allowMultithreadedSort Whether to use parallel sorting
+	 * @param pivots Reusable FloatList for storing pivot values during sorting
+	 */
 	void sortSamples2(float sortFraction, int useSamples, boolean allowMultithreadedSort, FloatList pivots) {
 		sortFraction=(Tools.min(sortFraction, 1f));
 //		for(Sample s : samples) {
@@ -168,6 +195,16 @@ public class Subset {
 //			samples[0].pivot+", "+samples[lim].pivot+", "+samples[samples.length-1].pivot;
 	}
 	
+	/**
+	 * Temporarily removes difficult samples from training to improve convergence.
+	 * Sorts samples by error and sends worst-performing samples to future epochs,
+	 * preventing them from interfering with current training progress.
+	 *
+	 * @param currentEpoch Current training epoch number
+	 * @param startTriage Epoch when triage should begin
+	 * @param positiveTriage Fraction of positive samples to triage (0.0-1.0)
+	 * @param negativeTriage Fraction of negative samples to triage (0.0-1.0)
+	 */
 	void triage(long currentEpoch, long startTriage, float positiveTriage, float negativeTriage) {
 		assert(currentEpoch>=startTriage);
 		if(positiveTriage<=0 && negativeTriage<=0) {return;}
@@ -200,6 +237,8 @@ public class Subset {
 		}
 	}
 	
+	/** Randomly shuffles the order of samples using Fisher-Yates algorithm.
+	 * Uses internal Random generator with incrementing seed for reproducibility. */
 	void shuffle() {
 //		Random randy=new Random(numShuffles);
 		for(int i=0; i<samples.length; i++) {
@@ -210,18 +249,26 @@ public class Subset {
 		}
 		numShuffles++;
 	}
+	/** Resets subset state to initial conditions for new training run.
+	 * Clears epoch tracking and resets random number generator seed. */
 	public void reset() {
 		nextFullPassEpoch=-1;
 		numShuffles=0;
 		randy.setSeed(0);
 	}
 	
+	/** All training samples in interleaved positive/negative order */
 	final Sample[] samples;
+	/** Samples classified as positive (goal[0] >= 0.5) */
 	final Sample[] positive;
+	/** Samples classified as negative (goal[0] < 0.5) */
 	final Sample[] negative;
+	/** Random number generator for sample shuffling with deterministic seed */
 	private final Random randy=new Random(0);
 	
+	/** Epoch number for next complete pass through all samples */
 	int nextFullPassEpoch=-1;
+	/** Counter for number of times samples have been shuffled */
 	int numShuffles=0;
 	
 }

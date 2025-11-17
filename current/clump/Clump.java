@@ -18,6 +18,12 @@ import structures.ByteBuilder;
  */
 public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
+	/**
+	 * Factory method to create a new Clump with memory error protection.
+	 * Handles OutOfMemoryError by calling KillSwitch memory management.
+	 * @param kmer The k-mer value shared by reads in this clump
+	 * @return New Clump instance for the specified k-mer
+	 */
 	public static Clump makeClump(long kmer){
 		try {
 			return new Clump(kmer);
@@ -27,10 +33,17 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		}
 	}
 	
+	/** Private constructor with default initial capacity of 4.
+	 * @param kmer_ The k-mer value for this clump */
 	private Clump(long kmer_){
 		this(kmer_, 4);
 	}
 
+	/**
+	 * Private constructor with specified initial capacity.
+	 * @param kmer_ The k-mer value for this clump
+	 * @param size Initial capacity for the ArrayList
+	 */
 	private Clump(long kmer_, int size){
 		super(size);
 		kmer=kmer_;
@@ -44,6 +57,8 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return super.add(r);
 	}
 	
+	/** Calculates maximum left and right extensions and total width of the clump.
+	 * Sets maxLeft, maxRight, and width fields based on read positions. */
 	private void setMaxima(){
 		maxLeft=-1;
 		maxRight=-1;
@@ -86,6 +101,14 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generates consensus sequence from all reads in the clump.
+	 * Uses base counts and quality scores to determine most likely base at each position.
+	 * Handles tie-breaking between bases with equal quality by using base counts.
+	 * Calculates quality scores based on consensus confidence and substitution ratios.
+	 *
+	 * @return Consensus read representing the most likely sequence
+	 */
 	public Read makeSimpleConsensus(){
 //		assert(Splitter.findBestPivot(this)<0) : Splitter.findBestPivot(this); //TODO: Slow
 		if(size()==1){
@@ -157,6 +180,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes duplicate reads using sequence comparison and optical distance filtering.
+	 * Supports multiple sorting strategies (X, Y coordinates) for optical duplicate detection.
+	 * Iteratively processes duplicates with increasing scan limits until convergence.
+	 * @return Total number of duplicate reads removed
+	 */
 	public int removeDuplicates(){
 		assert(KmerComparator.compareSequence);
 		if(size()<2){return 0;}
@@ -489,6 +518,17 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 //		return dist<=maxDist;
 //	}
 	
+	/**
+	 * Determines if two reads are duplicates based on sequence similarity.
+	 * Supports both exact matching and containment modes.
+	 * Compares both reads and their mates if present.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @param maxSubs Maximum substitutions allowed
+	 * @param dupeSubRate Maximum substitution rate (overrides maxSubs if higher)
+	 * @return true if reads are considered duplicates
+	 */
 	public static boolean equals(Read a, Read b, int maxSubs, float dupeSubRate){
 		if(a.numericID==b.numericID){return false;}
 		if(dupeSubRate>0){maxSubs=Tools.max(maxSubs, (int)(dupeSubRate*Tools.min(a.length(), b.length())));}
@@ -500,6 +540,15 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return true;
 	}
 	
+	/**
+	 * Compares two base arrays for sequence equality within substitution tolerance.
+	 * Optionally allows N bases to match any other base.
+	 *
+	 * @param a First sequence to compare
+	 * @param b Second sequence to compare
+	 * @param maxSubs Maximum substitutions allowed
+	 * @return true if sequences are equal within tolerance
+	 */
 	public static boolean equals(byte[] a, byte[] b, int maxSubs){
 		if(a==b){return false;}//Nothing should subsume itself
 		if(a==null || b==null){return false;}
@@ -523,6 +572,15 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return true;
 	}
 	
+	/**
+	 * Determines if one read contains another (containment relationship).
+	 * Checks both sequence containment and strand consistency for paired reads.
+	 *
+	 * @param a Potentially containing read
+	 * @param b Potentially contained read
+	 * @param maxSubs Maximum substitutions allowed in overlap
+	 * @return true if read a contains read b
+	 */
 	public static boolean contains(Read a, Read b, int maxSubs){
 		if(a.numericID==b.numericID){return false;}
 		boolean ok=contains_inner(a, b, maxSubs);
@@ -536,6 +594,16 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return ((rka1.kmerMinusStrand==rkb1.kmerMinusStrand) && (rka2.kmerMinusStrand==rkb2.kmerMinusStrand)); //Ensures that both reads have the same directionality.
 	}
 	
+	/**
+	 * Core containment logic for single reads.
+	 * Handles strand flipping to test containment in both orientations.
+	 * Uses read keys to determine physical containment based on k-mer positions.
+	 *
+	 * @param a Potentially containing read
+	 * @param b Potentially contained read
+	 * @param maxSubs Maximum substitutions allowed
+	 * @return true if a contains b within substitution tolerance
+	 */
 	public static boolean contains_inner(Read a, Read b, int maxSubs){
 //		if(a.length()==b.length()){return equals(a.bases, b.bases, maxSubs);}
 		ReadKey rka=(ReadKey)a.obj;
@@ -567,6 +635,17 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return ok;
 	}
 	
+	/**
+	 * Tests if sequence a contains sequence b at specified positions.
+	 * Aligns sequences based on position offsets and counts mismatches.
+	 *
+	 * @param a Longer sequence that might contain b
+	 * @param b Shorter sequence to test for containment
+	 * @param posA Position offset in sequence a
+	 * @param posB Position offset in sequence b
+	 * @param maxSubs Maximum substitutions allowed in overlap
+	 * @return true if a contains b within substitution tolerance
+	 */
 	public static boolean contains(byte[] a, byte[] b, int posA, int posB, int maxSubs){
 		if(a==null || b==null){return false;}
 		assert(a.length>=b.length);
@@ -606,6 +685,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Splits large clumps and performs error correction on each piece.
+	 * Uses Splitter to divide clumps that exceed minimum size threshold.
+	 * @return Total number of corrections made across all split clumps
+	 */
 	public long splitAndErrorCorrect(){
 		if(size()<Splitter.minSizeSplit){
 			return errorCorrect();
@@ -618,6 +702,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return sum;
 	}
 	
+	/**
+	 * Performs error correction on all reads in the clump using consensus.
+	 * Generates consensus sequence and corrects individual reads against it.
+	 * Only processes clumps with sufficient read count for reliable correction.
+	 * @return Total number of base corrections made
+	 */
 	public long errorCorrect(){
 		if(size()<=minCountCorrect){return 0;}
 //		assert(Splitter.findBestPivot(this)<0); //TODO: Slow
@@ -630,6 +720,16 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return sum;
 	}
 	
+	/**
+	 * Corrects errors in a single read using consensus as reference.
+	 * Compares read against consensus and corrects bases with low support.
+	 * Updates both sequence and quality scores based on clump statistics.
+	 *
+	 * @param call The read to be corrected
+	 * @param ref Consensus read used as reference
+	 * @param rvector Reusable array for identity calculation
+	 * @return Number of corrections made to this read
+	 */
 	private int errorCorrect(Read call, Read ref, int[] rvector){
 
 //		assert(call.validated());
@@ -739,6 +839,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	/*--------------------------------------------------------------*/
 	
 	//Only used by condense mode.
+	/**
+	 * Creates consensus reads for condense mode processing.
+	 * Splits large clumps and generates consensus for each piece.
+	 * @return List containing consensus reads from split clumps
+	 */
 	public ArrayList<Read> makeConsensus(){
 		if(size()==1){
 			Read r=get(0);
@@ -758,6 +863,15 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calculates sequence identity between a read and reference sequence.
+	 * Counts matching and mismatching defined bases, ignoring N bases.
+	 *
+	 * @param call Read to compare against reference
+	 * @param rbases Reference sequence bases
+	 * @param rvector Output array [good_matches, bad_matches]
+	 * @return Identity fraction (matches / total_comparisons)
+	 */
 	private float identity(Read call, byte[] rbases, int[] rvector){
 		ReadKey key=(ReadKey) call.obj;
 		final int pos=key.position;
@@ -779,6 +893,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calculates total count across all bases at a specific position.
+	 * @param counts Base count matrix [base][position]
+	 * @param pos Position to sum across bases
+	 * @return Sum of all base counts at the position
+	 */
 	long getSumAtPosition(int[][] counts, int pos){
 		long sum=0;
 		for(int x=0; x<4; x++){
@@ -787,6 +907,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return sum;
 	}
 	
+	/**
+	 * Finds the most frequent base at a specific position.
+	 * @param counts Base count matrix [base][position]
+	 * @param pos Position to analyze
+	 * @return Base number (0-3 for A,C,G,T) with highest count, or -1 if no counts
+	 */
 	byte getConsensusAtPosition(int[][] counts, int pos){
 		byte xMax=0;
 		for(byte x=1; x<4; x++){
@@ -800,6 +926,14 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return (counts[xMax][pos]>0 ? xMax : -1);
 	}
 	
+	/**
+	 * Finds the second most frequent base at a specific position.
+	 * Used for tie-breaking and confidence calculations in consensus generation.
+	 *
+	 * @param counts Base count matrix [base][position]
+	 * @param pos Position to analyze
+	 * @return Base number with second highest count
+	 */
 	byte getSecondHighest(int[][] counts, int pos){
 		byte first=0;
 		byte second=1;
@@ -826,6 +960,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates staggered alignment view of all reads in the clump.
+	 * Shows reads positioned according to their k-mer offsets for visual inspection.
+	 * @return String representation with reads aligned by position
+	 */
 	public String toStringStaggered(){
 		ByteBuilder sb=new ByteBuilder();
 		for(Read r : this){
@@ -840,6 +979,8 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return sb.toString();
 	}
 	
+	/** Returns cached consensus read, creating it if necessary.
+	 * @return Consensus read for this clump */
 	public Read consensusRead(){
 		if(consensusRead==null){
 			consensusRead=makeSimpleConsensus();
@@ -847,16 +988,22 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return consensusRead;
 	}
 	
+	/** Gets the total width of the clump alignment.
+	 * @return Width in bases spanning all reads in the clump */
 	public int width(){
 		assert(width>=0) : width;
 		return width;
 	}
 	
+	/** Gets maximum left extension from k-mer position.
+	 * @return Maximum number of bases to the left of the k-mer */
 	public int maxLeft(){
 		assert(maxLeft>=0);
 		return maxLeft;
 	}
 	
+	/** Gets maximum right extension from k-mer position.
+	 * @return Maximum number of bases to the right of the k-mer */
 	public int maxRight(){
 		assert(maxRight>=0);
 		return maxRight;
@@ -864,6 +1011,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Gets or creates base count matrix for the clump.
+	 * Lazy initialization - computes counts on first access.
+	 * @return 2D array [base][position] with base counts
+	 */
 	int[][] baseCounts(){
 		if(baseCounts==null){
 			baseCounts=count(false);
@@ -873,6 +1025,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return baseCounts;
 	}
 	
+	/**
+	 * Gets or creates quality sum matrix for the clump.
+	 * Lazy initialization - computes quality sums on first access.
+	 * @return 2D array [base][position] with quality sums
+	 */
 	int[][] qualityCounts(){
 		if(qualityCounts==null){
 			qualityCounts=count(true);
@@ -882,6 +1039,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return qualityCounts;
 	}
 	
+	/**
+	 * Gets or creates quality average matrix for the clump.
+	 * Calculates average quality per base per position.
+	 * @return 2D array [base][position] with quality averages
+	 */
 	float[][] qualityAverages(){
 		if(qualityAverages==null){
 			qualityAverages=new float[4][width];
@@ -896,11 +1058,15 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return qualityAverages;
 	}
 
+	/** Clears cached count matrices to free memory.
+	 * Forces recalculation on next access to count methods. */
 	void clearCounts(){
 		baseCounts=qualityCounts=null;
 		qualityAverages=null;
 	}
 	
+	/** Clears cached consensus read.
+	 * Forces regeneration on next access to consensusRead(). */
 	private void clearConsensus(){
 		consensusRead=null;
 	}
@@ -925,24 +1091,41 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** The k-mer value shared by all reads in this clump */
 	public final long kmer;
 	
+	/** Total width of the alignment spanning all reads */
 	private int width=-1;
+	/** Maximum extension to the left of the k-mer position */
 	private int maxLeft=-1;
+	/** Maximum extension to the right of the k-mer position */
 	private int maxRight=-1;
 	
+	/** Cached matrix of base counts at each position [base][position] */
 	private int[][] baseCounts;
+	/** Cached matrix of quality score sums at each position [base][position] */
 	private int[][] qualityCounts;
+	/** Cached matrix of average quality scores at each position [base][position] */
 	private float[][] qualityAverages;
 	
+	/** Cached consensus read generated from all reads in the clump */
 	private Read consensusRead;
 	
+	/** Returns whether quality scores are being used in analysis */
 	boolean useQuality(){return useQuality;}
+	/** Whether to use quality scores in consensus and error correction */
 	private boolean useQuality=true;
 	
+	/** Flag indicating whether this clump has been added to processing queue */
 	boolean added=false;
 	
+	/** Estimated memory overhead per Clump instance in bytes */
 	public static final int overhead=overhead();
+	/**
+	 * Calculates memory overhead for a Clump instance.
+	 * Includes object header, backing array, and field storage costs.
+	 * @return Estimated memory overhead in bytes
+	 */
 	private static int overhead(){
 		return 16+ //self
 				16+ //Backing array
@@ -956,6 +1139,15 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses static configuration parameters from command-line arguments.
+	 * Sets various thresholds and flags for duplicate detection and error correction.
+	 *
+	 * @param arg Full argument string
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return true if parameter was recognized and parsed
+	 */
 	public static boolean parseStatic(String arg, String a, String b){
 		if(a.equals("mincountcorrect") || a.equals("mincc")){
 			minCountCorrect=Integer.parseInt(b);
@@ -1066,6 +1258,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return true;
 	}
 	
+	/**
+	 * Switches between conservative and aggressive processing modes.
+	 * Conservative mode uses stricter thresholds for error correction and duplicate detection.
+	 * Adjusts multiple parameters simultaneously to change sensitivity.
+	 * @param newState true for conservative mode, false for aggressive mode
+	 */
 	static void setConservative(boolean newState){
 		
 		if(aggressiveFlag){return;}
@@ -1101,54 +1299,92 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Enables X/Y coordinate sorting based on tile spanning configuration.
+	 * Sets sortX and sortY flags based on ReadKey tile spanning settings. */
 	public static void setXY() {
 		if(ReadKey.spanTilesX){sortX=true;}
 		if(ReadKey.spanTilesY){sortY=true;}
 	}
 
+	/** Whether to allow N bases to match any other base in comparisons */
 	static boolean allowNs=true;
+	/** Whether to mark all reads in a duplicate group instead of keeping best */
 	static boolean markAll=false;
+	/** Whether to mark duplicates instead of removing them from clumps */
 	static boolean markOnly=false;
+	/** Whether to use only optical distance for duplicate detection */
 	static boolean opticalOnly=false;
+	/** Whether to use containment-based duplicate detection */
 	static boolean containment=false;
+	/** Whether to compare UMI sequences in duplicate detection */
 	static boolean compareUMI=false;
+	/** Maximum substitutions allowed in UMI comparisons */
 	static int umiSubs=0;
+	/** Whether to use affix matching instead of full containment */
 	static boolean affix=false;
+	/** Whether to print duplicate pairs for debugging purposes */
 	static boolean printDuplicates=false; //For debugging
 	
+	/** Whether to rename reads to include copy counts in their IDs */
 	private static boolean renameByCount=false;
+	/** Maximum number of non-matching reads to scan before stopping */
 	private static int scanLimit=5;
+	/** Maximum substitutions allowed for duplicate classification */
 	private static int maxSubstitutions=2;
+	/** Maximum substitution rate (fraction) for duplicate classification */
 	private static float dupeSubRate=0;
+	/** Maximum distance in pixels for optical duplicate detection */
 	private static float maxOpticalDistance=40;
 	
+	/** Whether to force processing even when conditions suggest skipping */
 	static boolean forceProcess=false;
+	/** Command-line flag indicating conservative mode was explicitly requested */
 	static boolean conservativeFlag=false;
+	/** Command-line flag indicating aggressive mode was explicitly requested */
 	static boolean aggressiveFlag=false;
+	/** Current operating mode - true for conservative, false for aggressive */
 	static boolean conservativeMode=false;
+	/** Whether to rename consensus reads with size information */
 	static boolean renameConsensus=false;
+	/** Minimum read count required before attempting error correction */
 	static int minCountCorrect=4; //mcc=4 was slightly better than 3
+	/** Minimum fraction of clump size required for error correction */
 	static float minSizeFractionCorrect=0.20f; //0.11 is very slightly better than 0.14
+	/** Minimum ratio of major to minor base counts for error correction */
 	static float minRatio=30.0f;
+	/** Minimum quality ratio for error correction decisions */
 	static float minQRatio=2.8f; //Does nothing?
+	/** Minimum average quality ratio for error correction */
 	static float minAQRatio=0.7f;
+	/** Offset added to ratio calculations for error correction thresholds */
 	static float minRatioOffset=1.9f; //3 is far worse than 2; 1 is better
+	/** Quality-based multiplier for ratio threshold calculations */
 	static float minRatioQMult=0.08f;
+	/** Multiplier for ratio threshold based on minor base count */
 	static float minRatioMult=1.80f; //2.5 is far worse than 2; 1.5 is better
+	/** Minimum sequence identity required for error correction */
 	static float minIdentity=0.97f; //0.98 is slightly better than 0.96; 0.94 is substantially worse
+	/** Maximum quality score adjustment allowed during error correction */
 	static byte maxQAdjust=0;
+	/** Maximum quality score of bases that can be corrected */
 	static int maxQIncorrect=Integer.MAX_VALUE;
+	/** Maximum count of incorrect bases that can be corrected */
 	static int maxCIncorrect=Integer.MAX_VALUE;
 	
+	/** Whether to sort reads by X coordinate for optical duplicate detection */
 	static boolean sortX=false; //Not needed for NextSeq
+	/** Whether to sort reads by Y coordinate for optical duplicate detection */
 	static boolean sortY=true;
+	/** Whether to force X/Y coordinate sorting regardless of other conditions */
 	static boolean forceSortXY=false; //Mainly for testing
+	/** Minimum clump size threshold for enabling X/Y coordinate sorting */
 	static int sortXYSize=6;
 	
 	/** May slightly increase speed for optical dedupe.  Can be safely disabled. */
 	static boolean sortYEarly(){return sortY && (forceSortXY || opticalOnly);}
 	
 //	private static final boolean countQuality=false;
+	/** Length of k-mers used for clump generation */
 	public static int k=31;
 	private static final long serialVersionUID = 1L;
 	

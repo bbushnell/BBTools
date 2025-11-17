@@ -16,6 +16,17 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.IntList;
 
+/**
+ * Visualizer for alignment matrices that generates ASCII representations of
+ * alignment exploration patterns and score distributions.
+ * <p>
+ * Produces text files showing how the Bridge Building Aligner (BBA) explores
+ * the dynamic programming matrix, highlighting explored cells, their scores,
+ * and the optimal alignment path.
+ *
+ * @author Brian Bushnell
+ * @date April 2024
+ */
 public class Visualizer {
 
 	/**
@@ -124,6 +135,15 @@ public class Visualizer {
 		bsw.print(bb);
 	}
 
+	/**
+	 * Prints visualization for multiple sequence alignment scoring.
+	 * Normalizes scores by match points and filters by query length.
+	 *
+	 * @param scores Array of integer scores for the current row
+	 * @param qLen Query sequence length
+	 * @param rLen Reference length
+	 * @param pointsMatch Points awarded for matches, used for normalization
+	 */
 	public void printMSA(int[] scores, int qLen, int rLen, int pointsMatch) {
 		ByteBuilder bb=new ByteBuilder(scores.length);
 		final int maxPos=Tools.maxIndex(scores);
@@ -259,6 +279,11 @@ public class Visualizer {
 	//        return symbols[Tools.mid(0, symbol, symbols.length-1)];
 	//    }
 
+	/**
+	 * Creates a mapping from ASCII character values to symbol indices.
+	 * @param symbols Array of symbol characters
+	 * @return Array mapping ASCII values to symbol positions
+	 */
 	private static int[] makeSymbolMap(byte[] symbols) {
 		int[] map=new int[128];
 		for(int i=0; i<symbols.length; i++) {
@@ -267,17 +292,24 @@ public class Visualizer {
 		return map;
 	}
 
+	/** Output stream writer for visualization data */
 	private ByteStreamWriter bsw;
 
 	// Bit field definitions
+	/** Number of bits used for position information in the score encoding */
 	private final int positionBits;
+	/** Number of bits used for deletion information in the score encoding */
 	private final int countBits;
+	/** Bit shift amount to extract score from encoded value */
 	private final int scoreShift;
 
 	/** Value representing invalid or pruned cells */
 	private static final long BAD=(Long.MIN_VALUE/2);
+	/** Whether to use absolute scoring for symbol conversion */
 	public static boolean useAbsolute=true;
+	/** Whether to use relative scoring for symbol conversion */
 	public static boolean useRelative=true;
+	/** Whether to use scaled scoring for symbol conversion */
 	public static boolean useScaled=false;
 
 	/** Character set for score visualization (a-z, 0-9, A-Z) from lowest to highest */
@@ -288,5 +320,6 @@ public class Visualizer {
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
 		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 	};
+	/** Mapping from ASCII character values to symbol indices */
 	static final int[] symbolMap=makeSymbolMap(symbols);
 }

@@ -338,6 +338,11 @@ public class KExpand {
 	/*----------------            Dumping           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Outputs all collected kmers as FASTA sequences to the output stream.
+	 * Sorts and deduplicates kmers before writing.
+	 * @param ros Output stream for writing kmer sequences
+	 */
 	private void dumpKmers(ConcurrentReadOutputStream ros) {
 		
 		set.sort();
@@ -369,6 +374,8 @@ public class KExpand {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates and configures concurrent read input stream.
+	 * @return Initialized input stream for processing sequences */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -378,6 +385,8 @@ public class KExpand {
 		return cris;
 	}
 	
+	/** Creates concurrent read output stream if output file is specified.
+	 * @return Output stream for writing results, or null if no output specified */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout1==null){return null;}
 
@@ -476,6 +485,15 @@ public class KExpand {
 		return x;
 	}
 	
+	/**
+	 * Processes all kmers in a read using rolling hash algorithm.
+	 * Generates forward and reverse complement kmers, applies mutations based on
+	 * configured edit distances.
+	 *
+	 * @param r Read to process for kmer extraction
+	 * @param skip Sampling rate (1=all kmers, 2=every other, etc.)
+	 * @return Number of kmers added to the set
+	 */
 	private long addToMap(Read r, int skip){
 		final byte[] bases=r.bases;
 		long kmer=0;
@@ -753,14 +771,30 @@ public class KExpand {
 		return value;
 	}
 	
+	/**
+	 * Computes reverse complement of kmer.
+	 * @param kmer Kmer to reverse complement
+	 * @param len Length of the kmer
+	 * @return Reverse complement (or original if amino acid data)
+	 */
 	final long rcomp(long kmer, int len){
 		return amino ? kmer : AminoAcid.reverseComplementBinaryFast(kmer, len);
 	}
 	
+	/**
+	 * Tests if kmer passes speed-based filtering.
+	 * @param key Kmer to test
+	 * @return true if kmer should be processed
+	 */
 	final boolean passesSpeed(long key){
 		return speed<1 || ((key&Long.MAX_VALUE)%17)>=speed;
 	}
 	
+	/**
+	 * Tests if kmer fails speed-based filtering.
+	 * @param key Kmer to test
+	 * @return true if kmer should be skipped
+	 */
 	final boolean failsSpeed(long key){
 		return speed>0 && ((key&Long.MAX_VALUE)%17)<speed;
 	}
@@ -798,24 +832,37 @@ public class KExpand {
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 	
+	/** Whether to use reverse complement canonicalization */
 	private boolean rcomp=true;
+	/** Kmer length for processing */
 	private int k=31;
 	/** k-1; used in some expressions */
 	final int k2;
 
+	/** Speed filtering level (0=no filtering, higher=more filtering) */
 	private int speed=0;
+	/** Kmer sampling rate (1=all, 2=every other, etc.) */
 	private int skip=0;
 
+	/** Maximum edit distance for unified mutation mode */
 	private int editDist=0;
+	/** Maximum substitutions allowed in mutations */
 	private int maxSubs=99;
+	/** Maximum deletions allowed in mutations */
 	private int maxDels=99;
+	/** Maximum insertions allowed in mutations */
 	private int maxInss=99;
 
+	/** Maximum total edits for separate sub/del/ins mode */
 	private int maxEdits=99;
+	/** Substitution distance for separate mutation mode */
 	private int subDist=0;
+	/** Deletion distance for separate mutation mode */
 	private int delDist=0;
+	/** Insertion distance for separate mutation mode */
 	private int insDist=0;
 	
+	/** Storage for collected kmers and their mutations */
 	private LongListSet set=new LongListSet();
 	
 	/*--------------------------------------------------------------*/
@@ -825,17 +872,28 @@ public class KExpand {
 	/** True for amino acid data, false for nucleotide data */
 	final boolean amino;
 //	final int maxSupportedK;
+	/** Bits per symbol in binary representation (2 for nucleotide, 5 for amino) */
 	final int bitsPerBase;
+	/** Maximum symbol value for current alphabet */
 	final int maxSymbol;
+	/** Number of symbols in alphabet */
 	final int symbols;
+	/** Array length needed to store symbols in 64-bit values */
 	final int symbolArrayLen;
+	/** Total symbol space (2^bitsPerBase) */
 	final int symbolSpace;
+	/** Bit mask for extracting single symbol */
 	final long symbolMask;
 	
+	/** Minimum length for kmer processing */
 	final int minlen;
+	/** Secondary minimum length parameter */
 	final int minlen2;
+	/** Bit shift for kmer operations */
 	final int shift;
+	/** Secondary bit shift for reverse complement operations */
 	final int shift2;
+	/** Bit mask for kmer length */
 	final long mask;
 	
 	/** x&clearMasks[i] will clear base i */
@@ -849,8 +907,13 @@ public class KExpand {
 //	/** x|kMasks[i] will set the bit to the left of the leftmost base */
 //	final long[] lengthMasks;
 	
+	/**
+	 * Maps symbols to numbers, allowing invalid symbols to map to negative values
+	 */
 	private final byte[] symbolToNumber0;
+	/** Maps symbols to complement numbers for reverse complement calculation */
 	private final byte[] symbolToComplementNumber0;
+	/** Standard symbol-to-number mapping for current alphabet */
 	private final byte[] symbolToNumber;
 	
 	/*--------------------------------------------------------------*/

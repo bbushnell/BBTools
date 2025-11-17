@@ -1,7 +1,18 @@
 package clump;
 
+/**
+ * Specialized k-mer comparator for X-coordinate-based optical duplicate detection.
+ * Extends the base k-mer comparison with X-coordinate sorting for sequencing reads,
+ * enabling precise optical duplicate identification in flowcell data.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class KmerComparatorX extends KmerComparator2 {
 	
+	/**
+	 * Private constructor enforces singleton pattern via static comparator instance
+	 */
 	private KmerComparatorX(){}
 	
 	@Override
@@ -20,6 +31,7 @@ public class KmerComparatorX extends KmerComparator2 {
 		return 0;
 	}
 	
+	/** Singleton instance for efficient reuse across the application */
 	static final KmerComparatorX comparator=new KmerComparatorX();
 	
 }

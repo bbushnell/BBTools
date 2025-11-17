@@ -8,6 +8,11 @@ package structures;
  */
 public class LongHeapSet implements LongHeapSetInterface {
 	
+	/**
+	 * Constructs a LongHeapSet with the specified capacity limit.
+	 * Creates a min-heap with the given limit and a hash set with double capacity.
+	 * @param limit_ Maximum number of values to maintain
+	 */
 	public LongHeapSet(int limit_){
 		limit=limit_;
 		heap=new LongHeap(limit, true);
@@ -59,6 +64,12 @@ public class LongHeapSet implements LongHeapSetInterface {
 		assert(heap.size()==set.size());
 	}
 	
+	/**
+	 * Adds all values from another LongHeapSet to this one.
+	 * Iterates through the other set's heap array and adds each value,
+	 * respecting this set's capacity and uniqueness constraints.
+	 * @param b The LongHeapSet whose values to add
+	 */
 	public void add(LongHeapSet b){
 		assert(heap.size()==set.size());
 		final long[] array=b.heap.array();
@@ -87,8 +98,13 @@ public class LongHeapSet implements LongHeapSetInterface {
 	@Override
 	public long peek(){return heap.peek();}
 	
+	/** Maximum number of elements this set can contain */
 	final int limit;
+	/**
+	 * Min-heap maintaining the smallest element at the root for efficient eviction
+	 */
 	public LongHeap heap;
+	/** Hash set providing O(1) uniqueness checking and membership testing */
 	public LongHashSet set;
 	
 }

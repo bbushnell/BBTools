@@ -23,6 +23,8 @@ public class KCountArray5MT extends KCountArray {
 	 */
 	private static final long serialVersionUID = -5456926900022701212L;
 
+	/** Test method demonstrating basic increment and read operations.
+	 * @param args Command-line arguments: cells, bits, gap, hashes */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -64,6 +66,14 @@ public class KCountArray5MT extends KCountArray {
 		
 	}
 		
+	/**
+	 * Constructs a multi-threaded k-mer count array.
+	 *
+	 * @param cells_ Total number of cells in the array
+	 * @param bits_ Number of bits per cell for storing counts
+	 * @param gap_ Gap parameter (unused in this implementation)
+	 * @param hashes_ Number of hash functions to use for counting
+	 */
 	public KCountArray5MT(long cells_, int bits_, int gap_, int hashes_){
 		super(cells_, bits_);
 //		verbose=false;
@@ -95,6 +105,12 @@ public class KCountArray5MT extends KCountArray {
 		return min;
 	}
 	
+	/**
+	 * Reads a count value from a pre-hashed key position.
+	 * Extracts the array number, cell index, and bit shift from the hashed key.
+	 * @param key Pre-hashed key value
+	 * @return Count value at the specified position
+	 */
 	int readHashed(long key){
 		assert(finished);
 		if(verbose){System.err.print("Reading hashed key "+key);}
@@ -254,6 +270,12 @@ public class KCountArray5MT extends KCountArray {
 		return r;
 	}
 	
+	/**
+	 * Fills an array with hash masks having exactly 16 bits set in each half.
+	 * Ensures uniform bit distribution and avoids collisions between hash positions.
+	 * @param r Array to fill with hash masks
+	 * @param randy Random number generator for mask creation
+	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -363,8 +385,15 @@ public class KCountArray5MT extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Worker thread responsible for processing increments on a subset of the array.
+	 * Each thread manages one array partition and processes keys assigned to it
+	 * based on hash value modulo the number of arrays.
+	 */
 	private class WriteThread extends Thread{
 		
+		/** Constructs a writer thread with a specific thread number.
+		 * @param tnum Thread number identifying which array partition to manage */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
@@ -443,6 +472,11 @@ public class KCountArray5MT extends KCountArray {
 			array=null;
 		}
 		
+		/**
+		 * Adds a batch of keys to this thread's processing queue.
+		 * Blocks until space is available in the queue.
+		 * @param keys Array of hashed keys to process
+		 */
 		void add(long[] keys){
 //			assert(isAlive());
 			
@@ -479,37 +513,59 @@ public class KCountArray5MT extends KCountArray {
 			return value;
 		}
 		
+		/** Local array partition managed by this writer thread */
 		private int[] array;
+		/** Thread number identifying which array partition this thread manages */
 		private final int num;
+		/** Count of non-zero cells in this thread's array partition */
 		public long cellsUsedPersonal=0;
 		
+		/** Queue for receiving batches of keys to process */
 		public ArrayBlockingQueue<long[]> writeQueue=new ArrayBlockingQueue<long[]>(8);
+		/** Flag indicating whether this thread should terminate */
 		public boolean shutdown=false;
 		
 	}
 	
 	
+	/** Returns the total number of cells with non-zero counts */
 	public long cellsUsed(){return cellsUsed;}
 	
+	/** Flag indicating whether shutdown process has completed */
 	private boolean finished=false;
 	
+	/** Total count of cells containing non-zero values */
 	private long cellsUsed;
+	/** 2D array storing count data, partitioned across writer threads */
 	final int[][] matrix;
+	/** Array of writer threads for parallel processing */
 	private final WriteThread[] writers=new WriteThread[numArrays];
+	/** Number of hash functions used for each k-mer */
 	final int hashes;
+	/** Number of 32-bit words in each array partition */
 	final int wordsPerArray;
+	/** Number of cells assigned to each array partition */
 	private final long cellsPerArray;
+	/** Modulus value for cell indexing within array partitions */
 	final long cellMod;
+	/** Pre-computed random masks for hash function transformations */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
 	
+	/** Buffer for batching keys before sending to writer threads */
 	private long[] buffer=new long[2000];
+	/** Current number of keys stored in the buffer */
 	private int bufferlen=0;
 	
+	/** Number of bits used for hash array indexing */
 	private static final int hashBits=6;
+	/** Length of hash mask arrays (2^hashBits) */
 	private static final int hashArrayLength=1<<hashBits;
+	/** Bit mask for extracting hash array indices */
 	private static final int hashCellMask=hashArrayLength-1;
+	/** Sentinel value used to signal thread shutdown */
 	static final long[] poison=new long[0];
 	
+	/** Static counter for generating unique random seeds */
 	private static long counter=0;
 	
 }

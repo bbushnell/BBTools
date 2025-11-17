@@ -34,6 +34,7 @@ public class DriftingAlignerM implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for DriftingAlignerM instance. */
 	public DriftingAlignerM() {}
 
 	/*--------------------------------------------------------------*/
@@ -279,9 +280,17 @@ public class DriftingAlignerM implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter for total DP matrix cells processed across all alignments
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns total number of DP matrix cells processed across all alignments.
+	 * @return Cumulative loop count from all alignment operations */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -289,26 +298,45 @@ public class DriftingAlignerM implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits allocated for position encoding in packed scores (21 bits = 2Mbp max)
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for match count encoding in packed scores */
 	private static final int MATCH_BITS=21;
+	/**
+	 * Bit offset for score portion of packed values (POSITION_BITS + MATCH_BITS)
+	 */
 	private static final int SCORE_SHIFT=POSITION_BITS+MATCH_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting match count information from packed scores */
 	private static final long MATCH_MASK=((1L << MATCH_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score information from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | MATCH_MASK);
 
 	// Scoring constants
+	/** Score increment for exact base matches (+1 in high bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for base substitutions (-1 in high bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in high bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in high bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for matches involving ambiguous bases (N), neutral value of 0 */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid/uncomputed alignment positions */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined increment for matches: score bonus plus match counter increment */
 	private static final long MATCH_INCREMENT=MATCH+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Debug flag for printing detailed alignment operation statistics */
 	private static final boolean PRINT_OPS=false;
+	/** Flag controlling global vs local alignment mode (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

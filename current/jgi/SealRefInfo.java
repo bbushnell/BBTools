@@ -106,10 +106,17 @@ public class SealRefInfo {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Checks if this SealRefInfo contains any references.
+	 * @return true if no reference files or literals are available */
 	boolean isEmpty(){
 		return refs.isEmpty() && (literals==null || literals.length<1);
 	}
 	
+	/**
+	 * Gets the number of reference scaffolds.
+	 * Accounts for fake first scaffold by subtracting 1.
+	 * @return Number of valid scaffolds (excluding index 0)
+	 */
 	int numScaffolds(){
 		return Tools.max(0, scaffoldNames.size()-1);
 	}
@@ -245,8 +252,10 @@ public class SealRefInfo {
 	/*--------------------------------------------------------------*/
 
 //	/** Array of reference files from which to load kmers */
+	/** List of reference file paths to load k-mers from */
 	final ArrayList<String> refs;
 //	/** Array of literal strings from which to load kmers */
+	/** Array of literal sequences to use as references */
 	final String[] literals;
 	
 	/** A scaffold's name is stored at scaffoldNames.get(id).

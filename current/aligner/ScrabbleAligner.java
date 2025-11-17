@@ -34,6 +34,7 @@ public class ScrabbleAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for ScrabbleAligner */
 	public ScrabbleAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -271,9 +272,18 @@ public class ScrabbleAligner implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter for tracking total alignment loops across all instances
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the total number of alignment loops performed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/**
+	 * Output file path for alignment visualization (null disables visualization)
+	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -281,26 +291,45 @@ public class ScrabbleAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits allocated for storing position information in score encoding
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for storing deletion count in score encoding */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for extracting score from encoded value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from encoded score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from encoded score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw alignment score from encoded value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score value for sequence matches in alignment matrix */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions in alignment matrix */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions in alignment matrix */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions in alignment matrix */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base (N) matches in alignment */
 	private static final long N_SCORE=0L;
+	/** Sentinel value representing invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty and position increment for alignment scoring */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
+	/**
+	 * Flag indicating whether to perform global (true) or local (false) alignment
+	 */
 	public static final boolean GLOBAL=false;
 
 }

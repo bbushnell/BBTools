@@ -28,6 +28,14 @@ import structures.ByteBuilder;
 import structures.Quantizer;
 import tracker.ReadStats;
 
+/**
+ * Generates synthetic DNA reads with configurable error patterns and quality scores.
+ * Supports paired-end read generation, insertion/deletion/substitution/SNP simulation,
+ * adapter contamination, and various quality score distributions.
+ * Used for testing bioinformatics pipelines and algorithm validation.
+ *
+ * @author Brian Bushnell
+ */
 public final class RandomReads3 {
 	
 	/*--------------------------------------------------------------*/
@@ -35,6 +43,11 @@ public final class RandomReads3 {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Program entry point for generating synthetic reads.
+	 * Parses command-line arguments and generates reads according to specified parameters.
+	 * @param args Command-line arguments specifying read generation parameters
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -520,6 +533,14 @@ public final class RandomReads3 {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Processes and writes reference sequence data to disk for read generation.
+	 * Creates chromosome arrays from FASTA input and stores them for random access.
+	 *
+	 * @param reference Path to reference FASTA file
+	 * @param build Genome build identifier
+	 * @return List of chromosome arrays created from reference
+	 */
 	private static ArrayList<ChromosomeArray> writeRef(String reference, int build){
 		ArrayList<ChromosomeArray> chromlist=null;
 		if(reference!=null){
@@ -603,10 +624,18 @@ public final class RandomReads3 {
 	}
 	
 	
+	/** Creates a new RandomReads3 generator with default random seed.
+	 * @param paired_ True to generate paired-end reads, false for single-end */
 	public RandomReads3(boolean paired_){
 		this(getSeed(), paired_);
 	}
 	
+	/**
+	 * Creates a new RandomReads3 generator with specified random seed.
+	 * Initializes multiple random number generators for different aspects of read generation.
+	 * @param seed Random seed for reproducible read generation
+	 * @param paired_ True to generate paired-end reads, false for single-end
+	 */
 	public RandomReads3(long seed, boolean paired_){
 		if(randomChrom==null){
 			synchronized(getClass()){
@@ -651,6 +680,12 @@ public final class RandomReads3 {
 		}
 	}
 	
+	/**
+	 * Adds sequencing errors to a read based on its quality scores.
+	 * Uses quality-based error probabilities to introduce realistic base errors.
+	 * @param r Read to modify
+	 * @param randy Random number generator for error placement
+	 */
 	private final static void addErrorsFromQuality(Read r, Random randy){
 		addErrorsFromQuality(r, randy, 0, r.length());
 	}
@@ -689,6 +724,17 @@ public final class RandomReads3 {
 		}
 	}
 
+	/**
+	 * Adds PacBio adapter sequences to a read.
+	 * Simulates adapter contamination in long-read sequencing data.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param readlen Length of the read
+	 * @param rand Random number generator
+	 * @param adapter Adapter sequence to insert
+	 * @return Modified base sequence with adapter
+	 */
 	public static byte[] addPBAdapter(byte[] bases, int[] locs, int readlen, Random rand, byte[] adapter){
 //		outstream.println("Adding adapter "+new String(adapter));
 		assert(readlen<=bases.length);
@@ -701,6 +747,15 @@ public final class RandomReads3 {
 		return bases;
 	}
 
+	/**
+	 * Adds a single nucleotide polymorphism to a random position in the read.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param readlen Length of the read
+	 * @param rand Random number generator
+	 * @return Modified base sequence with SNP
+	 */
 	public static byte[] addSNP(byte[] bases, int[] locs, int readlen, Random rand){
 		assert(readlen<=bases.length);
 		int index=rand.nextInt(readlen);
@@ -718,6 +773,17 @@ public final class RandomReads3 {
 		return bases;
 	}
 
+	/**
+	 * Adds a single nucleotide polymorphism to a unique position in the read.
+	 * Uses BitSet to ensure SNPs don't overlap at the same position.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param readlen Length of the read
+	 * @param rand Random number generator
+	 * @param bits BitSet tracking used positions
+	 * @return Modified base sequence with SNP
+	 */
 	public static byte[] addSNP(byte[] bases, int[] locs, int readlen, Random rand, BitSet bits){
 		assert(readlen<=bases.length);
 		int index=rand.nextInt(readlen);
@@ -742,6 +808,18 @@ public final class RandomReads3 {
 	}
 	
 
+	/**
+	 * Adds a substitution event of variable length to the read.
+	 * Changes multiple consecutive bases to simulate complex mutations.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param minlen Minimum substitution length
+	 * @param maxlen Maximum substitution length
+	 * @param readlen Length of the read
+	 * @param rand Random number generator
+	 * @return Modified base sequence with substitution
+	 */
 	public static byte[] addSUB(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, Random rand){
 		assert(readlen<=bases.length) : readlen+", "+bases.length;
 		assert(minlen>=1);
@@ -797,6 +875,18 @@ public final class RandomReads3 {
 	}
 	
 
+	/**
+	 * Adds N bases (ambiguous nucleotides) to simulate low-quality regions.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param minlen Minimum N-region length
+	 * @param maxlen Maximum N-region length
+	 * @param readlen Length of the read
+	 * @param rand Random number generator
+	 * @param bits BitSet tracking used positions for uniqueness
+	 * @return Modified base sequence with N region
+	 */
 	public static byte[] addN(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, Random rand, BitSet bits){
 		assert(readlen<=bases.length) : readlen+", "+bases.length;
 		assert(minlen>=1);
@@ -826,6 +916,19 @@ public final class RandomReads3 {
 		return bases;
 	}
 	
+	/**
+	 * Adds an insertion of random bases to simulate sequencing errors or variants.
+	 * Expands the read length by inserting random nucleotides.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param minlen Minimum insertion length
+	 * @param maxlen Maximum insertion length
+	 * @param readlen Current read length
+	 * @param dif Array tracking length changes [deletions, insertions]
+	 * @param rand Random number generator
+	 * @return Modified base sequence with insertion
+	 */
 	public static byte[] addInsertion(byte[] bases, int[] locs, int minlen, int maxlen, int readlen, int[] dif, Random rand){
 		assert(readlen<=bases.length) : readlen+", "+bases.length;
 		assert(minlen>0);
@@ -872,6 +975,15 @@ public final class RandomReads3 {
 		return bases2;
 	}
 	
+	/**
+	 * Creates an array of deletion lengths for multiple deletion events.
+	 *
+	 * @param dels Number of deletions to create
+	 * @param minlen Minimum deletion length
+	 * @param maxlen Maximum deletion length
+	 * @param rand Random number generator
+	 * @return Array of deletion lengths, or null if dels < 1
+	 */
 	public static int[] makeDelsa(int dels, int minlen, int maxlen, Random rand){
 		if(dels<1){return null;}
 		assert(minlen>0);
@@ -885,6 +997,18 @@ public final class RandomReads3 {
 		return delsa;
 	}
 	
+	/**
+	 * Removes bases from the read to simulate deletion events.
+	 * Reduces read length by removing consecutive bases.
+	 *
+	 * @param bases Base sequence to modify
+	 * @param locs Position array corresponding to bases
+	 * @param len Length of deletion
+	 * @param readlen Current read length
+	 * @param dif Array tracking length changes [deletions, insertions]
+	 * @param rand Random number generator
+	 * @return Modified base sequence with deletion
+	 */
 	public static byte[] addDeletion(byte[] bases, int[] locs, int len, int readlen, int[] dif, Random rand){
 		assert(bases.length>=readlen+len) : "bases.len="+bases.length+", readlen="+readlen+", len="+len+", dif="+Arrays.toString(dif);
 		assert(len>0);
@@ -906,6 +1030,15 @@ public final class RandomReads3 {
 		return bases2;
 	}
 	
+	/**
+	 * Selects a random chromosome for read placement.
+	 * Uses weighted selection based on chromosome lengths.
+	 *
+	 * @param r0 Mate read for paired-end sequencing, or null for single-end
+	 * @param minChrom Minimum chromosome number
+	 * @param maxChrom Maximum chromosome number
+	 * @return Selected chromosome number
+	 */
 	public int randomChrom(Read r0, int minChrom, int maxChrom){
 		if(r0!=null){return r0.chrom;}
 		
@@ -920,6 +1053,16 @@ public final class RandomReads3 {
 		return chrom;
 	}
 	
+	/**
+	 * Selects strand orientation for read placement.
+	 * For paired reads, considers mate strand requirements.
+	 *
+	 * @param r0 Mate read for paired-end sequencing, or null for single-end
+	 * @param minChrom Minimum chromosome number
+	 * @param maxChrom Maximum chromosome number
+	 * @param sameStrandMate Whether paired reads should be on same strand
+	 * @return Strand orientation (0 for plus, 1 for minus)
+	 */
 	public int randomStrand(Read r0, int minChrom, int maxChrom, boolean sameStrandMate){
 		if(r0!=null){
 			return sameStrandMate ? r0.strand() : r0.strand()^1;
@@ -927,6 +1070,18 @@ public final class RandomReads3 {
 		return randy.nextInt()&1;
 	}
 	
+	/**
+	 * Selects genomic position for read placement.
+	 * Delegates to paired or single-end location selection methods.
+	 *
+	 * @param r0 Mate read for paired-end sequencing, or null for single-end
+	 * @param chrom Chromosome for placement
+	 * @param readlen Length of read to place
+	 * @param minMiddle Minimum insert size middle distance
+	 * @param maxMiddle Maximum insert size middle distance
+	 * @param strand Strand orientation
+	 * @return Genomic start position
+	 */
 	public int randomLoc(Read r0, int chrom, int readlen, int minMiddle, int maxMiddle, int strand){
 		
 		if(r0!=null){
@@ -935,6 +1090,18 @@ public final class RandomReads3 {
 		return randomLocSingle(chrom, readlen);
 	}
 	
+	/**
+	 * Selects genomic position for paired-end read placement.
+	 * Calculates position based on mate location and insert size distribution.
+	 *
+	 * @param r0 Mate read (required, not null)
+	 * @param chrom Chromosome for placement
+	 * @param readlen Length of read to place
+	 * @param minMiddle Minimum insert size middle distance
+	 * @param maxMiddle Maximum insert size middle distance
+	 * @param strand Strand orientation
+	 * @return Genomic start position
+	 */
 	public int randomLocPaired(Read r0, int chrom, int readlen, int minMiddle, int maxMiddle, int strand){
 		assert(r0!=null);
 		
@@ -991,6 +1158,14 @@ public final class RandomReads3 {
 		return x;
 	}
 	
+	/**
+	 * Selects random genomic position for single-end read placement.
+	 * Ensures selected region contains only defined bases.
+	 *
+	 * @param chrom Chromosome for placement
+	 * @param readlen Length of read to place
+	 * @return Genomic start position, or -1 if no valid position found
+	 */
 	public int randomLocSingle(int chrom, int readlen){
 		
 		ChromosomeArray cha=Data.getChromosome(chrom);
@@ -1010,6 +1185,8 @@ public final class RandomReads3 {
 		return loc;
 	}
 	
+	/** Calculates total length of all scaffolds in the loaded genome.
+	 * @return Total genome length in bases */
 	private static long genomeLength(){
 		long sum=0;
 		for(int i=1; i<Data.scaffoldLengths.length; i++){
@@ -1021,6 +1198,14 @@ public final class RandomReads3 {
 		return sum;
 	}
 
+	/**
+	 * Selects random position within a random scaffold on the specified chromosome.
+	 * Used when RANDOM_SCAFFOLD mode is enabled.
+	 *
+	 * @param chrom Chromosome containing scaffolds
+	 * @param readlen Length of read to place
+	 * @return Array containing [start_position, effective_read_length]
+	 */
 	public int[] randomScaffoldLoc(int chrom, int readlen){
 		int[] locs=Data.scaffoldLocs[chrom];
 		int[] lengths=Data.scaffoldLengths[chrom];
@@ -1038,6 +1223,11 @@ public final class RandomReads3 {
 		return new int[] {start, readlen};
 	}
 	
+	/**
+	 * Initializes probability distributions for metagenome read placement.
+	 * Creates exponential-weighted scaffold selection probabilities.
+	 * @param randy Random number generator for probability calculation
+	 */
 	public static void makeMetagenomeProbs(Random randy){
 		int[][] lengths=Data.scaffoldLengths;
 		int chroms=lengths.length;
@@ -1073,6 +1263,14 @@ public final class RandomReads3 {
 		}
 	}
 	
+	/**
+	 * Generates pseudo-exponential random values for metagenome abundance simulation.
+	 * Uses median-of-three sampling to reduce extreme values.
+	 *
+	 * @param rand Random number generator
+	 * @param width Scale parameter for exponential distribution
+	 * @return Exponentially-distributed random value
+	 */
 	public static double sortOfExponential(Random rand, double width){
 		//I changed to mid of 3 to reduce the amount of extreme values
 		//Extreme values left some things totally uncovered which was annoying
@@ -1082,6 +1280,12 @@ public final class RandomReads3 {
 		return exp;
 	}
 	
+	/**
+	 * Selects scaffold and position using metagenome abundance weights.
+	 * Used when METAGENOME mode is enabled for realistic abundance patterns.
+	 * @param readlen Length of read to place
+	 * @return Array containing [chromosome, start_position, effective_read_length]
+	 */
 	public int[] randomScaffoldLocMetagenome(int readlen){
 		double d=randy.nextDouble();
 		
@@ -1108,6 +1312,41 @@ public final class RandomReads3 {
 		return new int[] {chrom, start, readlen};
 	}
 	
+	/**
+	 * Main method for generating synthetic reads and writing to output files.
+	 * Creates reads with specified error patterns and quality distributions,
+	 * writing to one or two files depending on paired-end mode.
+	 *
+	 * @param numReads Number of reads to generate
+	 * @param minlen Minimum read length
+	 * @param maxlen Maximum read length
+	 * @param midlen Middle read length for distribution
+	 * @param maxSnps Maximum SNPs per read
+	 * @param maxInss Maximum insertions per read
+	 * @param maxDels Maximum deletions per read
+	 * @param maxSubs Maximum substitutions per read
+	 * @param maxNs Maximum N bases per read
+	 * @param snpRate Probability of SNP occurrence
+	 * @param insRate Probability of insertion occurrence
+	 * @param delRate Probability of deletion occurrence
+	 * @param subRate Probability of substitution occurrence
+	 * @param nRate Probability of N base occurrence
+	 * @param minInsLen Minimum insertion length
+	 * @param minDelLen Minimum deletion length
+	 * @param minSubLen Minimum substitution length
+	 * @param minNLen Minimum N region length
+	 * @param maxInsLen Maximum insertion length
+	 * @param maxDelLen Maximum deletion length
+	 * @param maxSubLen Maximum substitution length
+	 * @param maxNLen Maximum N region length
+	 * @param minChrom Minimum chromosome number
+	 * @param maxChrom Maximum chromosome number
+	 * @param minQual Minimum quality score
+	 * @param midQual Middle quality score
+	 * @param maxQual Maximum quality score
+	 * @param fname1 Output filename for read 1 or single-end reads
+	 * @param fname2 Output filename for read 2 (paired-end only)
+	 */
 	public void writeRandomReadsX(long numReads, int minlen, int maxlen, int midlen,
 			int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs,
 			float snpRate, float insRate, float delRate, float subRate, float nRate,
@@ -1294,6 +1533,39 @@ public final class RandomReads3 {
 	
 
 	
+	/**
+	 * Generates synthetic reads and returns them in an ArrayList.
+	 * Alternative to file output for programmatic access to generated reads.
+	 *
+	 * @param numReads Number of reads to generate
+	 * @param minlen Minimum read length
+	 * @param maxlen Maximum read length
+	 * @param midlen Middle read length for distribution
+	 * @param maxSnps Maximum SNPs per read
+	 * @param maxInss Maximum insertions per read
+	 * @param maxDels Maximum deletions per read
+	 * @param maxSubs Maximum substitutions per read
+	 * @param maxNs Maximum N bases per read
+	 * @param snpRate Probability of SNP occurrence
+	 * @param insRate Probability of insertion occurrence
+	 * @param delRate Probability of deletion occurrence
+	 * @param subRate Probability of substitution occurrence
+	 * @param nRate Probability of N base occurrence
+	 * @param minInsLen Minimum insertion length
+	 * @param minDelLen Minimum deletion length
+	 * @param minSubLen Minimum substitution length
+	 * @param minNLen Minimum N region length
+	 * @param maxInsLen Maximum insertion length
+	 * @param maxDelLen Maximum deletion length
+	 * @param maxSubLen Maximum substitution length
+	 * @param maxNLen Maximum N region length
+	 * @param minChrom Minimum chromosome number
+	 * @param maxChrom Maximum chromosome number
+	 * @param minQual Minimum quality score
+	 * @param midQual Middle quality score
+	 * @param maxQual Maximum quality score
+	 * @return ArrayList of generated reads
+	 */
 	public ArrayList<Read> makeRandomReadsX(int numReads, int minlen, int maxlen, int midlen,
 			int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs,
 			float snpRate, float insRate, float delRate, float subRate, float nRate,
@@ -1459,6 +1731,11 @@ public final class RandomReads3 {
 		return list;
 	}
 	
+	/**
+	 * Applies special naming conventions to generated reads.
+	 * Handles prefix, Illumina-style, and insert-size naming modes.
+	 * @param r1 Primary read to process (mate will also be processed if present)
+	 */
 	private void processSpecialNames(Read r1){
 		if(r1==null){return;}
 		Read r2=r1.mate;
@@ -1490,6 +1767,18 @@ public final class RandomReads3 {
 		}
 	}
 	
+	/**
+	 * Generates read length using specified distribution.
+	 * Supports linear, bell curve, and mixed distribution modes.
+	 *
+	 * @param minLen Minimum read length
+	 * @param maxLen Maximum read length
+	 * @param midLen Middle read length for distributions
+	 * @param randy Random number generator
+	 * @param linear Use linear uniform distribution
+	 * @param bell Use bell curve (Gaussian) distribution
+	 * @return Generated read length
+	 */
 	public int genReadLen(int minLen, int maxLen, int midLen, Random randy, boolean linear, boolean bell){
 		if(minLen==maxLen){return minLen;}
 		
@@ -1534,6 +1823,51 @@ public final class RandomReads3 {
 		return len;
 	}
 	
+	/**
+	 * Creates a single synthetic read with specified parameters.
+	 * Core method that handles all aspects of read generation including
+	 * error introduction, quality assignment, and genomic placement.
+	 *
+	 * @param r0 Mate read for paired-end generation, null for single-end
+	 * @param minlen Minimum read length
+	 * @param maxlen Maximum read length
+	 * @param midlen Middle read length
+	 * @param minChrom Minimum chromosome
+	 * @param maxChrom Maximum chromosome
+	 * @param maxSnps Maximum SNPs per read
+	 * @param maxInss Maximum insertions per read
+	 * @param maxDels Maximum deletions per read
+	 * @param maxSubs Maximum substitutions per read
+	 * @param maxNs Maximum N bases per read
+	 * @param snpRate SNP occurrence rate
+	 * @param insRate Insertion occurrence rate
+	 * @param delRate Deletion occurrence rate
+	 * @param subRate Substitution occurrence rate
+	 * @param nRate N base occurrence rate
+	 * @param minInsLen Minimum insertion length
+	 * @param minDelLen Minimum deletion length
+	 * @param minSubLen Minimum substitution length
+	 * @param minNLen Minimum N region length
+	 * @param maxInsLen Maximum insertion length
+	 * @param maxDelLen Maximum deletion length
+	 * @param maxSubLen Maximum substitution length
+	 * @param maxNLen Maximum N region length
+	 * @param minMiddle Minimum mate distance
+	 * @param maxMiddle Maximum mate distance
+	 * @param sameStrand Whether mates use same strand
+	 * @param minQual Minimum quality score
+	 * @param midQual Middle quality score
+	 * @param maxQual Maximum quality score
+	 * @param baseQuality Base quality for this read
+	 * @param slant Quality distribution slant
+	 * @param perfect Whether this is a perfect read (no errors)
+	 * @param rid Read numeric ID
+	 * @param locs Position tracking array
+	 * @param bits BitSet for tracking unique positions
+	 * @param FORCE_CHROM Force specific chromosome (-1 for random)
+	 * @param FORCE_LOC Force specific location (-1 for random)
+	 * @return Generated read, or null if generation failed
+	 */
 	public Read makeRead(Read r0, int minlen, int maxlen, int midlen, int minChrom, int maxChrom,
 			int maxSnps, int maxInss, int maxDels, int maxSubs, int maxNs,
 			float snpRate, float insRate, float delRate, float subRate, float nRate,
@@ -1830,6 +2164,11 @@ public final class RandomReads3 {
 		}
 	}
 
+	/**
+	 * Creates weighted chromosome selection array based on chromosome lengths.
+	 * Used for proportional chromosome sampling in read generation.
+	 * @return Array of chromosome IDs weighted by length
+	 */
 	private static int[] fillRandomChrom(){
 
 		int[] in=Arrays.copyOf(Data.chromLengths, Data.chromLengths.length);
@@ -1852,6 +2191,12 @@ public final class RandomReads3 {
 		return out;
 	}
 	
+	/**
+	 * Returns cached fixed-quality array for specified read length.
+	 * Used when USE_FIXED_QUALITY mode is enabled.
+	 * @param bases Read length
+	 * @return Quality array filled with FIXED_QUALITY_VALUE
+	 */
 	public static final byte[] getFixedQualityRead(int bases){
 		if(fixedQuality[bases]==null){
 			fixedQuality[bases]=new byte[bases];
@@ -1860,6 +2205,11 @@ public final class RandomReads3 {
 		return fixedQuality[bases];
 	}
 	
+	/**
+	 * Generates unique seed values for random number generator initialization.
+	 * Thread-safe method for creating non-overlapping seed sequences.
+	 * @return Unique seed value
+	 */
 	private static synchronized long getSeed(){
 		long r=seed*1000;
 		seed++;
@@ -1871,39 +2221,65 @@ public final class RandomReads3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Primary random number generator for read generation */
 	private final Random randy;
+	/** Secondary random number generator for mutation operations */
 	private final Random randy2;
+	/** Random number generator for selecting mutation types */
 	private final Random randyMutationType;
+	/** Random number generator for quality score assignment */
 	private final Random randyQual;
+	/** Random number generator for adapter sequence placement */
 	private final Random randyAdapter;
 	
+	/** Random number generator for mate read generation */
 	private final Random randyMate;
+	/** Secondary random number generator for mate mutations */
 	private final Random randy2Mate;
+	/** Random number generator for mate mutation type selection */
 	private final Random randyMutationTypeMate;
+	/** Random number generator for mate quality scores */
 	private final Random randyQualMate;
+	/** Random number generator for mate adapter placement */
 	private final Random randyAdapterMate;
 
+	/** Random number generator for perfect read selection */
 	private final Random randyPerfectRead;
+	/**
+	 * Random number generator for N base replacement when REPLACE_NOREF is enabled
+	 */
 	private final Random randyNoref;
 
+	/** Random number generator for read length determination */
 	private final Random randyLength;
 	
+	/** Random number generator for amplification clustering simulation */
 	private final Random randyAmp;
 	
+	/** Whether this generator creates paired-end reads */
 	public final boolean paired;
 	
+	/** Counter for assigning unique numeric IDs to reads */
 	private long nextReadID=0;
+	/** PacBio adapter sequence for forward reads */
 	private byte[] pbadapter1=null;
+	/** PacBio adapter sequence for reverse reads */
 	private byte[] pbadapter2=null;
 	
+	/** Fragment adapter sequences for read 1 */
 	private byte[][] fragadapter1=null;
+	/** Fragment adapter sequences for read 2 */
 	private byte[][] fragadapter2=null;
 	
+	/** Cached BitSet for tracking unique mutation positions */
 	private BitSet bits_cached;
+	/** Cached array for tracking genomic positions during read generation */
 	private int[] locs_cached;
 	
+	/** Optional prefix for read names */
 	private String prefix;
 	
+	/** Whether to quantize quality scores using configured quantizer */
 	private static boolean quantizeQuality=false;
 	
 	/*--------------------------------------------------------------*/
@@ -1912,71 +2288,123 @@ public final class RandomReads3 {
 
 //	private static String slash1="/1";
 //	private static String slash2="/2";
+	/** Suffix appended to read 1 names */
 	private static String slash1=" 1:";
+	/** Suffix appended to read 2 names */
 	private static String slash2=" 2:";
 	
+	/**
+	 * Cumulative probability distribution for chromosome selection in metagenome mode
+	 */
 	private static double[] chromProbs;
+	/**
+	 * Cumulative probability distribution for scaffold selection in metagenome mode
+	 */
 	private static double[][] scafProbs;
 	
+	/** Length-weighted array for proportional chromosome selection */
 	private static int[] randomChrom;
 	
+	/** Global seed counter for generating unique random seeds */
 	private static long seed=0;
 	
+	/** Cache of fixed quality arrays indexed by read length */
 	private static final byte[][] fixedQuality=new byte[301][];
 	
+	/** Whether to use fixed quality values instead of variable quality */
 	public static final boolean USE_FIXED_QUALITY=false;
+	/** Quality score used when USE_FIXED_QUALITY is enabled */
 	public static final byte FIXED_QUALITY_VALUE=24;
+	/** Whether to add sequencing errors based on quality scores */
 	public static boolean ADD_ERRORS_FROM_QUALITY=true;
+	/** Whether to add PacBio-style sequencing errors */
 	public static boolean ADD_PACBIO_ERRORS=false;
+	/** Minimum error rate for PacBio error simulation */
 	public static float pbMinErrorRate=0.13f;
+	/** Maximum error rate for PacBio error simulation */
 	public static float pbMaxErrorRate=0.17f;
+	/** Whether to replace N bases in reference with random bases */
 	public static boolean REPLACE_NOREF=false;
+	/** Whether to output paired reads in interleaved format */
 	public static boolean OUTPUT_INTERLEAVED=false;
 	/** Rather than choosing a random location in the concatenated genome, choose a random scaffold, without respect to length */
 	public static boolean RANDOM_SCAFFOLD=false;
+	/** Whether to use metagenome abundance patterns for scaffold selection */
 	public static boolean METAGENOME=false;
+	/** File extension for output files */
 	public static String fileExt=".fq.gz";
+	/** Enable verbose debugging output */
 	public static boolean verbose=false;
 	
+	/** Whether paired reads should be on the same strand */
 	public static boolean mateSameStrand=false;
+	/** Minimum distance between mate midpoints */
 	public static int mateMiddleMin=-200;
+	/** Maximum distance between mate midpoints */
 	public static int mateMiddleMax=150;
+	/** Standard deviation for mate distance distribution */
 	public static int mateMiddleDev=-1;
+	/** Standard deviation for read length distribution */
 	public static int readLengthDev=-1;
+	/** Use deterministic insert size distribution based on read ID */
 	public static boolean SUPERFLAT_DIST=false;
+	/** Use uniform insert size distribution */
 	public static boolean FLAT_DIST=false;
+	/** Use Gaussian insert size distribution */
 	public static boolean BELL_DIST=true;
+	/** Apply exponential modification to insert size distribution */
 	public static boolean EXP_DIST=false;
+	/** Use linear uniform distribution for read lengths */
 	public static boolean LINEAR_LENGTH=true;
+	/** Use Gaussian distribution for read lengths */
 	public static boolean BELL_LENGTH=false;
+	/** Lambda parameter for exponential insert size modification */
 	public static double EXP_LAMDA=0.8d;
+	/** Whether to bias SNPs toward complement bases (A<->T, G<->C) */
 	public static boolean BIASED_SNPS=false;
+	/** Use Illumina-style read naming convention */
 	public static boolean ILLUMINA_NAMES=false;
+	/** Include insert size information in read names */
 	public static boolean INSERT_NAMES=false;
+	/** Padding between scaffolds in reference processing */
 	public static int midPad=500;
+	/** Add /1 and /2 suffixes to paired read names */
 	public static boolean addslash=false;
+	/** Add space before /1 and /2 suffixes */
 	public static boolean spaceslash=false;
 	
+	/** Process reference entirely in memory without disk storage */
 	public static boolean NODISK=false;
 
+	/** Amplification factor for clustering reads around previous locations */
 	public static int AMP=1;
+	/** Variance parameter for quality score distributions */
 	public static int qVariance=4;
 	
+	/** Fraction of reads that should be error-free */
 	public static float PERFECT_READ_RATIO=0f;
 	
 	/** Ban generation of reads over unspecified reference bases */
 	static boolean BAN_NS=false;
 
+	/** Ensure SNPs and N regions don't overlap within a single read */
 	public static boolean USE_UNIQUE_SNPS=true;
+	/** Reject paired reads that span multiple scaffolds */
 	public static boolean FORCE_SINGLE_SCAFFOLD=true;
+	/** Minimum overlap required when reads span scaffold boundaries */
 	public static int MIN_SCAFFOLD_OVERLAP=1;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files */
 	public static boolean append=false;
+	/** Global error state flag */
 	public static boolean errorState;
 	
 	//Input file, for use as quality source
+	/** Input file for using real quality score distributions */
 	public static String in1;
 	
+	/** Output stream for status messages and logging */
 	static PrintStream outstream=System.err;
 	
 }

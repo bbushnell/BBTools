@@ -34,8 +34,18 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.StringNum;
 
+/**
+ * Utilities for HTTP client and server operations in BBTools.
+ * Provides methods for sending requests, receiving responses, reading web pages,
+ * and handling HTTP exchanges. Supports both Java 8 URLConnection and Java 11+ HttpClient.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class ServerTools {
 	
+	/** Test client that sends messages to a server and measures response times.
+	 * @param args Command-line arguments: [address] [rounds] [message] */
 	public static void main(String[] args){
 		String address=args[0];
 		int rounds=1;
@@ -65,6 +75,14 @@ public class ServerTools {
 		
 	}
 	
+	/**
+	 * Reads the content of a web page into a ByteBuilder.
+	 * Retries up to 10 times on failure with 1-second delays.
+	 *
+	 * @param address URL to read from
+	 * @param convert Whether to apply percent encoding to the address
+	 * @return ByteBuilder containing the page content, empty if all attempts failed
+	 */
 	public static ByteBuilder readPage(String address, boolean convert){
     	if(convert){address=PercentEncoding.commonSymbolToCode(address);}
 //    	assert(false) : address;
@@ -219,6 +237,11 @@ public class ServerTools {
 		return new StringNum(result, responseCode);
 	}
 	
+	/**
+	 * Compresses data using GZIP compression.
+	 * @param data Raw bytes to compress
+	 * @return GZIP-compressed byte array
+	 */
 	public static byte[] gzipCompress(byte[] data) {
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
 		try {
@@ -231,6 +254,11 @@ public class ServerTools {
         return bos.toByteArray();
     }
 	
+	/**
+	 * Extracts Content-Encoding header from HTTP response.
+	 * @param httpResponse HTTP response to examine
+	 * @return Content-Encoding value or empty string if not present
+	 */
 	public static String determineContentEncoding(
 	        HttpResponse<?> httpResponse) {
 	    return httpResponse.headers().firstValue("Content-Encoding").orElse("");
@@ -532,6 +560,12 @@ public class ServerTools {
 		}
 	}
 	
+	/**
+	 * Extracts the real client IP address from HTTP exchange.
+	 * Checks X-Forwarded-For header for proxied connections from localhost.
+	 * @param t HTTP exchange containing client information
+	 * @return Client IP address string, preferring X-Forwarded-For when available
+	 */
 	public static String getClientAddress(HttpExchange t) {
 		
 		InetSocketAddress client=t.getRemoteAddress();
@@ -556,6 +590,18 @@ public class ServerTools {
 		return clientAddress;
 	}
 	
+	/**
+	 * Determines if HTTP request originates from internal network.
+	 * Checks client/server IP prefixes and handles X-Forwarded-For headers.
+	 * Uses simple subnet matching by comparing addresses up to first delimiter.
+	 *
+	 * @param t HTTP exchange to examine
+	 * @param prefix IP prefix for internal networks (e.g., "192.168.")
+	 * @param allowLocalHost Whether to allow localhost (127.0.0.1) connections
+	 * @param printIP Whether to print client and server addresses
+	 * @param printHeaders Whether to print all request/response headers
+	 * @return true if request is from internal network, false otherwise
+	 */
 	public static boolean isInternalQuery(HttpExchange t, 
 			String prefix, boolean allowLocalHost, boolean printIP, boolean printHeaders){
 		
@@ -669,6 +715,9 @@ public class ServerTools {
 	/** Don't print caught exceptions */
 	public static boolean suppressErrors=false;
 	
+	/**
+	 * Shared HttpClient instance for Java 11+ HTTP operations with daemon thread pool
+	 */
 	private static HttpClient client;
 	static{
 		try {

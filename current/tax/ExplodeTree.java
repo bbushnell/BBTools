@@ -149,6 +149,14 @@ public class ExplodeTree {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates directory structure matching the taxonomic hierarchy.
+	 * For each node in the taxonomic tree, creates corresponding directory
+	 * and optionally writes name files containing the full taxonomic name.
+	 *
+	 * @param root Root directory path where the taxonomic structure will be created
+	 * @param writeNames Whether to write .name files containing taxonomic names
+	 */
 	public void makeDirectoryTree(String root, boolean writeNames){
 		for(TaxNode node : tree.nodes){
 			if(node!=null){
@@ -301,6 +309,7 @@ public class ExplodeTree {
 	/** Primary output file path */
 	private String outPath=null;
 	
+	/** Prefix to add to output filenames */
 	private String prefix;
 	
 	/** Override input file extension */
@@ -309,10 +318,13 @@ public class ExplodeTree {
 	/** For listing what is present in the output */
 	public String resultsFile=null;
 	
+	/** Path to taxonomic tree file or "auto" for default location */
 	public String taxTreeFile=null;
 	
+	/** Whether to create directory structure before processing sequences */
 	public boolean makeDirectories=true;
 	
+	/** Maps taxonomic nodes to sequence count for tracking distribution */
 	public LinkedHashMap<TaxNode, Long> nodes=new LinkedHashMap<TaxNode, Long>();
 	
 	/*--------------------------------------------------------------*/
@@ -341,6 +353,7 @@ public class ExplodeTree {
 	/** Primary input file */
 	private final FileFormat ffin1;
 	
+	/** Taxonomic tree structure loaded from file for sequence classification */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/

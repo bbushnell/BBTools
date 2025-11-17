@@ -45,6 +45,14 @@ public final class MultiStateAligner10ts extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs aligner with specified matrix dimensions.
+	 * Initializes packed matrices, boundary arrays, and gap reference buffer.
+	 * Sets up initial gap penalty values and boundary conditions.
+	 *
+	 * @param maxRows_ Maximum number of rows in alignment matrix
+	 * @param maxColumns_ Maximum number of columns in alignment matrix
+	 */
 	public MultiStateAligner10ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 
@@ -2449,6 +2457,15 @@ public final class MultiStateAligner10ts extends MSA{
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Converts gapped reference coordinate to original reference position.
+	 * Accounts for gap character compression when determining actual genomic
+	 * coordinates from alignment results on compressed reference sequence.
+	 *
+	 * @param point Position in gapped/compressed reference
+	 * @param gref Compressed reference sequence
+	 * @return Corresponding position in original reference sequence
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -2474,6 +2491,15 @@ public final class MultiStateAligner10ts extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Converts original reference coordinate to gapped reference position.
+	 * Maps genomic coordinates to positions in compressed reference accounting
+	 * for gap character insertions and compressions.
+	 *
+	 * @param point Position in original reference sequence
+	 * @param gref Compressed reference sequence
+	 * @return Corresponding position in gapped/compressed reference
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -3355,6 +3381,14 @@ public final class MultiStateAligner10ts extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates offset-adjusted deletion score for matrix operations.
+	 * Applies bit-shifted scoring values used in packed matrix computations
+	 * for efficient integer-only arithmetic during dynamic programming.
+	 *
+	 * @param len Deletion length
+	 * @return Bit-shifted deletion penalty for matrix operations
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -3396,6 +3430,14 @@ public final class MultiStateAligner10ts extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates offset-adjusted insertion score for matrix operations.
+	 * Provides bit-shifted insertion penalties for use in packed
+	 * integer matrix computations during alignment.
+	 *
+	 * @param len Insertion length
+	 * @return Bit-shifted insertion penalty
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -3414,6 +3456,7 @@ public final class MultiStateAligner10ts extends MSA{
 	}
 	
 
+	/** Main packed alignment matrix storing scores and time information */
 	private final int[][][] packed;
 	/** Banded packed matrix */
 	private final int[][][] bpacked;
@@ -3422,9 +3465,13 @@ public final class MultiStateAligner10ts extends MSA{
 	/** Score for column zero */
 	private final int[] col0score;
 	
+	/** Buffer for storing gap-compressed reference sequences */
 	private final byte[] grefbuffer;
+	/** Length limit for gap-compressed reference sequence */
 	private int greflimit=-1;
+	/** Secondary length limit for reference buffer management */
 	private int greflimit2=-1;
+	/** Origin position of gap-compressed reference in original coordinates */
 	private int grefRefOrigin=-1;
 	
 	
@@ -3434,7 +3481,9 @@ public final class MultiStateAligner10ts extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score thresholds for limited alignment filling */
 	public final int[] vertLimit;
+	/** Horizontal score thresholds for limited alignment filling */
 	public final int[] horizLimit;
 
 	@Override
@@ -3450,6 +3499,14 @@ public final class MultiStateAligner10ts extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity percentage to minimum score ratio.
+	 * Calculates expected score ratio based on scoring model parameters
+	 * and desired identity threshold for alignment filtering.
+	 *
+	 * @param minid Minimum identity (0-1 or 0-100 if >1)
+	 * @return Minimum score ratio for filtering alignments
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -3607,7 +3664,9 @@ public final class MultiStateAligner10ts extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Current number of rows in alignment matrix (query sequence length) */
 	private int rows;
+	/** Current number of columns in alignment matrix (reference region length) */
 	private int columns;
 	
 }

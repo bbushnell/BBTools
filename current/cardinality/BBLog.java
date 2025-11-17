@@ -117,6 +117,12 @@ public final class BBLog extends CardinalityTracker {
 		add((BBLog)log);
 	}
 	
+	/**
+	 * Merges another BBLog into this one by taking the maximum value per bucket.
+	 * For atomic operation, uses compare-and-set. For count tracking, updates
+	 * counts appropriately when maximum values change.
+	 * @param log The BBLog to merge into this one
+	 */
 	public void add(BBLog log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){

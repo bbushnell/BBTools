@@ -237,6 +237,11 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		in2=Tools.fixExtension(in2);
 	}
 	
+	/**
+	 * Validates that input files can be read and output files can be written.
+	 * Checks for duplicate file specifications and ensures proper file access permissions.
+	 * @throws RuntimeException if files cannot be accessed or are duplicated
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, headerOut)){

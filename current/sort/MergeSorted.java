@@ -324,6 +324,11 @@ public class MergeSorted {
 		return currentList;
 	}
 	
+	/**
+	 * Creates a temporary file for intermediate merge results.
+	 * Uses the appropriate file extension based on input/output formats.
+	 * @return Path to a new temporary file
+	 */
 	public String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -339,6 +344,14 @@ public class MergeSorted {
 		return temp;
 	}
 	
+	/**
+	 * Merges a list of sorted input files into output files.
+	 * Delegates to SortByName.mergeAndDump for the actual merging operation.
+	 *
+	 * @param inList List of input file paths to merge
+	 * @param ff1 Primary output file format
+	 * @param ff2 Secondary output file format (may be null)
+	 */
 	public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2){
 		errorState|=SortByName.mergeAndDump(inList, /*null, */ff1, ff2, delete, useSharedHeader, allowInputSubprocess, outstream, SortByName.maxSizeObservedStatic());
 	}
@@ -360,8 +373,11 @@ public class MergeSorted {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Path to GI to taxonomy ID mapping table */
 	private String giTableFile=null;;
+	/** Path to taxonomic tree file */
 	private String taxTreeFile=null;
+	/** Path to accession to taxonomy ID mapping file */
 	private String accessionFile=null;
 	
 	/*--------------------------------------------------------------*/
@@ -373,16 +389,24 @@ public class MergeSorted {
 	/** Number of bases processed */
 	protected long basesProcessed=0;
 	
+	/**
+	 * Maximum number of files to merge simultaneously before creating temp files
+	 */
 	private int maxFiles=16;
 	
+	/** Whether to delete temporary files after merging */
 	private boolean delete=true;
 	
+	/** Whether to use a shared header for all output files */
 	private boolean useSharedHeader=false;
 	
+	/** Whether to allow subprocess execution for input processing */
 	private boolean allowInputSubprocess=true;
 	
+	/** File extension to use for temporary files */
 	private String tempExt=null;
 	
+	/** Whether to generate k-mer data for topological sorting */
 	private boolean genKmer=true;
 	
 	/*--------------------------------------------------------------*/
@@ -394,6 +418,7 @@ public class MergeSorted {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
+	/** Comparator used for sorting reads */
 	private static ReadComparator comparator=ReadComparatorName.comparator;
 	
 	/*--------------------------------------------------------------*/

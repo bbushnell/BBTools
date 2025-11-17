@@ -4,6 +4,14 @@ import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+/**
+ * Encapsulates configuration and state for parallel ML job processing with thread safety.
+ * Thread-safe container for neural network training jobs, managing sample subsets,
+ * network references, and job parameters during distributed learning.
+ *
+ * @author Brian Bushnell
+ * @date 2025
+ */
 public class JobData {
 	
 	JobData(final CellNet net_, final ArrayBlockingQueue<JobResults> jrq_, 
@@ -38,27 +46,47 @@ public class JobData {
 			maxSamples+", "+(list_==null ? "null" : ""+list_.size())+", "+epoch+", "+jid_;
 	}
 	
+	/** Returns a string representation of key job parameters for debugging.
+	 * @return String containing epoch, max samples, list size, backprop, and sort settings */
 	public String toString() {
 		return "jD: epoch="+epoch+", max="+maxSamples+", len="+list.size()+", back="+backprop+", sort="+sort;
 	}
 	
+	/** Immutable reference to the neural network used for this job */
 	final CellNet immutableNet;
+	/** Optional mutable network copy for thread-safe modifications */
 	CellNet mutableNet;//Optional and mutable
+	/** Thread-safe queue for submitting completed job results */
 	final ArrayBlockingQueue<JobResults> jobResultsQueue;
 
+	/** Current training epoch number for this job */
 	final int epoch;
+	/** Maximum number of samples to process in this job */
 	final int maxSamples;
+	/** Learning rate for gradient descent updates */
 	final double alpha;
+	/** Whether to perform backpropagation during sample processing */
 	final boolean backprop;
+	/** Weight multiplication factor applied during training for regularization */
 	final float weightMult;
+	/** Whether to sort samples by error or other criteria before processing */
 	final boolean sort;
+	/** Whether to create a mutable copy of the network for thread safety */
 	final boolean doCopy;
+	/** Unique job identifier, -1 for non-tracked jobs */
 	final int jid;
+	/** Total number of jobs per epoch for coordination and progress tracking */
 	final int jobsPerEpoch;
 
+	/** List of samples assigned specifically to this job for processing */
 	final ArrayList<Sample> list;//Only samples for this job
+	/** Complete array of all available samples in the dataset */
 	final Sample[] set;//All samples
+	/** Thread synchronization lock for safe access to the complete sample set */
 	final ReentrantReadWriteLock setLock;
 	
+	/**
+	 * Sentinel job instance used to signal thread termination in producer-consumer patterns
+	 */
 	static final JobData POISON=new JobData(null, null, -1, -1, -1, false, 0.0f, false, false, null, null, null, -1, -1);
 }

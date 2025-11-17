@@ -768,6 +768,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		}
 	}
 
+	/**
+	 * Generates machine-readable header string for output formatting.
+	 * Creates tab-delimited column headers for performance metrics and network dimensions.
+	 * @param dims Network layer dimensions for header generation
+	 * @return Formatted header string for machine output
+	 */
 	private String toMachineHeader(int[] dims) {
 		final boolean printAvg=(true || networksTested>1);
 		final boolean printAvgDims=(true || (maxDims!=null && printAvg));
@@ -801,6 +807,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return bb.toString();
 	}
 	
+	/**
+	 * Generates machine-readable output string with training results.
+	 * Formats timing, performance metrics, and network statistics as tab-delimited values.
+	 * @param t Timer containing execution timing information
+	 * @return Formatted results string for machine parsing
+	 */
 	private String toMachineOut(Timer t) {
 		final boolean printAvg=(true || networksTested>1);
 		final boolean printAvgDims=(true || (maxDims!=null && printAvg));
@@ -885,6 +897,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 
 	}
 	
+	/**
+	 * Calculates the number of random seeds to scan for optimal network initialization.
+	 * Determines appropriate seed count based on network configuration and scan multiplier.
+	 * @return Number of seeds to evaluate during initialization scanning
+	 */
 	private int calcSeedsToScan() {
 		if(seedsToScan>=0) {return seedsToScan;}
 		if(netIn!=null) {return 0;}
@@ -893,6 +910,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return (int)Tools.min(x, Shared.MAX_ARRAY_LEN);
 	}
 	
+	/**
+	 * Orchestrates the complete network training process across multiple cycles.
+	 * Manages seed scanning, training cycles, and selection of best performing networks.
+	 * @return Final trained network with best performance metrics
+	 */
 	private CellNet trainNetworks() {
 		bestNet=null;
 		finalNet=null;
@@ -949,6 +971,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return finalNet;
 	}
 	
+	/**
+	 * Executes a single training cycle with multiple networks in parallel.
+	 * Creates trainer threads for each network and coordinates their execution.
+	 * @return Best performing network from this training cycle
+	 */
 	private CellNet runCycle() {
 		final CellNet[] nets=fetchNetworks(netIn, networksPerCycle);
 		assert(networksPerCycle==nets.length);
@@ -975,6 +1002,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return best;
 	}
 	
+	/**
+	 * Safely retrieves an item from a blocking queue with proper exception handling.
+	 * Blocks until an item becomes available and handles interruption gracefully.
+	 *
+	 * @param <X> Type of items in the queue
+	 * @param queue The blocking queue to fetch from
+	 * @return Retrieved item from the queue
+	 */
 	<X> X fetchFromQueue(ArrayBlockingQueue<X> queue) {
 		X x=null;
 		while(x==null) {
@@ -987,6 +1022,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return x;
 	}
 
+	/**
+	 * Thread-safe comparison of network with current best performer.
+	 * Updates best network if provided network performs better and writes
+	 * intermediate results to output file.
+	 *
+	 * @param net Network to compare against current best
+	 * @return Current best performing network after comparison
+	 */
 	synchronized CellNet compareWithBest(CellNet net) {
 		CellNet better=compare(net, bestNet);
 //		assert(status!=null); //for testing
@@ -1000,12 +1043,24 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return bestNet;
 	}
 	
+	/**
+	 * Thread-safe comparison between two networks based on performance metrics.
+	 * @param a First network to compare (must not be null)
+	 * @param b Second network to compare (may be null)
+	 * @return Better performing network based on comparison criteria
+	 */
 	synchronized CellNet compare(CellNet a, CellNet b) {
 		assert(a!=null);
 		int x=a.compareTo(b);
 		return x>0 ? a : b;
 	}
 	
+	/**
+	 * Thread-safe comparison between two status objects.
+	 * @param a First status to compare (must not be null)
+	 * @param b Second status to compare (may be null)
+	 * @return Better status based on comparison criteria
+	 */
 	synchronized Status compare(Status a, Status b) {
 		assert(a!=null);
 		if(b==null) {return a;}
@@ -1013,6 +1068,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return x>0 ? a : b;
 	}
 	
+	/**
+	 * Accumulates performance metrics and statistics from a trainer thread.
+	 * Thread-safe aggregation of profiling data and network test counts.
+	 * @param tt TrainerThread containing metrics to accumulate
+	 */
 	private final void accumulate(TrainerThread tt){
 		synchronized(tt) {
 			mprof.accumulate(tt.mprof);
@@ -1021,6 +1081,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		}
 	}
 	
+	/**
+	 * Accumulates profiling metrics from a scanner thread.
+	 * Thread-safe aggregation of performance data from seed scanning operations.
+	 * @param tt ScannerThread containing metrics to accumulate
+	 */
 	private final void accumulate(ScannerThread tt){
 		synchronized(tt) {
 			mprof.accumulate(tt.mprof);
@@ -1117,10 +1182,21 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return seeds;
 	}
 	
+	/**
+	 * Retrieves networks either by loading from file or creating new random networks.
+	 * @param path File path to load networks from, or null to create new ones
+	 * @param count Number of networks to fetch
+	 * @return Array of networks ready for training
+	 */
 	private CellNet[] fetchNetworks(String path, int count) {
 		return path==null ? createNetworks(count) : loadNetworks(path);
 	}
 	
+	/**
+	 * Creates the specified number of new random networks.
+	 * @param count Number of networks to create
+	 * @return Array of newly created random networks
+	 */
 	private CellNet[] createNetworks(int count){
 		CellNet[] nets=new CellNet[count];
 		for(int i=0; i<count; i++) {
@@ -1129,6 +1205,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return nets;
 	}
 	
+	/**
+	 * Creates a single random network using the next available seed.
+	 * Uses configured network dimensions or generates random dimensions.
+	 * @return Newly created random network ready for training
+	 */
 	private CellNet randomNetwork() {
 		final long seed=(seedList!=null && netsMade<seedList.size() ? seedList.get(netsMade) : 
 			(netsMade>0 || netSeed0<0 ? randyNetSeed.nextLong()&Long.MAX_VALUE : netSeed0));
@@ -1138,11 +1219,30 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return randomNetwork(seed);
 	}
 	
+	/**
+	 * Creates a random network with specified seed and configured dimensions.
+	 * @param seed Random seed for network initialization
+	 * @return Newly created random network with specified seed
+	 */
 	public final CellNet randomNetwork(long seed) {
 		final int[] dims=(dims0!=null ? dims0 : makeDims(minDims, maxDims, seed));
 		return randomNetwork(dims, seed, maxDensity, maxDensity1, maxEdges, edgeBlockSize, commands);
 	}
 	
+	/**
+	 * Creates a random network with full specification of all parameters.
+	 * Calculates appropriate density based on edge constraints and initializes
+	 * the network with random weights.
+	 *
+	 * @param dims Layer dimensions for the network
+	 * @param seed Random seed for initialization
+	 * @param maxDensity Maximum connection density for most layers
+	 * @param maxDensity1 Maximum density for first hidden layer (0 to use maxDensity)
+	 * @param maxEdges Maximum total edges allowed
+	 * @param edgeBlockSize Quantization block size for edges
+	 * @param commands Command history to include in network metadata
+	 * @return Fully initialized random network
+	 */
 	public static final CellNet randomNetwork(int[] dims, long seed, float maxDensity,
 			float maxDensity1, long maxEdges, int edgeBlockSize, ArrayList<String> commands) {
 		final long fullyConnectedEdges=fullyConnectedEdges(dims);
@@ -1156,6 +1256,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return net;
 	}
 	
+	/**
+	 * Calculates the total number of edges in a fully connected network.
+	 * @param dims Layer dimensions of the network
+	 * @return Total edges in fully connected version of this architecture
+	 */
 	public static long fullyConnectedEdges(int[] dims) {
 		long sum=0;
 		for(int i=1; i<dims.length; i++) {
@@ -1165,6 +1270,15 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return sum;
 	}
 	
+	/**
+	 * Generates random network dimensions within specified bounds.
+	 * Input and output layer sizes are fixed while hidden layers vary randomly.
+	 *
+	 * @param minDims Minimum dimensions for each layer
+	 * @param maxDims Maximum dimensions for each layer
+	 * @param seed Random seed for dimension generation
+	 * @return Random dimensions within specified bounds
+	 */
 	public static final int[] makeDims(int[] minDims, int[] maxDims, long seed) {
 		Random randy=Shared.threadLocalRandom(seed);
 		assert(minDims.length==maxDims.length);
@@ -1189,6 +1303,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return nets;
 	}
 	
+	/**
+	 * Loads a single network from the specified file path.
+	 * Updates network configuration with current training parameters and validates
+	 * input/output dimensions match expected values.
+	 *
+	 * @param path File path to network file
+	 * @return Loaded network configured for training
+	 */
 	private CellNet loadNetwork(String path){
 		final CellNet net=CellNetParser.load(path, false);
 		if(setCutoffForEvaluation) {net.setCutoff(cutoffForEvaluation);}
@@ -1203,6 +1325,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return net;
 	}
 	
+	/**
+	 * Thread-safe writing of network to output file.
+	 * Updates statistics and writes network data in binary format.
+	 * @param net Network to write to file
+	 * @param ff FileFormat specifying output destination and format
+	 */
 	private synchronized void writeNetwork(CellNet net, FileFormat ff) {
 		if(ff==null) {return;}
 		if(net.lastStats==null) {
@@ -1216,6 +1344,18 @@ public class Trainer implements Accumulator<WorkerThread> {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Loads training data from file with optional preprocessing and splitting.
+	 * Creates sample subsets for batch training if requested.
+	 *
+	 * @param path File path to training data
+	 * @param makeSubsets Whether to create training subsets for batch processing
+	 * @param maxLines0 Maximum lines to load from primary dataset
+	 * @param shuffleRaw Whether to shuffle data after loading
+	 * @param splitFraction Fraction to split off for validation (0 for no split)
+	 * @param maxLines1 Maximum lines for validation split
+	 * @return Array containing [training_set, validation_set] (validation may be null)
+	 */
 	private SampleSet[] loadData(String path, boolean makeSubsets, int maxLines0, 
 			boolean shuffleRaw, float splitFraction, int maxLines1){
 		if(!quiet) {outstream.println("Loading "+path);}
@@ -1235,6 +1375,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return ssa;
 	}
 	
+	/**
+	 * Writes processed training data to output file in standard format.
+	 * Includes dimension headers and sample data for later analysis.
+	 * @param ff FileFormat specifying output destination and format
+	 */
 	private void writeData(FileFormat ff){
 		if(ff==null) {return;}
 		ByteStreamWriter bsw=makeBSW(ff);
@@ -1260,6 +1405,8 @@ public class Trainer implements Accumulator<WorkerThread> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Resets cycle-specific state variables for a new training cycle.
+	 * Clears print tracking and timing information. */
 	void clearCycle() {
 		lastPrintEpoch=-1;
 		lastPrintTime=System.currentTimeMillis();
@@ -1269,9 +1416,26 @@ public class Trainer implements Accumulator<WorkerThread> {
 	/*----------------           Printing           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Formats string with appropriate plural suffix based on count.
+	 * @param s Base string to pluralize
+	 * @param count Number determining singular vs plural
+	 * @return Formatted string with count and proper plural form
+	 */
 	private static String plural(String s, int count){return count+" "+(count==1 ? s : s+"s");}
+	/**
+	 * Formats string with "es" plural suffix based on count.
+	 * @param s Base string to pluralize
+	 * @param count Number determining singular vs plural
+	 * @return Formatted string with count and "es" plural form
+	 */
 	private static String pluralES(String s, int count){return count+" "+(count==1 ? s : s+"es");}
 	
+	/**
+	 * Thread-safe printing of network training status based on configured print mode.
+	 * Handles different print modes including best, average, and all network updates.
+	 * @param net Network whose status should be printed
+	 */
 	synchronized void printStatus(CellNet net) {
 		if(networksPerCycle<=1 || printMode==printAll || (printMode==printFirst && net.epoch>lastPrintEpoch)) {
 			printStatusInner(net);
@@ -1312,6 +1476,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		}
 	}
 	
+	/**
+	 * Selects the best performing networks from a list for averaging.
+	 * Sorts networks by performance and returns the top fraction, excluding
+	 * the absolute best as a potential outlier.
+	 *
+	 * @param list List of networks to concentrate from
+	 * @return Subset of best performing networks for averaging
+	 */
 	private ArrayList<CellNet> concentrateBest(ArrayList<CellNet> list){
 		Collections.sort(list);
 		Collections.reverse(list);
@@ -1328,6 +1500,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return concentrate;
 	}
 	
+	/**
+	 * Creates an averaged network from multiple trained networks.
+	 * Concentrates on best performers and averages their performance metrics
+	 * to create a representative network.
+	 *
+	 * @param list0 List of networks to average
+	 * @return Network containing averaged performance metrics
+	 */
 	private CellNet makeAvg(ArrayList<CellNet> list0) {
 		ArrayList<CellNet> list=concentrateBest(list0);
 		final CellNet zero=list.get(0);
@@ -1362,6 +1542,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return base;
 	}
 	
+	/**
+	 * Generates averaged dimensions from multiple networks.
+	 * Concentrates on best performers and averages their layer dimensions.
+	 * @param list0 List of networks to average dimensions from
+	 * @return Array of averaged dimensions as floating point values
+	 */
 	private float[] genAvgDims(ArrayList<CellNet> list0) {
 		ArrayList<CellNet> list=concentrateBest(list0);
 		final CellNet zero=list.get(0);
@@ -1377,6 +1563,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return dims;
 	}
 	
+	/**
+	 * Generates formatted string of averaged network dimensions.
+	 * Rounds averaged dimensions to integers and formats for output.
+	 *
+	 * @param list0 List of networks to average dimensions from
+	 * @param machine Whether to use machine-readable format (tab-delimited)
+	 * @return Formatted string representation of averaged dimensions
+	 */
 	private String genAvgDimsString(ArrayList<CellNet> list0, boolean machine) {
 		float[] dims=genAvgDims(list0);
 		int[] dims2=new int[dims.length];
@@ -1386,6 +1580,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return genDimsString(dims2, machine);
 	}
 	
+	/**
+	 * Formats network dimensions as a string in human or machine readable format.
+	 * @param dims Array of layer dimensions to format
+	 * @param machine Whether to use machine-readable format (tab-delimited)
+	 * @return Formatted string representation of dimensions
+	 */
 	private String genDimsString(int[] dims, boolean machine) {
 		ByteBuilder bb=new ByteBuilder();
 		if(machine) {
@@ -1405,6 +1605,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return bb.toString();
 	}
 	
+	/**
+	 * Internal method for printing detailed network status information.
+	 * Generates and prints full status strings with timing information.
+	 * @param net Network whose detailed status should be printed
+	 */
 	private void printStatusInner(CellNet net) {
 		final long t=System.currentTimeMillis();
 		final long elapsed=t-lastPrintTime;
@@ -1417,6 +1622,14 @@ public class Trainer implements Accumulator<WorkerThread> {
 		lastPrintEpoch=Tools.max(net.epoch, lastPrintEpoch);
 	}
 	
+	/**
+	 * Legacy method for printing network status with explicit status string.
+	 * Thread-safe printing based on epoch and print mode settings.
+	 *
+	 * @param net Network being reported
+	 * @param status Status string to print
+	 * @param epoch Current training epoch
+	 */
 	synchronized void printStatusOld(CellNet net, String status, int epoch) {
 		assert(status!=null);
 		if(epoch>lastPrintEpoch || printMode==printAll || printMode==printBest){
@@ -1425,15 +1638,45 @@ public class Trainer implements Accumulator<WorkerThread> {
 		}
 	}
 
+	/**
+	 * Generates complete status string with all performance metrics enabled.
+	 * @param net Network to generate status for
+	 * @param millis Elapsed time in milliseconds for this update
+	 * @return Full status string with all available metrics
+	 */
 	String genPrintStringFull(CellNet net, long millis) {
 		String s=genPrintString(net, millis, true, true, true, true, true, true, true, true);
 		return s;
 	}
+	/**
+	 * Generates status string with default metric selection.
+	 * Uses configured print flags to determine which metrics to include.
+	 *
+	 * @param stat Network to generate status for
+	 * @param millis Elapsed time in milliseconds for this update
+	 * @return Status string with configured metrics
+	 */
 	String genPrintStringDefault(CellNet stat, long millis) {
 		String s=genPrintString(stat, millis, true, printFPR, printFNR, printTPR, printTNR, printCutoff, printAlpha, printAnneal);
 		return s;
 	}
 	
+	/**
+	 * Generates formatted status string with selectable performance metrics.
+	 * Allows fine-grained control over which metrics are included in output.
+	 *
+	 * @param net Network to generate status for
+	 * @param millis Elapsed time in milliseconds (-1 to omit timing)
+	 * @param epo Whether to include epoch information
+	 * @param fpr Whether to include false positive rate
+	 * @param fnr Whether to include false negative rate
+	 * @param tpr Whether to include true positive rate
+	 * @param tnr Whether to include true negative rate
+	 * @param ctf Whether to include cutoff threshold
+	 * @param alp Whether to include alpha (learning rate)
+	 * @param ann Whether to include annealing strength
+	 * @return Formatted status string with selected metrics
+	 */
 	private String genPrintString(CellNet net, long millis, boolean epo,
 			boolean fpr, boolean fnr, boolean tpr, boolean tnr, boolean ctf, boolean alp, boolean ann) {
 		String s="ERR= %.6f\tWER= %.6f";
@@ -1476,6 +1719,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return s;
 	}
 	
+	/**
+	 * Generates machine-readable status string with tab-delimited performance metrics.
+	 * @param net Network to generate machine output for
+	 * @return Tab-delimited string with key performance metrics
+	 */
 	private String genPrintStringMachine(CellNet net) {
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -1493,6 +1741,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 	/*----------------            Streams           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified file format.
+	 * @param ff FileFormat specifying output destination, or null
+	 * @return Started ByteStreamWriter, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -1504,7 +1757,9 @@ public class Trainer implements Accumulator<WorkerThread> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Complete command line used to invoke this training session */
 	private final String commandLine;
+	/** List of commands associated with this training session */
 	final ArrayList<String> commands;
 	
 	/** Primary input file path */
@@ -1525,64 +1780,106 @@ public class Trainer implements Accumulator<WorkerThread> {
 	/** Output file path for best intermediate network */
 	private String netOutBest=null;
 
+	/**
+	 * Fixed network dimensions if specified, otherwise null for random dimensions
+	 */
 	private int[] dims0;
+	/** Minimum dimensions for each layer when using random architectures */
 	private int[] minDims;
+	/** Maximum dimensions for each layer when using random architectures */
 	private int[] maxDims;
+	/** Total number of layers in the network architecture */
+	/** Number of output classes or values in the dataset */
+	/** Number of input features in the dataset */
 	private int numInputs=-1, numOutputs=-1, numLayers=-1;
 
+	/** Primary training dataset loaded from input file */
 	SampleSet data;
+	/** Validation dataset for monitoring training progress */
 	SampleSet validateSet;
 	
+	/** Fraction of training data to split off for validation */
 	float validateFraction=0.1f;
+	/** Whether training and validation sets should be mutually exclusive */
 	boolean exclusive=true;
 
+	/** Counter for number of networks created during this session */
 	private int netsMade=0;
+	/** Maximum connection density allowed for network layers */
 	private float maxDensity=1.0f;
 	//For layer 1 input only (between layers 0 and 1).
+	/** Maximum connection density for first hidden layer specifically */
 	private float maxDensity1=0f;
+	/** Quantization block size for network edges */
 	private int edgeBlockSize=1;
+	/** Maximum total number of edges allowed in network */
 	private long maxEdges=-1;
+	/** Per-layer density specifications for fine-grained control */
 	private float[] densityArray=null;
+	/** Initial random seed for network generation */
 	private long netSeed0=-1;
 //	private long annealSeed0=7;
+	/** Whether network seed was explicitly set by user */
 	private boolean setNetSeed=false;
 //	private boolean setAnnealSeed=false;
 	
+	/** Number of worker threads for parallel processing */
 	int threads=1;
 	
 //	private AtomicInteger nextLine=new AtomicInteger(0);
 	
 //	private boolean working=true;
 	
+	/** Whether jobs should be processed in deterministic order */
 	boolean orderedJobs=true; //Without ordered, very very slight nondeterminism.
 	//TODO: Ordered could be sped up a little by adding a hashmap of results as they become available
+	/** Queue for passing completed networks between threads */
 	ArrayBlockingQueue<CellNet> networkQueue;
+	/** Queue for distributing training jobs to worker threads */
 	ArrayBlockingQueue<JobData> workerQueue;
 //	ArrayBlockingQueue<LongList> seedQueue;
+	/** Queue for collecting seed scan results from scanner threads */
 	ArrayBlockingQueue<ArrayList<Seed>> seedQueue;
+	/** Profiler for tracking master thread performance metrics */
 	private final Profiler mprof=new Profiler("M", 13);
+	/** Profiler for tracking worker thread performance metrics */
 	private final Profiler wprof=new Profiler("W", 7);
 	
+	/** List of active worker threads for training execution */
 	ArrayList<WorkerThread> alwt;
 	
+	/** Whether system is in training mode (vs evaluation only) */
 	boolean training=true;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of training epochs to execute */
 	int maxEpochs=400000;
+	/** Target error rate for early termination (-1 to disable) */
 	float targetError=-1;
+	/** Target false positive rate for early termination (-1 to disable) */
 	float targetFPR=-1;
+	/** Target false negative rate for early termination (-1 to disable) */
 	float targetFNR=-1;
+	/** Multiplier for crossover false positive optimization */
 	float crossoverFpMult=1;
 	
+	/** Whether to sort all training samples by error */
 	boolean sortAll=false;
+	/** Whether to use sorting for training sample selection */
 	boolean sort=true;
+	/** Whether sorting should be performed within worker threads */
 	boolean sortInThread=false;
+	/** Whether to shuffle training subsets before processing */
 	boolean shuffleSubset=true;
+	/** Whether to launch training operations in separate threads */
 	boolean launchInThread=false;
+	/** Whether multi-threaded sorting is permitted */
 	boolean allowMTSort=true;
 	
+	/** Whether to use pivot-based sorting algorithm */
 	static boolean PIVOT_SORT=false;
+	/** Modulus for shuffle cycling to balance randomness and performance */
 	static int SHUFFLEMOD=4;//subcycle to shuffle on. 4 seems better than 6.
 	
 	//setlock=t setnet=t copynet=f was 2x slower,
@@ -1590,8 +1887,11 @@ public class Trainer implements Accumulator<WorkerThread> {
 	//a lack of memory pressure may have led to objects staying in nonlocal memory
 	//...However, on 2nd and 3rd attempts, this slowness could not be replicated.
 	//setlock=t setnet=f copynet=t was still fastest, but ttf uses the least memory and is only 4% slower
+	/** Whether to use set-level locking for thread coordination */
 	boolean useSetLock=true;//Nuanced but mostly good
+	/** Whether to set networks within worker threads for higher concurrency */
 	static boolean setNetInWorkerThread=true;//Higher concurrency per net but more CPU usage
+	/** Whether to copy networks within worker threads for lower CPU usage */
 	static boolean copyNetInWorkerThread=false;//Lower concurrency per net but less CPU usage
 
 //#simd=f 2385.891  16x    648m4.438s
@@ -1600,111 +1900,189 @@ public class Trainer implements Accumulator<WorkerThread> {
 //#fft    1365.212  12.6x  287m11.788s
 //#ftf    1245.100  17x    354m10.348s
 	
+	/** Initial learning rate (alpha) value */
 	double alphaZero=0.08f;
+	/** Multiplier for learning rate ramping during early training */
 	double alphaMult=5.0f;
+	/** Secondary multiplier for learning rate decay in later training */
 	double alphaMult2=2.8f;
+	/** Epoch at which learning rate reaches maximum value */
 	int peakAlphaEpoch=640;
 	
+	/** Initial annealing strength for weight perturbation */
 	float annealStrength0=.003f;
+	/** Probability of applying annealing to each weight update */
 	float annealProb=.225f;
+	/** Multiplier for annealing strength decay over training */
 	float annealMult2=800;//2000;
+	/** Base rate for annealing strength exponential decay */
 	double annealDropoff0=0.999975f;
 	
+	/** Multiplier to determine maximum annealing epoch relative to total epochs */
 	float maxAnnealEpochMult=0.8f;
+	/** Minimum epoch before annealing begins */
 	int minAnnealEpoch=400;
+	/** Maximum epoch for applying annealing */
 	int maxAnnealEpoch=Integer.MAX_VALUE;
 	
 //	static float booleanCutoffGoal=0.5f;
+	/** Threshold value for binary classification during evaluation */
 	static float cutoffForEvaluation=0.5f;
+	/** Whether evaluation cutoff was explicitly set by user */
 	static boolean setCutoffForEvaluation=false;
 	
+	/** Number of training subsets for batch processing (-1 to use setsize) */
 	int subsets=-1;
+	/** Size of each training subset in samples */
 	int setsize=60000;
 
+	/** Fraction of training data to use per epoch initially */
 	float fractionPerEpoch0=0.08f;
+	/** Final fraction of training data to use per epoch */
 	float fractionPerEpoch2=0.08f;
+	/** Epoch at which fractional training begins */
 	int fpeStart=192;
 	
 	//TODO: Dump is nondeterministic, at least with halfdump enabled.  Probably need a stable sort or better compareTo.
 	//Dump is mainly to get rid of low-error samples to prevent them from getting sorted repeatedly.
+	/** Rate at which to dump low-error samples from training */
 	float dumpRate=0.5f;//0.5 or 0.6 is good with partialDump; otherwise, 0.3 at most partialDump false.  Could also just dump everything below an error cutoff.
+	/** Multiplier to determine dump epoch relative to total epochs */
 	private float dumpEpochMult=0.25f;
+	/** Epoch at which to begin dumping low-error samples */
 	int dumpEpoch=-1;//TODO: Could be an error threshold, or once the error starts increasing, or a fraction
+	/** Fraction of samples to retain when performing partial dumps */
 	float partialDumpFraction=0.9f;
+	/** Whether training subsets should shrink as low-error samples are dumped */
 	final boolean shrinkSubsets=true; //False gives very poor results, presumably due to reduced variety
 	
 	//For BBMerge ntriage=0.002, ptriage=0.0001 is good (for 20k samples per subset).
+	/** Fraction of positive samples to retain during triage */
 	float positiveTriage=0.0001f;
+	/** Fraction of negative samples to retain during triage */
 	float negativeTriage=0.0005f;
+	/** Epoch at which triage of training samples begins */
 	int startTriage=-1;
+	/** Multiplier to determine triage start epoch relative to total epochs */
 	float startTriageMult=0.2f;
 	
+	/** Minimum epoch before weight-based optimizations begin */
 	int minWeightEpoch=-1;
+	/** Multiplier to determine minimum weight epoch relative to total epochs */
 	float minWeightEpochMult=0.03f;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Whether to force printing of false negative rate regardless of target */
+	/** Whether to force printing of false positive rate regardless of target */
 	boolean forcePrintFPR=false, forcePrintFNR=false;
+	/** Whether false negative rate should be included in status output */
+	/** Whether false positive rate should be included in status output */
 	final boolean printFPR, printFNR;
+	/** Whether classification cutoff should be included in status output */
+	/** Whether true negative rate should be included in status output */
+	/** Whether true positive rate should be included in status output */
 	boolean printTPR=false, printTNR=false, printCutoff=true;
+	/** Whether annealing strength should be included in status output */
+	/** Whether learning rate (alpha) should be included in status output */
 	boolean printAlpha=false, printAnneal=false;
 	
+	/** Current annealing strength value during training */
 	double annealStrength;
+	/** Current annealing decay rate during training */
 	double annealDropoff;
 	
 
+	/** Calculated rate of learning rate increase per epoch */
 	final double alphaIncrease;//=alphaZero*(alphaMult-1.0)/(peakAlphaEpoch);
+	/** Number of epochs over which learning rate decays */
 	final int alphaEpochs;//=(Tools.min(maxEpochs, 800000)-peakAlphaEpoch);
+	/** Calculated rate of learning rate decay per epoch */
 	final double alphaDropoff;//=1.0/Math.pow(alphaMult2, 1.0/alphaEpochs);
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of training jobs to execute per epoch */
 	int jobsPerEpoch;
+	/** Number of networks to train in parallel per cycle */
 	int networksPerCycle=1;
+	/** Number of training cycles to execute */
 	int cycles=1;
+	/** Total number of networks evaluated during training */
 	long networksTested=0;
 	
+	/** List of random seeds selected for network initialization */
 	private LongList seedList;
+	/** Number of random seeds to evaluate for optimal initialization */
 	private int seedsToScan=-1;
+	/** Multiplier to determine seeds to scan relative to total networks */
 	private float seedsToScanMult=0;//10 worked best for BBMerge; needs more testing;
+	/** Number of epochs to run for each seed during scanning */
 	private int scanEpochs=1024;
+	/** Number of samples to use per epoch during seed scanning */
 	private int scanSamples=80000;
 	
 	/*--------------------------------------------------------------*/
 	
 	//Cycle Fields
+	/** Epoch number of the last status print for cycle management */
 	int lastPrintEpoch=-1;
 	
+	/** Final network selected as the best overall result */
 	private CellNet finalNet=null;
+	/** Best performing network encountered during training */
 	private CellNet bestNet=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Interval between status updates in terms of samples processed */
 	int printInterval=10000;//TODO: Lower is slower but better; decouple print and evaluate
+	/** Whether to suppress non-essential output messages */
 	boolean quiet=false;
+	/** Whether to print training progress status updates */
 	boolean printStatus=true;
+	/** Whether to generate machine-readable output format */
 	boolean machineOut=false;
+	/** Mode controlling which networks have status printed */
 	int printMode=printAverage;
+	/** Timestamp of last status print for timing calculations */
 	long lastPrintTime=-1;
+	/** Print mode constant for printing averaged network statistics */
+	/** Print mode constant for printing only best network updates */
+	/** Print mode constant for printing all network updates */
+	/** Print mode constant for printing first network in each epoch */
 	private static final int printFirst=0, printAll=1, printBest=2, printAverage=3;
 
+	/** Map for tracking best networks by epoch for print mode management */
 	HashMap<CellNet, CellNet> networkMap=new HashMap<CellNet, CellNet>();
+	/** Map for collecting networks for averaging in print mode management */
 	HashMap<CellNet, ArrayList<CellNet>> networkMap2=new HashMap<CellNet, ArrayList<CellNet>>();
+	/** Collection of final networks from each cycle for averaging */
 	ArrayList<CellNet> finalNets=new ArrayList<CellNet>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of training samples processed */
 	private long linesProcessed=0;
+	/** Number of output lines written to result files */
 	private long linesOut=0;
+	/** Total bytes of training data processed */
 	private long bytesProcessed=0;
+	/** Total bytes written to output files */
 	private long bytesOut=0;
 
+	/** Total number of network edges processed across all networks */
 	private long edgesIn=0;
+	/** Total number of networks loaded or created for training */
 	private long networksIn=0;
 	
+	/** Maximum number of training samples to load from input */
 	private int maxLines=Shared.MAX_ARRAY_LEN;
+	/** Maximum number of validation samples to load */
 	int maxLinesV=-1;
+	/** Whether to shuffle raw input data after loading */
 	private boolean shuffleRaw=false;
+	/** Class balance factor for weighted training */
 	private float balance=0.4f;
 	
 	/*--------------------------------------------------------------*/
@@ -1728,10 +2106,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 //	private final FileFormat ffoutInvalid;
 	
 //	final Random randyAnnealSeed;
+	/** Random number generator for network seed generation */
 	final Random randyNetSeed;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for coordinating thread access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

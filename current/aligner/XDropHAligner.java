@@ -34,6 +34,7 @@ public class XDropHAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for XDropHAligner */
 	public XDropHAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -305,6 +306,12 @@ public class XDropHAligner implements IDAligner{
 		return identity;
 	}
 	
+	/**
+	 * Converts score array to readable string format for debugging.
+	 * Extracts score bits from packed long values.
+	 * @param array Array of packed score values
+	 * @return Formatted string representation of scores
+	 */
 	private static ByteBuilder toScore(long[] array) {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('[');
@@ -341,9 +348,14 @@ public class XDropHAligner implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for tracking total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the current loop counter value for performance monitoring */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New counter value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -351,32 +363,49 @@ public class XDropHAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits used for encoding position information in score values */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used for encoding deletion count in score values */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score portion of packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed score values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed score values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score portion from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score value for matching bases in alignment */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions in alignment */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions in alignment */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions in alignment */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous bases (N) in alignment - treated neutrally */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid or pruned alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty with position increment for gap tracking */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Whether to extend matches in alignment matrix exploration */
 	private static final boolean EXTEND_MATCH=true;
+	/** Toggle between loop-based and branchless matrix position management */
 	private static final boolean LOOP_VERSION=false;
+	/** Debug flag for printing alignment operation statistics */
 	private static final boolean PRINT_OPS=false;
 //	private static final boolean debug=false;
 	// This will force full-length alignment, but it will only be optimal
 	// if the global alignment is within the glocal bandwidth.
 	// Better to use Banded/Glocal for arbitrary global alignments.
+	/** Whether to perform global alignment instead of local alignment */
 	public static final boolean GLOBAL=false;
 
 }

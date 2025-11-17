@@ -8,8 +8,19 @@ import shared.PreParser;
 import shared.Shared;
 import structures.ByteBuilder;
 
+/**
+ * Generates a randomized adjacency matrix representing a graph with configurable
+ * parameters, writing the result to a text file.
+ * Creates probabilistic graphs with randomly generated edge weights between nodes.
+ * @author Brian Bushnell
+ */
 public class MakeAdjacencyList {
 	
+	/**
+	 * Main entry point for generating and writing an adjacency matrix.
+	 * Parses command-line arguments, generates matrix, and writes to output file.
+	 * @param args Command-line arguments for configuration
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -21,6 +32,12 @@ public class MakeAdjacencyList {
 		writeMatrix(matrix);
 	}
 	
+	/**
+	 * Parses command-line arguments to configure matrix generation parameters.
+	 * Supports: out/out1, nodes/n, minlen/min, maxlen/max, prob, seed.
+	 * @param args Array of command-line arguments in key=value format
+	 * @throws RuntimeException if unknown parameter is encountered
+	 */
 	public static void parse(String[] args){
 		
 		for(int i=0; i<args.length; i++){
@@ -48,6 +65,12 @@ public class MakeAdjacencyList {
 		
 	}
 	
+	/**
+	 * Generates a random symmetric adjacency matrix for an undirected graph.
+	 * Creates edges probabilistically between node pairs with random weights.
+	 * @return Symmetric integer matrix where -1 indicates no edge,
+	 * positive values indicate edge weights
+	 */
 	public static int[][] genMatrix(){
 		
 		final Random randy=Shared.threadLocalRandom(seed);
@@ -68,6 +91,12 @@ public class MakeAdjacencyList {
 		return matrix;
 	}
 	
+	/**
+	 * Writes the adjacency matrix to a tab-delimited text file.
+	 * Outputs only upper triangle plus diagonal to avoid duplicate edges.
+	 * Format: nodeA\tnodeB\tweight for each edge.
+	 * @param matrix The adjacency matrix to write
+	 */
 	public static void writeMatrix(int[][] matrix){
 		TextStreamWriter tsw=new TextStreamWriter(out, false, false, false);
 		tsw.start();
@@ -82,6 +111,12 @@ public class MakeAdjacencyList {
 		tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Converts an integer to a base-26 alphabetic string representation.
+	 * Uses A-Z characters where A=0, B=1, etc. Handles zero as "A".
+	 * @param number Integer to convert (non-negative)
+	 * @return Base-26 string representation using letters A-Z
+	 */
 	public static String toString(int number){
 		ByteBuilder sb=new ByteBuilder();
 		while(number>0){
@@ -92,11 +127,19 @@ public class MakeAdjacencyList {
 		return (sb.length()<1 ? "A" : sb.reverseInPlace().toString());
 	}
 	
+	/** Number of nodes in the generated graph (default 10) */
 	public static int nodes=10;
+	/** Minimum edge weight for randomly generated edges (default 5) */
 	public static int minlen=5;
+	/** Maximum edge weight for randomly generated edges (default 25) */
 	public static int maxlen=25;
+	/** Probability of creating an edge between any two nodes (default 0.3) */
 	public static float prob=0.3f;
+	/**
+	 * Random seed for reproducible graph generation (default -1 for random seed)
+	 */
 	public static long seed=-1;
+	/** Output file path for the generated adjacency list (default "stdout.txt") */
 	public static String out="stdout.txt";
 	
 }

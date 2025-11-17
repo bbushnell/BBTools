@@ -162,6 +162,12 @@ public class ParseBloomFilter {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that coordinates file reading, parsing, and output.
+	 * Opens input/output streams, processes the file content, and reports
+	 * execution statistics including valid/invalid line counts and timing.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -196,6 +202,17 @@ public class ParseBloomFilter {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core parsing logic that processes each line of the input file.
+	 * Extracts thread counts from "Executing bloom.BloomFilterWrapper" lines,
+	 * parses numeric values from "Keys Counted:" and "Increments:" lines,
+	 * and extracts timing from "Filter creation:" lines. Invalid lines
+	 * are written to the invalid output stream if specified.
+	 *
+	 * @param bf Input file reader
+	 * @param bsw Output stream for valid parsed data
+	 * @param bswInvalid Output stream for invalid lines (may be null)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -243,6 +260,12 @@ public class ParseBloomFilter {
 		bb.clear();
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given file format.
+	 * Returns null if the file format is null.
+	 * @param ff File format specification for the output stream
+	 * @return Started ByteStreamWriter instance, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -254,35 +277,51 @@ public class ParseBloomFilter {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path */
 	private String in1=null;
+	/** Output file path for valid parsed lines */
 	private String out1=null;
+	/** Output file path for invalid lines that couldn't be parsed */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of valid output lines written */
 	private long linesOut=0;
+	/** Total number of input bytes processed */
 	private long bytesProcessed=0;
+	/** Total number of output bytes written */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for the input file */
 	private final FileFormat ffin1;
+	/** File format specification for the main output file */
 	private final FileFormat ffout1;
+	/** File format specification for the invalid lines output file */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed progress reporting */
 	public static boolean verbose=false;
+	/** Flag indicating if an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

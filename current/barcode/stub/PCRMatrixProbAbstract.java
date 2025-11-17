@@ -16,10 +16,21 @@ import structures.ByteBuilder;
  */
 public abstract class PCRMatrixProbAbstract extends PCRMatrix {
 	
+	/** Constructs abstract PCR matrix with zero dimensions and no delimiter */
 	public PCRMatrixProbAbstract() {super(0, 0, 0, false);}
 	
+	/**
+	 * Static parsing method for PCR matrix configuration parameters.
+	 * Always returns false in this abstract implementation.
+	 *
+	 * @param arg Complete argument string
+	 * @param a Parameter key
+	 * @param b Parameter value
+	 * @return false (no parsing implemented)
+	 */
 	public static final boolean parseStatic(String arg, String a, String b){return false;}
 	
+	/** Post-parsing cleanup method with no implementation in abstract class */
 	public final static void postParseStatic(){}
 	
 	@Override
@@ -52,6 +63,11 @@ public abstract class PCRMatrixProbAbstract extends PCRMatrix {
 	@Override
 	public final ByteBuilder toBytesProb(ByteBuilder bb) {return null;}
 	
+	/**
+	 * Indicates if this implementation supports client-side processing.
+	 * Always returns true for stub implementations.
+	 * @return true (supports client-side processing)
+	 */
 	public static final boolean clientside() {return true;}
 	
 }

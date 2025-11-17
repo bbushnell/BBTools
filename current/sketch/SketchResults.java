@@ -13,12 +13,29 @@ import structures.ByteBuilder;
 import structures.IntHashMap;
 import tax.TaxTree;
 
+/**
+ * Manages and processes results from genomic sketch comparisons.
+ * Provides comprehensive result tracking, filtering, and analysis capabilities
+ * for sketch-based taxonomic classification and sequence similarity evaluation.
+ * Supports concurrent result collection, dynamic result list management,
+ * and multi-level taxonomic hit tracking.
+ *
+ * @author Brian Bushnell
+ */
 public class SketchResults extends SketchObject {
 	
+	/** Constructs a SketchResults object with a single sketch.
+	 * @param s The query sketch to associate with this result set */
 	SketchResults(Sketch s){
 		sketch=s;
 	}
 	
+	/**
+	 * Constructs a SketchResults object with sketch and reference data.
+	 * @param s The query sketch
+	 * @param sketchList_ List of reference sketches for comparison
+	 * @param taxHits_ Two-dimensional array tracking taxonomic hits
+	 */
 	SketchResults(Sketch s, ArrayList<Sketch> sketchList_, int[][] taxHits_){
 		sketch=s;
 		refSketchList=sketchList_;
@@ -29,6 +46,15 @@ public class SketchResults extends SketchObject {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds comparison results from a concurrent map to the result list.
+	 * Converts the concurrent hashmap of comparisons into a sorted list
+	 * and triggers recomparison if contamination counts are needed.
+	 *
+	 * @param map Concurrent map containing sketch comparisons keyed by ID
+	 * @param params Display parameters controlling comparison behavior
+	 * @param buffer Comparison buffer for recomparison calculations
+	 */
 	public void addMap(ConcurrentHashMap<Integer, Comparison> map, DisplayParams params, CompareBuffer buffer) {
 
 		if(map.isEmpty()){return;}
@@ -39,6 +65,15 @@ public class SketchResults extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Recompares all results using merged bit sets for more accurate metrics.
+	 * Merges the query sketch's bit sets, then recomputes comparison metrics
+	 * for all comparisons in the result list. Sorts results by the specified
+	 * comparator after recomparison.
+	 *
+	 * @param buffer Comparison buffer providing computational resources
+	 * @param params Display parameters containing contamination level settings
+	 */
 	public void recompare(CompareBuffer buffer, DisplayParams params){
 //		assert(makeIndex || !AUTOSIZE);
 		
@@ -55,6 +90,17 @@ public class SketchResults extends SketchObject {
 		Collections.reverse(list);
 	}
 	
+	/**
+	 * Converts concurrent map to sorted comparison list with level filtering.
+	 * Applies records-per-level filtering to limit results at each taxonomic level
+	 * and truncates the list to maximum record limits. Maintains sorting based
+	 * on the provided comparator.
+	 *
+	 * @param map Concurrent map of comparisons to convert
+	 * @param params Display parameters controlling filtering and limits
+	 * @param old Existing comparison list to append to (may be null)
+	 * @return Filtered and sorted list of comparisons
+	 */
 	private static ArrayList<Comparison> addToList(ConcurrentHashMap<Integer, Comparison> map, DisplayParams params, ArrayList<Comparison> old){
 		
 //		System.err.println(map.size());
@@ -98,6 +144,8 @@ public class SketchResults extends SketchObject {
 		return al;
 	}
 	
+	/** Checks if the result list is empty or null.
+	 * @return true if no comparison results are present, false otherwise */
 	public boolean isEmpty(){
 		return list==null || list.isEmpty();
 	}
@@ -106,6 +154,15 @@ public class SketchResults extends SketchObject {
 	/*----------------          Tax Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * FunctionUnclear: Intended to determine primary taxonomic ID at given level.
+	 * Current implementation contains assertion failure indicating incomplete
+	 * development. Method signature suggests taxonomic level processing but
+	 * implementation is not functional.
+	 *
+	 * @param level Taxonomic level for primary tax determination
+	 * @return Taxonomic ID (currently always returns -1 due to assertion)
+	 */
 	public int primaryTax(int level){
 		//I have no idea how to implement this...
 		IntHashMap map=new IntHashMap();
@@ -117,13 +174,29 @@ public class SketchResults extends SketchObject {
 	/*----------------         Print Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** String used to separate records in output formatting */
 	private static String recordBreak="\n"; //"\n\n"
 	
+	/**
+	 * Writes comparison results to a text stream using display parameters.
+	 * Converts results to formatted text and outputs via the provided writer.
+	 * @param params Display parameters controlling output format
+	 * @param tsw Text stream writer for result output
+	 */
 	void writeResults(DisplayParams params, TextStreamWriter tsw){
 		ByteBuilder sb=toText(params);
 		tsw.print(sb);
 	}
 	
+	/**
+	 * Converts comparison results to formatted text representation.
+	 * Handles SSU alignment if present, supports JSON output format,
+	 * and applies various formatting modes including query-ref-ANI and
+	 * constellation formats. Limits output to maximum record count.
+	 *
+	 * @param params Display parameters controlling output format and limits
+	 * @return ByteBuilder containing formatted comparison results
+	 */
 	public ByteBuilder toText(DisplayParams params){
 		assert(params.postParsed);
 		if(sketch.hasSSU()){
@@ -175,6 +248,12 @@ public class SketchResults extends SketchObject {
 	/*----------------          Alignment           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Initiates SSU (Small Subunit) sequence alignment for comparison results.
+	 * Uses the alignment thread pool to process SSU alignments for up to
+	 * maxRecords comparisons. Only processes if the query sketch contains SSU data.
+	 * @param maxRecords Maximum number of comparisons to align
+	 */
 	void alignSSUs(int maxRecords){
 		if(!sketch.hasSSU()){return;}
 //		if(list!=null && list.size()>0){
@@ -193,10 +272,15 @@ public class SketchResults extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** The query sketch associated with these comparison results */
 	public final Sketch sketch;
+	/** List of reference sketches used in comparisons */
 	public ArrayList<Sketch> refSketchList;
+	/** Two-dimensional array tracking taxonomic hits across comparison levels */
 	public int[][] taxHits;
+	/** Sorted list of comparison results between query and reference sketches */
 	public ArrayList<Comparison> list;
+	/** Total number of comparison records processed */
 	public int totalRecords=0;
 	
 }

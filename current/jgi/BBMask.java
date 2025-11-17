@@ -47,6 +47,8 @@ import tracker.ReadStats;
  */
 public class BBMask{
 
+	/** Program entry point. Creates BBMask instance and processes input files.
+	 * @param args Command-line arguments specifying input files and parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMask x=new BBMask(args);
@@ -56,6 +58,11 @@ public class BBMask{
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Constructor that parses command-line arguments and initializes masking parameters.
+	 * Sets up input/output files, k-mer ranges, coverage thresholds, and processing modes.
+	 * @param args Command-line arguments for configuration
+	 */
 	public BBMask(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -227,6 +234,12 @@ public class BBMask{
 	/*--------------------------------------------------------------*/
 
 
+	/**
+	 * Main processing pipeline that executes all configured masking operations.
+	 * Sequentially performs repeat masking, low-complexity masking, and SAM-based
+	 * masking, then converts results to output format.
+	 * @param t0 Timer for tracking total execution time
+	 */
 	public void process(Timer t0){
 		
 		Timer t=new Timer();
@@ -362,6 +375,15 @@ public class BBMask{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets bits in BitSet for positions exceeding maximum coverage threshold.
+	 *
+	 * @param bs BitSet to mark high coverage positions
+	 * @param ca Coverage array containing depth values
+	 * @param maxAllowedCoverage Maximum allowed coverage value
+	 * @param maxLen Length of sequence to process
+	 * @return Number of positions marked for masking
+	 */
 	private static int setHighCoverage(BitSet bs, CoverageArray ca, int maxAllowedCoverage, int maxLen){
 		int numSet=0;
 		for(int i=0; i<maxLen; i++){
@@ -373,6 +395,15 @@ public class BBMask{
 		return numSet;
 	}
 	
+	/**
+	 * Sets bits in BitSet for positions below minimum coverage threshold.
+	 *
+	 * @param bs BitSet to mark low coverage positions
+	 * @param ca Coverage array containing depth values
+	 * @param minAllowedCoverage Minimum required coverage value
+	 * @param maxLen Length of sequence to process
+	 * @return Number of positions marked for masking
+	 */
 	private static int setLowCoverage(BitSet bs, CoverageArray ca, int minAllowedCoverage, int maxLen){
 		int numSet=0;
 		for(int i=0; i<maxLen; i++){
@@ -419,6 +450,11 @@ public class BBMask{
 		return sum;
 	}
 	
+	/**
+	 * Splits reads by removing masked regions, creating multiple shorter reads
+	 * from each original read where masked regions act as break points.
+	 * @return Total number of bases processed during splitting
+	 */
 	private long splitFromBitsets(){
 		System.err.println("\nSplitting reads by removing masked bases"); //123
 		long sum=0;
@@ -483,6 +519,7 @@ public class BBMask{
 		return sum;
 	}
 	
+	/** Writes processed sequences to output file using concurrent stream writer. */
 	private void writeOutput(){
 		
 		ConcurrentReadOutputStream ros=null;
@@ -505,6 +542,11 @@ public class BBMask{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes all SAM files to mark mapped regions for masking.
+	 * Coordinates multi-threaded SAM processing and coverage analysis.
+	 * @return Number of additional bases marked for masking
+	 */
 	private long maskSam(){
 		long before=0, after=0;
 		for(Read r : map.values()){
@@ -520,6 +562,8 @@ public class BBMask{
 		return after-before;
 	}
 	
+	/** Multi-threaded SAM processing for a single file format.
+	 * @param ff FileFormat specification for SAM input file */
 	private void maskSam_MT(FileFormat ff){
 		
 		final ConcurrentReadInputStream cris;
@@ -565,8 +609,12 @@ public class BBMask{
 		}
 	}
 	
+	/** Worker thread for multi-threaded SAM file processing.
+	 * Each thread processes SAM reads from shared input stream. */
 	private class MaskSamThread extends Thread{
 		
+		/** Constructor for SAM processing thread.
+		 * @param cris_ Concurrent input stream for reading SAM data */
 		MaskSamThread(ConcurrentReadInputStream cris_){
 			cris=cris_;
 		}
@@ -576,11 +624,14 @@ public class BBMask{
 			maskSam(cris);
 		}
 		
+		/** Input stream for reading SAM format data */
 		final ConcurrentReadInputStream cris;
 		
 		
 	}
 	
+	/** Single-threaded SAM processing for a single file format.
+	 * @param ff FileFormat specification for SAM input file */
 	private void maskSam_ST(FileFormat ff){
 		
 		final ConcurrentReadInputStream cris;
@@ -599,6 +650,11 @@ public class BBMask{
 		}
 	}
 	
+	/**
+	 * Core SAM processing logic that reads mapped reads and marks reference
+	 * positions for masking based on alignment coordinates.
+	 * @param cris Input stream for reading SAM format data
+	 */
 	private void maskSam(ConcurrentReadInputStream cris){
 		
 		long samReads=0;
@@ -661,6 +717,12 @@ public class BBMask{
 		}
 	}
 	
+	/**
+	 * Marks reference positions covered by a SAM alignment for masking.
+	 * @param bs BitSet to mark positions for masking
+	 * @param sl SAM line containing alignment information
+	 * @param reflen Length of reference sequence
+	 */
 	private void mask(BitSet bs, SamLine sl, int reflen){
 		final int start=Tools.max(0, sl.start(true, false)-samPad);
 		final int stop=Tools.min(sl.stop(start, true, false)+1+samPad, reflen);
@@ -671,6 +733,17 @@ public class BBMask{
 		}
 	}
 	
+	/**
+	 * Increments coverage values for aligned regions in a coverage array.
+	 *
+	 * @param ca Coverage array to increment
+	 * @param sl SAM line with alignment information
+	 * @param match Match string for alignment details
+	 * @param reflen Reference sequence length
+	 * @param ranges IntList for storing alignment ranges
+	 * @param includeDels Whether to include deletion coverage
+	 * @param samPad Padding around aligned regions
+	 */
 	public static void increment(CoverageArray ca, SamLine sl, byte[] match, int reflen, IntList ranges, boolean includeDels, int samPad){
 		final int start=Tools.max(0, sl.start(true, false));
 		final int stop=Tools.min(sl.stop(start, true, false)+1, reflen);
@@ -708,6 +781,15 @@ public class BBMask{
 		}
 	}
 	
+	/**
+	 * Parses alignment match string to identify covered reference ranges.
+	 *
+	 * @param longmatch Long-format match string from alignment
+	 * @param start Starting position in reference
+	 * @param stop Ending position in reference
+	 * @param ranges IntList to store identified ranges
+	 * @param includeDels Whether to include deletion ranges
+	 */
 	public static void fillRanges(byte[] longmatch, int start, int stop, IntList ranges, boolean includeDels){
 		assert(ranges.size==0);
 		byte mode='?', lastMode='?';
@@ -759,6 +841,8 @@ public class BBMask{
 		assert((ranges.size&1)==0);
 	}
 	
+	/** Handles cases where SAM reference name is not found in assembly.
+	 * @param rname Reference name from SAM file */
 	private void handleNoRef(String rname){
 		assert(rname!=null);
 		String ret=norefSet.putIfAbsent(rname, rname);
@@ -769,6 +853,11 @@ public class BBMask{
 	
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Loads reference sequences into memory and initializes data structures
+	 * for masking operations including BitSets and coverage arrays.
+	 * @return Map of sequence names to Read objects with attached BitSets
+	 */
 	private LinkedHashMap<String, Read> hashRef(){
 
 
@@ -845,6 +934,11 @@ public class BBMask{
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Performs low-complexity masking across all sequences using k-mer frequency analysis.
+	 * @param matrix Pre-allocated k-mer count matrices for different k values
+	 * @return Total number of bases masked for low complexity
+	 */
 	private long maskLowComplexity(short[][] matrix){
 		long sum=0;
 		if(matrix==null){matrix=new short[16][];}
@@ -854,6 +948,17 @@ public class BBMask{
 		return sum;
 	}
 	
+	/**
+	 * Masks low-complexity regions in a single read using sliding window k-mer analysis.
+	 *
+	 * @param r Read to process
+	 * @param mink Minimum k-mer size
+	 * @param maxk Maximum k-mer size
+	 * @param window Sliding window size
+	 * @param ratio Minimum diversity ratio required
+	 * @param matrix K-mer count matrices
+	 * @return Number of bases masked in this read
+	 */
 	private static int maskLowComplexity(Read r, int mink, int maxk, int window, float ratio, short[][] matrix){
 		
 		final byte[] bases=r.bases;
@@ -949,6 +1054,8 @@ public class BBMask{
 	/*--------------------------------------------------------------*/
 	
 	
+	/** Performs entropy-based masking across all sequences using multi-threading.
+	 * @return Total number of bases masked for low entropy */
 	private long maskLowEntropy(){
 		ArrayBlockingQueue<Read> queue=new ArrayBlockingQueue<Read>(map.size());
 		for(Read r : map.values()){queue.add(r);}
@@ -972,8 +1079,19 @@ public class BBMask{
 		return sum;
 	}
 	
+	/** Worker thread for multi-threaded low-entropy masking.
+	 * Each thread processes reads from shared queue using entropy analysis. */
 	private class MaskLowEntropyThread extends Thread{
 		
+		/**
+		 * Constructor for entropy masking thread.
+		 *
+		 * @param queue_ Queue containing reads to process
+		 * @param mink_ Minimum k-mer size for entropy calculation
+		 * @param maxk_ Maximum k-mer size for entropy calculation
+		 * @param window_ Window size for entropy analysis
+		 * @param cutoff_ Entropy threshold for masking
+		 */
 		MaskLowEntropyThread(ArrayBlockingQueue<Read> queue_, int mink_, int maxk_, int window_, float cutoff_){
 			queue=queue_;
 			minkT=mink_;
@@ -993,16 +1111,32 @@ public class BBMask{
 			}
 		}
 		
+		/** Queue containing reads to process */
 		final ArrayBlockingQueue<Read> queue;
+		/** Minimum k-mer size for this thread */
 		final int minkT;
+		/** Maximum k-mer size for this thread */
 		final int maxkT;
+		/** Entropy cutoff threshold for this thread */
 		final float cutoff;
+		/** Window size for entropy analysis */
 		final int windowT;
+		/** Array of entropy trackers for different k-mer sizes */
 		final EntropyTracker[] trackers;
+		/** Count of bases masked by this thread */
 		long masked=0;
 		
 	}
 	
+	/**
+	 * Masks low-entropy regions in a single read using entropy analysis.
+	 *
+	 * @param r Read to process
+	 * @param mink Minimum k-mer size for entropy calculation
+	 * @param maxk Maximum k-mer size for entropy calculation
+	 * @param trackers Pre-configured entropy trackers for each k
+	 * @return Number of bases masked in this read
+	 */
 	private int maskLowEntropy(Read r, int mink, int maxk, EntropyTracker[] trackers){
 //		outstream.println("maskLowEntropy("+r.numericID+", "+mink+", "+maxk+", "+window+", "+cutoff+", "+matrix.length+", "+countCounts.length+")");
 //		System.err.println(new String(r.bases));
@@ -1037,6 +1171,8 @@ public class BBMask{
 	
 
 
+	/** Single-threaded repeat masking across all sequences.
+	 * @return Total number of bases masked for repeats */
 	private long maskRepeats_ST(){
 		long sum=0;
 		for(Read r : map.values()){
@@ -1045,6 +1181,8 @@ public class BBMask{
 		return sum;
 	}
 	
+	/** Multi-threaded repeat masking across all sequences.
+	 * @return Total number of bases masked for repeats */
 	private long maskRepeats(){
 		ArrayBlockingQueue<Read> queue=new ArrayBlockingQueue<Read>(map.size());
 		for(Read r : map.values()){queue.add(r);}
@@ -1067,8 +1205,19 @@ public class BBMask{
 		return sum;
 	}
 	
+	/** Worker thread for multi-threaded repeat masking.
+	 * Each thread processes reads from shared queue using k-mer repeat detection. */
 	private class MaskRepeatThread extends Thread{
 		
+		/**
+		 * Constructor for repeat masking thread.
+		 *
+		 * @param queue_ Queue containing reads to process
+		 * @param mink_ Minimum k-mer size for repeat detection
+		 * @param maxk_ Maximum k-mer size for repeat detection
+		 * @param mincount_ Minimum count threshold for repeats
+		 * @param minlen_ Minimum length of repeats to mask
+		 */
 		MaskRepeatThread(ArrayBlockingQueue<Read> queue_, int mink_, int maxk_, int mincount_, int minlen_){
 			queue=queue_;
 			minkT=mink_;
@@ -1084,15 +1233,31 @@ public class BBMask{
 			}
 		}
 		
+		/** Queue containing reads to process */
 		final ArrayBlockingQueue<Read> queue;
+		/** Minimum k-mer size for this thread */
 		final int minkT;
+		/** Maximum k-mer size for this thread */
 		final int maxkT;
+		/** Minimum count threshold for this thread */
 		final int mincountT;
+		/** Minimum repeat length for this thread */
 		final int minlenT;
+		/** Count of bases masked by this thread */
 		long masked=0;
 		
 	}
 	
+	/**
+	 * Identifies and masks repetitive regions in a single read using k-mer analysis.
+	 *
+	 * @param r Read to process
+	 * @param mink Minimum k-mer size for repeat detection
+	 * @param maxk Maximum k-mer size for repeat detection
+	 * @param mincount Minimum repeat count threshold
+	 * @param minlen Minimum length of repeats to mask
+	 * @return Number of bases masked in this read
+	 */
 	private static int maskRepeats(Read r, int mink, int maxk, int mincount, int minlen){
 		final byte[] bases=r.bases;
 		final BitSet bs=(BitSet)r.obj;
@@ -1156,6 +1321,14 @@ public class BBMask{
 		return (last<0 ? 0 : last-loc+k+1);
 	}
 	
+	/**
+	 * Extracts initial k-mer key for repeat detection at specified location.
+	 *
+	 * @param bases Sequence bases
+	 * @param loc Location to extract k-mer
+	 * @param k K-mer size
+	 * @return Integer representation of k-mer, or -1 if invalid
+	 */
 	private static int getInitialKey(byte[] bases, int loc, int k){
 		assert(k<16);
 		int start=loc-k;
@@ -1176,51 +1349,82 @@ public class BBMask{
 
 	/*--------------------------------------------------------------*/
 
+	/** Map storing reference sequences with associated masking BitSets */
 	private LinkedHashMap<String, Read> map=null;
+	/** Set tracking reference names not found in assembly */
 	private ConcurrentHashMap<String, String> norefSet=new ConcurrentHashMap<String, String>(256, .75f, 16);
+	/** Coverage arrays for SAM-based masking analysis */
 	private HashMap<String, CoverageArray> covmap=null;
 //	private IntList refLengths=new IntList();
 	
+	/** Count of reference sequences processed */
 	private long refReads=0;
+	/** Total bases in reference sequences */
 	private long refBases=0;
 //	private long repeatsMasked=0;
 	
+	/** Count of SAM reads processed */
 	private long samReads=0;
+	/** Total bases in SAM reads processed */
 	private long samBases=0;
 //	private long samMasked=0;
 	
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
 
+	/** Input reference file path */
 	private String inRef=null;
+	/** List of input SAM file paths */
 	private ArrayList<String> inSam=new ArrayList<String>();
 
+	/** Quality file for reference input */
 	private String qfinRef=null;
 
+	/** Output reference file path */
 	private String outRef=null;
 
+	/** Quality file for reference output */
 	private String qfoutRef=null;
 
+	/** File extension override for reference input */
 	private String extinRef=null;
+	/** File extension override for reference output */
 	private String extoutRef=null;
 	
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 
+	/** Maximum number of reads to process */
 	private long maxReads=-1;
 
+	/** Whether to perform repeat masking */
 	private boolean processRepeats=false;
+	/** Minimum k-mer size for repeat detection */
 	private int mink=5;
+	/** Maximum k-mer size for repeat detection */
 	private int maxk=5;
+	/** Minimum length of repeats to mask */
 	private int minlen=40;
+	/** Minimum count threshold for repeat detection */
 	private int mincount=4;
 
+	/** Whether to perform entropy/complexity masking */
 	private boolean processEntropy=true;
+	/** Whether to use entropy-based (true) or complexity-based (false) masking */
 	private boolean entropyMode=true;
+	/** Whether to split reads at masked regions instead of masking */
 	private boolean splitMode=false;
+	/** Minimum k-mer size for entropy/complexity analysis */
 	private int mink2=5;
+	/** Maximum k-mer size for entropy/complexity analysis */
 	private int maxk2=5;
+	/** Window size for sliding window entropy/complexity analysis */
 	private int window=80;
+	/** Minimum k-mer diversity ratio for complexity masking */
 	private float ratio=0.35f; //For complexity, if not in entropyMode
+	/** Entropy threshold below which regions are masked */
 	private float entropyCutoff=0.70f;
 	
 	/** Use 32-bit coverage arrays */
@@ -1233,20 +1437,29 @@ public class BBMask{
 	/** If nonnegative, mask bases with coverage outside this range. */
 	private int maxcov=-1;
 	
+	/** Padding to add around SAM alignment regions */
 	private int samPad=0;
 
+	/** File format specification for reference input */
 	private final FileFormat ffinRef;
+	/** Array of file format specifications for SAM inputs */
 	private final FileFormat[] ffinSam;
 
+	/** File format specification for reference output */
 	private final FileFormat ffoutRef;
 
+	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
 
 	/*--------------------------------------------------------------*/
 	
+	/** Global flag for verbose output */
 	public static boolean verbose=false;
+	/** Whether to convert non-ACGTN characters to N during masking */
 	public static boolean CONVERT_NON_ACGTN=true;
+	/** Debug flag for verification checks */
 	private static boolean verify=false;
+	/** Whether to mask by converting to lowercase instead of N */
 	private static boolean MaskByLowercase=false;
 
 }

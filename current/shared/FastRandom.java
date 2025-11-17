@@ -13,6 +13,7 @@ import java.util.Random;
  */
 public final class FastRandom extends java.util.Random {
 	
+    /** Required for Serializable interface compatibility */
     private static final long serialVersionUID = 1L;
     
     @Override

@@ -18,6 +18,11 @@ import shared.Tools;
  */
 public final class IntLongHashMap{
 	
+	/**
+	 * Test harness comparing performance against Java HashMap.
+	 * Benchmarks insertion, lookup, and removal operations on large datasets.
+	 * @param args Command line arguments (unused)
+	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		IntLongHashMap map=new IntLongHashMap(20, 0.7f);
@@ -127,14 +132,25 @@ public final class IntLongHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a hash map with default initial capacity of 256 and load factor 0.7.
+	 */
 	public IntLongHashMap(){
 		this(256);
 	}
 	
+	/** Constructs a hash map with specified initial capacity and default load factor 0.7.
+	 * @param initialSize Initial capacity of the hash table */
 	public IntLongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Constructs a hash map with specified initial capacity and load factor.
+	 * Load factor is clamped to range [0.25, 0.90] for optimal performance.
+	 * @param initialSize Initial capacity of the hash table
+	 * @param loadFactor_ Target load factor for resize threshold
+	 */
 	public IntLongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -148,6 +164,8 @@ public final class IntLongHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all key-value mappings from the hash map.
+	 * Resets all cells to invalid state and clears values. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -156,15 +174,31 @@ public final class IntLongHashMap{
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests if the specified key is present in the hash map.
+	 * @param key The key to test for presence
+	 * @return true if the key exists in the map, false otherwise
+	 */
 	public boolean contains(int key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests if the specified key is present in the hash map.
+	 * Alias for contains() method for HashMap compatibility.
+	 * @param key The key to test for presence
+	 * @return true if the key exists in the map, false otherwise
+	 */
 	public boolean containsKey(int key){
 		return contains(key);
 	}
 	
+	/**
+	 * Retrieves the value associated with the specified key.
+	 * @param key The key to look up
+	 * @return The associated value, or -1 if key not found
+	 */
 	public long get(int key){
 //		assert(verify()); //123
 		long value=-1;
@@ -209,6 +243,11 @@ public final class IntLongHashMap{
 		}
 	}
 	
+	/**
+	 * Adds all key-value pairs from another map to this map.
+	 * For each key in the source map, increments this map's value by the source value.
+	 * @param map The source map to add from
+	 */
 	public void incrementAll(IntLongHashMap map) {
 		for(int i=0; i<map.keys.length; i++) {
 			if(map.keys[i]!=map.invalid) {
@@ -261,8 +300,10 @@ public final class IntLongHashMap{
 		return value;
 	}
 	
+	/** Returns the number of key-value mappings in the hash map */
 	public int size(){return size;}
 	
+	/** Returns true if the hash map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -274,6 +315,11 @@ public final class IntLongHashMap{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns a string representation showing internal structure.
+	 * Displays cell index, key, and value for each occupied cell.
+	 * @return String showing internal hash table state
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -288,6 +334,11 @@ public final class IntLongHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a string representation as a list of keys.
+	 * Shows only the keys present in the map, not internal structure.
+	 * @return Comma-separated list of keys in brackets
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -302,6 +353,11 @@ public final class IntLongHashMap{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns an array containing all keys in the hash map.
+	 * The order of keys in the array is not guaranteed.
+	 * @return Array of all keys present in the map
+	 */
 	public int[] toArray(){
 		int[] x=KillSwitch.allocInt1D(size);
 		int i=0;
@@ -314,6 +370,12 @@ public final class IntLongHashMap{
 		return x;
 	}
 	
+	/**
+	 * Returns an array of keys whose values meet or exceed the threshold.
+	 * Only keys with associated values >= thresh are included.
+	 * @param thresh Minimum value threshold for inclusion
+	 * @return Array of keys with values at or above threshold
+	 */
 	public long[] toArray(long thresh){
 		int len=0;
 //		assert(verify());
@@ -340,6 +402,12 @@ public final class IntLongHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Verifies internal consistency of the hash map data structure.
+	 * Checks that all keys can be found at their correct hash positions
+	 * and that size tracking is accurate. Used for debugging and testing.
+	 * @return true if structure is consistent, false if corrupted
+	 */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -373,6 +441,12 @@ public final class IntLongHashMap{
 		return pass;
 	}
 	
+	/**
+	 * Rehashes all entries after a removal to maintain probe sequence integrity.
+	 * Starting from the removal position, moves entries backward to fill gaps
+	 * created by the removed entry. Essential for open addressing correctness.
+	 * @param initial Position where entry was removed
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -403,6 +477,11 @@ public final class IntLongHashMap{
 		return true;
 	}
 	
+	/**
+	 * Generates a new invalid key value when the current one conflicts.
+	 * Updates all empty cells to use the new invalid marker.
+	 * Required when a key matching the invalid value is inserted.
+	 */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -449,6 +528,8 @@ public final class IntLongHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Resizes the hash table when load factor is exceeded.
+	 * Doubles capacity plus 1 and rehashes all existing entries. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -490,12 +571,20 @@ public final class IntLongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns direct reference to the internal keys array */
 	public int[] keys() {return keys;}
 
+	/** Returns direct reference to the internal values array */
 	public long[] values() {return values;}
 
+	/** Returns the current invalid key marker value */
 	public int invalid() {return invalid;}
 
+	/**
+	 * Computes the sum of all values in the hash map.
+	 * Iterates through all entries and accumulates their values.
+	 * @return Sum of all values currently stored in the map
+	 */
 	public long sum() {
 		long sum=0;
 		for(int i=0; i<keys.length; i++) {
@@ -510,19 +599,29 @@ public final class IntLongHashMap{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Hash table array storing keys, with invalid values marking empty cells */
 	private int[] keys;
+	/** Parallel array storing values corresponding to keys array */
 	private long[] values;
+	/** Current number of key-value pairs stored in the hash map */
 	private int size=0;
 	/** Value for empty cells */
 	private int invalid;
+	/** Prime number used as modulus for hash function */
 	private int modulus;
+	/** Maximum size before triggering resize, based on load factor */
 	private int sizeLimit;
+	/** Target ratio of occupied cells to total capacity */
 	private final float loadFactor;
 	
+	/** Random number generator for generating invalid key values */
 	private static final Random randy=new Random(1);
+	/** Bit mask for ensuring non-negative hash values (Integer.MAX_VALUE) */
 	private static final int MASK=Integer.MAX_VALUE;
+	/** Bit mask ensuring invalid keys are negative (Integer.MIN_VALUE) */
 	private static final int MINMASK=Integer.MIN_VALUE;
 	
+	/** Additional capacity beyond prime modulus to reduce collisions */
 	private static final int extra=10;
 	
 }

@@ -2,8 +2,21 @@ package structures;
 
 import shared.Tools;
 
+/**
+ * A space-efficient bit set implementation that stores multi-bit values (0-3) for each position.
+ * Uses 2 bits per element, packing 16 elements into each 32-bit integer for memory efficiency.
+ * Supports increment operations with saturation at maximum value and various set operations.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class MultiBitSet extends AbstractBitSet {
 
+	/**
+	 * Test method demonstrating MultiBitSet functionality.
+	 * Creates a bit set and performs various increment operations to show behavior.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		MultiBitSet mbs=new MultiBitSet(20);
 		System.err.println(mbs);
@@ -27,10 +40,18 @@ public class MultiBitSet extends AbstractBitSet {
 		System.err.println(mbs);
 	}
 	
+	/** Creates a MultiBitSet with the specified capacity and no extra space.
+	 * @param capacity_ Maximum number of elements this bit set can hold */
 	MultiBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
+	/**
+	 * Creates a MultiBitSet with the specified capacity plus extra space.
+	 * Extra space allows for expansion without reallocation.
+	 * @param capacity_ Maximum number of elements this bit set can hold
+	 * @param extra Additional cells to allocate beyond required capacity
+	 */
 	MultiBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -143,17 +164,28 @@ public class MultiBitSet extends AbstractBitSet {
 	@Override
 	public final int bits(){return bits;}
 	
+	/** Returns direct access to the underlying storage array.
+	 * @return The array of integers storing the packed bit set data */
 	public int[] array(){return array;}
 	
+	/** Maximum capacity for which space has been allocated */
 	private long maxCapacity=0;
+	/** Current capacity in number of elements */
 	private long capacity=0;
+	/** Maximum length of allocated array */
 	private int maxLength=0;
+	/** Current length of array in use */
 	private int length=0;
+	/** Underlying storage array where each int holds 16 packed 2-bit elements */
 	private int[] array;
 	
+	/** Number of bits per element (always 2 for MultiBitSet) */
 	public static final int bits=2;
+	/** Bit mask for extracting a single element value (0b11 = 3) */
 	public static final int elementMask=~((-1)<<bits);
+	/** Number of elements stored in each 32-bit cell (16 for 2-bit elements) */
 	public static final int elementsPerCell=32/bits;
+	/** Modulus for computing element index within a cell (elementsPerCell - 1) */
 	public static final int modulus=elementsPerCell-1;
 
 }

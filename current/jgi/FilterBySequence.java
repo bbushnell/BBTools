@@ -433,12 +433,19 @@ public class FilterBySequence {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Thread-safe method to add multiple sequence codes to the reference set.
+	 * @param codes Collection of encoded sequences to add to reference */
 	private void addToRef(Collection<Code> codes) {
 		synchronized(refSet) {
 			for(Code c : codes) {addToRef(c);}
 		}
 	}
 	
+	/**
+	 * Adds a single encoded sequence to the reference set if it's novel.
+	 * Updates both the hash set and the raw sequence list.
+	 * @param c Encoded sequence to add to reference
+	 */
 	private void addToRef(Code c) {
 		boolean novel=refSet.add(c);
 		if(novel) {refList.add(c.bases);}
@@ -566,6 +573,12 @@ public class FilterBySequence {
 			return bruteForce(r.bases);
 		}
 		
+		/**
+		 * Performs approximate matching against all reference sequences.
+		 * Tests both forward and reverse complement orientations if configured.
+		 * @param bases Sequence bases to match
+		 * @return True if sequence approximately matches any reference
+		 */
 		boolean bruteForce(byte[] bases) {
 			if(bases==null) {return false;}
 			boolean match=compare(bases);
@@ -578,6 +591,12 @@ public class FilterBySequence {
 			return match;
 		}
 		
+		/**
+		 * Compares a query sequence against all references within length tolerance.
+		 * Uses sliding window approach for sequences of different lengths.
+		 * @param bases Query sequence to compare
+		 * @return True if query matches any reference within tolerances
+		 */
 		boolean compare(byte[] bases) {
 			int minlen=bases.length-maxLengthDif, maxlen=bases.length+maxLengthDif;
 //			System.err.println("d: "+minlen+"-"+maxlen);
@@ -600,6 +619,14 @@ public class FilterBySequence {
 			return match;
 		}
 		
+		/**
+		 * Compares two sequences allowing for substitutions and length differences.
+		 * Slides shorter sequence along longer sequence to find best alignment.
+		 *
+		 * @param a First sequence (assumed to be longer or equal length)
+		 * @param b Second sequence to align against first
+		 * @return True if sequences match within substitution tolerance
+		 */
 		boolean compare(byte[] a, byte[] b) {
 			final int maxSubs0=Tools.max(maxSubs, 
 					(int)Math.round(Tools.min(a.length, b.length)*mismatchFraction));
@@ -744,6 +771,11 @@ public class FilterBySequence {
 	
 	private class Code {
 		
+		/**
+		 * Constructor for Code that creates hash-based sequence representation.
+		 * Computes forward and reverse complement hashes for efficient comparison.
+		 * @param bases_ Raw sequence bases to encode
+		 */
 		Code(byte[] bases_){
 			long fwd=Dedupe.hash(bases_);
 			long rev=Dedupe.hashReversed(bases_);
@@ -770,6 +802,11 @@ public class FilterBySequence {
 			return equals((Code)o);
 		}
 		
+		/**
+		 * Tests equality between two Code objects using hash values and base comparison.
+		 * @param c Code object to compare with
+		 * @return True if both codes represent the same sequence
+		 */
 		public boolean equals(Code c){
 			if(a!=c.a || b!=c.b){return false;}
 			if(bases==null || c.bases==null){return true;}
@@ -787,7 +824,10 @@ public class FilterBySequence {
 			return (int)(a&0x7FFFFFFF);
 		}
 		
+		/** Secondary hash value for reverse complement comparison */
+		/** Primary hash value for sequence comparison */
 		final long a, b;
+		/** Raw sequence bases (null if storeBases is false) */
 		final byte[] bases;
 		
 	}
@@ -801,7 +841,9 @@ public class FilterBySequence {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality input file path */
 	private String qfin1=null;
+	/** Secondary quality input file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -809,7 +851,9 @@ public class FilterBySequence {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary quality output file path */
 	private String qfout1=null;
+	/** Secondary quality output file path */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -823,15 +867,21 @@ public class FilterBySequence {
 	/** Literals */
 	private String[] literal=null;
 
+	/** Set of encoded reference sequences for fast lookup */
 	private HashSet<Code> refSet;
+	/** List of raw reference sequence bases for approximate matching */
 	private ArrayList<byte[]> refList;
 	
+	/** Whether to store raw sequence bases in addition to hash codes */
 	private boolean storeBases=true;
 	
+	/** If true, keep matching reads; if false, discard matching reads */
 	private boolean include=true;
 	
+	/** Whether to compare reverse complement orientations */
 	private boolean rcomp=true;
 	
+	/** Whether to convert sequences to uppercase for comparison */
 	private boolean toUpperCase=true;
 	
 	/*--------------------------------------------------------------*/
@@ -841,7 +891,9 @@ public class FilterBySequence {
 	/** Number of bases processed */
 	protected long basesProcessed=0;
 
+	/** Number of reference reads loaded */
 	protected long readsLoaded=0;
+	/** Number of reference bases loaded */
 	protected long basesLoaded=0;
 
 	/** Number of reads output*/
@@ -852,8 +904,11 @@ public class FilterBySequence {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Maximum number of substitutions allowed for approximate matching */
 	private int maxSubs=0;
+	/** Maximum fraction of bases that can be mismatched for approximate matching */
 	private float mismatchFraction=0f;
+	/** Maximum length difference allowed between query and reference sequences */
 	private int maxLengthDif=0;
 	
 	/*--------------------------------------------------------------*/

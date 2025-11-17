@@ -271,6 +271,11 @@ public class A_Sample {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and configures the concurrent read input stream.
+	 * Sets up input from primary/secondary files with quality score handling.
+	 * @return Configured and started ConcurrentReadInputStream
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -280,6 +285,12 @@ public class A_Sample {
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream if output files are specified.
+	 * Configures buffering and interleaving based on input characteristics.
+	 * @param pairedInput Whether the input data is paired-end
+	 * @return Configured ConcurrentReadOutputStream or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -399,7 +410,9 @@ public class A_Sample {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality file input path */
 	private String qfin1=null;
+	/** Secondary quality file input path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -407,7 +420,9 @@ public class A_Sample {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary quality file output path */
 	private String qfout1=null;
+	/** Secondary quality file output path */
 	private String qfout2=null;
 	
 	/** Override input file extension */

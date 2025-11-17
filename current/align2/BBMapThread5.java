@@ -23,7 +23,9 @@ import stream.SiteScore;
  */
 public final class BBMapThread5 extends AbstractMapThread {
 	
+	/** Number of alignment columns from BBIndex5 configuration */
 	static final int ALIGN_COLUMNS=BBIndex5.ALIGN_COLUMNS;
+	/** Maximum number of alignment rows (determines max read length) */
 	static final int ALIGN_ROWS=601;
 	
 	
@@ -35,28 +37,50 @@ public final class BBMapThread5 extends AbstractMapThread {
 	
 	/** Ratio of the points for a match of a single base needed to declare unambiguous.  1 SNP is currently about 2.57 */
 	public final float CLEARZONE_RATIOP=1.6f; //default 1.3f, which makes read ambiguous if there is 1 N in an alternate site.
+	/** Ratio of points for clearzone level 1 ambiguity resolution */
 	public final float CLEARZONE_RATIO1=2.0f;
+	/** Ratio of points for clearzone level 1b ambiguity resolution */
 	public final float CLEARZONE_RATIO1b=2.6f;
+	/** Ratio of points for clearzone level 1c ambiguity resolution */
 	public final float CLEARZONE_RATIO1c=4.6f;
+	/** Ratio of points for clearzone level 3 ambiguity resolution */
 	public final float CLEARZONE_RATIO3=8.0f;
 	/** Max allowed number of sites within 1 edit (excluding primary site) */
 	public final int CLEARZONE_LIMIT1e=40; //Needs to be redone to assign a quality penalty rather than simply marking as ambiguous
+	/**
+	 * Clearzone threshold for perfect alignments calculated from CLEARZONE_RATIOP
+	 */
 	public final int CLEARZONEP;
+	/** Clearzone threshold level 1 calculated from CLEARZONE_RATIO1 */
 	public final int CLEARZONE1;
+	/** Clearzone threshold level 1b calculated from CLEARZONE_RATIO1b */
 	public final int CLEARZONE1b;
+	/** Clearzone threshold level 1c calculated from CLEARZONE_RATIO1c */
 	public final int CLEARZONE1c;
 	//public final int CLEARZONE1e;
+	/** Clearzone threshold level 3 calculated from CLEARZONE_RATIO3 */
 	public final int CLEARZONE3;
+	/** Inverse of CLEARZONE3 for performance optimization in calculations */
 	public final float INV_CLEARZONE3;
+	/** Score cutoff for switching to CLEARZONE1b threshold */
 	public final float CLEARZONE1b_CUTOFF=0.92f;
+	/** Score cutoff for switching to CLEARZONE1c threshold */
 	public final float CLEARZONE1c_CUTOFF=0.82f;
 	
+	/** BBIndex5 instance for k-mer based alignment indexing and scoring */
 	public final BBIndex5 index;
 	
 	
+	/** Minimum number of sites to retain after trimming for single-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_SINGLE=3;
+	/** Minimum number of sites to retain after trimming for paired-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_PAIRED=2;
 	
+	/**
+	 * Prints warning that EXPECTED_SITES is not valid for this thread implementation.
+	 * This method exists for compatibility but does not actually set expected sites.
+	 * @param x Expected sites value (ignored)
+	 */
 	public static void setExpectedSites(int x){
 		System.err.println("Warning: EXPECTED_SITES is not valid for "+(new Object() { }.getClass().getEnclosingClass().getName()));
 	}
@@ -72,6 +96,61 @@ public final class BBMapThread5 extends AbstractMapThread {
 	@Override
 	final int CLEARZONE1(){return CLEARZONE1;}
 
+	/**
+	 * Constructs BBMapThread5 with comprehensive alignment configuration.
+	 * Initializes all alignment parameters, scoring thresholds, and index.
+	 * Calculates clearzone values based on alignment scoring system.
+	 *
+	 * @param cris_ Input stream for reads
+	 * @param keylen_ K-mer length for indexing
+	 * @param pileup_ Coverage pileup tracker
+	 * @param SMITH_WATERMAN_ Enable Smith-Waterman alignment
+	 * @param THRESH_ Alignment threshold
+	 * @param minChrom_ Minimum chromosome number
+	 * @param maxChrom_ Maximum chromosome number
+	 * @param keyDensity_ Target key density for indexing
+	 * @param maxKeyDensity_ Maximum key density allowed
+	 * @param minKeyDensity_ Minimum key density required
+	 * @param maxDesiredKeys_ Maximum keys to generate
+	 * @param REMOVE_DUPLICATE_BEST_ALIGNMENTS_ Remove duplicate best alignments
+	 * @param SAVE_AMBIGUOUS_XY_ Save ambiguous alignment coordinates
+	 * @param MINIMUM_ALIGNMENT_SCORE_RATIO_ Minimum score ratio to accept
+	 * @param TRIM_LIST_ Enable site list trimming
+	 * @param MAKE_MATCH_STRING_ Generate match strings
+	 * @param QUICK_MATCH_STRINGS_ Use quick match string generation
+	 * @param outStream_ Primary output stream
+	 * @param outStreamMapped_ Mapped reads output stream
+	 * @param outStreamUnmapped_ Unmapped reads output stream
+	 * @param outStreamBlack_ Blacklisted reads output stream
+	 * @param SLOW_ALIGN_PADDING_ Padding for slow alignment
+	 * @param SLOW_RESCUE_PADDING_ Padding for rescue alignment
+	 * @param DONT_OUTPUT_UNMAPPED_READS_ Skip unmapped read output
+	 * @param DONT_OUTPUT_BLACKLISTED_READS_ Skip blacklisted read output
+	 * @param MAX_SITESCORES_TO_PRINT_ Maximum site scores in output
+	 * @param PRINT_SECONDARY_ALIGNMENTS_ Include secondary alignments
+	 * @param REQUIRE_CORRECT_STRANDS_PAIRS_ Enforce correct strand pairing
+	 * @param SAME_STRAND_PAIRS_ Allow same-strand pairs
+	 * @param KILL_BAD_PAIRS_ Remove bad pairs
+	 * @param RCOMP_MATE_ Reverse complement mate
+	 * @param PERFECTMODE_ Perfect alignment mode
+	 * @param SEMIPERFECTMODE_ Semi-perfect alignment mode
+	 * @param FORBID_SELF_MAPPING_ Prevent self-mapping
+	 * @param TIP_DELETION_SEARCH_RANGE_ Range for tip deletion search
+	 * @param AMBIGUOUS_RANDOM_ Random selection for ambiguous reads
+	 * @param AMBIGUOUS_ALL_ Keep all ambiguous alignments
+	 * @param KFILTER_ K-mer filter threshold
+	 * @param IDFILTER_ Identity filter threshold
+	 * @param TRIM_LEFT_ Enable left trimming
+	 * @param TRIM_RIGHT_ Enable right trimming
+	 * @param UNTRIM_ Disable trimming
+	 * @param TRIM_QUAL_ Quality threshold for trimming
+	 * @param TRIM_MIN_LEN_ Minimum length after trimming
+	 * @param LOCAL_ALIGN_ Enable local alignment
+	 * @param RESCUE_ Enable rescue alignment
+	 * @param STRICT_MAX_INDEL_ Enforce strict indel limits
+	 * @param MSA_TYPE_ Multiple sequence alignment type
+	 * @param bloomFilter_ Bloom filter for filtering
+	 */
 	public BBMapThread5(ConcurrentReadInputStream cris_, int keylen_,
 			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
 			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,

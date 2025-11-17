@@ -277,6 +277,11 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 
+	/**
+	 * Loads scaffold mapping data from the reference file.
+	 * Initializes ScafMap for coordinate lookups and optionally configures
+	 * the Realigner with the loaded reference.
+	 */
 	private void loadScafMapFromReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -285,6 +290,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		loadedRef=true;
 	}
 
+	/** Template method for custom reference loading logic.
+	 * Currently contains placeholder code for processing reference sequences. */
 	private void loadReferenceCustom(){
 		ConcurrentReadInputStream cris=makeRefCris();
 		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()) {
@@ -293,6 +300,11 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 	
+	/**
+	 * Creates a concurrent read input stream for the reference file.
+	 * Validates that the reference is not paired-end data.
+	 * @return Configured and started ConcurrentReadInputStream for reference
+	 */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -310,6 +322,11 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		return ss;
 	}
 	
+	/**
+	 * Creates a concurrent read output stream for writing processed reads.
+	 * Buffer size is optimized based on whether ordered output is required.
+	 * @return Configured and started ConcurrentReadOutputStream, or null if no output
+	 */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -410,6 +427,12 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			
 		}
 		
+		/**
+		 * Processes a list of reads from the input stream.
+		 * Iterates through each read, applies processing logic, updates statistics,
+		 * and outputs results to the output stream.
+		 * @param ln ListNum containing reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -525,17 +548,23 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/** Threads dedicated to reading the sam file */
 	private int streamerThreads=-1;
 	
+	/** Flag indicating whether reference has been loaded */
 	private boolean loadedRef=false;
 	
+	/** Whether to perform realignment of reads */
 	private boolean realign=false;
 	
+	/** Ploidy level for variant calling; default is 1 (haploid) */
 	private int ploidy=1;
 	
+	/** Scaffold mapping data loaded from reference file */
 	public ScafMap scafMap;
+	/** SAM filtering configuration for read selection criteria */
 	public final SamFilter samFilter=new SamFilter();
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

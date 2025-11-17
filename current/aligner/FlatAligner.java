@@ -2,8 +2,15 @@ package aligner;
 
 
 
+/**
+ * Dynamic programming sequence aligner using flat array implementation.
+ * Provides forward alignment with early exit optimizations for speed.
+ * Uses stack-allocated arrays for memory efficiency on shorter sequences.
+ * @author Brian Bushnell
+ */
 public final class FlatAligner {
 
+	/** Creates a new FlatAligner instance */
 	public FlatAligner(){}
 	
 	/**
@@ -226,14 +233,18 @@ public final class FlatAligner {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns total iterations performed by standard alignment method */
 	long iters(){return iters;}
+	/** Returns total iterations performed by short alignment method */
 	long itersShort(){return itersShort;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Counter for iterations in standard alignment method */
 	long iters = 0;
+	/** Counter for iterations in short alignment method */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
@@ -245,9 +256,13 @@ public final class FlatAligner {
 //	public static final int pointsDel = -9;
 //	public static final int pointsIns = -9;
 	
+	/** Score awarded for matching bases in alignment */
 	public static final int pointsMatch = 120;
+	/** Penalty for substituting bases in alignment */
 	public static final int pointsSub = -123;
+	/** Penalty for deleting bases from reference in alignment */
 	public static final int pointsDel = -187;
+	/** Penalty for inserting bases into reference in alignment */
 	public static final int pointsIns = -243;
 	
 }

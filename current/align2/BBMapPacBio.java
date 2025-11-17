@@ -26,6 +26,12 @@ import stream.SamLine;
 public final class BBMapPacBio extends AbstractMapper  {
 	
 
+	/**
+	 * Program entry point for BBMapPacBio aligner.
+	 * Initializes mapper, loads index, processes ambiguous mappings if needed,
+	 * and executes speed testing with timing output.
+	 * @param args Command-line arguments for alignment configuration
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMapPacBio mapper=new BBMapPacBio(args);
@@ -39,6 +45,11 @@ public final class BBMapPacBio extends AbstractMapper  {
 		clearStatics();
 	}
 	
+	/**
+	 * Constructs BBMapPacBio aligner with command-line arguments.
+	 * Calls superclass constructor to initialize base mapper functionality.
+	 * @param args Command-line arguments for configuration
+	 */
 	public BBMapPacBio(String[] args){
 		super(args);
 	}

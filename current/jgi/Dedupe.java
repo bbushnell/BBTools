@@ -53,6 +53,11 @@ import tracker.ReadStats;
  */
 public final class Dedupe {
 	
+	/**
+	 * Program entry point. Preprocesses arguments to determine appropriate Dedupe version
+	 * and delegates to protein or multi-affix implementations when needed.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		{//Preparse to see which Dedupe version should be used
 			int nam=1;
@@ -91,6 +96,12 @@ public final class Dedupe {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Constructs a Dedupe instance with parsed command-line arguments.
+	 * Initializes all processing parameters, file paths, and data structures.
+	 * Sets up affix maps for containment/overlap detection if required.
+	 * @param args Command-line arguments for configuration
+	 */
 	public Dedupe(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -431,6 +442,8 @@ public final class Dedupe {
 		}
 	}
 	
+	/** Main processing method that executes the complete deduplication pipeline.
+	 * Handles timing, progress display, and final statistics reporting. */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -454,6 +467,11 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Core deduplication pipeline implementation.
+	 * Processes exact matches, containments, and overlaps in sequence.
+	 * Handles clustering and final output generation.
+	 */
 	public void process2(){
 		if(dupeWriter!=null){dupeWriter.start();}
 //		assert(false) : out;
@@ -527,6 +545,8 @@ public final class Dedupe {
 		
 	}
 	
+	/** Releases memory by clearing and nullifying affix map data structures.
+	 * Called after overlap processing is complete to reduce memory usage. */
 	private void killAffixMaps(){
 		if(affixMaps==null){return;}
 		for(int i=0; i<numAffixMaps; i++){
@@ -538,6 +558,12 @@ public final class Dedupe {
 		affixMaps=null;
 	}
 	
+	/**
+	 * Creates array of concurrent read input streams for multithreaded processing.
+	 * Uses either provided read list or input files to create stream sources.
+	 * @param list Optional pre-loaded reads, null to use input files
+	 * @return Array of configured read input streams
+	 */
 	private ConcurrentReadInputStream[] makeCrisArray(ArrayList<Read> list){
 		final ConcurrentReadInputStream[] array;
 		
@@ -570,6 +596,12 @@ public final class Dedupe {
 		return array;
 	}
 	
+	/**
+	 * First phase: processes exact sequence matches using hash codes.
+	 * Creates HashThread workers to process reads and identify duplicates.
+	 * Updates match statistics and progress tracking.
+	 * @param t Timer for performance measurement
+	 */
 	private void processMatches(Timer t){
 		crisa=makeCrisArray(null);
 		
@@ -614,6 +646,11 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Second phase: identifies sequences contained within other sequences.
+	 * Uses k-mer affix maps to efficiently find potential containments.
+	 * @param t Timer for performance measurement
+	 */
 	private void processContainments(Timer t){
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
 		for(ArrayList<Unit> alu : codeMap.values()){
@@ -694,6 +731,11 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Third phase: finds overlapping sequences for clustering and assembly.
+	 * Builds overlap graphs and prepares data for cluster processing.
+	 * @param t Timer for performance measurement
+	 */
 	private void findOverlaps(Timer t){
 		
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
@@ -941,6 +983,12 @@ public final class Dedupe {
 		return max;
 	}
 	
+	/**
+	 * Creates clusters from overlap relationships between sequences.
+	 * Groups connected sequences into clusters for further processing.
+	 * @param t Timer for performance measurement
+	 * @param list Reads with established overlap relationships
+	 */
 	private void makeClusters(Timer t, ArrayList<Read> list){
 		
 		final int clusterlen=70000;
@@ -1101,6 +1149,11 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Converts overlap graph to maximum spanning tree representation.
+	 * Reduces redundant edges while preserving connectivity.
+	 * @param t Timer for performance measurement
+	 */
 	private void processMst(Timer t){
 		
 		if(DISPLAY_PROGRESS){outstream.println("Converting to Maximum Spanning Tree.");}
@@ -1173,6 +1226,12 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Advanced cluster processing including canonicalization and merging.
+	 * Handles multi-joins, cycles, and orientation conflicts.
+	 * @param t Timer for performance measurement
+	 * @param mergeClusters Whether to merge overlapping sequences within clusters
+	 */
 	private void processClusters(Timer t, boolean mergeClusters){
 		
 		ArrayList<ClusterThread> alct=new ArrayList<ClusterThread>(THREADS);
@@ -1265,6 +1324,12 @@ public final class Dedupe {
 		}
 	}
 	
+	/**
+	 * Removes invalidated units from data structures and compacts storage.
+	 * Cleans up code maps and affix maps after duplicate detection.
+	 * @param list Read list to clean up
+	 * @return Number of invalid entries removed
+	 */
 	private long removeInvalid(ArrayList<Read> list){
 		final LongM keym=new LongM();
 		long removedC=0, removedP=0, removedS=0, invalid=0;
@@ -1407,6 +1472,12 @@ public final class Dedupe {
 		return list;
 	}
 	
+	/**
+	 * Orchestrates final output writing based on processing mode.
+	 * Delegates to appropriate output method for simple or clustered results.
+	 * @param clusterStatsFile Optional cluster statistics output file
+	 * @param t Timer for performance measurement
+	 */
 	private void writeOutput(String clusterStatsFile, Timer t){
 //		verbose=true;
 //		assert(false) : (processedClusters==null)+", "+(processedClusters.isEmpty())+", "+outgraph+", "+out+", "+clusterFilePattern;
@@ -1449,6 +1520,11 @@ public final class Dedupe {
 	
 
 	
+	/**
+	 * Writes deduplicated sequences in simple (non-clustered) mode.
+	 * Handles unique name generation and paired-read output.
+	 * @param list Deduplicated reads to output
+	 */
 	private void writeOutput(ArrayList<Read> list){
 		
 		final ByteStreamWriter tsw=(out==null ? null : new ByteStreamWriter(out, overwrite, append, true));
@@ -1499,6 +1575,12 @@ public final class Dedupe {
 	}
 	
 
+	/**
+	 * Writes output in clustered mode with optional statistics.
+	 * Generates separate files per cluster and best representative selection.
+	 * @param clusterStatsFile Optional statistics file path
+	 * @param clist List of sequence clusters to output
+	 */
 	private void writeOutputClusters(String clusterStatsFile, ArrayList<ArrayList<Unit>> clist){
 
 //		Shared.sort(clist, CLUSTER_LENGTH_COMPARATOR); //Causes a crash: java.lang.System.arraycopy(Native Method)
@@ -1659,6 +1741,12 @@ public final class Dedupe {
 	}
 	
 
+	/**
+	 * Writes overlap relationships in DOT graph format for visualization.
+	 * Creates nodes and edges representing sequence relationships.
+	 * @param graphFile Output file path for graph
+	 * @param clist Sequence clusters with overlap information
+	 */
 	private void writeGraph(String graphFile, ArrayList<ArrayList<Unit>> clist){
 //		Shared.sort(clist, CLUSTER_LENGTH_COMPARATOR);
 		clist.sort(CLUSTER_LENGTH_COMPARATOR);
@@ -1767,6 +1855,12 @@ public final class Dedupe {
 		return best;
 	}
 	
+	/**
+	 * Computes rolling hash of sequence bases using precomputed hash codes.
+	 * Used for fast sequence comparison and duplicate detection.
+	 * @param bases Sequence bases to hash
+	 * @return Hash code for the sequence
+	 */
 	public static long hash(byte[] bases){
 		long code=bases.length;
 		for(int i=0; i<bases.length; i++){
@@ -1780,6 +1874,12 @@ public final class Dedupe {
 	}
 	
 	
+	/**
+	 * Computes hash of reverse complement sequence without explicit conversion.
+	 * More efficient than reverse complementing then hashing.
+	 * @param bases Original sequence bases
+	 * @return Hash code for reverse complement sequence
+	 */
 	public static long hashReversed(byte[] bases){
 		long code=bases.length;
 		for(int i=bases.length-1; i>=0; i--){
@@ -1794,6 +1894,12 @@ public final class Dedupe {
 	}
 	
 	
+	/**
+	 * Determines if sequence is lexicographically smaller than its reverse complement.
+	 * Used to establish canonical orientation for consistent processing.
+	 * @param bases Sequence to test
+	 * @return true if sequence is canonical, false otherwise
+	 */
 	public static boolean isCanonical(byte[] bases){
 		if(ignoreReverseComplement || bases==null || bases.length==0){return true;}
 		final int lim=(bases.length+1)/2;
@@ -1841,6 +1947,12 @@ public final class Dedupe {
 		return r;
 	}
 	
+	/**
+	 * Records duplicate read for optional duplicate output file.
+	 * Merges headers if configured and writes paired reads together.
+	 * @param r Duplicate read to record
+	 * @param primary Primary read this duplicates (may be null)
+	 */
 	private void addDupe(Read r, Read primary){
 		if(mergeHeaders && primary!=null && r!=null && r.id!=null){
 			primary.id+=mergeDelimiter+r.id;
@@ -1857,6 +1969,8 @@ public final class Dedupe {
 	}
 	
 	
+	/** Worker thread for maximum spanning tree conversion of overlap graphs.
+	 * Processes clusters in parallel using priority queue-based MST algorithm. */
 	private final class MstThread extends Thread{
 
 		public MstThread(){}
@@ -1872,6 +1986,11 @@ public final class Dedupe {
 				
 		}
 		
+		/**
+		 * Converts cluster overlap graph to maximum spanning tree.
+		 * Uses priority queue to select highest-scoring edges while maintaining connectivity.
+		 * @param cluster Sequence cluster with overlap relationships
+		 */
 		public void makeMst(ArrayList<Unit> cluster){
 			assert(heap.isEmpty());
 			unvisit(cluster);
@@ -3666,6 +3785,14 @@ public final class Dedupe {
 		private final BandedAligner bandy;
 	}
 	
+	/**
+	 * Tests equality between sequences considering reverse complement equivalence.
+	 * Compares sequences in canonical orientation for consistency.
+	 *
+	 * @param a First sequence to compare
+	 * @param b Second sequence to compare
+	 * @return true if sequences are equivalent (forward or reverse complement)
+	 */
 	public static boolean equalsRC(byte[] a, byte[] b){
 		if(a==b){return true;}
 		if(a==null || b==null){return false;}
@@ -3849,8 +3976,29 @@ public final class Dedupe {
 	}
 	
 	
+	/**
+	 * Represents overlap relationship between two sequence units.
+	 * Stores alignment information, coordinates, and quality metrics.
+	 * Supports forward, reverse, and reverse-complement overlap types.
+	 */
 	private class Overlap implements Comparable<Overlap>{
 		
+		/**
+		 * Creates overlap relationship with full alignment details.
+		 * Validates alignment and normalizes orientation for consistency.
+		 *
+		 * @param u1_ First sequence unit
+		 * @param u2_ Second sequence unit
+		 * @param type_ Overlap type (FORWARD, REVERSE, etc.)
+		 * @param start1_ Start position in first sequence
+		 * @param start2_ Start position in second sequence
+		 * @param stop1_ Stop position in first sequence
+		 * @param stop2_ Stop position in second sequence
+		 * @param len_ Length of overlapping region
+		 * @param mismatches_ Number of mismatched bases
+		 * @param edits_ Total edit distance
+		 * @param bandy Banded aligner for validation
+		 */
 		public Overlap(Unit u1_, Unit u2_, int type_, int start1_, int start2_, int stop1_, int stop2_, int len_, int mismatches_, int edits_, BandedAligner bandy){
 			assert(u1_!=u2_);
 			if(verbose){System.err.println("\nCreating an overlap.");}
@@ -3955,6 +4103,14 @@ public final class Dedupe {
 			if(verbose){System.err.println("Finished overlap initialization.");}
 		}
 
+		/**
+		 * Validates overlap using banded alignment within edit distance limit.
+		 * Tests different overlap orientations based on type.
+		 *
+		 * @param bandy Banded aligner for validation
+		 * @param editLimit Maximum allowed edit distance
+		 * @return true if overlap passes validation
+		 */
 		public boolean test(BandedAligner bandy, int editLimit){
 			final int last1=u1.length()-1, last2=u2.length()-1;
 			if(verbose){System.err.println("Testing "+OVERLAP_TYPE_NAMES[type]+", "+start1+", "+start2);}
@@ -4064,6 +4220,12 @@ public final class Dedupe {
 			return u1.hashCode()^u2.hashCode()^overlapLen;
 		}
 		
+		/**
+		 * Updates overlap coordinates when one sequence is reverse complemented.
+		 * Maintains alignment validity after orientation changes.
+		 * @param changed Which sequence unit was modified
+		 * @param bandy Banded aligner for validation
+		 */
 		public void flip(Unit changed, BandedAligner bandy){
 			
 			if(changed==u2){
@@ -4321,6 +4483,11 @@ public final class Dedupe {
 		return cluster1;
 	}
 	
+	/**
+	 * Represents a sequence unit with hashing, overlap tracking, and processing state.
+	 * Stores hash codes, affix k-mers, flags, and maintains lists of relationships.
+	 * Core data structure for duplicate detection and clustering operations.
+	 */
 	private class Unit implements Comparable<Unit>, Serializable {
 		
 		/**
@@ -4328,10 +4495,18 @@ public final class Dedupe {
 		 */
 		private static final long serialVersionUID = 5232407003873807738L;
 		
+		/** Creates Unit from Read with automatic canonical orientation detection.
+		 * @param r_ Source read for this unit */
 		public Unit(Read r_){
 			this(r_, isCanonical(r_.bases));
 		}
 
+		/**
+		 * Creates Unit with specified canonical orientation.
+		 * Computes forward and reverse hash codes for comparison.
+		 * @param r_ Source read for this unit
+		 * @param canonical_ Whether read is in canonical orientation
+		 */
 		public Unit(Read r_, boolean canonical_){
 //			this(r_, canonical_, canonical_ ? hash(r_.bases) : hashReversed(r_.bases));
 			this(r_, canonical_, hash(r_.bases), hashReversed(r_.bases));
@@ -4364,6 +4539,11 @@ public final class Dedupe {
 			return determineCluster2(unitID);
 		}
 		
+		/**
+		 * Merges data from matching duplicate unit into this unit.
+		 * Combines quality scores and handles paired read information.
+		 * @param u Duplicate unit to absorb
+		 */
 		public void absorbMatch(Unit u){
 			
 			assert(code1==u.code1 && code2==u.code2 && length()==u.length());
@@ -4548,6 +4728,17 @@ public final class Dedupe {
 			return true;
 		}
 		
+		/**
+		 * Tests if this unit contains another unit as a substring.
+		 * Uses k-mer matching position and validates with alignment.
+		 *
+		 * @param u2 Potentially contained unit
+		 * @param loc Position of k-mer match in this sequence
+		 * @param key Matching k-mer key
+		 * @param bandy Aligner for validation
+		 * @param tableNum Which affix table triggered the match
+		 * @return true if u2 is contained within this unit
+		 */
 		public boolean contains(Unit u2, int loc, LongM key, BandedAligner bandy, int tableNum) {
 			if(verbose){System.err.println("contains: Considering key "+key+", unit "+u2);}
 			if(u2.length()>this.length()){return false;} //Smaller things cannot contain larger things
@@ -5645,8 +5836,11 @@ public final class Dedupe {
 	public boolean errorState=false;
 	boolean sort=false;
 //	boolean ascending=true;
+	/** Whether to remove sequences contained within other sequences */
 	boolean absorbContainment=true;
+	/** Whether to remove exact duplicate sequences */
 	boolean absorbMatch=true;
+	/** Whether to find overlapping sequences for clustering */
 	boolean findOverlaps=false;
 	boolean makeClusters=false;
 	boolean processClusters=false;
@@ -5689,6 +5883,7 @@ public final class Dedupe {
 	/** Error rate for trimming (derived from trimq) */
 	private final float trimE;
 
+	/** Maximum edit distance allowed in sequence alignments */
 	int maxEdits=0;
 	int maxSubs=0;
 	int bandwidth=9;
@@ -5722,6 +5917,7 @@ public final class Dedupe {
 	private final int subsetCount;
 	private final boolean subsetMode;
 	
+	/** Length of k-mers used for sequence hashing and comparison */
 	private final int k;
 	private final int k2;
 	private final boolean EA=Shared.EA();
@@ -5734,6 +5930,9 @@ public final class Dedupe {
 	
 	private static int tcount=0;
 	
+	/**
+	 * Main hash map storing sequences by their hash codes for duplicate detection
+	 */
 	private LinkedHashMap<Long, ArrayList<Unit>> codeMap=new LinkedHashMap<Long, ArrayList<Unit>>(4000000);
 	private HashMap<LongM, ArrayList<Unit>> affixMap1=null;
 	private HashMap<LongM, ArrayList<Unit>> affixMap2=null;
@@ -5751,6 +5950,7 @@ public final class Dedupe {
 	public static final int nmerLength=4;
 	public static final int[] nmerIndex=makeNmerIndex(nmerLength);
 	public static final int maxNmer=Tools.max(nmerIndex);
+	/** Output stream for progress messages and statistics */
 	private static PrintStream outstream=System.err;
 	/** Permission to overwrite existing files */
 	public static boolean overwrite=true;
@@ -5765,6 +5965,7 @@ public final class Dedupe {
 	public static boolean printLengthInEdges=false;
 	public static float depthRatio=2;
 	public static int MINSCAF=0;
+	/** Number of processing threads to use for parallel execution */
 	public static int THREADS=Shared.threads();
 	public static int threadMaxReadsToBuffer=4000;
 	public static int threadMaxBasesToBuffer=32000000;

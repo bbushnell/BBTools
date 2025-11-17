@@ -15,9 +15,22 @@ import stream.Read;
 import stream.SiteScore;
 import structures.ListNum;
 
+/**
+ * Splits mapped reads by chromosome into separate output files.
+ * Organizes reads into single and paired categories per chromosome for downstream processing.
+ * Creates buffered output streams for efficient writing of large read datasets.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class SplitMappedReads {
 	
 	
+	/**
+	 * Program entry point for splitting mapped reads by chromosome.
+	 * Parses command line arguments for input files, output prefix, and chromosome range.
+	 * @param args Command line arguments: [reads1] [reads2] [outname] [minChrom] [maxChrom]
+	 */
 	public static void main(String[] args){
 
 		String reads1=args[0];
@@ -39,11 +52,29 @@ public class SplitMappedReads {
 		
 	}
 	
+	/**
+	 * Constructor that creates a SplitMappedReads instance from file paths.
+	 *
+	 * @param fname1 Path to first read file (required)
+	 * @param fname2 Path to second read file (null for single-end data)
+	 * @param outname_ Output file prefix pattern (should contain '#' for chromosome substitution)
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 */
 	public SplitMappedReads(String fname1, String fname2, String outname_, int minChrom, int maxChrom){
 		this(new RTextInputStream(fname1, fname2, -1), outname_, minChrom, maxChrom);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
 	
+	/**
+	 * Constructor that creates a SplitMappedReads instance from an input stream.
+	 * Sets up output arrays and buffers for each chromosome in the specified range.
+	 *
+	 * @param stream_ Input stream containing mapped reads
+	 * @param outname_ Output file prefix pattern (should contain '#' for chromosome substitution)
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 */
 	public SplitMappedReads(RTextInputStream stream_, String outname_, int minChrom, int maxChrom){
 		stream=stream_;
 		outname=outname_;
@@ -116,6 +147,11 @@ public class SplitMappedReads {
 		cris=(USE_CRIS ? new ConcurrentLegacyReadInputStream(stream, -1) : null);
 	}
 	
+	/**
+	 * Main processing method that reads and splits mapped reads by chromosome.
+	 * Uses either concurrent or standard input streaming based on USE_CRIS setting.
+	 * Times the entire operation and outputs processing duration.
+	 */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -150,6 +186,11 @@ public class SplitMappedReads {
 	
 
 	
+	/**
+	 * Processes a batch of reads by adding them to appropriate chromosome buffers.
+	 * Handles both single reads and paired reads with mates.
+	 * @param reads List of reads to process and categorize by chromosome
+	 */
 	private void processReads(ArrayList<Read> reads){
 		for(Read r : reads){
 			addRead(r, 1);
@@ -160,6 +201,14 @@ public class SplitMappedReads {
 	}
 
 	
+	/**
+	 * Adds a single read to the appropriate output buffer based on chromosome and pairing.
+	 * Extracts chromosome information from top alignment site if not already set.
+	 * Routes reads to single or paired buffers and triggers buffer flush when full.
+	 *
+	 * @param r The read to add to output buffers
+	 * @param side Read side indicator (1 for first read, 2 for second read in pair)
+	 */
 	private void addRead(Read r, int side){
 		
 		if(r.chrom<1 && r.numSites()>0){
@@ -210,6 +259,12 @@ public class SplitMappedReads {
 	}
 	
 	
+	/**
+	 * Writes a list of reads to the specified output stream in text format.
+	 * Uses synchronization to ensure thread-safe writing when multiple threads access same writer.
+	 * @param list List of reads to write
+	 * @param writer Output writer for the target chromosome file
+	 */
 	private static void writeList(ArrayList<Read> list, PrintWriter writer){
 		synchronized(writer){
 			for(Read r : list){
@@ -219,6 +274,11 @@ public class SplitMappedReads {
 	}
 	
 	
+	/**
+	 * Completes processing by flushing all buffers and closing output streams.
+	 * Writes any remaining buffered reads, handles ZIP stream finalization,
+	 * and properly closes all input and output resources.
+	 */
 	public void finish(){
 
 		final PrintWriter[][] writers=new PrintWriter[][] {printArraySingle1, printArraySingle2, printArrayPaired1, printArrayPaired2};
@@ -286,33 +346,85 @@ public class SplitMappedReads {
 	}
 	
 	
+	/**
+	 * Output file prefix pattern used for generating chromosome-specific filenames
+	 */
 	public final String outname;
+	/** Input stream for reading mapped reads */
 	private final RTextInputStream stream;
+	/**
+	 * Concurrent input stream for multi-threaded read processing (null if not used)
+	 */
 	private final ConcurrentLegacyReadInputStream cris;
 	
+	/**
+	 * Output streams for single (unpaired) reads from first read file, indexed by chromosome
+	 */
 	private final OutputStream[] outArraySingle1;
+	/**
+	 * Print writers for single reads from first read file, indexed by chromosome
+	 */
 	private final PrintWriter[] printArraySingle1;
+	/**
+	 * Write buffers for single reads from first read file, indexed by chromosome
+	 */
 	private final ArrayList<Read>[] bufferArraySingle1;
 	
+	/**
+	 * Output streams for single reads from second read file, indexed by chromosome
+	 */
 	private final OutputStream[] outArraySingle2;
+	/**
+	 * Print writers for single reads from second read file, indexed by chromosome
+	 */
 	private final PrintWriter[] printArraySingle2;
+	/**
+	 * Write buffers for single reads from second read file, indexed by chromosome
+	 */
 	private final ArrayList<Read>[] bufferArraySingle2;
 	
+	/**
+	 * Output streams for paired reads from first read file, indexed by chromosome
+	 */
 	private final OutputStream[] outArrayPaired1;
+	/**
+	 * Print writers for paired reads from first read file, indexed by chromosome
+	 */
 	private final PrintWriter[] printArrayPaired1;
+	/**
+	 * Write buffers for paired reads from first read file, indexed by chromosome
+	 */
 	private final ArrayList<Read>[] bufferArrayPaired1;
 	
+	/**
+	 * Output streams for paired reads from second read file, indexed by chromosome
+	 */
 	private final OutputStream[] outArrayPaired2;
+	/**
+	 * Print writers for paired reads from second read file, indexed by chromosome
+	 */
 	private final PrintWriter[] printArrayPaired2;
+	/**
+	 * Write buffers for paired reads from second read file, indexed by chromosome
+	 */
 	private final ArrayList<Read>[] bufferArrayPaired2;
 
+	/** Minimum chromosome number to process (inclusive) */
 	private final int MIN_CHROM;
+	/** Maximum chromosome number to process (inclusive) */
 	private final int MAX_CHROM;
 	
+	/** Whether the input data contains paired-end reads */
 	public final boolean paired;
 	
+	/**
+	 * Whether to use ConcurrentLegacyReadInputStream for multi-threaded processing
+	 */
 	public static boolean USE_CRIS=true; //Similar speed either way.  "true" may be better with many threads.
 	
+	/**
+	 * Size of write buffer for batching reads before output (trades memory for write frequency)
+	 */
 	public static final int WRITE_BUFFER=400; //Bigger number uses more memory, for less frequent writes.
 	
 	

@@ -243,6 +243,14 @@ public class AnalyzeBarcodes {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Prints barcode statistics comparing total counts vs bad pair counts.
+	 * Outputs tab-separated data showing each expected barcode's total occurrences
+	 * and how many were part of problematic pairs.
+	 *
+	 * @param bs BarcodeStats containing the barcode count data
+	 * @param bsw ByteStreamWriter for output file writing
+	 */
 	void printMismatchVsTotal(BarcodeStats bs, ByteStreamWriter bsw) {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("#Name\tTotal\tBadPair\n");
@@ -263,6 +271,14 @@ public class AnalyzeBarcodes {
 		}
 	}
 	
+	/**
+	 * Prints analysis of unexpected barcode pairs found in the data.
+	 * Calculates expected frequencies for barcode pairs not in the expected set
+	 * and compares them to actual observed counts to identify anomalies.
+	 *
+	 * @param bs BarcodeStats containing barcode pair distribution data
+	 * @param bsw ByteStreamWriter for output file writing
+	 */
 	void printActualVsExpected(BarcodeStats bs, ByteStreamWriter bsw) {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("#Name\tExpectedCount\tActualCount\n");
@@ -303,11 +319,21 @@ public class AnalyzeBarcodes {
 		}
 	}
 	
+	/**
+	 * Creates a ByteStreamWriter for the specified output filename.
+	 * @param fname Output filename to create writer for
+	 * @return ByteStreamWriter for the file, or null if file creation fails
+	 */
 	private ByteStreamWriter makeBSW(String fname){
 		FileFormat ff=FileFormat.testOutput(fname, FileFormat.TXT, null, true, overwrite, append, false);
 		return makeBSW(ff);
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified FileFormat.
+	 * @param ff FileFormat specification for the output file
+	 * @return Started ByteStreamWriter, or null if FileFormat is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -322,23 +348,33 @@ public class AnalyzeBarcodes {
 	/** Primary input file path */
 	private String in1=null;
 	
+	/** File path containing expected barcode sequences */
 	private String expectedBarcodeFile=null;
+	/** Expected number of barcodes when not using a barcode file */
 	private int expectedBarcodeCount=-1;
 
 	/** Primary output file path */
 	private String outLeft="leftStats.txt";
+	/** Output file path for right barcode statistics */
 	private String outRight="rightStats.txt";
+	/** Output file path for barcode pair statistics */
 	private String outPair="pairStats.txt";
 	
+	/** BarcodeStats object containing loaded barcode count data and analysis */
 	private BarcodeStats bs;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of input bytes processed */
 	private long bytesProcessed=0;
+	/** Number of output lines written */
 	private long linesOut=0;
+	/** Number of output bytes written */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

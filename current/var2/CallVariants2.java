@@ -699,6 +699,14 @@ public class CallVariants2 {
 			return added;
 		}
 
+		/**
+		 * Second-pass processing for final variant calling and quality assessment.
+		 * Processes only forced variants from first pass, calculating final statistics
+		 * and quality scores for each variant in the context of all samples.
+		 *
+		 * @param forcedVars Global variant collection from first pass to reprocess
+		 * @return Number of variants processed in this sample during second pass
+		 */
 		public long process2(VarMap forcedVars){
 			Timer t2=new Timer();
 			outstream.println("Processing sample "+name+".");
@@ -1466,6 +1474,7 @@ public class CallVariants2 {
 
 	/** Input forced variants loaded from VCF files for first pass processing */
 	public VarMap forcedVars1=null;
+	/** Global forced variants collection for second pass processing */
 	public VarMap forcedVars2=null;
 
 	/** Quit after processing this many input reads; -1 means no limit */

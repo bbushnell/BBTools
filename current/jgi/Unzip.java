@@ -161,6 +161,12 @@ public class Unzip {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that executes the decompression operation.
+	 * Opens input stream, creates output writer, and processes data.
+	 * Handles cleanup, error reporting, and performance statistics.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		InputStream is=ReadWrite.getInputStream(ffin1.name(), false, true);
@@ -199,6 +205,14 @@ public class Unzip {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core decompression loop that streams data from input to output.
+	 * Uses buffered reading for efficient processing of large files.
+	 * Tracks bytes processed and handles I/O exceptions.
+	 *
+	 * @param is Input stream containing compressed data
+	 * @param bsw Output writer for decompressed data
+	 */
 	private void processInner(InputStream is, ByteStreamWriter bsw){
 		final byte[] buffer=new byte[65536<<2];
 		
@@ -222,6 +236,12 @@ public class Unzip {
 		}
 	}
 	
+	/**
+	 * Creates and initializes a ByteStreamWriter for output.
+	 * Returns null if no file format is specified.
+	 * @param ff File format specification for output
+	 * @return Initialized ByteStreamWriter or null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -233,33 +253,47 @@ public class Unzip {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path for decompression */
 	private String in1=null;
+	/** Primary output file path for decompressed data */
 	private String out1=null;
+	/** Output file path for invalid or corrupted data */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of bytes processed during decompression */
 	private long bytesProcessed=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** File format configuration for primary input */
 	private final FileFormat ffin1;
+	/** File format configuration for primary output */
 	private final FileFormat ffout1;
+	/** File format configuration for invalid data output */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and error reporting */
 	private PrintStream outstream=System.err;
+	/** Enables verbose logging and detailed progress reporting */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Controls display of processing speed and performance statistics */
 	public boolean showSpeed=false;
+	/** Allows overwriting existing output files */
 	private boolean overwrite=true;
+	/** Appends output to existing files rather than overwriting */
 	private boolean append=false;
 	
 }

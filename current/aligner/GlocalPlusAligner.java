@@ -30,6 +30,7 @@ public class GlocalPlusAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for GlocalPlusAligner instance */
 	public GlocalPlusAligner() {}
 	
 	/*--------------------------------------------------------------*/
@@ -148,6 +149,18 @@ public class GlocalPlusAligner implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}
 
+	/**
+	 * Extracts final alignment results from the DP matrix and calculates identity.
+	 * Finds optimal score, extracts position information from bit fields,
+	 * and solves system of equations to determine match/substitution/indel counts.
+	 *
+	 * @param prev Final row of the dynamic programming matrix
+	 * @param qLen Length of the query sequence
+	 * @param bandStart Starting column of the alignment band
+	 * @param bandEnd Ending column of the alignment band
+	 * @param posVector Optional array to receive alignment positions
+	 * @return Calculated identity score between 0.0 and 1.0
+	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
 		long maxScore=Long.MIN_VALUE;
@@ -229,9 +242,16 @@ public class GlocalPlusAligner implements IDAligner{
 		return id;
 	}
 	
+	/** Thread-safe counter for tracking total alignment operations performed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/**
+	 * Returns the total number of alignment loops performed across all instances
+	 */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -239,26 +259,45 @@ public class GlocalPlusAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position information in packed long values */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion count in packed long values */
 	private static final int DEL_BITS=21;
+	/**
+	 * Bit shift amount to position score in the upper bits of packed long values
+	 */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed long values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed long values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score information from packed long values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Scoring value for matches in the upper bits of packed long values */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Scoring penalty for substitutions in the upper bits of packed long values */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Scoring penalty for insertions in the upper bits of packed long values */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Scoring penalty for deletions in the upper bits of packed long values */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Neutral scoring value for alignments involving ambiguous bases (N) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value representing invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/**
+	 * Combined value for deletion penalty plus position increment used in DP calculations
+	 */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing alignment operation counts and statistics */
 	private static final boolean PRINT_OPS=false;
+	/** Flag controlling global vs local alignment mode */
 	public static boolean GLOBAL=false;
 
 }

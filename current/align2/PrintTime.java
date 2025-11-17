@@ -6,8 +6,24 @@ import fileIO.ReadWrite;
 import shared.Parse;
 import shared.Tools;
 
+/**
+ * Simple timing utility for measuring elapsed time between program executions.
+ * Stores timestamps in files and calculates time differences for performance monitoring.
+ * Used within the BBTools alignment framework for benchmarking and execution tracking.
+ *
+ * @author Brian Bushnell
+ * @date 2014
+ */
 public class PrintTime {
 	
+	/**
+	 * Program entry point for timing operations.
+	 * Prints current timestamp if no arguments provided.
+	 * If file argument given, calculates elapsed time since last stored timestamp.
+	 * Stores current timestamp in specified file for future elapsed time calculations.
+	 *
+	 * @param args Command-line arguments: [0] = timestamp file path, [1] = optional boolean to control output
+	 */
 	public static void main(String[] args){
 		long millis=System.currentTimeMillis();
 		

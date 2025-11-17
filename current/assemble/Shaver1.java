@@ -28,10 +28,31 @@ public class Shaver1 extends Shaver {
 	/*--------------------------------------------------------------*/
 
 	
+	/**
+	 * Constructor with default parameters for dead-end removal.
+	 * Uses default values for count thresholds, branch multiplier, and length limits.
+	 * @param tables_ The k-mer table set to operate on
+	 * @param threads_ Number of threads for parallel processing
+	 */
 	public Shaver1(KmerTableSet tables_, int threads_){
 		this(tables_, threads_, 1, 1, 1, 1, 3, 100, 100, true, true);
 	}
 	
+	/**
+	 * Full constructor with all parameters for customized dead-end removal.
+	 *
+	 * @param tables_ The k-mer table set to operate on
+	 * @param threads_ Number of threads for parallel processing
+	 * @param minCount_ Minimum k-mer count to consider for extension
+	 * @param maxCount_ Maximum k-mer count to consider (filters high-coverage repeats)
+	 * @param minSeed_ Minimum count for seed k-mers to start exploration
+	 * @param minCountExtend_ Minimum count required to extend a path
+	 * @param branchMult2_ Branch multiplier threshold for branch detection
+	 * @param maxLengthToDiscard_ Maximum length of paths that can be removed
+	 * @param maxDistanceToExplore_ Maximum distance to explore in each direction
+	 * @param removeHair_ Whether to remove hair/dead-end structures
+	 * @param removeBubbles_ Whether to remove bubble structures between branches
+	 */
 	public Shaver1(KmerTableSet tables_, int threads_,
 			int minCount_, int maxCount_, int minSeed_, int minCountExtend_, float branchMult2_, int maxLengthToDiscard_, int maxDistanceToExplore_,
 			boolean removeHair_, boolean removeBubbles_){
@@ -55,6 +76,25 @@ public class Shaver1 extends Shaver {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Explores bidirectional paths from a k-mer and determines if they should be removed.
+	 * Explores in both directions from the starting k-mer to determine the full extent
+	 * of the unbranching path. Classifies termination conditions (dead end, branch, etc.)
+	 * and decides whether to mark the path for removal based on the criteria.
+	 *
+	 * @param kmer Starting k-mer for exploration
+	 * @param bb ByteBuilder for sequence construction
+	 * @param leftCounts Array to store left extension counts
+	 * @param rightCounts Array to store right extension counts
+	 * @param minCount Minimum count threshold for valid extensions
+	 * @param maxCount Maximum count threshold to avoid repeats
+	 * @param maxLengthToDiscard Maximum length of paths that can be discarded
+	 * @param maxDistanceToExplore Maximum distance to explore in each direction
+	 * @param prune Whether to mark paths for removal
+	 * @param countMatrixT Matrix to count termination condition combinations
+	 * @param removeMatrixT Matrix to count actual removals by termination type
+	 * @return true if the path was marked for removal, false otherwise
+	 */
 	public boolean exploreAndMark(long kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount,
 			int maxLengthToDiscard, int maxDistanceToExplore, boolean prune,
 			long[][] countMatrixT, long[][] removeMatrixT){
@@ -458,6 +498,12 @@ public class Shaver1 extends Shaver {
 		}
 
 		
+		/**
+		 * Recursively traverses k-mer nodes in high-count processing mode.
+		 * Visits the current node and recursively processes left and right children.
+		 * @param kn K-mer node to traverse (may be null)
+		 * @return Total number of dead ends found in this subtree
+		 */
 		private int traverseKmerNode_high(KmerNode kn){
 			int sum=0;
 			if(kn!=null){
@@ -473,6 +519,12 @@ public class Shaver1 extends Shaver {
 		}
 
 		
+		/**
+		 * Recursively traverses k-mer nodes in low-count processing mode.
+		 * Visits the current node and recursively processes left and right children.
+		 * @param kn K-mer node to traverse (may be null)
+		 * @return Total number of dead ends found in this subtree
+		 */
 		private int traverseKmerNode_low(KmerNode kn){
 			int sum=0;
 			if(kn!=null){
@@ -490,6 +542,15 @@ public class Shaver1 extends Shaver {
 		/*--------------------------------------------------------------*/
 		
 		//old
+		/**
+		 * Processes a single hash table cell in low-count mode.
+		 * Checks if the k-mer meets count criteria and ownership requirements
+		 * before attempting dead-end exploration.
+		 *
+		 * @param table Hash table containing the cell
+		 * @param cell Cell index within the table
+		 * @return 1 if a dead end was found and marked, 0 otherwise
+		 */
 		private int processCell_low(HashArray1D table, int cell){
 			int count=table.readCellValue(cell);
 			if(count<minSeed || count>maxCount){return 0;}
@@ -502,6 +563,14 @@ public class Shaver1 extends Shaver {
 		}
 		
 		//old
+		/**
+		 * Processes a k-mer node in low-count mode.
+		 * Extracts the k-mer and count from the node, validates criteria,
+		 * then attempts dead-end exploration.
+		 *
+		 * @param kn K-mer node to process
+		 * @return 1 if a dead end was found and marked, 0 otherwise
+		 */
 		private int processKmerNode_low(KmerNode kn){
 			final long key=kn.pivot();
 			final int count=kn.getValue(key);
@@ -513,6 +582,12 @@ public class Shaver1 extends Shaver {
 		}
 		
 		//old
+		/**
+		 * Processes a single k-mer in low-count mode.
+		 * Calls exploreAndMark to determine if the k-mer is part of a removable dead end.
+		 * @param key K-mer to process
+		 * @return 1 if a dead end was found and marked, 0 otherwise
+		 */
 		private int processKmer_low(long key){
 			kmersTestedT++;
 			boolean b=exploreAndMark(key, builderT, leftCounts, rightCounts, minCount, maxCount, maxLengthToDiscard, maxDistanceToExplore, true
@@ -524,6 +599,15 @@ public class Shaver1 extends Shaver {
 		/*--------------------------------------------------------------*/
 		
 		//new
+		/**
+		 * Processes a single hash table cell in high-count mode.
+		 * Focuses on high-coverage k-mers that may have low-coverage neighbors
+		 * representing dead ends extending from repetitive sequences.
+		 *
+		 * @param table Hash table containing the cell
+		 * @param cell Cell index within the table
+		 * @return Number of dead ends found from this high-coverage k-mer
+		 */
 		private int processCell_high(HashArray1D table, int cell){
 			int count=table.readCellValue(cell);
 			if(count<=maxCount){return 0;}
@@ -537,6 +621,12 @@ public class Shaver1 extends Shaver {
 		}
 		
 		//new
+		/**
+		 * Processes a k-mer node in high-count mode.
+		 * Looks for high-coverage k-mers that may have low-coverage dead-end neighbors.
+		 * @param kn K-mer node to process
+		 * @return Number of dead ends found from this high-coverage k-mer
+		 */
 		private int processKmerNode_high(KmerNode kn){
 			final long key=kn.pivot();
 			final int count=kn.getValue(key);
@@ -736,8 +826,11 @@ public class Shaver1 extends Shaver {
 			return sum;
 		}
 		
+		/** Bit shift amount for k-mer rolling (2*k bits) */
 		final int shift;
+		/** Secondary bit shift amount for complement rolling (shift-2 bits) */
 		final int shift2;
+		/** Bit mask for k-mer length limitation */
 		final long mask;
 	}
 	
@@ -782,6 +875,12 @@ public class Shaver1 extends Shaver {
 			return true;
 		}
 		
+		/**
+		 * Recursively traverses k-mer nodes to remove marked entries.
+		 * Sets the count to 0 for nodes marked with STATUS_REMOVE
+		 * and recursively processes child nodes.
+		 * @param kn K-mer node to process (may be null)
+		 */
 		private void traverseKmerNode(KmerNode kn){
 			if(kn==null){return;}
 			if(kn.owner()==STATUS_REMOVE){kn.set(0);}
@@ -797,20 +896,77 @@ public class Shaver1 extends Shaver {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Converts k-mer and its reverse complement to a canonical value.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Canonical representation for table lookup
+	 */
 	private final long toValue(long kmer, long rkmer){return tables.toValue(kmer, rkmer);}
+	/**
+	 * Gets the count for a k-mer pair.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Count value from the k-mer tables
+	 */
 	int getCount(long kmer, long rkmer){return tables.getCount(kmer, rkmer);}
+	/**
+	 * Claims ownership of a k-mer.
+	 * @param kmer K-mer to claim
+	 * @param id Claiming thread/process ID
+	 * @return true if successfully claimed, false if already owned
+	 */
 	boolean claim(long kmer, int id){return claim(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k), id);}
+	/**
+	 * Claims ownership of a k-mer pair.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param id Claiming thread/process ID
+	 * @return true if successfully claimed, false if already owned
+	 */
 	boolean claim(long kmer, long rkmer, int id){return tables.claim(kmer, rkmer, id);}
 	boolean doubleClaim(ByteBuilder bb, int id/*, long rid*/){return tables.doubleClaim(bb, id/*, rid*/);}
 	boolean claim(ByteBuilder bb, int id, /*long rid, */boolean earlyExit){return tables.claim(bb, id/*, rid*/, earlyExit);}
 	boolean claim(byte[] array, int len, int id, /*long rid, */boolean earlyExit){return tables.claim(array, len, id/*, rid*/, earlyExit);}
+	/**
+	 * Finds the current owner of a k-mer.
+	 * @param kmer K-mer to check
+	 * @return Owner ID or status code
+	 */
 	int findOwner(long kmer){return tables.findOwner(kmer);}
 	int findOwner(ByteBuilder bb, int id){return tables.findOwner(bb, id);}
 	int findOwner(byte[] array, int len, int id){return tables.findOwner(array, len, id);}
 	void release(ByteBuilder bb, int id){tables.release(bb, id);}
 	void release(byte[] array, int len, int id){tables.release(array, len, id);}
+	/**
+	 * Fills array with counts of right-extension k-mers.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param counts Array to fill with extension counts
+	 * @param mask Bit mask for k-mer operations
+	 * @param shift2 Bit shift amount for reverse complement
+	 * @return Position of maximum count
+	 */
 	int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){return tables.fillRightCounts(kmer, rkmer, counts, mask, shift2);}
+	/**
+	 * Fills array with counts of left-extension k-mers.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param counts Array to fill with extension counts
+	 * @param mask Bit mask for k-mer operations
+	 * @param shift2 Bit shift amount for reverse complement
+	 * @return Position of maximum count
+	 */
 	int fillLeftCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){return tables.fillLeftCounts(kmer, rkmer, counts, mask, shift2);}
+	/**
+	 * Converts a k-mer to text representation.
+	 * @param kmer K-mer to convert
+	 * @param k Length of k-mer
+	 * @return Text representation of the k-mer sequence
+	 */
 	static StringBuilder toText(long kmer, int k){return AbstractKmerTable.toText(kmer, k);}
 	
 	/*--------------------------------------------------------------*/
@@ -824,7 +980,9 @@ public class Shaver1 extends Shaver {
 	@Override
 	AbstractKmerTableSet tables(){return tables;}
 	
+	/** The k-mer table set containing sequence data for shaving operations */
 	final KmerTableSet tables;
+	/** Length of k-mers used in this shaver instance */
 	final int k;
 	
 }

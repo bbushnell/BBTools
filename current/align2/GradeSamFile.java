@@ -14,9 +14,23 @@ import stream.CustomHeader;
 import stream.Read;
 import stream.SamLine;
 
+/**
+ * Evaluates mapping accuracy by comparing SAM alignments to known true positions.
+ * Parses custom headers to determine correctness using strict and loose criteria.
+ * Generates detailed statistics including true/false positives and mapping rates.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class GradeSamFile {
 	
 	
+	/**
+	 * Program entry point that processes SAM files and generates mapping statistics.
+	 * Parses command-line arguments, reads SAM input, and outputs accuracy metrics.
+	 * Supports filtering by quality scores and writing incorrect alignments to files.
+	 * @param args Command-line arguments including input file, read count, and options
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -294,6 +308,14 @@ public class GradeSamFile {
 		
 	}
 	
+	/**
+	 * Determines if an alignment exactly matches the true position (strict criteria).
+	 * Checks strand, start position, stop position, and reference sequence name.
+	 *
+	 * @param sl SAM line containing the alignment
+	 * @param h Custom header with true position information
+	 * @return true if alignment exactly matches true position
+	 */
 	public static boolean isCorrectHit(SamLine sl, CustomHeader h){
 		if(!sl.mapped()){return false;}
 		if(h.strand!=sl.strand()){return false;}
@@ -305,6 +327,14 @@ public class GradeSamFile {
 		return true;
 	}
 	
+	/**
+	 * Determines if an alignment approximately matches the true position (loose criteria).
+	 * Uses THRESH2 tolerance for start/stop position differences while requiring exact strand/reference match.
+	 *
+	 * @param sl SAM line containing the alignment
+	 * @param h Custom header with true position information
+	 * @return true if alignment is within tolerance of true position
+	 */
 	public static boolean isCorrectHitLoose(SamLine sl, CustomHeader h){
 		if(!sl.mapped()){return false;}
 		if(h.strand!=sl.strand()){return false;}
@@ -358,40 +388,71 @@ public class GradeSamFile {
 //		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
 //	}
 	
+	/**
+	 * Calculates absolute difference between two integers.
+	 * @param a First integer
+	 * @param b Second integer
+	 * @return Absolute difference between a and b
+	 */
 	private static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
 
+	/** File format for writing loosely incorrect alignments */
 	public static FileFormat ffLoose=null;
+	/** File format for writing strictly incorrect alignments */
 	public static FileFormat ffStrict=null;
+	/** Writer for outputting loosely incorrect alignments */
 	public static TextStreamWriter tswLoose=null;
+	/** Writer for outputting strictly incorrect alignments */
 	public static TextStreamWriter tswStrict=null;
 
+	/** Count of alignments that exactly match true positions */
 	public static int truePositiveStrict=0;
+	/** Count of alignments that do not exactly match true positions */
 	public static int falsePositiveStrict=0;
 	
+	/**
+	 * Count of alignments that approximately match true positions within tolerance
+	 */
 	public static int truePositiveLoose=0;
+	/** Count of alignments that do not match true positions within tolerance */
 	public static int falsePositiveLoose=0;
 
+	/** Total count of reads with mapping alignments */
 	public static int mapped=0;
+	/** Count of mapped reads that pass quality filters and are retained */
 	public static int mappedRetained=0;
+	/** Count of reads without mapping alignments */
 	public static int unmapped=0;
 	
+	/** Count of reads flagged as discarded or with zero mapping score */
 	public static int discarded=0;
+	/** Count of reads with ambiguous mappings or low quality scores */
 	public static int ambiguous=0;
 
+	/** Total number of SAM lines processed */
 	public static long lines=0;
+	/** Count of primary alignment lines processed */
 	public static long primary=0;
+	/** Count of secondary alignment lines processed */
 	public static long secondary=0;
 	
+	/** Minimum mapping quality score threshold for retaining alignments */
 	public static int minQuality=3;
 
+	/** Whether to parse custom headers for true position information */
 	public static boolean parsecustom=true;
+	/** Whether to print statistics to stderr in addition to stdout */
 	public static boolean printerr=false;
 
+	/** Position tolerance threshold for loose correctness evaluation */
 	public static int THRESH2=20;
+	/** Whether input is from BLASR aligner (affects contig name parsing) */
 	public static boolean BLASR=false;
+	/** Whether to use BitSet for duplicate detection */
 	public static boolean USE_BITSET=true;
+	/** BitSet for tracking processed read IDs to avoid duplicates */
 	public static BitSet seen=null;
 	
 }

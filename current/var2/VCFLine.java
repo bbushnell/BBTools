@@ -10,8 +10,32 @@ import shared.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Represents a single line from a VCF (Variant Call Format) file.
+ * Provides parsing, manipulation, and splitting capabilities for genetic variants.
+ * Supports VCF standard fields including scaffold, position, reference, alternate,
+ * quality, filters, and sample data. Handles complex variants by splitting into
+ * simpler components and canonical representations.
+ *
+ * @author Brian Bushnell
+ */
 public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	
+	/**
+	 * Constructs a VCFLine from individual field components.
+	 *
+	 * @param scaf_ Scaffold/chromosome name
+	 * @param pos_ Position on the scaffold (1-based)
+	 * @param id_ Variant identifier
+	 * @param ref_ Reference allele sequence
+	 * @param alt_ Alternate allele sequence
+	 * @param qual_ Quality score
+	 * @param filter_ Filter status
+	 * @param info_ INFO field data
+	 * @param format_ FORMAT field specification
+	 * @param type_ Variant type constant from Var class
+	 * @param samples_ Sample data list
+	 */
 	public VCFLine(String scaf_, int pos_, byte[] id_, byte[] ref_, byte[] alt_, double qual_, 
 			byte[] filter_, byte[] info_, byte[] format_, int type_, ArrayList<byte[]> samples_) {
 		scaf=scaf_;
@@ -31,6 +55,12 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		hashcode=hash();
 	}
 	
+	/**
+	 * Constructs a VCFLine by parsing a tab-delimited VCF line.
+	 * Automatically determines variant type and processes sample data.
+	 * Applies canonical trimming and caching if enabled.
+	 * @param line Raw VCF line as byte array
+	 */
 	public VCFLine(byte[] line) {
 		int a=0, b=0;
 		
@@ -116,10 +146,21 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		if(AUTOCACHE){cache();}
 	}
 	
+	/** Converts this VCFLine to a Var object for internal processing.
+	 * @return Var representation of this variant */
 	public Var toVar(){
 		return makeVar(info, alt);
 	}
 	
+	/**
+	 * Creates a Var object from VCF INFO field and alternate allele.
+	 * Parses structured INFO data including coverage, quality metrics,
+	 * strand bias information, and statistical measures.
+	 *
+	 * @param info INFO field containing semicolon-delimited key=value pairs
+	 * @param alt Alternate allele sequence
+	 * @return Var object with parsed statistics and metadata
+	 */
 	public static Var makeVar(byte[] info, byte[] alt){
 		int a=0, b=0;
 		
@@ -414,6 +455,15 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return v;
 	}
 	
+	/**
+	 * Splits complex variants into simpler components based on specified criteria.
+	 * Can separate multi-allelic variants, complex variants, and multi-base substitutions.
+	 *
+	 * @param splitAlleles Split multi-allelic variants (comma-separated alternatives)
+	 * @param splitComplex Split complex variants into substitution and indel components
+	 * @param splitSubs Split multi-base substitutions into individual SNPs
+	 * @return List of simplified VCFLine objects, or null if no splitting needed
+	 */
 	public ArrayList<VCFLine> split(boolean splitAlleles, boolean splitComplex, boolean splitSubs){
 		assert(splitAlleles || splitComplex || splitSubs);
 		if(isSimple()){return null;} //Should be true 90% of the time
@@ -617,6 +667,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return delta;
 	}
 	
+	/**
+	 * Removes matching prefix bases from reference and alternate alleles.
+	 * Updates position to reflect trimmed sequence start.
+	 * @return Number of prefix bases removed
+	 */
 	private int trimPrefix(){
 		int prefix=0;
 		for(int rpos=0, apos=0; rpos<ref.length-1 && apos<alt.length-1 && ref[rpos]==alt[apos]; rpos++, apos++){
@@ -633,6 +688,8 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return prefix;
 	}
 	
+	/** Removes matching suffix bases from reference and alternate alleles.
+	 * @return Number of suffix bases removed */
 	private int trimSuffix(){
 		int suffix=0;
 		for(int rpos=ref.length-1, apos=alt.length-1; rpos>0 && apos>0 && ref[rpos]==alt[apos]; rpos--, apos--){
@@ -648,6 +705,12 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return suffix;
 	}
 	
+	/**
+	 * Extracts a prefix of specified length from a byte array.
+	 * @param array Source array
+	 * @param len Length of prefix to extract
+	 * @return Prefix bytes, optimized for single-byte case
+	 */
 	private byte[] prefix(byte[] array, int len){
 		assert(len>0);
 		assert(array.length>len);
@@ -655,6 +718,12 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return prefix;
 	}
 	
+	/**
+	 * Extracts a suffix of specified length from a byte array.
+	 * @param array Source array
+	 * @param len Length of suffix to extract
+	 * @return Suffix bytes, optimized for single-byte case
+	 */
 	private byte[] suffix(byte[] array, int len){
 		assert(len>0);
 		assert(array.length>len);
@@ -671,10 +740,17 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return equals((VCFLine)b);
 	}
 	
+	/**
+	 * Tests equality with another VCFLine using hash codes and comparison.
+	 * @param b VCFLine to compare against
+	 * @return true if lines represent identical variants
+	 */
 	public boolean equals(VCFLine b){
 		return hashcode==b.hashcode && compareTo(b)==0;
 	}
 
+	/** Computes hash code based on scaffold, position, length, and alternate allele.
+	 * @return Hash code for this variant */
 	private int hash(){
 		return scaf.hashCode()^Integer.rotateLeft(pos, 9)^Integer.rotateRight(pos+ref.length, 9)^Var.hash(alt);
 	}
@@ -688,6 +764,8 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return hashcode;
 	}
 	
+	/** Generates a unique key for indexing based on position and hash.
+	 * @return 62-bit key combining position, hash, and scaffold information */
 	public long toKey() {
 		long key=Long.rotateLeft(pos, 31)^Long.rotateRight(hashcode, 10)^scaf.hashCode();
 		return key&0x3FFFFFFFFFFFFFFFL;
@@ -708,6 +786,12 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return compare(alt, v.alt);
 	}
 	
+	/**
+	 * Compares two byte arrays lexicographically with length precedence.
+	 * @param a First array
+	 * @param b Second array
+	 * @return Comparison result favoring shorter arrays when different lengths
+	 */
 	public int compare(byte[] a, byte[] b){
 		if(a==b){return 0;}
 		if(a.length!=b.length){return b.length-a.length;}
@@ -724,6 +808,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return toText(bb).toString();
 	}
 	
+	/**
+	 * Appends VCF-formatted representation to a ByteBuilder.
+	 * @param bb ByteBuilder to append to
+	 * @return The modified ByteBuilder
+	 */
 	public ByteBuilder toText(ByteBuilder bb){
 		bb.append(scaf).append('\t');
 		bb.append(pos).append('\t');
@@ -746,9 +835,16 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	/*----------------            Other             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Gets the length of the reference allele */
 	public int reflen(){return ref.length;}
+	/** Gets the length of the alternate allele */
 	public int readlen(){return alt.length;}
 	
+	/**
+	 * Determines variant type using legacy classification logic.
+	 * Categorizes based on allele lengths and content analysis.
+	 * @return Variant type constant from Var class
+	 */
 	public int type_old(){
 		if(alt!=null && Tools.indexOf(alt, ',')>=0){return Var.MULTI;}
 		final int reflen=reflen(), readlen=readlen();
@@ -761,49 +857,61 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return Var.NOCALL;
 	}
 	
+	/** Gets the variant type constant */
 	public int type(){return type;}
 	
+	/** Tests if alternate allele matches reference (no variant) */
 	public boolean isRef(){
 		return Tools.equals(alt, ref);
 	}
 	
+	/** Tests if variant represents a structural variant junction */
 	public boolean isJunction(){
 		return type==Var.LJUNCT || type==Var.RJUNCT || type==Var.BJUNCT;
 	}
 	
+	/** Tests if variant is an insertion or deletion */
 	public boolean isIndel(){
 		return type==Var.INS || type==Var.DEL;
 	}
 	
+	/** Tests if variant is a substitution */
 	public boolean isSub(){
 		return type==Var.SUB;
 	}
 	
+	/** Tests if variant is a deletion */
 	public boolean isDel(){
 		return type==Var.DEL;
 	}
 	
+	/** Tests if variant is an insertion */
 	public boolean isIns(){
 		return type==Var.INS;
 	}
 	
+	/** Tests if variant represents a no-call (N bases) */
 	public boolean isNocall(){
 		return type==Var.NOCALL;
 	}
 	
+	/** Tests if variant has multiple alternate alleles */
 	public boolean isMulti(){
 		return type==Var.MULTI;
 	}
 	
+	/** Tests if variant is a complex rearrangement */
 	public boolean isComplex(){
 		return type==Var.COMPLEX;
 	}
 	
+	/** Tests if variant is a simple type (SUB, DEL, INS, or NOCALL) */
 	public boolean isSimple(){
 		//return type<=Var.DEL;
 		return type==Var.SUB || type==Var.DEL || type==Var.INS || type==Var.NOCALL;
 	}
 	
+	/** Applies string caching to reduce memory usage for repeated sequences */
 	void cache(){
 //		assert(false) : AUTOCACHE;
 		id=cache(id);
@@ -814,6 +922,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		format=cache(format);
 	}
 	
+	/**
+	 * Caches byte arrays to reduce memory usage for repeated sequences.
+	 * @param line Byte array to cache
+	 * @return Cached instance or original if cache limit exceeded
+	 */
 	static byte[] cache(byte[] line){
 		if(line==null){return line;}
 		String s=new String(line);
@@ -828,6 +941,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		}
 	}
 	
+	/**
+	 * Converts string to cached byte array.
+	 * @param s String to cache
+	 * @return Cached byte array representation
+	 */
 	static byte[] cache(String s){
 		if(s==null){return null;}
 		byte[] old=cache.get(s);
@@ -851,6 +969,7 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		return Tools.max(start(), pos+reflen-2);
 	}
 	
+	/** Recalculates variant type and hash code after sequence modification */
 	private void recalc(){
 		type=type_old();
 		hashcode=hash();
@@ -860,30 +979,49 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Scaffold/chromosome name */
 	public final String scaf;
+	/** Position on scaffold (1-based) */
 	public int pos;
+	/** Variant identifier */
 	public byte[] id;
+	/** Reference allele sequence */
 	public byte[] ref;
+	/** Length of reference allele */
 	public int reflen;
+	/** Alternate allele sequence */
 	public byte[] alt;
+	/** Quality score */
 	public double qual;
+	/** Filter status */
 	public byte[] filter;
+	/** INFO field containing variant annotations */
 	public byte[] info;
+	/** FORMAT field specifying sample data format */
 	public byte[] format;
+	/** Precomputed hash code for this variant */
 	public int hashcode;
+	/** Variant type constant from Var class */
 	public int type;
+	/** Sample data columns */
 	public ArrayList<byte[]> samples=new ArrayList<byte[]>();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** String-to-byte array cache for memory optimization */
 	public static HashMap<String, byte[]> cache=new HashMap<String, byte[]>(99997);
 	
+	/** Whether to automatically apply caching during construction */
 	static boolean AUTOCACHE=false;
+	/** Whether to trim variants to canonical representation */
 	static boolean TRIM_TO_CANONICAL=true;
+	/** Whether to sort split variant lists */
 	static boolean SORT=true;
+	/** Whether to remove duplicates from split variant lists */
 	static boolean CONDENSE=true;
+	/** Whether to split INFO fields by allele for multi-allelic variants */
 	static boolean SPLIT_INFO=true;
 	
 	private static final byte[] NOCALL=cache("NOCALL");

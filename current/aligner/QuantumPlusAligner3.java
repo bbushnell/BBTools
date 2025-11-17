@@ -35,6 +35,7 @@ public class QuantumPlusAligner3 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for creating aligner instances */
 	public QuantumPlusAligner3() {}
 
 	/*--------------------------------------------------------------*/
@@ -273,6 +274,20 @@ public class QuantumPlusAligner3 implements IDAligner{
 	
 	// Process the first topWidth rows using a dense approach
 //	@ForceInline // Apparently requires Java 9
+	/**
+	 * Processes first topWidth rows using dense alignment approach.
+	 * Uses SIMD optimization when available, followed by deletion tail loop.
+	 * Returns updated current and previous row arrays.
+	 *
+	 * @param query Encoded query sequence
+	 * @param ref Encoded reference sequence
+	 * @param prev Previous row scores
+	 * @param curr Current row scores
+	 * @param viz Optional visualizer for debugging
+	 * @param topWidth Number of rows to process densely
+	 * @param rLen Reference sequence length
+	 * @return Array containing [updated_curr, updated_prev] arrays
+	 */
 	private static final long[][] alignDense(long[] query, long[] ref, long[] prev, 
 			long[] curr, Visualizer viz, int topWidth, int rLen) {
 		long mloops=0;
@@ -418,9 +433,14 @@ public class QuantumPlusAligner3 implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment matrix loops performed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns total number of alignment matrix loops performed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output path for alignment visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -428,30 +448,49 @@ public class QuantumPlusAligner3 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position encoding (21 bits) */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion count encoding (21 bits) */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score field (POSITION_BITS + DEL_BITS) */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position field from packed score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw score from packed score */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for nucleotide matches (1 << SCORE_SHIFT) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 << SCORE_SHIFT) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 << SCORE_SHIFT) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 << SCORE_SHIFT) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for aligning against ambiguous 'N' nucleotides (0) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid/empty matrix cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty with position increment */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Whether to extend alignment from matching cells for finding deletions */
 	private static final boolean EXTEND_MATCH=true;
+	/** Whether to use loop-based or loop-free position extension algorithm */
 	private static final boolean LOOP_VERSION=false;
+	/** Whether to build bridges for catching up with long deletions */
 	private static final boolean BUILD_BRIDGES=true;
+	/** Whether to use dense processing for the top alignment band */
 	private static final boolean DENSE_TOP=true;
+	/** Whether to print detailed alignment operation counts for debugging */
 	private static final boolean PRINT_OPS=false;
+	/** Whether to perform global alignment (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

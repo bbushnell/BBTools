@@ -28,6 +28,8 @@ import structures.ByteBuilder;
  */
 public class CompareVCF {
 	
+	/** Program entry point for VCF comparison operations.
+	 * @param args Command-line arguments specifying input files and operation mode */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CompareVCF x=new CompareVCF(args);
@@ -37,6 +39,12 @@ public class CompareVCF {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a CompareVCF instance from command-line arguments.
+	 * Parses operation mode (difference/union/intersection), input files,
+	 * quality filters, and variant splitting options.
+	 * @param args Command-line arguments containing file paths and options
+	 */
 	public CompareVCF(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -127,6 +135,15 @@ public class CompareVCF {
 		if(ref!=null){ScafMap.loadReference(ref, null, null, true);}
 	}
 	
+	/**
+	 * Loads VCF variants from a file into a HashSet.
+	 * Optionally splits complex variants and filters by minimum quality score.
+	 * Updates processing statistics and header information.
+	 *
+	 * @param ff FileFormat for the input VCF file
+	 * @param set Existing HashSet to add variants to, or null to create new set
+	 * @return HashSet containing variants from the file
+	 */
 	public HashSet<VCFLine> getSet(FileFormat ff, HashSet<VCFLine> set){
 		if(set==null){set=new HashSet<VCFLine>();}
 		VCFFile vfile=new VCFFile(ff);
@@ -159,6 +176,11 @@ public class CompareVCF {
 		return set;
 	}
 	
+	/**
+	 * Creates the union of all variants from input VCF files.
+	 * Combines all unique variants from all input files into a single set.
+	 * @return HashSet containing all unique variants from all input files
+	 */
 	public HashSet<VCFLine> union(){
 		final HashSet<VCFLine> set=new HashSet<VCFLine>();
 		for(FileFormat ff : ffin1){
@@ -167,6 +189,11 @@ public class CompareVCF {
 		return set;
 	}
 	
+	/**
+	 * Creates the intersection of variants across all input VCF files.
+	 * Returns only variants that are present in every input file.
+	 * @return HashSet containing variants common to all input files
+	 */
 	public HashSet<VCFLine> intersection(){
 		HashSet<VCFLine> set0=null;
 		for(FileFormat ff : ffin1){
@@ -177,6 +204,11 @@ public class CompareVCF {
 		return set0;
 	}
 	
+	/**
+	 * Creates the difference between the first VCF file and all subsequent files.
+	 * Returns variants present in the first file but absent from all others.
+	 * @return HashSet containing variants unique to the first input file
+	 */
 	public HashSet<VCFLine> difference(){
 		HashSet<VCFLine> set0=null;
 		for(FileFormat ff : ffin1){
@@ -187,6 +219,11 @@ public class CompareVCF {
 		return set0;
 	}
 	
+	/**
+	 * Performs the specified set operation and returns results as a sorted list.
+	 * Executes difference, union, or intersection based on configured mode.
+	 * @return Sorted ArrayList of variants after applying the set operation
+	 */
 	ArrayList<VCFLine> toList(){
 		final HashSet<VCFLine> set;
 		if(mode==DIFFERENCE){
@@ -204,6 +241,12 @@ public class CompareVCF {
 		return list;
 	}
 	
+	/**
+	 * Main processing method that executes the VCF comparison and writes output.
+	 * Performs the configured set operation and writes results to output file.
+	 * Prints processing statistics and timing information.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ArrayList<VCFLine> list=toList();
@@ -261,47 +304,76 @@ public class CompareVCF {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Total number of lines processed across all input files */
 	private long linesProcessed=0;
+	/** Number of header lines processed from input files */
 	private long headerLinesProcessed=0;
+	/** Number of variant lines processed from input files */
 	private long variantLinesProcessed=0;
+	/** Number of header lines written to output */
 	private long headerLinesOut=0;
+	/** Number of variant lines written to output */
 	private long variantLinesOut=0;
+	/** Total bytes processed from all input files */
 	private long bytesProcessed=0;
 	
+	/** Maximum number of lines to process (configurable limit) */
 	private long maxLines=Long.MAX_VALUE;
 
+	/** VCF header lines from input files */
 	public ArrayList<byte[]> header=null;
+	/** Sample names collected from VCF headers */
 	public ArrayList<String> samples=new ArrayList<String>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Array of input VCF file paths */
 	private String in1[]=null;
+	/** Output file path */
 	private String out1=null;
+	/** Reference genome file path */
 	private String ref=null;
 
+	/** FileFormat objects for input VCF files */
 	private final FileFormat ffin1[];
+	/** FileFormat object for output file */
 	private final FileFormat ffout1;
 	
+	/** Operation mode: DIFFERENCE, UNION, or INTERSECTION */
 	public final int mode;
 	
+	/** Whether to add sample information to output */
 	public boolean addSamples=true;
+	/** Whether to output in VAR format instead of VCF */
 	private boolean outputVar=false;
 
+	/** Whether to split multi-allelic variants into separate lines */
 	boolean splitAlleles=false;
+	/** Whether to split substitution variants */
 	boolean splitSubs=false;
+	/** Whether to split complex variants into components */
 	boolean splitComplex=false;
+	/** Minimum quality score for variants to include in comparison */
 	double minScore=-99999;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Constant for intersection operation mode (value 2) */
+	/** Constant for union operation mode (value 1) */
+	/** Constant for difference operation mode (value 0) */
 	public static int DIFFERENCE=0, UNION=1, INTERSECTION=2;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
+	/** Flag for verbose output and debugging information */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

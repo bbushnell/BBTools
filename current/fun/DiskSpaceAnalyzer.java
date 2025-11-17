@@ -21,7 +21,9 @@ public class DiskSpaceAnalyzer {
 	 * Internal class to track directory size information.
 	 */
 	static class DirSize {
+		/** Directory path */
 		String path;
+		/** Total bytes in directory */
 		long bytes;
 
 		/**
@@ -36,6 +38,7 @@ public class DiskSpaceAnalyzer {
 		}
 	}
 
+	/** Comparator for sorting DirSize objects by bytes in descending order */
 	private static Comparator<DirSize> SIZE_COMPARATOR = new Comparator<DirSize>() {
 		@Override
 		public int compare(DirSize a, DirSize b) {
@@ -43,6 +46,12 @@ public class DiskSpaceAnalyzer {
 		}
 	};
 
+	/**
+	 * Analyzes disk space usage starting from the specified root path.
+	 * Recursively scans all directories and generates an HTML report.
+	 * @param rootPath The root directory path to analyze
+	 * @throws IOException if file operations fail
+	 */
 	public static void analyzeDiskSpace(String rootPath) throws IOException {
 		File root = new File(rootPath);
 		List<DirSize> dirSizes = new ArrayList<>();
@@ -60,6 +69,13 @@ public class DiskSpaceAnalyzer {
 		generateHTMLReport(dirSizes, rootPath);
 	}
 
+	/**
+	 * Recursively analyzes a directory to calculate total size.
+	 * Adds each subdirectory's size to the results list.
+	 * @param dir Directory to analyze
+	 * @param results List to store directory size information
+	 * @return Total bytes in the directory including all subdirectories
+	 */
 	private static long analyzeDirRecursive(File dir, List<DirSize> results) {
 		long total = 0;
 		if (!dir.exists() || !dir.isDirectory()) return total;
@@ -80,6 +96,14 @@ public class DiskSpaceAnalyzer {
 		return total;
 	}
 
+	/**
+	 * Generates an HTML report showing directory sizes in a table format.
+	 * Sorts directories by size and shows size in MB with percentages.
+	 * Creates "disk_usage.html" file in current directory.
+	 * @param dirSizes List of directory size information
+	 * @param rootPath Root path being analyzed for report title
+	 * @throws IOException if writing HTML file fails
+	 */
 	private static void generateHTMLReport(List<DirSize> dirSizes, String rootPath) throws IOException {
 		DecimalFormat df = new DecimalFormat("#.##");
 
@@ -112,6 +136,12 @@ public class DiskSpaceAnalyzer {
 		System.out.println("Disk usage report generated: disk_usage.html");
 	}
 
+	/**
+	 * Main entry point for disk space analysis.
+	 * Uses first command line argument as root path, or current directory if none.
+	 * @param args Command line arguments, first argument is optional root path
+	 * @throws IOException if disk analysis fails
+	 */
 	public static void main(String[] args) throws IOException {
 		String path = args.length > 0 ? args[0] : ".";
 		analyzeDiskSpace(path);

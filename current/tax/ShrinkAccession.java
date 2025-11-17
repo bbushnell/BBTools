@@ -26,6 +26,8 @@ import tracker.ReadStats;
  */
 public class ShrinkAccession {
 	
+	/** Program entry point for accession shrinking operations.
+	 * @param args Command-line arguments including input/output files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ShrinkAccession x=new ShrinkAccession(args);
@@ -35,6 +37,11 @@ public class ShrinkAccession {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs ShrinkAccession with parsed command-line arguments.
+	 * Configures file I/O settings, processes parameters, and validates input/output paths.
+	 * @param args Command-line arguments for configuration
+	 */
 	public ShrinkAccession(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -110,6 +117,12 @@ public class ShrinkAccession {
 		
 	}
 	
+	/**
+	 * Processes accession-to-taxid mapping files to create compressed output.
+	 * Reads input lines, parses accession and taxid information, removes version numbers,
+	 * and optionally preserves GI numbers based on configuration settings.
+	 * @param t Timer for tracking processing time and performance metrics
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -215,23 +228,35 @@ public class ShrinkAccession {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for accession-to-taxid mapping data */
 	private String in=null;
+	/** Output file path for compressed accession mapping data */
 	private String out=null;
+	/** Output file path for GI number data if separately processed */
 	private String giOut=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for input file processing */
 	private final FileFormat ffin;
+	/** File format specification for output file writing */
 	private final FileFormat ffout;
+	/** File format specification for GI output file writing */
 	private final FileFormat ffoutGi;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
+	/** Whether to preserve GI numbers in the compressed output */
 	public static boolean KEEP_GI_NUMBERS=true;
+	/** Indicates whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

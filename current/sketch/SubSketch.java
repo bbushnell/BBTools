@@ -176,6 +176,12 @@ public class SubSketch extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that loads sketches, processes them, and writes output.
+	 * Handles both single output file and multi-file output modes with blacklist
+	 * filtering and sketch resizing.
+	 * @param t Timer for tracking execution time
+	 */
 	private void process(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -241,6 +247,14 @@ public class SubSketch extends SketchObject {
 		outstream.println("Total Time: \t"+ttotal);
 	}
 	
+	/**
+	 * Processes sketches for single output stream mode.
+	 * Applies blacklist filtering, resizes sketches to target size, and writes
+	 * qualifying sketches to the output stream.
+	 *
+	 * @param sketches List of input sketches to process
+	 * @param bsw Output stream writer for sketch data
+	 */
 	void processInner(ArrayList<Sketch> sketches, ByteStreamWriter bsw){
 		ByteBuilder bb=new ByteBuilder();
 		for(Sketch sk : sketches){
@@ -262,6 +276,14 @@ public class SubSketch extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Processes sketches for multi-file output mode.
+	 * Distributes sketches across multiple output files based on sketch ID modulo,
+	 * applies blacklist filtering and resizing.
+	 *
+	 * @param sketches List of input sketches to process
+	 * @param bswa Array of output stream writers for distributing sketches
+	 */
 	void processInner(ArrayList<Sketch> sketches, ByteStreamWriter bswa[]){
 		ByteBuilder bb=new ByteBuilder();
 		for(Sketch sk : sketches){
@@ -296,6 +318,14 @@ public class SubSketch extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds input files to the collection, handling comma-separated file lists.
+	 * Checks if file exists as single entity or processes as comma-separated list.
+	 *
+	 * @param a File path string, potentially comma-separated
+	 * @param list Collection to add file paths to
+	 * @return true if files were added, false if input was null
+	 */
 	private static boolean addFiles(String a, Collection<String> list){
 		int initial=list.size();
 		if(a==null){return false;}
@@ -315,18 +345,26 @@ public class SubSketch extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Set of input file paths for sketch processing */
 	private LinkedHashSet<String> in=new LinkedHashSet<String>();
 	
+	/** Output file path for processed sketches */
 	private String outSketch=null;
 	
+	/** SketchTool instance for loading and processing sketches */
 	private final SketchTool tool;
 	
+	/** List of loaded input sketches for processing */
 	private ArrayList<Sketch> inSketches;
 
+	/** Count of total keys written to output */
 	private long keysOut=0;
+	/** Count of total sketches written to output */
 	private long sketchesOut=0;
+	/** Count of keys removed by blacklist filtering */
 	private long blackKeys=0;
 	
+	/** Number of output files for multi-file mode (default 31) */
 	private int files=31;
 	
 	/*--------------------------------------------------------------*/

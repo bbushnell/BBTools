@@ -1,7 +1,20 @@
 package align2;
 
+/**
+ * Binary min-heap implementation for long values using 1-based array indexing.
+ * Optimized for packed storage and efficient priority queue operations.
+ * Used in alignment algorithms for maintaining ordered sets of alignment scores.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public final class PackedHeap {
 	
+	/**
+	 * Constructs a PackedHeap with specified maximum capacity.
+	 * Creates an array with even length to optimize memory alignment.
+	 * @param maxSize Maximum number of elements the heap can hold
+	 */
 	public PackedHeap(int maxSize){
 		
 		int len=maxSize+1;
@@ -12,6 +25,12 @@ public final class PackedHeap {
 //		queue=new PriorityQueue<T>(maxSize);
 	}
 	
+	/**
+	 * Adds a long value to the heap, maintaining min-heap property.
+	 * Uses percolate-down to restore heap order after insertion.
+	 * @param t The long value to add
+	 * @return true (always succeeds if capacity permits)
+	 */
 	public boolean add(long t){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -26,6 +45,8 @@ public final class PackedHeap {
 		return true;
 	}
 	
+	/** Returns the minimum element without removing it from the heap.
+	 * @return The minimum long value, or -1L if heap is empty */
 	public long peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -39,6 +60,11 @@ public final class PackedHeap {
 		return array[1];
 	}
 	
+	/**
+	 * Removes and returns the minimum element from the heap.
+	 * Replaces root with last element and percolates up to restore heap property.
+	 * @return The minimum long value, or -1L if heap is empty
+	 */
 	public long poll(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -55,6 +81,11 @@ public final class PackedHeap {
 		return t;
 	}
 	
+	/**
+	 * Percolates an element down the heap from given location to maintain min-heap property.
+	 * Compares with parent nodes and swaps upward until proper position is found.
+	 * @param loc Starting position for percolation (1-based index)
+	 */
 	private void percDown(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0);
@@ -75,6 +106,11 @@ public final class PackedHeap {
 		array[loc]=a;
 	}
 	
+	/**
+	 * Recursive percolation up the heap to maintain min-heap property.
+	 * Compares element with children and swaps with smaller child if necessary.
+	 * @param loc Starting position for percolation (1-based index)
+	 */
 	private void percUp(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -107,6 +143,11 @@ public final class PackedHeap {
 		}
 	}
 	
+	/**
+	 * Iterative version of percolation up the heap.
+	 * More efficient than recursive version for deep heap structures.
+	 * @param loc Starting position for percolation (1-based index)
+	 */
 	private void percUpIter(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -150,26 +191,40 @@ public final class PackedHeap {
 		array[loc]=a;
 	}
 	
+	/** Returns true if the heap contains no elements */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
+	/** Removes all elements from the heap by resetting size to zero */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=-1L;}
 		size=0;
 	}
 	
+	/** Returns the number of elements currently in the heap */
 	public int size(){
 		return size;
 	}
 	
+	/**
+	 * Calculates the tier (floor of log2) of an integer value.
+	 * Uses bit manipulation to find the position of the highest set bit.
+	 * @param x The integer value
+	 * @return The tier value (31 - number of leading zeros)
+	 */
 	public static int tier(int x){
 		int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
 	
+	/**
+	 * Debugging method that checks for duplicate values in the heap array.
+	 * Performs O(n²) comparison of all array elements.
+	 * @return true if no duplicates found, false otherwise
+	 */
 	public boolean testForDuplicates(){
 		for(int i=0; i<array.length; i++){
 			for(int j=i+1; j<array.length; j++){
@@ -179,8 +234,11 @@ public final class PackedHeap {
 		return true;
 	}
 	
+	/** Internal array storing heap elements with 1-based indexing */
 	final long[] array;
+	/** Maximum number of elements the heap can contain */
 	private final int CAPACITY;
+	/** Current number of elements in the heap */
 	private int size=0;
 	
 }

@@ -414,6 +414,11 @@ public final class IceCreamFinder {
 		}
 	}
 	
+	/**
+	 * Formats processing results as human-readable text output.
+	 * @param t Timer containing processing duration
+	 * @return ByteBuilder with formatted text results
+	 */
 	private ByteBuilder toText(Timer t){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -473,6 +478,11 @@ public final class IceCreamFinder {
 		return bb;
 	}
 	
+	/**
+	 * Formats processing results as JSON output.
+	 * @param t Timer containing processing duration
+	 * @return JsonObject with structured results
+	 */
 	private JsonObject toJson(Timer t){
 		JsonObject jo=new JsonObject();
 		long readsFiltered=readsProcessed-readsOut;
@@ -548,6 +558,11 @@ public final class IceCreamFinder {
 		return jo;
 	}
 	
+	/**
+	 * Writes alignment score ratio histogram to file.
+	 * @param ff Output file format, or null to skip
+	 * @param hist Histogram array to write
+	 */
 	private static void writeScoreRatioHistogram(FileFormat ff, long[] hist){
 		if(ff==null){return;}
 		final ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -567,6 +582,11 @@ public final class IceCreamFinder {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Creates concurrent read output stream from file format.
+	 * @param ff File format specification, or null
+	 * @return Configured output stream, or null if ff is null
+	 */
 	private ConcurrentReadOutputStream makeCros(FileFormat ff){
 		if(ff==null){return null;}
 
@@ -605,6 +625,8 @@ public final class IceCreamFinder {
 		ZMWs=zstream.ZMWs;
 	}
 	
+	/** Waits for all worker threads to complete and accumulates their statistics.
+	 * @param alpt List of ProcessThread objects to wait for */
 	private void waitForThreads(ArrayList<ProcessThread> alpt){
 		
 		//Wait for completion of all threads
@@ -968,6 +990,8 @@ public final class IceCreamFinder {
 		
 		//TODO: Now that I think about it.  The order of the reads is important.
 		//Since they go forward-rev-forward-rev it's imprudent to discard inner reads.
+		/** Removes reads shorter than minimum length threshold.
+		 * @param reads ZMW to filter */
 		private void removeShortTrash(ZMW reads) {
 			int removed=0;
 			for(int i=0; i<reads.size(); i++){
@@ -980,6 +1004,12 @@ public final class IceCreamFinder {
 			if(removed>0){Tools.condenseStrict(reads);}
 		}
 		
+		/**
+		 * Trims undefined bases from read ends.
+		 * @param r Read to trim
+		 * @param lookahead Number of defined bases to look for
+		 * @return Number of bases trimmed
+		 */
 		int trimRead(Read r, int lookahead){
 			final byte[] bases=r.bases;
 			
@@ -1002,6 +1032,11 @@ public final class IceCreamFinder {
 			return trimmed;
 		}
 		
+		/**
+		 * Trims poly-A/poly-T tails from read ends.
+		 * @param r Read to trim
+		 * @return Number of bases trimmed
+		 */
 		int trimPolyA(Read r){
 			final byte[] bases=r.bases;
 
@@ -1052,6 +1087,11 @@ public final class IceCreamFinder {
 			return len-lastUndef-1;
 		}
 		
+		/**
+		 * Aligns adapter sequence to left tip of read and masks matches.
+		 * @param r Read to check
+		 * @return Number of adapter bases found
+		 */
 		final int alignLeftTipAdapter(Read r){
 			assert(adapter.length<adapterTipLen); //Time to increase adapterTipLen
 			if(r.length()<adapterTipLen){return 0;}
@@ -1068,6 +1108,11 @@ public final class IceCreamFinder {
 			return stop-start+1;
 		}
 		
+		/**
+		 * Aligns adapter sequence to right tip of read and masks matches.
+		 * @param r Read to check
+		 * @return Number of adapter bases found
+		 */
 		final int alignRightTipAdapter(Read r){
 			final byte[] bases=r.bases;
 			assert(adapter.length<adapterTipLen); //Time to increase adapterTipLen
@@ -1085,6 +1130,11 @@ public final class IceCreamFinder {
 			return stop-start+1;
 		}
 		
+		/**
+		 * Determines if read needs adapter alignment testing.
+		 * @param r Read to evaluate
+		 * @return True if read should be tested for adapters
+		 */
 		boolean needsAdapterTest(Read r){
 			if(r.tested() || r.hasAdapter()){return false;}
 			if(adapterRatio<=0 || r.discarded()){return true;}
@@ -1092,6 +1142,11 @@ public final class IceCreamFinder {
 			return aa!=null;
 		}
 		
+		/**
+		 * Routes reads to appropriate output streams based on classification.
+		 * @param reads ZMW containing classified reads
+		 * @param junctions Junction sequences from inverted repeats
+		 */
 		private void outputReads(ZMW reads, ArrayList<Read> junctions){
 			final int size=reads.size();
 			final ArrayList<Read> good=(rosg==null ? null : new ArrayList<Read>(size));
@@ -1633,7 +1688,9 @@ public final class IceCreamFinder {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Target query length for alignment */
 	private int targetQlen=352;
+	/** Minimum query length for alignment */
 	private int minQlen=100;
 	
 	/** Make a query at most this fraction of read length */
@@ -1650,8 +1707,11 @@ public final class IceCreamFinder {
 	/** Fraction of maximum alignment score to consider as matching for realignment */ 
 	private float minRatio2=0.64f;
 	
+	/** Adapter alignment ratio threshold */
 	private float adapterRatio=0.18f; //.18 for fa, or 0.57/0.6 for ica
+	/** Secondary adapter alignment ratio threshold */
 	private float adapterRatio2=0.325f; //0.31f normal, 0.325 timeless
+	/** Ratio for suspect adapter alignments */
 	private float suspectRatio=0.85f;
 	private boolean useLocality=true;
 	private boolean useAltMsa=true;
@@ -1788,9 +1848,12 @@ public final class IceCreamFinder {
 	protected final int suspectDistance=100;
 	protected int npad=0;  //This is for catching adapters on the tips, which are not very relevant to ice cream.  Set to 35 for tip apdapters.
 	
+	/** Default PacBio adapter sequence */
 	private byte[] adapter="ATCTCTCTCAACAACAACAACGGAGGAGGAGGAAAAGAGAGAGAT".getBytes(); //This one seems to be correct
 //	private byte[] adapter="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT".getBytes();
+	/** Enable adapter alignment */
 	private boolean alignAdapter=true;
+	/** Enable inverted repeat detection */
 	private boolean alignRC=true;
 	private boolean flagLongReads=true;
 	private boolean trimReads=true;
@@ -1812,6 +1875,7 @@ public final class IceCreamFinder {
 	 * the minimum of the two will be used */
 	float entropyFraction=0.5f;
 	
+	/** Maximum fraction of monomer bases allowed */
 	float maxMonomerFraction=0.74f; //Suggested...  0.74
 	
 	/*--------------------------------------------------------------*/

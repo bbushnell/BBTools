@@ -570,16 +570,25 @@ public class RefRenamer {
 
 	/*--------------------------------------------------------------*/
 
+	/** Maps old reference names to new reference names */
 	private final HashMap<String,String> refMap=new HashMap<String,String>();
+	/** Set of unknown reference names encountered during processing */
 	private final HashSet<String> unknownRefs=new HashSet<String>();
 
+	/** Total number of lines processed from input file */
 	private long linesProcessed=0;
+	/** Total number of bytes processed from input file */
 	private long bytesProcessed=0;
+	/** Number of header lines processed (SAM @SQ, FASTA >, VCF ##contig) */
 	private long headersProcessed=0;
+	/** Total number of unknown reference encounters (including duplicates) */
 	private long unknownsProcessed=0;
+	/** Number of header lines that had reference names successfully converted */
 	private long headersConverted=0;
+	/** Number of data records that had reference names successfully converted */
 	private long recordsConverted=0;
 
+	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 
 	/*--------------------------------------------------------------*/

@@ -6,8 +6,23 @@ import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 
+/**
+ * Advanced string processing utility for finding the longest palindromic substring
+ * with configurable mismatch tolerance and optional reverse complement support.
+ * Supports processing sequences from files or command-line arguments with
+ * biological sequence compatibility through reverse complement matching.
+ *
+ * @author Brian Bushnell
+ */
 public class Palindrome {
 	
+	/**
+	 * Main entry point that processes command-line arguments and finds longest
+	 * palindrome across all input sequences. Supports file input, direct sequence
+	 * input, and configuration parameters for mismatch tolerance and loop size.
+	 * @param args Command-line arguments: sequences, filenames, "rcomp"/"rc" flag,
+	 * numeric mismatch count, or loop=N parameter
+	 */
 	public static void main(String[] args){
 		
 		ArrayList<String> sequences=new ArrayList<String>();
@@ -41,6 +56,12 @@ public class Palindrome {
 		System.out.println("Longest palindrome is length "+longest.length()+":\n'"+longest+"'");
 	}
 	
+	/**
+	 * Reads sequences from a FASTA-formatted file, parsing sequence headers
+	 * and concatenating sequence lines into complete sequences.
+	 * @param fname Path to input file containing sequences
+	 * @return List of sequences extracted from the file, empty list on error
+	 */
 	public static ArrayList<String> getSequence(String fname){
 		ArrayList<String> list=new ArrayList<String>();
 		try {
@@ -67,6 +88,13 @@ public class Palindrome {
 		return list;
 	}
 	
+	/**
+	 * Finds the longest palindromic substring using both even and odd-length
+	 * center expansion at each position. Compares lengths from both methods
+	 * and returns the longer palindrome found.
+	 * @param s Input sequence to analyze for palindromes
+	 * @return Longest palindromic substring found in the sequence
+	 */
 	public static String longestPalindrome(String s){
 		int longestLength=0;
 		int longestStart=0;
@@ -89,6 +117,14 @@ public class Palindrome {
 		return p;
 	}
 	
+	/**
+	 * Finds the longest palindrome allowing for internal loops or bulges up to
+	 * maxloop size. Tests both even and odd-length palindromes with varying
+	 * loop sizes from 0 to maxloop.
+	 * @param s Input sequence to analyze
+	 * @param maxloop Maximum internal loop size allowed in palindromes
+	 * @return Longest palindrome found with allowed loop tolerance
+	 */
 	public static String longestPalindrome(String s, int maxloop){
 		int longestLength=0;
 		int longestStart=0;
@@ -118,9 +154,25 @@ public class Palindrome {
 		return p;
 	}
 	
+	/**
+	 * Calculates length of odd-centered palindrome starting from middle position.
+	 * Delegates to the two-parameter version with identical start and end points.
+	 * @param s Input sequence
+	 * @param middle Center position for palindrome expansion
+	 * @return Length of the longest odd-centered palindrome at this position
+	 */
 	public static int palindromeLengthOdd(String s, int middle){
 		return palindromeLengthOdd(s, middle, middle);
 	}
+	/**
+	 * Calculates maximum odd-centered palindrome length between positions a and b,
+	 * allowing up to maxMismatches mismatches. Expands outward while tracking
+	 * mismatches and stores final boundaries in static variables a_ and b_.
+	 * @param s Input sequence
+	 * @param a Left starting position
+	 * @param b Right starting position
+	 * @return Length of palindrome found, 0 if invalid or too short
+	 */
 	public static int palindromeLengthOdd(String s, int a, int b){
 		int length=b-a-1;
 		int mismatches=0;
@@ -141,9 +193,25 @@ public class Palindrome {
 //		return b-a+1;
 	}
 
+	/**
+	 * Calculates length of even-centered palindrome starting from middle position.
+	 * Delegates to the two-parameter version with adjacent start positions.
+	 * @param s Input sequence
+	 * @param middle Left center position for palindrome expansion
+	 * @return Length of the longest even-centered palindrome at this position
+	 */
 	public static int palindromeLengthEven(String s, int middle){
 		return palindromeLengthEven(s, middle, middle+1);
 	}
+	/**
+	 * Calculates maximum even-centered palindrome length between positions a and b,
+	 * allowing up to maxMismatches mismatches. Expands outward while tracking
+	 * mismatches and stores final boundaries in static variables a_ and b_.
+	 * @param s Input sequence
+	 * @param a Left starting position
+	 * @param b Right starting position
+	 * @return Length of palindrome found
+	 */
 	public static int palindromeLengthEven(String s, int a, int b){
 		int length=b-a-1;
 		int mismatches=0;
@@ -163,10 +231,24 @@ public class Palindrome {
 //		return b-a+1;
 	}
 	
+	/**
+	 * Determines if two characters match according to current matching rules.
+	 * Uses direct equality when rcomp=false, or reverse complement matching
+	 * when rcomp=true for biological sequence analysis.
+	 * @param a First character to compare
+	 * @param b Second character to compare
+	 * @return true if characters match under current rules
+	 */
 	static boolean matches(char a, char b) {
 		return a==(rcomp ? baseToComp[b] : b);
 	}
 	
+	/**
+	 * Creates lookup table mapping nucleotide bases to their complements.
+	 * Maps A/a to T, T/t/U/u to A, C/c to G, G/g to C, with all other
+	 * characters defaulting to N for unknown bases.
+	 * @return Character array mapping bases to their complements
+	 */
 	static char[] makeBaseToComp() {
 		char[] array=new char[128];
 		Arrays.fill(array, 'N');
@@ -177,9 +259,13 @@ public class Palindrome {
 		return array;
 	}
 	
+	/** Whether to use reverse complement matching for biological sequences */
 	static boolean rcomp=false;
+	/** Maximum number of mismatches allowed in palindrome detection */
 	static int maxMismatches=0;
+	/** Maximum internal loop size allowed in palindromic structures */
 	static int maxLoop=0;
+	/** Lookup table mapping nucleotide bases to their complements */
 	static final char[] baseToComp=makeBaseToComp();
 	
 	static int a_, b_;

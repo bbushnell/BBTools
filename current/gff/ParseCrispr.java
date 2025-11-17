@@ -220,6 +220,16 @@ public class ParseCrispr {
 	//inference=COORDINATES: alignment:pilercr:v1.02;rpt_family=CRISPR;
 	//rpt_type=direct;rpt_unit_range=1135453..1135473;rpt_unit_seq=gcccctacgagggatcgcaac
 	
+	/**
+	 * Core processing logic that reads GFF lines and extracts CRISPR sequences.
+	 * Validates entries for CRISPR direct repeat annotations, extracts sequence
+	 * data from rpt_unit_seq attributes, and writes FASTA-formatted output
+	 * with sequential numbering.
+	 *
+	 * @param bf Input file reader
+	 * @param bsw Output writer for valid CRISPR sequences
+	 * @param bswInvalid Optional writer for invalid entries
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -263,6 +273,11 @@ public class ParseCrispr {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified file format.
+	 * @param ff FileFormat object describing output format, may be null
+	 * @return Initialized and started ByteStreamWriter, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -285,11 +300,16 @@ public class ParseCrispr {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of total lines processed from input file */
 	private long linesProcessed=0;
+	/** Count of valid output lines written to result file */
 	private long linesOut=0;
+	/** Total bytes read from input during processing */
 	private long bytesProcessed=0;
+	/** Total bytes written to output during processing */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process, defaults to Long.MAX_VALUE */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

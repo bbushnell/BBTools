@@ -168,6 +168,8 @@ public final class LongList3{
 		set(loc, set2, unique);
 	}
 	
+	/** Checks if the list is ready for use based on shrinking status and mode.
+	 * @return true if ready, false otherwise */
 	private boolean readyToUse(){
 		return shrunk || mode==ASCENDING || mode==UNIQUE;
 	}
@@ -209,7 +211,9 @@ public final class LongList3{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the minimum of two integers. */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the maximum of two integers. */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/
@@ -255,6 +259,7 @@ public final class LongList3{
 	
 	/** Should be set prior to creation, e.g. by Seal or Sketch */
 	public static int defaultMode=ASCENDING;
+	/** Default initial size for new instances. */
 	public static int defaultInitialSize=256;
 	
 }

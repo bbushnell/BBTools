@@ -267,6 +267,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		}
 	}
 	
+	/**
+	 * Creates and starts a concurrent read input stream for the given file format.
+	 * Validates that input is not paired since ribosomal sequences are single-ended.
+	 * @param ff File format specification for the input file
+	 * @return Started concurrent read input stream
+	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
 		cris.start(); //Start the stream
@@ -276,6 +282,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts a concurrent read output stream if output is configured.
+	 * Determines appropriate buffer size based on ordering requirements.
+	 * @param pairedInput Whether input is paired (unused for this application)
+	 * @return Started concurrent read output stream, or null if no output configured
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -384,6 +396,11 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			}
 		}
 		
+		/**
+		 * Processes a list of reads by validating each read and calling processRead().
+		 * Tracks per-thread statistics for reads and bases processed.
+		 * @param ln List container holding reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -429,12 +446,19 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			return false;
 		}
 		
+		/**
+		 * Aligns a read against available consensus sequences (16S and/or 18S).
+		 * Returns the best alignment identity score from all attempted alignments.
+		 * @param r Read to align against consensus sequences
+		 * @return Maximum alignment identity score (0.0 to 1.0)
+		 */
 		float align(Read r){
 			float a=(process16S ? ssa.align(r.bases, consensus16S) : 0);
 			float b=(process18S ? ssa.align(r.bases, consensus18S) : 0);
 			return Tools.max(a, b);
 		}
 		
+		/** Per-thread sequence aligner for computing alignment identity scores */
 		IDAligner ssa=aligner.Factory.makeIDAligner();
 
 		/** Number of reads processed by this thread */
@@ -451,7 +475,18 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		final int tid;
 	}
 	
+	/**
+	 * Container for a ribosomal sequence with its metadata and alignment score.
+	 * Implements comparison based on alignment quality and sequence length.
+	 * Used to track the best representative sequence per taxonomic ID.
+	 */
 	private static class Ribo implements Comparable<Ribo>{
+		/**
+		 * Creates a Ribo container with sequence data and alignment metrics.
+		 * @param r_ The ribosomal sequence read
+		 * @param tid_ Taxonomic ID for this sequence
+		 * @param identity_ Alignment identity score (0.0 to 1.0)
+		 */
 		Ribo(Read r_, int tid_, float identity_){
 			r=r_;
 			tid=tid_;
@@ -468,9 +503,13 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			return 0;
 		}
 		
+		/** The ribosomal sequence read */
 		Read r;
+		/** Taxonomic ID for this sequence */
 		int tid;
+		/** Alignment identity score (0.0 to 1.0) */
 		float identity;
+		/** Quality metric combining sequence length and alignment identity */
 		float product;
 	}
 	
@@ -492,10 +531,14 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Map of taxonomic ID to best representative sequence */
 	HashMap<Integer, Ribo> bestMap=new HashMap<Integer, Ribo>(10000000);
+	/** Map of taxonomic ID to all sequences (currently unused) */
 	HashMap<Integer, ArrayList<Ribo>> listMap=new HashMap<Integer, ArrayList<Ribo>>(10000000);
 	
+	/** Global 16S ribosomal RNA consensus sequence for alignment */
 	static byte[] consensus16S;
+	/** Global 18S ribosomal RNA consensus sequence for alignment */
 	byte[] consensus18S;
 	
 	/*--------------------------------------------------------------*/
@@ -513,7 +556,9 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Whether to process 16S ribosomal sequences */
 	private boolean process16S=true;
+	/** Whether to process 18S ribosomal sequences */
 	private boolean process18S=false;
 	
 	/*--------------------------------------------------------------*/
@@ -522,6 +567,7 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 
 	/** Primary input file */
 	private final ArrayList<FileFormat> ffin;
+	/** Alternate input file format */
 	private final FileFormat ffalt;
 	
 	/** Primary output file */
@@ -529,6 +575,7 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

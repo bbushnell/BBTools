@@ -21,8 +21,22 @@ import structures.ListNum;
 import structures.LongList;
 import tracker.ReadStats;
 
+/**
+ * Wrapper class for LogLog cardinality estimation testing and benchmarking.
+ * Provides functionality to test LogLog cardinality tracking algorithms with both
+ * synthetic and real sequence data, supporting multiple trials and statistical analysis.
+ *
+ * @author Brian Bushnell
+ * @date 2014
+ */
 class LogLogWrapper {
 	
+	/**
+	 * Main entry point for LogLog cardinality estimation testing.
+	 * Runs multiple trials of cardinality estimation and reports statistical summary
+	 * including harmonic mean, median, standard deviation, and percentiles.
+	 * @param args Command-line arguments for configuration
+	 */
 	public static final void main(String[] args){
 		LogLogWrapper llw=new LogLogWrapper(args);
 		
@@ -89,6 +103,12 @@ class LogLogWrapper {
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 	}
 	
+	/**
+	 * Constructs LogLogWrapper and parses command-line arguments.
+	 * Configures buckets, k-mer length, seeds, minimum probability, file inputs/outputs,
+	 * and other parameters for cardinality estimation testing.
+	 * @param args Command-line arguments containing configuration parameters
+	 */
 	public LogLogWrapper(String[] args){
 
 		Shared.capBufferLen(200);
@@ -179,6 +199,12 @@ class LogLogWrapper {
 	}
 	
 	
+	/**
+	 * Executes a single cardinality estimation trial.
+	 * Creates CardinalityTracker instances, processes input sequences or generates
+	 * synthetic data, and returns the estimated cardinality value.
+	 * @return Estimated cardinality from the LogLog algorithm
+	 */
 	long process(){
 		Timer t=new Timer();
 		readsProcessed=basesProcessed=kmersProcessed=0;
@@ -252,6 +278,16 @@ class LogLogWrapper {
 		return cardinality;
 	}
 	
+	/**
+	 * Generates a synthetic DNA read of specified length with random bases.
+	 * Reuses the provided Read object if possible to minimize memory allocation.
+	 * Uses modular arithmetic with a prime number to ensure base distribution.
+	 *
+	 * @param len Length of the synthetic read to generate
+	 * @param randy Random number generator for base selection
+	 * @param r Existing Read object to reuse, or null to create new
+	 * @return Read object containing synthetic DNA sequence
+	 */
 	private static Read makeRead(int len, Random randy, Read r){
 		if(r==null || r.bases==null || r.bases.length!=len){
 			r=new Read(null, null, 0);
@@ -284,8 +320,19 @@ class LogLogWrapper {
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for parallel cardinality estimation processing.
+	 * Handles both real sequence data from input streams and synthetic data generation.
+	 * Maintains per-thread statistics for reads, bases, and k-mers processed.
+	 */
 	private class LogLogThread extends Thread{
 		
+		/**
+		 * Constructs a LogLog processing thread.
+		 * @param log_ CardinalityTracker instance for this thread
+		 * @param cris_ Input stream for reading sequence data, or null for synthetic mode
+		 * @param tid_ Thread identifier for this worker
+		 */
 		LogLogThread(CardinalityTracker log_, ConcurrentReadInputStream cris_, int tid_){
 			log=log_;
 			cris=cris_;
@@ -298,6 +345,11 @@ class LogLogWrapper {
 			else{runSynth();}
 		}
 		
+		/**
+		 * Processes real sequence data from the concurrent input stream.
+		 * Reads batches of sequences, hashes them with the Cardinality tracker,
+		 * and accumulates processing statistics.
+		 */
 		public void runCris(){
 			final int kt=k;
 			ListNum<Read> ln=cris.nextList();
@@ -320,6 +372,11 @@ class LogLogWrapper {
 			cris.returnList(ln);
 		}
 		
+		/**
+		 * Generates and processes synthetic sequence data.
+		 * Creates random DNA reads of fixed length (150bp) and processes them
+		 * for cardinality estimation testing purposes.
+		 */
 		public void runSynth(){
 			final int kt=k;
 			assert(maxReads>0 && maxReads<Long.MAX_VALUE);
@@ -352,11 +409,17 @@ class LogLogWrapper {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Number of buckets for the LogLog cardinality tracker */
 	private int buckets=2048;
+	/** K-mer length for hashing sequences */
 	private int k=31;
+	/** Random seed for hash function initialization */
 	private long seed=-1;
+	/** Secondary random seed for synthetic data generation */
 	private long seed2=-1;
+	/** Minimum probability threshold for k-mer inclusion */
 	private float minProb=0;
+	/** Cumulative sum of bucket counts across all trials */
 	private long countSum=0;
 	
 	private String[] in1=null;
@@ -375,7 +438,9 @@ class LogLogWrapper {
 	boolean append=false;
 	boolean errorState=false;
 
+	/** Number of cardinality estimation trials to run */
 	private int trials=1;
+	/** Whether to use synthetic data generation instead of real input files */
 	private boolean synth=false;
 	
 	/*--------------------------------------------------------------*/
@@ -385,7 +450,9 @@ class LogLogWrapper {
 	private final FileFormat[] ffin1;
 	private final FileFormat[] ffin2;
 	
+	/** Number of worker threads for parallel processing */
 	final int threads;
+	/** Prime number used for modular arithmetic in synthetic data generation */
 	private static final int prime=32452843; //A prime number
 	
 	/*--------------------------------------------------------------*/

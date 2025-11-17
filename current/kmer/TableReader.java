@@ -78,10 +78,24 @@ public class TableReader {
 		Shared.closeStream(outstream);
 	}
 	
+	/** Constructs a TableReader with default parameters for the specified k-mer length.
+	 * @param k_ K-mer length for sequence processing */
 	public TableReader(int k_){
 		this(k_, 0, 0, 0, 0, true, false);
 	}
 	
+	/**
+	 * Constructs a TableReader with specified processing parameters.
+	 * Sets up k-mer processing configuration including length, speed, and matching parameters.
+	 *
+	 * @param k_ K-mer length for primary matching
+	 * @param mink_ Minimum k-mer length for short k-mer matching
+	 * @param speed_ Speed setting (0-15) for k-mer subsampling
+	 * @param qskip_ Number of k-mers to skip during query processing
+	 * @param qhdist_ Maximum Hamming distance for fuzzy k-mer matching
+	 * @param rcomp_ Whether to consider reverse complement k-mers
+	 * @param maskMiddle_ Whether to mask middle bases in k-mers for fuzzy matching
+	 */
 	public TableReader(int k_, int mink_, int speed_, int qskip_, int qhdist_, boolean rcomp_, boolean maskMiddle_){
 		k=k_;
 		k2=k-1;
@@ -570,9 +584,12 @@ public class TableReader {
 	/*----------------      Per-Thread Fields       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array for tracking k-mer hit counts per sequence during processing */
 	public int[] countArray;
 	
+	/** List of unique sequence IDs encountered during k-mer matching */
 	private final IntList idList=new IntList();
+	/** List of k-mer hit counts corresponding to sequence IDs in idList */
 	private final IntList countList=new IntList();
 	
 	/*--------------------------------------------------------------*/

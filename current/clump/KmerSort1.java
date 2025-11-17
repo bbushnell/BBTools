@@ -488,10 +488,14 @@ public class KmerSort1 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input file formats for first reads in each processing group */
 	private final FileFormat ffin1[];
+	/** Input file formats for second reads in each processing group (paired-end) */
 	private final FileFormat ffin2[];
 
+	/** Output file format for first reads */
 	private final FileFormat ffout1;
+	/** Output file format for second reads (paired-end) */
 	private final FileFormat ffout2;
 	
 }

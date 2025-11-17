@@ -20,40 +20,64 @@ import jdk.incubator.vector.VectorSpecies;
 public class SIMDAlign {
 
 	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
+	/** Vector species for 256-bit Float operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
+	/** Vector width (lane count) for Float operations */
 	private static final int FWIDTH=FSPECIES.length();
 	//		private static final int boundMask=~(FWIDTH-1);
 
+	/** Vector species for 256-bit Byte operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
+	/** Vector width (lane count) for Byte operations */
 	private static final int BWIDTH=BSPECIES.length();
 
+	/** Vector species for 256-bit Integer operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Vector width (lane count) for Integer operations */
 	private static final int IWIDTH=ISPECIES.length();
 
+	/** Vector species for 256-bit Short operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Vector width (lane count) for Short operations */
 	private static final int SWIDTH=SSPECIES.length();
 
+	/** Vector species for 256-bit Double operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Vector width (lane count) for Double operations */
 	private static final int DWIDTH=DSPECIES.length();
 
+	/** Vector species for 256-bit Long operations */
 	@SuppressWarnings("restriction")
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Vector width (lane count) for Long operations */
 	private static final int LWIDTH=LSPECIES.length();
 
+	/** Score penalty for insertions encoded in upper bits */
+	/** Score penalty for substitutions encoded in upper bits */
+	/** Score value for ambiguous nucleotide positions */
+	/** Score value for sequence matches encoded in upper bits */
 	private static final long MATCH=1L<<42, N_SCORE=0, SUB=(-1L)<<42, INS=(-1L)<<42;
+	/** Score penalty for deletions with gap extension tracking in lower bits */
 	private static final long DEL=((-1L)<<42)|((1L)<<21);
+	/** Bit mask for extracting score portion from encoded alignment values */
 	private static final long SCORE_MASK=((-1L)<<42);
+	/** Debug flag for verbose alignment tracing */
 	private static final boolean debug=false;
 	
+	/** Vectorized match score constant */
 	private static final LongVector vMATCH=LongVector.broadcast(LSPECIES, MATCH);
+	/** Vectorized N score constant */
 	private static final LongVector vN_SCORE=LongVector.broadcast(LSPECIES, N_SCORE);
+	/** Vectorized substitution penalty constant */
 	private static final LongVector vSUB=LongVector.broadcast(LSPECIES, SUB);
+	/** Vectorized insertion penalty constant */
 	private static final LongVector vINS=vSUB;//LongVector.broadcast(LSPECIES, INS);
+	/** Vectorized constant for N-base detection (value 15) */
 	private static final LongVector v15=LongVector.broadcast(LSPECIES, 15);
 
 	/** Designed to eliminate scalar loop by reprocessing some final elements */
@@ -919,6 +943,22 @@ public class SIMDAlign {
 		return maxPos;
 	}
 
+	/**
+	 * Integer-based vectorized alignment within a band.
+	 * Processes alignment using 32-bit integers with 4-bit base encoding,
+	 * handling match/mismatch detection and N-base identification.
+	 *
+	 * @param q Query base encoded as integer
+	 * @param ref Reference sequence integer array
+	 * @param bandStart Starting position of alignment band
+	 * @param bandEnd Ending position of alignment band
+	 * @param prev Previous row integer scores
+	 * @param curr Current row integer scores to populate
+	 * @param MATCH Score for matches
+	 * @param N_SCORE Score for N positions
+	 * @param SUB Score for substitutions
+	 * @param INS Score for insertions
+	 */
 	public static void alignBandVectorInt(int q, int[] ref, int bandStart, int bandEnd,
 			int[] prev, int[] curr,
 			int MATCH, int N_SCORE, int SUB, int INS){
@@ -1087,6 +1127,12 @@ public class SIMDAlign {
 		//	    System.err.println();
 	}
 
+	/**
+	 * Debug utility to print alignment scores and deletion counts.
+	 * Extracts and displays score and deletion information from encoded values.
+	 * @param curr Current alignment scores array
+	 * @param name Label for the output
+	 */
 	private static final void print(long[] curr, String name) {
 		System.err.print(name+" Score:\t");
 		for(int i=0; i<curr.length; i++) {System.err.print((curr[i]>>42)+" ");}
@@ -1095,6 +1141,29 @@ public class SIMDAlign {
 		System.err.println();
 	}
 
+	/**
+	 * Vectorized processing of inner diagonal alignment cells.
+	 * Currently implements scalar version that exactly matches original algorithm
+	 * for diagonal-based dynamic programming with configurable scoring parameters.
+	 *
+	 * @param innerMinI Minimum inner index
+	 * @param innerMaxI Maximum inner index
+	 * @param revQuery Reversed query sequence
+	 * @param ref Reference sequence
+	 * @param jm1Start Starting j-1 position
+	 * @param diag_km2 Diagonal k-2 scores
+	 * @param diag_km1 Diagonal k-1 scores
+	 * @param diag_k Diagonal k scores to populate
+	 * @param km2DiagOffset Offset for k-2 diagonal
+	 * @param km1DiagOffset Offset for k-1 diagonal
+	 * @param qLen Query length
+	 * @param MATCH Score for matches
+	 * @param N_SCORE Score for N positions
+	 * @param SUB Score for substitutions
+	 * @param INS Score for insertions
+	 * @param DEL_INCREMENT Deletion penalty increment
+	 * @param SCORE_MASK Mask for score extraction
+	 */
 	public static void processInnerDiagonalVectorized(
 			int innerMinI, int innerMaxI,
 			long[] revQuery, long[] ref, int jm1Start,
@@ -1146,6 +1215,22 @@ public class SIMDAlign {
 		}
 	}
 
+	/**
+	 * SIMD processing of cross-cut diagonal alignment with default scoring.
+	 * Vectorized implementation of diagonal-wise dynamic programming that processes
+	 * multiple cells simultaneously using SIMD operations with fallback to scalar
+	 * processing for ranges smaller than vector width.
+	 *
+	 * @param revQuery Reversed query sequence
+	 * @param ref Reference sequence
+	 * @param k Current diagonal index
+	 * @param innerMinCol Minimum column for processing
+	 * @param innerMaxCol Maximum column for processing
+	 * @param qLen Query sequence length
+	 * @param diag_km2 Diagonal k-2 scores
+	 * @param diag_km1 Diagonal k-1 scores
+	 * @param diag_k Diagonal k scores to populate
+	 */
 	@SuppressWarnings("restriction")
 	public static void processCrossCutDiagonalSIMD(
 			long[] revQuery, long[] ref, int k, 
@@ -1320,6 +1405,27 @@ public class SIMDAlign {
 		}
 	}
 	
+	/**
+	 * Legacy SIMD processing of cross-cut diagonal alignment with configurable scoring.
+	 * Previous version of diagonal-wise dynamic programming with explicit scoring parameters.
+	 * Maintained for compatibility and performance comparison purposes.
+	 *
+	 * @param revQuery Reversed query sequence
+	 * @param ref Reference sequence
+	 * @param k Current diagonal index
+	 * @param innerMinCol Minimum column for processing
+	 * @param innerMaxCol Maximum column for processing
+	 * @param qLen Query sequence length
+	 * @param diag_km2 Diagonal k-2 scores
+	 * @param diag_km1 Diagonal k-1 scores
+	 * @param diag_k Diagonal k scores to populate
+	 * @param MATCH Score for matches
+	 * @param SUB Score for substitutions
+	 * @param INS Score for insertions
+	 * @param DEL_INCREMENT Deletion penalty increment
+	 * @param N_SCORE Score for N positions
+	 * @param SCORE_MASK Mask for score extraction
+	 */
 	@SuppressWarnings("restriction")
 	public static void processCrossCutDiagonalSIMD_old(
 			long[] revQuery, long[] ref, int k, 

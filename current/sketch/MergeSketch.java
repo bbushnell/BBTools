@@ -189,6 +189,12 @@ public class MergeSketch extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that performs sketch merging.
+	 * Loads input sketches, creates a SketchHeap union of specified size,
+	 * applies metadata overrides, and writes the merged sketch to output.
+	 * @param t Timer for tracking execution time
+	 */
 	private void process(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -253,6 +259,14 @@ public class MergeSketch extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds file paths to a collection, parsing comma-separated values.
+	 * Handles both single files and comma-delimited file lists.
+	 *
+	 * @param a File path or comma-separated file list
+	 * @param list Collection to add file paths to
+	 * @return true if any files were added to the collection
+	 */
 	private static boolean addFiles(String a, Collection<String> list){
 		int initial=list.size();
 		if(a==null){return false;}
@@ -272,21 +286,32 @@ public class MergeSketch extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** List of input sketch file paths */
 	private ArrayList<String> in=new ArrayList<String>();
 	
+	/** Output file path for merged sketch */
 	private String outSketch=null;
 	
+	/** Sketch processing tool for loading and manipulating sketches */
 	private final SketchTool tool;
 	
+	/** Loaded input sketches to be merged */
 	private ArrayList<Sketch> inSketches;
 	
 	/*Override metadata */
+	/** Override taxonomic name for merged sketch metadata */
 	private String outTaxName=null;
+	/** Override filename for merged sketch metadata */
 	private String outFname=null;
+	/** Override primary name for merged sketch metadata */
 	private String outName0=null;
+	/** Override taxonomic ID for merged sketch metadata */
 	private int outTaxID=-1;
+	/** Override species ID for merged sketch metadata */
 	private long outSpid=-1;
+	/** Override IMG ID for merged sketch metadata */
 	private long outImgID=-1;
+	/** Additional metadata entries for merged sketch */
 	private ArrayList<String> outMeta=null;
 	
 	/*--------------------------------------------------------------*/

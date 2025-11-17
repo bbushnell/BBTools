@@ -20,6 +20,12 @@ import structures.ListNum;
  */
 public class KmerCount5 extends KmerCountAbstract {
 	
+	/**
+	 * Program entry point for standalone k-mer counting.
+	 * Parses command line arguments and executes counting with specified parameters.
+	 * Supports regular k-mer counting and split k-mer counting with gaps.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 
 		Timer t=new Timer();
@@ -68,6 +74,12 @@ public class KmerCount5 extends KmerCountAbstract {
 
 	}
 
+	/**
+	 * Prints comprehensive statistics about k-mer frequency distribution.
+	 * Outputs frequency histogram, unique k-mer counts, and coverage statistics
+	 * in formatted tables for analysis and quality assessment.
+	 * @param count The k-mer count array to analyze and report
+	 */
 	public static void printStatistics(KCountArray count){
 		long[] freq=count.transformToFrequency();
 
@@ -107,10 +119,34 @@ public class KmerCount5 extends KmerCountAbstract {
 		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
 	}
 
+	/**
+	 * Counts k-mers in paired-end sequence files with basic parameters.
+	 * Convenience method that calls the full count method with default settings.
+	 *
+	 * @param reads1 Path to first reads file
+	 * @param reads2 Path to second reads file (may be null for single-end)
+	 * @param k K-mer length for counting
+	 * @param cbits Number of bits per count cell
+	 * @param rcomp Whether to include reverse complement k-mers
+	 * @return KCountArray containing k-mer counts
+	 */
 	public static KCountArray count(String reads1, String reads2, int k, int cbits, boolean rcomp){
 		return count(reads1, reads2, k, cbits, rcomp, null);
 	}
 
+	/**
+	 * Counts k-mers in paired-end sequence files using existing count array.
+	 * Processes reads through concurrent input stream for efficient parallel processing.
+	 * Creates bit mask for k-mer encoding and handles both single-end and paired-end data.
+	 *
+	 * @param reads1 Path to first reads file
+	 * @param reads2 Path to second reads file (may be null for single-end)
+	 * @param k K-mer length for counting
+	 * @param cbits Number of bits per count cell
+	 * @param rcomp Whether to include reverse complement k-mers
+	 * @param count Existing count array to use (null to create new)
+	 * @return KCountArray containing k-mer counts
+	 */
 	public static KCountArray count(String reads1, String reads2, int k, int cbits, boolean rcomp, KCountArray count){
 		assert(k<32 && k>=1 && (count!=null || k<20));
 		final int kbits=2*k;
@@ -270,6 +306,21 @@ public class KmerCount5 extends KmerCountAbstract {
 	}
 
 
+	/**
+	 * Counts split k-mers with a gap between two k-mer segments.
+	 * Creates composite k-mers from two separate regions separated by a fixed gap.
+	 * Useful for specialized applications requiring gapped k-mer analysis.
+	 *
+	 * @param reads1 Path to first reads file
+	 * @param reads2 Path to second reads file (may be null for single-end)
+	 * @param k1 Length of first k-mer segment
+	 * @param k2 Length of second k-mer segment
+	 * @param gap Number of bases between k-mer segments
+	 * @param cbits Number of bits per count cell
+	 * @param rcomp Whether to include reverse complement k-mers
+	 * @param counts Existing count array to use (null to create new)
+	 * @return KCountArray containing split k-mer counts
+	 */
 	public static KCountArray countFastqSplit(String reads1, String reads2, int k1, int k2, int gap, int cbits, boolean rcomp, KCountArray counts){
 		int k=k1+k2;
 		assert(k<32 && k>=1 && (counts!=null || k<20));

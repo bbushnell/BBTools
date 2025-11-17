@@ -42,6 +42,11 @@ public class CalcUniqueness {
 	/*--------------------------------------------------------------*/
 
 	
+	/**
+	 * Program entry point.
+	 * Creates CalcUniqueness instance and processes input with timing.
+	 * @param args Command-line arguments for input files and parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CalcUniqueness x=new CalcUniqueness(args);
@@ -51,6 +56,14 @@ public class CalcUniqueness {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses arguments and initializes data structures.
+	 * Sets up hash tables, counters, and file formats for processing.
+	 * Validates parameters and configures k-mer tracking modes.
+	 *
+	 * @param args Command-line arguments containing options and file paths
+	 * @throws RuntimeException if invalid parameters or missing required inputs
+	 */
 	public CalcUniqueness(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -202,10 +215,17 @@ public class CalcUniqueness {
 	
 	private class Counter{
 		
+		/** Creates a counter with the specified bit mask for k-mer tracking.
+		 * @param mask_ Bit mask used to identify this counter's k-mer category */
 		Counter(int mask_){
 			mask=mask_;
 		}
 		
+		/**
+		 * Updates quality statistics for a read.
+		 * Calculates average quality and error-free probability.
+		 * @param r The read to analyze for quality metrics
+		 */
 		void incrementQuality(Read r){
 			qualCounts++;
 			double q=r.avgQualityByProbabilityDouble(true, r.length());
@@ -232,6 +252,8 @@ public class CalcUniqueness {
 			}
 		}
 		
+		/** Resets interval counters while preserving cumulative totals.
+		 * Saves current values as previous for spike detection. */
 		void reset(){
 			prevPercent=percent();
 			prevHits=hits;
@@ -243,14 +265,23 @@ public class CalcUniqueness {
 			qualCounts=0;
 		}
 		
+		/** Calculates average quality score across processed reads.
+		 * @return Average quality score, or 0 if no reads processed */
 		public double averageQuality() {
 			return qualCounts<1 ? 0 : quality/qualCounts;
 		}
 		
+		/** Calculates average probability of error-free reads.
+		 * @return Average error-free probability as percentage, or 0 if no reads */
 		public double averagePerfectProb() {
 			return qualCounts<1 ? 0 : 100*perfectProb/qualCounts;
 		}
 		
+		/**
+		 * Calculates uniqueness percentage for this counter.
+		 * Applies spike-fixing algorithm if enabled to smooth anomalous values.
+		 * @return Percentage of unique k-mers (misses / total)
+		 */
 		double percent(){
 			final long sum=hits()+misses(), prevSum=prevHits+prevMisses;
 			if(sum==0){return 0;}
@@ -260,17 +291,33 @@ public class CalcUniqueness {
 			return Tools.min(percent, prevPercent+0.2);
 		}
 		
+		/** Formats uniqueness percentage as string with 3 decimal places.
+		 * @return Formatted percentage string */
 		String percentS(){
 			return Tools.format("%.3f",percent());
 		}
 
+		/**
+		 * Returns hit count (k-mers seen before).
+		 * Uses cumulative or interval count based on mode.
+		 * @return Number of k-mer hits
+		 */
 		long hits(){return cumulative ? chits : hits;}
+		/**
+		 * Returns miss count (unique k-mers).
+		 * Uses cumulative or interval count based on mode.
+		 * @return Number of k-mer misses
+		 */
 		long misses(){return cumulative ? cmisses : misses;}
 		
+		/** Bit mask used to identify which counter categories have seen a k-mer */
 		final int mask;
 		
+		/** Cumulative probability of error-free reads */
 		double perfectProb;
+		/** Cumulative quality score across all processed reads */
 		double quality;
+		/** Number of reads used for quality calculations */
 		long qualCounts;
 		
 		/** Per-interval hash hits */
@@ -283,8 +330,11 @@ public class CalcUniqueness {
 		/** Cumulative hash misses */
 		long cmisses=0;
 		
+		/** Previous interval hit count for spike detection */
 		long prevHits=0;
+		/** Previous interval miss count for spike detection */
 		long prevMisses=0;
+		/** Previous interval uniqueness percentage for spike detection */
 		double prevPercent=0;
 	}
 	
@@ -292,6 +342,14 @@ public class CalcUniqueness {
 	/*----------------        Primary Method        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that analyzes sequence uniqueness.
+	 * Reads input files, extracts k-mers, and tracks occurrence in hash tables.
+	 * Outputs statistics at regular intervals and handles paired-end data.
+	 *
+	 * @param t Timer for tracking execution performance
+	 * @throws RuntimeException if processing encounters unrecoverable errors
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -478,6 +536,15 @@ public class CalcUniqueness {
 	}
 	
 	
+	/**
+	 * Formats uniqueness statistics into output buffer.
+	 * Includes percentages, counts, and quality metrics based on configuration.
+	 * Resets interval counters after printing.
+	 *
+	 * @param sb StringBuilder to append formatted output
+	 * @param pairsProcessed Number of read pairs processed so far
+	 * @param paired Whether input data is paired-end
+	 */
 	private void printCountsToBuffer(StringBuilder sb, long pairsProcessed, boolean paired){
 		
 		//Display data for the last interval
@@ -588,6 +655,8 @@ public class CalcUniqueness {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Sets random seed for reproducible k-mer sampling.
+	 * @param seed Random seed value (-1 for default thread-local random) */
 	public void setSampleSeed(long seed){
 		randy=Shared.threadLocalRandom(seed);
 	}
@@ -596,47 +665,77 @@ public class CalcUniqueness {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired-end data */
 	private String in2=null;
 	
+	/** Output file path for uniqueness statistics */
 	private String out=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
 	//Counters for hashtable hits and misses of different kmers
+	/** Counter for fixed k-mers from read 1 */
 	private final Counter r1CounterFirst=new Counter(1);
+	/** Counter for random k-mers from read 1 */
 	private final Counter r1CounterRand=new Counter(2);
+	/** Counter for fixed k-mers from read 2 */
 	private final Counter r2CounterFirst=new Counter(4);
+	/** Counter for random k-mers from read 2 */
 	private final Counter r2CounterRand=new Counter(8);
+	/** Counter for k-mers derived from read pairs */
 	private final Counter pairCounter=new Counter(16);
 
+	/** Counter for fixed k-mers from all reads */
 	private final Counter bothCounterFirst=new Counter(32);
+	/** Counter for random k-mers from all reads */
 	private final Counter bothCounterRand=new Counter(64);
 	
 	/*--------------------------------------------------------------*/
 	
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Fraction of reads to sample (1.0 for all reads) */
 	private float samplerate=1f;
+	/** Random seed for read sampling */
 	private long sampleseed=-1;
 
+	/** Number of reads between uniqueness calculations */
 	private long interval=25000;
+	/** Minimum probability threshold for k-mer acceptance */
 	private float minprob=0;
+	/** Minimum average quality score for read acceptance */
 	private float minAverageQuality=0;
+	/** Number of bases to consider for average quality calculation */
 	private int minAverageQualityBases=20;
+	/** Fixed position offset for k-mer extraction from reads */
 	private int singleOffset=0;
+	/** Whether to use cumulative counts instead of interval counts */
 	private boolean cumulative=false;
+	/** Whether to include percentage columns in output */
 	private boolean showPercents=true;
+	/** Whether to include count columns in output */
 	private boolean showCounts=false;
+	/** Whether to print statistics for final incomplete interval */
 	private boolean printLastBin=false;
+	/** Whether to include quality metrics in output */
 	private boolean showQuality=true;
+	/** Whether to apply spike-smoothing algorithm to percentages */
 	private boolean fixSpikes=false;
 
+	/** K-mer length minus 1 for array indexing */
+	/** K-mer length for uniqueness analysis */
 	private final int k, k2;
+	/** Number of hash tables for k-mer distribution */
 	private static final int WAYS=31;
+	/** Fixed offset for pair k-mer extraction */
 	private static final int PAIR_OFFSET=10;
 	
 	/** Initial size of data structures */
@@ -647,25 +746,39 @@ public class CalcUniqueness {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format for primary input */
 	private final FileFormat ffin1;
+	/** File format for secondary input */
 	private final FileFormat ffin2;
 
+	/** File format for output */
 	private final FileFormat ffout;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
+	/** Whether processing encountered unrecoverable errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to report file size processing statistics */
 	private boolean testsize=false;
 	
+	/** Whether to use HashArray1D data structure */
+	/** Whether to use KmerTable data structure */
+	/** Whether to use HashForest data structure */
 	private static final boolean useForest=false, useTable=false, useArray=true;
 	
+	/** Random number generator for k-mer position sampling */
 	private Random randy;
 	
+	/** Lookup table converting quality scores to error probabilities */
 	private static final float[] probCorrect=
 		{0.0000f, 0.2501f, 0.3690f, 0.4988f, 0.6019f, 0.6838f, 0.7488f, 0.8005f, 0.8415f, 0.8741f, 0.9000f, 0.9206f, 0.9369f, 0.9499f,
 		 0.9602f, 0.9684f, 0.9749f, 0.9800f, 0.9842f, 0.9874f, 0.9900f, 0.9921f, 0.9937f, 0.9950f, 0.9960f, 0.9968f, 0.9975f, 0.9980f,

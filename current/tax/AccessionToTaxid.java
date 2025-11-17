@@ -38,6 +38,11 @@ import structures.StringNum;
  */
 public class AccessionToTaxid {
 	
+	/**
+	 * Convenience method to load accession mapping files.
+	 * Preserves original file handling settings and restores them after loading.
+	 * @param files Comma-separated list of accession mapping files to load
+	 */
 	public static void load(String files){
 		final boolean oldBf2=ByteFile.FORCE_MODE_BF2;
 		final boolean oldBf1=ByteFile.FORCE_MODE_BF1;
@@ -52,6 +57,8 @@ public class AccessionToTaxid {
 		ReadWrite.USE_UNPIGZ=oldGunzip;
 	}
 	
+	/** Program entry point for loading accession-to-taxid mappings.
+	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		AccessionToTaxid x=new AccessionToTaxid(args);
@@ -61,6 +68,11 @@ public class AccessionToTaxid {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs AccessionToTaxid loader with command-line argument parsing.
+	 * Processes input files, sorts them by size, and configures loading options.
+	 * @param args Command-line arguments containing file paths and configuration
+	 */
 	public AccessionToTaxid(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -187,6 +199,11 @@ public class AccessionToTaxid {
 		}
 	}
 	
+	/**
+	 * Main processing method that loads all accession mapping data.
+	 * Initializes hash maps and tables, spawns worker threads for parallel loading.
+	 * @param t Timer for tracking execution time and performance statistics
+	 */
 	@SuppressWarnings("unchecked")
 	void process(Timer t){
 
@@ -347,6 +364,11 @@ public class AccessionToTaxid {
 		if(!success){errorState=true;}
 	}
 	
+	/**
+	 * Accumulates thread-local counters into global atomic arrays.
+	 * @param a Global atomic counter array (may be null)
+	 * @param b Thread-local counter array (may be null)
+	 */
 	private static void accumulate(AtomicLongArray a, long[] b){
 		if(a==null || b==null){return;}
 		for(int i=0; i<b.length; i++){
@@ -356,6 +378,12 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Retrieves taxonomic ID for the given accession string.
+	 * Strips version suffixes and uses hash tables or maps for lookup.
+	 * @param accession Sequence accession to look up
+	 * @return Taxonomic ID for the accession, or -1 if not found
+	 */
 	public static int get(String accession){
 		if(accession==null){return -1;}
 //		if(STRIP_UNDERSCORE){
@@ -393,6 +421,12 @@ public class AccessionToTaxid {
 		return value==null ? -1 : value.intValue();
 	}
 	
+	/**
+	 * Validates whether a string represents a valid sequence accession.
+	 * Checks length and allowed characters for accession format.
+	 * @param s String to validate as accession
+	 * @return true if string appears to be a valid accession format
+	 */
 	public static boolean isValidAccession(String s){
 		if(s==null || s.length()<4){return false;}
 		for(int i=0; i<s.length(); i++){
@@ -407,6 +441,12 @@ public class AccessionToTaxid {
 		return true;
 	}
 	
+	/**
+	 * Computes hash value for accession string using base-37 encoding.
+	 * Stops at version delimiter characters and handles various character types.
+	 * @param accession Accession string to hash
+	 * @return Hash value for the accession
+	 */
 	static long hash(String accession){
 		long number=0;
 		for(int i=0, max=accession.length(); i<max; i++){
@@ -490,6 +530,11 @@ public class AccessionToTaxid {
 	
 	public static class HashThread extends Thread {
 		
+		/**
+		 * Constructs a worker thread for processing accession mapping file.
+		 * Initializes thread-local hash maps and tables for parallel loading.
+		 * @param bf_ ByteFile to process in this thread
+		 */
 		@SuppressWarnings("unchecked")
 		public HashThread(ByteFile bf_){
 //			if(USE_MAPS){
@@ -504,6 +549,12 @@ public class AccessionToTaxid {
 			bf=bf_;
 		}
 		
+		/**
+		 * Fetches a batch of lines from the input file for processing.
+		 * Thread-safe method that synchronizes access to the ByteFile.
+		 * @param limit Maximum number of lines to fetch
+		 * @return List of byte arrays representing lines, or null if EOF
+		 */
 		ArrayList<byte[]> fetch(int limit){
 			ArrayList<byte[]> list=new ArrayList<byte[]>(limit);
 			synchronized(bf){
@@ -812,8 +863,11 @@ public class AccessionToTaxid {
 		private long linesValidT=0;
 		private long bytesProcessedT=0;
 		
+		/** Input file being processed by this thread */
 		final ByteFile bf;
+		/** Thread-local hash map for accession storage before merging to global map */
 		HashMap<String, Integer>[] mapsT;
+		/** Thread-local hash buffer for efficient batch insertion into global tables */
 		HashBuffer table;
 		boolean success=false;
 		
@@ -825,6 +879,12 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Retrieves taxonomic ID for IMG (Integrated Microbial Genomes) identifier.
+	 * Uses caching to avoid repeated server requests.
+	 * @param imgID IMG genome identifier
+	 * @return Taxonomic ID for the IMG genome, or -1 if not found
+	 */
 	public static int getImg(long imgID) {
 		long ncbi=-1;
 		synchronized(imgCache) {
@@ -842,6 +902,12 @@ public class AccessionToTaxid {
 		return (int)ncbi;
 	}
 	
+	/**
+	 * Queries IMG server for taxonomic ID of the specified genome.
+	 * Makes HTTP request to IMG metadata service and parses JSON response.
+	 * @param imgID IMG genome identifier to query
+	 * @return Taxonomic ID from server response, or -1 if query failed
+	 */
 	public static int getImgFromServer(long imgID) {
 		try {
 			byte[] message=null;
@@ -863,15 +929,20 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	private ArrayList<String> in=new ArrayList<String>();
 //	private String out=null;
 	
+	/** Maximum number of parallel pigz decompression processes allowed */
 	static int maxPigzProcesses=12;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines processed across all threads */
 	private long linesProcessed=0;
+	/** Number of valid mapping lines successfully processed */
 	private long linesValid=0;
+	/** Total number of bytes processed from input files */
 	private long bytesProcessed=0;
 	
 	private AtomicLongArray lengthCounts=null;//new AtomicLongArray(20);
@@ -887,26 +958,40 @@ public class AccessionToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Checks whether accession mapping data has been loaded.
+	 * @return true if mapping data is available for queries */
 	public static boolean LOADED(){return LOADED;}
 	
+	/** Flag indicating whether mapping data has been successfully loaded */
 	private static boolean LOADED=false;
+	/** Hash map for storing accession-to-taxid mappings */
 	private static HashMap<String, Integer>[] maps=null;
+	/** Hash table set for storing short accession mappings efficiently */
 	private static KmerTableSet tables;
+	/** Cache for IMG ID to taxonomic ID mappings to reduce server queries */
 	private static LongLongHashMap imgCache;
 	private static final long cacheClearInterval=7L*24L*3600L*1000L;//millis
 	private static long lastCacheClear=0;
+	/** Taxonomic tree for validating taxonomic IDs during loading */
 	public static TaxTree tree=null;
 //	public static final boolean USE_MAPS=true;
+	/** Flag indicating whether to use hash tables for short accession storage */
 	public static final boolean USE_TABLES=true;
 //	public static boolean STRIP_UNDERSCORE=false;
+	/** Skip parsing step for performance testing */
 	public static boolean skipParse=false;
+	/** Skip hashing step for performance testing */
 	public static boolean skipHash=false;
+	/** Preallocation factor for hash table sizing (0 = no preallocation) */
 	public static float prealloc=0;
 	private static final long offset=-'A'+11;
 	private static final long offsetLower=-'a'+11;
 	
+	/** Server number for distributed processing (0-based) */
 	public static int serverNum=0;
+	/** Total number of servers in distributed processing setup */
 	public static int serverCount=1;
+	/** Flag indicating whether distributed processing is enabled */
 	public static boolean distributed=false;
 	
 	/*--------------------------------------------------------------*/

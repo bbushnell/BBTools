@@ -6,6 +6,12 @@ import fileIO.TextStreamWriter;
 /** One-off program for converting grch38 sam files to hg19 */
 public class FixChr {
 	
+	/**
+	 * Program entry point for chromosome name conversion.
+	 * Reads input SAM file line by line and adds "chr" prefix to chromosome names.
+	 * Processes both data lines and contig header lines appropriately.
+	 * @param args Command-line arguments: [0] input file path, [1] output file path
+	 */
 	public static void main(String[] args){
 		
 		String in=args[0];

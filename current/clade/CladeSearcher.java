@@ -496,6 +496,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		bsw.poison();
 	}
 	
+	/**
+	 * Appends comparison results to a ByteBuilder, handling both single and multiple results.
+	 * @param o Comparison or Collection of Comparisons to append
+	 * @param bb ByteBuilder to append to
+	 * @return The ByteBuilder with appended results
+	 */
 	ByteBuilder appendResult(Object o, ByteBuilder bb) {
 		if(o.getClass()==Comparison.class) {
 			return appendResult((Comparison)o, bb, 0);
@@ -697,15 +703,18 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		/** True only if this thread has completed successfully */
 		boolean success=false;
+		/** Thread-local copy of the clade index */
 		final CladeIndex index;
 		
 		/** Shared data source */
 		private final ArrayList<Clade> queries;
 		/** Clade storage */
 		private final ArrayList<Object> results=new ArrayList<Object>();
+		/** Maximum number of hits to return per query */
 		private final int maxHits;
 		/** Thread ID */
 		final int tid;
+		/** Total number of threads in the pool */
 		final int threads;
 	}
 	
@@ -724,6 +733,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/** Loaded query clades */
 	private ArrayList<Clade> queries;
 	
+	/** Whether to operate in server mode */
 	private boolean serverMode=false;
 	
 	/** Override input file extension */
@@ -772,8 +782,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Maximum number of hits to print per query */
 	private int maxHitsToPrint=1;
 	
+	/** Whether to delete temporary files on completion */
 	private boolean deleteOnFinish=true;
 	
 	/*--------------------------------------------------------------*/
@@ -785,6 +797,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

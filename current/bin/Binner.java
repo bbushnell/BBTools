@@ -16,14 +16,33 @@ import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;
 
+/**
+ * Binning engine for clustering genomic contigs by sequence composition and coverage.
+ * Implements multiple clustering passes with varying stringency to group related sequences.
+ * Uses k-mer, GC, depth, and covariance metrics for similarity assessment.
+ *
+ * @author Brian Bushnell
+ * @date 2025
+ */
 public class Binner extends BinObject implements Accumulator<Binner.CompareThread> {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Constructs a Binner with output stream for status messages.
+	 * @param outstream_ Stream for progress and diagnostic output */
 	Binner(PrintStream outstream_){outstream=outstream_;}
 
+	/**
+	 * Parses command-line arguments to configure binning parameters.
+	 * Handles stringency controls, size thresholds, and clustering behavior settings.
+	 *
+	 * @param arg Full argument string (unused)
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return true if parameter was recognized and processed
+	 */
 	boolean parse(String arg, String a, String b) {
 
 		if(a.equalsIgnoreCase("productMult")){
@@ -218,6 +237,15 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/*----------------             Graph            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Follows edges between bins to merge highly connected components.
+	 * Uses pairwise alignment scores and edge weights to identify merge candidates.
+	 *
+	 * @param contigs List of all contigs for edge resolution
+	 * @param input Bins to process for edge-based merging
+	 * @param oracle Similarity calculator with configured thresholds
+	 * @return Number of successful merges performed
+	 */
 	public long followEdges(ArrayList<Contig> contigs, ArrayList<? extends Bin> input, Oracle oracle){
 		//		outstream.print("Following Edges:  \t");
 		phaseTimer.start();
@@ -233,6 +261,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return merges;
 	}
 
+	/**
+	 * Executes merges by combining bins with their designated destinations.
+	 * Validates merge targets and performs actual cluster consolidation.
+	 *
+	 * @param contigs Reference contig list
+	 * @param input Bins with dest fields set to merge targets
+	 * @return Number of bins successfully merged
+	 */
 	private int mergeWithDest(ArrayList<Contig> contigs, ArrayList<? extends Bin> input){
 		int x=0, y=0, z=0;
 		
@@ -290,6 +326,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return z;
 	}
 
+	/**
+	 * Counts total number of contigs contained in clustered bins.
+	 * @param list List of bins to examine
+	 * @return Sum of contig counts across all clusters
+	 */
 	private static final int countClustered(ArrayList<? extends Bin> list) {
 		int clustered=0;
 		for(Bin b : list) {
@@ -298,6 +339,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return clustered;
 	}
 
+	/**
+	 * Converts contig/cluster list to unified bin list, filtering by size.
+	 * Collapses clusters to single representatives to avoid duplicates.
+	 *
+	 * @param list Input contigs and clusters
+	 * @param minSize Minimum size threshold for inclusion
+	 * @return Filtered list of bins meeting size requirement
+	 */
 	public static final ArrayList<Bin> toBinList(ArrayList<? extends Bin> list, int minSize){
 		ArrayList<Bin> bins=new ArrayList<Bin>();
 		IntHashSet clusterSet=new IntHashSet(255);
@@ -318,6 +367,15 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return bins;
 	}
 
+	/**
+	 * Finds best merge target for a bin by following edge weights.
+	 * Evaluates edge strength, reciprocity, and similarity scores to select optimal target.
+	 *
+	 * @param a Source bin seeking merge target
+	 * @param contigs Reference contig list for edge resolution
+	 * @param oracle Similarity calculator for candidate evaluation
+	 * @return ID of best merge target, or -1 if none found
+	 */
 	private int followEdges(Bin a, ArrayList<Contig> contigs, Oracle oracle) {
 		oracle.clear();
 		ArrayList<KeyValue> edges=KeyValue.toList(a.pairMap);//TODO: Slow
@@ -360,6 +418,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return target==null ? -1 : target.id();
 	}
 
+	/**
+	 * Finds the cluster with strongest bidirectional edge connection to given bin.
+	 * Used as fallback when similarity-based methods fail to find merge targets.
+	 *
+	 * @param a Source bin seeking connected cluster
+	 * @param contigs Reference contig list
+	 * @return Best connected cluster, or null if none found
+	 */
 	public Cluster findLinkedCluster(Bin a, ArrayList<Contig> contigs) {
 		if(a.pairMap==null) {return null;}
 		assert(a.isCluster() || a.cluster()==null);
@@ -392,6 +458,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/*----------------            Binning           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates initial bin map by clustering similar sequences.
+	 * Applies strict similarity thresholds to form high-confidence initial clusters.
+	 *
+	 * @param contigList All contigs to be organized
+	 * @param input Optional pre-sorted bin list, or null to use contigList
+	 * @return BinMap containing initial clusters and residual sequences
+	 */
 	public BinMap makeBinMap(ArrayList<Contig> contigList, ArrayList<? extends Bin> input) {
 		outstream.print("Making BinMap:    \t");
 		phaseTimer.start();
@@ -454,6 +528,19 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return map;
 	}
 
+	/**
+	 * Performs single refinement pass to merge compatible clusters.
+	 * Uses relaxed thresholds compared to initial clustering for broader merging.
+	 *
+	 * @param map Bin map to refine
+	 * @param stringency Similarity threshold multiplier (1.0 = default)
+	 * @param taxlevel Taxonomic level for validation (unused)
+	 * @param allowNoTaxID Whether to merge bins without taxonomic IDs (unused)
+	 * @param allowHalfTaxID Whether to merge partially classified bins (unused)
+	 * @param range Search range for candidate clusters
+	 * @param minSize Minimum size for merge consideration
+	 * @return Number of clusters merged in this pass
+	 */
 	public int refineBinMapPass(BinMap map, float stringency, 
 			int taxlevel, boolean allowNoTaxID, boolean allowHalfTaxID, int range, int minSize) {
 		//		System.err.println("Merging clusters pass.");
@@ -538,6 +625,15 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return merged;
 	}
 
+	/**
+	 * Attempts to split large heterogeneous clusters into more homogeneous sub-clusters.
+	 * Uses refined similarity thresholds to identify sequences that don't belong together.
+	 *
+	 * @param map Bin map containing clusters to potentially split
+	 * @param stringency Similarity threshold for sub-clustering
+	 * @param minSizeRecluster Minimum cluster size to consider for splitting
+	 * @return Number of clusters that were successfully split
+	 */
 	public int recluster(BinMap map, float stringency, int minSizeRecluster) {
 
 		float maxTrimerDif=max3merDif2*stringency;
@@ -593,6 +689,17 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return splits;
 	}
 
+	/**
+	 * Removes outlier contigs from clusters to improve homogeneity.
+	 * Identifies sequences that fit better in other clusters or should remain unclustered.
+	 *
+	 * @param map Bin map containing clusters to purify
+	 * @param stringency Similarity threshold for outlier detection
+	 * @param range Search range for alternative cluster assignments
+	 * @param minSizePurify Minimum cluster size to consider for purification
+	 * @param minSizeCompare Minimum size for comparison targets
+	 * @return Number of contigs removed from their original clusters
+	 */
 	public int purify(BinMap map, float stringency, int range, int minSizePurify, int minSizeCompare) {
 		//		System.err.println("Merging clusters pass.");
 
@@ -645,6 +752,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return removed;
 	}
 
+	/**
+	 * Removes outlier contigs from a single cluster.
+	 * @param clust Target cluster to purify
+	 * @return Number of contigs removed
+	 */
 	int purifyCluster(Cluster clust) {
 		ArrayList<Contig> contigs=clust.contigs;
 		int removed=0;
@@ -672,6 +784,18 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return removed;
 	}
 
+	/**
+	 * Attempts to assign unclustered residual contigs to existing clusters.
+	 * Uses relaxed similarity thresholds to incorporate sequences missed in main clustering.
+	 *
+	 * @param map Bin map with residual sequences to process
+	 * @param stringency Similarity threshold multiplier
+	 * @param taxlevel Taxonomic level for validation (unused)
+	 * @param allowNoTaxID Whether to merge bins without taxonomic IDs (unused)
+	 * @param allowHalfTaxID Whether to merge partially classified bins (unused)
+	 * @param range Search range for target clusters
+	 * @return Number of residual contigs successfully assigned to clusters
+	 */
 	public int processResidue(BinMap map, float stringency, 
 			int taxlevel, boolean allowNoTaxID, boolean allowHalfTaxID, int range) {
 		//		assert(map.isValid());
@@ -738,6 +862,17 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return merged;
 	}
 
+	/**
+	 * Finds best cluster assignment for a residual contig.
+	 *
+	 * @param a Residual contig seeking cluster assignment
+	 * @param map Bin map containing potential target clusters
+	 * @param key Reusable key object for hash operations
+	 * @param oracle Similarity calculator
+	 * @param range Search range limit
+	 * @param minSize Minimum target cluster size
+	 * @return Best matching cluster, or null if none suitable
+	 */
 	public Cluster findBestResidualCluster(Bin a, BinMap map, Key key, Oracle oracle, 
 			int range, int minSize) {
 		if(a==null || a.size()<minSizeResidue) {return null;}
@@ -746,6 +881,12 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return b;
 	}
 
+	/**
+	 * Performs complete refinement process with multiple passes at different stringencies.
+	 * Executes passes AA through G with increasing tolerance to capture more associations.
+	 * @param map Bin map to refine through multiple passes
+	 * @return Total number of clusters merged across all passes
+	 */
 	public int refineBinMap(BinMap map) {
 		System.err.println("Merging clusters.");
 		if(sketchClusters) {sketcher.sketch(map.toList(false), false);}
@@ -800,6 +941,20 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return removedTotal;
 	}
 
+	/**
+	 * Executes multiple refinement passes at specified stringency level.
+	 *
+	 * @param map Bin map to process
+	 * @param phase Phase identifier for logging
+	 * @param stringency Similarity threshold multiplier
+	 * @param taxLevel Taxonomic level (unused)
+	 * @param noTax Allow no taxonomic ID (unused)
+	 * @param halfTax Allow partial taxonomic ID (unused)
+	 * @param range Search range
+	 * @param initialMinSize Base minimum size (scaled by pass number)
+	 * @param passes Number of passes to execute
+	 * @return Total clusters merged in this phase
+	 */
 	int refinePhase(BinMap map, String phase,
 			float stringency, int taxLevel, boolean noTax, boolean halfTax, int range, int initialMinSize, int passes) {
 		Timer t=new Timer(outstream, true);
@@ -818,6 +973,12 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return removedThisPhase;
 	}
 
+	/**
+	 * Groups bins with identical taxonomic IDs into clusters.
+	 * Creates perfect taxonomic clusters as initial grouping step.
+	 * @param bins Input bins to cluster by taxonomy
+	 * @return Clustered bins with taxonomically identical sequences grouped
+	 */
 	public ArrayList<Bin> clusterByTaxid(ArrayList<? extends Bin> bins){
 		outstream.print("Clustering by Taxid: \t");
 		phaseTimer.start();
@@ -861,6 +1022,15 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return out;
 	}
 
+	/**
+	 * Attempts to merge medium-sized bins that may represent fragments of the same genome.
+	 * Uses very strict similarity requirements to avoid contamination.
+	 *
+	 * @param contigs Reference contig list
+	 * @param input Bins in size range suitable for fusion
+	 * @param stringency Threshold multiplier for fusion decisions
+	 * @return Number of successful fusion events
+	 */
 	public long fuse(ArrayList<Contig> contigs, ArrayList<? extends Bin> input, float stringency){
 		if(loud) {outstream.print("Initiating Fusion:  \t");}
 		phaseTimer.start();
@@ -900,6 +1070,12 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Configures similarity thresholds based on expected number of samples.
+	 * Adjusts stringency parameters to account for increased complexity in multi-sample datasets.
+	 * @param samples Expected number of samples in the dataset
+	 * @param mult Additional multiplier for threshold adjustment
+	 */
 	void setSamples(int samples, float mult) {
 		if(overrideSetSamples>0) {samples=overrideSetSamples;}
 		System.err.println("Setting cutoffs for "+samples+" samples.");
@@ -1017,6 +1193,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		max5merDif2=max4merDif2*2.000f;
 	}
 
+	/** Prints current similarity threshold values for diagnostic purposes */
 	void printThresholds(){
 		System.err.println("maxTrimerDif:     "+max3merDif2);
 		System.err.println("maxTetramerDif:   "+max4merDif2);
@@ -1039,6 +1216,19 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/*----------------     Classes and Threading    ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Launches parallel comparison threads for binning operations.
+	 * Distributes work across multiple threads and collects results.
+	 *
+	 * @param list Bins to process
+	 * @param map Bin map for cluster lookup
+	 * @param contigs Reference contig list
+	 * @param mode Processing mode (REFINE, RESIDUE, PURIFY, etc.)
+	 * @param range Search range parameter
+	 * @param minSize Minimum size threshold
+	 * @param oracle Similarity calculator template
+	 * @return Total number of merges performed across all threads
+	 */
 	private synchronized long launchThreads(ArrayList<? extends Bin> list, BinMap map, 
 			ArrayList<Contig> contigs, int mode, int range, int minSize, Oracle oracle) {
 
@@ -1086,8 +1276,23 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	@Override
 	public boolean success() {return !errorState;}
 
+	/** Worker thread that performs similarity comparisons and clustering operations.
+	 * Each thread processes a subset of bins using different operational modes. */
 	class CompareThread extends Thread {
 
+		/**
+		 * Creates worker thread for parallel binning operations.
+		 *
+		 * @param list Bins to process
+		 * @param map_ Bin map for cluster operations
+		 * @param contigs_ Reference contig list
+		 * @param tid_ Thread ID for work distribution
+		 * @param threads_ Total number of threads
+		 * @param mode_ Operation mode
+		 * @param range_ Search range parameter
+		 * @param minSize_ Size threshold
+		 * @param oracle_ Similarity calculator
+		 */
 		public CompareThread(ArrayList<? extends Bin> list, BinMap map_, ArrayList<Contig> contigs_, 
 				int tid_, int threads_, int mode_, int range_, int minSize_, Oracle oracle_) {
 			input=list;
@@ -1102,6 +1307,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		}
 
 
+		/** Executes the assigned binning operation based on thread mode */
 		public void run() {
 			synchronized(this) {
 				if(mode==REFINE_MODE) {
@@ -1123,6 +1329,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			success=true;
 		}
 
+		/** Follows edges to find merge targets for assigned bins.
+		 * @return Number of merge targets found */
 		private int follow() {
 			for(int i=tid; i<input.size(); i+=threads) {
 				Bin a=input.get(i);
@@ -1138,6 +1346,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return mergesT;
 		}
 
+		/** Attempts fusion of medium-sized bins in assigned work range.
+		 * @return Number of successful fusions */
 		private int fuse() {
 			for(int i=tid; i<input.size(); i+=threads) {
 				Bin a=input.get(i);
@@ -1157,6 +1367,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return mergesT;
 		}
 
+		/**
+		 * Finds best candidate for fusing with given bin.
+		 * @param a Source bin seeking fusion partner
+		 * @return Best fusion target, or null if none suitable
+		 */
 		private Bin findBestFuseTarget(Bin a) {
 			oracle.best=null;
 			oracle.topScore=-1;
@@ -1185,6 +1400,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return oracle.best;
 		}
 
+		/** Attempts to split heterogeneous clusters in assigned work range.
+		 * @return Number of clusters successfully split */
 		private int recluster() {
 			AbstractRefiner refiner = AbstractRefiner.makeRefiner(oracle, AbstractRefiner.DEFAULT_TYPE);
 
@@ -1213,6 +1430,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return mergesT;
 		}
 
+		/** Purifies clusters by removing outlier contigs in assigned work range.
+		 * @return Number of changes made */
 		private int purify() {
 			for(int i=tid; i<input.size(); i+=threads) {
 				Bin a=input.get(i);
@@ -1224,6 +1443,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return mergesT;
 		}
 
+		/**
+		 * Purifies single cluster by reassigning poorly fitting contigs.
+		 * @param clust Cluster to purify
+		 * @return Number of contigs reassigned
+		 */
 		private int purifyCluster(Cluster clust) {
 			int changes=0;
 			clust.dest=-1;
@@ -1262,6 +1486,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			return changes;
 		}
 
+		/** Attempts to assign residual contigs to clusters in assigned work range */
 		private void residue() {
 			for(int i=tid; i<input.size(); i+=threads) {
 				Bin a=input.get(i);
@@ -1285,6 +1510,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			}
 		}
 
+		/** Refines bins by finding better cluster assignments in assigned work range */
 		private void refine() {
 			for(int i=tid; i<input.size(); i+=threads) {
 				Bin a=input.get(i);
@@ -1297,6 +1523,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			}
 		}
 
+		/** Finds best cluster for bin to merge with.
+		 * @param a Bin seeking better cluster assignment */
 		private void refineBin(Bin a) {
 			a.dest=-1;
 			int minSize2=(int)Tools.mid(minSize, a.size(), Integer.MAX_VALUE);
@@ -1343,6 +1571,12 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		int mergesT=0;
 	}
 
+	/**
+	 * Calculates size-based similarity threshold multiplier.
+	 * Applies different standards for tiny, small, large, and huge sequences.
+	 * @param size Sequence size in bases
+	 * @return Multiplier for similarity thresholds
+	 */
 	static float sizeAdjustMult(long size) {
 		float f=sizeAdjustMult2(size);
 		if(size<tinyThresh){// && size>minSizeToCompare) {
@@ -1351,6 +1585,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return f;
 	}
 
+	/**
+	 * Core size-adjustment calculation without tiny threshold penalty.
+	 * @param size Sequence size in bases
+	 * @return Base multiplier before tiny threshold adjustment
+	 */
 	static float sizeAdjustMult2(long size) {
 		if(size<smallThresh) {return 1f+smallMult*(smallThresh-size)/(float)smallThresh;}
 		if(size>2*hugeThresh) {return hugeMult;}
@@ -1366,6 +1605,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		return 1f;
 	}
 
+	/**
+	 * Records merge event for quality assessment.
+	 * @param size Size of smaller merged bin
+	 * @param good Whether merge was taxonomically correct
+	 */
 	void addMerge(long size, boolean good) {
 		int idx=(int)(Tools.log2(size));
 		if(good) {goodMergeSize[idx]++;}
@@ -1376,22 +1620,36 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to use multiple threads for comparisons */
 	boolean multiThreadedCompare=true;
 
 	//	long refinementComparisons=0;
 	//	long refinementComparisonsSlow=0;
+	/** Optional sketcher for taxonomic assignment */
 	BinSketcher sketcher;
+	/** Base search range for cluster candidates */
 	int baseRange=1;
+	/** Base number of refinement passes */
 	int basePasses=1;
+	/** Search range for residual contig assignment */
 	int residueRange=3;
+	/** Whether any thread encountered an error */
 	boolean errorState=false;
+	/** Whether to run preliminary pass AA */
 	boolean runPassAA=false;
+	/** Whether to run refinement pass A */
 	boolean runPassA=true;
+	/** Whether to run refinement pass B */
 	boolean runPassB=false;
+	/** Whether to run refinement pass C */
 	boolean runPassC=true;
+	/** Whether to run refinement pass D */
 	boolean runPassD=true;
+	/** Whether to run refinement pass E */
 	boolean runPassE=true;
+	/** Whether to run refinement pass F */
 	boolean runPassF=false;
+	/** Whether to run refinement pass G */
 	boolean runPassG=true;
 
 	long goodMergesFollow=0;
@@ -1414,50 +1672,78 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	long[] goodMergeSize=new long[40];
 	long[] badMergeSize=new long[40];
 
+	/** Main bin map containing all clusters and residual sequences */
 	BinMap binMap;
 
 	/*--------------------------------------------------------------*/
 
+	/** Total merges performed by worker threads */
 	private int threadMerges=0;
+	/** Count of fast preliminary comparisons performed */
 	public AtomicLong fastComparisons=new AtomicLong(0);
+	/** Count of 3-mer composition comparisons performed */
 	public AtomicLong trimerComparisons=new AtomicLong(0);
+	/** Count of 4-mer composition comparisons performed */
 	public AtomicLong tetramerComparisons=new AtomicLong(0);
+	/** Count of detailed similarity calculations performed */
 	public AtomicLong slowComparisons=new AtomicLong(0);
+	/** Count of network-based comparisons performed */
 	public AtomicLong netComparisons=new AtomicLong(0);
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Timer for tracking phase execution times */
 	final Timer phaseTimer=new Timer();
+	/** Output stream for progress and diagnostic messages */
 	final PrintStream outstream;
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Static Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to use perfect similarity oracle for testing */
 	static boolean PERFECT_ORACLE=false;
+	/** Whether to prevent merges known to be taxonomically incorrect */
 	static boolean BAN_BAD_MERGES=false;
 
+	/** Thread mode for cluster refinement operations */
 	static final int REFINE_MODE=0;
+	/** Thread mode for residual contig assignment */
 	static final int RESIDUE_MODE=1;
+	/** Thread mode for cluster purification */
 	static final int PURIFY_MODE=2;
+	/** Thread mode for edge-following operations */
 	static final int FOLLOW_MODE=3;
+	/** Thread mode for bin fusion operations */
 	static final int FUSE_MODE=4;
+	/** Thread mode for cluster splitting operations */
 	static final int RECLUSTER_MODE=5;
 
+	/** Minimum size for bins eligible for fusion */
 	static int fuseLowerLimit=5000;
+	/** Maximum size for bins eligible for fusion */
 	static int fuseUpperLimit=900000;
+	/** Similarity stringency multiplier for fusion decisions */
 	static float fuseStringency=1.5f;
+	/** Similarity stringency multiplier for purification decisions */
 	static float purifyStringency=3f;
 
+	/** Similarity stringency multiplier for residual assignment */
 	static float residueStringency=0.65f;
+	/** Multiplier for combined similarity product thresholds */
 	static float productMult=0.68f;
+	/** Minimum overall similarity required for merging */
 	static float minSimilarity=0.0f;
 
+	/** Maximum number of edges to consider per bin */
 	static int maxEdges=2;
+	/** Minimum edge weight for consideration */
 	static int minEdgeWeight=2;
+	/** Whether to require reciprocal edge connections */
 	static boolean reciprocalEdges=true;
+	/** Minimum ratio of edge weight to maximum edge weight */
 	static float minEdgeRatio=0.4f;
 
 	static float lowDepthEdgeRatio=0.2f;
@@ -1480,6 +1766,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	static int minSizeToCompare=2500;
 	/** Size of the smaller one being compared */
 	static int minSizeToMerge=2500;
+	/** Minimum size for residual contigs to be assigned */
 	static int minSizeResidue=200;
 	static int minNetSize=200;
 	static int midNetSize=3000;
@@ -1501,20 +1788,33 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	static int compareThreadsOverride=-1;
 
 	//Optimal selection when forming clusters
+	/** Maximum 3-mer composition difference for initial clustering */
 	static float max3merDif1=0.1f;
+	/** Maximum 4-mer composition difference for initial clustering */
 	static float max4merDif1=0.002f;
+	/** Maximum 5-mer composition difference for initial clustering */
 	static float max5merDif1=0.003f;
+	/** Maximum coverage depth ratio for initial clustering */
 	static float maxDepthRatio1=1.05f;
+	/** Maximum GC content difference for initial clustering */
 	static float maxGCDif1=0.015f;
+	/** Maximum coverage covariance for initial clustering */
 	static float maxCovariance1=0.0001f;
 
 	//When merging clusters
+	/** Maximum 3-mer composition difference for cluster merging */
 	static float max3merDif2=0.1f;
+	/** Maximum 4-mer composition difference for cluster merging */
 	static float max4merDif2=0.005f; //.005 for k=4; .012 for k=5; .008 for Euclid
+	/** Maximum 5-mer composition difference for cluster merging */
 	static float max5merDif2=0.007f;
+	/** Maximum coverage depth ratio for cluster merging */
 	static float maxDepthRatio2=1.36f;
+	/** Maximum GC content difference for cluster merging */
 	static float maxGCDif2=0.03f; //0.02f for 1 depth, 0.05 for 4 depths
+	/** Maximum coverage covariance for cluster merging */
 	static float maxCovariance2=0.004f;
+	/** Minimum k-mer probability threshold for cluster merging */
 	static float minKmerProb2=0.9f;
 
 }

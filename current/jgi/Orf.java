@@ -13,6 +13,14 @@ import structures.CoverageArray;
  */
 public class Orf implements Comparable<Orf>{
 	
+	/**
+	 * Constructs an ORF with position and strand information.
+	 *
+	 * @param name_ Name identifier for this ORF
+	 * @param start_ Start position (0-based)
+	 * @param stop_ Stop position (0-based, inclusive)
+	 * @param strand_ Strand orientation as byte value
+	 */
 	public Orf(String name_, int start_, int stop_, byte strand_){
 		name=name_;
 		start=start_;
@@ -26,18 +34,31 @@ public class Orf implements Comparable<Orf>{
 		return name+"\t"+start+"\t"+stop+"\t"+strand;
 	}
 
+	/** Gets the length of the ORF in bases */
 	public int length(){return stop-start+1;}
 
+	/** Calculates average coverage depth across the ORF.
+	 * @return Average base depth, or 0 if ORF has no length */
 	public double avgCoverage(){
 		int len=length();
 		return len<=0 ? 0 : baseDepth/(double)len;
 	}
 	
+	/** Calculates fraction of ORF bases with non-zero coverage.
+	 * @return Fraction of bases covered (0.0 to 1.0), or 0 if ORF has no length */
 	public double fractionCovered(){
 		int len=length();
 		return len<=0 ? 0 : baseCoverage/(double)len;
 	}
 	
+	/**
+	 * Reads coverage data from a CoverageArray and calculates statistics.
+	 * Populates all coverage metrics including min/max/median depth and standard deviation.
+	 * Only counts bases with coverage > 1 towards coverage statistics.
+	 *
+	 * @param ca CoverageArray containing per-base coverage data
+	 * @return Array of coverage values for each base in the ORF, or null if invalid
+	 */
 	public int[] readCoverageArray(CoverageArray ca){
 		
 		final int len=length();
@@ -82,6 +103,11 @@ public class Orf implements Comparable<Orf>{
 	
 	@Override
 	public boolean equals(Object o){return equals((Orf)o);}
+	/**
+	 * Tests equality with another ORF using compareTo method.
+	 * @param o ORF to compare with
+	 * @return true if ORFs are equal (compareTo returns 0)
+	 */
 	public boolean equals(Orf o){return compareTo(o)==0;}
 	
 	@Override
@@ -89,8 +115,11 @@ public class Orf implements Comparable<Orf>{
 	
 	/** Name of ORF (not necessarily the name of its scaffold) */
 	public String name;
+	/** Start position of the ORF (0-based) */
 	public int start;
+	/** Stop position of the ORF (0-based, inclusive) */
 	public int stop;
+	/** Strand orientation of the ORF */
 	public byte strand;
 
 	/** Number of bases with nonzero coverage */

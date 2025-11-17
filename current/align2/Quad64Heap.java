@@ -1,7 +1,24 @@
 package align2;
 
+/**
+ * High-performance binary min-heap implementation for Quad64 objects providing efficient
+ * priority queue operations in alignment algorithms. Manages prioritized Quad64 alignment
+ * candidates using 1-indexed binary heap with cache-optimized memory layout.
+ *
+ * Uses traditional heap layout starting at index 1 with efficient parent/child navigation
+ * (parent=i/2, left=2i, right=2i+1). Forces even array length for optimal cache line
+ * alignment and memory access patterns.
+ *
+ * @author Brian Bushnell
+ * @date December 19, 2013
+ */
 public final class Quad64Heap {
 	
+	/**
+	 * Constructs a new Quad64Heap with specified maximum capacity.
+	 * Forces even array length for optimal cache line alignment.
+	 * @param maxSize Maximum number of elements the heap can contain
+	 */
 	public Quad64Heap(int maxSize){
 		
 		int len=maxSize+1;
@@ -12,6 +29,12 @@ public final class Quad64Heap {
 //		queue=new PriorityQueue<T>(maxSize);
 	}
 	
+	/**
+	 * Inserts element into heap maintaining min-heap property through percolate-up.
+	 * O(log n) insertion operation.
+	 * @param t The Quad64 element to add to the heap
+	 * @return Always true (heap dynamically manages capacity)
+	 */
 	public boolean add(Quad64 t){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -26,6 +49,11 @@ public final class Quad64Heap {
 		return true;
 	}
 	
+	/**
+	 * Returns minimum element without removing it from heap.
+	 * O(1) operation accessing root element at index 1.
+	 * @return Minimum Quad64 element, or null if heap is empty
+	 */
 	public Quad64 peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -39,6 +67,11 @@ public final class Quad64Heap {
 		return array[1];
 	}
 	
+	/**
+	 * Removes and returns minimum element from heap. O(log n) removal operation
+	 * with last-element replacement and percolate-down to maintain heap property.
+	 * @return Minimum Quad64 element, or null if heap is empty
+	 */
 	public Quad64 poll(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -88,6 +121,12 @@ public final class Quad64Heap {
 //		}
 //	}
 	
+	/**
+	 * Percolates element upward in heap to maintain min-heap property after insertion.
+	 * Optimized upward percolation using while loop, moving smaller elements toward root.
+	 * Used during add() operations.
+	 * @param loc Index position of element to percolate up
+	 */
 	private void percDown(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0);
@@ -108,6 +147,12 @@ public final class Quad64Heap {
 		array[loc]=a;
 	}
 	
+	/**
+	 * Percolates element downward in heap to maintain min-heap property after removal.
+	 * Recursively compares with children and swaps with smaller child if needed.
+	 * Used during poll() operations.
+	 * @param loc Index position of element to percolate down
+	 */
 	private void percUp(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -140,6 +185,12 @@ public final class Quad64Heap {
 		}
 	}
 	
+	/**
+	 * Iterative alternative to recursive percolate-down operation for performance
+	 * optimization. Provides same functionality as percUp() but uses while loop
+	 * instead of recursion to avoid stack overhead.
+	 * @param loc Index position of element to percolate down iteratively
+	 */
 	private void percUpIter(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -183,26 +234,43 @@ public final class Quad64Heap {
 		array[loc]=a;
 	}
 	
+	/** Checks if heap contains no elements.
+	 * @return True if heap is empty, false otherwise */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
+	/** Removes all elements from heap without array traversal.
+	 * Resets size to 0 for efficient heap reset operation. */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=null;}
 		size=0;
 	}
 	
+	/** Returns current number of elements in heap.
+	 * @return Number of elements currently stored in heap */
 	public int size(){
 		return size;
 	}
 	
+	/**
+	 * Calculates tier level based on bit position of highest set bit.
+	 * Uses Integer.numberOfLeadingZeros for efficient bit manipulation.
+	 * @param x Input integer value
+	 * @return Tier level (31 - leading zeros count)
+	 */
 	public static int tier(int x){
 		int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
 	
+	/**
+	 * Validation method for heap integrity verification during development.
+	 * Checks for duplicate object references in the heap array.
+	 * @return True if no duplicate references found, false if duplicates exist
+	 */
 	public boolean testForDuplicates(){
 		for(int i=0; i<array.length; i++){
 			for(int j=i+1; j<array.length; j++){
@@ -212,8 +280,13 @@ public final class Quad64Heap {
 		return true;
 	}
 	
+	/**
+	 * 1-indexed binary heap array storing Quad64 elements with even-sized allocation
+	 */
 	private final Quad64[] array;
+	/** Maximum number of elements the heap can contain */
 	private final int CAPACITY;
+	/** Current number of elements stored in the heap */
 	private int size=0;
 	
 }

@@ -28,8 +28,14 @@ import structures.SuperLongList;
  */
 public class ReadStats {
 	
+	/** Creates a new ReadStats instance and adds it to the global list */
 	public ReadStats(){this(true);}
 		
+	/**
+	 * Creates a ReadStats instance and optionally adds it to the global tracking list.
+	 * Initializes all histogram arrays based on enabled collection flags.
+	 * @param addToList Whether to add this instance to the global objectList
+	 */
 	public ReadStats(boolean addToList){
 		if(addToList){
 			synchronized(ReadStats.class){
@@ -168,6 +174,11 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Merges all ReadStats instances from the global list into a single combined instance.
+	 * Sums all histogram data across instances to provide aggregate statistics.
+	 * @return Combined ReadStats instance containing merged data from all instances
+	 */
 	public static ReadStats mergeAll(){
 		if(objectList==null || objectList.isEmpty()){return merged=null;}
 		if(objectList.size()==1){return merged=objectList.get(0);}
@@ -308,6 +319,11 @@ public class ReadStats {
 		return x;
 	}
 	
+	/**
+	 * Adds read data to all enabled histogram collections.
+	 * Calls specific histogram methods based on collection flags.
+	 * @param r The read to add to histograms
+	 */
 	public void addToHistograms(Read r) {
 		if(COLLECT_QUALITY_STATS){addToQualityHistogram(r);}
 		if(COLLECT_BASE_STATS){addToBaseHistogram(r);}
@@ -350,6 +366,12 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds quality score array to position-based quality histograms.
+	 * Updates quality sum and length tracking by position.
+	 * @param qual Quality score array
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	public void addToQualityHistogram(byte[] qual, int pairnum){
 		if(qual==null || qual.length<1){return;}
 		final int limit=Tools.min(qual.length, MAXLEN);
@@ -365,6 +387,12 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds quality scores to base-by-position quality histogram.
+	 * Tracks quality distribution at each position in reads.
+	 * @param qual Quality score array
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToBQualityHistogram(byte[] qual, int pairnum){
 		if(qual==null || qual.length<1){return;}
 		final int limit=Tools.min(qual.length, MAXLEN);
@@ -374,6 +402,12 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds quality scores to overall quality count histogram.
+	 * Tracks frequency of each quality score across all positions.
+	 * @param qual Quality score array
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToQCountHistogram(byte[] qual, int pairnum){
 		if(qual==null || qual.length<1){return;}
 		final long[] qch=qcountHist[pairnum];
@@ -616,6 +650,12 @@ public class ReadStats {
 		return true;
 	}
 
+	/**
+	 * Extracts indel lengths from SAM CIGAR string.
+	 * Parses CIGAR operations to identify insertion and deletion lengths.
+	 * @param sl The SAM line containing CIGAR data
+	 * @return true if indel data was extracted
+	 */
 	private boolean addToIndelHistogram(SamLine sl){
 		if(sl==null || sl.cigar==null || !sl.mapped()){
 			return false;
@@ -836,6 +876,11 @@ public class ReadStats {
 //		assert(false) : barcodeMap;
 	}
 	
+	/**
+	 * Tests output file paths for writeability and conflicts.
+	 * @param allowDuplicates Whether duplicate filenames are acceptable
+	 * @return true if all output files can be written
+	 */
 	public static boolean testFiles(boolean allowDuplicates){
 		return Tools.testOutputFiles(overwrite, append, allowDuplicates,
 				AVG_QUAL_HIST_FILE, QUAL_HIST_FILE, BQUAL_HIST_FILE, BQUAL_HIST_OVERALL_FILE, QUAL_COUNT_HIST_FILE,
@@ -843,6 +888,11 @@ public class ReadStats {
 				GC_HIST_FILE, ENTROPY_HIST_FILE, IDENTITY_HIST_FILE, TIME_HIST_FILE, BARCODE_STATS_FILE);
 	}
 	
+	/**
+	 * Writes all collected statistics to their respective output files.
+	 * Merges all ReadStats instances and generates comprehensive reports.
+	 * @return true if all files were written successfully
+	 */
 	public static boolean writeAll(){
 		if(collectingStats()){
 			ReadStats rs=mergeAll();
@@ -875,6 +925,11 @@ public class ReadStats {
 		return false;
 	}
 	
+	/**
+	 * Writes average quality score histogram to file.
+	 * @param fname Output filename
+	 * @param writePaired Whether to include paired-end data
+	 */
 	public void writeAverageQualityToFile(String fname, boolean writePaired){
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, append, false);
 		tsw.start();
@@ -902,6 +957,11 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Writes quality score count histogram to file.
+	 * @param fname Output filename
+	 * @param writePaired Whether to include paired-end data
+	 */
 	public void writeQCountToFile(String fname, boolean writePaired){
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, append, false);
 		tsw.start();
@@ -929,10 +989,21 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Calculates read length with average quality above Q30.
+	 * @param pairnum Read pair number (0 or 1)
+	 * @return Length in bases with average quality ≥ 30
+	 */
 	public int q30(int pairnum) {
 		return lengthAboveAverageQscore(30, pairnum);
 	}
 	
+	/**
+	 * Calculates read length with average quality above specified threshold.
+	 * @param limit Minimum quality score threshold
+	 * @param pairnum Read pair number (0 or 1)
+	 * @return Length in bases with average quality above limit
+	 */
 	public int lengthAboveAverageQscore(float limit, int pairnum) {
 		final long[] qs=qualSum[pairnum];
 		long[] ql=qualLength[pairnum];
@@ -947,6 +1018,12 @@ public class ReadStats {
 		return MAXLEN;
 	}
 	
+	/**
+	 * Writes detailed quality statistics to file including linear and log scales.
+	 * Includes measured vs predicted quality when match data is available.
+	 * @param fname Output filename
+	 * @param writePaired Whether to include paired-end data
+	 */
 	public void writeQualityToFile(String fname, boolean writePaired){
 		StringBuilder sb=new StringBuilder();
 		final boolean measure=(matchSum!=null);
@@ -1078,6 +1155,14 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Calculates actual quality score at a position based on alignment accuracy.
+	 * Compares predicted quality with observed error rates.
+	 *
+	 * @param pos Position in read
+	 * @param pairnum Read pair number (0 or 1)
+	 * @return Calculated quality score based on actual accuracy
+	 */
 	private double calcQualityAtPosition(int pos, int pairnum){
 		boolean includeNs=true;
 		long m=matchSum[pairnum][pos];
@@ -1094,6 +1179,11 @@ public class ReadStats {
 		return QualityTools.probErrorToPhredDouble(error);
 	}
 	
+	/**
+	 * Writes overall base quality statistics to file.
+	 * Includes mean, median, standard deviation for all quality scores.
+	 * @param fname Output filename
+	 */
 	public void writeBQualityOverallToFile(String fname){
 		final long[] cp30=Arrays.copyOf(bqualHistOverall, bqualHistOverall.length);
 		for(int i=0; i<30; i++){cp30[i]=0;}
@@ -1127,6 +1217,12 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Writes position-specific quality statistics with box plot metrics.
+	 * Includes quartiles, median, whiskers for each position.
+	 * @param fname Output filename
+	 * @param writePaired Whether to include paired-end data
+	 */
 	public void writeBQualityToFile(String fname, boolean writePaired){
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, append, false);
 		tsw.start();
@@ -1170,6 +1266,11 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Writes quality accuracy assessment comparing predicted vs observed error rates.
+	 * Shows deviation between quality scores and actual alignment accuracy.
+	 * @param fname Output filename
+	 */
 	public void writeQualityAccuracyToFile(String fname){
 		
 		int max=qualMatch.length;
@@ -1283,6 +1384,12 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Calculates Shannon entropy from count histogram.
+	 * Measures information content and sequence complexity.
+	 * @param counts Histogram of counts
+	 * @return Entropy value normalized to 0-1 scale
+	 */
 	private float calcEntropySuperSlow(long[] counts){
 		//Sum of entropy contributions from each term
 		double eSum=0;
@@ -1321,6 +1428,12 @@ public class ReadStats {
 		return e;
 	}
 	
+	/**
+	 * Writes position-specific alignment match statistics to file.
+	 * Shows fraction of matches, substitutions, indels by position.
+	 * @param fname Output filename
+	 * @param writePaired Whether to include paired-end data
+	 */
 	public void writeMatchToFile(String fname, boolean writePaired){
 		if(!writePaired){
 			writeMatchToFileUnpaired(fname);
@@ -1356,6 +1469,8 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/** Writes alignment match statistics for single-end data only.
+	 * @param fname Output filename */
 	public void writeMatchToFileUnpaired(String fname){
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, false, false);
 		tsw.start();
@@ -1381,6 +1496,11 @@ public class ReadStats {
 		errorState|=tsw.errorState;
 	}
 	
+	/**
+	 * Writes insert size distribution statistics to file.
+	 * Includes mean, median, mode, standard deviation of insert sizes.
+	 * @param fname Output filename
+	 */
 	public void writeInsertToFile(String fname){
 		StringBuilder sb=new StringBuilder();
 		sb.append("#Mean\t"+Tools.format("%.3f", Tools.averageHistogram(insertHist.array))+"\n");
@@ -1394,6 +1514,12 @@ public class ReadStats {
 		writeHistogramToFile(fname, sb.toString(), insertHist, !skipZeroInsertCount);
 	}
 	
+	/**
+	 * Writes position-specific base composition to file.
+	 * Shows A, C, G, T, N frequencies at each position.
+	 * @param fname Output filename
+	 * @param paired Whether to include paired-end data
+	 */
 	public void writeBaseContentToFile(String fname, boolean paired){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, false);
 		bsw.start();
@@ -1408,6 +1534,14 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Helper method to write base composition data for one read end.
+	 *
+	 * @param bsw Output stream writer
+	 * @param lists Base count arrays for each base type
+	 * @param offset Position offset for numbering
+	 * @return Maximum position written
+	 */
 	private static int writeBaseContentToFile2(ByteStreamWriter bsw, LongList[] lists, int offset){
 		int max=0;
 		ByteBuilder sb=new ByteBuilder(100);
@@ -1434,6 +1568,11 @@ public class ReadStats {
 		return max;
 	}
 	
+	/**
+	 * Writes indel length distribution to file.
+	 * Shows frequency of each insertion and deletion length.
+	 * @param fname Output filename
+	 */
 	public void writeIndelToFile(String fname){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, false);
 		bsw.start();
@@ -1466,18 +1605,32 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Writes error count distribution to file.
+	 * Shows frequency of reads with each number of substitution errors.
+	 * @param fname Output filename
+	 */
 	public void writeErrorToFile(String fname){
 		writeHistogramToFile(fname, "#Errors\tCount\n", errorHist, false);
 	}
 	
+	/** Writes read length distribution to file.
+	 * @param fname Output filename */
 	public void writeLengthToFile(String fname){
 		writeHistogramToFile(fname, "#Length\tCount\n", lengthHist, false);
 	}
 	
+	/** Writes processing time distribution to file.
+	 * @param fname Output filename */
 	public void writeTimeToFile(String fname){
 		writeHistogramToFile(fname, "#Time\tCount\n", timeHist, false);
 	}
 	
+	/**
+	 * Writes barcode frequency statistics to file.
+	 * Lists each barcode and its occurrence count.
+	 * @param fname Output filename
+	 */
 	public void writeBarcodesToFile(String fname) {
 		ArrayList<Barcode> barcodes=new ArrayList<Barcode>();
 		for(Barcode b : barcodeMap.values()) {
@@ -1502,6 +1655,14 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Generic method to write histogram data to file.
+	 *
+	 * @param fname Output filename
+	 * @param header File header text
+	 * @param hist Histogram data
+	 * @param printZeros Whether to include zero-count entries
+	 */
 	public void writeHistogramToFile(String fname, String header, LongList hist, boolean printZeros){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, false);
 		bsw.start();
@@ -1521,6 +1682,15 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Writes SuperLongList histogram data to file.
+	 * Handles both array and list portions of SuperLongList structure.
+	 *
+	 * @param fname Output filename
+	 * @param header File header text
+	 * @param hist SuperLongList histogram data
+	 * @param printZeros Whether to include zero-count entries
+	 */
 	public void writeHistogramToFile(String fname, String header, SuperLongList hist, boolean printZeros){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, false);
 		bsw.start();
@@ -1563,6 +1733,12 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Writes GC content distribution to file with statistical summary.
+	 * Includes mean, median, mode, standard deviation and optional ASCII plot.
+	 * @param fname Output filename
+	 * @param printZeros Whether to include zero-count entries
+	 */
 	public void writeGCToFile(String fname, boolean printZeros){
 		final long[] hist;
 		if(GC_BINS_AUTO && gcMaxReadLen+1<gcHist.length){
@@ -1639,6 +1815,12 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Writes sequence entropy distribution to file.
+	 * Includes statistical summary of sequence complexity measures.
+	 * @param fname Output filename
+	 * @param printZeros Whether to include zero-count entries
+	 */
 	public void writeEntropyToFile(String fname, boolean printZeros){
 		final long[] hist=entropyHist;
 		
@@ -1678,6 +1860,12 @@ public class ReadStats {
 		errorState|=bsw.errorState;
 	}
 	
+	/**
+	 * Writes alignment identity distribution to file.
+	 * Shows both read-based and base-based identity statistics.
+	 * @param fname Output filename
+	 * @param printZeros Whether to include zero-count entries
+	 */
 	public void writeIdentityToFile(String fname, boolean printZeros){
 		final long[] hist, histb;
 		if(ID_BINS_AUTO && idMaxReadLen+1<idHist.length){
@@ -1715,49 +1903,77 @@ public class ReadStats {
 	}
 	
 	//Tracks to see if read2s have been encountered, for displaying stats.
+	/** Tracks number of second reads encountered for paired-end detection */
 	private long read2Count=0;
 
+	/** Number of properly paired read pairs processed */
 	public long pairedCount=0;
+	/** Number of unpaired or improperly paired reads processed */
 	public long unpairedCount=0;
 	
 	private final int QMIN=Read.MIN_CALLED_QUALITY();
 	private final int QMAX=Read.MAX_CALLED_QUALITY();
 	private final int QMAX2=QMAX+1;
 	
+	/** Average quality histogram by read pair number */
 	public final long[][] aqualArray;
+	/** Quality length tracking arrays by position and pair number */
 	public final long[][] qualLength;
+	/** Quality score sum arrays by position and pair number */
 	public final long[][] qualSum;
 	
+	/** Base quality histogram by pair, position, and quality score */
 	public final long[][][] bqualHist;
+	/** Overall base quality histogram across all positions */
 	public final long[] bqualHistOverall;
 	
+	/** Quality count histogram by pair number and quality score */
 	public final long[][] qcountHist;
 	
+	/** Quality probability sum arrays for logarithmic calculations */
 	public final double[][] qualSumDouble;
 	
+	/** Match count arrays by pair number and position */
 	public final long[][] matchSum;
+	/** Deletion count arrays by pair number and position */
 	public final long[][] delSum;
+	/** Insertion count arrays by pair number and position */
 	public final long[][] insSum;
+	/** Substitution count arrays by pair number and position */
 	public final long[][] subSum;
+	/** N-base count arrays by pair number and position */
 	public final long[][] nSum;
+	/** Clipped base count arrays by pair number and position */
 	public final long[][] clipSum;
+	/** Other alignment event count arrays by pair number and position */
 	public final long[][] otherSum;
 
+	/** Match counts by quality score for accuracy assessment */
 	public final long[] qualMatch;
+	/** Substitution counts by quality score for accuracy assessment */
 	public final long[] qualSub;
+	/** Insertion counts by quality score for accuracy assessment */
 	public final long[] qualIns;
+	/** Deletion counts by quality score for accuracy assessment */
 	public final long[] qualDel;
 
+	/** GC content distribution histogram */
 	public final long[] gcHist;
+	/** Sequence entropy distribution histogram */
 	public final long[] entropyHist;
+	/** Entropy calculation helper for sequence complexity analysis */
 	public final EntropyTracker eTracker;
+	/** Alignment identity distribution histogram by read count */
 	public final long[] idHist;
+	/** Alignment identity distribution histogram by base count */
 	public final long[] idBaseHist;
 	private int gcMaxReadLen=1;
 	private int idMaxReadLen=1;
 
+	/** Base composition histograms by pair number and base type */
 	public final LongList[][] baseHist;
 	
+	/** Map of barcode sequences to their frequency statistics */
 	public final HashMap<String, Barcode> barcodeMap;
 	
 	/** Insert size */
@@ -1808,6 +2024,8 @@ public class ReadStats {
 	
 //	public static double matedPercent=0;
 	
+	/** Resets all static collection flags and file paths.
+	 * Clears the global object list for fresh statistics collection. */
 	public static void clear(){
 		COLLECT_QUALITY_STATS=false;
 		COLLECT_QUALITY_ACCURACY=false;
@@ -1844,21 +2062,37 @@ public class ReadStats {
 //		objectList=null;
 	}
 	
+	/** Global list of all ReadStats instances for merging */
 	public static ArrayList<ReadStats> objectList=new ArrayList<ReadStats>();
+	/** Flag to enable quality score statistics collection */
 	public static boolean COLLECT_QUALITY_STATS=false;
+	/** Flag to enable quality accuracy assessment collection */
 	public static boolean COLLECT_QUALITY_ACCURACY=false;
+	/** Flag to enable alignment match statistics collection */
 	public static boolean COLLECT_MATCH_STATS=false;
+	/** Flag to enable insert size statistics collection */
 	public static boolean COLLECT_INSERT_STATS=false;
+	/** Flag to enable base composition statistics collection */
 	public static boolean COLLECT_BASE_STATS=false;
+	/** Flag to enable indel length statistics collection */
 	public static boolean COLLECT_INDEL_STATS=false;
+	/** Flag to enable GC content statistics collection */
 	public static boolean COLLECT_GC_STATS=false;
+	/** Flag to enable sequence entropy statistics collection */
 	public static boolean COLLECT_ENTROPY_STATS=false;
+	/** Flag to enable error count statistics collection */
 	public static boolean COLLECT_ERROR_STATS=false;
+	/** Flag to enable read length statistics collection */
 	public static boolean COLLECT_LENGTH_STATS=false;
+	/** Flag to enable alignment identity statistics collection */
 	public static boolean COLLECT_IDENTITY_STATS=false;
+	/** Flag to enable processing time statistics collection */
 	public static boolean COLLECT_TIME_STATS=false;
+	/** Flag to enable barcode frequency statistics collection */
 	public static boolean COLLECT_BARCODE_STATS=false;
 	
+	/** Checks if any statistics collection is currently enabled.
+	 * @return true if any collection flags are enabled */
 	public static boolean collectingStats(){
 		return COLLECT_QUALITY_STATS || COLLECT_QUALITY_ACCURACY || COLLECT_MATCH_STATS || COLLECT_INSERT_STATS
 				|| COLLECT_BASE_STATS || COLLECT_INDEL_STATS || COLLECT_GC_STATS || COLLECT_ENTROPY_STATS
@@ -1866,7 +2100,9 @@ public class ReadStats {
 				|| COLLECT_BARCODE_STATS;
 	}
 	
+	/** Whether to calculate GC content for read pairs combined */
 	public static boolean usePairGC=true;
+	/** Whether to include N bases in entropy calculations */
 	public static boolean allowEntropyNs=true;
 	
 	public static String AVG_QUAL_HIST_FILE=null;

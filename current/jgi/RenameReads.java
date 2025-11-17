@@ -36,6 +36,11 @@ import tracker.ReadStats;
  */
 public class RenameReads {
 	
+	/**
+	 * Program entry point.
+	 * Creates RenameReads instance, processes reads, and closes output streams.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameReads x=new RenameReads(args);
@@ -45,6 +50,12 @@ public class RenameReads {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs RenameReads with command-line argument parsing.
+	 * Parses input/output files, renaming options, and processing parameters.
+	 * Sets up file formats and validates output file accessibility.
+	 * @param args Command-line arguments specifying input files and renaming options
+	 */
 	public RenameReads(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -238,6 +249,12 @@ public class RenameReads {
 		}
 	}
 	
+	/**
+	 * Main processing method that reads input sequences and applies renaming.
+	 * Creates input/output streams, processes reads in batches, and applies
+	 * the configured renaming strategy to each read header.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -358,6 +375,12 @@ public class RenameReads {
 		System.err.println("Time: "+t);
 	}
 	
+	/**
+	 * Fixes SRA format read headers by extracting the Illumina portion.
+	 * Converts format "SRR1726611.11001 HWI-ST797:117:D091UACXX:4:1101:21093:8249 length=101"
+	 * to "HWI-ST797:117:D091UACXX:4:1101:21093:8249" with pair number suffix.
+	 * @param r The read to fix, may be null
+	 */
 	private void fixSRA(Read r){
 		//SRR1726611.11001 HWI-ST797:117:D091UACXX:4:1101:21093:8249 length=101
 		if(r==null){return;}
@@ -370,6 +393,15 @@ public class RenameReads {
 		}
 	}
 	
+	/**
+	 * Trims characters from both ends of a string.
+	 * Removes specified number of characters from left and right sides.
+	 *
+	 * @param s The string to trim
+	 * @param left Number of characters to remove from the left
+	 * @param right Number of characters to remove from the right
+	 * @return Trimmed string, empty string if trimming exceeds string length
+	 */
 	private static String trim(String s, int left, int right) {
 		assert(left>=0 && right>=0) : left+", "+right;
 		assert(left>0 || right>0) : left+", "+right;
@@ -379,6 +411,15 @@ public class RenameReads {
 		return s.substring(left, left+len);
 	}
 	
+	/**
+	 * Trims characters before the last occurrence of a symbol.
+	 * Removes specified number of characters before the rightmost symbol position.
+	 *
+	 * @param s The string to trim
+	 * @param right Number of characters to remove before the symbol
+	 * @param symbol The symbol to search for from the right
+	 * @return Modified string with characters removed before the symbol
+	 */
 	private static String trimBeforeSymbol(String s, int right, char symbol) {
 		int pos=s.lastIndexOf(symbol);
 //		assert(false) : pos+", '"+symbol+"', "+right;
@@ -390,56 +431,97 @@ public class RenameReads {
 		return ret;
 	}
 	
+	/** Output stream for status messages */
 	private PrintStream outstream=System.err;
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
+	/** Quality file for primary input */
 	private String qfin1=null;
+	/** Quality file for secondary input */
 	private String qfin2=null;
 
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 
+	/** Quality output file for primary reads */
 	private String qfout1=null;
+	/** Quality output file for secondary reads */
 	private String qfout2=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 
+	/** Prefix to add to read names */
 	private String prefix=null;
+	/** Suffix to add to read names */
 	private String suffix=null;
 	
+	/** File format for primary input */
 	private final FileFormat ffin1;
+	/** File format for secondary input */
 	private final FileFormat ffin2;
 
+	/** File format for primary output */
 	private final FileFormat ffout1;
+	/** File format for secondary output */
 	private final FileFormat ffout2;
 
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to enable verbose output */
 	private boolean verbose=false;
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
 
+	/** Number of characters to trim before a specified symbol */
 	public int trimBeforeSymbol=0;
+	/** Symbol used for trimBeforeSymbol operation */
 	public char symbol;
+	/** Number of characters to trim from right side of read names */
 	public int trimRight=0;
+	/** Number of characters to trim from left side of read names */
 	public int trimLeft=0;
 
+	/** Whether to add underscore after prefix */
 	public boolean addUnderscore=true;
+	/** Whether to rename reads based on mapping information */
 	public boolean renameByMapping=false;
+	/** Whether to rename paired reads using insert size */
 	public boolean renameByInsert=false;
+	/** Whether to rename reads using numeric ID, length, and insert size */
 	public boolean renameByTrim=false;
+	/**
+	 * Whether to rename reads using coordinate information from Illumina headers
+	 */
 	public boolean renameByCoords=false;
+	/** Whether to add prefix to existing read names instead of replacing them */
 	public boolean addPrefix=false;
+	/** Whether to replace read names entirely with just the prefix */
 	public boolean prefixOnly=false;
+	/** Whether to fix SRA-format headers by extracting Illumina portion */
 	public boolean fixSRA=false;
+	/** Whether to add pair number suffixes to paired reads */
 	public boolean addPairnum=true;
+	/** Whether to quantize quality scores */
 	public boolean quantizeQuality=false;
+	/** Pair number suffixes for read 1 and read 2 */
 	private String[] pairnums={" 1:", " 2:"};
 
+	/** Pattern for splitting on whitespace characters */
 	private static final Pattern spacePattern=Pattern.compile("\\s+");
+	/** Pattern for splitting on single space characters */
 	private static final Pattern whitespacePattern=Pattern.compile(" ");
 	
 }

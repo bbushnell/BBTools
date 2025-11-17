@@ -1,11 +1,20 @@
 package ml;
 
+/**
+ * Extended mirrored sigmoid activation function for neural networks.
+ * Implements an extended version of mirrored sigmoid that maps input to range [-1,1].
+ * The function is symmetric around the origin and has a bell-like shape with
+ * maximum values at approximately ±2.5 and minimum at 0.
+ *
+ * @author Brian Bushnell
+ */
 public class ExtendedMSig extends Function {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Private constructor prevents external instantiation. */
 	private ExtendedMSig() {}
 
 	@Override
@@ -30,8 +39,11 @@ public class ExtendedMSig extends Function {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** String identifier for extended mirrored sigmoid function. */
 	static final String name="EMSIG";
+	/** Numeric type identifier computed from function name. */
 	static final int type=Function.toType(name, true);
+	/** Singleton instance of the extended mirrored sigmoid function. */
 	static final ExtendedMSig instance=new ExtendedMSig();
 
 }

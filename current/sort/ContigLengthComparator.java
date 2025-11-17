@@ -13,6 +13,7 @@ import shared.Tools;
  */
 public final class ContigLengthComparator implements Comparator<Contig> {
 	
+	/** Private constructor to prevent external instantiation */
 	private ContigLengthComparator(){}
 	
 	@Override
@@ -24,6 +25,14 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 		return ascending*x;
 	}
 	
+	/**
+	 * Performs primary length-based comparison with null safety.
+	 * Handles null values by treating null as greater than non-null contigs.
+	 *
+	 * @param a First contig to compare (may be null)
+	 * @param b Second contig to compare (may be null)
+	 * @return Length difference: a.length() - b.length()
+	 */
 	private static int compareInner(Contig a, Contig b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -46,10 +55,16 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 		return 0;
 	}
 	
+	/** Singleton instance of the comparator for reuse across the application */
 	public static final ContigLengthComparator comparator=new ContigLengthComparator();
 	
+	/**
+	 * Sort direction multiplier: -1 for descending (longest first), 1 for ascending
+	 */
 	private int ascending=-1;
 	
+	/** Sets the sort direction for length comparison.
+	 * @param asc true for ascending order (shortest first), false for descending (longest first) */
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}

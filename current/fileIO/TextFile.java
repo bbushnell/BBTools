@@ -10,9 +10,24 @@ import shared.Timer;
 import shared.Tools;
 
 
+/**
+ * Robust utility class for reading and processing text files with flexible
+ * input handling and advanced line processing capabilities.
+ * Supports multiple input sources including files, standard input, JAR resources,
+ * and compressed file formats with optional subprocess decompression.
+ * Provides efficient memory management using BufferedReader with configurable
+ * blank line handling and line-by-line processing.
+ *
+ * @author Brian Bushnell
+ */
 public class TextFile {
 	
 	
+	/**
+	 * Program entry point for testing TextFile functionality.
+	 * Supports reading from files or stdin with optional speed testing.
+	 * @param args Command-line arguments: [filename] [start_line|"speedtest"] [end_line]
+	 */
 	public static void main(String[] args){
 		TextFile tf=new TextFile(args.length>0 ? args[0] : "stdin", false);
 		int first=0;
@@ -71,6 +86,15 @@ public class TextFile {
 ////		}
 	}
 	
+	/**
+	 * Performs speed testing of file reading operations with timing and throughput metrics.
+	 * Optionally reprints lines or runs silent performance measurement.
+	 *
+	 * @param tf TextFile instance to test
+	 * @param first First line number to start reading
+	 * @param last Last line number to stop reading
+	 * @param reprint Whether to print lines to output or run silently
+	 */
 	private static void speedtest(TextFile tf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long lines=0;
@@ -104,8 +128,15 @@ public class TextFile {
 		}
 	}
 
+	/** Creates a TextFile with subprocess support disabled by default.
+	 * @param name File path or "stdin" for standard input */
 	public TextFile(String name){this(name, false);}
 	
+	/**
+	 * Creates a TextFile from a FileFormat object with format-specific settings.
+	 * Uses FileFormat's subprocess allowance and file path information.
+	 * @param ff FileFormat containing file metadata and processing options
+	 */
 	public TextFile(FileFormat ff){
 		file=new File(ff.name());
 		allowSubprocess=ff.allowSubprocess();
@@ -114,6 +145,12 @@ public class TextFile {
 		br=open();
 	}
 	
+	/**
+	 * Creates a TextFile with configurable subprocess decompression support.
+	 * Normalizes path separators and opens the file for reading.
+	 * @param fname File path or "stdin" for standard input
+	 * @param allowSubprocess_ Whether to allow subprocess decompression for compressed files
+	 */
 	public TextFile(String fname, boolean allowSubprocess_){
 		fname=fname.replace('\\', '/');
 		file=new File(fname);
@@ -123,6 +160,12 @@ public class TextFile {
 		br=open();
 	}
 	
+	/**
+	 * Convenience method to read entire file into string array from FileFormat.
+	 * Automatically closes the TextFile after reading.
+	 * @param ff FileFormat specifying the file to read
+	 * @return Array of all lines in the file as strings
+	 */
 	public static final String[] toStringLines(FileFormat ff){
 		TextFile tf=new TextFile(ff);
 		String[] lines=tf.toStringLines();
@@ -130,6 +173,12 @@ public class TextFile {
 		return lines;
 	}
 	
+	/**
+	 * Convenience method to read entire file into string array from filename.
+	 * Automatically closes the TextFile after reading.
+	 * @param fname File path to read
+	 * @return Array of all lines in the file as strings
+	 */
 	public static final String[] toStringLines(String fname){
 		TextFile tf=new TextFile(fname);
 		String[] lines=tf.toStringLines();
@@ -151,6 +200,11 @@ public class TextFile {
 		
 	}
 	
+	/**
+	 * Counts total number of lines in the file and resets to beginning.
+	 * Performs full file traversal then automatically resets file position.
+	 * @return Total number of lines in the file
+	 */
 	public final long countLines(){
 		
 		String s=null;
@@ -164,6 +218,14 @@ public class TextFile {
 		
 	}
 	
+	/**
+	 * Splits an array of strings on tab characters to create 2D string array.
+	 * Optionally trims whitespace before splitting each line.
+	 *
+	 * @param lines Array of strings to split
+	 * @param trim Whether to trim whitespace before splitting
+	 * @return 2D array where each row contains tab-separated fields from input line
+	 */
 	public static String[][] doublesplitTab(String[] lines, boolean trim){
 		String[][] lines2=new String[lines.length][];
 		for(int i=0; i<lines.length; i++){
@@ -177,6 +239,14 @@ public class TextFile {
 	}
 	
 	
+	/**
+	 * Splits an array of strings on whitespace to create 2D string array.
+	 * Uses Java whitespace pattern for splitting, optionally trims before splitting.
+	 *
+	 * @param lines Array of strings to split
+	 * @param trim Whether to trim whitespace before splitting
+	 * @return 2D array where each row contains whitespace-separated fields from input line
+	 */
 	public static String[][] doublesplitWhitespace(String[] lines, boolean trim){
 		String[][] lines2=new String[lines.length][];
 		for(int i=0; i<lines.length; i++){
@@ -189,15 +259,28 @@ public class TextFile {
 		return lines2;
 	}
 	
+	/** Closes current file handle and reopens from the beginning.
+	 * Allows reading the same file multiple times from the start. */
 	public final void reset(){
 		close();
 		br=open();
 	}
 	
+	/**
+	 * Checks if the file or input source exists and is accessible.
+	 * Handles special cases for stdin, JAR resources, and regular files.
+	 * @return true if file exists or is a valid input source, false otherwise
+	 */
 	public boolean exists(){
 		return name.equals("stdin") || name.startsWith("stdin.") || name.startsWith("jar:") || file.exists(); //TODO Ugly and unsafe hack for files in jars
 	}
 	
+	/**
+	 * Closes all file handles and streams, cleaning up resources.
+	 * Sets open flag to false and nullifies all stream references.
+	 * Updates error state based on stream closure success.
+	 * @return Always returns false after closing
+	 */
 	public final boolean close(){
 		if(!open){return false;}
 		open=false;
@@ -212,14 +295,26 @@ public class TextFile {
 		return false;
 	}
 	
+	/** Reads the next line from the file, skipping blank lines by default.
+	 * @return Next non-blank line as string, or null if end of file */
 	public String nextLine(){
 		return readLine(true);
 	}
 	
+	/** Reads the next line from the file, skipping blank lines by default.
+	 * @return Next non-blank line as string, or null if end of file */
 	public final String readLine(){
 		return readLine(true);
 	}
 	
+	/**
+	 * Reads the next line from the file with configurable blank line handling.
+	 * Increments line number counter and handles various error conditions.
+	 * Blank line detection includes whitespace-only lines when skipBlank is true.
+	 *
+	 * @param skipBlank Whether to skip blank and whitespace-only lines
+	 * @return Next line as string, or null if end of file or error
+	 */
 	public final String readLine(boolean skipBlank){
 		String currentLine=null;
 		
@@ -270,6 +365,12 @@ public class TextFile {
 		return currentLine;
 	}
 	
+	/**
+	 * Opens input stream and creates BufferedReader with 32KB buffer.
+	 * Uses ReadWrite utility to handle various input sources and compression.
+	 * Sets open flag and initializes all stream objects.
+	 * @return Configured BufferedReader for the file
+	 */
 	private final BufferedReader open(){
 		
 		if(open){
@@ -285,21 +386,32 @@ public class TextFile {
 		return b;
 	}
 	
+	/** Returns whether the file is currently open for reading */
 	public boolean isOpen(){return open;}
 
+	/** Flag indicating whether file is currently open for reading */
 	private boolean open=false;
+	/** Flag indicating if any errors occurred during file operations */
 	public boolean errorState=false;
 	
+	/** File path or input source name */
 	public final String name;
+	/** File object representing the input file */
 	public File file;
+	/** Whether subprocess decompression is allowed for compressed files */
 	private final boolean allowSubprocess;
 	
+	/** Underlying input stream for reading file data */
 	public InputStream is;
+	/** InputStreamReader wrapping the InputStream for character conversion */
 	public InputStreamReader isr;
+	/** BufferedReader providing efficient line-by-line reading with 32KB buffer */
 	public BufferedReader br;
 	
+	/** Current line number being read, starts at -1 before first line */
 	public long lineNum=-1;
 
+	/** Global flag for verbose output during file operations */
 	public static boolean verbose=false;
 	
 }

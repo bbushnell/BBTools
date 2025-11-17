@@ -13,6 +13,14 @@ import stream.SiteScoreR;
  */
 public class LookAtID {
 	
+	/**
+	 * Program entry point for analyzing SiteScoreR ID values.
+	 * Reads a tab-separated text file and examines each SiteScoreR object
+	 * for numeric ID overflow conditions. Reports the maximum ID found
+	 * and details of any IDs that exceed Integer.MAX_VALUE.
+	 *
+	 * @param args Command-line arguments where args[0] is the input file path
+	 */
 	public static void main(String[] args){
 		
 		TextFile tf=new TextFile(args[0], true);

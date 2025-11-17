@@ -30,10 +30,20 @@ public class ChromArrayMaker {
 //	dna.ChromArrayMaker ecoli_K12.fa 1 writeinthread=false genscaffoldinfo=true retain waitforwriting=false
 //	gzip=true chromc=false maxlen=536670912 writechroms=true minscaf=1 midpad=300 startpad=8000 stoppad=8000 nodisk=false
 	
+	/** Program entry point that delegates to main2.
+	 * @param args Command-line arguments for chromosome array creation */
 	public static void main(String[] args){
 		main2(args);
 	}
 	
+	/**
+	 * Main processing method that parses arguments and creates chromosome arrays.
+	 * Handles argument parsing, validates inputs, and coordinates the conversion process.
+	 * Can optionally retain chromosome arrays in memory or write information files only.
+	 *
+	 * @param args Command-line arguments including input file, genome build, and options
+	 * @return ArrayList of ChromosomeArray objects if RETAIN=true, null otherwise
+	 */
 	public static ArrayList<ChromosomeArray> main2(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -165,9 +175,18 @@ public class ChromArrayMaker {
 		return r;
 	}
 	
+	/** Private constructor to prevent external instantiation */
 	private ChromArrayMaker(){}
 	
 	
+	/**
+	 * Analyzes a chromosome array to count contigs, bases, and padding information.
+	 * Scans through the array to identify defined vs undefined bases and contig boundaries.
+	 *
+	 * @param ca The chromosome array to analyze
+	 * @return Array containing [chromosome, scaffolds, contigs, length, defined,
+	 * undefined, startPad, stopPad]
+	 */
 	private static int[] countInfo(ChromosomeArray ca){
 		int contigs=0;
 		int startPad=0;
@@ -200,6 +219,18 @@ public class ChromArrayMaker {
 		return new int[] {ca.chromosome, 1, contigs, (ca.maxIndex+1), defined, undefined, startPad, stopPad};
 	}
 	
+	/**
+	 * Writes chromosome information and summary files for an existing genome build.
+	 * Deprecated method that processes already-created chromosome arrays to generate metadata.
+	 *
+	 * @param genome Genome build number
+	 * @param chroms Number of chromosomes to process
+	 * @param name Organism name for summary file
+	 * @param source Source file path for summary file
+	 * @param unload Whether to unload chromosome arrays after processing
+	 * @param scafNamePrefix Whether scaffold names include prefixes
+	 * @deprecated Use makeChroms method instead for new conversions
+	 */
 	@Deprecated
 	public static void writeInfo(int genome, int chroms, String name, String source, boolean unload, boolean scafNamePrefix){
 		Data.GENOME_BUILD=genome;
@@ -258,6 +289,20 @@ public class ChromArrayMaker {
 		info.waitForFinish();
 	}
 	
+	/**
+	 * Creates chromosome arrays from input FASTA/FASTQ file with configurable options.
+	 * Reads sequences, applies padding, merges scaffolds based on settings, and writes output files.
+	 * Generates info.txt, scaffolds.txt.gz, summary.txt, and individual chromosome files.
+	 *
+	 * @param fname Input FASTA or FASTQ file path
+	 * @param outRoot Output directory root path
+	 * @param genomeName Organism name for metadata files
+	 * @param genScaffolds Whether to generate scaffold information file
+	 * @param writeChroms Whether to write individual chromosome array files
+	 * @param r ArrayList to store chromosome arrays if RETAIN=true
+	 * @param scafNamePrefix Whether to include scaffold name prefixes in output
+	 * @return Number of chromosomes created
+	 */
 	private int makeChroms(String fname, String outRoot, String genomeName, boolean genScaffolds, boolean writeChroms, ArrayList<ChromosomeArray> r,
 			boolean scafNamePrefix){
 		
@@ -445,6 +490,20 @@ public class ChromArrayMaker {
 		return chrom-1;
 	}
 	
+	/**
+	 * Creates a single chromosome array by reading and merging scaffolds from input.
+	 * Applies start padding, merges scaffolds based on length limits and settings,
+	 * and applies end padding.
+	 * Updates cumulative statistics and writes scaffold information.
+	 *
+	 * @param criswrapper Input stream wrapper for reading sequences
+	 * @param chrom Chromosome number being created
+	 * @param infoWriter Writer for info.txt file (null if NODISK=true)
+	 * @param scafWriter Writer for scaffolds.txt.gz file (null if not generating scaffold info)
+	 * @param infolist List to store info lines if NODISK=true
+	 * @param scaflist List to store scaffold lines if NODISK=true
+	 * @return ChromosomeArray containing merged scaffolds, or null if no scaffolds processed
+	 */
 	private ChromosomeArray makeNextChrom(CrisWrapper criswrapper, int chrom, TextStreamWriter infoWriter, TextStreamWriter scafWriter, ArrayList<String> infolist, ArrayList<String> scaflist){
 		assert(FastaReadInputStream.SPLIT_READS==false);
 		ChromosomeArray ca=new ChromosomeArray(chrom, (byte)Shared.PLUS, 0, 120000+START_PADDING);
@@ -536,32 +595,57 @@ public class ChromArrayMaker {
 	
 //	private String lastHeader;
 //	private String nextHeader;
+	/** Current scaffold being processed from input stream */
 	private Read currentScaffold;
+	/** Running total of scaffolds processed across all chromosomes */
 	private long scaffoldSum=0;
+	/** Running total of bases across all chromosomes */
 	private long lengthSum=0;
+	/** Running total of defined (non-N) bases across all chromosomes */
 	private long definedSum=0;
+	/** Running total of undefined (N) bases across all chromosomes */
 	private long undefinedSum=0;
+	/** Running total of contigs across all chromosomes */
 	private long contigSum=0;
 	
 	
+	/** Returns the current version number for chromosome array format */
 	public static final int currentVersion(){return VERSION;}
 	
+	/** Whether to merge multiple scaffolds into single chromosomes */
 	public static boolean MERGE_SCAFFOLDS=true;
+	/** Whether to write chromosome files in background threads */
 	public static boolean WRITE_IN_THREAD=false;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing files instead of overwriting */
 	public static boolean append=false;
+	/** Number of N bases to add at the start of each chromosome */
 	public static int START_PADDING=8000; //Always applied
+	/** Number of N bases to insert between merged scaffolds */
 	public static int MID_PADDING=300; //Applied when merging scaffolds
+	/** Minimum number of N bases to ensure at the end of each chromosome */
 	public static int END_PADDING=8000; //Only applied if not enough terminal Ns
+	/** Minimum scaffold length to include in chromosome arrays */
 	public static int MIN_SCAFFOLD=1;
+	/** Gap size threshold for counting separate contigs within scaffolds */
 	public static int contigTrigger=10;
+	/** Version number for chromosome array format compatibility */
 	public static int VERSION=5;
+	/** Maximum allowed length for a single chromosome array */
 	public static int MAX_LENGTH=(1<<29)-200000;
 	
+	/** Whether to print detailed processing information */
 	public static boolean verbose=false;
+	/** Whether to keep chromosome arrays in memory after creation */
 	public static boolean RETAIN=false;
+	/**
+	 * Whether to wait for all file writing operations to complete before exiting
+	 */
 	public static boolean WAIT_FOR_WRITING=true;
+	/** Whether to skip disk operations and keep all data in memory */
 	public static boolean NODISK=false;
+	/** Genome build number associated with the in-memory lists */
 	public static int LISTBUILD=-1;
 	public static ArrayList<String> INFO_LIST, SCAF_LIST, SUMMARY_LIST;
 	

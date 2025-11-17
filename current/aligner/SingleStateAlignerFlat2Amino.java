@@ -17,6 +17,7 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 	}
 	
 	
+	/** Creates a new amino acid aligner instance */
 	public SingleStateAlignerFlat2Amino(){}
 
 	@Override
@@ -33,6 +34,19 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 	public final float align(byte[] a, byte[] b, int[] posVector, int minScore) {return align(a, b, null, 0, b.length-1, minScore);}
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int from, int to) {return align(a, b, pos, from, to, -9999);}
+	/**
+	 * Aligns query sequence against reference sequence within specified bounds.
+	 * Swaps sequences if query is longer than reference for optimization.
+	 * Returns identity score as a fraction.
+	 *
+	 * @param q Query sequence bytes
+	 * @param r Reference sequence bytes
+	 * @param pos Output array for alignment positions [start, stop] (may be null)
+	 * @param from Start position in reference
+	 * @param to End position in reference
+	 * @param minScore Minimum alignment score threshold
+	 * @return Identity fraction (0.0-1.0) or 0 if alignment fails
+	 */
 	public float align(byte[] q, byte[] r, int[] pos, int from, int to, int minScore) {
 		if(q.length>r.length && pos==null) {byte[] s=q; q=r; r=s;}
 		assert(q.length<=r.length);
@@ -53,6 +67,8 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return id;
 	}
 	
+	/** Initializes the top row of the alignment matrix.
+	 * Sets scores based on query consumption to prefer leftmost alignments. */
 	private void prefillTopRow(){
 		final int[] header=packed[0];
 		final int qlen=rows;
@@ -68,6 +84,8 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		}
 	}
 	
+	/** Fills the left column of alignment matrix with insertion penalties.
+	 * @param i Starting row index (minimum 1) */
 	private void prefillLeftColumnStartingAt(int i){
 		packed[0][0]=MODE_MATCH;
 		i=Tools.max(1, i);
@@ -77,6 +95,12 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		}
 	}
 	
+	/**
+	 * Initializes or resizes the alignment matrix for given dimensions.
+	 * Allocates new matrix if needed or reuses existing matrix when possible.
+	 * @param rows_ Number of rows needed
+	 * @param columns_ Number of columns needed
+	 */
 	private void initialize(int rows_, int columns_){
 		rows=rows_;
 		columns=columns_;
@@ -198,6 +222,16 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return maxScore<minScore ? null : new int[] {rows, maxCol, maxState, maxScore, maxStart};
 	}
 	
+	/**
+	 * Determines the optimal alignment state at given matrix position.
+	 * Compares match, substitution, insertion, and deletion scores.
+	 *
+	 * @param row Matrix row position
+	 * @param col Matrix column position
+	 * @param q Query amino acid at this position
+	 * @param r Reference amino acid at this position
+	 * @return Alignment state constant (MODE_MATCH, MODE_SUB, MODE_DEL, MODE_INS, or MODE_N)
+	 */
 	int getState(int row, int col, byte q, byte r){//zxvzxcv TODO: Fix - needs to find max
 		final boolean match=(q==r);
 		final boolean defined=(AminoAcid.isFullyDefinedAA(q) && AminoAcid.isFullyDefinedAA(r));
@@ -541,6 +575,14 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Converts reference sequence region to string representation.
+	 *
+	 * @param ref Reference sequence bytes
+	 * @param startLoc Start position (inclusive)
+	 * @param stopLoc Stop position (inclusive)
+	 * @return String representation of sequence region
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -571,6 +613,11 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
+	/**
+	 * Calculates deletion penalty for given length.
+	 * @param len Number of deleted positions
+	 * @return Total deletion penalty score
+	 */
 	private static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL*len;
@@ -583,25 +630,40 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 	public int columns(){return columns;}
 	
 	
+	/** Maximum number of rows allocated in alignment matrix */
 	private int maxRows;
+	/** Maximum number of columns allocated in alignment matrix */
 	private int maxColumns;
 
+	/** Two-dimensional alignment scoring matrix */
 	private int[][] packed;
 	
+	/** Maximum allowed alignment score to prevent overflow */
 	public static final int MAX_SCORE=Integer.MAX_VALUE-2000;
+	/** Minimum allowed alignment score */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
+	/** Alignment state constant for deletions */
 	private static final byte MODE_DEL=1;
+	/** Alignment state constant for insertions */
 	private static final byte MODE_INS=2;
+	/** Alignment state constant for substitutions/mismatches */
 	private static final byte MODE_SUB=3;
+	/** Alignment state constant for matches */
 	private static final byte MODE_MATCH=4;
+	/** Alignment state constant for ambiguous amino acids */
 	private static final byte MODE_N=5;
 	
+	/** Score penalty for ambiguous reference amino acids */
 	public static final int POINTS_NOREF=-15;
+	/** Score reward for amino acid matches */
 	public static final int POINTS_MATCH=100;
+	/** Score penalty for amino acid substitutions */
 	public static final int POINTS_SUB=-50;
+	/** Score penalty for amino acid insertions */
 	public static final int POINTS_INS=-121;
+	/** Score penalty for amino acid deletions */
 	public static final int POINTS_DEL=-111;
 	
 //	public static final int POINTS_NOREF=-100000;
@@ -610,15 +672,20 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 //	public static final int POINTS_INS=-100;
 //	public static final int POINTS_DEL=-100;
 	
+	/** Score constant representing a bad/invalid alignment */
 	public static final int BAD=MIN_SCORE-1;
 	
+	/** Current number of rows in alignment matrix */
 	private int rows;
+	/** Current number of columns in alignment matrix */
 	private int columns;
 
 //	public long iterationsLimited=0;
 //	public long iterationsUnlimited=0;
 
+	/** Flag for basic verbose output */
 	public boolean verbose=false;
+	/** Flag for extended verbose output */
 	public boolean verbose2=false;
 	
 }

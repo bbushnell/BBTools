@@ -18,6 +18,11 @@ import shared.Tools;
  */
 public class LongArrayListHashMap <X> {
 	
+	/**
+	 * Test harness comparing performance against standard HashMap.
+	 * Runs benchmarks with sequential and random keys to validate correctness and speed.
+	 * @param args Command line arguments (unused)
+	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		LongArrayListHashMap<Long> map=new LongArrayListHashMap<Long>(20, 0.7f);
@@ -126,14 +131,26 @@ public class LongArrayListHashMap <X> {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a new LongArrayListHashMap with default initial size of 256 */
 	public LongArrayListHashMap(){
 		this(256);
 	}
 	
+	/**
+	 * Creates a new LongArrayListHashMap with specified initial size.
+	 * Uses default load factor of 0.7.
+	 * @param initialSize Initial capacity of the hash map
+	 */
 	public LongArrayListHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Creates a new LongArrayListHashMap with specified size and load factor.
+	 * Load factor is clamped between 0.25 and 0.90 for stability.
+	 * @param initialSize Initial capacity of the hash map
+	 * @param loadFactor_ Target load factor for resize operations
+	 */
 	public LongArrayListHashMap(int initialSize, float loadFactor_){
 		synchronized(this) {
 			invalid=randy.nextLong()|MINMASK;
@@ -149,6 +166,11 @@ public class LongArrayListHashMap <X> {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes all key-value mappings from the map.
+	 * Recycles ArrayList instances longer than 10 elements to reduce memory usage.
+	 * Resets size to zero and marks all cells as invalid.
+	 */
 	public void clear(){
 		if(size<1){return;}
 		for(int i=0; i<values.length /*&& size>0*/; i++) {//TODO: Enable the early exit
@@ -166,15 +188,31 @@ public class LongArrayListHashMap <X> {
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests whether the specified key is present in the map.
+	 * @param key The key to test for presence
+	 * @return true if the key is present, false otherwise
+	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests whether the specified key is present in the map.
+	 * Alias for contains(long key) for HashMap compatibility.
+	 * @param key The key to test for presence
+	 * @return true if the key is present, false otherwise
+	 */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
+	/**
+	 * Returns the ArrayList of values associated with the specified key.
+	 * @param key The key whose associated values are to be returned
+	 * @return ArrayList of values for the key, or null if key is not present
+	 */
 	public ArrayList<X> get(long key){
 //		assert(verify()); //123
 		final int cell=findCell(key);
@@ -251,8 +289,10 @@ public class LongArrayListHashMap <X> {
 		return true;
 	}
 	
+	/** Returns the number of key-value mappings in this map */
 	public int size(){return size;}
 	
+	/** Returns true if this map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -264,6 +304,12 @@ public class LongArrayListHashMap <X> {
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns a detailed string representation showing cell indices, keys, and values.
+	 * Format: [(index, key, ArrayList), ...]
+	 * Useful for debugging hash table structure.
+	 * @return Detailed string representation of internal structure
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -278,6 +324,11 @@ public class LongArrayListHashMap <X> {
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a simple string representation showing only the keys.
+	 * Format: [key1, key2, key3, ...]
+	 * @return String representation showing only keys
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -292,6 +343,11 @@ public class LongArrayListHashMap <X> {
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns an array containing all keys in this map.
+	 * The array length equals the number of mappings.
+	 * @return Array of all keys present in the map
+	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -308,6 +364,12 @@ public class LongArrayListHashMap <X> {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Validates the internal consistency of the hash table structure.
+	 * Checks that all keys can be found at their expected positions
+	 * and that value counts match the size field.
+	 * @return true if the hash table is consistent, false otherwise
+	 */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -341,6 +403,12 @@ public class LongArrayListHashMap <X> {
 		return pass;
 	}
 	
+	/**
+	 * Rehashes all entries starting from the specified position.
+	 * Used after removal to maintain hash table integrity by moving
+	 * displaced entries back to their proper positions.
+	 * @param initial Starting position for rehashing
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -371,6 +439,11 @@ public class LongArrayListHashMap <X> {
 		return true;
 	}
 	
+	/**
+	 * Generates a new invalid marker value when the current one conflicts with data.
+	 * Updates all empty cells to use the new invalid marker.
+	 * Ensures the invalid marker is always negative and unique.
+	 */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -417,11 +490,22 @@ public class LongArrayListHashMap <X> {
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/**
+	 * Doubles the hash table size plus one when load factor is exceeded.
+	 * Synchronized to prevent concurrent modifications during resize.
+	 * Calls resize with keys.length*2L+1 as argument.
+	 */
 	private synchronized final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to accommodate the specified size.
+	 * Finds the next prime number for the new modulus to improve hash distribution.
+	 * Rehashes all existing entries into the new table.
+	 * @param size2 Target size for the new hash table
+	 */
 	@SuppressWarnings("unchecked")
 	private synchronized final void resize(final long size2){
 //		assert(verify()); //123
@@ -459,30 +543,43 @@ public class LongArrayListHashMap <X> {
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the internal keys array (includes invalid markers) */
 	public long[] keys() {return keys;}
 
+	/** Returns the internal values array (includes null entries) */
 	public ArrayList<X>[] values() {return values;}
 
+	/** Returns the current invalid marker value used for empty cells */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Array storing hash table keys, with invalid markers for empty cells */
 	private long[] keys;
+	/** Nested array of ArrayLists storing values corresponding to keys */
 	private ArrayList<X>[] values;
 //	private ArrayList<X> keyList;//TODO: Store keys here for quick clearing, perhaps
+	/** Current number of key-value mappings in the map */
 	private int size=0;
 	/** Value for empty cells */
 	private long invalid;
+	/** Prime number used for hash calculation and array size */
 	private int modulus;
+	/** Maximum number of entries before triggering resize operation */
 	private int sizeLimit;
+	/** Target load factor for determining when to resize the hash table */
 	private final float loadFactor;
 	
+	/** Random number generator for creating invalid marker values */
 	private static final Random randy=new Random(1);
+	/** Bit mask for ensuring positive hash values (Long.MAX_VALUE) */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Bit mask for ensuring invalid markers are negative (Long.MIN_VALUE) */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
+	/** Extra slots added to hash table size for improved collision handling */
 	private static final int extra=10;
 	
 }

@@ -45,14 +45,44 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	}
 	
 	//Array should already be hashed, sorted, unique, subtracted from Long.MAX_VALUE, then reversed.
+	/**
+	 * Constructs a sketch with k-mer keys and metadata.
+	 * Uses default values for taxonomy and genome size information.
+	 *
+	 * @param keys_ Sorted k-mer hash keys
+	 * @param keyCounts_ Count of each k-mer (may be null)
+	 * @param baseCounts_ Base composition counts [A,C,G,T] (may be null)
+	 * @param r16S_ 16S rRNA sequence (may be null)
+	 * @param r18S_ 18S rRNA sequence (may be null)
+	 * @param meta_ Additional metadata strings (may be null)
+	 */
 	public Sketch(long[] keys_, int[] keyCounts_, long[] baseCounts_, byte[] r16S_, byte[] r18S_, ArrayList<String> meta_){
 		this(keys_, keyCounts_, baseCounts_, r16S_, r18S_, -1, -1, -1, -1, -1, -1, null, null, null, meta_);
 	}
 	
+	/**
+	 * Constructs a sketch from a SketchHeap with minimum count filtering.
+	 *
+	 * @param heap The SketchHeap containing k-mer data
+	 * @param clearFname Whether to clear the filename from the heap
+	 * @param keepCounts Whether to preserve k-mer count information
+	 * @param meta_ Additional metadata strings
+	 */
 	public Sketch(SketchHeap heap, boolean clearFname, boolean keepCounts, ArrayList<String> meta_){
 		this(heap, clearFname, keepCounts, meta_, -1);
 	}
 	
+	/**
+	 * Constructs a sketch from a SketchHeap with specified minimum occurrence count.
+	 * Filters k-mers to include only those appearing at least minKeyOccuranceCount times.
+	 * Preserves k-mer counts if requested and not in set mode.
+	 *
+	 * @param heap The SketchHeap containing k-mer data
+	 * @param clearFname Whether to clear the filename from the heap
+	 * @param keepCounts Whether to preserve k-mer count information
+	 * @param meta_ Additional metadata strings
+	 * @param minKeyOccuranceCount Minimum occurrence count for k-mers to include
+	 */
 	public Sketch(SketchHeap heap, boolean clearFname, boolean keepCounts, ArrayList<String> meta_, int minKeyOccuranceCount){
 		this(heap.toSketchArray_minCount(minKeyOccuranceCount), null, heap.baseCounts(false), heap.r16S(), heap.r18S(), (int)heap.taxID, heap.imgID,
 				heap.genomeSizeBases, heap.genomeSizeKmers, heap.genomeSequences,
@@ -74,6 +104,27 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 //		assert(false) : (counts==null)+", "+heap.setMode+", "+keepCounts;
 	}
 
+	/**
+	 * Full constructor for creating a sketch with all possible metadata.
+	 * Initializes all fields including taxonomy information, genome size estimates,
+	 * and various identifiers. Handles IMG record lookup if available.
+	 *
+	 * @param keys_ Sorted k-mer hash keys
+	 * @param keyCounts_ Count of each k-mer (may be null)
+	 * @param baseCounts_ Base composition counts [A,C,G,T] (may be null)
+	 * @param r16S_ 16S rRNA sequence (may be null)
+	 * @param r18S_ 18S rRNA sequence (may be null)
+	 * @param taxID_ NCBI taxonomy ID
+	 * @param imgID_ IMG database ID
+	 * @param gSizeBases_ Genome size in bases
+	 * @param gSizeKmers_ Genome size in k-mers
+	 * @param gSequences_ Number of sequences in genome
+	 * @param probCorrect_ Probability of correct base calls
+	 * @param taxName_ Taxonomic name
+	 * @param name0_ Primary sequence name
+	 * @param fname_ Source filename
+	 * @param meta_ Additional metadata strings
+	 */
 	public Sketch(long[] keys_, int[] keyCounts_, long[] baseCounts_, byte[] r16S_, byte[] r18S_, int taxID_, long imgID_, long gSizeBases_, 
 			long gSizeKmers_, long gSequences_, double probCorrect_, String taxName_, String name0_, String fname_, ArrayList<String> meta_){
 //		Exception e=new Exception(baseCounts_+", "+Arrays.toString(baseCounts_));
@@ -122,6 +173,8 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		}
 	}
 	
+	/** Loads SSU rRNA sequences from the SSU map if available.
+	 * Only loads for valid taxonomy IDs below the fake ID threshold. */
 	void loadSSU(){
 		if(taxID>0 && taxID<minFakeID){
 			if(r16S==null && SSUMap.r16SMap!=null){
@@ -135,6 +188,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 //		System.err.println(taxID+", "+ssu+", "+SSUMap.ssuMap.size());
 	}
 	
+	/**
+	 * Adds a metadata string to this sketch after fixing formatting.
+	 * Creates the metadata list if it doesn't exist.
+	 * @param s Metadata string to add
+	 */
 	void addMeta(String s){
 		s=fixMeta(s);
 		if(s==null){return;}
@@ -142,11 +200,21 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		meta.add(s);
 	}
 	
+	/**
+	 * Sets the metadata list for this sketch.
+	 * Should only be called when no metadata exists.
+	 * @param list The metadata list to set
+	 */
 	void setMeta(ArrayList<String> list){
 		assert(meta==null);
 		meta=list;
 	}
 	
+	/**
+	 * Fixes string formatting by replacing tabs with spaces.
+	 * @param s String to fix
+	 * @return Fixed string or null if input was null
+	 */
 	public static String fix(String s){
 		if(s==null){return null;}
 		return s.replace('\t', ' ');
@@ -156,6 +224,14 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Merges k-mer keys from another sketch into this one.
+	 * Maintains sorted order and limits result to maxlen keys.
+	 * Both sketches must not have key counts.
+	 *
+	 * @param other The sketch to merge with
+	 * @param maxlen Maximum number of keys to retain
+	 */
 	public void add(Sketch other, int maxlen){
 		assert(keyCounts==null && other.keyCounts==null);
 		final long[] a=keys;
@@ -191,6 +267,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		}
 	}
 
+	/**
+	 * Resizes the key arrays to the specified length.
+	 * Only reduces size, does not expand.
+	 * @param newSize New size for key arrays
+	 */
 	public void resize(int newSize) {
 		if(newSize>=length()){return;}
 		keys=Arrays.copyOf(keys, newSize);
@@ -201,10 +282,21 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		}
 	}
 	
+	/**
+	 * Fixes key counts by removing count array if maximum count is less than 2.
+	 * Updates maxCount field with the highest count found.
+	 * @return The maximum count value
+	 */
 	int fixKeyCounts(){
 		return fixKeyCounts(keyCounts==null ? maxCount : keyCounts.length);
 	}
 	
+	/**
+	 * Fixes key counts checking up to maxLen entries.
+	 * Removes count array if maximum count is less than 2.
+	 * @param maxLen Maximum number of entries to check
+	 * @return The maximum count value
+	 */
 	int fixKeyCounts(int maxLen){
 		int max=0;
 		if(keyCounts!=null){
@@ -217,6 +309,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return maxCount;
 	}
 
+	/**
+	 * Removes blacklisted k-mers from this sketch.
+	 * Filters both keys and counts arrays to exclude blacklisted entries.
+	 * @return Number of k-mers removed
+	 */
 	public int applyBlacklist() {
 		assert(blacklist!=null);
 		LongList keylist=new LongList(keys.length);
@@ -245,6 +342,14 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------        Set Operations        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a new sketch containing the intersection of two sketches.
+	 * Result inherits metadata from the second sketch.
+	 *
+	 * @param sa First sketch
+	 * @param sb Second sketch
+	 * @return New sketch with shared k-mers, or null if no intersection
+	 */
 	public static final Sketch intersection(Sketch sa, Sketch sb){
 		Sketch shared=intersection(sa.keys, sb.keys, sa.keyCounts);
 		if(shared!=null){
@@ -259,6 +364,15 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return shared;
 	}
 	
+	/**
+	 * Creates a sketch from the intersection of two k-mer key arrays.
+	 * Preserves counts from the first array if available.
+	 *
+	 * @param a First k-mer array
+	 * @param b Second k-mer array
+	 * @param aCounts Count array for first k-mer array (may be null)
+	 * @return New sketch with shared k-mers, or null if no matches
+	 */
 	public static final Sketch intersection(long[] a, long[] b, int[] aCounts){
 		int i=0, j=0, matches=0;
 		LongList ll=new LongList();
@@ -284,6 +398,14 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return new Sketch(ll.toArray(), il.size>0 ? il.toArray() : null, null, null, null, null);
 	}
 	
+	/**
+	 * Creates a new sketch containing the union of two sketches.
+	 * Result inherits metadata from the first sketch.
+	 *
+	 * @param sa First sketch
+	 * @param sb Second sketch
+	 * @return New sketch with combined k-mers from both inputs
+	 */
 	public static final Sketch union(Sketch sa, Sketch sb){
 		Sketch shared=union(sa.keys, sb.keys, sa.keyCounts, sb.keyCounts, sa.baseCounts, sb.baseCounts, sa.r16S, sb.r16S, sa.r18S, sb.r18S);
 		if(shared!=null){
@@ -298,6 +420,22 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return shared;
 	}
 	
+	/**
+	 * Creates a sketch from the union of two k-mer key arrays with full metadata.
+	 * Combines counts and base counts, selects longer SSU sequences.
+	 *
+	 * @param a First k-mer array
+	 * @param b Second k-mer array
+	 * @param aCounts Count array for first k-mer array
+	 * @param bCounts Count array for second k-mer array
+	 * @param aBaseCounts Base counts for first sketch
+	 * @param bBaseCounts Base counts for second sketch
+	 * @param a16S 16S sequence from first sketch
+	 * @param b16S 16S sequence from second sketch
+	 * @param a18S 18S sequence from first sketch
+	 * @param b18S 18S sequence from second sketch
+	 * @return New sketch with combined data from both inputs
+	 */
 	public static final Sketch union(long[] a, long[] b, int[] aCounts, int[] bCounts, long[] aBaseCounts, long[] bBaseCounts, 
 			byte[] a16S, byte[] b16S, byte[] a18S, byte[] b18S){
 		int i=0, j=0, matches=0;
@@ -342,10 +480,24 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------          Filtering          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Checks if this sketch passes metadata filtering criteria.
+	 * @param params Display parameters containing filter criteria
+	 * @return true if sketch passes all metadata filters
+	 */
 	boolean passesMeta(DisplayParams params) {
 		return passesMeta(params.requiredMeta, params.bannedMeta, /*params.requiredTaxid, params.bannedTaxid,*/ params.requiredMetaAnd);
 	}
 
+	/**
+	 * Checks if this sketch passes specified metadata filtering criteria.
+	 * Evaluates required and banned metadata tags with AND/OR logic.
+	 *
+	 * @param requiredMeta List of required metadata tags (may be null)
+	 * @param bannedMeta List of banned metadata tags (may be null)
+	 * @param requiredMetaAnd Whether all required tags must be present (AND) vs any (OR)
+	 * @return true if sketch passes all specified filters
+	 */
 	boolean passesMeta(ArrayList<String> requiredMeta, ArrayList<String> bannedMeta, /*IntList requiredTaxid, IntList bannedTaxid,*/ boolean requiredMetaAnd) {
 		assert(requiredMeta!=null || bannedMeta!=null /*|| requiredTaxid!=null || bannedTaxid!=null*/);
 		assert(requiredMeta==null || requiredMeta.size()>0);
@@ -378,10 +530,40 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------          Comparison          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Counts matching k-mers between this sketch and another sketch.
+	 * Wrapper method that delegates to the static version.
+	 *
+	 * @param other Sketch to compare against
+	 * @param buffer Buffer to store comparison results
+	 * @param present BitSet tracking which k-mers have been seen
+	 * @param fillPresent Whether to populate the present BitSet
+	 * @param taxHits Array mapping k-mer indices to taxonomy hits
+	 * @param contamLevel Taxonomy level for contamination analysis
+	 * @return Number of matching k-mers
+	 */
 	public int countMatches(Sketch other, CompareBuffer buffer, AbstractBitSet present, boolean fillPresent, int[][] taxHits, int contamLevel){
 		return countMatches(keys, other.keys, keyCounts, other.keyCounts, refHitCounts, other.taxID, buffer, present, fillPresent, taxHits, contamLevel);
 	}
 	
+	/**
+	 * Counts matching k-mers between two sorted k-mer arrays with detailed statistics.
+	 * Performs comprehensive analysis including contamination detection, taxonomy hits,
+	 * and depth calculations. Uses two-pointer technique for efficient comparison.
+	 *
+	 * @param a First k-mer array (query)
+	 * @param b Second k-mer array (reference)
+	 * @param aCounts Count array for first k-mer array
+	 * @param bCounts Count array for second k-mer array
+	 * @param refHitCounts Array tracking hits per k-mer across references
+	 * @param bid Reference taxonomy ID for contamination analysis
+	 * @param buffer Buffer to store detailed comparison statistics
+	 * @param present BitSet tracking which k-mers have been seen
+	 * @param fillPresent Whether to populate or read from the present BitSet
+	 * @param taxHits Array mapping k-mer indices to taxonomy hits
+	 * @param contamLevel Taxonomy level for contamination grouping
+	 * @return Number of matching k-mers between the arrays
+	 */
 	public static final int countMatches(long[] a, long[] b, int[] aCounts, int[] bCounts, int[] refHitCounts, int bid,
 			CompareBuffer buffer, AbstractBitSet present, boolean fillPresent, int[][] taxHits, int contamLevel){
 
@@ -624,6 +806,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return equals((Sketch)b);
 	}
 	
+	/**
+	 * Tests equality with another sketch using compareTo.
+	 * @param b Sketch to compare against
+	 * @return true if sketches are equal
+	 */
 	public boolean equals(Sketch b){
 		return compareTo(b)==0;
 	}
@@ -632,11 +819,21 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------          Formatting          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a formatted header string containing sketch metadata.
+	 * @return ByteBuilder containing the header */
 	public ByteBuilder toHeader(){
 		ByteBuilder sb=new ByteBuilder();
 		return toHeader(sb);
 	}
 	
+	/**
+	 * Appends a formatted header to the provided ByteBuilder.
+	 * Header includes size, coding, k-mer parameters, genome information,
+	 * taxonomy data, and SSU sequences.
+	 *
+	 * @param bb ByteBuilder to append header to
+	 * @return The same ByteBuilder with header appended
+	 */
 	public ByteBuilder toHeader(ByteBuilder bb){
 		bb.append("#SZ:").append(keys.length);
 		bb.append("\tCD:");
@@ -690,10 +887,18 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return bb;
 	}
 	
+	/** Converts the sketch to its serialized byte representation.
+	 * @return ByteBuilder containing the complete sketch data */
 	public ByteBuilder toBytes(){
 		return toBytes(new ByteBuilder());
 	}
 	
+	/**
+	 * Appends the sketch data to the provided ByteBuilder.
+	 * Uses delta encoding if enabled for compact representation.
+	 * @param bb ByteBuilder to append data to
+	 * @return The same ByteBuilder with sketch data appended
+	 */
 	public ByteBuilder toBytes(ByteBuilder bb){
 		if(CODING==A48 && deltaOut){return toBytesA48D(bb);}
 		long prev=0;
@@ -725,6 +930,12 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	}
 	
 	//This is to make the common case fast
+	/**
+	 * Fast path for serializing sketch data using A48 coding with delta encoding.
+	 * Optimized version of toBytes for the most common encoding format.
+	 * @param bb ByteBuilder to append data to
+	 * @return The same ByteBuilder with sketch data appended
+	 */
 	private ByteBuilder toBytesA48D(ByteBuilder bb){
 		assert(CODING==A48 && deltaOut);
 		long prev=0;
@@ -761,6 +972,14 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return bb;
 	}
 	
+	/**
+	 * Encodes a long value using base-48 encoding and appends to ByteBuilder.
+	 * Uses a temporary byte array to avoid allocations.
+	 *
+	 * @param value Value to encode
+	 * @param bb ByteBuilder to append to
+	 * @param temp Temporary byte array for encoding
+	 */
 	public static final void appendA48(long value, ByteBuilder bb, byte[] temp){
 		int i=0;
 //		long value=value0;
@@ -780,6 +999,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		}
 	}
 	
+	/**
+	 * Converts a long value to its base-48 string representation.
+	 * @param value Value to convert
+	 * @return Base-48 encoded string
+	 */
 	public static final String toA48(long value){
 		int i=0;
 //		long value=value0;
@@ -808,6 +1032,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------       String Parsing         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a base-48 encoded string to a long value.
+	 * @param line Base-48 encoded string
+	 * @return Decoded long value
+	 */
 	public static long parseA48(String line){
 		if(line.length()==0){return 0;}
 		long x=0;
@@ -842,6 +1071,12 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return key;
 	}
 	
+	/**
+	 * Parses a hexadecimal string to a long value.
+	 * Handles negative values indicated by leading minus sign.
+	 * @param line Hexadecimal string
+	 * @return Decoded long value
+	 */
 	public static long parseHex(String line){
 		if(line.length()==0){return 0;}
 		long x=0;
@@ -857,6 +1092,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------        Array Parsing         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a base-48 encoded byte array to a long value.
+	 * @param line Base-48 encoded byte array
+	 * @return Decoded long value
+	 */
 	public static long parseA48(byte[] line){
 		if(line.length==0){return 0;}
 		long x=0;
@@ -867,6 +1107,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return x;
 	}
 	
+	/**
+	 * Parses a nucleotide sequence string to find the maximum k-mer hash.
+	 * @param line Nucleotide sequence string
+	 * @return Maximum k-mer hash value from the sequence
+	 */
 	public static long parseNuc(String line){
 		return parseNuc(line.getBytes());
 	}
@@ -921,6 +1166,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return key;
 	}
 	
+	/**
+	 * Parses a hexadecimal byte array to a long value.
+	 * @param line Hexadecimal byte array
+	 * @return Decoded long value
+	 */
 	public static long parseHex(byte[] line){
 		if(line.length==0){return 0;}
 		long x=0;
@@ -936,6 +1186,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a base-48 encoded ByteBuilder to a long value.
+	 * @param bb ByteBuilder containing base-48 encoded data
+	 * @return Decoded long value
+	 */
 	public static long parseA48(ByteBuilder bb){
 		final int len=bb.length;
 		final byte[] line=bb.array;
@@ -948,6 +1203,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return x;
 	}
 	
+	/**
+	 * Parses a nucleotide sequence from ByteBuilder to find maximum k-mer hash.
+	 * @param bb ByteBuilder containing nucleotide sequence
+	 * @return Maximum k-mer hash value from the sequence
+	 */
 	public static long parseNuc(ByteBuilder bb){
 		return parseNuc(bb.toBytes());
 	}
@@ -977,6 +1237,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return key;
 	}
 	
+	/**
+	 * Parses a hexadecimal ByteBuilder to a long value.
+	 * @param bb ByteBuilder containing hexadecimal data
+	 * @return Decoded long value
+	 */
 	public static long parseHex(ByteBuilder bb){
 		final int len=bb.length;
 		final byte[] line=bb.array;
@@ -994,10 +1259,21 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Estimates genome size based on the largest k-mer hash and sketch size.
+	 * Returns the minimum of stored genome size and calculated estimate.
+	 * @return Estimated genome size in k-mers
+	 */
 	public long genomeSizeEstimate() {
 		return keys.length==0 ? 0 : Tools.min(genomeSizeKmers, genomeSizeEstimate(keys[keys.length-1], keys.length));
 	}
 	
+	/**
+	 * Estimates genome size using only k-mers with at least the specified count.
+	 * Filters to high-confidence k-mers for more accurate size estimation.
+	 * @param minCount Minimum k-mer count to include in estimation
+	 * @return Estimated genome size in k-mers based on filtered data
+	 */
 	public long genomeSizeEstimate(int minCount) {
 		if(minCount<2){return genomeSizeEstimate();}
 		if(length()==0){return 0;}
@@ -1014,6 +1290,8 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return est;
 	}
 	
+	/** Calculates GC content from base composition counts.
+	 * @return GC fraction (0.0 to 1.0), or 0 if no base counts available */
 	public float gc(){
 		if(baseCounts==null){return 0;}
 		long at=baseCounts[0]+baseCounts[3];
@@ -1021,14 +1299,31 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		return gc/(Tools.max(1.0f, at+gc));
 	}
 	
+	/** Extracts the core filename without path and extension.
+	 * @return Core filename, or null if no filename set */
 	public String filePrefix(){return ReadWrite.stripToCore(fname);}
+	/**
+	 * Gets the best available name for this sketch.
+	 * Prefers taxonomy name, then sequence name, then filename.
+	 * @return The most appropriate name for display
+	 */
 	public String name(){return taxName!=null ? taxName : name0!=null ? name0 : fname;}
+	/** Gets the taxonomic name */
 	public String taxName(){return taxName;}
+	/** Gets the primary sequence name */
 	public String name0(){return name0;}
+	/** Gets the source filename */
 	public String fname(){return fname;}
+	/** Gets the number of k-mer keys in this sketch */
 	public int length(){return keys.length;}
+	/** Sets the taxonomic name.
+	 * @param s Taxonomic name to set */
 	public void setTaxName(String s){taxName=s;}
+	/** Sets the primary sequence name.
+	 * @param s Sequence name to set */
 	public void setName0(String s){name0=s;}
+	/** Sets the source filename, stripping path information.
+	 * @param s Filename to set */
 	public void setFname(String s){
 //		assert(!s.endsWith("sketch")) : s; //123
 		fname=(s==null ? s : ReadWrite.stripPath(s));
@@ -1040,6 +1335,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------           Assorted           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates a k-mer count histogram from this sketch.
+	 * Groups k-mers by count value and returns sorted pairs of (count, frequency).
+	 * @return List of (count, frequency) pairs sorted by count value
+	 */
 	public ArrayList<LongPair> toKhist() {
 		HashMap<Long, LongPair> map=new HashMap<Long, LongPair>();
 		for(int i=0; i<keyCounts.length; i++){
@@ -1060,6 +1360,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	}
 	
 //	static boolean warned=false;
+	/**
+	 * Adds SSU rRNA sequences from the SSU map based on taxonomy.
+	 * Handles prokaryote/eukaryote preferences and restrictions for 16S/18S sequences.
+	 * Requires taxonomy tree for organism classification.
+	 */
 	public void addSSU(){
 		if(useSSUMapOnly){r16S=r18S=null;}
 		if(taxID<1 || taxID>=minFakeID){return;}
@@ -1092,6 +1397,11 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	/*----------------            BitSet            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates bit sets for contamination tracking if enabled.
+	 * @param printContam Whether contamination printing is enabled
+	 * @param index Whether to create an index bit set
+	 */
 	public void makeBitSets(boolean printContam, boolean index){
 		assert(compareBitSet==null && indexBitSet==null);
 		if(!printContam){return;}
@@ -1099,14 +1409,20 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		if(index){indexBitSet=AbstractBitSet.make(length(), bitSetBits);}
 	}
 	
+	/** Adds another bit set to the comparison bit set.
+	 * @param rbs Bit set to add */
 	public void addToBitSet(AbstractBitSet rbs){
 		compareBitSet.add(rbs);
 	}
 	
+	/** Gets the comparison bit set */
 	public AbstractBitSet compareBitSet(){return compareBitSet;}
 	
+	/** Gets the index bit set */
 	public AbstractBitSet indexBitSet(){return indexBitSet;}
 	
+	/** Merges the index bit set into the comparison bit set.
+	 * Clears the index bit set after merging. */
 	public void mergeBitSets(){
 		assert(!mergedBitSets);
 		if(compareBitSet!=null && indexBitSet!=null){
@@ -1116,13 +1432,24 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		mergedBitSets=true;
 	}
 	
+	/** Returns whether bit sets have been merged */
 	public boolean merged(){return mergedBitSets;}
 
+	/** Gets the length of the 16S rRNA sequence */
 	public int r16SLen(){return r16S==null ? 0 : r16S.length;}
+	/** Gets the length of the 18S rRNA sequence */
 	public int r18SLen(){return r18S==null ? 0 : r18S.length;}
+	/** Gets the 16S rRNA sequence */
 	public byte[] r16S(){return r16S;}
+	/** Gets the 18S rRNA sequence */
 	public byte[] r18S(){return r18S;}
+	/** Returns whether this sketch has any SSU rRNA sequences */
 	public boolean hasSSU(){return r16S!=null || r18S!=null;}
+	/**
+	 * Checks if this sketch shares SSU sequences with another sketch.
+	 * @param b Sketch to compare SSU sequences with
+	 * @return true if both sketches have compatible SSU sequences
+	 */
 	public boolean sharesSSU(Sketch b){
 		return (r16S!=null && b.r16S!=null) || (r18S!=null && b.r18S!=null);
 	}
@@ -1147,45 +1474,66 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 	public int[] keyCounts;
 	/** Stores base (ACGTN) counts */
 	final long[] baseCounts;
+	/** 16S rRNA sequence data */
 	private byte[] r16S;
+	/** 18S rRNA sequence data */
 	private byte[] r18S;
+	/** NCBI taxonomy identifier */
 	public int taxID;
+	/** Maximum k-mer observation count in this sketch */
 	public int maxCount;
+	/** Unique sketch identifier based on loading order */
 	int sketchID;//Based on loading order
+	/** Number of sequences in the genome */
 	public final long genomeSequences;
+	/** Genome size in bases */
 	public final long genomeSizeBases;
+	/** Genome size in k-mers */
 	public final long genomeSizeKmers;
+	/** Probability of correct base calls */
 	public final float probCorrect;
 //	public final int k1Count; //Number of keys made from k1 rather than k2
 	public String taxName;
 	public String name0;
+	/** Source filename */
 	private String fname;
+	/** Additional metadata strings */
 	ArrayList<String> meta;
 	
 	//TODO: These should move to SketchResults.
+	/** BitSet used for comparison operations */
 	private AbstractBitSet compareBitSet; //Used for comparison
+	/** BitSet used for indexing operations */
 	private AbstractBitSet indexBitSet;
 	
 	
 	//Extended information
+	/** IMG database identifier */
 	public long imgID=-1;
+	/** Species identifier */
 	public long spid=-1;
 //	public String seqUnitName=null;
 	
+	/** Flag indicating whether bit sets have been merged */
 	private boolean mergedBitSets=false; //TODO: Temporary for debugging
 	/** Tracks the number of reference sketches sharing each kmer.
 	 * Should be set to null when no longer needed. */
 	private int[] refHitCounts;
 
+	/** Gets the reference hit counts array */
 	public int[] refHitCounts(){return refHitCounts;}
+	/** Clears the reference hit counts array to free memory */
 	public void clearRefHitCounts(){
 		refHitCounts=null;
 	}
+	/** Sets the reference hit counts array.
+	 * @param x Array of hit counts per k-mer */
 	public void setRefHitCounts(int[] x) {
 		refHitCounts=x;
 		assert(x!=null);
 	}
 	
+	/** Atomic counter for generating unique sketch IDs */
 	private static AtomicInteger nextSketch=new AtomicInteger(1);
 	
 

@@ -17,6 +17,11 @@ import structures.IntList;
  */
 public class GiToTaxid {
 	
+	/**
+	 * Program entry point for building gi-to-taxid lookup tables.
+	 * Processes input gi mapping files and writes optimized binary array format.
+	 * @param args Command-line arguments: input_file output_file
+	 */
 	public static void main(String[] args){
 		ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.USE_PIGZ=true;
@@ -39,6 +44,11 @@ public class GiToTaxid {
 		}
 	}
 	
+	/**
+	 * Tests gi-to-taxid mapping functionality with sample gi numbers.
+	 * Demonstrates lookup capabilities and integration with TaxTree.
+	 * @param args Test arguments, optional TaxTree file
+	 */
 	public static void test(String[] args){
 		System.err.println(getID(1000));
 		System.err.println(getID(10000));
@@ -86,7 +96,18 @@ public class GiToTaxid {
 		}
 	}
 	
+	/**
+	 * Parses gi number from string and returns corresponding taxonomy ID.
+	 * @param s String containing gi number in FASTA header format
+	 * @return Taxonomy ID, or -1 if gi not found
+	 */
 	public static int parseGiToTaxid(String s){return parseGiToTaxid(s, '|');}
+	/**
+	 * Parses gi number from string using specified delimiter and returns taxonomy ID.
+	 * @param s String containing gi number in FASTA header format
+	 * @param delimiter Character separating gi fields (typically '|')
+	 * @return Taxonomy ID, or -1 if gi not found
+	 */
 	public static int parseGiToTaxid(String s, char delimiter){
 		long x=parseGiNumber(s, delimiter);
 		assert(x>=0) : x+", "+s;
@@ -94,7 +115,18 @@ public class GiToTaxid {
 	}
 	
 
+	/**
+	 * Parses gi number from byte array and returns corresponding taxonomy ID.
+	 * @param s Byte array containing gi number in FASTA header format
+	 * @return Taxonomy ID, or -1 if gi not found
+	 */
 	public static int parseGiToTaxid(byte[] s){return parseGiToTaxid(s, '|');}
+	/**
+	 * Parses gi number from byte array using specified delimiter and returns taxonomy ID.
+	 * @param s Byte array containing gi number in FASTA header format
+	 * @param delimiter Character separating gi fields (typically '|')
+	 * @return Taxonomy ID, or -1 if gi not found
+	 */
 	public static int parseGiToTaxid(byte[] s, char delimiter){
 		long x=parseGiNumber(s, delimiter);
 		return x<0 ? -1 : getID(x);
@@ -153,6 +185,11 @@ public class GiToTaxid {
 	}
 	
 
+	/**
+	 * Gets taxonomy ID from header containing either taxid or gi number.
+	 * @param s Header string to parse
+	 * @return Taxonomy ID, or -1 if not found
+	 */
 	public static int getID(String s){return getID(s, '|');}
 	/** Get the taxID from a header starting with a taxID or gi number */
 	public static int getID(String s, char delimiter){
@@ -206,6 +243,11 @@ public class GiToTaxid {
 		return number;
 	}
 
+	/**
+	 * Gets taxonomy ID from header byte array containing gi or taxid.
+	 * @param s Header byte array to parse
+	 * @return Taxonomy ID, or -1 if not found
+	 */
 	public static int getID(byte[] s){return getID(s, '|');}
 	/** Get the taxID from a header starting with a taxID or gi number */
 	public static int getID(byte[] s, char delimiter){
@@ -242,6 +284,12 @@ public class GiToTaxid {
 		return slice==null || slice.length<=lower ? 0 : slice[lower];
 	}
 	
+	/**
+	 * Initializes gi-to-taxid mapping from file.
+	 * Loads pre-built .int2d arrays or builds new arrays from raw mapping files.
+	 * Thread-safe initialization with filename-based caching.
+	 * @param fname Path to mapping file (.int2d binary or raw text format)
+	 */
 	public static void initialize(String fname){
 		assert(fname!=null);
 		if(fileString==null || !fileString.equals(fname)){
@@ -270,8 +318,11 @@ public class GiToTaxid {
 		}
 	}
 	
+	/** Returns whether the gi-to-taxid mapping has been initialized */
 	public static boolean isInitialized(){return initialized;}
 	
+	/** Releases all loaded gi-to-taxid mapping data and resets state.
+	 * Frees memory by clearing arrays and resetting initialization flags. */
 	public static synchronized void unload(){
 		maxGiLoaded=-1;
 		array=null;
@@ -279,6 +330,14 @@ public class GiToTaxid {
 		initialized=false;
 	}
 	
+	/**
+	 * Builds 2D gi-to-taxid mapping array from input files.
+	 * Supports single files, comma-separated lists, and wildcard patterns (#).
+	 * Creates sparse array structure using IntList for memory efficiency.
+	 *
+	 * @param fnames File specification (single file, comma-separated, or wildcard)
+	 * @return 2D array with gi-to-taxid mappings
+	 */
 	private static int[][] makeArray(String fnames){
 		String[] split;
 		if(new File(fnames).exists()){split=new String[] {fnames};}
@@ -327,6 +386,15 @@ public class GiToTaxid {
 		return table;
 	}
 	
+	/**
+	 * Parses gi-to-taxid mapping file and populates IntList array.
+	 * Expects tab-delimited format with gi and taxid columns.
+	 * Validates entries and detects contradictory mappings.
+	 *
+	 * @param fname File containing gi-to-taxid mappings
+	 * @param lists Array of IntList objects for sparse storage
+	 * @return Number of valid mappings processed
+	 */
 	private static long addToList(String fname, IntList[] lists){
 		boolean warned=false;
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
@@ -361,6 +429,12 @@ public class GiToTaxid {
 		return count;
 	}
 	
+	/**
+	 * Looks up taxonomy ID from IntList array during construction phase.
+	 * @param gi GenInfo identifier to look up
+	 * @param lists Array of IntList objects containing mappings
+	 * @return Taxonomy ID, or negative values for errors
+	 */
 	private static int getID(long gi, IntList[] lists){
 		assert(gi>=0) : "gi number "+gi+" is invalid.";
 		final long upper=gi>>>SHIFT;
@@ -370,6 +444,15 @@ public class GiToTaxid {
 		return lower<0 ? -1 : lower>=list.size ? -2 : list.get(lower);
 	}
 	
+	/**
+	 * Sets gi-to-taxid mapping in IntList array during construction.
+	 * Creates new IntList if needed and tracks maximum gi number loaded.
+	 *
+	 * @param gi GenInfo identifier to set
+	 * @param tid Taxonomy ID to associate with gi
+	 * @param lists Array of IntList objects for storage
+	 * @return Previous taxonomy ID for this gi, or negative if new
+	 */
 	private static int setID(long gi, int tid, IntList[] lists){
 		assert(gi>=0) : "gi number "+gi+" is invalid.";
 		final long upper=gi>>>SHIFT;
@@ -450,14 +533,22 @@ public class GiToTaxid {
 //		return count;
 //	}
 	
+	/** Highest gi number successfully loaded into the mapping table */
 	private static long maxGiLoaded=-1;
+	/** 2D array storing gi-to-taxid mappings using sparse representation */
 	private static int[][] array;
+	/** Bit shift amount (30) for splitting gi into upper/lower components */
 	private static final int SHIFT=30;
+	/** Bit mask for extracting upper 34 bits of gi number */
 	private static final long UPPERMASK=(-1L)<<SHIFT;
+	/** Bit mask for extracting lower 30 bits of gi number */
 	private static final long LOWERMASK=~UPPERMASK;
 	
+	/** Path to currently loaded mapping file for caching purposes */
 	private static String fileString;
 	
+	/** Whether to print detailed progress information during processing */
 	public static boolean verbose=false;
+	/** Whether the gi-to-taxid mapping has been successfully initialized */
 	private static boolean initialized=false;
 }

@@ -22,6 +22,8 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Protected constructor for subclasses.
+	 * @param fname_ Input file name or identifier */
 	protected ConcurrentReadInputStream(String fname_){fname=fname_;}
 	
 	/**
@@ -209,6 +211,18 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Convenience method to read all reads from files into memory.
+	 * Creates stream, starts processing, and collects all reads.
+	 *
+	 * @param maxReads Maximum number of reads or pairs to process
+	 * @param keepSamHeader If input is SAM format, store header in shared object
+	 * @param ff1 Primary input file format (required)
+	 * @param ff2 Secondary input file format (optional, for paired reads)
+	 * @param qf1 Primary quality file path (optional)
+	 * @param qf2 Secondary quality file path (optional)
+	 * @return ArrayList containing all reads from the input files
+	 */
 	public static ArrayList<Read> getReads(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		ConcurrentReadInputStream cris=getReadInputStream(maxReads, keepSamHeader, ff1, ff2, qf1, qf2, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
@@ -216,6 +230,12 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		return cris.getReads();
 	}
 	
+	/**
+	 * Reads all remaining reads from this stream into memory.
+	 * Processes lists sequentially, collecting reads and properly
+	 * returning list containers to avoid memory leaks.
+	 * @return ArrayList containing all reads from this stream
+	 */
 	public ArrayList<Read> getReads(){
 		
 		ListNum<Read> ln=nextList();
@@ -246,6 +266,7 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		started=true;
 	}
 	
+	/** Returns true if the stream has been started */
 	public final boolean started(){return started;}
 
 	
@@ -304,20 +325,30 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Buffer length for read processing, from shared configuration */
 	final int BUF_LEN=Shared.bufferLen();;
+	/** Number of buffers for concurrent processing, from shared configuration */
 	final int NUM_BUFFS=Shared.numBuffers();
+	/** Maximum data size per buffer, from shared configuration */
 	final long MAX_DATA=Shared.bufferData();
+	/** Input filename or stream identifier */
 	public final String fname;
+	/** Whether to allow reads of unequal lengths in paired files */
 	public boolean ALLOW_UNEQUAL_LENGTHS=false;
+	/** Whether the stream has been started */
 	boolean started=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to show progress indicators during processing */
 	public static boolean SHOW_PROGRESS=false;
+	/** Whether to show detailed progress with time intervals */
 	public static boolean SHOW_PROGRESS2=false; //Indicate time in seconds between dots.
+	/** Number of reads between progress updates */
 	public static long PROGRESS_INCR=1000000;
+	/** Whether to remove discarded reads from memory immediately */
 	public static boolean REMOVE_DISCARDED_READS=false;
 	
 }

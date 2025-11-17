@@ -6,6 +6,14 @@ import shared.Shared;
 import shared.Tools;
 import structures.SuperLongList;
 
+/**
+ * Creates frequency histograms for k-mer tables with multi-threaded and single-threaded
+ * processing options. Generates population frequency distribution for AbstractKmerTableU
+ * collections by counting occurrences. Automatically selects between single-threaded and
+ * multi-threaded execution based on thread availability.
+ *
+ * @author Brian Bushnell
+ */
 public final class HistogramMakerU {
 	
 	public static long[] fillHistogram(final AbstractKmerTableU[] tables, final int histMax) {
@@ -63,6 +71,11 @@ public final class HistogramMakerU {
 		return ca;
 	}
 	
+	/**
+	 * Worker thread for parallel histogram generation from k-mer tables.
+	 * Uses atomic work distribution to process tables and accumulates results in thread-local storage.
+	 * Each thread processes tables until no more work is available.
+	 */
 	private static class FillThread extends Thread{
 		
 		FillThread(final AbstractKmerTableU[] tables_, int histMax_, AtomicInteger next_){
@@ -78,8 +91,11 @@ public final class HistogramMakerU {
 			}
 		}
 		
+		/** Array of k-mer tables to process for histogram generation */
 		final AbstractKmerTableU[] tables;
+		/** Atomic counter for thread-safe work distribution across k-mer tables */
 		final AtomicInteger next;
+		/** Thread-local storage for accumulating histogram counts during processing */
 		SuperLongList sll;
 		
 	}

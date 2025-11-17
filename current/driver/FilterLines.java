@@ -22,6 +22,8 @@ import shared.Tools;
  */
 public class FilterLines {
 
+	/** Program entry point that creates FilterLines instance and processes files.
+	 * @param args Command-line arguments including input file, output file, and filtering options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FilterLines x=new FilterLines(args);
@@ -31,6 +33,12 @@ public class FilterLines {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes filtering parameters.
+	 * Configures input/output files, filtering criteria, case sensitivity, and processing modes.
+	 * @param args Command-line arguments containing file paths and filtering options
+	 * @throws RuntimeException If no input file is specified or output files cannot be written
+	 */
 	public FilterLines(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -136,6 +144,14 @@ public class FilterLines {
 		ffin1=FileFormat.testInput(in1, FileFormat.TEXT, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that reads input lines and applies configured filters.
+	 * Processes each line against the name set using exact match or substring matching,
+	 * applies text replacements if configured, and writes matching lines to output.
+	 *
+	 * @param t Timer for tracking processing duration and calculating throughput statistics
+	 * @throws RuntimeException If processing encounters errors that corrupt output
+	 */
 	void process(Timer t){
 		
 		
@@ -215,38 +231,59 @@ public class FilterLines {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for text lines to be filtered */
 	private String in1=null;
 
+	/** Output file path for filtered text lines */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Whether to exclude matching lines (true) or include matching lines (false)
+	 */
 	private boolean exclude=true;
+	/** Whether to match when any name is a substring of the input line */
 	private boolean nameSubstringOfLine=false;
+	/** Whether to match when the input line is a substring of any name */
 	private boolean lineSubstringOfName=false;
+	/** Whether to perform case-insensitive string comparisons */
 	private boolean ignoreCase=true;
+	/** Whether to extract and match only the prefix (first word) of each line */
 	private boolean prefixMode=false;
+	/** Maximum number of lines to process from input file (-1 for unlimited) */
 	private long maxLines=-1;
 
+	/** Source string to be replaced in each line before filtering */
 	private String replace1=null;
+	/** Replacement string for replace1 operations */
 	private String replace2=null;
 	
+	/** Set of names/patterns to match against input lines */
 	private LinkedHashSet<String> names=new LinkedHashSet<String>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for input file */
 	private final FileFormat ffin1;
 
+	/** File format specification for output file */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and error reporting */
 	private PrintStream outstream=System.err;
+	/** Global verbose output flag for detailed processing information */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
+	/** Whether to use shared header functionality (currently unused) */
 	private boolean useSharedHeader=false;
 	
 }

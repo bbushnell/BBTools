@@ -14,6 +14,8 @@ import shared.Tools;
  */
 public class EntropyTracker {
 	
+	/** Program entry point for testing entropy tracking functionality.
+	 * @param args Command-line arguments: k-mer length, window size, cutoff, highPass flag */
 	public static void main(String[] args){
 		final int k=args.length>0 ? Integer.parseInt(args[0]) : 2;
 		final int window=args.length>1 ? Integer.parseInt(args[1]) : 3;
@@ -153,6 +155,8 @@ public class EntropyTracker {
 	/** @return Window size in bases. */
 	public int windowBases() {return windowBases;}
 
+	/** Gets the k-mer length used for entropy calculation.
+	 * @return Length of k-mers being counted */
 	public int k() {return k;}
 
 	/** @return Entropy cutoff. */
@@ -162,6 +166,8 @@ public class EntropyTracker {
 	/*----------------      Entropy Calculation     ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Calculates the fraction of the window occupied by the most frequent base.
+	 * @return Proportion of most common nucleotide (0-1 scale) */
 	public float calcMaxMonomerFraction(){
 		//int total=sum(baseCounts); should be window length
 		int max=Tools.max(baseCounts);
@@ -315,12 +321,27 @@ public class EntropyTracker {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calculates strandedness metric for a sequence using k-mer counts.
+	 * Measures how balanced forward and reverse complement k-mers are.
+	 *
+	 * @param bases Sequence to analyze
+	 * @param counts Work array for k-mer counting (can be null)
+	 * @param k K-mer length
+	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 */
 	public static float strandedness(byte[] bases, int[] counts, int k) {
 		if(counts==null) {counts=new int[1<<(2*k)];}
 		countKmers(bases, counts, k);
 		return strandedness(counts, k);
 	}
 	
+	/**
+	 * Calculates strandedness from existing k-mer counts.
+	 * @param counts Array of k-mer counts indexed by numeric k-mer value
+	 * @param k K-mer length
+	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 */
 	public static float strandedness(int[] counts, int k) {
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
@@ -334,6 +355,12 @@ public class EntropyTracker {
 		return lower/(float)(Long.max(1, upper));
 	}
 	
+	/**
+	 * Calculates strandedness from existing k-mer counts using long arrays.
+	 * @param counts Array of k-mer counts indexed by numeric k-mer value
+	 * @param k K-mer length
+	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 */
 	public static float strandedness(long[] counts, int k) {
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
@@ -347,6 +374,11 @@ public class EntropyTracker {
 		return lower/(float)(Long.max(1, upper));
 	}
 	
+	/**
+	 * Optimized strandedness calculation for k=2 (dinucleotides).
+	 * @param counts Array of 16 dinucleotide counts
+	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 */
 	public static float strandednessK2(int[] counts) {
 		final int mask=15;
 		assert(counts.length==16);
@@ -360,6 +392,15 @@ public class EntropyTracker {
 		return lower/(float)(Long.max(1, upper-lower));
 	}
 	
+	/**
+	 * Calculates average strandedness over sliding windows of a sequence.
+	 *
+	 * @param bases Sequence to analyze
+	 * @param counts Work array for k-mer counting (can be null)
+	 * @param k K-mer length
+	 * @param window Window size for sliding analysis
+	 * @return Average strandedness across all windows
+	 */
 	public static float strandednessWindowed(byte[] bases, int[] counts, int k, int window) {
 		if(k==2) {return strandednessWindowedK2(bases, counts, window);}
 		assert(k>2);
@@ -410,6 +451,14 @@ public class EntropyTracker {
 		return (float)(sum/sums);
 	}
 	
+	/**
+	 * Optimized windowed strandedness calculation for k=2.
+	 *
+	 * @param bases Sequence to analyze
+	 * @param counts Work array for dinucleotide counting (can be null)
+	 * @param window Window size for sliding analysis
+	 * @return Average strandedness across all windows
+	 */
 	public static float strandednessWindowedK2(byte[] bases, int[] counts, int window) {
 		if(counts==null) {counts=new int[16];}
 		
@@ -459,6 +508,15 @@ public class EntropyTracker {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Static method to calculate entropy for an entire sequence.
+	 * Non-windowed version that processes the complete sequence at once.
+	 *
+	 * @param bases Sequence to analyze
+	 * @param counts Work array for k-mer counting (can be null)
+	 * @param k K-mer length (must be ≤10)
+	 * @return Entropy value (0-1 scale)
+	 */
 	public static float calcEntropy(byte[] bases, int[] counts, int k){
 		assert(k<=10) : k;//This is for small kmers
 		if(counts==null) {counts=new int[1<<(2*k)];}

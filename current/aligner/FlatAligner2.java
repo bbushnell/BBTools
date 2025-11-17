@@ -4,6 +4,7 @@ package aligner;
 /** FlatAligner with flatter weights */
 public final class FlatAligner2 {
 
+	/** Default constructor for FlatAligner2 */
 	public FlatAligner2(){}
 	
 	/**
@@ -226,23 +227,31 @@ public final class FlatAligner2 {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the number of iterations performed by alignForward method */
 	long iters(){return iters;}
+	/** Gets the number of iterations performed by alignForwardShort method */
 	long itersShort(){return itersShort;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Counter for alignment iterations in alignForward method */
 	long iters = 0;
+	/** Counter for alignment iterations in alignForwardShort method */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Score awarded for matching bases in alignment (10 points) */
 	public static final int pointsMatch = 10;
+	/** Score penalty for substituted bases in alignment (-9 points) */
 	public static final int pointsSub = -9;
+	/** Score penalty for deleted bases in alignment (-11 points) */
 	public static final int pointsDel = -11;
+	/** Score penalty for inserted bases in alignment (-11 points) */
 	public static final int pointsIns = -11;
 	
 }

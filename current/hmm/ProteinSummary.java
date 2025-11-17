@@ -2,8 +2,16 @@ package hmm;
 
 import java.util.HashMap;
 
+/**
+ * Tracks protein sequence hit lengths across HMM search results.
+ * Maintains a mapping of reference model names to their maximum hit lengths,
+ * allowing tracking of best protein sequence matches for a query.
+ * @author Brian Bushnell
+ */
 public class ProteinSummary {
 	
+	/** Creates a protein summary for tracking hits against a named query sequence.
+	 * @param name Query sequence identifier */
 	public ProteinSummary(String name){
 		this.name=name;
 	}

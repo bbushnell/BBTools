@@ -25,6 +25,15 @@ public class SimilarityMeasures {
         System.out.println("Difference Vector Int14:   "+Arrays.toString(calculateDifferenceVector(sample1i, sample4i)));
     }
 	
+    /**
+     * Parses command-line arguments to configure similarity measure flags.
+     * Sets boolean flags for enabling different similarity measures.
+     *
+     * @param arg The full argument string (not used)
+     * @param a The parameter name
+     * @param b The parameter value to parse
+     * @return true if the parameter was recognized and parsed
+     */
     public static boolean parse(String arg, String a, String b){
     	if(a.equals("null")){
     		//Do nothing
@@ -49,6 +58,16 @@ public class SimilarityMeasures {
     	return true;
     }
 
+    /**
+     * Computes all similarity measures between two float arrays.
+     * Returns a vector containing cosine difference, Euclidean distance,
+     * absolute difference, Jensen-Shannon divergence, Hellinger distance,
+     * and Kolmogorov-Smirnov test statistic.
+     *
+     * @param a First probability distribution
+     * @param b Second probability distribution
+     * @return Array of 6 similarity measure values
+     */
     public static float[] calculateDifferenceVector(float[] a, float[] b) {
 //        float cosineSimilarity=cosineSimilarity(a, b);
         float cosineDifference=cosineDifference(a, b);
@@ -69,6 +88,15 @@ public class SimilarityMeasures {
     }
 
     //For setting thresholds before neural net is implemented
+    /**
+     * Calculates weighted average of enabled similarity measures for thresholding.
+     * Only includes measures with enabled flags in the average.
+     * Normalizes input arrays by their sums before calculation.
+     *
+     * @param a First frequency histogram
+     * @param b Second frequency histogram
+     * @return Average similarity score, or 0 if result is invalid
+     */
     public static float calculateDifferenceAverage(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -84,6 +112,16 @@ public class SimilarityMeasures {
         return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes all similarity measures between two integer arrays.
+     * Normalizes arrays by their sums and returns cosine difference,
+     * Euclidean distance, absolute difference, Jensen-Shannon divergence,
+     * Hellinger distance, and Kolmogorov-Smirnov test statistic.
+     *
+     * @param a First frequency histogram
+     * @param b Second frequency histogram
+     * @return Array of 6 similarity measure values
+     */
     public static float[] calculateDifferenceVector(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -105,10 +143,25 @@ public class SimilarityMeasures {
         };
     }
 
+    /**
+     * Computes cosine difference (1 - cosine similarity) for float arrays.
+     * @param a First vector
+     * @param b Second vector
+     * @return Cosine difference value between 0 and 2
+     */
     public static float cosineDifference(float[] a, float[] b) {
     	return 1-cosineSimilarity(a, b);
     }
     
+    /**
+     * Computes cosine similarity between two float arrays.
+     * Calculates dot product divided by product of vector magnitudes.
+     * Returns 0 for invalid or negative results.
+     *
+     * @param a First vector
+     * @param b Second vector
+     * @return Cosine similarity value between 0 and 1
+     */
     public static float cosineSimilarity(float[] a, float[] b) {
         float dotProduct=0f;
         float normVec1=0f;
@@ -125,6 +178,14 @@ public class SimilarityMeasures {
         return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes cosine difference for integer arrays with normalization.
+     * Normalizes arrays by their sums before calculating similarity.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Cosine difference, or 0 if result is invalid
+     */
     public static float cosineDifference(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -132,14 +193,43 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes cosine difference with precomputed normalization factors.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a (1/sum(a))
+     * @param invb Inverse of sum of array b (1/sum(b))
+     * @return Cosine difference value
+     */
     public static float cosineDifference(int[] a, int[] b, float inva, float invb) {
     	return 1-cosineSimilarity(a, b, inva, invb);
     }
 
+    /**
+     * Computes GC-compensated cosine difference using k-mer GC content mapping.
+     * Applies GC bias correction before calculating cosine similarity.
+     *
+     * @param a First k-mer frequency array
+     * @param b Second k-mer frequency array
+     * @param k K-mer length for GC mapping
+     * @return GC-compensated cosine difference
+     */
     public static float cosineDifferenceCompensated(int[] a, int[] b, int k) {
     	return 1-cosineSimilarityCompensated(a, b, k, BinObject.gcmapMatrix[k]);
     }
     
+    /**
+     * Computes cosine similarity for integer arrays with normalization factors.
+     * Uses SIMD acceleration when available or GC compensation if enabled.
+     * Applies numerical stability by limiting minimum norm values.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Cosine similarity between 0 and 1
+     */
     public static float cosineSimilarity(int[] a, int[] b, float inva, float invb) {
     	if(GC_COMPENSATED) {return cosineSimilarityCompensated(a, b, 4);}
     	if(Shared.SIMD) {return Vector.cosineSimilarity(a, b, inva, invb);}
@@ -159,6 +249,12 @@ public class SimilarityMeasures {
         return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
     }
 
+    /**
+     * Computes cosine difference for long arrays with normalization.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Cosine difference, or 0 if result is invalid
+     */
     public static float cosineDifference(long[] a, long[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -166,10 +262,29 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes cosine difference for long arrays with precomputed normalization.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Cosine difference value
+     */
     public static float cosineDifference(long[] a, long[] b, float inva, float invb) {
     	return 1-cosineSimilarity(a, b, inva, invb);
     }
     
+    /**
+     * Computes cosine similarity for long arrays with normalization factors.
+     * Applies numerical stability by limiting minimum norm values.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Cosine similarity between 0 and 1
+     */
     public static float cosineSimilarity(long[] a, long[] b, float inva, float invb) {
         float dotProduct=0f;
         float normVec1=0f;
@@ -187,10 +302,27 @@ public class SimilarityMeasures {
         return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
     }
 
+    /**
+     * Computes GC-compensated cosine similarity using default GC mapping.
+     *
+     * @param a First k-mer frequency array
+     * @param b Second k-mer frequency array
+     * @param k K-mer length for GC content mapping
+     * @return GC-compensated cosine similarity
+     */
     public static float cosineSimilarityCompensated(int[] a, int[] b, int k) {
     	return cosineSimilarityCompensated(a, b, k, BinObject.gcmapMatrix[k]);
     }
     
+    /**
+     * Applies GC bias compensation to frequency array.
+     * Groups k-mers by GC content and normalizes within groups to reduce bias.
+     *
+     * @param a Frequency array to compensate
+     * @param k K-mer length
+     * @param gcmap GC content mapping for each k-mer position
+     * @return GC-compensated frequency array
+     */
     public static float[] compensate(int[] a, int k, int[] gcmap) {
     	float[] aSum=new float[k+1];
     	
@@ -212,11 +344,28 @@ public class SimilarityMeasures {
     	return comp;
     }
     
+    /**
+     * Applies GC bias compensation to long frequency array using vectorized operations.
+     * @param a Frequency array to compensate
+     * @param k K-mer length for GC content mapping
+     * @return GC-compensated frequency array
+     */
     public static float[] compensate(long[] a, int k) {
     	final int[] gcmap=BinObject.gcmapMatrix[k];
     	return Vector.compensate(a, k, gcmap);
     }
     
+    /**
+     * Computes GC-compensated cosine similarity with explicit GC mapping.
+     * Groups k-mers by GC content, normalizes within groups, then calculates similarity.
+     * Returns 0 for invalid or negative results.
+     *
+     * @param a First k-mer frequency array
+     * @param b Second k-mer frequency array
+     * @param k K-mer length
+     * @param gcmap GC content for each k-mer position
+     * @return GC-compensated cosine similarity
+     */
     public static float cosineSimilarityCompensated(int[] a, int[] b, int k, int[] gcmap) {
     	
     	float[] aSum=new float[k+1];
@@ -249,6 +398,14 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Euclidean distance between two float arrays.
+     * Calculates square root of sum of squared differences.
+     *
+     * @param a First vector
+     * @param b Second vector
+     * @return Euclidean distance
+     */
     public static float euclideanDistance(float[] a, float[] b) {
         float sumSquaredDifferences=0f;
 
@@ -262,6 +419,12 @@ public class SimilarityMeasures {
     }
     
 
+    /**
+     * Computes Euclidean distance for normalized integer arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Euclidean distance, or 0 if result is invalid
+     */
     public static float euclideanDistance(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -269,6 +432,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Euclidean distance with precomputed normalization factors.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Euclidean distance
+     */
     public static float euclideanDistance(int[] a, int[] b, float inva, float invb) {
         float sumSquaredDifferences=0f;
 
@@ -282,6 +454,12 @@ public class SimilarityMeasures {
     }
     
 
+    /**
+     * Computes Euclidean distance for normalized long arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Euclidean distance, or 0 if result is invalid
+     */
     public static float euclideanDistance(long[] a, long[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -289,6 +467,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Euclidean distance for long arrays with precomputed normalization.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Euclidean distance
+     */
     public static float euclideanDistance(long[] a, long[] b, float inva, float invb) {
         float sumSquaredDifferences=0f;
 
@@ -331,6 +518,12 @@ public class SimilarityMeasures {
 		return (float)sum;
 	}
     
+    /**
+     * Computes absolute difference for normalized integer arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Sum of absolute differences, or 0 if result is invalid
+     */
     public static float absDif(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -338,6 +531,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
     
+	/**
+	 * Computes sum of absolute differences with precomputed normalization.
+	 *
+	 * @param a First frequency array
+	 * @param b Second frequency array
+	 * @param inva Inverse of sum of array a
+	 * @param invb Inverse of sum of array b
+	 * @return Sum of absolute differences
+	 */
 	static final float absDif(int[] a, int[] b, float inva, float invb){
 		assert(a.length==b.length);
 		float sum=0;
@@ -348,6 +550,15 @@ public class SimilarityMeasures {
 		return sum;
 	}
     
+    /**
+     * Computes GC-compensated absolute difference using vectorized operations.
+     * Applies GC bias correction before calculating absolute differences.
+     *
+     * @param a First k-mer frequency array
+     * @param b Second k-mer frequency array
+     * @param k K-mer length for GC compensation
+     * @return GC-compensated absolute difference, clamped to [0,1]
+     */
     public static float absDifComp(long[] a, long[] b, int k) {
     	float[] af=compensate(a, k);
     	float[] bf=compensate(b, k);
@@ -355,6 +566,12 @@ public class SimilarityMeasures {
     	return Tools.mid(0, 1, (Float.isFinite(ret) && ret>0 ? ret : 0));
     }
     
+    /**
+     * Computes absolute difference for normalized long arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Sum of absolute differences, or 0 if result is invalid
+     */
     public static float absDif(long[] a, long[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -362,6 +579,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
     
+	/**
+	 * Computes sum of absolute differences for long arrays with normalization.
+	 *
+	 * @param a First frequency array
+	 * @param b Second frequency array
+	 * @param inva Inverse of sum of array a
+	 * @param invb Inverse of sum of array b
+	 * @return Sum of absolute differences
+	 */
 	private static final float absDif(long[] a, long[] b, float inva, float invb){
 		assert(a.length==b.length);
 		float sum=0;
@@ -372,6 +598,14 @@ public class SimilarityMeasures {
 		return sum;
 	}
 
+    /**
+     * Computes Jensen-Shannon divergence between two probability distributions.
+     * Adds small epsilon (0.0005) to prevent log(0) errors.
+     *
+     * @param a First probability distribution
+     * @param b Second probability distribution
+     * @return Jensen-Shannon divergence value
+     */
     public static float jensenShannonDivergence(float[] a, float[] b) {
         float kldSumA=0, kldSumB=0;
         for (int i=0; i<a.length; i++) {
@@ -384,6 +618,12 @@ public class SimilarityMeasures {
     }
     
 
+    /**
+     * Computes Jensen-Shannon divergence for normalized integer arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Jensen-Shannon divergence, or 0 if result is invalid
+     */
     public static float jensenShannonDivergence(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -391,6 +631,16 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Jensen-Shannon divergence with precomputed normalization factors.
+     * Adds epsilon to normalized values to prevent log(0) errors.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Jensen-Shannon divergence value
+     */
     public static float jensenShannonDivergence(int[] a, int[] b, float inva, float invb) {
         float kldSumA=0, kldSumB=0;
         for (int i=0; i<a.length; i++) {
@@ -423,6 +673,14 @@ public class SimilarityMeasures {
 //        return sum*invLog2;
 //    }
 
+    /**
+     * Computes Hellinger distance between two probability distributions.
+     * Calculates sqrt(sum((sqrt(ai) - sqrt(bi))^2)) / sqrt(2).
+     *
+     * @param a First probability distribution
+     * @param b Second probability distribution
+     * @return Hellinger distance value
+     */
     public static float hellingerDistance(float[] a, float[] b) {
         float sum=0f;
         for (int i=0; i<a.length; i++) {
@@ -433,6 +691,12 @@ public class SimilarityMeasures {
         return (float)Math.sqrt(sum)*invRoot2;
     }
     
+    /**
+     * Computes Hellinger distance for normalized integer arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Hellinger distance, or 0 if result is invalid
+     */
     public static float hellingerDistance(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -440,6 +704,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Hellinger distance with precomputed normalization factors.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Hellinger distance value
+     */
     public static float hellingerDistance(int[] a, int[] b, float inva, float invb) {
         float sum=0f;
         for (int i=0; i<a.length; i++) {
@@ -450,6 +723,12 @@ public class SimilarityMeasures {
         return (float)Math.sqrt(sum)*invRoot2;
     }
     
+    /**
+     * Computes Hellinger distance for normalized long arrays.
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @return Hellinger distance, or 0 if result is invalid
+     */
     public static float hellingerDistance(long[] a, long[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -457,6 +736,15 @@ public class SimilarityMeasures {
     	return (Float.isFinite(ret) && ret>0 ? ret : 0);
     }
 
+    /**
+     * Computes Hellinger distance for long arrays with precomputed normalization.
+     *
+     * @param a First frequency array
+     * @param b Second frequency array
+     * @param inva Inverse of sum of array a
+     * @param invb Inverse of sum of array b
+     * @return Hellinger distance value
+     */
     public static float hellingerDistance(long[] a, long[] b, float inva, float invb) {
         float sum=0f;
         for (int i=0; i<a.length; i++) {
@@ -506,43 +794,54 @@ public class SimilarityMeasures {
         return dMax;
     }
 
+    /** Square root of 2 constant for Hellinger distance normalization */
     private static final float root2=(float)Math.sqrt(2);
+    /** Natural logarithm of 2 for Jensen-Shannon divergence conversion */
     private static final float log2=(float)Math.log(2);
+    /** Inverse of square root of 2 for efficient Hellinger distance calculation */
     private static final float invRoot2=1/root2;
+    /** Inverse of natural logarithm of 2 for Jensen-Shannon divergence */
     private static final float invLog2=1/log2;
 
 
+    /** Enable GC bias compensation in similarity calculations */
     public static boolean GC_COMPENSATED=false;
     
     //2531 kcps (times include contig loading)
     //26 clusters
 //    Completeness Score:             60.278
 //    Contamination Score:            2.1925
+    /** Enable cosine similarity calculation in composite measures */
     public static boolean COSINE=true;
     //2796 kcps
     //21 clusters
     //Completeness Score:             60.909
     //Contamination Score:            2.3108
+    /** Enable Euclidean distance calculation in composite measures */
     public static boolean EUCLID=false;//0.008
     //2636 kcps
     //23 clusters at 4x threshold of cosine
 //    Completeness Score:             60.947
 //    Contamination Score:            1.7679
+    /** Enable absolute difference calculation in composite measures */
     public static boolean ABSOLUTE=false; //Best at 0.089
     //183 kcps
     //22 clusters
 //  Completeness Score:             59.169
 //  Contamination Score:            2.1959
+    /** Enable Jensen-Shannon divergence calculation in composite measures */
     public static boolean JSD=false;
     //953 kcps
     //~22 at 2x threshold of cosine
 //    Completeness Score:             61.072
 //    Contamination Score:            1.9358
+    /** Enable Hellinger distance calculation in composite measures */
     public static boolean HELLINGER=false;//0.0425
     //1859 kcps
     //20 clusters
 //    Completeness Score:             26.380
 //    Contamination Score:            3.1930
+    /** Enable Kolmogorov-Smirnov test calculation in composite measures */
     public static boolean KST=false;
     
 }

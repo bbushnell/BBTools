@@ -264,6 +264,11 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------          Profiling           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generates performance report for stream retirement operations.
+	 * Shows timing statistics and retirement counts for profiling.
+	 * @return Formatted string containing retirement performance metrics
+	 */
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -279,13 +284,24 @@ public class MultiCros4 extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Timing for retire phase 1: preparation and queue selection */
 	private long retireTime1=0;
+	/** Timing for retire phase 2: queue operations */
 	private long retireTime2=0;
+	/** Timing for retire phase 3: unused */
 	private long retireTime3=0;
+	/** Timing for retire phase 4: unused */
 	private long retireTime4=0;
+	/** Total number of streams retired */
 	private long retireCount=0;
+	/** Total number of retire() method calls */
 	private long retireCalls=0;
 	
+	/**
+	 * Generates performance report for stream creation operations.
+	 * Shows timing breakdown for various creation phases.
+	 * @return Formatted string containing creation performance metrics
+	 */
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -298,10 +314,15 @@ public class MultiCros4 extends BufferedMultiCros {
 		return bb.toString();
 	}
 	
+	/** Timing for creation phase 1: pre-stream setup */
 	private long createTime1=0;
+	/** Timing for creation phase 2: token acquisition */
 	private long createTime2=0;
+	/** Timing for creation phase 3: stream object creation */
 	private long createTime3=0;
+	/** Timing for creation phase 4: stream startup */
 	private long createTime4=0;
+	/** Timing for creation phase 5: queue management */
 	private long createTime5=0;
 	
 	/*--------------------------------------------------------------*/
@@ -315,6 +336,11 @@ public class MultiCros4 extends BufferedMultiCros {
 	 */
 	private class Buffer {
 		
+		/**
+		 * Creates buffer for specific output file pattern.
+		 * Initializes file formats and read list for buffering.
+		 * @param name_ The name/identifier for this buffer
+		 */
 		Buffer(String name_){
 			name=name_;
 			String s1=pattern1.replaceFirst("%", name);
@@ -530,10 +556,16 @@ public class MultiCros4 extends BufferedMultiCros {
 			return appendTo(new ByteBuilder()).toString();
 		}
 		
+		/** Returns detailed string representation including state and stream status */
 		public String toString2(){
 			return name+" "+state+" "+(currentRos!=null);
 		}
 		
+		/**
+		 * Changes buffer state with validation.
+		 * Manages state transitions between CLOSED, OPEN, and RETIRING.
+		 * @param newState The new state to set
+		 */
 		synchronized void setState(int newState) {
 			if(verbose){
 				System.err.println("setState "+name+" "+state+" -> "+newState+"; ros="+(currentRos!=null));
@@ -549,10 +581,13 @@ public class MultiCros4 extends BufferedMultiCros {
 			else if(state==RETIRING) {assert(list.isEmpty());}
 		}
 		
+		/** Gets current buffer state (CLOSED, OPEN, or RETIRING) */
 		synchronized int getState() {
 			return state;
 		}
 		
+		/** Assigns token to this buffer for stream creation.
+		 * @param t The token to assign */
 		synchronized void giveToken(Token t) {
 			assert(token==null);
 			assert(state==CLOSED);
@@ -560,6 +595,8 @@ public class MultiCros4 extends BufferedMultiCros {
 			token=t;
 		}
 		
+		/** Removes and returns this buffer's token.
+		 * @return The token that was assigned to this buffer */
 		synchronized Token takeToken() {
 			assert(token!=null);
 			assert(state==CLOSED) : state;
@@ -579,7 +616,9 @@ public class MultiCros4 extends BufferedMultiCros {
 		private ConcurrentReadOutputStream currentRos;
 		
 		
+		/** Current buffer state: CLOSED, OPEN, or RETIRING */
 		private int state=CLOSED;
+		/** Token required for creating streams, limits concurrent stream creation */
 		private Token token;
 		
 		/** Current list of buffered reads */
@@ -636,6 +675,8 @@ public class MultiCros4 extends BufferedMultiCros {
 			}
 		}
 		
+		/** Retires buffer by closing its stream and releasing its token.
+		 * @param b The buffer to retire */
 		void retire(Buffer b) {
 			if(verbose) {System.err.println("Retire thread retiring "+b.name+".");}
 			
@@ -657,7 +698,10 @@ public class MultiCros4 extends BufferedMultiCros {
 	}
 	
 	private static class Token {
+		/** Creates token with specified ID.
+		 * @param id_ Unique identifier for this token */
 		Token(int id_){id=id_;}
+		/** Unique identifier for this token */
 		final int id;
 	}
 	
@@ -665,6 +709,7 @@ public class MultiCros4 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of retire threads to use */
 	private final int maxRetireThreads;
 
 	/** Allow this many open streams */
@@ -685,12 +730,16 @@ public class MultiCros4 extends BufferedMultiCros {
 	/** Map of names to buffers */
 	public final LinkedHashMap<String, Buffer> bufferMap;
 	
+	/** Special buffer used to signal retire threads to terminate */
 	private final Buffer POISON_BUFFER=new Buffer("POISON_BUFFER_NOT_A_FILE");
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Buffer state constant: stream is being retired by background thread */
+	/** Buffer state constant: stream is open and active */
+	/** Buffer state constant: stream is closed */
 	private static final int CLOSED=0, OPEN=1, RETIRING=2;
 
 }

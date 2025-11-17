@@ -14,6 +14,12 @@ import shared.Shared;
  */
 public class PrintEnv {
 	
+	/**
+	 * Program entry point that displays system environment information.
+	 * Prints current timestamp, all environment variables in sorted order,
+	 * and the local machine hostname.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		
 		Date d=new Date();

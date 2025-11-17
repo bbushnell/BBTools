@@ -15,6 +15,15 @@ import tax.TaxFilter;
 import tax.TaxNode;
 import tax.TaxTree;
 
+/**
+ * Configuration class for controlling sketch comparison result display and formatting.
+ * Manages output format selection, column visibility, filtering parameters, and
+ * taxonomic display options. Supports multiple output formats including tabular,
+ * JSON, and D3 visualization formats.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class DisplayParams implements Cloneable {
 	
 	@Override
@@ -36,6 +45,12 @@ public class DisplayParams implements Cloneable {
 		}
 	}
 	
+	/**
+	 * Parses a double-header comment line starting with "##" to update parameters.
+	 * Extracts parameters from the first line after the ## prefix.
+	 * @param s String containing the double-header line
+	 * @return Updated DisplayParams instance with parsed parameters
+	 */
 	public DisplayParams parseDoubleHeader(String s){
 		if(!s.startsWith("##")){return this;}
 //		if(!s.startsWith("##")){return this.clone();}
@@ -48,6 +63,12 @@ public class DisplayParams implements Cloneable {
 		return parseDoubleHeaderLine(sb.toString());
 	}
 	
+	/**
+	 * Parses a header line containing space-separated parameter assignments.
+	 * Creates a clone of the current instance and applies the parsed parameters.
+	 * @param line String containing parameter assignments in format "key=value"
+	 * @return New DisplayParams instance with updated parameters
+	 */
 	public DisplayParams parseDoubleHeaderLine(String line) {
 		if(line.startsWith("##")){line=line.substring(2);}
 		else{assert(!line.startsWith("#")) : line;}
@@ -74,6 +95,16 @@ public class DisplayParams implements Cloneable {
 		return params;
 	}
 	
+	/**
+	 * Parses a single parameter assignment and updates this instance.
+	 * Handles all display parameters including format settings, filters,
+	 * output column selections, and taxonomic options.
+	 *
+	 * @param arg Original argument string for error reporting
+	 * @param a Parameter name (normalized to lowercase)
+	 * @param b Parameter value (may be null)
+	 * @return true if parameter was recognized and processed, false otherwise
+	 */
 	public boolean parse(String arg, String a, String b){
 	
 		if(a.equals("chunk")){
@@ -516,6 +547,12 @@ public class DisplayParams implements Cloneable {
 		return true;
 	}
 	
+	/**
+	 * Completes parameter processing by building tax filters and validating configuration.
+	 * Must be called after all parameters are parsed to finalize the configuration.
+	 * @param requireTree Whether to require a loaded taxonomy tree
+	 * @param makeTaxFilters Whether to construct taxonomy filter objects
+	 */
 	public void postParse(boolean requireTree, boolean makeTaxFilters){
 		assert(!postParsed);
 		synchronized(this){
@@ -554,6 +591,7 @@ public class DisplayParams implements Cloneable {
 		}
 	}
 	
+	/** Returns whether post-parsing has been completed */
 	public boolean postParsed(){return postParsed;}
 	
 	@Override
@@ -561,6 +599,12 @@ public class DisplayParams implements Cloneable {
 		return toString(-1);
 	}
 	
+	/**
+	 * Generates a parameter string representation for serialization.
+	 * Creates a double-header format string containing all non-default parameters.
+	 * @param chunkNum Chunk number to include in output, or -1 to omit
+	 * @return Parameter string in "##key=value key2=value2" format
+	 */
 	public String toString(int chunkNum){
 		StringBuilder sb=new StringBuilder();
 		sb.append("##");
@@ -720,10 +764,17 @@ public class DisplayParams implements Cloneable {
 		return sb.toString();
 	}
 	
+	/**
+	 * Checks if this DisplayParams is compatible with current SketchObject settings.
+	 * Compares k-mer length, amino acid mode, and hash version parameters.
+	 * @return true if compatible with current sketch settings
+	 */
 	public boolean compatible(){
 		return SketchObject.k==k && SketchObject.k2==k2 && SketchObject.aminoOrTranslate()==aminoOrTranslate() && hashVersion==SketchObject.HASH_VERSION;
 	}
 	
+	/** Enables printing of all available output columns.
+	 * Sets all print flags to true for maximum detail output. */
 	public void setPrintAll(){
 		printSSU=true;
 		printSSULen=true;
@@ -775,6 +826,12 @@ public class DisplayParams implements Cloneable {
 	/*----------------             JSON             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts sketch results to JSON format according to current display parameters.
+	 * Includes the query sketch information and comparison results list.
+	 * @param sr SketchResults containing query and comparison data
+	 * @return JsonObject with formatted results
+	 */
 	public JsonObject toJson(SketchResults sr){
 		JsonObject j=toJson(sr.sketch);
 		if(sr.list!=null){
@@ -798,6 +855,11 @@ public class DisplayParams implements Cloneable {
 		return j;
 	}
 	
+	/**
+	 * Converts JSON object from map format to array format for compact representation.
+	 * Transforms hierarchical JSON into header/rows array structure.
+	 * @param j0 JsonObject to transform in place
+	 */
 	public void toJsonArrayForm(JsonObject j0){
 		if(j0.jmapSize()<1){return;}
 		ArrayList<Object> list1=new ArrayList<Object>(j0.jmapSize());
@@ -833,6 +895,12 @@ public class DisplayParams implements Cloneable {
 		j0.add("rows", list1.toArray());
 	}
 	
+	/**
+	 * Converts a sketch to JSON representation with selected metadata fields.
+	 * Includes basic sketch properties, taxonomic information, and optional fields.
+	 * @param sk Sketch to convert
+	 * @return JsonObject containing sketch metadata
+	 */
 	public JsonObject toJson(Sketch sk){
 		assert(format==FORMAT_JSON);
 		
@@ -878,6 +946,12 @@ public class DisplayParams implements Cloneable {
 		return j;
 	}
 	
+	/**
+	 * Converts a comparison result to JSON format with selected output columns.
+	 * Includes similarity metrics, taxonomic information, and optional statistics.
+	 * @param c Comparison result to convert
+	 * @return JsonObject with comparison data
+	 */
 	public JsonObject toJson(Comparison c){
 		final int tid=c.taxID;
 		
@@ -965,12 +1039,19 @@ public class DisplayParams implements Cloneable {
 		return j;
 	}
 
+	/** Returns true if output format is JSON */
 	public boolean json(){return format==FORMAT_JSON;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------              D3              ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates D3 visualization data structure from sketch results.
+	 * Builds hierarchical taxonomy tree for interactive visualization.
+	 * @param sr SketchResults to visualize
+	 * @return JsonObject formatted for D3 tree visualization
+	 */
 	public JsonObject toD3(SketchResults sr){
 		if(sr==null || sr.isEmpty()){return new JsonObject("name", "no hits");}
 		JsonObject root=new JsonObject("name", "life");
@@ -1181,6 +1262,12 @@ public class DisplayParams implements Cloneable {
 	/*----------------          Formatting          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Generates formatted header describing the query sketch.
+	 * Includes sketch metadata, size statistics, and quality information.
+	 * @param sk Query sketch
+	 * @return ByteBuilder containing formatted header text
+	 */
 	ByteBuilder queryHeader(Sketch sk){
 		ByteBuilder bb=new ByteBuilder();
 		if(format>2){return bb;}
@@ -1248,6 +1335,11 @@ public class DisplayParams implements Cloneable {
 		}
 	}
 	
+	/**
+	 * Generates column header string for tabular output formats.
+	 * Returns null for JSON format, appropriate headers for other formats.
+	 * @return Header string with tab-separated column names, or null for JSON
+	 */
 	String header(){
 		if(format==FORMAT_JSON){return null;}
 		final String ani=(aminoOrTranslate() ? "AAI" : "ANI");
@@ -1264,6 +1356,11 @@ public class DisplayParams implements Cloneable {
 		return columnwiseHeader();
 	}
 	
+	/**
+	 * Creates tab-separated header for multi-column output format.
+	 * Lists all enabled output columns in display order.
+	 * @return Tab-separated column header string
+	 */
 	String columnwiseHeader(){
 		final String ani=(aminoOrTranslate() ? "AAI" : "ANI");
 		
@@ -1321,6 +1418,14 @@ public class DisplayParams implements Cloneable {
 		return sb.toString();
 	}
 	
+	/**
+	 * Formats a comparison result as tab-separated columns with optional colors.
+	 * Adds ANSI color codes and formatting based on taxonomic relationships.
+	 *
+	 * @param c Comparison to format
+	 * @param bb ByteBuilder to append formatted output
+	 * @param prevTid Previous comparison's taxonomic ID for color continuity
+	 */
 	void formatComparisonColumnwise(Comparison c, ByteBuilder bb, int prevTid){
 		final int tid=c.taxID;
 		boolean reset=false;
@@ -1449,6 +1554,14 @@ public class DisplayParams implements Cloneable {
 		return value/1000000000000L+"T";
 	}
 	
+	/**
+	 * Formats comparison in 3-column query/reference/ANI format.
+	 * Used for simple tabular output with essential information only.
+	 *
+	 * @param c Comparison to format
+	 * @param sb ByteBuilder for output
+	 * @param prevTid Previous taxonomic ID for coloring
+	 */
 	void formatComparison3Column(Comparison c, ByteBuilder sb, int prevTid){
 		Sketch query=c.a;
 		final long sea=Tools.max(1, c.a.genomeSizeEstimate());
@@ -1532,6 +1645,14 @@ public class DisplayParams implements Cloneable {
 //		System.err.println(sb);
 	}
 	
+	/**
+	 * Formats a comparison result using the configured output format.
+	 * Delegates to appropriate format-specific method based on format setting.
+	 *
+	 * @param c Comparison result to format
+	 * @param sb ByteBuilder for output text
+	 * @param prevTaxID Previous comparison's taxonomic ID
+	 */
 	void formatComparison(Comparison c, ByteBuilder sb, int prevTaxID){
 		if(format==FORMAT_MULTICOLUMN){
 			formatComparisonColumnwise(c, sb, prevTaxID);
@@ -1599,6 +1720,12 @@ public class DisplayParams implements Cloneable {
 	/*----------------           Filtering          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if a sketch passes all configured filters.
+	 * Evaluates SSU requirements, size thresholds, taxonomy, and metadata filters.
+	 * @param sk Sketch to test
+	 * @return true if sketch passes all active filters
+	 */
 	public boolean passesFilter(Sketch sk){
 		assert(postParsed);
 		if(noFilters){return true;}
@@ -1658,17 +1785,26 @@ public class DisplayParams implements Cloneable {
 	boolean amino(){return amino;}
 	
 	//These are unique
+	/** Maximum number of comparison results to display */
 	public int maxRecords=default_maxRecords;
+	/** Maximum results to show per taxonomic level (0 = unlimited) */
 	public int recordsPerLevel=0;
+	/** Minimum Average Nucleotide Identity threshold for results */
 	public float minANI=0;
+	/** Minimum number of bases required in comparison */
 	public int minBases=0;
+	/** Minimum size ratio between query and reference genomes */
 	public float minSizeRatio=0;
+	/** Minimum Weighted K-mer Identity threshold */
 	public float minWKID=default_minWKID;
+	/** Output format selection (multicolumn, JSON, 3-column, etc.) */
 	public int format=default_format;
 	
 	/** For tracking unique SendSketch queries */
 	public int chunkNum=-1;
+	/** Minimum number of k-mer matches required */
 	public int minHits=default_minHits;
+	/** Taxonomic level for results aggregation and display */
 	public int taxLevel=default_taxLevel;
 	public int mode=default_mode;
 	public float samplerate=default_samplerate;
@@ -1676,12 +1812,16 @@ public class DisplayParams implements Cloneable {
 	public int minKeyOccuranceCount=default_minKeyOccuranceCount;
 	public String inputVersion=null;
 	
+	/** Name of reference database being queried */
 	public String dbName=null;
 
 	boolean hasMetaFilters(){return requiredMeta!=null || bannedMeta!=null/* || requiredTaxid!=null || bannedTaxid!=null*/;}
 	boolean hasTaxFilters(){return taxFilterWhite!=null || taxFilterBlack!=null || banUnclassified || banVirus;}
+	/** Whether to require SSU rRNA sequences in results */
 	boolean requireSSU=false;
+	/** Minimum estimated reference genome size */
 	long minRefSizeEstimate=-1;
+	/** Minimum reference genome size in bases */
 	long minRefSizeBases=-1;
 	
 	boolean requiredMetaAnd=true;
@@ -1692,25 +1832,33 @@ public class DisplayParams implements Cloneable {
 	/*----------------         Print Columns        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to display K-mer Identity percentage */
 	public boolean printKID=true;
+	/** Whether to display Weighted K-mer Identity percentage */
 	public boolean printWKID=true;
+	/** Whether to display SSU rRNA identity scores */
 	public boolean printSSU=true;
 	public boolean printSSULen=false;
 	public boolean printSSU(){return SketchObject.processSSU && printSSU;}
 	public boolean printSSUSequence=default_printSSUSequence;
 	
 	//For format 2
+	/** Whether to display full taxonomic lineage */
 	public boolean printTax=default_printTax;
+	/** Whether to display original sequence names */
 	public boolean printOriginalName=default_printOriginalName;
 	public boolean printQueryFileName=default_printQueryFileName;
 	public boolean printRefFileName=default_printRefFileName;
 	public boolean printImg=default_printImg;
+	/** Whether to display Average Nucleotide Identity values */
 	public boolean printAni=default_printAni;
+	/** Whether to display genome completeness estimates */
 	public boolean printCompleteness=default_printCompleteness;
 	public boolean printScore=default_printScore;
 	public boolean printEValue=default_printEValue;
 
 	private boolean trackCounts=default_trackCounts;
+	/** Whether to display sequencing depth estimates */
 	public boolean printDepth=default_printDepth;
 	public boolean printDepth2=default_printDepth2;
 	public boolean printActualDepth=default_printActualDepth;
@@ -1751,8 +1899,10 @@ public class DisplayParams implements Cloneable {
 	public boolean printUContam=default_printUContam;
 	public boolean printNoHit=default_printNoHit;
 
+	/** Whether to use ANSI colors in terminal output */
 	public boolean printColors=default_printColors;
 	public boolean setColors=false;
+	/** Taxonomic level for color assignment */
 	public int colorLevel=default_colorLevel;
 	
 	/** TODO: Note this is conflated between printing %contam and calculating things based on contam hits. */
@@ -1812,33 +1962,65 @@ public class DisplayParams implements Cloneable {
 		return true;
 	}
 	
+	/**
+	 * Determines if k-mer count tracking is needed for output or sorting.
+	 * Required for depth calculations, volume metrics, and some comparators.
+	 * @return true if count tracking should be enabled
+	 */
 	public boolean trackCounts() {
 		return trackCounts || printDepth || printDepth2 || printVolume 
 				|| comparator!=Comparison.scoreComparator || printD3; //|| minKeyOccuranceCount>1;
 	}
 	
+	/**
+	 * Determines if contamination counting is needed for selected output columns.
+	 * Required for contamination metrics and unique hit calculations.
+	 * @return true if contamination counting should be enabled
+	 */
 	public boolean needContamCounts() {
 		return printContam || printContam2 || printContamHits || printUnique || printUnique2 || printUnique3 || printUContam || printNoHit; // || true
 	}
 	
+	/**
+	 * Determines if taxonomic indexing is required for contamination analysis.
+	 * Needed for cross-taxonomic contamination detection at specified levels.
+	 * @return true if taxonomic indexing should be built
+	 */
 	public boolean needIndex(){
 		return printContam2 || printUnique2 || printUnique3;
 	}
 
+	/**
+	 * Returns the taxonomic level for contamination analysis.
+	 * Returns -1 if contamination analysis is not needed.
+	 * @return Extended taxonomic level for contamination detection
+	 */
 	public int contamLevel() {
 		return needIndex() ? contamLevel : -1;
 	}
 	
+	/**
+	 * Compares two comparison results using the configured comparator.
+	 * @param a First comparison
+	 * @param b Second comparison
+	 * @return Comparison result for sorting
+	 */
 	public int compare(Comparison a, Comparison b){
 		return comparator.compare(a, b);
 	}
 	
+	/** Comparator for sorting comparison results */
 	public Comparator<Comparison> comparator=Comparison.scoreComparator;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constellation visualization format */
+	/** JSON output format */
+	/** Simple 3-column query/reference/ANI format */
+	/** Multi-column tabular output format */
+	/** Legacy single-column output format */
 	public static final int FORMAT_OLD=0, FORMAT_MULTICOLUMN=2, FORMAT_QUERY_REF_ANI=3, FORMAT_JSON=4, FORMAT_CONSTELLATION=5;
 	public static final boolean default_printD3=false;
 	public static final boolean default_jsonArray=false;

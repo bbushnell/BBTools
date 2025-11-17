@@ -295,6 +295,8 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		}
 	}
 
+	/** Loads reference sequences into scaffold maps.
+	 * Creates Scaffold objects and populates both full and trimmed name maps. */
 	private synchronized void loadReferenceCustom(){
 		assert(!loadedRef);
 		ConcurrentReadInputStream cris=makeRefCris();
@@ -310,6 +312,8 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		loadedRef=true;
 	}
 	
+	/** Creates input stream for reading reference sequences.
+	 * @return Configured ConcurrentReadInputStream for reference file */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -327,6 +331,8 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		return ss;
 	}
 	
+	/** Creates output stream for writing fixed scaffolds.
+	 * @return Configured ConcurrentReadOutputStream or null if no output */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -390,6 +396,11 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Fixes all scaffolds based on collected insert size data.
+	 * Iterates through reference scaffolds and applies gap corrections.
+	 * @param ros Output stream for writing corrected scaffolds
+	 */
 	private void fixScaffolds(ConcurrentReadOutputStream ros){
 		ByteBuilder bb=new ByteBuilder(1000000);
 
@@ -416,6 +427,11 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Calculates insert size from SAM alignment.
+	 * @param sl SAM line representing a paired read alignment
+	 * @return Absolute insert size
+	 */
 	private static int calcInsertSize(SamLine sl) {
 		assert(sl.mapped() && sl.pairedOnSameChrom());
 		assert(sl.primary());
@@ -486,6 +502,8 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 			
 		}
 		
+		/** Processes a list of reads for insert size analysis.
+		 * @param ln ListNum containing reads to process */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -551,9 +569,12 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 		
+		/** Sum of all insert sizes observed by this thread */
 		protected long totalInsertSumT=0;
+		/** Count of insert sizes observed by this thread */
 		protected long totalInsertCountT=0;
 		
+		/** Local sum of insert sizes for this thread */
 		long insertSum=0;
 		
 		/** True only if this thread has completed successfully */
@@ -567,8 +588,16 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Represents a scaffold sequence with coverage and insert size tracking.
+	 * Maintains atomic arrays for thread-safe accumulation of coverage depth and insert sizes. */
 	private class Scaffold {
 		
+		/**
+		 * Creates a scaffold with coverage tracking arrays.
+		 * @param name_ Scaffold name/identifier
+		 * @param bases_ Sequence bases
+		 * @param numericID_ Numeric identifier
+		 */
 		Scaffold(String name_, byte[] bases_, long numericID_){
 			name=name_;
 			bases=bases_;
@@ -577,6 +606,12 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 			insertArray=new AtomicLongArray(bases.length);
 		}
 		
+		/**
+		 * Adds coverage and insert size data from an aligned read pair.
+		 * Updates depth and insert arrays for positions covered by the read pair.
+		 * @param sl SAM line representing the alignment
+		 * @param insertSize Insert size of the read pair
+		 */
 		void add(SamLine sl, int insertSize){
 			assert(sl.mapped() && sl.pairedOnSameChrom());
 			assert(sl.primary());
@@ -601,6 +636,12 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 			
 		}
 		
+		/**
+		 * Generates corrected scaffold sequence with adjusted gap sizes.
+		 * Uses insert size statistics to resize N-gaps based on expected insert sizes.
+		 * @param bb ByteBuilder for sequence construction
+		 * @return Read containing the corrected scaffold sequence
+		 */
 		Read fixScaffold(ByteBuilder bb){
 			int streak=0;
 			bb.clear();
@@ -661,10 +702,15 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 			return new Read(bb.toBytes(), null, name, numericID);
 		}
 		
+		/** Numeric identifier for this scaffold */
 		final int numericID;
+		/** Scaffold name/identifier */
 		final String name;
+		/** Original scaffold sequence bases */
 		final byte[] bases;
+		/** Thread-safe array tracking coverage depth at each position */
 		final AtomicIntegerArray depthArray;
+		/** Thread-safe array tracking cumulative insert sizes at each position */
 		final AtomicLongArray insertArray;
 		
 	}
@@ -686,6 +732,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** Path to write insert size list for debugging */
 	private String insertList=null;
 	
 	/*--------------------------------------------------------------*/
@@ -700,21 +747,34 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/** Number of bases retained */
 	protected long basesOut=0;
 
+	/** Number of scaffolds output */
 	protected long scaffoldsOut=0;
+	/** Total length of scaffolds output */
 	protected long scaffoldLengthOut=0;
 	
+	/** Count of gaps that were not modified */
 	protected long gapsUnchanged=0;
+	/** Count of gaps that were made larger */
 	protected long gapsWidened=0;
+	/** Count of gaps that were made smaller */
 	protected long gapsNarrowed=0;
+	/** Total number of N bases added to gaps */
 	protected long nsAdded=0;
+	/** Total number of N bases removed from gaps */
 	protected long nsRemoved=0;
+	/** Total number of N bases in final output */
 	protected long nsTotal=0;
 	
+	/** Sum of all observed insert sizes */
 	protected long totalInsertSum=0;
+	/** Count of all observed insert sizes */
 	protected long totalInsertCount=0;
+	/** Average insert size across all observations */
 	protected double totalAverageInsert;
 	
+	/** Histogram of insert size frequencies for distribution analysis */
 	protected AtomicLongArray insertCounts=new AtomicLongArray(20000);
+	/** Insert sizes by percentile for gap size estimation */
 	protected int[] insertByPercentile;
 	
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -725,16 +785,22 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	/** Threads dedicated to reading the sam file */
 	private int streamerThreads=-1;
 	
+	/** Flag indicating whether reference has been loaded */
 	private boolean loadedRef=false;
 	
+	/** Minimum number of consecutive Ns to consider a scaffold break */
 	private int scaffoldBreakNs=10;
 	
+	/** Number of buckets for insert size percentile calculation */
 	int buckets=1000;
 	
+	/** Minimum coverage depth required for gap analysis */
 	private int minDepth=10;
 	
+	/** Fraction of read ends to trim when calculating coverage */
 	private float trimFraction=0.4f;
 	
+	/** Filter for SAM records to include in analysis */
 	public final SamFilter samFilter=new SamFilter();
 	
 	/** Uses full ref names */
@@ -756,6 +822,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

@@ -16,8 +16,11 @@ import jdk.incubator.vector.VectorSpecies;
  */
 public final class FastRandomSIMD extends java.util.Random {
 	
+    /** Serialization version identifier for Random compatibility */
     private static final long serialVersionUID = 1L;
+    /** Vector species defining 256-bit SIMD operations for long values */
     private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_256;
+    /** Vector length: number of long values per SIMD vector (4 for 256-bit) */
     private static final int VLEN = 4;//SPECIES.length(); // 4 longs per vector
     
     @Override
@@ -26,11 +29,19 @@ public final class FastRandomSIMD extends java.util.Random {
     }
     
  // State array: first 4 elements are seed0, last 4 are seed1
+    /** PRNG state array: first 4 elements are seed0, last 4 elements are seed1 */
     private final long[] seedState = new long[8]; 
     // Output buffer
+    /** Output buffer storing pre-computed random values for fast retrieval */
     private final long[] buffer = new long[64];
+    /** Current position in output buffer; starts at 64 to trigger initial fill */
     private int bufferPos = 64; // Start empty
     
+    /**
+     * Refills the output buffer with new random values using SIMD operations.
+     * Implements vectorized xoroshiro128+ algorithm across 4 parallel streams.
+     * Updates internal PRNG state and resets buffer position to start.
+     */
     private void refillBuffer() {
         // Load seed state
         LongVector s0Vec = LongVector.fromArray(SPECIES, seedState, 0); // First 4 elements

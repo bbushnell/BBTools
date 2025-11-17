@@ -7,20 +7,57 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import fileIO.ByteStreamWriter;
 import shared.Tools;
 
+/**
+ * Represents a sequencing lane in high-throughput sequencing datasets, managing
+ * tiles, microtiles, and associated genomic metrics. Serves as a container for
+ * organizing sequencing data at multiple granularities (lane, tile, microtile)
+ * and provides methods for data aggregation, iteration, and high-depth genomic
+ * kmer analysis.
+ *
+ * Key features include dynamic tile storage, thread-safe tile addition, genomic
+ * metrics calculation, and parallel data structures using AtomicLongArray for
+ * thread-safe depth, match, and count tracking.
+ *
+ * @author Brian Bushnell
+ */
 public class Lane implements Iterable<Tile> {
 	
+	/** Constructs a Lane with the specified lane number.
+	 * @param lane_ The lane identifier number */
 	public Lane(int lane_){
 		lane=lane_;
 	}
 	
+	/**
+	 * Retrieves a MicroTile at the specified coordinates, creating it if needed.
+	 * @param tile The tile index
+	 * @param x The x coordinate within the tile
+	 * @param y The y coordinate within the tile
+	 * @return The MicroTile at the specified location
+	 */
 	public MicroTile getMicroTile(int tile, int x, int y){
 		return getTile(tile).get(x, y, true);
 	}
 	
+	/**
+	 * Retrieves a MicroTile at the specified coordinates with optional creation.
+	 * @param tile The tile index
+	 * @param x The x coordinate within the tile
+	 * @param y The y coordinate within the tile
+	 * @param create Whether to create the MicroTile if it doesn't exist
+	 * @return The MicroTile at the specified location, or null if create is false
+	 * and the MicroTile doesn't exist
+	 */
 	public MicroTile getMicroTile(int tile, int x, int y, boolean create){
 		return getTile(tile).get(x, y, create);
 	}
 	
+	/**
+	 * Retrieves the tile at the specified index, creating it if necessary.
+	 * Expands the tiles array as needed to accommodate the index.
+	 * @param index The tile index
+	 * @return The Tile at the specified index
+	 */
 	public Tile getTile(int index){
 		while(tiles.size()<=index){tiles.add(null);}
 		Tile t=tiles.get(index);
@@ -31,6 +68,11 @@ public class Lane implements Iterable<Tile> {
 		return t;
 	}
 
+	/**
+	 * Adds data from another lane to this lane in a thread-safe manner.
+	 * Synchronizes on both source and destination tiles during addition.
+	 * @param b The source lane to add data from
+	 */
 	public void add(Lane b) {
 		for(Tile tb : b.tiles) {
 			if(tb!=null) {
@@ -45,6 +87,11 @@ public class Lane implements Iterable<Tile> {
 		addLists(b);
 	}
 	
+	/**
+	 * Adds atomic long array data from another lane to this lane's arrays.
+	 * Merges depth sums, counts, match counts, and substitution counts.
+	 * @param b The source lane containing data to add
+	 */
 	public void addLists(Lane b) {
 		for(int i=0; i<longLists.length; i++) {
 			for(int j=0; j<longLists[i].length; j++) {
@@ -53,6 +100,14 @@ public class Lane implements Iterable<Tile> {
 		}
 	}
 
+	/**
+	 * Prints lane data to a ByteStreamWriter with calculated high-depth genomic
+	 * rate and error rate arrays.
+	 * @param bsw The output stream writer
+	 * @param k The kmer length for high-depth genomic calculation
+	 * @param rerf Read error rate factors array
+	 * @param berf Base error rate factors array
+	 */
 	public void print(ByteStreamWriter bsw, int k, double[] rerf, double[] berf) {
 		double HG=calcHighDepthGenomic(k);
 		for(Tile tile : tiles){
@@ -112,6 +167,7 @@ public class Lane implements Iterable<Tile> {
 	
 	private final class TileIterator implements Iterator<Tile> {
 
+		/** Default constructor for TileIterator inner class. */
 		TileIterator(){}
 		
 		@Override
@@ -127,12 +183,16 @@ public class Lane implements Iterable<Tile> {
 			return t;
 		}
 		
+		/** Current position in tile iteration */
 		private int pos=0;
 		
 	}
 	
+	/** Dynamic storage for tiles in this lane */
 	public ArrayList<Tile> tiles=new ArrayList<Tile>();
 
+	/** Checks if this lane contains no tiles.
+	 * @return true if the tiles list is empty, false otherwise */
 	public boolean isEmpty() {
 		return tiles.isEmpty();
 	}
@@ -142,18 +202,24 @@ public class Lane implements Iterable<Tile> {
 //	public LongList[] matchCounts=new LongList[] {new LongList(151), new LongList(151)};
 //	public LongList[] subCounts=new LongList[] {new LongList(151), new LongList(151)};
 
+	/** Thread-safe arrays tracking depth sums across two dimensions */
 	public AtomicLongArray[] depthSums=new AtomicLongArray[] 
 			{new AtomicLongArray(500), new AtomicLongArray(500)};
+	/** Thread-safe arrays tracking depth counts across two dimensions */
 	public AtomicLongArray[] depthCounts=new AtomicLongArray[] 
 			{new AtomicLongArray(500), new AtomicLongArray(500)};
+	/** Thread-safe arrays tracking match counts across two dimensions */
 	public AtomicLongArray[] matchCounts=new AtomicLongArray[] 
 			{new AtomicLongArray(500), new AtomicLongArray(500)};
+	/** Thread-safe arrays tracking substitution counts across two dimensions */
 	public AtomicLongArray[] subCounts=new AtomicLongArray[] 
 			{new AtomicLongArray(500), new AtomicLongArray(500)};
 	
+	/** Consolidated array of all atomic long arrays for bulk operations */
 	public AtomicLongArray[][] longLists=new AtomicLongArray[][] {
 		depthSums, depthCounts, matchCounts, subCounts};
 	
+	/** The lane identifier number */
 	public int lane;
 	
 }

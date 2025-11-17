@@ -129,6 +129,8 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 		index2=(k2<1 ? null : new MicroIndex3(k2, mm1, r));
 	}
 	
+	/** Ensures k1 is greater than or equal to k2 by swapping if necessary.
+	 * Maintains the invariant that larger k-mer size is used first for alignment. */
 	void fixK() {
 		if(k1<k2) {
 			int temp=k1;
@@ -342,6 +344,11 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Creates and starts concurrent read input stream from configured files.
+	 * Handles both single and paired-end input formats.
+	 * @return Started ConcurrentReadInputStream for reading sequence data
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
 		cris.start(); //Start the stream
@@ -351,6 +358,15 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream for writing processed sequences.
+	 * Configures buffer size based on ordering requirements.
+	 *
+	 * @param ff1 Primary output file format
+	 * @param ff2 Secondary output file format (for paired-end)
+	 * @param pairedInput Whether input is paired-end
+	 * @return Started ConcurrentReadOutputStream or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(FileFormat ff1, FileFormat ff2, boolean pairedInput){
 		if(ff1==null){return null;}
 
@@ -419,6 +435,14 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Generates formatted statistics report for processed sequences.
+	 * Includes alignment rates, identity scores, and throughput metrics.
+	 *
+	 * @param readsIn Total reads processed
+	 * @param basesIn Total bases processed
+	 * @return Formatted statistics string
+	 */
 	public String stats(long readsIn, long basesIn) {
 		long ro=readsOut, ri=readsIn; 
 		long bo=basesOut, bi=basesIn; 
@@ -497,6 +521,12 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Processes a batch of reads for alignment and filtering.
+		 * Validates reads, performs alignment, updates statistics, and prepares
+		 * output for both mapped and unmapped sequences.
+		 * @param ln List of reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -564,6 +594,15 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 		}
 		/*--------------------------------------------------------------*/
 		
+		/**
+		 * Performs sequence alignment using dual k-mer strategy.
+		 * Attempts alignment with primary mapper (k1), then secondary mapper (k2)
+		 * for unmapped reads. Sets proper pair flags for paired-end alignments.
+		 *
+		 * @param r1 First read to align
+		 * @param r2 Second read to align (may be null)
+		 * @return true if at least one read mapped successfully
+		 */
 		public boolean map(Read r1, Read r2) {
 			float id1=mapper1.map(r1);
 			float id2=mapper1.map(r2);
@@ -610,13 +649,17 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 		/** Number of bases mapped by this thread */
 		protected long basesMappedT=0;
 		
+		/** Sum of identity scores for reads processed by this thread */
 		protected double identitySumT=0;
 		
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
+		/** Statistics collector for reads processed by this thread */
 		final ReadStats readstats;
+		/** Primary micro-aligner instance for this thread */
 		final MicroAligner3 mapper1;
+		/** Secondary micro-aligner instance for this thread */
 		final MicroAligner3 mapper2;
 		
 		/** Shared input stream */
@@ -673,6 +716,7 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 	/** Number of bases retained */
 	protected long basesMapped=0;
 	
+	/** Cumulative alignment identity scores for calculating average */
 	protected double identitySum=0;
 
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -680,24 +724,37 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary k-mer size for alignment (larger value) */
 	public int k1=17;
+	/** Secondary k-mer size for alignment (smaller value) */
 	public int k2=13;
+	/** Minimum identity threshold for primary aligner */
 	public float minIdentity1=0.66f;
+	/** Minimum identity threshold for secondary aligner */
 	public float minIdentity2=0.56f;
+	/** Maximum mismatches allowed for primary aligner */
 	public int mm1=1;
+	/** Maximum mismatches allowed for secondary aligner */
 	public int mm2=1;
+	/** Primary k-mer index for sequence alignment */
 	public final MicroIndex3 index1;
+	/** Secondary k-mer index for sequence alignment */
 	public final MicroIndex3 index2;
 	
+	/** Reference sequence file path */
 	public String ref;
+	/** Whether to output only mapped reads */
 	boolean mappedOnly=false;
+	/** Whether to collect read statistics during processing */
 	final boolean makeReadStats;
+	/** Whether output format is SAM/BAM */
 	final boolean samOutput;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Global flag for enabling statistics tracking */
 	public static boolean TRACK_STATS=true;
 	
 	/*--------------------------------------------------------------*/
@@ -721,6 +778,7 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Thread synchronization lock for coordinating access */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

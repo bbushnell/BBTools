@@ -3,8 +3,23 @@ package dna;
 import shared.KillSwitch;
 import shared.Tools;
 
+/**
+ * Implements N-base motif probability calculations for biological sequence analysis.
+ * Extends the base Motif class to handle variable-length N-tuples with probabilistic
+ * matching and position-specific scoring matrices. Supports exact matching and
+ * probabilistic strength calculations with importance weighting.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class MotifProbsN extends Motif {
 	
+	/**
+	 * Test method demonstrating MotifProbsN functionality with example sequences.
+	 * Creates an "Exon Stops MP3" motif and tests exact matching and strength
+	 * calculation against a sample DNA sequence.
+	 * @param args Command-line arguments (currently unused)
+	 */
 	public static void main(String args[]){
 		
 		String s1="ATN";
@@ -33,6 +48,17 @@ public class MotifProbsN extends Motif {
 		
 	}
 	
+	/**
+	 * Factory method to create MotifProbsN instances from matrix data.
+	 * Loads position-specific probability matrices from the Matrix registry
+	 * and optionally associates percentile data for normalization.
+	 *
+	 * @param name_ Name of the motif to load from Matrix registry
+	 * @param length_ Length of the motif in positions
+	 * @param center_ Center position for alignment calculations
+	 * @param n_ Number of bases per position (N-tuple size)
+	 * @return Configured MotifProbsN instance with loaded probability matrices
+	 */
 	public static MotifProbsN makeMotif(String name_, int length_, int center_, int n_){
 		Matrix mat=Matrix.get(name_);
 		assert(mat!=null) : "\nCan't find '"+name_+"' in:\n"+Matrix.keys()+"\n\n";
@@ -62,6 +88,16 @@ public class MotifProbsN extends Motif {
 		return r;
 	}
 	
+	/**
+	 * Constructs MotifProbsN with probability matrix and parameters.
+	 * Initializes probability arrays, calculates position importance weights,
+	 * adjusts for base probability, and pre-computes normalization constants.
+	 *
+	 * @param name_ Name identifier for this motif
+	 * @param p Two-dimensional probability matrix [position][n-tuple]
+	 * @param cen Center position for alignment
+	 * @param n Number of bases per position (N-tuple size)
+	 */
 	public MotifProbsN(String name_, float[][] p, int cen, int n){
 		super(name_, p.length, cen);
 		
@@ -136,6 +172,14 @@ public class MotifProbsN extends Motif {
 	}
 	
 	
+	/**
+	 * Adjusts probability matrix values by dividing by background base probabilities.
+	 * Normalizes position-specific probabilities against expected base frequencies
+	 * to emphasize deviations from background.
+	 *
+	 * @param grid Probability matrix to adjust [position][n-tuple]
+	 * @param base Background probability array for each n-tuple
+	 */
 	public void adjustForBaseProb(float[][] grid, float[] base){
 		for(int i=0; i<grid.length; i++){
 			for(int j=0; j<grid[i].length; j++){
@@ -156,6 +200,14 @@ public class MotifProbsN extends Motif {
 	}
 	
 	
+	/**
+	 * Alternative normalization using logarithmic scaling.
+	 * Provides log-space normalization between minimum and maximum
+	 * probability bounds for improved dynamic range.
+	 *
+	 * @param strength Raw probability strength to normalize
+	 * @return Log-normalized strength value
+	 */
 	public float normalize2(double strength){
 		double r=Math.log(strength)-Math.log(minProb);
 		
@@ -216,6 +268,14 @@ public class MotifProbsN extends Motif {
 	}
 	
 	
+	/**
+	 * Calculates position importance weights based on deviation from background.
+	 * Measures how much each position deviates from background base probabilities,
+	 * applying power transformations to emphasize highly informative positions.
+	 *
+	 * @param rawProbs Raw probability matrix before adjustment
+	 * @return Array of importance weights normalized to 0-1 range
+	 */
 	public float[] positionImportance(float[][] rawProbs){
 		float[] base=baseProb;
 		float[] out=new float[rawProbs.length];
@@ -250,24 +310,38 @@ public class MotifProbsN extends Motif {
 		return N;
 	}
 	
+	/** Number of bases per position in the N-tuple motif */
 	public final int N;
 	
+	/** Position-specific probability matrix [position][n-tuple] after adjustment */
 	public final float[][] probs;
+	/** Position importance weights based on deviation from background */
 	public final float[] importance;
+	/** Average probability value across all matrix positions */
 	public final float matrixAvg;
 
+	/** Uppercase consensus sequence bytes for exact matching */
 	public final byte[] lettersUpper;
+	/** Lowercase consensus sequence bytes for exact matching */
 	public final byte[] lettersLower;
+	/** Numeric representation of consensus sequence for calculations */
 	public final byte[] numbers;
+	/** Extended numeric representation supporting ambiguous bases */
 	public final byte[] numbersExtended;
 	
+	/** Temporary buffer for extracting N-tuples from sequences */
 	private final byte[] chunk;
+	/** Background probability array for N-tuples used in normalization */
 	private final float[] baseProb;
 	
+	/** Maximum possible probability for this motif across all positions */
 	public float maxProb;
+	/** Minimum possible probability for this motif across all positions */
 	public float minProb;
 	
+	/** Inverse of probability difference (maxProb - minProb) for normalization */
 	public final float invProbDif;
+	/** Inverse of motif length for power scaling in normalization */
 	public final float invLength;
 	
 }

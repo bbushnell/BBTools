@@ -21,6 +21,7 @@ public class WaveFrontAligner implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
+    /** Creates a new WaveFrontAligner instance */
     public WaveFrontAligner() {}
 
 	@Override
@@ -36,11 +37,29 @@ public class WaveFrontAligner implements IDAligner {
         return alignStatic(a, b, pos, rStart, rStop);
     }
     
+	/**
+	 * Thread-safe counter for tracking total loop iterations across all alignments
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the current loop counter value for performance tracking */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop counter value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output string for debugging or result storage */
 	public static String output=null;
 	
+	/**
+	 * Core wavefront alignment implementation using dynamic programming.
+	 * Computes edit distance between sequences using wavefront propagation across diagonals.
+	 * Uses rolling buffer optimization with only two arrays instead of full DP matrix.
+	 * Extends matches greedily before applying edit operations for efficiency.
+	 *
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param posVector Output positions (start=0, end=reference_length-1)
+	 * @return Identity score calculated as 1 - (edit_distance / max_sequence_length)
+	 */
 	public static float alignStatic(byte[] query, byte[] ref, int[] posVector){
 	    final int qLen=query.length;
 	    final int rLen=ref.length;

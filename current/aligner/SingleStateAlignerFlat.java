@@ -9,6 +9,7 @@ import shared.Tools;
 public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 	
 	
+	/** Creates a new SingleStateAlignerFlat instance with default parameters */
 	public SingleStateAlignerFlat(){}
 
 	@Override
@@ -25,6 +26,18 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 	public final float align(byte[] a, byte[] b, int[] posVector, int minScore) {return align(a, b, null, 0, b.length-1, minScore);}
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int from, int to) {return align(a, b, pos, from, to, -9999);}
+	/**
+	 * Main alignment method performing dynamic programming matrix fill and traceback.
+	 * Swaps sequences if query is longer than reference for optimization.
+	 *
+	 * @param q Query sequence
+	 * @param r Reference sequence
+	 * @param pos Position array to store alignment coordinates (may be null)
+	 * @param from Reference start position (inclusive)
+	 * @param to Reference end position (inclusive)
+	 * @param minScore Minimum alignment score threshold
+	 * @return Alignment identity score or 0 if below threshold
+	 */
 	public float align(byte[] q, byte[] r, int[] pos, int from, int to, int minScore) {
 		if(q.length>r.length && pos==null) {byte[] s=q; q=r; r=s;}
 		assert(q.length<=r.length);
@@ -45,6 +58,8 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 		return id;
 	}
 	
+	/** Initializes the top row of the scoring matrix.
+	 * Sets minimal points to prefer leftmost alignment and handles query base consumption. */
 	private void prefillTopRow(){
 		final int[] header=packed[0];
 		final int qlen=rows;
@@ -60,6 +75,11 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 		}
 	}
 	
+	/**
+	 * Fills the left column of the matrix with insertion scores starting at row i.
+	 * Sets first cell to match mode and fills remaining cells with insertion penalties.
+	 * @param i Starting row index (minimum 1)
+	 */
 	private void prefillLeftColumnStartingAt(int i){
 		packed[0][0]=MODE_MATCH;
 		i=Tools.max(1, i);
@@ -85,6 +105,14 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 //		}
 //	}
 	
+	/**
+	 * Initializes scoring matrix with specified dimensions.
+	 * Allocates or expands matrix arrays as needed and prefills borders.
+	 * Uses monotonic increase strategy to avoid repeated allocations.
+	 *
+	 * @param rows_ Number of rows needed
+	 * @param columns_ Number of columns needed
+	 */
 	private void initialize(int rows_, int columns_){
 		rows=rows_;
 		columns=columns_;
@@ -463,6 +491,14 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Converts reference subsequence to string representation.
+	 *
+	 * @param ref Reference sequence array
+	 * @param startLoc Start position (inclusive)
+	 * @param stopLoc Stop position (inclusive)
+	 * @return String representation of reference subsequence
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -484,6 +520,11 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
+	/**
+	 * Calculates deletion score offset for specified length.
+	 * @param len Deletion length
+	 * @return Total deletion penalty score
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL*len;
@@ -516,58 +557,96 @@ public final class SingleStateAlignerFlat implements Aligner, IDAligner {
 	public int columns(){return columns;}
 	
 	
+	/** Maximum allocated matrix rows */
 	private int maxRows;
+	/** Maximum allocated matrix columns */
 	private int maxColumns;
 
+	/** Two-dimensional scoring matrix with bit-packed values */
 	private int[][] packed;
 
+	/** Number of bits used for alignment mode encoding (3 bits) */
 	public static final int MODEBITS=3;
+	/** Number of bits used for start position encoding (9 bits) */
 	public static final int STARTBITS=9;
+	/** Total bits for mode and start position (12 bits) */
 	public static final int LOWBITS=MODEBITS+STARTBITS;
+	/** Number of bits available for score encoding (20 bits) */
 	public static final int SCOREBITS=32-STARTBITS;
+	/** Maximum start position value (511) */
 	public static final int MAX_START=((1<<STARTBITS)-1);
+	/** Maximum alignment score value with safety buffer */
 	public static final int MAX_SCORE=((1<<(SCOREBITS-1))-1)-2000;
+	/** Minimum alignment score value */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 	
+	/** Bit shift offset for start position field */
 	public static final int STARTOFFSET=MODEBITS;
+	/** Bit shift offset for score field */
 	public static final int SCOREOFFSET=LOWBITS;
 
+	/** Bit mask for extracting alignment mode */
 	public static final int MODEMASK=~((-1)<<MODEBITS);
+	/** Bit mask for extracting start position */
 	public static final int STARTMASK=(~((-1)<<STARTBITS))<<STARTOFFSET;
+	/** Bit mask for extracting alignment score */
 	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
+	/** Combined bit mask for score and start fields */
 	public static final int HIGHMASK=SCOREMASK|STARTMASK;
 
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
+	/** Alignment mode constant for deletion operations */
 	private static final byte MODE_DEL=1;
+	/** Alignment mode constant for insertion operations */
 	private static final byte MODE_INS=2;
+	/** Alignment mode constant for substitution operations */
 	private static final byte MODE_SUB=3;
+	/** Alignment mode constant for match operations */
 	private static final byte MODE_MATCH=4;
+	/** Alignment mode constant for ambiguous base operations */
 	private static final byte MODE_N=5;
 	
+	/** Score penalty for undefined reference bases (-15 points) */
 	public static final int POINTS_NOREF=-15;
+	/** Score reward for matching bases (100 points) */
 	public static final int POINTS_MATCH=100;
+	/** Score penalty for substitution operations (-50 points) */
 	public static final int POINTS_SUB=-50;
+	/** Score penalty for insertion operations (-121 points) */
 	public static final int POINTS_INS=-121;
+	/** Score penalty for deletion operations (-111 points) */
 	public static final int POINTS_DEL=-111;
 	
+	/** Sentinel value indicating invalid alignment scores */
 	public static final int BAD=MIN_SCORE-1;
 	
 	
+	/** Bit-shifted penalty for undefined reference bases */
 	public static final int POINTSoff_NOREF=(POINTS_NOREF<<SCOREOFFSET);
+	/** Combined no-reference penalty with substitution mode */
 	public static final int POINTSoff_NOREF_MODE_SUB=POINTSoff_NOREF|MODE_SUB;
+	/** Bit-shifted reward for matching bases */
 	public static final int POINTSoff_MATCH=(POINTS_MATCH<<SCOREOFFSET);
+	/** Bit-shifted penalty for substitution operations */
 	public static final int POINTSoff_SUB=(POINTS_SUB<<SCOREOFFSET);
+	/** Bit-shifted penalty for insertion operations */
 	public static final int POINTSoff_INS=(POINTS_INS<<SCOREOFFSET);
+	/** Bit-shifted penalty for deletion operations */
 	public static final int POINTSoff_DEL=(POINTS_DEL<<SCOREOFFSET);
+	/** Bit-shifted sentinel value for invalid scores */
 	public static final int BADoff=(BAD<<SCOREOFFSET);
 	
+	/** Current number of matrix rows in use */
 	private int rows;
+	/** Current number of matrix columns in use */
 	private int columns;
 
 //	public long iterationsLimited=0;
 //	public long iterationsUnlimited=0;
 
+	/** Enable verbose debugging output */
 	public boolean verbose=false;
+	/** Enable extended verbose debugging output */
 	public boolean verbose2=false;
 	
 }

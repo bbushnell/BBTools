@@ -6,6 +6,12 @@ class Eh {
 	int h, e;
 }
 
+/**
+ * Java implementation of KSW2 global alignment algorithm with affine gap penalties.
+ * Global sequence alignment using dynamic programming with affine gap penalty model
+ * for biological realism. Uses fixed scoring matrix with standard parameters.
+ * @author Brian Bushnell
+ */
 public class KswGgJava implements IDAligner {
 
     /** Main() passes the args and class to Test to avoid redundant code */
@@ -17,14 +23,24 @@ public class KswGgJava implements IDAligner {
     }
 
 	// Scoring constants
+	/** Match score for identical bases */
 	static final int MATCH = 1;
+	/** Mismatch penalty for differing bases */
 	static final int MISMATCH = -1;
+	/** Insertion penalty for gaps in reference */
 	static final int INS = -1;
+	/** Deletion penalty for gaps in query */
 	static final int DEL = -1;
+	/**
+	 * Sentinel value representing negative infinity to prevent invalid alignment paths
+	 */
 	static final int KSW_NEG_INF = Integer.MIN_VALUE;
+	/** Gap opening penalty for starting new indel */
 	static final int GAPO = 1;
+	/** Gap extension penalty for continuing existing indel */
 	static final int GAPE = 1;
 
+	/** Counter tracking computational loops for performance analysis */
 	private long loops = 0;
 
 	@Override
@@ -52,6 +68,19 @@ public class KswGgJava implements IDAligner {
 		return align(q, r, posVector, minScore, 0, 0);
 	}
 
+	/**
+	 * Core alignment implementation using KSW2 global alignment algorithm.
+	 * Performs global sequence alignment with affine gap penalties using dynamic
+	 * programming. Uses Eh cell structure storing horizontal and gap extension scores.
+	 *
+	 * @param q Query sequence as byte array
+	 * @param r Reference sequence as byte array
+	 * @param posVector Array to store alignment positions (unused in this implementation)
+	 * @param minScore Minimum score threshold (unused in this implementation)
+	 * @param rStart Start position in reference (unused in this implementation)
+	 * @param rStop Stop position in reference (unused in this implementation)
+	 * @return Float alignment score from final DP cell
+	 */
 	private float align(byte[] q, byte[] r, int[] posVector, int minScore, int rStart, int rStop) {
 		int qlen = q.length;
 		int tlen = r.length;

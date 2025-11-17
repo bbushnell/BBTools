@@ -286,6 +286,12 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ConcurrentReadInputStream for reading input files.
+	 * Configures the stream with maximum read limits and file format objects,
+	 * then starts the input thread and reports pairing status.
+	 * @return Started ConcurrentReadInputStream ready for reading
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -295,6 +301,14 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts a ConcurrentReadOutputStream for writing output files.
+	 * Configures buffer size based on ordering requirements and notifies user
+	 * of output mode (interleaved vs separate files).
+	 *
+	 * @param pairedInput true if input data is paired-end
+	 * @return Started ConcurrentReadOutputStream or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -416,6 +430,12 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Processes a batch of reads from a ListNum container.
+		 * Validates reads, tracks statistics, calls processReadPair() for each
+		 * read pair, and sends results to output stream.
+		 * @param ln ListNum containing a batch of reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -495,7 +515,9 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file path for primary input (if separate from sequence file) */
 	private String qfin1=null;
+	/** Quality file path for secondary input (if separate from sequence file) */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -503,7 +525,9 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Quality output file path for primary output (if separate from sequence) */
 	private String qfout1=null;
+	/** Quality output file path for secondary output (if separate from sequence) */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -545,6 +569,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

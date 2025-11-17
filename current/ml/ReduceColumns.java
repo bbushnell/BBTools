@@ -8,8 +8,26 @@ import shared.Tools;
 import structures.IntList;
 import structures.ListNum;
 
+/**
+ * Command-line utility for extracting specific columns from tab-delimited text files
+ * with efficient memory management. Processes input files by selectively extracting
+ * user-specified columns, writing results to a new output file with low memory overhead.
+ * Useful for column extraction from large tabular data files and data preprocessing
+ * for machine learning datasets.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class ReduceColumns {
 
+	/**
+	 * Main entry point for the column reduction utility.
+	 * Expects input file path, output file path, followed by column indices to extract.
+	 * Processes the input file line by line, extracting only the specified columns
+	 * and writing them to the output file with tab separation.
+	 *
+	 * @param args Command line arguments: [input_file] [output_file] [column1] [column2] ...
+	 */
 	public static void main(String[] args) {
 
 		Timer t=new Timer();

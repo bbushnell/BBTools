@@ -19,6 +19,12 @@ public class Block implements Serializable{
 	 */
 	private static final long serialVersionUID = -1638122096023589384L;
 	
+	/**
+	 * Creates a Block with specified capacities.
+	 * Requires numStarts to be a power of 2 for efficient indexing.
+	 * @param numSites_ Number of hit position sites to allocate
+	 * @param numStarts_ Number of start indices (must be power of 2)
+	 */
 	public Block(int numSites_, int numStarts_){
 		numSites=numSites_;
 		numStarts=numStarts_;
@@ -27,6 +33,12 @@ public class Block implements Serializable{
 		assert(Integer.bitCount(numStarts)==1 && Integer.bitCount(starts.length)==2) : numStarts;
 	}
 	
+	/**
+	 * Creates a Block with existing arrays.
+	 * Takes ownership of the provided arrays without copying.
+	 * @param sites_ Array of hit positions
+	 * @param starts_ Array of start indices (length must be power of 2)
+	 */
 	public Block(int[] sites_, int[] starts_){
 		sites=sites_;
 		starts=starts_;
@@ -60,17 +72,40 @@ public class Block implements Serializable{
 		return r;
 	}
 	
+	/**
+	 * Returns the length of hit list for a given key.
+	 * Returns 0 if the list is empty or marked as removed (first site == -1).
+	 * @param key Index key for the hit list
+	 * @return Number of hits in the list
+	 */
 	public int length(int key){
 		int x=starts[key+1]-starts[key];
 		if(x==0){return 0;}
 		return sites[starts[key]]!=-1 ? x : 0; //Lists can be removed by making the first site -1.
 	}
 	
+	/**
+	 * Returns the length of hit list for a given range.
+	 * Returns 0 if start equals stop or first site is marked as removed.
+	 *
+	 * @param start Starting index in sites array
+	 * @param stop Stopping index in sites array
+	 * @return Number of hits in the range
+	 */
 	public int length(int start, int stop){
 		if(start==stop || sites[start]==-1){return 0;}
 		return stop-start;
 	}
 	
+	/**
+	 * Serializes the Block to disk files.
+	 * Writes sites array to fname and starts array to fname+"2.gz".
+	 * Optionally compresses starts array for space efficiency.
+	 *
+	 * @param fname Base filename for output
+	 * @param overwrite Whether to overwrite existing files
+	 * @return true if write succeeded, false otherwise
+	 */
 	public boolean write(String fname, boolean overwrite){
 		String fname2=fname+"2.gz";
 		{
@@ -109,12 +144,22 @@ public class Block implements Serializable{
 		return true;
 	}
 	
+	/**
+	 * Compresses array by converting absolute values to differences.
+	 * Transforms each element to difference from previous element for space savings.
+	 * @param x Array to compress in-place
+	 */
 	private static void compress(int[] x){
 		for(int i=x.length-1; i>0; i--){
 			x[i]=x[i]-x[i-1];
 		}
 	}
 	
+	/**
+	 * Decompresses array by converting differences back to absolute values.
+	 * Reverses the compression operation by computing cumulative sums.
+	 * @param x Array to decompress in-place
+	 */
 	private static void decompress(int[] x){
 		int sum=x[0];
 		for(int i=1; i<x.length; i++){
@@ -123,6 +168,14 @@ public class Block implements Serializable{
 		}
 	}
 	
+	/**
+	 * Deserializes a Block from disk files.
+	 * Reads sites array from fname and starts array from fname+"2.gz".
+	 * Automatically decompresses starts array if compression was used.
+	 *
+	 * @param fname Base filename for input files
+	 * @return Reconstructed Block object
+	 */
 	public static Block read(String fname){
 		String fname2=fname+"2.gz";
 		
@@ -159,13 +212,20 @@ public class Block implements Serializable{
 		return r;
 	}
 
+	/** Number of hit position sites in this block */
 	public final int numSites;
+	/** Number of start indices in this block */
 	public final int numStarts;
+	/** Array storing hit positions for all keys */
 	public final int[] sites;
+	/** Array storing start indices for each key's hit list */
 	public final int[] starts;
 
+	/** Whether to allow subprocess execution for I/O operations */
 	private static boolean allowSubprocess=false;
+	/** Whether to compress starts array during serialization */
 	private static final boolean compress=true;
+	/** Whether to copy arrays before compression during write operations */
 	private static final boolean copyOnWrite=false;
 	
 }

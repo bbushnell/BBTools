@@ -52,6 +52,12 @@ import ukmer.Kmer;
  */
 public class KmerNormalize {
 
+	/**
+	 * Program entry point for k-mer normalization.
+	 * Parses command-line arguments, configures normalization parameters,
+	 * and executes single or multi-pass normalization workflow.
+	 * @param args Command-line arguments for input/output files and normalization options
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -775,6 +781,16 @@ public class KmerNormalize {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Generates unique temporary file prefix for multi-pass processing.
+	 * Creates salted prefix to avoid collisions between concurrent processes.
+	 *
+	 * @param inFname Input filename for salt generation
+	 * @param outFname Output filename for directory structure
+	 * @param pass Pass number for uniqueness
+	 * @param pairnum Pair number (1 or 2) for paired-end reads
+	 * @return Unique temporary file prefix
+	 */
 	private static String getTempPrefix(String inFname, String outFname, int pass, int pairnum){
 		String tempOut=null, tempOutPrefix=null;
 		for(int i=0; i<2000 && tempOut==null; i++){
@@ -813,10 +829,27 @@ public class KmerNormalize {
 		return tempOut;
 	}
 	
+	/**
+	 * Generates cryptographic salt for temporary filename uniqueness.
+	 * Combines system time, filename hash, and attempt counter.
+	 *
+	 * @param fname Base filename for hashing
+	 * @param attempt Retry attempt number
+	 * @return Hex-encoded salt string
+	 */
 	public static String getSalt(String fname, int attempt){
 		return Long.toHexString(System.nanoTime()+attempt)+Long.toHexString(Long.rotateLeft(fname.hashCode(), 31)^System.currentTimeMillis());
 	}
 	
+	/**
+	 * Sorts reads in memory by error score and writes to file.
+	 * Uses ReadErrorComparator for consistent ordering.
+	 *
+	 * @param reads List of reads to sort
+	 * @param sorted Output filename for sorted reads
+	 * @param reverse True to reverse sort order
+	 * @return true if sorting succeeded, false on error
+	 */
 	private static boolean inMemorySort(ArrayList<Read> reads, String sorted, boolean reverse){
 		try{
 			Shared.sort(reads, ReadErrorComparator.comparator);
@@ -836,6 +869,63 @@ public class KmerNormalize {
 		return true;
 	}
 	
+	/**
+	 * Executes a single normalization pass with specified parameters.
+	 * Builds k-mer count table, processes reads through normalization pipeline,
+	 * and generates histograms and statistics.
+	 *
+	 * @param auto Automatic memory allocation mode
+	 * @param memory Available memory in bytes
+	 * @param cbits Bits per cell in main count table
+	 * @param cells Number of cells in main table
+	 * @param pcbits Bits per cell in prefilter
+	 * @param precells Number of prefilter cells
+	 * @param buildpasses Number of table building passes
+	 * @param hashes Number of hash functions for main table
+	 * @param prehashes Number of prefilter hash functions
+	 * @param k K-mer length
+	 * @param maxReads Maximum reads to process
+	 * @param tablereads Reads to use for table building
+	 * @param minq Minimum base quality
+	 * @param buildStepsize Step size for table building
+	 * @param in1 First input file
+	 * @param in2 Second input file (paired)
+	 * @param outKeep1 First output file for kept reads
+	 * @param outToss1 First output file for discarded reads
+	 * @param outLow1 First output file for low-coverage reads
+	 * @param outMid1 First output file for mid-coverage reads
+	 * @param outHigh1 First output file for high-coverage reads
+	 * @param outUnc1 First output file for uncorrected reads
+	 * @param outKeep2 Second output file for kept reads
+	 * @param outToss2 Second output file for discarded reads
+	 * @param outLow2 Second output file for low-coverage reads
+	 * @param outMid2 Second output file for mid-coverage reads
+	 * @param outHigh2 Second output file for high-coverage reads
+	 * @param outUnc2 Second output file for uncorrected reads
+	 * @param khistFile K-mer histogram output file
+	 * @param rhistFile Read histogram output file
+	 * @param peakFile Peak analysis output file
+	 * @param extra Additional input files
+	 * @param targetDepth Target coverage depth
+	 * @param targetDepthBadLow Low threshold for bad reads
+	 * @param targetDepthBadHigh High threshold for bad reads
+	 * @param maxDepth Maximum allowed depth
+	 * @param minDepth Minimum required depth
+	 * @param minKmersOverMinDepth Minimum k-mers above minimum depth
+	 * @param depthPercentile Percentile for depth calculation
+	 * @param tossErrorReads Discard error-prone reads
+	 * @param rbb Require both reads bad for discarding pairs
+	 * @param discardBadOnly Only discard bad reads, keep good ones
+	 * @param highPercentile High percentile for error detection
+	 * @param lowPercentile Low percentile for error detection
+	 * @param errorDetectRatio Ratio for error detection threshold
+	 * @param hthresh High threshold for coverage
+	 * @param lthresh Low threshold for coverage
+	 * @param fixSpikes Enable spike fixing in coverage
+	 * @param countup Enable count-up normalization mode
+	 * @param rename Rename reads with depth information
+	 * @return Total bases processed
+	 */
 	private static long runPass(boolean auto, long memory, int cbits, long cells, int pcbits, long precells, int buildpasses, int hashes, int prehashes, int k,
 			long maxReads, long tablereads, int minq, int buildStepsize,
 			String in1, String in2,
@@ -1123,6 +1213,11 @@ public class KmerNormalize {
 	}
 	
 	
+	/**
+	 * Prints depth topology statistics to stderr.
+	 * Reports percentages of spikes, peaks, valleys, slopes, and flats
+	 * in the coverage depth profile.
+	 */
 	public static void printTopology(){
 		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();
 		double mult=100.0/total;
@@ -1147,6 +1242,36 @@ public class KmerNormalize {
 	}
 
 
+	/**
+	 * Processes single pair of input files through normalization pipeline.
+	 * Creates input/output streams and delegates to downsample method.
+	 *
+	 * @param in1 First input file
+	 * @param in2 Second input file (may be null)
+	 * @param kca K-mer count array for normalization
+	 * @param k K-mer length
+	 * @param maxReads Maximum reads to process
+	 * @param outKeep1 First kept reads output
+	 * @param outToss1 First discarded reads output
+	 * @param outLow1 First low-coverage reads output
+	 * @param outMid1 First mid-coverage reads output
+	 * @param outHigh1 First high-coverage reads output
+	 * @param outUnc1 First uncorrected reads output
+	 * @param outKeep2 Second kept reads output
+	 * @param outToss2 Second discarded reads output
+	 * @param outLow2 Second low-coverage reads output
+	 * @param outMid2 Second mid-coverage reads output
+	 * @param outHigh2 Second high-coverage reads output
+	 * @param outUnc2 Second uncorrected reads output
+	 * @param ordered Maintain read order in output
+	 * @param overwrite Overwrite existing output files
+	 * @param khistFile K-mer histogram output file
+	 * @param rhistFile Read histogram output file
+	 * @param peakFile Peak analysis output file
+	 * @param estUnique Estimated unique k-mers
+	 * @param storage Storage for reads (may be null)
+	 * @return Total bases processed
+	 */
 	public static long count(String in1, String in2, KCountArray kca, int k, long maxReads,
 			String outKeep1, String outToss1, String outLow1, String outMid1, String outHigh1, String outUnc1,
 			String outKeep2, String outToss2, String outLow2, String outMid2, String outHigh2, String outUnc2,
@@ -1332,6 +1457,36 @@ public class KmerNormalize {
 	}
 	
 	
+	/**
+	 * Processes multiple input file lists through normalization pipeline.
+	 * Handles comma-separated input file lists and manages multiple output streams.
+	 *
+	 * @param list1 Array of first input files
+	 * @param list2 Array of second input files (may be null)
+	 * @param kca K-mer count array for normalization
+	 * @param k K-mer length
+	 * @param maxReads Maximum reads to process per file
+	 * @param outKeep1 First kept reads output pattern
+	 * @param outToss1 First discarded reads output pattern
+	 * @param outLow1 First low-coverage reads output pattern
+	 * @param outMid1 First mid-coverage reads output pattern
+	 * @param outHigh1 First high-coverage reads output pattern
+	 * @param outUnc1 First uncorrected reads output pattern
+	 * @param outKeep2 Second kept reads output pattern
+	 * @param outToss2 Second discarded reads output pattern
+	 * @param outLow2 Second low-coverage reads output pattern
+	 * @param outMid2 Second mid-coverage reads output pattern
+	 * @param outHigh2 Second high-coverage reads output pattern
+	 * @param outUnc2 Second uncorrected reads output pattern
+	 * @param ordered Maintain read order in output
+	 * @param overwrite Overwrite existing output files
+	 * @param khistFile K-mer histogram output file
+	 * @param rhistFile Read histogram output file
+	 * @param peakFile Peak analysis output file
+	 * @param estUnique Estimated unique k-mers
+	 * @param storage Storage for reads (may be null)
+	 * @return Total bases processed across all files
+	 */
 	public static long count(String[] list1, String[] list2, KCountArray kca, int k, long maxReads,
 			String outKeep1, String outToss1, String outLow1, String outMid1, String outHigh1, String outUnc1,
 			String outKeep2, String outToss2, String outLow2, String outMid2, String outHigh2, String outUnc2,
@@ -1620,6 +1775,28 @@ public class KmerNormalize {
 	
 
 	
+	/**
+	 * Core normalization method that processes reads using multiple threads.
+	 * Creates ProcessThread workers, collects statistics, and generates histograms.
+	 *
+	 * @param cris Concurrent read input stream
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param maxReads Maximum reads to process
+	 * @param rosKeep Output stream for kept reads
+	 * @param rosToss Output stream for discarded reads
+	 * @param rosLow Output stream for low-coverage reads
+	 * @param rosMid Output stream for mid-coverage reads
+	 * @param rosHigh Output stream for high-coverage reads
+	 * @param rosUnc Output stream for uncorrected reads
+	 * @param khistFile K-mer histogram output file
+	 * @param rhistFile Read histogram output file
+	 * @param peakFile Peak analysis output file
+	 * @param overwrite Overwrite existing files
+	 * @param estUnique Estimated unique k-mers
+	 * @param storage Read storage (may be null)
+	 * @return Total bases processed
+	 */
 	public static long downsample(ConcurrentReadInputStream cris, KCountArray kca, int k, long maxReads,
 			ConcurrentReadOutputStream rosKeep, ConcurrentReadOutputStream rosToss, ConcurrentReadOutputStream rosLow, ConcurrentReadOutputStream rosMid, ConcurrentReadOutputStream rosHigh, ConcurrentReadOutputStream rosUnc,
 			String khistFile, String rhistFile, String peakFile, boolean overwrite, long estUnique, ArrayList<Read> storage) {
@@ -2794,8 +2971,28 @@ public class KmerNormalize {
 	}
 	
 	
+	/**
+	 * Worker thread for processing reads through normalization pipeline.
+	 * Handles read classification, error correction, and histogram updates.
+	 * Each thread processes a subset of input reads independently.
+	 */
 	private static class ProcessThread extends Thread{
 		
+		/**
+		 * Creates processing thread with input/output streams and count arrays.
+		 *
+		 * @param cris_ Concurrent read input stream
+		 * @param kca_ Main k-mer count array
+		 * @param kcaup_ Count-up mode count array (may be null)
+		 * @param k_ K-mer length
+		 * @param rosk_ Keep reads output stream
+		 * @param rost_ Toss reads output stream
+		 * @param rosl_ Low coverage reads output stream
+		 * @param rosm_ Mid coverage reads output stream
+		 * @param rosh_ High coverage reads output stream
+		 * @param rosu_ Uncorrected reads output stream
+		 * @param storage_ Read storage array (may be null)
+		 */
 		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, KCountArray kcaup_, int k_,
 				ConcurrentReadOutputStream rosk_, ConcurrentReadOutputStream rost_, ConcurrentReadOutputStream rosl_, ConcurrentReadOutputStream rosm_, ConcurrentReadOutputStream rosh_, ConcurrentReadOutputStream rosu_,
 				ArrayList<Read> storage_){
@@ -3417,6 +3614,7 @@ public class KmerNormalize {
 //			assert(sum2==cov.length) : sum2+", "+cov.length+", "+last+", "+sum;
 		}
 		
+		/** Input stream for reading sequences concurrently */
 		private final ConcurrentReadInputStream cris;
 		/** Premade table holding counts of input kmers */
 		private final KCountArray kca;
@@ -3474,9 +3672,16 @@ public class KmerNormalize {
 		boolean errorStateT=false;
 	}
 
+	/** Gets the current error state of normalization process */
 	public static boolean errorState(){return errorState;}
+	/**
+	 * Sets the error state for normalization process.
+	 * @param b New error state value
+	 * @return Previous error state value
+	 */
 	public static boolean setErrorState(boolean b){return errorState=b;}
 	
+	/** Output stream for progress messages and statistics */
 	public static PrintStream outstream=System.err;
 
 	private static long minHeight=2;
@@ -3607,6 +3812,7 @@ public class KmerNormalize {
 
 	public static boolean IGNORE_DUPLICATE_KMERS_COUNTUP=true;
 	
+	/** Use canonical k-mer representation (forward/reverse minimum) */
 	public static boolean CANONICAL=true;
 	public static boolean ZERO_BIN=false;
 	public static boolean FIX_SPIKES=false;
@@ -3616,6 +3822,7 @@ public class KmerNormalize {
 	public static boolean append=false;
 	public static boolean prefilter=false;
 	public static boolean renameReads=false;
+	/** Enable deterministic processing for reproducible results */
 	public static boolean DETERMINISTIC=true;
 	public static boolean COUNTUP=false;
 	public static boolean ANALYZE_TOPOLOGY=false;
@@ -3642,6 +3849,7 @@ public class KmerNormalize {
 	public static AtomicLong valleys=new AtomicLong();
 	public static AtomicLong slopes=new AtomicLong();
 	
+	/** Fixed quality score assigned to N bases during correction */
 	public static final byte FIXED_N_QUAL=20;
 	
 }

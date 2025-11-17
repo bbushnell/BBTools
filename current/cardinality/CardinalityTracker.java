@@ -306,6 +306,8 @@ public abstract class CardinalityTracker {
 		return r;
 	}
 	
+	/** Calculates multiplier to compensate for bucket count effects on estimation.
+	 * @return Compensation factor based on number of buckets */
 	public final float compensationFactorBuckets(){
 		assert(Integer.bitCount(buckets)==1) : buckets;
 		int zeros=Integer.numberOfTrailingZeros(buckets);
@@ -324,6 +326,11 @@ public abstract class CardinalityTracker {
 		return (array!=null && logBuckets<array.length) ? array[logBuckets] : 1/(1+(1<<logBuckets));
 	}
 	
+	/**
+	 * Converts bucket counts to a frequency distribution.
+	 * Returns sorted list of non-zero count values for histogram generation.
+	 * @return Sorted list of count frequencies
+	 */
 	public SuperLongList toFrequency(){
 		SuperLongList list=new SuperLongList(1000);
 		int[] counts=getCounts();
@@ -477,10 +484,13 @@ public abstract class CardinalityTracker {
 	/*----------------    Deprecated Table Fields   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Number of hash tables used in deprecated table-based hashing */
 	static final int numTables=4;
+	/** Bit mask for table selection in deprecated hashing method */
 	static final int numTablesMask=numTables-1;
 	/** Bits hashed per cycle; no longer needed */
 	private static final int bits=8;
+	/** Number of hash steps required to process 64-bit values */
 	private static final int steps=(63+bits)/bits;;
 //	final long[][][] tables;
 	
@@ -507,9 +517,13 @@ public abstract class CardinalityTracker {
 	/** These determine how to combine multiple buckets to yield a value. 
 	 * Mean is best even though mwa is pretty close.  Median is much worse. */
 	public static boolean USE_MEAN=true;//Arithmetic mean
+	/** Whether to use median for combining multiple bucket estimates */
 	public static boolean USE_MEDIAN=false;
+	/** Whether to use median-weighted-average for combining bucket estimates */
 	public static boolean USE_MWA=false;//Median-weighted-average
+	/** Whether to use harmonic mean for combining multiple bucket estimates */
 	public static boolean USE_HMEAN=false;//Harmonic mean
+	/** Whether to use geometric mean for combining multiple bucket estimates */
 	public static boolean USE_GMEAN=false;//Geometric mean
 	
 }

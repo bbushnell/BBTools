@@ -146,6 +146,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses command-line arguments for flow cell analysis parameters.
+	 * Handles tile sizing, k-mer loading, filtering options, alignment settings,
+	 * barcode processing, and output configuration.
+	 *
+	 * @param args Command-line argument array
+	 * @return Configured Parser with standard parameter settings
+	 */
 	private Parser parse(String[] args){
 		//Create a parser object
 		Parser parser=new Parser();
@@ -302,6 +310,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		return parser;
 	}
 	
+	/** Validates input/output file configurations and adjusts settings.
+	 * Performs # replacement, interleaving adjustment, and file existence checks. */
 	private void checkFiles(){
 		doPoundReplacement();
 		adjustInterleaving();
@@ -309,6 +319,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		checkStatics();
 	}
 	
+	/** Replaces # symbols in file paths with 1/2 for paired-end files.
+	 * Handles both input and output file path expansion. */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -329,6 +341,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
+	/** Verifies that input files exist and output files can be created.
+	 * Checks for duplicate file names and validates file accessibility. */
 	private void checkFileExistence(){
 		
 		//Ensure output files can be written
@@ -349,6 +363,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/** Configures interleaved file handling based on input/output file counts.
+	 * Sets FASTQ interleaving flags for proper paired-end read processing. */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -372,6 +388,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Validates and adjusts static configuration settings.
+	 * Optimizes ByteFile threading mode and verifies FastaReadInputStream
+	 * configuration.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -655,6 +676,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	
 	//This version is not really any faster,
 	//though it does use 15% less CPU-time.
+	/**
+	 * Processes individual SAM alignment lines for tile statistics.
+	 * Extracts alignment information, calculates error rates, and updates
+	 * corresponding MicroTile objects with alignment-based metrics.
+	 *
+	 * @param sl SAM line containing alignment information
+	 * @param ihp Illumina header parser for coordinate extraction
+	 */
 	private void processSamLine(SamLine sl, IlluminaHeaderParser2 ihp) {
 		if(sl==null){return;}
 //		if(!sl.mapped() && !sl.nextMapped()) {return;} //Probably not PhiX
@@ -918,6 +947,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Loads k-mers from a single read into the Bloom filter.
+	 * Uses ID-based masking for controlled sampling and increments
+	 * k-mer counts in the filter.
+	 *
+	 * @param r Read to process for k-mer extraction
+	 * @param kmers Reusable list for k-mer storage
+	 */
 	private void loadKmers(Read r, LongList kmers) {
 		if(r==null || r.length()<k) {return;}
 //		if(!randy.nextBoolean()) {return;}//Speed optimization, I guess
@@ -946,6 +983,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		outstream.println(t2);
 	}
 	
+	/**
+	 * Processes k-mer depth information for tile quality assessment.
+	 * Applies optional smoothing and deblurring filters to depth profiles.
+	 *
+	 * @param r Read to analyze
+	 * @param klist List for storing k-mer depths
+	 * @param blist List for storing base depths after deblurring
+	 */
 	private void processTileKmers(Read r, IntList klist, IntList blist) {
 		fillDepthList(r, klist);
 		if(smoothDepths>3) {smooth5(klist);}
@@ -954,6 +999,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	}
 	
 	//Samples all kmers
+	/**
+	 * Fills depth list with k-mer counts from Bloom filter.
+	 * Samples k-mers across read length using ID-based masking and
+	 * retrieves depth values from the preloaded filter.
+	 *
+	 * @param r Read to process
+	 * @param depths Output list for k-mer depth values
+	 */
 	private void fillDepthList(Read r, IntList depths) {
 		if(r==null || r.length()<k) {return;}
 		final byte[] bases=r.bases;
@@ -986,6 +1039,12 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Applies 3-point median smoothing to depth profile.
+	 * Reduces noise in k-mer depth measurements by taking minimum
+	 * of local 3-point neighborhoods.
+	 * @param list Depth values to smooth in-place
+	 */
 	private void smooth3(IntList list) {
 		if(list.size<3) {return;}
 		final int max=list.size-1;
@@ -1005,6 +1064,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Applies 5-point median smoothing to depth profile.
+	 * More aggressive smoothing than 3-point for heavily noisy data.
+	 * @param list Depth values to smooth in-place
+	 */
 	private void smooth5(IntList list) {
 		if(list.size<5) {return;}
 		final int max=list.size-1;
@@ -1030,6 +1094,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Deconvolutes k-mer depths to base-level depth estimates.
+	 * Spreads k-mer depth values across constituent base positions
+	 * to create per-base depth profiles.
+	 *
+	 * @param klist K-mer depth values
+	 * @param blist Output base depth values
+	 */
 	void deblur(IntList klist, IntList blist) {
 		blist.clearFull();
 		blist.set(klist.size+k-1, 0);
@@ -1076,12 +1148,24 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 //		return (deterministic ? (int)((id)%(len-k2)) : randy.nextInt(len-k2));
 //	}
 	
+	/**
+	 * Converts k-mer to canonical form for Bloom filter lookup.
+	 * Uses lexicographically larger of forward and reverse complement.
+	 * @param kmer Input k-mer in binary encoding
+	 * @return Canonical k-mer key
+	 */
 	private final long toKey(long kmer) {
 		return Tools.max(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k));
 //		return (kmersPerRead==1 || kmer==-1 ? kmer : 
 //			Tools.max(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k)));
 	}
 	
+	/**
+	 * Converts k-mer to canonical form when reverse complement is pre-computed.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Canonical k-mer key (larger of the two)
+	 */
 	private final long toKey(long kmer, long rkmer) {
 		return Tools.max(kmer, rkmer);
 	}
@@ -1130,6 +1214,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		return true;
 	}
 	
+	/**
+	 * Determines if read should be discarded based on quality metrics.
+	 * Checks average quality, error-free probability, poly-G content,
+	 * and tile-specific G-content patterns.
+	 *
+	 * @param r Read to evaluate
+	 * @param mt Associated MicroTile with quality statistics
+	 * @return true if read should be discarded
+	 */
 	private boolean shouldDiscard(Read r, MicroTile mt) {
 		if(r==null || r.length()<1) {return false;}
 		final int len=r.length();
@@ -1142,6 +1235,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		return false;
 	}
 	
+	/**
+	 * Evaluates read for G-content based discard criteria.
+	 * Checks if G bases occur at positions with elevated tile-level
+	 * G frequency above threshold values.
+	 *
+	 * @param r Read to evaluate
+	 * @param mt MicroTile with cycle-specific G frequencies
+	 * @return true if read has problematic G-content pattern
+	 */
 	private boolean shouldDiscardG(Read r, MicroTile mt){
 		final byte[] bases=r.bases;
 		final float[] gArray=mt.tracker.cycleAverages[2];
@@ -1157,6 +1259,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		return false;
 	}
 	
+	/**
+	 * Masks problematic G bases as N in read sequence.
+	 * Identifies G bases at positions with elevated tile G frequency
+	 * and converts them to N with zero quality scores.
+	 *
+	 * @param r Read to modify
+	 * @param mt MicroTile with G frequency data
+	 * @return Number of G bases converted to N
+	 */
 	private int doGToN(Read r, MicroTile mt){
 		if(r==null || r.length()<1) {return 0;}
 		final byte[] bases=r.bases;
@@ -1205,6 +1316,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*----------------           Barcodes           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads expected barcode list and configures barcode statistics.
+	 * Determines delimiter, barcode count per read, and barcode lengths
+	 * from file format or explicit barcode file.
+	 *
+	 * @param expectedBarcodesFile Path to expected barcodes file
+	 * @return Configured BarcodeStats object
+	 */
 	BarcodeStats loadBarcodes(String expectedBarcodesFile) {
 		if(delimiter<0) {
 			delimiter=(byte)ffin1.barcodeDelimiter();
@@ -1221,6 +1340,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		return bs;
 	}
 	
+	/**
+	 * Writes barcode count statistics to output file.
+	 * Sorts barcodes by frequency and outputs count summary with
+	 * individual barcode frequencies.
+	 *
+	 * @param counts Collection of barcode counts
+	 * @param fname Output filename
+	 * @param overwrite Whether to overwrite existing file
+	 */
 	private static void dumpBarcodes(Collection<AtomicStringNum> counts, String fname, boolean overwrite) {
 		System.err.println("Writing barcode counts.");
 		if(fname==null || counts==null) {return;}
@@ -1312,8 +1440,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	public final boolean success(){return !errorState;}	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
+	/**
+	 * Worker thread for processing reads and populating tile data.
+	 * Handles read stream processing, k-mer analysis, alignment data,
+	 * and barcode statistics in multi-threaded environment.
+	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
@@ -1366,6 +1500,12 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			if(ss!=null) {processSam();}
 		}
 		
+		/**
+		 * Processes individual read list from input stream.
+		 * Validates reads, updates statistics, and processes each
+		 * read pair for tile data population.
+		 * @param ln ListNum containing reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -1591,6 +1731,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}
 		}
 		
+		/** Processes SAM alignment data for thread-specific statistics.
+		 * Iterates through SAM lines and updates tile alignment metrics. */
 		private void processSam() {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
@@ -1612,18 +1754,26 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 
+		/** Minimum X coordinate observed by this thread */
 		int xmin=Integer.MAX_VALUE, ymin=Integer.MAX_VALUE, tmin=Integer.MAX_VALUE;
+		/** Maximum X coordinate observed by this thread */
 		int xmax=-1, ymax=-1, tmax=-1;
+		/** Name identifier for the flow cell being processed */
 		public String flowcellName=null;
 		
+		/** K-mer depth values for first read in pair */
 		private IntList kmerDepths0=new IntList(151);
+		/** K-mer depth values for second read in pair */
 		private IntList kmerDepths1=new IntList(151);
+		/** Base depth values for first read in pair (after deblurring) */
 		private IntList baseDepths0=new IntList(151);
+		/** Base depth values for second read in pair (after deblurring) */
 		private IntList baseDepths1=new IntList(151);
 
 //		long[][][] laneDepthSums=new long[9][2][500];
 //		long[][][] laneDepthCounts=new long[9][2][500];
 		
+		/** Parser for extracting coordinates from Illumina read headers */
 		private IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 		
 		/** True only if this thread has completed successfully */
@@ -1635,6 +1785,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		private final Streamer ss;
 		/** Thread ID */
 		final int tid;
+		/** Thread-local FlowCell instance for data accumulation */
 		final FlowCell flowcellT;
 	}
 	
@@ -1647,6 +1798,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Additional input files for processing */
 	private ArrayList<String> extra=new ArrayList<String>();
 
 	/** Primary output file path */
@@ -1659,6 +1811,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 
 	/** Optional aligned reads (e.g. PhiX) */
 	private String samInput=null;
+	/** Whether to process SAM input in multi-threaded mode */
 	private final boolean processSamMT=true;
 	
 	/** Override input file extension */
@@ -1669,33 +1822,52 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*--------------------------------------------------------------*/	
 	
 //	private boolean pound=true;
+	/** Output file for flow cell statistics dump */
 	private String dumpOut=null;
+	/** Input file for pre-computed flow cell statistics */
 	private String dumpIn=null;
+	/** Output file for coordinates of discarded reads */
 	private String coordsOut=null;
 	
 	/*--------------------------------------------------------------*/	
 	
+	/** Delimiter character for barcode separation */
 	private byte delimiter='+';
+	/** Number of barcodes expected per read */
 	private int barcodesPerRead=2;
+	/** File path containing expected barcode sequences */
 	private String expectedBarcodes;
+	/** Output file path for barcode frequency counts */
 	private String barcodeCounts;
+	/** Statistics object for barcode analysis */
 	private BarcodeStats barcodeStats;
 	
+	/** Thread-safe map for tracking barcode frequencies */
 	private ConcurrentHashMap<String, AtomicStringNum> barcodeMap;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Side Channel         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to perform alignment for quality assessment */
 	boolean align=false;
+	/** Output file for alignment results */
 	String alignOut=null;
+	/** Reference sequence for alignment (default: phix) */
 	String alignRef="phix";
+	/** Minimum identity threshold for first alignment pass */
 	float alignMinid1=0.66f;
+	/** Minimum identity threshold for second alignment pass */
 	float alignMinid2=0.56f;
+	/** K-mer size for first alignment pass */
 	int alignK1=17; //Phix is unique down to k=13 solid; unsure about gapped
+	/** K-mer size for second alignment pass */
 	int alignK2=13;
+	/** Middle mask size for first alignment pass */
 	int alignMM1=1;
+	/** Middle mask size for second alignment pass */
 	int alignMM2=1;
+	/** Side channel for alignment processing */
 	SideChannel3 sidechannel;
 	
 	/*--------------------------------------------------------------*/	
@@ -1710,6 +1882,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/** Number of bases discarded */
 	public long basesDiscarded=0;
 	
+	/** Number of G bases converted to N due to quality issues */
 	protected long gsTransformedToN=0; 
 	
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -1721,56 +1894,91 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	//Test this; may need to be higher.  Was 16, now 24.
 	//Seems unused though, since switching to a mask...
 	//And Perlmutter seems to saturate at ~2000% CPU
+	/** Number of threads for k-mer loading */
 	private int loadThreads=24;
 	//32 was not quite enough on Perlmutter; maybe OK on Dori though
 	//64 is not enough with merge enabled
+	/** Number of threads for tile filling */
 	private int fillThreads=64;
 	//128 threads only ran at 5600% utilization...  may be too many.
+	/** Number of threads for tile filling when merging is enabled */
 	private static final int fillThreadsM=96;//threads when merge is enabled
+	/** Bloom filter for k-mer counting and depth estimation */
 	private BloomFilter bloomFilter;
 
+	/** Bit mask for read ID-based k-mer sampling */
 	int idmask_read=7;
+	/** Bit mask for write ID-based k-mer sampling */
 	int idmask_write=15;
+	/** Level of depth smoothing to apply (0=none, 3=3-point, 5=5-point) */
 	private int smoothDepths=0;
+	/** Whether to deconvolute k-mer depths to base depths */
 	private boolean deblurDepths=false;
 	
+	/** Whether to apply blurring to tile statistics */
 	private boolean blurTiles=false;
 	
+	/** Whether to load k-mers for depth analysis */
 	private boolean loadKmers=true;
 //	private int kmersPerRead=0;//for loading
+	/** Minimum probability threshold for k-mer inclusion */
 	private float minProb=0;
+	/** Whether to use deterministic k-mer sampling */
 	private boolean deterministic=true;
+	/** Number of bits per counter in Bloom filter */
 	private int cbits=2;
+	/** Number of hash functions in Bloom filter */
 	private int hashes=2;
 	
+	/** Whether to recalibrate quality scores */
 	private boolean recalibrate=false;
+	/** Whether to attempt read pair merging */
 	private boolean merge=false;
+	/** Whether to use strict merging criteria */
 	private boolean strictmerge=false;
 	
+	/** Target number of average reads per tile for analysis */
 	private int targetAverageReads=1600;
+	/** Target number of aligned reads per tile for analysis */
 	private int targetAlignedReads=250;
+	/** Target X dimension for tile sizing */
 	private int targetX=Tile.xSize;
+	/** Target Y dimension for tile sizing */
 	private int targetY=Tile.ySize;
 	
+	/** K-mer length for analysis (fixed at 31) */
 	private static final int k=31;
 	
+	/** Main FlowCell data structure containing tile information */
 	private FlowCell flowcell;
 	
+	/** Whether to convert poly-G read hits to misses */
 	private boolean changePolyGHitsToMisses=false;
 	
+	/** Multiplier for deviation-based quality thresholds */
 	private float dmult=-0.2f;
 	
+	/** Whether to discard only reads with low quality scores */
 	private boolean discardOnlyLowQuality=true;
+	/** Quality level threshold for discarding reads */
 	private int discardLevel=1;
+	/** Whether to convert problematic G bases to N */
 	private boolean gToN=false;
+	/** Whether to discard reads with problematic G content */
 	private boolean discardG=false;
 	
+	/** Minimum read length after trimming */
 	private int minlen=30;
+	/** Quality threshold for trimming (-1 to disable) */
 	private float trimq=-1;
+	/** Expected error threshold for trimming */
 	private final float trimE;
+	/** Whether to trim from left end of reads */
 	private boolean trimLeft=false;
+	/** Whether to trim from right end of reads */
 	private boolean trimRight=true;
 	
+	/** Flag to prevent repeated warning messages */
 	private boolean warned=false;
 	
 	/*--------------------------------------------------------------*/

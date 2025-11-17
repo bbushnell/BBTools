@@ -394,11 +394,15 @@ public class BlacklistMaker extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Converts internal data structures to sketch format and writes output.
+	 * @param destroy Whether to free memory by destroying source data structures */
 	private void writeSketch(boolean destroy){
 		Sketch sk=toSketch(destroy);
 		if(ffsketch!=null){errorState|=SketchTool.write(sk, ffsketch);}
 	}
 	
+	/** Compresses k-mer lists by removing duplicates and writes histogram data.
+	 * Counts k-mers by occurrence frequency and outputs distribution statistics. */
 	private void shrinkListsAndWriteHist(){
 		int max=1000000;
 		long[] counts=new long[max+1];
@@ -428,6 +432,12 @@ public class BlacklistMaker extends SketchObject {
 		}
 	}
 
+	/**
+	 * Converts internal hash maps to a Sketch object for output.
+	 * Filters k-mers by minimum taxa count and adds metadata.
+	 * @param destroy Whether to free memory during conversion
+	 * @return Sketch containing blacklisted k-mers and metadata
+	 */
 	private Sketch toSketch(boolean destroy){
 		long[] array=toArray(destroy);
 		hashArrayToSketchArray(array);
@@ -438,6 +448,12 @@ public class BlacklistMaker extends SketchObject {
 		return sk;
 	}
 	
+	/**
+	 * Extracts k-mer hash codes that meet minimum taxa count threshold.
+	 * Consolidates data from all hash map partitions into a single array.
+	 * @param destroy Whether to free hash maps during extraction
+	 * @return Array of blacklisted k-mer hash codes
+	 */
 	private long[] toArray(boolean destroy){
 		LongList list=new LongList();
 		for(int i=0; i<ways; i++){
@@ -458,6 +474,8 @@ public class BlacklistMaker extends SketchObject {
 	/*----------------           Prefilter          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Calculates memory allocation for prefilter passes based on available memory.
+	 * Distributes memory between alternating filter passes for multi-pass processing. */
 	private void calcMemory(){
 		long usableMemory=Shared.memAvailableAdvanced();
 		
@@ -478,8 +496,15 @@ public class BlacklistMaker extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Returns allocated memory for a specific prefilter pass.
+	 * @param pass Pass number (0-indexed)
+	 * @return Memory allocation in bytes for this pass
+	 */
 	private long filterMemory(int pass){return ((pass&1)==0) ? filterMemory0 : filterMemory1;}
 	
+	/** Creates the prefilter array for memory-efficient k-mer counting.
+	 * Calls recursive prefilter creation and purges the final filter. */
 	private void makePrefilter(){
 		prefilterArray=makePrefilter_inner(new KCountArray[1], 0, minTaxCount);
 		if(prefilterArray!=null){
@@ -574,6 +599,8 @@ public class BlacklistMaker extends SketchObject {
 	/*----------------          Tax Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Loads the GI to taxonomic ID translation table from file.
+	 * Times the loading process and reports memory usage. */
 	private void loadGiToTaxid(){
 		Timer t=new Timer();
 		outstream.println("Loading gi to taxa translation table.");
@@ -806,6 +833,12 @@ public class BlacklistMaker extends SketchObject {
 		}
 		
 		
+		/**
+		 * Thread-safe method to add k-mer hash code and taxonomic ID to hash maps.
+		 * Uses synchronized blocks to handle concurrent access across threads.
+		 * @param key0 K-mer hash code
+		 * @param value Taxonomic ID associated with this k-mer
+		 */
 		void addToMap(long key0, int value){
 			Long key=Long.valueOf(key0);
 //			Long key=new Long(key0);
@@ -830,6 +863,7 @@ public class BlacklistMaker extends SketchObject {
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
+		/** Number of k-mer hash codes added to maps by this thread */
 		protected long keysAddedT=0;
 		
 		/** True only if this thread has completed successfully */
@@ -840,6 +874,7 @@ public class BlacklistMaker extends SketchObject {
 		/** Thread ID */
 		final int tid;
 		
+		/** Entropy tracker for filtering low-complexity sequences, null if disabled */
 		private final EntropyTracker eTracker;
 	}
 	
@@ -847,41 +882,66 @@ public class BlacklistMaker extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Processing mode: PER_SEQUENCE, PER_TAXA, or PER_IMG */
 	private final int mode;
 	
+	/** Path to GI to taxonomic ID mapping file */
 	private String giTableFile=null;
+	/** Path to taxonomic tree structure file */
 	private String taxTreeFile=null;
+	/** Path to accession to taxonomic ID mapping file */
 	private String accessionFile=null;
+	/** Path to IMG (Integrated Microbial Genomes) database file */
 	private String imgFile=null;
 
+	/** Output file base name */
 	private String outName=null;
+	/** Name to embed in the sketch metadata */
 	private String sketchName=null;
+	/** Taxonomic ID to assign to the output sketch */
 	private int outTaxid=-1;
 	
+	/** Taxonomic level for grouping sequences (1=species, 2=genus, etc.) */
 	private int taxLevel=1;
+	/** Whether to use memory-efficient prefiltering for k-mer counting */
 	private boolean prefilter=true;
+	/** Whether to discard low-quality reads marked as junk */
 	private boolean tossJunk=true;
+	/** Whether to use best-effort taxonomic parsing when headers are ambiguous */
 	private boolean bestEffort=true;
+	/** Minimum number of taxa a k-mer must appear in to be blacklisted */
 	private int minTaxCount=100;
 	
+	/** Number of prefilter passes for memory management */
 	private int prepasses=2;
+	/** Number of hash functions for prefilter Bloom filters */
 	private int prehashes=2;
+	/** Bits per cell in prefilter array, -1 for automatic selection */
 	private int prebits=-1;
+	/** Whether to automatically determine optimal number of prefilter passes */
 	private boolean autoPasses=false;
 	
+	/** Fraction of memory to allocate to prefiltering (0.2 = 20%) */
 	double prefilterFraction=0.2;
 	
+	/** Memory allocated for even-numbered prefilter passes */
 	long filterMemory0;
+	/** Memory allocated for odd-numbered prefilter passes */
 	long filterMemory1;
 	
+	/** Array of hash maps partitioned by k-mer hash code for concurrent access */
 	private HashMap<Long, IntListCompressor>[] maps;
 	
+	/** K-mer counting array for memory-efficient prefiltering */
 	public KCountArray prefilterArray=null;
 	
+	/** Number of hash map partitions for concurrent access (fixed at 63) */
 	final int ways=63;
 	
+	/** Final number of k-mers in the blacklist, -1 until computed */
 	int resultingSize=-1;
 	
+	/** Thread-safe counter for assigning IDs to sequences with unknown taxonomy */
 	private final AtomicInteger nextUnknown=new AtomicInteger(SketchObject.minFakeID);
 	
 	/*--------------------------------------------------------------*/

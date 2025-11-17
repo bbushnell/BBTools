@@ -513,6 +513,14 @@ public class SortByName {
 		
 	}
 
+	/**
+	 * Blocks execution until outstanding memory usage drops below target threshold.
+	 * Uses synchronized waiting with periodic checks to manage memory pressure
+	 * during concurrent sorting operations.
+	 *
+	 * @param outstandingMem Atomic counter tracking outstanding memory usage
+	 * @param target Target memory threshold in bytes
+	 */
 	private void waitOnMemory(AtomicLong outstandingMem, long target){
 		if(outstandingMem.get()>target){
 			if(verbose){outstream.println("Syncing; outstandingMem="+outstandingMem);}
@@ -533,20 +541,52 @@ public class SortByName {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Calculates maximum observed read size including quality data and safety margin.
+	 * Used for memory allocation calculations during merge operations.
+	 * @return Maximum expected read size in bytes including overhead
+	 */
 	private final long maxSizeObserved(){//Includes some extra for a margin of error
 		return Tools.max(maxSizeObservedStatic(), Tools.max(maxLengthObserved, 150)*(qualityObserved ? 2 : 1)+500);
 	}
+	/**
+	 * Static version of maximum observed read size calculation.
+	 * Includes quality data multiplier and safety margin for memory planning.
+	 * @return Maximum expected read size in bytes including overhead
+	 */
 	final static long maxSizeObservedStatic(){//Includes some extra for a margin of error
 		return Tools.max(maxLengthObservedStatic, 150)*(qualityObservedStatic ? 2 : 1)+500;
 	}
+	/**
+	 * Calculates memory requirements for merging multiple sorted files.
+	 * Accounts for buffer sizes, file count, and overhead multipliers.
+	 *
+	 * @param maxSizeObserved Maximum read size in bytes
+	 * @param inFiles Number of input files to merge
+	 * @return Required memory in bytes for merge operation
+	 */
 	private static long mergeMemNeeded(long maxSizeObserved, int inFiles){
 		return (long)(maxSizeObserved*2*(inFiles+1)*1.6);
 	}
+	/**
+	 * Determines maximum number of files that can be merged simultaneously
+	 * based on available memory and read size constraints.
+	 * @param maxSizeObserved Maximum read size in bytes
+	 * @return Maximum number of files for single merge operation
+	 */
 	private static int maxMergeFiles(long maxSizeObserved){
 		final long memAvailable=Shared.memAvailableAdvanced();
 		int files=(int)Tools.max(3, memAvailable/Tools.max(maxSizeObserved, 500))-1;
 		return Tools.min(files, 10000);
 	}
+	/**
+	 * Reduces buffer sizes when memory is insufficient for merge operations.
+	 * Caps buffer length and count to prevent out-of-memory conditions.
+	 *
+	 * @param maxSizeObserved Maximum read size in bytes
+	 * @param inFiles Number of input files being merged
+	 * @param outstream Print stream for status messages
+	 */
 	private static void adjustBuffers(long maxSizeObserved, int inFiles, PrintStream outstream){
 		if(Shared.numBuffers()<3){return;}
 		long memNeeded=mergeMemNeeded(maxSizeObserved, inFiles);
@@ -599,10 +639,25 @@ public class SortByName {
 		return currentList;
 	}
 	
+	/**
+	 * Inner recursive merge operation that handles a single merge pass.
+	 * Delegates to the main merge and dump method with specified parameters.
+	 *
+	 * @param inList Input file list for this merge pass
+	 * @param ffoutTemp1 Output file format for primary temp file
+	 * @param ffoutTemp2 Output file format for secondary temp file
+	 * @param deleteAfterMerge Whether to delete input files after merging
+	 * @param allowSubprocess Whether subprocess execution is permitted
+	 */
 	public void mergeRecursiveInner(ArrayList<String> inList, FileFormat ffoutTemp1, FileFormat ffoutTemp2, boolean deleteAfterMerge, boolean allowSubprocess){
 		errorState|=mergeAndDump(inList, /*null, */ffoutTemp1, ffoutTemp2, deleteAfterMerge, useSharedHeader, allowSubprocess, outstream, maxSizeObserved());
 	}
 	
+	/**
+	 * Creates a unique temporary file name for intermediate sort results.
+	 * Uses system temp file creation with sort-specific prefix and extension.
+	 * @return Path to newly created temporary file
+	 */
 	private String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -618,6 +673,15 @@ public class SortByName {
 		return temp;
 	}
 	
+	/**
+	 * Merges sorted files and writes final output, handling recursive merging if needed.
+	 * Checks if file count exceeds merge limits and performs recursive merging first.
+	 *
+	 * @param fnames List of sorted file names to merge
+	 * @param useHeader Whether to preserve SAM/BAM headers
+	 * @param allowSubprocess Whether subprocess execution is permitted
+	 * @return true if errors occurred during merge operation
+	 */
 	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader, boolean allowSubprocess) {
 		final long maxSizeObserved=maxSizeObserved();
 		final int limit=Tools.min(mergeFileLimit, maxMergeFiles(maxSizeObserved));
@@ -857,6 +921,11 @@ public class SortByName {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Background thread for sorting and writing read data to temporary files.
+	 * Handles concurrent sorting operations to maximize throughput and manage
+	 * memory pressure during large dataset processing.
+	 */
 	private static class WriteThread extends Thread{
 		
 		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, 
@@ -913,13 +982,21 @@ public class SortByName {
 			}
 		}
 		
+		/** List of reads to be sorted by this thread */
 		final ArrayList<Read> storage;
+		/** Current memory usage in bytes for this sorting operation */
 		final long currentMem;
+		/** Atomic counter tracking outstanding memory across all threads */
 		final AtomicLong outstandingMem;
+		/** Primary output file name for this sorting thread */
 		final String fname1;
+		/** Secondary output file name for this sorting thread */
 		final String fname2;
+		/** Whether to preserve SAM/BAM headers in output */
 		final boolean useHeader;
+		/** Error state flag for this thread's operations */
 		boolean errorState=false;
+		/** Print stream for this thread's status messages */
 		final PrintStream outstream;
 		
 	}
@@ -933,7 +1010,9 @@ public class SortByName {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality input file path */
 	private String qfin1=null;
+	/** Secondary quality input file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -941,6 +1020,7 @@ public class SortByName {
 	/** Secondary output file path */
 	private String out2=null;
 	
+	/** List of temporary file names created during sorting */
 	private ArrayList<String> outTemp=new ArrayList<String>();
 	
 	/** Override input file extension */
@@ -948,17 +1028,25 @@ public class SortByName {
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** File extension for temporary files */
 	private String tempExt=null;
 
+	/** Path to GI to taxonomy ID mapping table file */
 	private String giTableFile=null;;
+	/** Path to taxonomic tree file */
 	private String taxTreeFile=null;
+	/** Path to accession to taxonomy ID mapping file */
 	private String accessionFile=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum read length observed during processing */
 	long maxLengthObserved=0;
+	/** Static maximum read length observed across all instances */
 	private static long maxLengthObservedStatic=0;
+	/** Whether quality scores are present in input data */
 	private final boolean qualityObserved;
+	/** Static flag indicating if quality scores have been observed */
 	private static boolean qualityObservedStatic;
 	
 	/** Number of reads processed */
@@ -969,24 +1057,34 @@ public class SortByName {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Whether to delete temporary files after sorting */
 	private boolean delete=true;
+	/** Whether to delete temporary files immediately after use */
 	private boolean deleteEarly=false;
 	
+	/** Whether to preserve shared SAM/BAM headers */
 	private boolean useSharedHeader=false;
 	
+	/** Whether temporary files are allowed for external sorting */
 	private boolean allowTempFiles=true;
 	
+	/** Minimum read length to include in sorting */
 	private int minlen=0;
 
+	/** Memory multiplier for individual sort blocks (0.30 default) */
 	private float memBlockMult=0.30f; //Crashed once at old default 0.35
+	/** Memory multiplier for total memory usage (0.65 default) */
 	private float memTotalMult=0.65f; //Crashed once at old default 0.75
 	
 	/** Max files to merge per pass */
 	private int maxFiles=12;
+	/** Whether maxFiles was explicitly set by user */
 	private boolean setMaxFiles=false;
 	
+	/** Static limit for merge file operations (24) */
 	private static int mergeFileLimit=24;
 	
+	/** Whether to generate k-mer data for topological sorting */
 	private boolean genKmer=true;
 	
 	/*--------------------------------------------------------------*/
@@ -1003,8 +1101,10 @@ public class SortByName {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
+	/** Whether clump-based sorting comparator is being used */
 	private final boolean clump;
 	
+	/** Static comparator used for sorting reads (default: ReadComparatorName) */
 	private static ReadComparator comparator=ReadComparatorName.comparator;
 	
 	/*--------------------------------------------------------------*/

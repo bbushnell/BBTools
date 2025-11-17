@@ -284,6 +284,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		return true;
 	}
 	
+	/** Writes identity and score histograms to specified file.
+	 * @param fname Output file name for histogram data */
 	private void writeHist(String fname){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, false);
 		bsw.start();
@@ -376,6 +378,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		}
 	}
 
+	/**
+	 * Loads reference sequences from file and creates BaseGraph objects.
+	 * Handles both regular files and special reference types from resources.
+	 * @return Map of sequence names to BaseGraph objects
+	 */
 	private synchronized LinkedHashMap<String, BaseGraph> loadReferenceCustom(){
 		assert(!loadedRef);
 		if(specialRef){return loadReferenceSpecial();}
@@ -412,6 +419,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	}
 	
 	//For ribo subunits in resources directory
+	/**
+	 * Loads special reference sequences from resources directory.
+	 * Used for ribosomal subunits and other predefined consensus sequences.
+	 * @return Map containing the special reference sequence
+	 */
 	private synchronized LinkedHashMap<String, BaseGraph> loadReferenceSpecial(){
 		assert(!loadedRef);
 		Read[] array=ProkObject.loadConsensusSequenceType(ref, false, false);
@@ -422,6 +434,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		return map;
 	}
 
+	/** Creates a secondary reference map with truncated sequence names.
+	 * Allows lookups by trimmed whitespace names for better compatibility. */
 	private synchronized void makeRefMap2(){
 		assert(refMap!=null && refMap2==null);
 		if(verbose){outstream.println("Making refMap2.");}
@@ -442,6 +456,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		if(verbose){outstream.println("Made refMap2.");}
 	}
 	
+	/** Creates a concurrent read input stream for reference sequences.
+	 * @return Configured input stream for reference file */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -459,6 +475,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		return ss;
 	}
 	
+	/**
+	 * Creates a concurrent read input stream for sequence files.
+	 * @param ff FileFormat specification for the input file
+	 * @return Configured input stream for sequence reads
+	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
 		cris.start(); //Start the stream
@@ -468,6 +489,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		return cris;
 	}
 	
+	/** Creates a concurrent read output stream for consensus sequences.
+	 * @return Configured output stream or null if no output file specified */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -539,6 +562,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		ReadWrite.closeStreams(cris);
 	}
 	
+	/**
+	 * Generates consensus sequences from BaseGraph objects and writes output.
+	 * Traverses each graph to produce final consensus, updates statistics.
+	 * @param ros Output stream for writing consensus sequences
+	 */
 	private void outputConsensus(ConcurrentReadOutputStream ros){
 		if(verbose){outstream.println("Making consensus.");}
 		ArrayList<Read> consensusList=new ArrayList<Read>(200);
@@ -661,6 +689,8 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 			
 		}
 		
+		/** Processes a list of reads, validating and updating statistics.
+		 * @param ln ListNum containing reads to process */
 		void processList(ListNum<Read> ln){
 			
 			//Loop through each read in the list
@@ -762,6 +792,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
+		/** Number of aligned reads processed by this thread */
 		protected long alignedReadsT=0;
 
 		double identitySumT=0;
@@ -789,8 +820,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/** Reference input file path */
 	private String ref=null;
 
+	/** Input model file path for scoring */
 	private String inModelFile;
+	/** Loaded input model for scoring alignments */
 	private BaseGraph inModel;
+	/** Output file path for histogram data */
 	private String outHistFile;
 	
 	/** Consensus output file path */
@@ -810,9 +844,12 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/** Number of bases processed */
 	protected long basesProcessed=0;
 	
+	/** Number of aligned reads processed */
 	protected long alignedReads=0;
 
+	/** Sum of identity scores across all reads */
 	protected double identitySum=0;
+	/** Sum of model scores across all reads */
 	protected double scoreSum=0;
 
 	/** Number of reads retained */
@@ -823,13 +860,18 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Count of substitution variants found */
 	public long subCount=0;
+	/** Count of reference bases confirmed */
 	public long refCount=0;
+	/** Count of deletion variants found */
 	public long delCount=0;
+	/** Count of insertion variants found */
 	public long insCount=0;
 
 	long[] idHist=new long[101];
 	long[] scoreHist=new long[101];
+	/** Whether to print identity and model scores to stderr */
 	boolean printScores=false;
 	
 	/*--------------------------------------------------------------*/
@@ -837,23 +879,31 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	/** Threads dedicated to reading the sam file */
 	private int streamerThreads=-1;
 	
+	/** Override name for output consensus sequences */
 	private String name=null;
 
+	/** Whether reference sequences have been loaded */
 	private boolean loadedRef=false;
+	/** Whether using special reference from resources directory */
 	private boolean specialRef=false;
 	
+	/** Whether to realign reads during processing */
 	private boolean realign=false;
 	
+	/** Expected ploidy level for consensus generation */
 	private int ploidy=1;
 	
+	/** Whether to suppress progress messages */
 	private final boolean silent;
 	
+	/** Filter for SAM/BAM records */
 	public final SamFilter samFilter=new SamFilter();
 	/** Uses full ref names */
 	public LinkedHashMap<String, BaseGraph> refMap;
 	/** Uses truncated ref names */
 	public LinkedHashMap<String, BaseGraph> refMap2;
 	
+	/** Default reference name for unmapped reads */
 	private String defaultRname=null;
 	
 	/*--------------------------------------------------------------*/
@@ -872,6 +922,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

@@ -23,6 +23,11 @@ import structures.ListNum;
 public class QuickFile {
 	
 	
+	/**
+	 * Main method for testing file reading performance and functionality.
+	 * Supports reading from stdin or specified file with optional line range limits.
+	 * @param args Command line arguments: [filename] [start_line|"speedtest"] [end_line]
+	 */
 	public static void main(String[] args){
 		QuickFile tf=new QuickFile(args.length>0 ? args[0] : "stdin", true);
 		long first=0, last=100;
@@ -47,6 +52,13 @@ public class QuickFile {
 		tf.close();
 	}
 	
+	/**
+	 * Performs speed test or line reading within specified range.
+	 * @param tf QuickFile instance to read from
+	 * @param first Starting line number (0-based)
+	 * @param last Ending line number (exclusive)
+	 * @param reprint If true, prints lines to stdout; if false, only counts performance
+	 */
 	private static void speedtest(QuickFile tf, long first, long last, boolean reprint){
 		Timer t=new Timer();
 		long lines=0;
@@ -80,10 +92,17 @@ public class QuickFile {
 		}
 	}
 	
+	/**
+	 * Constructs QuickFile from filename with subprocess permission.
+	 * @param fname Input filename or "stdin" for standard input
+	 * @param allowSubprocess_ Whether to allow subprocess for compressed files
+	 */
 	public QuickFile(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false));
 	}
 	
+	/** Constructs QuickFile from FileFormat specification.
+	 * @param ff_ FileFormat object defining input source and properties */
 	public QuickFile(FileFormat ff_){
 		ff=ff_;
 		assert(ff.read()) : ff;
@@ -91,6 +110,8 @@ public class QuickFile {
 		is=open();
 	}
 	
+	/** Resets file reader to beginning, clearing pushback buffer and line counter.
+	 * Closes and reopens the input stream to start from the beginning. */
 	public final void reset(){
 		close();
 		is=open();
@@ -99,6 +120,11 @@ public class QuickFile {
 		nextID=0;
 	}
 	
+	/**
+	 * Closes the input stream and cleans up resources.
+	 * Thread-safe method that handles proper stream closure and error state tracking.
+	 * @return Error state - true if errors occurred during reading/closing
+	 */
 	public synchronized final boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+name()+"; open="+open+"; errorState="+errorState);}
 		if(!open){return errorState;}
@@ -114,6 +140,11 @@ public class QuickFile {
 		return errorState;
 	}
 	
+	/**
+	 * Reads next line from input as byte array, handling various line endings.
+	 * Strips carriage returns and manages internal buffer for efficient reading.
+	 * @return Next line as byte array, or null if end of file reached
+	 */
 	public byte[] nextLine(){
 //		if(pushBack!=null){
 //			byte[] temp=pushBack;
@@ -168,8 +199,15 @@ public class QuickFile {
 		return line;
 	}
 	
+	/** Dummy byte array for testing purposes */
 	final byte[] dummy=new byte[100];
 	
+	/**
+	 * Fills internal buffer with data from input stream.
+	 * Shifts remaining bytes to buffer start and reads new data to fill remainder.
+	 * Automatically expands buffer size if needed to accommodate long lines.
+	 * @return Position of next newline character, or -1 if end of stream
+	 */
 	private int fillBuffer(){
 		if(bstart<bstop){ //Shift end bytes to beginning
 //			System.err.println("Shift: "+bstart+", "+bstop);
@@ -239,6 +277,12 @@ public class QuickFile {
 		return len;
 	}
 	
+	/**
+	 * Opens input stream for reading, preventing double-opening.
+	 * Thread-safe method that initializes buffer positions and stream state.
+	 * @return InputStream for the file
+	 * @throws RuntimeException if file is already open
+	 */
 	private final synchronized InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened TextFile "+name());
@@ -250,6 +294,11 @@ public class QuickFile {
 		return is;
 	}
 	
+	/**
+	 * Reads all remaining lines into ArrayList of byte arrays.
+	 * Continues reading until end of file is reached.
+	 * @return ArrayList containing all lines as byte arrays
+	 */
 	public final ArrayList<byte[]> toByteLines(){
 		
 		byte[] s=null;
@@ -262,6 +311,11 @@ public class QuickFile {
 		return list;
 	}
 	
+	/**
+	 * Counts total number of lines in file and resets to beginning.
+	 * Reads through entire file without storing line contents.
+	 * @return Total number of lines in the file
+	 */
 	public final long countLines(){
 		byte[] s=null;
 		long count=0;
@@ -271,6 +325,11 @@ public class QuickFile {
 		return count;
 	}
 	
+	/**
+	 * Reads up to 200 lines into a numbered list structure.
+	 * Thread-safe method for batch reading with automatic ID assignment.
+	 * @return ListNum containing up to 200 lines, or null if no more data
+	 */
 	public synchronized final ListNum<byte[]> nextList(){
 		byte[] line=nextLine();
 		if(line==null){return null;}
@@ -286,48 +345,83 @@ public class QuickFile {
 		return ln;
 	}
 	
+	/**
+	 * Checks if the input file exists or is a special stream.
+	 * Handles stdin, jar resources, and regular files.
+	 * @return True if file exists or is accessible special stream
+	 */
 	public final boolean exists(){
 		return name().equals("stdin") || name().startsWith("stdin.") || name().startsWith("jar:") || new File(name()).exists(); //TODO Ugly and unsafe hack for files in jars
 	}
 	
+	/**
+	 * Pushes line back to be returned by next nextLine() call.
+	 * Can only hold one line at a time for simple lookahead functionality.
+	 * @param line Line to push back for next read
+	 */
 	public final void pushBack(byte[] line){
 		assert(pushBack==null);
 		pushBack=line;
 	}
 	
+	/** Returns the name of the input file or stream */
 	public final String name(){return ff.name();}
+	/** Returns whether subprocess usage is allowed for this file */
 	public final boolean allowSubprocess(){return ff.allowSubprocess();}
 	
+	/** FileFormat object defining input source properties */
 	public final FileFormat ff;
 
+	/** Force mode flag for ByteFile1 compatibility testing */
 	public static boolean FORCE_MODE_BF1=false;//!(Shared.GENEPOOL || Shared.DENOVO || Shared.CORI || Shared.WINDOWS);
+	/** Force mode flag for ByteFile2 compatibility testing */
 	public static boolean FORCE_MODE_BF2=false;
+	/** Force mode flag for ByteFile3 compatibility testing */
 	public static boolean FORCE_MODE_BF3=false;
 	
 	protected final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 
+	/** Test variable for debugging purposes */
 	long a=1;
+	/** Test variable for debugging purposes */
 	long b=2;
+	/** Test variable for debugging purposes */
 	long c=3;
+	/** Test variable for debugging purposes */
 	long d=4;
+	/** Test pointer variable for debugging purposes */
 	byte[] p0=null;
+	/** Test pointer variable for debugging purposes */
 	byte[] p1=null;
+	/** Test pointer variable for debugging purposes */
 	byte[] p2=null;
+	/** Test pointer variable for debugging purposes */
 	byte[] p3=null;
+	/** Single line buffer for pushback functionality */
 	private byte[] pushBack=null;
+	/** Counter for assigning IDs to ListNum objects */
 	private long nextID=0;
 	
+	/** Flag indicating whether input stream is currently open */
 	private boolean open=false;
+	/** Internal buffer for reading data from input stream */
 	private byte[] buffer=new byte[bufferlen];
+	/** Shared empty byte array for representing blank lines */
 	private static final byte[] blankLine=new byte[0];
 	private int bstart=0, bstop=0;
+	/** Input stream for reading file data */
 	public InputStream is;
+	/** Current line number being read (0-based) */
 	public long lineNum=-1;
 	
+	/** Enable verbose debug output for file operations */
 	public static boolean verbose=false;
+	/** Whether to use buffered input streams */
 	public static boolean BUFFERED=false;
+	/** Size of internal buffer for reading data */
 	public static int bufferlen=16384;
 
+	/** Flag tracking whether errors occurred during file operations */
 	private boolean errorState=false;
 	
 }

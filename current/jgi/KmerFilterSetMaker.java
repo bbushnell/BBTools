@@ -170,6 +170,12 @@ public class KmerFilterSetMaker {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Main processing method that executes the complete k-mer filtering pipeline.
+	 * Checks output file permissions, runs the filtering process, and reports
+	 * timing statistics. Throws an exception if errors occur during processing.
+	 * @param t Timer for tracking total execution time
+	 */
 	public void process(Timer t){
 		
 		/* Check for output file collisions */
@@ -188,6 +194,11 @@ public class KmerFilterSetMaker {
 	}
 	
 	
+	/**
+	 * Core processing logic that executes all filtering passes and reports statistics.
+	 * Calls runAllPasses to perform the iterative k-mer filtering, then outputs
+	 * summary statistics including reads processed, k-mers output, and number of passes.
+	 */
 	public void process2(){
 		
 		/* Start phase timer */
@@ -218,6 +229,16 @@ public class KmerFilterSetMaker {
 		outstream.println("Time:                       \t"+t);
 	}
 	
+	/**
+	 * Executes multiple passes of k-mer filtering until termination criteria are met.
+	 * Handles optional initial k-mer set loading, then performs iterative passes
+	 * where each pass counts k-mers, selects high-count k-mers, and filters out
+	 * reads containing those k-mers for the next pass.
+	 *
+	 * @param initialInputFile Path to the input sequence file
+	 * @param tempPattern Template for temporary file names containing "#" placeholder
+	 * @return Final maximum k-mer count observed in the last pass
+	 */
 	int runAllPasses(String initialInputFile, String tempPattern){
 		//Handle initial input set
 		if(initialKmerFile==null){
@@ -250,6 +271,19 @@ public class KmerFilterSetMaker {
 		return maxCount;
 	}
 	
+	/**
+	 * Executes one pass of k-mer filtering: count, select high-count k-mers, and filter reads.
+	 * Creates a k-mer table from input sequences, generates count histogram, determines
+	 * minimum count threshold to retain desired number of k-mers, dumps selected k-mers
+	 * to output file, then filters input reads to remove those matching selected k-mers.
+	 *
+	 * @param inFile Path to input sequence file for this pass
+	 * @param outFile Path to write filtered sequences for next pass
+	 * @param kmerFile Path to append selected k-mers
+	 * @param lastMaxSeen Maximum k-mer count from previous pass (for histogram sizing)
+	 * @param pass Current pass number (0-based)
+	 * @return Minimum count threshold used to select k-mers, or -1 if no k-mers retained
+	 */
 	int runOnePass(String inFile, String outFile, String kmerFile, int lastMaxSeen, int pass){
 		Timer t=new Timer();
 		
@@ -360,33 +394,60 @@ public class KmerFilterSetMaker {
 //	private boolean rinse=false;
 //	private int shaveDepth=1;
 	
+	/** Arguments to pass to k-mer table constructors */
 	private ArrayList<String> tableArgs=new ArrayList<String>();
 	
+	/** Total number of bases processed from input */
 	private long basesIn=0;
+	/** Total number of reads processed from input */
 	private long readsIn=0;
 
+	/** Total number of k-mers encountered in input */
 	private long kmersIn=0;
+	/** Total number of k-mers written to output */
 	private long kmersOut=0;
+	/** Number of filtering passes completed */
 	private long numPasses;
+	/** Number of k-mers in the initial seed set */
 	private long initialSetSize=0;
 
+	/** Maximum number of filtering passes to perform */
 	private int maxPasses=3000;
+	/** Minimum k-mer count required for termination */
 	private int minCount=1;
+	/** Minimum number of k-mers to select per pass */
 	private int minKmersPerIteration=1;
+	/** Maximum number of k-mers to select per pass */
 	private int maxKmersPerIteration=2;
+	/** Maximum number of ambiguous bases allowed in k-mers */
 	private int maxNs=Integer.MAX_VALUE;
+	/** Minimum sequence length to process */
 	private int minLen=1;
 	
 	/** Kmer count output file */
 	private String kmerOutFile=null;
 
+	/** Path to primary input sequence file */
 	private String inFile=null;
+	/** Path to optional initial k-mer set file */
 	private String initialKmerFile=null;
+	/** Template pattern for temporary files during processing */
 	private String outTemp=null;
+	/** Path to temporary k-mer file for intermediate storage */
 	private String tempKmerFile=makeTempFile("ktemp",".fa");
 	
+	/** Flag indicating whether an error occurred during processing */
 	private boolean errorState=false;
 	
+	/**
+	 * Generates a unique temporary filename with timestamp and random components.
+	 * Ensures the extension starts with a dot and combines prefix with high-resolution
+	 * timestamp and random number to avoid filename collisions.
+	 *
+	 * @param prefix Base name for the temporary file
+	 * @param ext File extension (dot will be added if missing)
+	 * @return Unique temporary filename
+	 */
 	private String makeTempFile(String prefix, String ext){
 		if(!ext.startsWith(".")){ext="."+ext;}
 //		try {
@@ -403,6 +464,7 @@ public class KmerFilterSetMaker {
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** K-mer length for k-mer counting and filtering */
 	final int k;
 	
 	/*--------------------------------------------------------------*/

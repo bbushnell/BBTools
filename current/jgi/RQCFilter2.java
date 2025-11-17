@@ -1673,6 +1673,15 @@ public class RQCFilter2 {
 		}
 	}
 	
+	/**
+	 * Uses BBMerge to automatically discover adapter sequences from overlapping reads.
+	 * Analyzes first 1M reads to identify adapter contamination patterns.
+	 *
+	 * @param in1 Primary input reads file
+	 * @param in2 Secondary input reads file
+	 * @param outa Output file for discovered adapter sequences
+	 * @return true if valid adapters were discovered, false otherwise
+	 */
 	private boolean discoverAdapters(String in1, String in2, String outa){
 		log("findAdapters start", true);
 		
@@ -4277,6 +4286,7 @@ public class RQCFilter2 {
 	/*----------------           Log Files          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Statistics collector for the filtering pipeline */
 	private RQCFilterStats filterstats=new RQCFilterStats();
 	
 	private String logName="status.log";

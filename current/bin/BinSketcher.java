@@ -34,6 +34,12 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a BinSketcher with specified threading and size parameters.
+	 * Initializes sketch parameters and creates SketchTool if sketching is enabled.
+	 * @param threads_ Maximum number of threads to use for processing
+	 * @param minSize_ Minimum size threshold for objects to be sketched
+	 */
 	public BinSketcher(int threads_, int minSize_){
 		
 		threads=Tools.min(threads_, Shared.threads());
@@ -68,6 +74,14 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		sketch(input, force);
 //	}
 	
+	/**
+	 * Sketches a list of Sketchable objects that meet size requirements.
+	 * Updates sketches only for objects whose size has grown significantly
+	 * since last sketching, unless force is true.
+	 *
+	 * @param input List of Sketchable objects to potentially sketch
+	 * @param force Sketch all objects if true; otherwise only sketch objects that have doubled
+	 */
 	public void sketch(ArrayList<? extends Sketchable> input, boolean force) {
 		ArrayList<Sketchable> updateList=new ArrayList<Sketchable>();
 		float mult=(force ? 1 : 2);
@@ -233,10 +247,14 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		protected long bytesOutT=0;
 		
 
+		/** Dummy Read object used for sketch generation */
 		final Read dummy=new Read(null, null, null, 0);
+		/** JSON parser for processing taxonomic assignment results */
 		final JsonParser jp=new JsonParser();
+		/** Display parameters configured for JSON output format */
 		final DisplayParams params;
 		
+		/** Thread-local error state flag */
 		protected boolean errorStateT=false;
 		
 		/** True only if this thread has completed successfully */
@@ -250,6 +268,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 		final int threads;
 		
 
+		/** Sketch generator for creating MinHash sketches */
 		final SketchMakerMini smm;
 	}
 	
@@ -257,21 +276,29 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines processed */
 	long linesProcessed=0;
+	/** Total number of output lines produced */
 	long linesOut=0;
+	/** Total number of bytes processed */
 	long bytesProcessed=0;
+	/** Total number of output bytes produced */
 	long bytesOut=0;
 
 	
+	/** Sketch tool for generating and comparing sketches */
 	private final SketchTool tool;
 //	private final SketchMakerMini smm;
+	/** Maximum number of threads available for processing */
 	private final int threads;
+	/** Minimum size threshold for objects to be sketched */
 	final int minSize;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Size of sections for bulk processing mode */
 	static int sectionSize=100;
 	
 	/*--------------------------------------------------------------*/
@@ -280,6 +307,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

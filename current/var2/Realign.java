@@ -191,6 +191,8 @@ public class Realign {
 		loadReference();
 	}
 
+	/** Loads the reference genome into ScafMap for realignment.
+	 * Only loads once per instance to avoid duplicate work. */
 	private void loadReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -516,11 +518,16 @@ public class Realign {
 	/*--------------------------------------------------------------*/
 	
 	
+	/** Flag indicating if reference has been loaded */
 	private boolean loadedRef=false;
 
+	/** Enable quality trimming from left end */
 	private boolean qtrimLeft=false;
+	/** Enable quality trimming from right end */
 	private boolean qtrimRight=true;
+	/** Quality threshold for trimming */
 	private float trimq=10;
+	/** Expected error rate for trimming calculations */
 	private final float trimE;
 	
 	/*--------------------------------------------------------------*/
@@ -536,16 +543,24 @@ public class Realign {
 	/** Number of bases trimmed */
 	protected long basesTrimmed=0;
 	
+	/** Number of realignment attempts made */
 	protected long realignmentsAttempted;
+	/** Number of realignments that improved the alignment score */
 	protected long realignmentsImproved;
+	/** Number of successful realignments */
 	protected long realignmentsSucceeded;
+	/** Number of realignments that were retained in the output */
 	protected long realignmentsRetained;
 	
+	/** Map of scaffolds from reference sequences */
 	public final ScafMap scafMap=new ScafMap();
 	
+	/** Number of bases to trim from borders */
 	public int border=0;
+	/** Whether to unclip soft-clipped bases during realignment */
 	public boolean unclip=false;
 	
+	/** Filter for SAM/BAM records */
 	public final SamFilter samFilter=new SamFilter();
 	
 	/*--------------------------------------------------------------*/

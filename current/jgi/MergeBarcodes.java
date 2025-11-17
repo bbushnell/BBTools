@@ -32,6 +32,8 @@ import tracker.ReadStats;
  */
 public class MergeBarcodes {
 
+	/** Program entry point that executes the complete barcode merging pipeline.
+	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MergeBarcodes x=new MergeBarcodes(args);
@@ -42,6 +44,12 @@ public class MergeBarcodes {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs MergeBarcodes instance and parses command-line arguments.
+	 * Sets up input/output file formats and processing parameters.
+	 * @param args Command-line arguments containing file paths and options
+	 * @throws RuntimeException if required parameters are missing or invalid
+	 */
 	public MergeBarcodes(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -179,10 +187,25 @@ public class MergeBarcodes {
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Loads barcode sequences from the specified barcode file.
+	 * Creates a map of read IDs to barcode Read objects for merging.
+	 * @return HashMap mapping read IDs to their corresponding barcode reads
+	 */
 	public HashMap<String, Read> loadBarcodes(){
 		return loadBarcodes(outstream, ffbar, maxReads);
 	}
 	
+	/**
+	 * Static method to load barcodes from a file with specified parameters.
+	 * Reads barcode file and creates lookup map for matching with main reads.
+	 *
+	 * @param outstream Output stream for status messages
+	 * @param ffbar FileFormat for the barcode input file
+	 * @param maxReads Maximum number of reads to process (-1 for unlimited)
+	 * @return HashMap mapping read IDs to barcode Read objects
+	 * @throws RuntimeException if barcode loading encounters errors
+	 */
 	public static HashMap<String, Read> loadBarcodes(PrintStream outstream, FileFormat ffbar, long maxReads){
 		
 		Timer t=new Timer();
@@ -278,6 +301,15 @@ public class MergeBarcodes {
 		return map;
 	}
 
+	/**
+	 * Merges main reads with barcode data using the provided barcode map.
+	 * For each read, looks up corresponding barcode and prepends barcode sequence
+	 * and quality information to the read ID in format: sequence_quality_originalID.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param map HashMap containing barcode reads keyed by read ID
+	 * @throws RuntimeException if merging encounters errors
+	 */
 	void mergeWithMap(Timer t, HashMap<String, Read> map){
 
 		final ConcurrentReadInputStream cris;
@@ -395,51 +427,75 @@ public class MergeBarcodes {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Path to the barcode input file */
 	private String inbar=null;
 	
+	/** Path to first input reads file */
 	private String in1=null;
+	/** Path to second input reads file for paired data */
 	private String in2=null;
 	
+	/** Path to first input quality file */
 	private String qfin1=null;
+	/** Path to second input quality file */
 	private String qfin2=null;
 
+	/** Path to first output file */
 	private String out1=null;
+	/** Path to second output file for paired data */
 	private String out2=null;
 
+	/** Path to first output quality file */
 	private String qfout1=null;
+	/** Path to second output quality file */
 	private String qfout2=null;
 	
+	/** File extension override for input files */
 	private String extin=null;
+	/** File extension override for output files */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Whether to reverse-complement mate reads */
 	private boolean reverseComplementMate=false;
+	/** Whether to reverse-complement all reads */
 	private boolean reverseComplement=false;
 	/** Add /1 and /2 to read names */
 	private boolean addslash=false;
 	/** Add 1: and 2: to read names */
 	private boolean addcolon=false;
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** FileFormat object for barcode input file */
 	private final FileFormat ffbar;
 	
+	/** FileFormat object for first input reads file */
 	private final FileFormat ffin1;
+	/** FileFormat object for second input reads file */
 	private final FileFormat ffin2;
 
+	/** FileFormat object for first output file */
 	private final FileFormat ffout1;
+	/** FileFormat object for second output file */
 	private final FileFormat ffout2;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status and error messages */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
+	/** Tracks whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

@@ -338,10 +338,18 @@ class GraphRefiner extends AbstractRefiner {
      * Internal representation of weighted similarity graph.
      */
     private static class SimilarityGraph {
+        /** Adjacency list storing edges for each node */
         private final ArrayList<ArrayList<Edge>> adjacencyList;
+        /** Number of nodes in the graph */
         private final int nodeCount;
+        /** Sum of all edge weights for modularity calculations */
         private float totalWeight;
         
+        /**
+         * Creates empty similarity graph with specified number of nodes.
+         * Initializes adjacency list structure for all nodes.
+         * @param nodeCount Number of nodes (contigs) in the graph
+         */
         public SimilarityGraph(int nodeCount) {
             this.nodeCount = nodeCount;
             this.adjacencyList = new ArrayList<>(nodeCount);
@@ -352,12 +360,25 @@ class GraphRefiner extends AbstractRefiner {
             }
         }
         
+        /**
+         * Adds weighted undirected edge between two nodes.
+         * Updates total graph weight for modularity calculations.
+         *
+         * @param u First node index
+         * @param v Second node index
+         * @param weight Similarity weight for the edge
+         */
         public void addEdge(int u, int v, float weight) {
             adjacencyList.get(u).add(new Edge(v, weight));
             adjacencyList.get(v).add(new Edge(u, weight));
             totalWeight += weight;
         }
         
+        /**
+         * Returns list of neighboring node indices connected to given node.
+         * @param node Node index to get neighbors for
+         * @return List of neighbor node indices
+         */
         public ArrayList<Integer> getNeighbors(int node) {
             ArrayList<Integer> neighbors = new ArrayList<>();
             for(Edge edge : adjacencyList.get(node)) {
@@ -366,6 +387,12 @@ class GraphRefiner extends AbstractRefiner {
             return neighbors;
         }
         
+        /**
+         * Returns edge weight between two nodes, or 0 if no edge exists.
+         * @param u First node index
+         * @param v Second node index
+         * @return Edge weight, or 0.0 if nodes are not connected
+         */
         public float getWeight(int u, int v) {
             for(Edge edge : adjacencyList.get(u)) {
                 if(edge.target == v) return edge.weight;
@@ -373,6 +400,12 @@ class GraphRefiner extends AbstractRefiner {
             return 0.0f;
         }
         
+        /**
+         * Returns weighted degree (sum of edge weights) for a node.
+         * Used in modularity calculations for expected edge weight computation.
+         * @param node Node index to calculate degree for
+         * @return Sum of weights of all edges connected to this node
+         */
         public float getDegree(int node) {
             float degree = 0.0f;
             for(Edge edge : adjacencyList.get(node)) {
@@ -381,6 +414,11 @@ class GraphRefiner extends AbstractRefiner {
             return degree;
         }
         
+        /**
+         * Returns total number of edges in the graph.
+         * Counts each undirected edge once (divides adjacency list count by 2).
+         * @return Number of undirected edges in the graph
+         */
         public int getEdgeCount() {
             int count = 0;
             for(ArrayList<Edge> edges : adjacencyList) {
@@ -389,14 +427,24 @@ class GraphRefiner extends AbstractRefiner {
             return count / 2; // Each edge counted twice
         }
         
+        /** Returns sum of all edge weights in the graph */
         public float getTotalWeight() {
             return totalWeight;
         }
         
+        /** Represents a weighted edge to a target node in the similarity graph.
+         * Simple data structure for adjacency list storage. */
         private static class Edge {
+            /** Target node index for this edge */
             final int target;
+            /** Similarity weight for this edge */
             final float weight;
             
+            /**
+             * Creates an edge to target node with specified weight.
+             * @param target Target node index
+             * @param weight Similarity weight for this edge
+             */
             Edge(int target, float weight) {
                 this.target = target;
                 this.weight = weight;

@@ -389,6 +389,12 @@ public class BloomFilterCorrectorWrapper {
 		}
 	}
 	
+	/**
+	 * Parses file specification and adds files to the target list.
+	 * Handles both single files and comma-separated lists.
+	 * @param b File specification (single file or comma-separated list)
+	 * @param list Target list to populate with file paths
+	 */
 	private static void addFiles(String b, ArrayList<String> list){
 		if(b==null){list.clear();}
 		else{
@@ -595,6 +601,15 @@ public class BloomFilterCorrectorWrapper {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Determines overlap between paired reads using configured strictness settings.
+	 * Supports ultra-strict, very-strict, and standard overlap detection modes.
+	 *
+	 * @param r1 First read in the pair
+	 * @param r2 Second read in the pair
+	 * @param ecc Whether to use error-correction mode for overlap detection
+	 * @return Overlap length in bases, or negative if no valid overlap found
+	 */
 	final int findOverlap(Read r1, Read r2, boolean ecc){
 		if(ustrict){
 			return BBMerge.findOverlapUStrict(r1, r2, ecc);
@@ -609,6 +624,11 @@ public class BloomFilterCorrectorWrapper {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for parallel read processing and error correction.
+	 * Handles read filtering, error correction, merging, and quality assessment.
+	 * Maintains per-thread statistics and coordinates with parent wrapper.
+	 */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
@@ -785,6 +805,12 @@ public class BloomFilterCorrectorWrapper {
 			}
 		}
 		
+		/**
+		 * Applies error correction to a single read using the configured corrector.
+		 * Tracks correction statistics including detected errors, corrections made,
+		 * and correction methods used (pincer, tail, reassemble).
+		 * @param r Read to error-correct (null-safe)
+		 */
 		void errorCorrect(Read r){
 			if(r==null){return;}
 			int corrected=corrector.errorCorrect(r);
@@ -844,25 +870,43 @@ public class BloomFilterCorrectorWrapper {
 		/** Thread ID */
 		final int tid;
 		
+		/** Number of reads extended by this thread */
 		long readsExtendedT=0;
+		/** Number of bases extended by this thread */
 		long basesExtendedT=0;
+		/** Number of reads corrected by this thread */
 		long readsCorrectedT=0;
+		/** Number of bases corrected by pincer method in this thread */
 		long basesCorrectedPincerT=0;
+		/** Number of bases corrected by tail method in this thread */
 		long basesCorrectedTailT=0;
+		/** Number of bases corrected by reassemble method in this thread */
 		long basesCorrectedReassembleT=0;
+		/** Number of reads fully corrected by this thread */
 		long readsFullyCorrectedT=0;
+		/** Number of rollbacks performed by this thread */
 		long rollbacksT=0;
+		/** Number of reads with detected errors in this thread */
 		long readsDetectedT=0;
+		/** Number of error bases detected by this thread */
 		long basesDetectedT=0;
+		/** Number of reads marked by this thread */
 		long readsMarkedT=0;
+		/** Number of bases marked by this thread */
 		long basesMarkedT=0;
 
+		/** Number of read pairs merged by this thread */
 		long readsMergedT=0;
+		/** Number of reads corrected by overlap method in this thread */
 		long readsCorrectedEccoT=0;
+		/** Number of bases corrected by overlap method in this thread */
 		long basesCorrectedEccoT=0; //These numbers are not necessarily correct in the case of rollbacks
 
+		/** Thread-local error tracking for correction statistics */
 		ErrorTracker localTracker;
+		/** Thread-local k-mer storage for correction operations */
 		LongList kmers;
+		/** Thread-local count storage for correction operations */
 		IntList counts;
 	}
 	
@@ -870,7 +914,9 @@ public class BloomFilterCorrectorWrapper {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Reference files for building the Bloom filter */
 	private ArrayList<String> ref=new ArrayList<String>();
+	/** Additional reference files to include in filter construction */
 	private ArrayList<String> extra=new ArrayList<String>();
 	
 	/** Primary input file path */
@@ -878,7 +924,9 @@ public class BloomFilterCorrectorWrapper {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file for primary input */
 	private String qfin1=null;
+	/** Quality file for secondary input */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -886,7 +934,9 @@ public class BloomFilterCorrectorWrapper {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Quality file for primary output */
 	private String qfout1=null;
+	/** Quality file for secondary output */
 	private String qfout2=null;
 
 	/** Output file path for bad reads */
@@ -894,7 +944,9 @@ public class BloomFilterCorrectorWrapper {
 	/** Secondary output file path for bad reads */
 	private String outbad2=null;
 
+	/** Quality file for primary bad reads output */
 	private String qfoutbad1=null;
+	/** Quality file for secondary bad reads output */
 	private String qfoutbad2=null;
 	
 	/** Override input file extension */
@@ -907,21 +959,36 @@ public class BloomFilterCorrectorWrapper {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of reads extended during processing */
 	long readsExtended=0;
+	/** Number of bases extended during processing */
 	long basesExtended=0;
+	/** Total number of reads that had errors corrected */
 	long readsCorrected=0;
+	/** Number of bases corrected using pincer method */
 	long basesCorrectedPincer=0;
+	/** Number of bases corrected using tail method */
 	long basesCorrectedTail=0;
+	/** Number of bases corrected using reassemble method */
 	long basesCorrectedReassemble=0;
+	/** Number of reads where all detected errors were corrected */
 	long readsFullyCorrected=0;
+	/** Number of correction attempts that were rolled back */
 	long rollbacks=0;
+	/** Number of reads where errors were detected */
 	long readsDetected=0;
+	/** Total number of bases identified as errors */
 	long basesDetected=0;
+	/** Number of reads marked during error detection */
 	long readsMarked=0;
+	/** Number of bases marked during error detection */
 	long basesMarked=0;
 	
+	/** Number of read pairs successfully merged */
 	long readsMerged=0;
+	/** Number of reads corrected during overlap-based correction */
 	long readsCorrectedEcco=0;
+	/** Number of bases corrected during overlap-based correction */
 	long basesCorrectedEcco=0;
 	
 	/*--------------------------------------------------------------*/
@@ -958,31 +1025,54 @@ public class BloomFilterCorrectorWrapper {
 	/** Secondary output file for matching reads */
 	private final FileFormat ffoutm2;
 	
+	/** Bloom filter for k-mer membership testing */
 	final BloomFilter filter;
 	
+	/** Error corrector using Bloom filter for k-mer frequency analysis */
 	final BloomFilterCorrector corrector;
 
+	/** K-mer length for filtering and correction */
 	final int k;
+	/** Smaller k-mer size for initial filtering */
 	final int ksmall;
+	/** Number of hash functions in Bloom filter */
 	final int hashes;
+	/** Bits per cell in count array */
 	final int bits;
+	/** Whether to use reverse complement k-mers */
 	final boolean rcomp;
+	/** Require both reads in pair to pass filters */
 	final boolean requireBothToPass;
+	/** Enable error correction */
 	final boolean ecc;
+	/** Enable overlap-based error correction */
 	final boolean ecco;
+	/** Enable read pair merging */
 	final boolean merge;
+	/** Test merged reads for k-mer correctness before accepting */
 	final boolean testMerge;
+	/** Filter out low-complexity junk sequences */
 	final boolean tossjunk;
+	/** Minimum k-mer count required for retention */
 	final int minCount;
+	/** Fraction of k-mers that must meet minimum count threshold */
 	final float highCountFraction;
+	/** Use very strict overlap detection for read merging */
 	final boolean vstrict;
+	/** Use ultra strict overlap detection for read merging */
 	final boolean ustrict;
+	/** Window width for junk sequence detection */
 	final int junkWidth;
+	/** Fraction of available memory to use for filter construction */
 	float memFraction=1.0f;
+	/** Maximum filter load factor; crash if exceeded */
 	float maxLoad=1.0f; //Crash if this is exceeded
 	
+	/** K-mer window width for testing merged read quality */
 	int testMergeWidth=4;
+	/** Multiplier for merge quality threshold calculation */
 	long testMergeMult=80L;
+	/** Base threshold for merge quality assessment */
 	int testMergeThresh=3;
 	
 	/*--------------------------------------------------------------*/

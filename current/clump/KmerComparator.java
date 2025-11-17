@@ -19,10 +19,26 @@ import stream.Read;
  */
 public class KmerComparator implements Comparator<Read> {
 	
+	/**
+	 * Creates a KmerComparator with default seed, border, and hash parameters.
+	 * @param k_ K-mer length for comparison
+	 * @param addName_ Whether to append key information to read names
+	 * @param rcomp_ Whether to reverse-complement reads when using minus strand k-mers
+	 */
 	public KmerComparator(int k_, boolean addName_, boolean rcomp_){
 		this(k_, defaultSeed, defaultBorder, defaultHashes, addName_, rcomp_);
 	}
 	
+	/**
+	 * Creates a KmerComparator with fully customizable parameters.
+	 *
+	 * @param k_ K-mer length for comparison (must be >0 and <32)
+	 * @param seed_ Random seed for hash function initialization
+	 * @param border_ Number of bases to ignore at read ends (reduces end-effect bias)
+	 * @param hashes_ Number of hash iterations (0-8, more iterations = better distribution)
+	 * @param addName_ Whether to append key information to read names
+	 * @param rcomp_ Whether to reverse-complement reads when using minus strand k-mers
+	 */
 	public KmerComparator(int k_, long seed_, int border_, int hashes_, boolean addName_, boolean rcomp_){
 		k=k_;
 		assert(k>0 && k<32);
@@ -41,6 +57,14 @@ public class KmerComparator implements Comparator<Read> {
 		rcompReads=rcomp_;
 	}
 	
+	/**
+	 * Hashes reads using multiple threads for performance.
+	 * Creates one HashThread per available CPU core to process reads in parallel.
+	 *
+	 * @param list List of reads to hash
+	 * @param table K-mer count table for frequency filtering
+	 * @param minCount Minimum k-mer count threshold for acceptance
+	 */
 	public void hashThreaded(ArrayList<Read> list, KCountArray table, int minCount){
 		int threads=Shared.threads();
 		ArrayList<HashThread> alt=new ArrayList<HashThread>(threads);
@@ -61,16 +85,44 @@ public class KmerComparator implements Comparator<Read> {
 		}
 	}
 	
+	/**
+	 * Hashes all reads in a list sequentially.
+	 *
+	 * @param list List of reads to hash
+	 * @param table K-mer count table for frequency filtering
+	 * @param minCount Minimum k-mer count threshold for acceptance
+	 * @param setObject Whether to store the ReadKey in the read's obj field
+	 */
 	public void hash(ArrayList<Read> list, KCountArray table, int minCount, boolean setObject) {
 		for(Read r : list){hash(r, table, minCount, setObject);}
 	}
 	
+	/**
+	 * Hashes a single read and optionally its mate.
+	 * If containment mode is enabled, both reads in a pair are processed.
+	 *
+	 * @param r1 The read to hash
+	 * @param table K-mer count table for frequency filtering
+	 * @param minCount Minimum k-mer count threshold for acceptance
+	 * @param setObject Whether to store the ReadKey in the read's obj field
+	 * @return The hash value of the selected k-mer
+	 */
 	public long hash(Read r1, KCountArray table, int minCount, boolean setObject){
 		long x=hash_inner(r1, table, minCount, setObject);
 		if(Clump.containment && r1.mate!=null){hash_inner(r1.mate, table, minCount, setObject);}
 		return x;
 	}
 	
+	/**
+	 * Internal method that performs the actual k-mer hashing for a single read.
+	 * Creates or reuses a ReadKey and calls fillMax to find the optimal k-mer.
+	 *
+	 * @param r1 The read to hash
+	 * @param table K-mer count table for frequency filtering
+	 * @param minCount Minimum k-mer count threshold for acceptance
+	 * @param setObject Whether to store the ReadKey in the read's obj field
+	 * @return The hash value of the selected k-mer
+	 */
 	private long hash_inner(Read r1, KCountArray table, int minCount, boolean setObject){
 		ReadKey key;
 		if(setObject){
@@ -419,11 +471,19 @@ public class KmerComparator implements Comparator<Read> {
 		return key.kmer;
 	}
 		
+	/** Sets the default number of hash iterations for new comparators.
+	 * @param x Number of hash iterations (clamped to 0-8) */
 	public static synchronized void setHashes(int x){
 		defaultHashes=Tools.mid(0, x, 8);
 	}
 	
 	//TODO:  This can be swapped with BBSketch hashing code.  Check speed.
+	/**
+	 * Hashes a k-mer using multiple rounds of XOR with lookup tables.
+	 * Applies the configured number of hash iterations for better distribution.
+	 * @param kmer The k-mer to hash
+	 * @return Non-negative hash value (high bit cleared)
+	 */
 	public final long hash(long kmer){
 		long code=kmer;
 		for(int i=0; i<hashes; i++){//4 only half-hashes; 8 does full hashing
@@ -434,8 +494,19 @@ public class KmerComparator implements Comparator<Read> {
 		return code&Long.MAX_VALUE;
 	}
 	
+	/** Worker thread for parallel k-mer hashing.
+	 * Each thread processes a subset of reads using round-robin assignment. */
 	private class HashThread extends Thread{
 		
+		/**
+		 * Creates a hash worker thread with assigned parameters.
+		 *
+		 * @param id_ Thread identifier for round-robin assignment
+		 * @param threads_ Total number of worker threads
+		 * @param list_ List of reads to process
+		 * @param table_ K-mer count table for frequency filtering
+		 * @param minCount_ Minimum k-mer count threshold
+		 */
 		HashThread(int id_, int threads_, ArrayList<Read> list_, KCountArray table_, int minCount_){
 			id=id_;
 			threads=threads_;
@@ -451,13 +522,23 @@ public class KmerComparator implements Comparator<Read> {
 			}
 		}
 		
+		/** Thread identifier for round-robin work assignment */
 		final int id;
+		/** Total number of worker threads */
 		final int threads;
+		/** List of reads to process */
 		final ArrayList<Read> list;
+		/** K-mer count table for frequency filtering */
 		final KCountArray table;
+		/** Minimum k-mer count threshold for acceptance */
 		final int minCount;
 	}
 	
+	/**
+	 * Gets a thread-local ReadKey instance for temporary use.
+	 * Creates a new key if none exists for the current thread.
+	 * @return A cleared ReadKey ready for use
+	 */
 	static ReadKey getLocalKey(){
 		ReadKey key=localReadKey.get();
 		if(key==null){
@@ -467,33 +548,59 @@ public class KmerComparator implements Comparator<Read> {
 		return key;
 	}
 	
+	/** K-mer length used for comparison */
 	public final int k;
 
+	/** Bit shift amount for k-mer operations (2*k) */
 	final int shift;
+	/** Bit shift amount for reverse complement operations (shift-2) */
 	final int shift2;
+	/** Bit mask for extracting k-mer bits */
 	final long mask;
 	
+	/** Random seed for hash function initialization */
 	final long seed;
+	/** Number of bases to ignore at read ends */
 	final int border;
+	/** Number of hash iterations to perform */
 	final int hashes;
 
+	/** Whether to append key information to read names */
 	final boolean addName;
+	/** Whether to reverse-complement reads when using minus strand k-mers */
 	final boolean rcompReads;
 	
+	/** Lookup tables for hash function operations */
 	private final long[][] codes;
 	
+	/** Default random seed for new comparator instances */
 	static long defaultSeed=1;
+	/** Default number of hash iterations for new comparator instances */
 	static int defaultHashes=4;
+	/** Default border size for new comparator instances */
 	static int defaultBorder=1;
+	/**
+	 * Minimum probability threshold for k-mer acceptance based on quality scores
+	 */
 	public static float minProb=0f;
+	/** Whether to print debugging information during initialization */
 	public static boolean verbose=true;
 
+	/** Whether to attempt read merging before k-mer analysis */
 	public static boolean mergeFirst=false;
+	/**
+	 * Whether to fall back to sequence comparison when k-mer signatures are identical
+	 */
 	public static boolean compareSequence=true;
 	
+	/**
+	 * Thread-local storage for ReadKey instances to avoid object creation overhead
+	 */
 	public static ThreadLocal<ReadKey> localReadKey=new ThreadLocal<ReadKey>();
 	
+	/** Array mapping quality scores to probability of correct base call */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 127);
+	/** Array mapping quality scores to inverse probability of correct base call */
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 127);
 
 }

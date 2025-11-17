@@ -34,6 +34,15 @@ import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
 
+/**
+ * GFF file processing utility for extracting and filtering genomic features.
+ * Processes GFF and FASTA files to extract, filter, and transform genomic
+ * feature annotations based on configurable criteria. Supports both
+ * single-threaded and multi-threaded processing of multiple input files.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	
 	/*--------------------------------------------------------------*/
@@ -263,6 +272,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Main processing entry point that selects single or multi-threaded execution.
+	 * @param t Timer for tracking execution performance */
 	public void process(Timer t){
 		if(Shared.threads()>2 && fnaList.size()>1){
 			processMT(t);
@@ -271,6 +282,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 	}
 	
+	/** Single-threaded processing of all input file pairs.
+	 * @param t Timer for performance tracking */
 	public void processST(Timer t){
 		ByteStreamWriter bsw=(ffout==null ? null : new ByteStreamWriter(ffout));
 		if(bsw!=null){bsw.start();}
@@ -290,6 +303,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 	}
 	
+	/** Multi-threaded processing with concurrent read streams.
+	 * @param t Timer for performance tracking */
 	public void processMT(Timer t){
 		
 		//Optionally create a read output stream
@@ -327,6 +342,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Checks if a GFF line passes length and attribute filter criteria.
+	 * @param gline GFF line to evaluate
+	 * @return true if the line passes all filters
+	 */
 	private boolean hasAttributes(GffLine gline){
 		int len=gline.length();
 		if(len<minLen || len>maxLen){return false;}
@@ -334,6 +354,12 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return requiredAttributes==null || hasAttributes(gline, requiredAttributes);
 	}
 	
+	/**
+	 * Tests if a GFF line contains any of the specified attributes.
+	 * @param gline GFF line to check
+	 * @param attributes Array of attribute strings to search for
+	 * @return true if any attribute is found in the line
+	 */
 	private static boolean hasAttributes(GffLine gline, String[] attributes){
 		if(attributes==null){return false;}
 		for(String s : attributes){
@@ -344,6 +370,14 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return false;
 	}
 	
+	/**
+	 * Single-threaded processing of a FASTA/GFF file pair.
+	 *
+	 * @param fna FASTA file path
+	 * @param gff GFF annotation file path
+	 * @param types Feature types to extract
+	 * @param bsw Output stream writer
+	 */
 	private void processFileST(String fna, String gff, String types, ByteStreamWriter bsw){
 		ArrayList<Read> reads=processFile(fna, gff, types);
 		if(reads!=null){
@@ -353,6 +387,15 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 	}
 	
+	/**
+	 * Processes a FASTA/GFF file pair and extracts matching genomic features.
+	 * Loads sequences into memory, applies filters, and returns extracted reads.
+	 *
+	 * @param fna FASTA file containing sequences
+	 * @param gff GFF file containing annotations
+	 * @param types Comma-separated feature types to extract
+	 * @return List of extracted sequence reads or null if none match
+	 */
 	private ArrayList<Read> processFile(String fna, String gff, String types){
 		ArrayList<GffLine> lines=GffLine.loadGffFile(gff, types, false);
 		
@@ -388,6 +431,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 	}
 	
+	/**
+	 * Renames reads using taxonomic identifiers based on configured mode.
+	 * Supports accession, GI, header, and taxid parsing modes.
+	 * @param list List of reads to rename with taxonomic information
+	 */
 	private void renameByTaxID(ArrayList<Read> list){
 		ByteBuilder bb=new ByteBuilder();
 		for(Read r : list){
@@ -423,6 +471,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 	}
 	
+	/**
+	 * Extracts taxonomic IDs from read headers in taxid mode.
+	 * @param list List of reads to parse for taxonomic IDs
+	 * @return Array of taxonomic ID integers
+	 */
 	private int[] parseTaxIds(ArrayList<Read> list){
 		int[] ids=new int[list.size()];
 		for(int i=0; i<list.size(); i++){
@@ -433,6 +486,12 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return ids;
 	}
 	
+	/**
+	 * Parses accession number from sequence identifier.
+	 * Extracts the portion before dot or space characters.
+	 * @param id Full sequence identifier
+	 * @return Accession number substring
+	 */
 	private String parseAccession(String id){
 		int dot=id.indexOf('.');
 		int space=id.indexOf(' ');
@@ -441,12 +500,27 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return id.substring(0, limit);
 	}
 	
+	/**
+	 * Extracts GI number from gi| formatted sequence identifiers.
+	 * @param id Sequence identifier starting with "gi|"
+	 * @return GI number string
+	 */
 	private String parseGi(String id){
 		assert(id.startsWith("gi|"));
 		String[] split=id.split("|");
 		return split[1];
 	}
 	
+	/**
+	 * Processes GFF annotation lines and extracts or masks corresponding sequences.
+	 * Applies attribute filtering, performs optional rRNA alignment validation,
+	 * and handles strand-specific sequence extraction.
+	 *
+	 * @param lines List of GFF annotation lines to process
+	 * @param map HashMap mapping sequence IDs to Read objects
+	 * @param invertSelection If true, mask regions instead of extracting them
+	 * @return List of extracted reads or null if none match criteria
+	 */
 	private ArrayList<Read> processLines(ArrayList<GffLine> lines, HashMap<String, Read> map, boolean invertSelection){
 		ArrayList<Read> list=null; 
 		for(GffLine gline : lines){
@@ -517,6 +591,16 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return list;
 	}
 	
+	/**
+	 * Performs sequence alignment against consensus rRNA sequences.
+	 * Validates feature annotation by aligning extracted sequence against
+	 * known consensus sequences and determining optimal strand orientation.
+	 *
+	 * @param gline GFF line containing feature coordinates
+	 * @param scaf Scaffold sequence bytes
+	 * @param type Feature type identifier for consensus selection
+	 * @return Alignment identity score or null if alignment fails
+	 */
 	private Float align(GffLine gline, byte[] scaf, int type){
 		Read[] consensusReads=ProkObject.consensusReads(type);
 		if(consensusReads==null || consensusReads.length==0){
@@ -594,6 +678,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates concurrent output stream for multi-threaded processing.
+	 * @return Configured ConcurrentReadOutputStream or null if no output */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -679,6 +765,14 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		}
 		
 		//Duplicated
+		/**
+		 * Thread-safe version of file processing for multi-threaded execution.
+		 *
+		 * @param fna FASTA file path
+		 * @param gff GFF annotation file path
+		 * @param types Feature types to extract
+		 * @return List of extracted reads
+		 */
 		private ArrayList<Read> processFileT(String fna, String gff, String types){
 			ArrayList<GffLine> lines=GffLine.loadGffFile(gff, types, false);
 			
@@ -740,36 +834,63 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** List of input FASTA file paths */
 	private ArrayList<String> fnaList=new ArrayList<String>();
+	/** List of input GFF annotation file paths */
 	private ArrayList<String> gffList=new ArrayList<String>();
+	/** Output file path for extracted sequences */
 	private String out=null;
+	/** Comma-separated list of feature types to extract (default: "CDS") */
 	private String types="CDS";
+	/** If true, mask regions instead of extracting them */
 	private boolean invert=false;
+	/** If true, exclude features marked as partial */
 	private boolean banPartial=true;
+	/** Minimum feature length to retain */
 	private int minLen=1;
+	/** Maximum feature length to retain */
 	private int maxLen=Integer.MAX_VALUE;
 
+	/** Array of attributes that must be present for feature retention */
 	private String[] requiredAttributes;
+	/** Array of attributes that exclude features when present */
 	private String[] bannedAttributes;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total bytes written to output */
 	private long bytesOut=0;
+	/** If true, rename sequences using taxonomic identifiers */
 	private boolean renameByTaxID=false;
+	/** Taxonomic parsing mode: accession, GI, header, or taxid */
 	private int taxMode=ACCESSION_MODE;
+	/** If true, require taxonomic ID to be found in database */
 	private boolean requirePresent=false;
+	/** If true, validate rRNA features using consensus alignment */
 	private boolean alignRibo=false;
+	/** If true, adjust feature endpoints based on alignment results */
 	private boolean adjustEndpoints=false;
+	/** If true, extract only the first matching feature per file */
 	private boolean onePerFile=false;
+	/** If true, select highest-scoring feature when multiple matches exist */
 	private boolean pickBest=false;
+	/** Tolerance for small subunit rRNA endpoint adjustment */
 	private int ssuSlop=999;
+	/** Tolerance for large subunit rRNA endpoint adjustment */
 	private int lsuSlop=999;
 	
+	/** Identity multiplier for alignment scoring */
 	private float ID_MULT=0.96f;
 	
+	/** Maximum number of N bases allowed in extracted sequences */
 	private int maxNs=-1;
+	/** Maximum fraction of N bases allowed in extracted sequences */
 	private double maxNFraction=-1;
 	
+	/** Taxonomic mode constant for taxid-based parsing */
+	/** Taxonomic mode constant for header-based parsing */
+	/** Taxonomic mode constant for GI-based parsing */
+	/** Taxonomic mode constant for accession-based parsing */
 	private static int ACCESSION_MODE=0, GI_MODE=1, HEADER_MODE=2, TAXID_MODE=3;
 	
 	/*--------------------------------------------------------------*/
@@ -784,7 +905,9 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	/** Number of bases retained */
 	protected long basesOut=0;
 
+	/** Thread-safe counter for features with corrected strand orientation */
 	protected AtomicLong flipped=new AtomicLong(0);
+	/** Thread-safe counter for features that failed alignment validation */
 	protected AtomicLong failed=new AtomicLong(0);
 
 	/** Quit after processing this many input reads; -1 means no limit */
@@ -794,22 +917,31 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output file format specification */
 	private final FileFormat ffout;
+	/** Empty read list for thread coordination */
 	private final ArrayList<Read> dummy=new ArrayList<Read>();
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
+	/** Global verbose mode flag for detailed logging */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Flag controlling whether output order matches input order */
 	public boolean ordered=true;
+	/** Flag allowing overwrite of existing output files */
 	private boolean overwrite=true;
+	/** Flag controlling whether to append to existing output files */
 	private boolean append=false;
 	
 }

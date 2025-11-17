@@ -12,6 +12,9 @@ import tax.TaxTree;
 
 public final class ReadComparatorTaxa extends ReadComparator {
 	
+	/**
+	 * Private constructor to prevent instantiation; use singleton comparator instance
+	 */
 	private ReadComparatorTaxa(){}
 	
 	@Override
@@ -20,6 +23,16 @@ public final class ReadComparatorTaxa extends ReadComparator {
 		return ascending*x;
 	}
 	
+	/**
+	 * Core taxonomic comparison logic for two reads.
+	 * Parses taxonomic nodes from read headers, traverses taxonomy hierarchy from
+	 * family level down to species level, and compares nodes at matching levels.
+	 * Falls back to name comparison for reads with identical taxonomic classifications.
+	 *
+	 * @param r1 First read for comparison
+	 * @param r2 Second read for comparison
+	 * @return Comparison result based on taxonomic hierarchy
+	 */
 	private static int compareInner(Read r1, Read r2) {
 		final TaxNode a0=tree.parseNodeFromHeader(r1.id, true);
 		final TaxNode b0=tree.parseNodeFromHeader(r2.id, true);
@@ -98,6 +111,7 @@ public final class ReadComparatorTaxa extends ReadComparator {
 		return a.id-b.id;
 	}
 		
+	/** Sorting direction multiplier: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
 	@Override
@@ -105,8 +119,10 @@ public final class ReadComparatorTaxa extends ReadComparator {
 		ascending=(asc ? 1 : -1);
 	}
 
+	/** Taxonomic tree used for parsing and traversing taxonomic nodes */
 	public static TaxTree tree;
 	
+	/** Singleton instance of the taxonomic read comparator */
 	public static final ReadComparatorTaxa comparator=new ReadComparatorTaxa();
 	
 }

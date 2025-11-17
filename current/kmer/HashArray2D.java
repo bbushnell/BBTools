@@ -20,6 +20,12 @@ public final class HashArray2D extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a HashArray2D with specified resizing schedule and core mask.
+	 * Allocates the 2D integer value storage array based on prime table size.
+	 * @param schedule_ Resizing schedule for dynamic table growth
+	 * @param coreMask_ Bit mask for core k-mer processing
+	 */
 	public HashArray2D(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt2D(prime+extra);
@@ -232,6 +238,9 @@ public final class HashArray2D extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * 2D array storing integer values for each k-mer, with dynamic resizing per cell
+	 */
 	private int[][] values;
 	
 

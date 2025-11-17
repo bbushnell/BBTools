@@ -14,6 +14,14 @@ import stream.SiteScore;
 public final class MultiStateAligner9PacBioAdapter3 {
 	
 	
+	/**
+	 * Constructs a new PacBio-optimized sequence aligner.
+	 * Initializes dynamic programming matrices and precomputes scoring arrays
+	 * for efficient alignment within the specified size constraints.
+	 *
+	 * @param maxRows_ Maximum number of query sequence positions (read length)
+	 * @param maxColumns_ Maximum number of reference sequence positions
+	 */
 	public MultiStateAligner9PacBioAdapter3(int maxRows_, int maxColumns_){
 //		assert(maxColumns_>=200);
 //		assert(maxRows_>=200);
@@ -968,6 +976,15 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	
 	
 
+	/**
+	 * Scores alignment without allowing insertions or deletions.
+	 * Computes match/mismatch score for direct sequence comparison
+	 * using chromosome data from the provided site score.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ss Site score containing chromosome and position information
+	 * @return Alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, SiteScore ss){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, ss.start, ss);
@@ -978,6 +995,16 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return scoreNoIndels(read, cha.array, refStart, null);
 	}
 	
+	/**
+	 * Scores alignment without allowing insertions or deletions using quality scores.
+	 * Incorporates base quality information to weight match/mismatch penalties
+	 * and improve alignment scoring accuracy.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ss Site score containing chromosome and position information
+	 * @param baseScores Quality scores for each base in the read
+	 * @return Quality-weighted alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, SiteScore ss, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, baseScores, ss.start, ss);
@@ -1268,14 +1295,38 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates theoretical maximum alignment score for perfect match.
+	 * Assumes first base gets POINTS_MATCH and subsequent bases get POINTS_MATCH2
+	 * to determine the highest possible score for a sequence of given length.
+	 *
+	 * @param numBases Length of sequence in bases
+	 * @return Maximum possible alignment score for perfect match
+	 */
 	public static final int maxQuality(int numBases){
 		return POINTS_MATCH+(numBases-1)*(POINTS_MATCH2);
 	}
 	
+	/**
+	 * Calculates theoretical maximum alignment score including quality bonuses.
+	 * Incorporates base quality scores in addition to match scoring to determine
+	 * the highest possible score achievable for the given sequence.
+	 *
+	 * @param baseScores Quality scores for each base
+	 * @return Maximum possible quality-weighted alignment score
+	 */
 	public static final int maxQuality(byte[] baseScores){
 		return POINTS_MATCH+(baseScores.length-1)*(POINTS_MATCH2)+Tools.sumInt(baseScores);
 	}
 	
+	/**
+	 * Calculates maximum alignment score allowing for single imperfection.
+	 * Determines the highest score possible when one indel or substitution
+	 * is allowed in an otherwise perfect alignment.
+	 *
+	 * @param numBases Length of sequence in bases
+	 * @return Maximum alignment score with single imperfection
+	 */
 	public static final int maxImperfectScore(int numBases){
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
@@ -1289,6 +1340,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return maxI;
 	}
 	
+	/**
+	 * Calculates maximum quality-weighted alignment score allowing single imperfection.
+	 * Incorporates base quality scores while allowing one indel or substitution
+	 * to determine realistic score thresholds for near-perfect alignments.
+	 *
+	 * @param baseScores Quality scores for each base
+	 * @return Maximum quality-weighted alignment score with single imperfection
+	 */
 	public static final int maxImperfectScore(byte[] baseScores){
 //		int maxQ=maxQuality(numBases);
 ////		maxImperfectSwScore=maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB);
@@ -1302,6 +1361,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return maxI;
 	}
 	
+	/**
+	 * Converts integer array to formatted string representation.
+	 * Formats each element with consistent spacing for aligned output
+	 * suitable for debugging and matrix visualization.
+	 *
+	 * @param a Integer array to format
+	 * @return Formatted string with aligned columns
+	 */
 	public static final String toString(int[] a){
 		
 		int width=7;
@@ -1318,6 +1385,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return sb.toString();
 	}
 	
+	/**
+	 * Extracts and formats time values from packed integers.
+	 * Isolates the time component from packed score/state/time values
+	 * for debugging dynamic programming matrix state transitions.
+	 *
+	 * @param a Array of packed integers containing time information
+	 * @return Formatted string showing time values only
+	 */
 	public static final String toTimePacked(int[] a){
 		int width=7;
 		
@@ -1334,6 +1409,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return sb.toString();
 	}
 	
+	/**
+	 * Extracts and formats score values from packed integers.
+	 * Isolates the score component from packed score/state/time values
+	 * with appropriate handling of overflow conditions.
+	 *
+	 * @param a Array of packed integers containing score information
+	 * @return Formatted string showing score values only
+	 */
 	public static final String toScorePacked(int[] a){
 		int width=7;
 
@@ -1356,6 +1439,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return sb.toString();
 	}
 	
+	/**
+	 * Converts byte array to formatted string representation.
+	 * Formats each element with consistent spacing for debugging
+	 * sequence and alignment data visualization.
+	 *
+	 * @param a Byte array to format
+	 * @return Formatted string with aligned columns
+	 */
 	public static final String toString(byte[] a){
 		
 		int width=6;
@@ -1372,12 +1463,30 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return sb.toString();
 	}
 	
+	/**
+	 * Extracts subsequence from byte array and converts to string.
+	 * Creates human-readable representation of reference sequence region
+	 * for debugging and alignment visualization.
+	 *
+	 * @param ref Reference sequence as byte array
+	 * @param startLoc Starting position (inclusive)
+	 * @param stopLoc Ending position (inclusive)
+	 * @return String representation of specified subsequence
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
 		return sb.toString();
 	}
 	
+	/**
+	 * Calculates cumulative deletion penalty for specified length.
+	 * Applies tiered penalty system with increasing costs for longer deletions
+	 * to model realistic biological indel probabilities.
+	 *
+	 * @param len Length of deletion in bases
+	 * @return Total deletion penalty score
+	 */
 	public static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL;
@@ -1396,6 +1505,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion penalty with bit-shifted offset encoding.
+	 * Internal version of deletion scoring used within dynamic programming
+	 * matrix computations for efficient integer operations.
+	 *
+	 * @param len Length of deletion in bases
+	 * @return Bit-shifted deletion penalty score
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -1414,6 +1531,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates match bonus with bit-shifted offset encoding.
+	 * Applies decreasing bonuses for longer match streaks using
+	 * internal bit-shifted representation for matrix computations.
+	 *
+	 * @param len Length of match streak in bases
+	 * @return Bit-shifted match bonus score
+	 */
 	private static int calcMatchScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_MATCH;
@@ -1424,6 +1549,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates substitution penalty with bit-shifted offset encoding.
+	 * Applies tiered penalty system for consecutive substitutions
+	 * using internal representation for dynamic programming efficiency.
+	 *
+	 * @param len Length of substitution streak in bases
+	 * @return Bit-shifted substitution penalty score
+	 */
 	private static int calcSubScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_SUB;
@@ -1438,6 +1571,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates cumulative insertion penalty for specified length.
+	 * Applies tiered penalty system with increasing costs for longer insertions
+	 * to model realistic biological indel probabilities.
+	 *
+	 * @param len Length of insertion in bases
+	 * @return Total insertion penalty score
+	 */
 	public static int calcInsScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_INS;
@@ -1456,6 +1597,14 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion penalty with bit-shifted offset encoding.
+	 * Internal version of insertion scoring used within dynamic programming
+	 * matrix computations for efficient integer operations.
+	 *
+	 * @param len Length of insertion in bases
+	 * @return Bit-shifted insertion penalty score
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -1474,24 +1623,37 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	}
 	
 	
+	/** Maximum number of rows (read positions) in alignment matrix */
 	private final int maxRows;
+	/** Maximum number of columns (reference positions) in alignment matrix */
 	private final int maxColumns;
 
+	/**
+	 * Three-dimensional matrix storing packed scores and states for match/insertion/deletion modes
+	 */
 	private final int[][][] packed;
 
+	/** Vertical score limits for pruning low-scoring alignment paths */
 	private final int[] vertLimit;
+	/** Horizontal score limits for pruning low-scoring alignment paths */
 	private final int[] horizLimit;
 
+	/** Precomputed insertion penalty scores indexed by gap length */
 	private final int[] insScoreArray;
+	/** Precomputed deletion penalty scores indexed by gap length */
 	private final int[] delScoreArray;
+	/** Precomputed match bonus scores indexed by streak length */
 	private final int[] matchScoreArray;
+	/** Precomputed substitution penalty scores indexed by streak length */
 	private final int[] subScoreArray;
 
+	/** Returns formatted representation of vertical score limits for debugging */
 	CharSequence showVertLimit(){
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<=rows; i++){sb.append(vertLimit[i]>>SCOREOFFSET).append(",");}
 		return sb;
 	}
+	/** Returns formatted representation of horizontal score limits for debugging */
 	CharSequence showHorizLimit(){
 		StringBuilder sb=new StringBuilder();
 		for(int i=0; i<=columns; i++){sb.append(horizLimit[i]>>SCOREOFFSET).append(",");}
@@ -1499,50 +1661,84 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	}
 
 //	public static final int MODEBITS=2;
+	/** Number of bits allocated for time/streak information in packed integers */
 	public static final int TIMEBITS=12;
+	/** Number of bits allocated for score information in packed integers */
 	public static final int SCOREBITS=32-TIMEBITS;
+	/** Maximum time/streak value that can be stored in packed format */
 	public static final int MAX_TIME=((1<<TIMEBITS)-1);
+	/** Maximum score value that can be stored in packed format */
 	public static final int MAX_SCORE=((1<<(SCOREBITS-1))-1)-2000;
+	/** Minimum score value that can be stored in packed format */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 
 //	public static final int MODEOFFSET=0; //Always zero.
 //	public static final int TIMEOFFSET=0;
+	/** Bit offset for score component in packed integers */
 	public static final int SCOREOFFSET=TIMEBITS;
 
 //	public static final int MODEMASK=~((-1)<<MODEBITS);
 //	public static final int TIMEMASK=(~((-1)<<TIMEBITS))<<TIMEOFFSET;
+	/** Bit mask for extracting time component from packed integers */
 	public static final int TIMEMASK=~((-1)<<TIMEBITS);
+	/** Bit mask for extracting score component from packed integers */
 	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
 	
+	/** Alignment state constant for match/substitution mode */
 	private static final byte MODE_MS=0;
+	/** Alignment state constant for deletion mode */
 	private static final byte MODE_DEL=1;
+	/** Alignment state constant for insertion mode */
 	private static final byte MODE_INS=2;
+	/** Alignment state constant for substitution mode */
 	private static final byte MODE_SUB=3;
 	
+	/** Penalty score for alignment against missing reference sequence */
 	public static final int POINTS_NOREF=-10;
+	/** Penalty score for ambiguous base calls in query sequence */
 	public static final int POINTS_NOCALL=-10;
+	/** Bonus score for initial base match */
 	public static final int POINTS_MATCH=90;
+	/** Bonus score for subsequent consecutive base matches */
 	public static final int POINTS_MATCH2=100; //Note:  Changing to 90 substantially reduces false positives
+	/** Score for compatible base pairs (e.g., ambiguous codes) */
 	public static final int POINTS_COMPATIBLE=50;
+	/** Penalty score for initial substitution */
 	public static final int POINTS_SUB=-143;
+	/** Increased penalty for substitution after short match streak */
 	public static final int POINTS_SUBR=-161; //increased penalty if prior match streak was at most 1
+	/** Penalty score for second consecutive substitution */
 	public static final int POINTS_SUB2=-54;
+	/** Penalty score for third and subsequent consecutive substitutions */
 	public static final int POINTS_SUB3=-35;
+	/** Penalty for match immediately followed by substitution */
 	public static final int POINTS_MATCHSUB=-10;
+	/** Penalty score for initial insertion */
 	public static final int POINTS_INS=-207;
+	/** Penalty score for second consecutive insertion */
 	public static final int POINTS_INS2=-51;
+	/** Penalty score for third consecutive insertion */
 	public static final int POINTS_INS3=-37;
+	/** Penalty score for fourth and subsequent consecutive insertions */
 	public static final int POINTS_INS4=-15;
+	/** Penalty score for initial deletion */
 	public static final int POINTS_DEL=-273;
+	/** Penalty score for second consecutive deletion */
 	public static final int POINTS_DEL2=-38;
+	/** Penalty score for third consecutive deletion */
 	public static final int POINTS_DEL3=-27;
+	/** Penalty score for fourth and subsequent consecutive deletions */
 	public static final int POINTS_DEL4=-15;
+	/** Additional penalty for deletion against ambiguous reference base */
 	public static final int POINTS_DEL_REF_N=-10;
 	
 
+	/** Indel length threshold for transitioning to third-tier penalty */
 	public static final int LIMIT_FOR_COST_3=5;
+	/** Indel length threshold for transitioning to fourth-tier penalty */
 	public static final int LIMIT_FOR_COST_4=30;
 	
+	/** Sentinel value indicating invalid or impossible alignment score */
 	public static final int BAD=MIN_SCORE-1;
 	
 	
@@ -1569,13 +1765,19 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
+	/** Current number of rows in active alignment computation */
 	private int rows;
+	/** Current number of columns in active alignment computation */
 	private int columns;
 
+	/** Counter for alignment iterations with score-based pruning */
 	public long iterationsLimited=0;
+	/** Counter for alignment iterations without score-based pruning */
 	public long iterationsUnlimited=0;
 
+	/** Flag to enable verbose output for alignment debugging */
 	public boolean verbose=false;
+	/** Flag to enable detailed verbose output for alignment debugging */
 	public boolean verbose2=false;
 	
 }
