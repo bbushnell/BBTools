@@ -3,18 +3,21 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Random; // Added
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import processor.ReformatProcessor;
+import shared.MetadataWriter;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.ConcurrentReadInputStream; // Added
 import stream.FASTQ;
 import stream.Read;
 import stream.ReadStreamByteWriter;
@@ -24,6 +27,8 @@ import stream.StreamerFactory;
 import stream.Writer;
 import stream.WriterFactory;
 import structures.ListNum;
+import structures.LongList; // Added
+import structures.SuperLongList; // Added
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
@@ -31,8 +36,8 @@ import tracker.ReadStats;
 /**
  * Reformat using Streamer/Writer interfaces with multithreading.
  * @author Brian Bushnell
- * @contributor Isla
- * @date November 15, 2025
+ * @contributor Isla & Gemini
+ * @date November 16, 2025
  */
 public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThread> {
 
@@ -63,10 +68,17 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		processor=new ReformatProcessor();
 		final Parser parser=parse(args);
 
+		// Grab fields from processor that are needed for setup
+		sampleReadsExact=processor.sampleReadsExact;
+		sampleBasesExact=processor.sampleBasesExact;
+		prioritizeLength=processor.prioritizeLength;
+		sampleReadsTarget=processor.sampleReadsTarget;
+		sampleBasesTarget=processor.sampleBasesTarget;
+		allowUpsample=processor.allowUpsample;
+
 		//Force single-threading if necessary
-		if(processor.uniqueNames || processor.sampleReadsExact || processor.sampleBasesExact){
-			Shared.setThreads(1);
-		}
+		if(processor.uniqueNames || sampleReadsExact || sampleBasesExact){workers=1;}
+		ordered=(workers>1);
 
 		validateParams();
 		doPoundReplacement();
@@ -124,7 +136,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 				skipreads=Parse.parseKMG(b);
 			}else if(a.equals("deleteinput")){
 				deleteInput=Parse.parseBoolean(b);
-			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt")){
+			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt") || a.equals("w")){
 				workers=Integer.parseInt(b);
 			}else if(a.equals("threadsin") || a.equals("tin")){
 				threadsIn=Integer.parseInt(b);
@@ -156,8 +168,6 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		append=ReadStats.append=parser.append;
 		testsize=parser.testsize;
 		setInterleaved=parser.setInterleaved;
-		if(workers<0){workers=Tools.mid(1, Shared.threads(), 8);}
-		else if(workers==0){workers=1;}
 
 		in1=parser.in1;
 		in2=parser.in2;
@@ -173,6 +183,15 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		//Finalize processor settings
 		processor.postParse();
+		workers=(workers<1 ? processor.recommendedWorkers() : workers);
+
+		//Copy sampling fields from processor
+		sampleReadsExact=processor.sampleReadsExact;
+		sampleBasesExact=processor.sampleBasesExact;
+		prioritizeLength=processor.prioritizeLength;
+		sampleReadsTarget=processor.sampleReadsTarget;
+		sampleBasesTarget=processor.sampleBasesTarget;
+		allowUpsample=processor.allowUpsample;
 
 		return parser;
 	}
@@ -250,17 +269,28 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean saveHeader=inputSam && outputSam;
 
+		//Handle sampling pre-pass
+		if(sampleReadsExact || sampleBasesExact){
+			handleSamplingPrepass();
+		}
+
 		//Create Streamer and Writers
 		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads,
 			saveHeader, true, threadsIn);
-		st.setSampleRate(processor.samplerate, processor.sampleseed);
+
+		//Set samplerate only if NOT doing exact sampling
+		if(!sampleReadsExact && !sampleBasesExact) {
+			st.setSampleRate(processor.samplerate, processor.sampleseed);
+		}
+
 		if(!ffin1.samOrBam()){
 			outstream.println("Input is being processed as "+(st.paired() ? "paired" : "unpaired"));
 		}
 
 		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
 		Writer fwb=WriterFactory.makeWriter(ffoutsingle, null, threadsOut, null, saveHeader);
-
+//		System.err.println("fw class: "+(fw==null ? "null" : fw.getClass()));
+		
 		//Start streams
 		st.start();
 		if(fw!=null){fw.start();}
@@ -276,26 +306,40 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		basesProcessed=processor.basesProcessedT;
 
 		//Close writers
-		if(fw!=null){
-			fw.poisonAndWait();
-			readsOut=fw.readsWritten();
-			basesOut=fw.basesWritten();
-		}
-		if(fwb!=null){
-			fwb.poisonAndWait();
-			readsOut+=fwb.readsWritten();
-			basesOut+=fwb.basesWritten();
+		if(fw!=null){fw.poisonAndWait();}
+		if(fwb!=null){fwb.poisonAndWait();}
+		if(verbose){System.err.println("Finished poisonAndWait().");}
+
+		//Get output counts
+		if(sampleReadsExact || sampleBasesExact) {
+			//Trust the sampler's counts for pairs
+			readsOut=sampledReadsOut;
+			basesOut=sampledBasesOut;
+			if (fwb!=null){//Add un-sampled singles
+				readsOut += fwb.readsWritten();
+				basesOut += fwb.basesWritten();
+			}
+		} else {
+			//Trust the writers' counts
+			if(fw!=null) {
+				readsOut=fw.readsWritten();
+				basesOut=fw.basesWritten();
+			}
+			if(fwb!=null) {
+				readsOut += fwb.readsWritten();
+				basesOut += fwb.basesWritten();
+			}
 		}
 
 		errorState|=ReadStats.writeAll();
 		errorState|=ReadWrite.closeStreams(st, fw, fwb);
-		
+
 		//Delete input files if requested
 		if(deleteInput && !errorState && out1!=null && in1!=null){
-			try {
+			try{
 				new File(in1).delete();
 				if(in2!=null){new File(in2).delete();}
-			} catch (Exception e) {
+			}catch (Exception e){
 				outstream.println("WARNING: Failed to delete input files.");
 			}
 		}
@@ -329,13 +373,14 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*--------------------------------------------------------------*/
 
 	private void spawnThreads(Streamer st, Writer fw, Writer fwb, boolean readMode){
-
+		System.err.println("Spawning "+Tools.plural("worker", workers)+".");
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(workers);
 		for(int i=0; i<workers; i++){
 			alpt.add(new ProcessThread(st, fw, fwb, processor.clone(), readMode, i));
 		}
 
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
+		if(verbose){System.err.println("Finished waiting for threads.");}
 		errorState&=!success;
 	}
 
@@ -354,7 +399,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	class ProcessThread extends Thread {
+	class ProcessThread extends Thread{
 
 		ProcessThread(Streamer st_, Writer fw_, Writer fwb_,
 			ReformatProcessor processorT_, boolean readMode_, int tid_){
@@ -373,17 +418,22 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 
 		void processInner(){
+			if(verbose){System.err.println("Worker "+tid+" starting.");}
 			if(readMode){
 				for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+					assert(!ln.poison());
+					assert(!ln.last());
 					processReadList(ln, processorT, fw, fwb);
+//					System.err.print(".");
 				}
 			}else{
 				for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()){
 					processLineList(ln, processorT, fw, fwb);
 				}
 			}
+			if(verbose){System.err.println("Worker "+tid+" finished.");}
 		}
-		
+
 		boolean success=false;
 
 		private final Streamer st;
@@ -435,7 +485,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 			final int keep=proc.processReadPair(r1, r2);
 
-			if(keep==3){
+			if(keep==3 || (keep==1 && r2==null)){//Common case
 				//Keep pair
 			}else if(keep==1){
 				//Keep r1 as singleton
@@ -457,10 +507,30 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			}
 		}
 
-		if(fw!=null){fw.addReads(ln);}
-		if(fwb!=null && singles!=null && !singles.isEmpty()){
-			ListNum<Read> lnb=new ListNum<Read>(singles, ln.id);
-			fwb.addReads(lnb);
+		// Handle exact sampling
+		if(sampleReadsExact || sampleBasesExact){
+			final ArrayList<Read> listOut=new ArrayList<Read>();
+			final ArrayList<Read> singlesOut=(fwb==null ? null : singles);
+			if(singlesOut!=null){singlesOut.clear();}// Clear list from filtering step
+
+			sampleExact(reads, listOut, singlesOut); // Fills listOut
+
+			// Replace the original list with the new sampled list
+			ln.list.clear();
+			ln.list.addAll(listOut);
+
+			// Send the modified ListNum (with the sampled list) to output
+			if(fw!=null){ fw.addReads(ln);}
+			if(fwb!=null && singles!=null && !singles.isEmpty()){
+				// Note: Replicating original bug/feature of not sampling singles
+				fwb.addReads(new ListNum<Read>(singles, ln.id)); 
+			}
+		} else {
+			// No exact sampling; send the original filtered lists
+			if(fw!=null){ fw.addReads(ln); }
+			if(fwb!=null && singles!=null && !singles.isEmpty()){
+				fwb.addReads(new ListNum<Read>(singles, ln.id));
+			}
 		}
 	}
 
@@ -488,29 +558,210 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		for(int i=0; i<lines.size(); i++){
 			SamLine sl=lines.get(i);
-			
+
 			//Get the attached Read object if it exists
-			Read r1=(sl.obj instanceof Read ? (Read)sl.obj : null);
-			
-			if(r1!=null){
-				//Validate the read
-				if(!r1.validated()){r1.validate(true);}
-				
-				//Process using the processor (no mate for SamLines)
-				final int keep=proc.processReadPair(r1, null);
-				
-				//SamLines are never paired, so keep is either 1 (keep r1) or 0 (discard)
-				if(keep==0){
-					lines.set(i, null);
-				}
-			}else{
-				//No Read object attached, just count it
-				proc.readsProcessedT++;
-				proc.basesProcessedT+=sl.lengthOrZero();
-			}
+			Read r1=(Read)sl.obj;
+			if(r1==null){r1=sl.toRead(false);}
+
+			//Validate the read
+			if(!r1.validated()){r1.validate(true);}
+
+			//Process using the processor (no mate for SamLines)
+			final boolean keep=proc.processSamLine(sl);
+
+			if(!keep){lines.set(i, null);}
 		}
 
 		if(fw!=null){fw.addLines(ln);}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------  Sampling Helper Methods     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Do a pre-pass to calculate exact sampling parameters */
+	private void handleSamplingPrepass(){
+		if(prioritizeLength){
+			SuperLongList sll=makeLengthHist(maxReads);
+			LongList list=sll.list();
+			long[] array=sll.array();
+			int minReadLength=processor.minReadLength;
+			if(sampleReadsExact){
+				long sum=0;
+				for(int i=list.size()-1; i>=0 && sum<sampleReadsTarget; i--){
+					long num=list.get(i);
+					sum++;
+					if(sum>=sampleReadsTarget){
+						minReadLength=Tools.max(minReadLength, (int)num);
+					}
+				}
+				for(int i=array.length-1; i>=0 && sum<sampleReadsTarget; i--){
+					long count=array[i];
+					sum+=count;
+					if(sum>=sampleReadsTarget){
+						minReadLength=Tools.max(minReadLength, i);
+					}
+				}
+			}else{
+				long sum=0;
+				for(int i=list.size()-1; i>=0 && sum<sampleBasesTarget; i--){
+					long num=list.get(i);
+					sum+=num;
+					if(sum>=sampleBasesTarget){
+						minReadLength=Tools.max(minReadLength, (int)num);
+					}
+				}
+				for(int i=array.length-1; i>=0 && sum<sampleBasesTarget; i--){
+					long count=array[i];
+					sum+=(count*i);
+					if(sum>=sampleBasesTarget){
+						minReadLength=Tools.max(minReadLength, i);
+					}
+				}
+			}
+			//Set the processor's minReadLength and turn off exact sampling
+			processor.minReadLength=minReadLength;
+			sampleReadsExact=processor.sampleReadsExact=false;
+			sampleBasesExact=processor.sampleBasesExact=false;
+		}else{
+			long[] counts=countReads(maxReads);
+			readsRemaining=counts[0]; //This is number of pairs/singletons
+			basesRemaining=counts[2]; //This is total bases
+			randy=Shared.threadLocalRandom(processor.sampleseed);
+			double prob=(sampleReadsExact ? sampleReadsTarget/(double)(readsRemaining)
+				: sampleBasesTarget/(double)(basesRemaining));
+			if(!allowUpsample){prob=Tools.min(prob, 1.0);}
+			outstream.println("Initial samplerate set to "+String.format("%.6f", prob));
+		}
+	}
+
+	private void sampleExact(ArrayList<Read> reads, ArrayList<Read> listOut, ArrayList<Read> singlesOut){
+		if(sampleReadsExact){
+			// Sample pairs
+			for(Read r : reads){
+				if(r!=null){
+					int bases=r.pairLength();
+					assert(readsRemaining>0) : readsRemaining;
+					double prob=sampleReadsTarget/(double)(readsRemaining);
+					while(allowUpsample && prob>1){
+						listOut.add(r);
+						sampleReadsTarget--;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+						prob--;
+					}
+					if(randy.nextDouble()<prob){
+						listOut.add(r);
+						sampleReadsTarget--;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+					}
+				}
+				readsRemaining--; // Decrement for every read (pair) looked at
+			}
+
+			// Sample singles (replicates bug from original, only samples from main list)
+			// This block is intentionally left empty to match original logic.
+
+		}else{// sampleBasesExact
+			// Sample pairs
+			for(Read r : reads){
+				int bases=0;
+				if(r!=null){
+					bases=r.pairLength();
+					assert(basesRemaining>0) : basesRemaining;
+					double prob=sampleBasesTarget/(double)(basesRemaining);
+					while(allowUpsample && prob>1){
+						listOut.add(r);
+						sampleBasesTarget-=bases;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+						prob--;
+					}
+					if(randy.nextDouble()<prob){
+						listOut.add(r);
+						sampleBasesTarget-=bases;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+					}
+				}
+				basesRemaining-=bases; // Decrement by 0 if null
+			}
+			// As above, no sampling for singles to match original
+		}
+	}
+
+	/** Copied from ReformatReads.java */
+	private long[] countReads(long maxReads){
+		if(ffin1.stdio()){
+			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
+		}
+
+		final ConcurrentReadInputStream cris;
+		{
+			//Use ConcurrentReadInputStream because it's available and thread-safe
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			if(verbose){outstream.println("Counting Reads");}
+			cris.start();
+		}
+
+		ListNum<Read> ln=cris.nextList();
+		ArrayList<Read> reads=(ln!=null ? ln.list : null);
+
+		long count=0, count2=0, bases=0;
+
+		while(ln!=null && reads!=null && reads.size()>0){
+			count+=reads.size();
+			for(Read r : reads){
+				bases+=r.length();
+				count2++;
+				if(r.mate!=null){
+					bases+=r.mateLength();
+					count2++;
+				}
+			}
+			cris.returnList(ln);
+			ln=cris.nextList();
+			reads=(ln!=null ? ln.list : null);
+		}
+		cris.returnList(ln);
+		errorState|=ReadWrite.closeStream(cris);
+		return new long[]{count, count2, bases};
+	}
+
+	/** Copied from ReformatReads.java */
+	private SuperLongList makeLengthHist(long maxReads){
+		if(ffin1.stdio()){
+			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
+		}
+
+		final ConcurrentReadInputStream cris;
+		{
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			if(verbose){outstream.println("Counting Reads");}
+			cris.start();
+		}
+
+		ListNum<Read> ln=cris.nextList();
+		ArrayList<Read> reads=(ln!=null ? ln.list : null);
+
+		SuperLongList sll=new SuperLongList(200000);
+
+		while(ln!=null && reads!=null && reads.size()>0){
+			for(Read r : reads){
+				sll.add(r.length());
+				if(r.mate!=null){
+					sll.add(r.mateLength());
+				}
+			}
+			cris.returnList(ln);
+			ln=cris.nextList();
+			reads=(ln!=null ? ln.list : null);
+		}
+		cris.returnList(ln);
+		errorState|=ReadWrite.closeStream(cris);
+		sll.sort();
+		return sll;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -519,14 +770,44 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 	private void printStats(Timer t){
 
-		long readsOut=processor.pairsOut*2+processor.singlesOut;
-		long basesOut=processor.pairBasesOut+processor.singleBasesOut;
+		//Determine final output counts
+		long readsOutPairs=processor.pairsOut*2;
+		long basesOutPairs=processor.pairBasesOut;
+		long readsOutSingles=processor.singlesOut;
+		long basesOutSingles=processor.singleBasesOut;
 
-		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+		long readsOut=readsOutPairs+readsOutSingles;
+		long basesOut=basesOutPairs+basesOutSingles;
 		
+		if(sampleReadsExact || sampleBasesExact) {
+			readsOut=sampledReadsOut; // Sampler only tracks pairs
+			basesOut=sampledBasesOut;
+		}
+
+		//Exact counts and fractions
+		outstream.println(Tools.typeReadsBases("Input", readsProcessed, basesProcessed, 30, 25));
+		outstream.println(Tools.typeReadsBases("Output", readsProcessed, readsOut, 
+			basesProcessed, basesOut, 30, 25));
+		outstream.println();
+
 		processor.printStats(outstream);
 
-		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
+		if(testsize){
+			long bytesProcessed=(new File(in1).length()+(in2==null ? 0 : new File(in2).length())+
+				(qfin1==null ? 0 : new File(qfin1).length())+
+				(qfin2==null ? 0 : new File(qfin2).length()));//*passes
+			double xpnano=bytesProcessed/(double)(t.elapsed);
+			String xpstring=(bytesProcessed<100000 ? ""+bytesProcessed : 
+				bytesProcessed<100000000 ? (bytesProcessed/1000)+"k" : (bytesProcessed/1000000)+"m");
+			while(xpstring.length()<8){xpstring=" "+xpstring;}
+			outstream.println("Bytes Processed:    "+xpstring+" \t"+Tools.format("%.2fm bytes/sec", xpnano*1000));
+		}
+		MetadataWriter.write(null, readsProcessed, basesProcessed, readsOut, basesOut, false);
+
+		//Final output stats
+		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+
+		if(processor.verifypairing){outstream.println("Names appear to be correctly paired.");}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -549,12 +830,31 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
-	protected long readsOut=0;
-	protected long basesOut=0;
+	protected long readsOut=0; //This is the final count, from writer or sampler
+	protected long basesOut=0; //This is the final count, from writer or sampler
 
 	private long maxReads=-1;
 	private long skipreads=-1;
 	private int breakLength=0;
+
+	/*--------------------------------------------------------------*/
+
+	//Sampling fields, mirrored from ReformatProcessor for harness logic
+	private boolean sampleReadsExact=false;
+	private boolean sampleBasesExact=false;
+	private boolean allowUpsample=false;
+	private boolean prioritizeLength=false;
+	private long sampleReadsTarget=0;
+	private long sampleBasesTarget=0;
+	private long sampledReadsOut=0;
+	private long sampledBasesOut=0;
+
+	//Sampling state fields
+	private long readsRemaining=0;
+	private long basesRemaining=0;
+	private Random randy=null;
+
+	/*--------------------------------------------------------------*/
 
 	private final FileFormat ffin1, ffin2;
 	private final FileFormat ffout1, ffout2, ffoutsingle;
@@ -565,10 +865,11 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
+	public static boolean verbose2=false;
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;
-	private boolean ordered=false;
+	private boolean ordered=true;
 	private boolean testsize=false;
 	private boolean deleteInput=false;
 

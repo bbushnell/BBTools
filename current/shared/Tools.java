@@ -26,6 +26,7 @@ import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
 import stream.SiteScore;
+import structures.ByteBuilder;
 import structures.CoverageArray;
 import structures.DoubleList;
 import structures.IntHashSet;
@@ -470,6 +471,48 @@ public final class Tools {
 	
 	public static String time(Timer t, int pad){
 		return ("Time:                         \t"+t);
+	}
+	
+	public static ByteBuilder typeReadsBases(String term, long reads, long bases, int pad1, int pad2) {
+		ByteBuilder bb=new ByteBuilder();
+		bb.append(term);
+		if(!Tools.endsWith(term, ':')) {bb.append(':');}
+		int len1=Long.toString(reads).length();
+		int len2=Long.toString(bases).length();
+		while(bb.length+len1<pad1) {bb.space();}
+		bb.append(reads).append(reads==1 ? " read " : " reads");
+		int len1b=bb.length;
+		while(bb.length-len1b+len2<pad2) {bb.space();}
+		bb.append(bases).append(bases==1 ? " base" : " bases");
+		return bb;
+	}
+
+	public static ByteBuilder typeReadsBases(String term, long reads, long reads2, long bases, long bases2, int pad1, int pad2) {
+	    ByteBuilder bb=new ByteBuilder();
+	    bb.append(term);
+	    if(!Tools.endsWith(term, ':')) {bb.append(':');}
+	    
+	    // Calculate percentage strings (reads2/reads, bases2/bases)
+	    String readPct = (reads > 0) ? String.format(" (%.2f%%)", reads2 * 100.0 / reads) : "";
+	    String basePct = (bases > 0) ? String.format(" (%.2f%%)", bases2 * 100.0 / bases) : "";
+	    
+	    // For reads section - pad to align the NUMBER
+	    int len1 = Long.toString(reads2).length();
+	    while(bb.length + len1 < pad1) {bb.space();}
+	    bb.append(reads2);
+	    bb.append(reads2 == 1 ? " read" : " reads");
+	    int posAfterReads = bb.length;
+	    bb.append(readPct);
+	    
+	    
+	    // For bases section - pad RELATIVE to end of reads section
+	    int len2 = Long.toString(bases2).length();
+	    while(bb.length - posAfterReads + len2 < pad2) {bb.space();}
+	    bb.append(bases2);
+	    bb.append(bases2 == 1 ? " base" : " bases");
+	    bb.append(basePct);
+	    
+	    return bb;
 	}
 	
 	public static String readsBasesProcessed(long elapsed, long reads, long bases, int pad){
@@ -2283,6 +2326,11 @@ public final class Tools {
 	public static boolean endsWithLetter(String s) {
 		if(s==null || s.length()==0) {return false;}
 		return Character.isLetter(s.charAt(s.length()-1));
+	}
+	
+	public static boolean endsWith(String s, char c) {
+		if(s==null || s.length()==0) {return false;}
+		return s.charAt(s.length()-1)==c;
 	}
 	
 	public static boolean endsWithLetter(byte[] s) {

@@ -17,7 +17,7 @@ import template.ThreadWaiter;
  * Writes FASTQ files with parallel formatting and ordered output.
  * 
  * Workers convert Read objects to FASTQ text in parallel.
- * OrderedQueueSystem ensures output blocks are written in order.
+ * OrderedQueueSystem2 ensures output blocks are written in order.
  * 
  * @author Isla
  * @date October 30, 2025
@@ -109,11 +109,12 @@ public class FastqWriter implements Writer {
 		// Create OQS
 		FastqWriterInputJob inputProto=new FastqWriterInputJob(null, 0, ListNum.PROTO);
 		FastqWriterOutputJob outputProto=new FastqWriterOutputJob(0, null, ListNum.PROTO);
-		oqs=new OrderedQueueSystem<FastqWriterInputJob, FastqWriterOutputJob>(
+		oqs=new OrderedQueueSystem2<FastqWriterInputJob, FastqWriterOutputJob>(
 			threads, true, inputProto, outputProto);
 		
 		// Open output stream
 		outstream=ReadWrite.getOutputStream(fname, false, true, false);
+//		System.err.println("os class: "+outstream.getClass());
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -308,7 +309,9 @@ public class FastqWriter implements Writer {
 			final ByteBuilder bb=new ByteBuilder();
 			
 			FastqWriterInputJob job=oqs.getInput();
+			assert(job!=null);
 			while(!job.poison()){
+				assert(job.reads!=null) : job.last()+", "+job.poison();
 				ArrayList<Read> reads=job.reads.list;
 				
 				// Format reads
@@ -336,6 +339,7 @@ public class FastqWriter implements Writer {
 		
 		private void writeFastq(ArrayList<Read> reads, ByteBuilder bb) {
 			for(Read r : reads){
+				if(r==null) {continue;}
 				final Read r1=(r.pairnum()==0 ? r : null);
 				final Read r2=(r.pairnum()==1 ? r : r.mate);
 				if(writeR1 && r1!=null){
@@ -355,6 +359,7 @@ public class FastqWriter implements Writer {
 		
 		private void writeFasta(ArrayList<Read> reads, ByteBuilder bb) {
 			for(Read r : reads){
+				if(r==null) {continue;}
 				final Read r1=(r.pairnum()==0 ? r : null);
 				final Read r2=(r.pairnum()==1 ? r : r.mate);
 				if(writeR1 && r1!=null){
@@ -374,6 +379,7 @@ public class FastqWriter implements Writer {
 		
 		private void writeHeader(ArrayList<Read> reads, ByteBuilder bb) {
 			for(Read r : reads){
+				if(r==null) {continue;}
 				final Read r1=(r.pairnum()==0 ? r : null);
 				final Read r2=(r.pairnum()==1 ? r : r.mate);
 				if(writeR1 && r1!=null){
@@ -410,7 +416,7 @@ public class FastqWriter implements Writer {
 	/** Output stream */
 	OutputStream outstream;
 	/** OQS for coordinating workers and writer */
-	final OrderedQueueSystem<FastqWriterInputJob, FastqWriterOutputJob> oqs;
+	final OrderedQueueSystem2<FastqWriterInputJob, FastqWriterOutputJob> oqs;
 	/** Number of worker threads */
 	final int threads;
 	/** Write R1 reads (pairnum==0) */

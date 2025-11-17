@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 15, 2025
+Last modified November 16, 2025
 
 Description:  Reformats reads to change ASCII quality encoding, interleaving, file format, or compression format.
 Optionally performs additional functions such as quality trimming, subsetting, and subsampling.
@@ -212,40 +212,33 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx300m"
-z2="-Xms300m"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
-	usage
-	exit
-fi
-
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
+setEnv(){
+	# Source helpers
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+	
+	# Parse and run
+	# Expandable heap: starts at 256MB, can grow to 2GB
+	parseJavaArgs "--xmx=2g" "--xms=256m" "--mode=fixed" "$@"
+	setEnvironment
+}
 
-function reformat() {
-	local CMD="java $EA $EOOM $z $z2 $SIMD -cp $CP jgi.Reformat2 $@"
-	echo $CMD >&2
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.Reformat2 $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-reformat "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

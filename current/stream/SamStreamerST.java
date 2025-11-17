@@ -99,15 +99,17 @@ public class SamStreamerST implements Streamer {
 	public ListNum<SamLine> nextLines(){
 		try{
 			ListNum<SamLine> list=outq.take();
-			if(verbose && list!=null){
-				if(list.last()) {outstream.println("Consumer got terminal list.");}
-				else {outstream.println("Consumer got list "+list.id()+" size "+list.size());}
+			assert(list!=null) : "Pulled null list.";//Should never happen
+			if(verbose){
+				if(list==null || list.last()) {outstream.println("Consumer got terminal list.");}
+				else {outstream.println("Consumer got list "+list.id());}
 			}
-			if(list!=null && list.last()){
+			if(list==null || list.last()){
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
 				errorState=!thread.success;
+				outq.add(list);//Re-inject
 				return null;
 			}
 			return list;

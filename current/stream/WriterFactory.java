@@ -151,7 +151,7 @@ public class WriterFactory {
 		if(ffout==null){
 			return null;
 		}else if(ffout.fastq() || ffout.fasta()){
-			if(Shared.threads()>=4 && FastqWriter.DEFAULT_THREADS>0) {
+			if(ffout.ordered() || (Shared.threads()>=4 && FastqWriter.DEFAULT_THREADS>0)) {
 				return new FastqWriter(ffout, -1, writeR1, writeR2);
 			}else {
 				return new FastqWriterST(ffout, writeR1, writeR2);
@@ -161,7 +161,7 @@ public class WriterFactory {
 		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
 			return new BamWriter(ffout, -1, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			if(Shared.threads()>=4 && SamWriter.DEFAULT_THREADS>0) {
+			if(ffout.ordered() || (Shared.threads()>=4 && SamWriter.DEFAULT_THREADS>0)) {
 				return new SamWriter(ffout, -1, header, useSharedHeader);
 			}else {
 				return new SamWriterST(ffout, header, useSharedHeader);
@@ -188,7 +188,8 @@ public class WriterFactory {
 		if(ffout==null){
 			return null;
 		}else if(ffout.fastq() || ffout.fasta()){
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqWriter.DEFAULT_THREADS>0)) {
+			if(ffout.ordered() || 
+					(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqWriter.DEFAULT_THREADS>0))) {
 				return new FastqWriter(ffout, -1, writeR1, writeR2);
 			}else {
 				return new FastqWriterST(ffout, writeR1, writeR2);
@@ -198,7 +199,8 @@ public class WriterFactory {
 		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
 			return new BamWriter(ffout, threads, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || SamWriter.DEFAULT_THREADS>0)) {
+			if(ffout.ordered() || (
+					Shared.threads()>=4 && threads!=0 && (threads>1 || SamWriter.DEFAULT_THREADS>0))) {
 				return new SamWriter(ffout, threads, header, useSharedHeader);
 			}else {
 				return new SamWriterST(ffout, header, useSharedHeader);

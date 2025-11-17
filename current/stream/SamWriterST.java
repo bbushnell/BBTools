@@ -53,6 +53,7 @@ public class SamWriterST implements Writer {
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 
 	/** Add reads for writing (will be converted to SamLines). */
+	@Override
 	public final void addReads(ListNum<Read> reads){
 		if(reads==null){return;}
 		ArrayList<SamLine> lines=toSamLines(reads.list);
@@ -60,6 +61,7 @@ public class SamWriterST implements Writer {
 	}
 
 	/** Add already-formatted SamLines for writing. */
+	@Override
 	public final void addLines(ListNum<SamLine> lines){
 		if(lines==null){return;}
 		writeLines(lines.list);
@@ -70,24 +72,30 @@ public class SamWriterST implements Writer {
 		if(!started){start();}
 		
 		ByteBuilder bb=new ByteBuilder();
+		for(SamLine sl : lines){
+			if(sl==null) {continue;}
+			sl.toBytes(bb);
+			bb.nl();
+			readsWritten++;
+			basesWritten+=sl.length();
+
+			if(bb.length()>=BUFFER_SIZE){
+				write(bb);
+			}
+		}
+		if(bb.length()>0){
+			write(bb);
+		}
+	}
+	
+	private void write(ByteBuilder bb) {
+		if(bb.length()<0){return;}
+		byte[] array=bb.toBytes();
 		try{
-			for(SamLine sl : lines){
-				sl.toBytes(bb);
-				bb.nl();
-				readsWritten++;
-				basesWritten+=sl.length();
-				
-				if(bb.length()>=BUFFER_SIZE){
-					outstream.write(bb.toBytes());
-					bb.clear();
-				}
-			}
-			if(bb.length()>0){
-				outstream.write(bb.toBytes());
-			}
+			synchronized(this) {outstream.write(array);}
+			bb.clear();
 		}catch(IOException e){
-			errorState=true;
-			throw new RuntimeException("Error writing SAM lines", e);
+			throw new RuntimeException(e);
 		}
 	}
 
@@ -127,6 +135,7 @@ public class SamWriterST implements Writer {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
+			if(r1==null) {continue;}
 			Read r2=(r1==null ? null : r1.mate);
 
 			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
