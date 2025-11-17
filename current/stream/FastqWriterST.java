@@ -55,7 +55,7 @@ public class FastqWriterST implements Writer {
 	}
 	
 	@Override
-	public void close(){
+	public synchronized void close(){
 		if(!finished){poison();}
 		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
 	}
@@ -73,7 +73,7 @@ public class FastqWriterST implements Writer {
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 	
 	@Override
-	public void addReads(ListNum<Read> reads){
+	public void addReads(ListNum<Read> reads){//TODO: NOT suitable for MT producers
 		if(reads==null){return;}
 		writeReads(reads.list);
 	}
@@ -92,24 +92,29 @@ public class FastqWriterST implements Writer {
 		if(!started){start();}
 		
 		ByteBuilder bb=new ByteBuilder();
+		// Format reads
+		if(format==FASTQ) {
+			writeFastq(reads, bb);
+		}else if(format==FASTA) {
+			writeFasta(reads, bb);
+		}else if(format==HEADER) {
+			writeHeader(reads, bb);
+		}else {
+			throw new RuntimeException("Bad format: "+format);
+		}
+
+		write(bb);
+		bb=null;
+	}
+	
+	private void write(ByteBuilder bb) {
+		if(bb.length()<0){return;}
+		byte[] array=bb.toBytes();
 		try{
-			// Format reads
-			if(format==FASTQ) {
-				writeFastq(reads, bb);
-			}else if(format==FASTA) {
-				writeFasta(reads, bb);
-			}else if(format==HEADER) {
-				writeHeader(reads, bb);
-			}else {
-				throw new RuntimeException("Bad format: "+format);
-			}
-			
-			if(bb.length()>0){
-				outstream.write(bb.toBytes());
-			}
+			synchronized(this) {outstream.write(array);}
+			bb.clear();
 		}catch(IOException e){
-			errorState=true;
-			throw new RuntimeException("Error writing FASTQ", e);
+			throw new RuntimeException(e);
 		}
 	}
 	
@@ -141,6 +146,7 @@ public class FastqWriterST implements Writer {
 	
 	private void writeFastq(ArrayList<Read> reads, ByteBuilder bb) {
 		for(Read r : reads){
+			if(r==null) {continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){
@@ -160,6 +166,7 @@ public class FastqWriterST implements Writer {
 	
 	private void writeFasta(ArrayList<Read> reads, ByteBuilder bb) {
 		for(Read r : reads){
+			if(r==null) {continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){
@@ -179,6 +186,7 @@ public class FastqWriterST implements Writer {
 	
 	private void writeHeader(ArrayList<Read> reads, ByteBuilder bb) {
 		for(Read r : reads){
+			if(r==null) {continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){

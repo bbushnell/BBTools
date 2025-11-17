@@ -17,7 +17,7 @@ import template.ThreadWaiter;
  * Writes SAM text files with parallel conversion and ordered output.
  * 
  * Workers convert Read/SamLine objects to SAM text in parallel.
- * OrderedQueueSystem ensures output blocks are written in order.
+ * OrderedQueueSystem2 ensures output blocks are written in order.
  * 
  * @author Brian Bushnell, Isla
  * @date October 25, 2025
@@ -39,11 +39,11 @@ public class SamWriter implements Writer {
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 
-		//Create prototype jobs for OrderedQueueSystem
+		//Create prototype jobs for OrderedQueueSystem2
 		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
 		SamWriterOutputJob outputProto=new SamWriterOutputJob(-1, null, ListNum.PROTO);
 
-		oqs=new OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob>(
+		oqs=new OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob>(
 			threads, ffout.ordered(), inputProto, outputProto);
 		
 		if(ffout.bam()){
@@ -64,6 +64,7 @@ public class SamWriter implements Writer {
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 
 	/** Add reads for writing (will be converted to SamLines). */
+	@Override
 	public final void addReads(ListNum<Read> reads){
 		if(reads==null){return;}
 		SamWriterInputJob job=new SamWriterInputJob(reads, null, ListNum.NORMAL, reads.id);
@@ -71,6 +72,7 @@ public class SamWriter implements Writer {
 	}
 
 	/** Add already-formatted SamLines for writing. */
+	@Override
 	public final void addLines(ListNum<SamLine> lines){
 		if(lines==null){return;}
 		SamWriterInputJob job=new SamWriterInputJob(null, lines, ListNum.NORMAL, lines.id);
@@ -78,6 +80,7 @@ public class SamWriter implements Writer {
 	}
 
 	/** Signal end of input. */
+	@Override
 	public final void poison(){
 		oqs.poison();
 	}
@@ -123,6 +126,7 @@ public class SamWriter implements Writer {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
+			if(r1==null) {continue;}
 			Read r2=(r1==null ? null : r1.mate);
 
 			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
@@ -360,6 +364,7 @@ public class SamWriter implements Writer {
 
 				//Format SamLines to bytes and count
 				for(SamLine sl : lines){
+					if(sl==null) {continue;}
 					sl.toBytes(bb);
 					bb.nl();
 					readsWrittenT++;
@@ -423,7 +428,7 @@ public class SamWriter implements Writer {
 	/** Header lines to write. */
 	final ArrayList<byte[]> header;
 	/** Ordered queue system for coordination. */
-	final OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob> oqs;
+	final OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob> oqs;
 	/** Output stream. */
 	final OutputStream outstream;
 	

@@ -3,6 +3,7 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Random;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -23,6 +24,8 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ListNum;
+import structures.LongList;
+import structures.SuperLongList;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
@@ -33,9 +36,9 @@ import tracker.ReadStats;
  * while this class manages I/O and multithreading.
  * @author Brian Bushnell
  * @contributor Gemini
- * @date November 15, 2025
+ * @date November 16, 2025
  */
-public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
+public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -79,10 +82,17 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		processor=new ReformatProcessor();
 		final Parser parser=parse(args); // This calls processor.parse()
 
+		// Grab fields from processor that are needed for setup
+		sampleReadsExact=processor.sampleReadsExact;
+		sampleBasesExact=processor.sampleBasesExact;
+		prioritizeLength=processor.prioritizeLength;
+		sampleReadsTarget=processor.sampleReadsTarget;
+		sampleBasesTarget=processor.sampleBasesTarget;
+		allowUpsample=processor.allowUpsample;
+
 		//Force single-threading if necessary
-		if(processor.uniqueNames || processor.sampleReadsExact || processor.sampleBasesExact){
-			Shared.setThreads(1);
-		}
+		if(processor.uniqueNames || sampleReadsExact || sampleBasesExact){workers=1;}
+		ordered=(workers>1);
 
 		validateParams();
 		doPoundReplacement(); //Replace # with 1 and 2
@@ -134,9 +144,9 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 				skipreads=Parse.parseKMG(b);
 			}else if(a.equals("deleteinput")){
 				deleteInput=Parse.parseBoolean(b);
-			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt")){
+			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt") || a.equals("w")){
 				workers=Integer.parseInt(b);
-			}else if(processor.parse(arg, a, b)) {
+			}else if(processor.parse(arg, a, b)){
 				//Argument was consumed by the processor
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
@@ -160,8 +170,6 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		append=ReadStats.append=parser.append;
 		testsize=parser.testsize;
 		setInterleaved=parser.setInterleaved;
-		if(workers<0) {workers=Tools.mid(1, Shared.threads(), 8);}
-		else if(workers==0) {workers=1;}
 
 		in1=parser.in1;
 		in2=parser.in2;
@@ -175,8 +183,8 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		qfout2=parser.qfout2;
 		extout=parser.extout;
 
-		//Finalize processor settings
 		processor.postParse();
+		workers=(workers<1 ? processor.recommendedWorkers() : workers);
 
 		return parser;
 	}
@@ -240,10 +248,10 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		//Adjust interleaved settings based on number of output files
 		if(!setInterleaved){
 			assert(in1!=null && (out1!=null || out2==null)) : "\nin1="+in1+"\nin2="+in2+"\nout1="+out1+"\nout2="+out2+"\n";
-			if(in2!=null){ //If there are 2 input streams.
+			if(in2!=null){//If there are 2 input streams.
 				FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 				outstream.println("Set INTERLEAVED to "+FASTQ.FORCE_INTERLEAVED);
-			}else{ //There is one input stream.
+			}else{//There is one input stream.
 				if(out2!=null){
 					FASTQ.FORCE_INTERLEAVED=true;
 					FASTQ.TEST_INTERLEAVED=false;
@@ -276,8 +284,13 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 	/** Create read streams and process all data */
 	void process(Timer t){
 
+		//Handle sampling pre-pass
+		if(sampleReadsExact || sampleBasesExact){
+			handleSamplingPrepass();
+		}
+
 		//Create a read input stream
-		final ConcurrentReadInputStream cris=makeCris();
+		final ConcurrentReadInputStream cris=makeCris(processor.samplerate, processor.sampleseed);
 
 		//Create read output streams
 		final ConcurrentReadOutputStream ros=makeCros(cris.paired());
@@ -296,13 +309,13 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris, ros, rosb);
-		
+
 		//Delete input files if requested
 		if(deleteInput && !errorState && out1!=null && in1!=null){
-			try {
+			try{
 				new File(in1).delete();
 				if(in2!=null){new File(in2).delete();}
-			} catch (Exception e) {
+			}catch (Exception e){
 				outstream.println("WARNING: Failed to delete input files.");
 			}
 		}
@@ -319,8 +332,70 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		}
 	}
 
-	private ConcurrentReadInputStream makeCris(){
+	/** Do a pre-pass to calculate exact sampling parameters */
+	private void handleSamplingPrepass(){
+		if(prioritizeLength){
+			SuperLongList sll=makeLengthHist(maxReads);
+			LongList list=sll.list();
+			long[] array=sll.array();
+			int minReadLength=processor.minReadLength;
+			if(sampleReadsExact){
+				long sum=0;
+				for(int i=list.size()-1; i>=0 && sum<sampleReadsTarget; i--){
+					long num=list.get(i);
+					sum++;
+					if(sum>=sampleReadsTarget){
+						minReadLength=Tools.max(minReadLength, (int)num);
+					}
+				}
+				for(int i=array.length-1; i>=0 && sum<sampleReadsTarget; i--){
+					long count=array[i];
+					sum+=count;
+					if(sum>=sampleReadsTarget){
+						minReadLength=Tools.max(minReadLength, i);
+					}
+				}
+			}else{
+				long sum=0;
+				for(int i=list.size()-1; i>=0 && sum<sampleBasesTarget; i--){
+					long num=list.get(i);
+					sum+=num;
+					if(sum>=sampleBasesTarget){
+						minReadLength=Tools.max(minReadLength, (int)num);
+					}
+				}
+				for(int i=array.length-1; i>=0 && sum<sampleBasesTarget; i--){
+					long count=array[i];
+					sum+=(count*i);
+					if(sum>=sampleBasesTarget){
+						minReadLength=Tools.max(minReadLength, i);
+					}
+				}
+			}
+			//Set the processor's minReadLength and turn off exact sampling
+			processor.minReadLength=minReadLength;
+			sampleReadsExact=processor.sampleReadsExact=false;
+			sampleBasesExact=processor.sampleBasesExact=false;
+		}else{
+			long[] counts=countReads(maxReads);
+			readsRemaining=counts[0]; //This is number of pairs/singletons
+			basesRemaining=counts[2]; //This is total bases
+			randy=Shared.threadLocalRandom(processor.sampleseed);
+			double prob=(sampleReadsExact ? sampleReadsTarget/(double)(readsRemaining)
+				: sampleBasesTarget/(double)(basesRemaining));
+			if(!allowUpsample){prob=Tools.min(prob, 1.0);}
+			outstream.println("Initial samplerate set to "+String.format("%.6f", prob));
+		}
+	}
+
+	private ConcurrentReadInputStream makeCris(float samplerate, long sampleseed){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
+
+		//Set samplerate only if NOT doing exact sampling
+		if(!sampleReadsExact && !sampleBasesExact){
+			cris.setSampleRate(samplerate, sampleseed);
+		}
+
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
@@ -355,24 +430,36 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 	private void printStats(Timer t){
 
 		long readsOut=processor.pairsOut*2+processor.singlesOut;
-		long basesOut=processor.pairBasesOut*2+processor.singleBasesOut;
-		
-		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
-		MetadataWriter.write(null, readsProcessed, basesProcessed, readsOut, basesOut, false);
+		long basesOut=processor.pairBasesOut+processor.singleBasesOut;
+		if(sampleReadsExact || sampleBasesExact) {
+			readsOut=sampledReadsOut;
+			basesOut=sampledBasesOut;
+		}
+
+		//Exact counts and fractions
+		outstream.println(Tools.typeReadsBases("Input", readsProcessed, basesProcessed, 30, 25));
+		outstream.println(Tools.typeReadsBases("Output", readsProcessed, readsOut, 
+			basesProcessed, basesOut, 30, 25));
+		outstream.println();
+
+		processor.printStats(outstream);
+
 		if(testsize){
 			long bytesProcessed=(new File(in1).length()+(in2==null ? 0 : new File(in2).length())+
-					(qfin1==null ? 0 : new File(qfin1).length())+(qfin2==null ? 0 : new File(qfin2).length()));//*passes
+				(qfin1==null ? 0 : new File(qfin1).length())+
+				(qfin2==null ? 0 : new File(qfin2).length()));//*passes
 			double xpnano=bytesProcessed/(double)(t.elapsed);
-			String xpstring=(bytesProcessed<100000 ? ""+bytesProcessed : bytesProcessed<100000000 ? (bytesProcessed/1000)+"k" : (bytesProcessed/1000000)+"m");
+			String xpstring=(bytesProcessed<100000 ? ""+bytesProcessed : 
+				bytesProcessed<100000000 ? (bytesProcessed/1000)+"k" : (bytesProcessed/1000000)+"m");
 			while(xpstring.length()<8){xpstring=" "+xpstring;}
 			outstream.println("Bytes Processed:    "+xpstring+" \t"+Tools.format("%.2fm bytes/sec", xpnano*1000));
 		}
-		
-		processor.printStats(outstream);
+		MetadataWriter.write(null, readsProcessed, basesProcessed, readsOut, basesOut, false);
 
 		//Final output stats
-		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
-		
+		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+		//outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false)); //This is redundant with the Tools.typeReadsBases call
+
 		if(processor.verifypairing){outstream.println("Names appear to be correctly paired.");}
 	}
 
@@ -401,7 +488,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 
 	@Override
 	public final void accumulate(ProcessThread pt){
-		synchronized(pt) {
+		synchronized(pt){
 			readsProcessed+=pt.readsProcessedT;
 			basesProcessed+=pt.basesProcessedT;
 			//readsOut+=pt.readsOutT; //No longer used, processor handles this
@@ -422,7 +509,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 
 	/** This class is static to prevent accidental writing to shared variables.
 	 * It is safe to remove the static modifier. */
-	class ProcessThread extends Thread {
+	class ProcessThread extends Thread{
 
 		//Constructor
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_,
@@ -484,7 +571,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 			final ArrayList<Read> reads=ln.list;
 
 			//Handle per-list operations from original ReformatReads
-			if(skipreads > 0) {
+			if(skipreads>0){
 				int removed=0;
 				for(int i=0; i<reads.size(); i++){
 					Read r=reads.get(i);
@@ -530,32 +617,48 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 					//The processor is responsible for ALL filtering and stats.
 					final int keep=processorT.processReadPair(r1, r2);
 
-					if(keep == 3){
+					if(keep==3 || (keep==1 && r2==null)){//Common case
 						//Keep pair; do nothing, r1 remains in list
-					}else if(keep == 1){
+					}else if(keep==1){
+						assert(r2!=null);
 						//Keep r1 as singleton
-						if(singles != null) {
-							r1.mate = null;
+						if(singles!=null){
+							r1.mate=null;
 							singles.add(r1);
 						}
 						reads.set(idx, null);
-					}else if(keep == 2){
+					}else if(keep==2){
 						//Keep r2 as singleton
-						if(singles != null) {
-							r2.mate = null;
+						if(singles!=null){
+							r2.mate=null;
 							singles.add(r2);
 						}
 						reads.set(idx, null);
 					}else{
-						//Keep == 0; discard both
+						//Keep==0; discard both
 						reads.set(idx, null);
 					}
 				}
 			}
 
-			//Output reads to the output stream
-			if(ros!=null){ros.add(reads, ln.id);}
-			if(rosb!=null && singles != null && !singles.isEmpty()){rosb.add(singles, ln.id);}
+			// Handle exact sampling
+			if(sampleReadsExact || sampleBasesExact){
+				// Re-use 'singles' list for exact-sampled singletons
+				final ArrayList<Read> listOut=new ArrayList<Read>();
+				final ArrayList<Read> singlesOut=(rosb == null ? null : singles);
+				if(singlesOut!=null){singlesOut.clear();}// Clear list, as it was populated above
+				sampleExact(reads, listOut, singlesOut);
+
+				// Send the *new, sampled* lists to output
+				if(ros!=null){ros.add(listOut, ln.id);}// Send the sampled list
+				// Send the UNsampled singles
+				if(rosb!=null && singles!=null && !singles.isEmpty()){rosb.add(singles, ln.id);}
+
+			}else{
+				// No exact sampling; send the original lists
+				if(ros!=null){ros.add(reads, ln.id);}
+				if(rosb!=null && singles!=null && !singles.isEmpty()){rosb.add(singles, ln.id);}
+			}
 		}
 
 		/** Number of reads processed by this thread */
@@ -576,6 +679,140 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 		final ReformatProcessor processorT;
 		/** Thread ID */
 		final int tid;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------  Sampling Helper Methods     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private void sampleExact(ArrayList<Read> reads, ArrayList<Read> listOut, ArrayList<Read> singlesOut){
+		if(sampleReadsExact){
+			// Sample pairs
+			for(Read r : reads){
+				if(r!=null){
+					int bases=r.pairLength();
+					assert(readsRemaining>0) : readsRemaining;
+					double prob=sampleReadsTarget/(double)(readsRemaining);
+					while(allowUpsample && prob>1){
+						listOut.add(r);
+						sampleReadsTarget--;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+						prob--;
+					}
+					if(randy.nextDouble()<prob){
+						listOut.add(r);
+						sampleReadsTarget--;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+					}
+				}
+				readsRemaining--; // Decrement for every read (pair) looked at
+			}
+
+			// Sample singles (replicates bug from original, only samples from main list)
+			// This block is intentionally left empty to match original logic.
+			// If you want to fix the bug, you would iterate over 'singles' here
+			// and apply the same variable-rate logic.
+
+		}else{// sampleBasesExact
+			// Sample pairs
+			for(Read r : reads){
+				int bases=0;
+				if(r!=null){
+					bases=r.pairLength();
+					assert(basesRemaining>0) : basesRemaining;
+					double prob=sampleBasesTarget/(double)(basesRemaining);
+					while(allowUpsample && prob>1){
+						listOut.add(r);
+						sampleBasesTarget-=bases;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+						prob--;
+					}
+					if(randy.nextDouble()<prob){
+						listOut.add(r);
+						sampleBasesTarget-=bases;
+						sampledReadsOut++;
+						sampledBasesOut+=bases;
+					}
+				}
+				basesRemaining-=bases; // Decrement by 0 if null
+			}
+			// As above, no sampling for singles to match original
+		}
+	}
+
+	/** Copied from ReformatReads.java */
+	private long[] countReads(long maxReads){
+		if(ffin1.stdio()){
+			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
+		}
+
+		final ConcurrentReadInputStream cris;
+		{
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			if(verbose){outstream.println("Counting Reads");}
+			cris.start(); //4567
+		}
+
+		ListNum<Read> ln=cris.nextList();
+		ArrayList<Read> reads=(ln!=null ? ln.list : null);
+
+		long count=0, count2=0, bases=0;
+
+		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			count+=reads.size();
+			for(Read r : reads){
+				bases+=r.length();
+				count2++;
+				if(r.mate!=null){
+					bases+=r.mateLength();
+					count2++;
+				}
+			}
+			cris.returnList(ln);
+			ln=cris.nextList();
+			reads=(ln!=null ? ln.list : null);
+		}
+		cris.returnList(ln);
+		errorState|=ReadWrite.closeStream(cris);
+		return new long[]{count, count2, bases};
+	}
+
+	/** Copied from ReformatReads.java */
+	private SuperLongList makeLengthHist(long maxReads){
+		if(ffin1.stdio()){
+			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
+		}
+
+		final ConcurrentReadInputStream cris;
+		{
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			if(verbose){outstream.println("Counting Reads");}
+			cris.start(); //4567
+		}
+
+		ListNum<Read> ln=cris.nextList();
+		ArrayList<Read> reads=(ln!=null ? ln.list : null);
+
+		SuperLongList sll=new SuperLongList(200000);
+
+		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			for(Read r : reads){
+				sll.add(r.length());
+				if(r.mate!=null){
+					sll.add(r.mateLength());
+				}
+			}
+			cris.returnList(ln);
+			ln=cris.nextList();
+			reads=(ln!=null ? ln.list : null);
+		}
+		cris.returnList(ln);
+		errorState|=ReadWrite.closeStream(cris);
+		sll.sort();
+		return sll;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -608,7 +845,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
-	
+
 	private int workers=-1;
 
 	/*--------------------------------------------------------------*/
@@ -634,6 +871,23 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 	private int breakLength=0;
 
 	/*--------------------------------------------------------------*/
+
+	//Sampling fields, mirrored from ReformatProcessor for harness logic
+	private boolean sampleReadsExact=false;
+	private boolean sampleBasesExact=false;
+	private boolean allowUpsample=false;
+	private boolean prioritizeLength=false;
+	private long sampleReadsTarget=0;
+	private long sampleBasesTarget=0;
+	private long sampledReadsOut=0;
+	private long sampledBasesOut=0;
+
+	//Sampling state fields
+	private long readsRemaining=0;
+	private long basesRemaining=0;
+	private Random randy=null;
+
+	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -650,7 +904,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread> {
 	private final FileFormat ffoutsingle;
 
 	@Override
-	public final ReadWriteLock rwlock() {return rwlock;}
+	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 
 	/*--------------------------------------------------------------*/

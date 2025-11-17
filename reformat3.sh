@@ -3,12 +3,12 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 15, 2025
+Last modified November 16, 2025
 
 Description:  Reformats reads to change ASCII quality encoding, interleaving, file format, or compression format.
 Optionally performs additional functions such as quality trimming, subsetting, and subsampling.
-Supports fastq, fasta, fasta+qual (TODO), scarf, oneline, sam, bam, gzip, bz2.
-Multithreaded version of reformat.sh, using the Streamer/Writer interface.
+Supports fastq, fasta, fasta+qual, scarf, oneline, sam, bam, gzip, bz2.
+Multithreaded version of reformat.sh.
 Please read bbmap/docs/guides/ReformatGuide.txt for more information.
 
 Usage:  reformat.sh in=<file> in2=<file2> out=<outfile> out2=<outfile2>
@@ -28,6 +28,10 @@ fastaminlen=1           Ignore fasta reads shorter than this.
 qin=auto                ASCII offset for input quality.  May be 33 (Sanger), 64 (Illumina), or auto.
 qout=auto               ASCII offset for output quality.  May be 33 (Sanger), 64 (Illumina), or auto (same as input).
 qfake=30                Quality value used for fasta to fastq reformatting.
+qfin=<.qual file>       Read qualities from this qual file, for the reads coming from 'in=<fasta file>'
+qfin2=<.qual file>      Read qualities from this qual file, for the reads coming from 'in2=<fasta file>'
+qfout=<.qual file>      Write qualities from this qual file, for the reads going to 'out=<fasta file>'
+qfout2=<.qual file>     Write qualities from this qual file, for the reads coming from 'out2=<fasta file>'
 outsingle=<file>        (outs) If a read is longer than minlength and its mate is shorter, the longer one goes here.
 deleteinput=f           Delete input upon successful completion.
 ref=<file>              Optional reference fasta for sam processing.
@@ -208,40 +212,33 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx300m"
-z2="-Xms300m"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
-	usage
-	exit
-fi
-
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
+setEnv(){
+	# Source helpers
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+	
+	# Parse and run
+	# Expandable heap: starts at 256MB, can grow to 2GB
+	parseJavaArgs "--xmx=2g" "--xms=256m" "--mode=fixed" "$@"
+	setEnvironment
+}
 
-function reformat() {
-	local CMD="java $EA $EOOM $z $z2 $SIMD -cp $CP jgi.ReformatStreamer $@"
-	echo $CMD >&2
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.ReformatStreamer $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-reformat "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

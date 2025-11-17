@@ -19,7 +19,7 @@ import template.ThreadWaiter;
  * Writes BAM binary files with parallel conversion and ordered output.
  * 
  * Workers convert Read/SamLine objects to BAM binary in parallel.
- * OrderedQueueSystem ensures output blocks are written in order.
+ * OrderedQueueSystem2 ensures output blocks are written in order.
  * 
  * @author Brian Bushnell, Isla
  * @date October 25, 2025
@@ -41,11 +41,11 @@ public class BamWriter implements Writer {
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 
-		//Create prototype jobs for OrderedQueueSystem
+		//Create prototype jobs for OrderedQueueSystem2
 		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
 		SamWriterOutputJob outputProto=new SamWriterOutputJob(-1, null, ListNum.PROTO);
 
-		oqs=new OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob>(
+		oqs=new OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob>(
 			threads, ffout.ordered(), inputProto, outputProto);
 		
 		outstream=ReadWrite.getBgzipStream(fname, false);
@@ -164,6 +164,7 @@ public class BamWriter implements Writer {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
+			if(r1==null) {continue;}
 			Read r2=(r1==null ? null : r1.mate);
 
 			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
@@ -387,6 +388,7 @@ public class BamWriter implements Writer {
 
 				//Format SamLines to BAM bytes and count
 				for(SamLine sl : lines){
+					if(sl==null) {continue;}
 					converter.appendAlignment(sl, bb);
 					readsWrittenT++;
 					basesWrittenT+=sl.length();
@@ -449,7 +451,7 @@ public class BamWriter implements Writer {
 	/** Header lines to write. */
 	final ArrayList<byte[]> header;
 	/** Ordered queue system for coordination. */
-	final OrderedQueueSystem<SamWriterInputJob, SamWriterOutputJob> oqs;
+	final OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob> oqs;
 	/** Output stream. */
 	final OutputStream outstream;
 	

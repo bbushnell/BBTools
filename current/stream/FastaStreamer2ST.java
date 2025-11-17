@@ -106,15 +106,17 @@ public class FastaStreamer2ST implements Streamer{
 	public ListNum<Read> nextList(){
 		try{
 			ListNum<Read> list=outputQueue.take();
+			assert(list!=null) : "Pulled null list.";//Should never happen
 			if(verbose){
 				if(list==null || list.last()) {outstream.println("Consumer got terminal list.");}
 				else {outstream.println("Consumer got list "+list.id());}
 			}
-			if(list!=null && list.last()){
+			if(list==null || list.last()){
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
 				errorState=!thread.success;
+				outputQueue.add(list);//Re-inject
 				return null;
 			}
 			return list;

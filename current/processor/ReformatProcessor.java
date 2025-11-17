@@ -12,6 +12,7 @@ import dna.AminoAcid;
 import hiseq.IlluminaHeaderParser2;
 import hiseq.ReadHeaderParser;
 import jgi.CalcTrueQuality;
+import map.ObjectIntMap;
 import shared.Parse;
 import shared.Parser;
 import shared.Shared;
@@ -29,22 +30,22 @@ import tracker.ReadStats;
  * Thread-safe via copy() for parallel processing.
  * 
  * @author Brian Bushnell
- * @contributor ISla
+ * @contributor Isla
  * @date November 15, 2025
  */
-public class ReformatProcessor implements Cloneable {
-	
+public class ReformatProcessor implements Processor<ReformatProcessor> {
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public ReformatProcessor(){}
-	
+
 	@Override
 	public ReformatProcessor clone(){
 		try{
 			ReformatProcessor rp=(ReformatProcessor)super.clone();
-			
+
 			//Clone mutable objects that need independent copies
 			if(randy!=null){
 				rp.randy=new Random(sampleseed);
@@ -52,19 +53,20 @@ public class ReformatProcessor implements Cloneable {
 			if(loglog!=null) {
 				rp.loglog=loglog.copy();
 			}
-			
+
 			return rp;
 		}catch(CloneNotSupportedException e){
 			throw new RuntimeException(e);
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Parsing              ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	@Override
 	public boolean parse(String arg, String a, String b){
-		
+
 		if(a.equals("sample") || a.equals("samplereads") || a.equals("samplereadstarget") || a.equals("srt")){
 			sampleReadsTarget=Parse.parseKMG(b);
 			sampleReadsExact=(sampleReadsTarget>0);
@@ -169,25 +171,20 @@ public class ReformatProcessor implements Cloneable {
 			maxValue=Integer.parseInt(b);
 		}else if(a.equals("value")){
 			requiredValue=b;
-		}else if(a.equals("samplerate")){
-			samplerate=Float.parseFloat(b);
-			assert(samplerate<=1f && samplerate>=0f) : "samplerate="+samplerate+"; should be between 0 and 1";
-		}else if(a.equals("sampleseed")){
-			sampleseed=Long.parseLong(b);
 		}else{
 			return false;
 		}
 		return true;
 	}
-	
-	/** Set fields from Parser after it has finished parsing */
+
+	@Override
 	public void setFromParser(Parser parser){
 		samplerate=parser.samplerate;
 		sampleseed=parser.sampleseed;
-		
+
 		trimBadSequence=parser.trimBadSequence;
 		stoptag=SamLine.MAKE_STOP_TAG;
-		
+
 		forceTrimModulo=parser.forceTrimModulo;
 		forceTrimLeft=parser.forceTrimLeft;
 		forceTrimRight=parser.forceTrimRight;
@@ -226,12 +223,12 @@ public class ReformatProcessor implements Cloneable {
 		dellenfilter=parser.dellenfilter;
 		inslenfilter=parser.inslenfilter;
 		editfilter=parser.editfilter;
-		
+
 		USE_EDIT_FILTER=(subfilter>-1 || minsubs>-1 || delfilter>-1 || insfilter>-1 || 
 			indelfilter>-1 || dellenfilter>-1 || inslenfilter>-1 || editfilter>-1 || clipfilter>-1);
-		
+
 		qtrim=qtrimLeft||qtrimRight;
-		
+
 		if(tag!=null){
 			assert(delimiter>0) : 
 				"When using a tag, a delimiter must be set; e.g. "
@@ -239,54 +236,49 @@ public class ReformatProcessor implements Cloneable {
 				+ "Most problematic symbols can be spelled out, like tab, "
 				+ "pipe, asterisk, greaterthan, etc.";
 		}
-		
+
 		if(k>0){parser.loglogk=k;}
 		if(parser.loglog && k<1){k=parser.loglogk;}
 		loglog=(parser.loglog ? CardinalityTracker.makeTracker(parser) : null);
 		pad=padLeft>0 || padRight>0;
 	}
-	
-	/** Finalize settings after parsing */
+
+	@Override
 	public void postParse(){
 		pad=(padLeft>0 || padRight>0);
 		if(AminoAcid.isFullyDefined(padSymbol)){padQ=Tools.max(padQ, (byte)2);}
-		
+
 		qtrim=qtrimLeft||qtrimRight;
-		
+
 		USE_EDIT_FILTER=(subfilter>-1 || minsubs>-1 || delfilter>-1 || insfilter>-1 || 
 			indelfilter>-1 || dellenfilter>-1 || inslenfilter>-1 || editfilter>-1 || clipfilter>-1);
-		
+
 		randy=Shared.threadLocalRandom(sampleseed);
-		
+
 		MAKE_IHIST=ReadStats.COLLECT_INSERT_STATS;
 		readstats=ReadStats.collectingStats() ? new ReadStats() : null;
-		
+
 		if(uniqueNames){
-			nameMap1=new ConcurrentHashMap<String,Integer>();
-			nameMap2=new ConcurrentHashMap<String,Integer>();
+			nameMap1=new ObjectIntMap<String>();
+			nameMap2=new ObjectIntMap<String>();
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Processing Method       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/**
-	 * Process a read pair.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return 0 to keep nothing, 1 to keep r1, 2 to keep r2, 3 to keep both
-	 */
+
+	@Override
 	public int processReadPair(Read r1, Read r2){
-		
+
 		final int initialLength1=r1.length();
 		final int initialLength2=r1.mateLength();
-		
+
 		final int minlen1=(int)Tools.max(initialLength1*minLenFraction, minReadLength);
 		final int minlen2=(int)Tools.max(initialLength2*minLenFraction, minReadLength);
-		
+
 		final SamLine sl1=(r1.samline);
-		
+
 		//Update counters
 		readsProcessedT++;
 		basesProcessedT+=initialLength1;
@@ -294,28 +286,28 @@ public class ReformatProcessor implements Cloneable {
 			readsProcessedT++;
 			basesProcessedT+=initialLength2;
 		}
-		
+
 		//Header fixes
 		if(fixHeaders){
 			fixHeader(r1);
 			fixHeader(r2);
 		}
-		
+
 		if(lastUnderscoreToSpace){
 			underscoreToSpace(r1);
 			underscoreToSpace(r2);
 		}
-		
+
 		if(readstats!=null){
 			readstats.addToHistograms(r1);
-			
+
 			if(MAKE_IHIST && sl1!=null && !r1.secondary() && sl1.pairnum()==0){
 				readstats.addToInsertHistogram(sl1);
 			}
 		}
-		
+
 		if(loglog!=null){loglog.hash(r1);}
-		
+
 		if(k>0){
 			{
 				final int kmers=Tools.countKmers(r1.bases, k);
@@ -328,7 +320,7 @@ public class ReformatProcessor implements Cloneable {
 				correctKmers+=(r2.quality==null ? kmers : Tools.countCorrectKmers(r2.quality, k));
 			}
 		}
-		
+
 		//Transformations
 		if(reverseComplement){r1.reverseComplement();}
 		if(complement){r1.complement();}
@@ -336,7 +328,7 @@ public class ReformatProcessor implements Cloneable {
 			if(reverseComplement || reverseComplementMate){r2.reverseComplementFast();}
 			if(complement){r2.complement();}
 		}
-		
+
 		//Surface filtering
 		if(!bottom || !top){
 			rhp.parse(r1);
@@ -349,14 +341,14 @@ public class ReformatProcessor implements Cloneable {
 				if(r2!=null){r2.setDiscarded(true);}
 			}
 		}
-		
+
 		if(verifypairing){
 			String s1=r1==null ? null : r1.id;
 			String s2=r2==null ? null : r2.id;
 			boolean b=FASTQ.testPairNames(s1, s2, allowIdenticalPairNames);
 			if(!b){throw new RuntimeException("Names do not appear to be correctly paired.\n"+s1+"\n"+s2+"\n");}
 		}
-		
+
 		//Junk filtering
 		if(tossJunk){
 			if(r1!=null && r1.junk()){
@@ -370,13 +362,13 @@ public class ReformatProcessor implements Cloneable {
 				r2.setDiscarded(true);
 			}
 		}
-		
+
 		//IUPAC to N
 		if(iupacToN){
 			if(r1!=null){r1.convertUndefinedTo((byte)'N');}
 			if(r2!=null){r2.convertUndefinedTo((byte)'N');}
 		}
-		
+
 		//Remapping
 		if(remap1!=null && r1!=null){
 			int swaps=r1.remapAndCount(remap1);
@@ -392,7 +384,7 @@ public class ReformatProcessor implements Cloneable {
 				readsSwappedT++;
 			}
 		}
-		
+
 		//Trimming
 		if(trimBadSequence){
 			if(r1!=null){
@@ -406,7 +398,7 @@ public class ReformatProcessor implements Cloneable {
 				readsQTrimmedT+=(x>0 ? 1 : 0);
 			}
 		}
-		
+
 		//Chastity filter
 		if(chastityFilter){
 			if(r1!=null && r1.failsChastity()){
@@ -415,7 +407,7 @@ public class ReformatProcessor implements Cloneable {
 				r1.setPairDiscarded(true);
 			}
 		}
-		
+
 		//Barcode filter
 		if(removeBadBarcodes){
 			if(r1!=null && !r1.discarded() && r1.failsBarcode(barcodes, failIfNoBarcode)){
@@ -424,13 +416,13 @@ public class ReformatProcessor implements Cloneable {
 				r1.setPairDiscarded(true);
 			}
 		}
-		
+
 		//Tag filter
 		if(tag!=null && r1!=null && !r1.discarded()){
 			boolean pass=passesTagFilter(r1.id, tag, delimiter);
 			if(!pass){r1.setPairDiscarded(true);}
 		}
-		
+
 		//Bit filters
 		if(filterBits!=0 || requiredBits!=0){
 			if(r1!=null && !r1.discarded()){
@@ -442,7 +434,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		//MAPQ filters
 		if(minMapq>=0 || maxMapq>=0){
 			if(r1!=null && !r1.discarded()){
@@ -455,7 +447,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		//ID and edit filters
 		if(minIdFilter>=0 || maxIdFilter<1 || USE_EDIT_FILTER){
 			if(r1!=null && !r1.discarded()){
@@ -483,7 +475,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		if(fixCigar){
 			if(SamLine.VERSION==1.3f){
 				if(r1!=null && !r1.discarded()){
@@ -502,7 +494,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		if(stoptag){
 			if(r1!=null && !r1.discarded()){
 				assert(sl1!=null) : "stoptag only works on sam/bam input.";
@@ -512,7 +504,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		//Paired/unpaired filters
 		if(pairedOnly || unpairedOnly){
 			assert(sl1!=null) : "pairedonly requires sam/bam input.";
@@ -522,7 +514,7 @@ public class ReformatProcessor implements Cloneable {
 				unmappedReadsT++;
 			}
 		}
-		
+
 		//Mapped/unmapped filters
 		if(mappedOnly || unmappedOnly){
 			if(r1!=null && !r1.discarded() && (r1.mapped()!=mappedOnly || r1.bases==null || r1.secondary())){
@@ -536,7 +528,7 @@ public class ReformatProcessor implements Cloneable {
 				unmappedReadsT++;
 			}
 		}
-		
+
 		//Primary filter
 		if(primaryOnly){
 			if(r1!=null && (r1.bases==null || r1.secondary())){
@@ -550,7 +542,7 @@ public class ReformatProcessor implements Cloneable {
 				unmappedReadsT++;
 			}
 		}
-		
+
 		//GC filter
 		if(filterGC && (initialLength1>0 || initialLength2>0)){
 			float gc1=(initialLength1>0 ? r1.gc() : -1);
@@ -576,7 +568,7 @@ public class ReformatProcessor implements Cloneable {
 				badGcReadsT++;
 			}
 		}
-		
+
 		if(recalibrateQuality){
 			if(r1!=null && !r1.discarded()){
 				CalcTrueQuality.recalibrate(r1);
@@ -585,13 +577,13 @@ public class ReformatProcessor implements Cloneable {
 				CalcTrueQuality.recalibrate(r2);
 			}
 		}
-		
+
 		if(quantizeQuality){
 			final byte[] quals1=r1.quality, quals2=(r2==null ? null : r2.quality);
 			Quantizer.quantize(quals1);
 			Quantizer.quantize(quals2);
 		}
-		
+
 		//Force trim
 		if(forceTrimLeft>0 || forceTrimRight>=0 || forceTrimModulo>0 || forceTrimRight2>0){
 			if(r1!=null && !r1.discarded()){
@@ -619,7 +611,7 @@ public class ReformatProcessor implements Cloneable {
 				if(r2.length()<minlen2){r2.setDiscarded(true);}
 			}
 		}
-		
+
 		//Quality trim
 		if(qtrim){
 			if(r1!=null && !r1.discarded()){
@@ -633,7 +625,7 @@ public class ReformatProcessor implements Cloneable {
 				readsQTrimmedT+=(x>0 ? 1 : 0);
 			}
 		}
-		
+
 		//Average quality filter
 		if(minAvgQuality>0){
 			if(r1!=null && !r1.discarded() && r1.avgQuality(false, minAvgQualityBases)<minAvgQuality){
@@ -647,7 +639,7 @@ public class ReformatProcessor implements Cloneable {
 				r2.setDiscarded(true);
 			}
 		}
-		
+
 		//N filter
 		if(maxNs>=0){
 			if(r1!=null && !r1.discarded() && r1.countUndefined()>maxNs){
@@ -661,7 +653,7 @@ public class ReformatProcessor implements Cloneable {
 				r2.setDiscarded(true);
 			}
 		}
-		
+
 		//Consecutive bases filter
 		if(minConsecutiveBases>0){
 			if(r1!=null && !r1.discarded() && !r1.hasMinConsecutiveBases(minConsecutiveBases)){
@@ -675,7 +667,7 @@ public class ReformatProcessor implements Cloneable {
 				r2.setDiscarded(true);
 			}
 		}
-		
+
 		//Length filter
 		if(minlen1>0 || minlen2>0 || maxReadLength>0){
 			if(r1!=null && !r1.discarded()){
@@ -695,7 +687,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		//Determine if pair should be removed
 		boolean remove=false;
 		if(r2==null){
@@ -708,20 +700,20 @@ public class ReformatProcessor implements Cloneable {
 			r1.setDiscarded(!r1.discarded());
 			if(r2!=null){r2.setDiscarded(!r2.discarded());}
 		}
-		
+
 		if(remove){return 0;}
-		
+
 		//Padding
 		if(pad){
 			pad(r1, padLeft, padRight, padSymbol, padQ);
 			pad(r2, padLeft, padRight, padSymbol, padQ);
 		}
-		
+
 		//Name modifications
 		if(uniqueNames || addunderscore || addslash || addcolon){
 			if(r1.id==null){r1.id=""+r1.numericID;}
 			if(r2!=null && r2.id==null){r2.id=r1.id;}
-			
+
 			if(uniqueNames){
 				Integer v=nameMap1.get(r1.id);
 				if(v==null){
@@ -758,7 +750,7 @@ public class ReformatProcessor implements Cloneable {
 				}
 			}
 		}
-		
+
 		int ret=(!r1.discarded() ? 1 : 0) | (r2!=null && !r2.discarded() ? 2 : 0);
 		if(ret==3) {
 			pairsOut++;
@@ -770,13 +762,79 @@ public class ReformatProcessor implements Cloneable {
 			singlesOut++;
 			singleBasesOut+=r2.length();
 		}
+
+		//Fix samline.
+		if(!r1.discarded() && r1.samline!=null) {
+			SamLine sl=r1.samline;
+			sl.seq=r1.bases;
+			sl.qual=r1.quality;
+			sl.qname=r1.id;
+			if(sl.mapped() && sl.strand()==Shared.MINUS) {
+				r1.reverseComplementFast();
+			}
+		}
+
 		return ret;
 	}
-	
+
+	@Override
+	public boolean processSamLine(SamLine sl){
+		Read r=(Read)sl.obj;
+		assert(r!=null) : "Input streams need to produce Read objects: "+sl;
+		int code=processReadPair(r, null);
+		return code>0;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Utility Methods         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	@Override
+	public int recommendedWorkers() {
+		float workers=0.8f;
+
+		// Expensive operations
+		if(loglog!=null){workers+=14.5f;}      // Cardinality tracking
+		if(recalibrateQuality){workers+=4.0f;}    // Quality recalibration
+		if(k>0 && loglog==null){workers+=4.0f;}                 // Kmer counting
+
+		// Moderate operations (0.5f each)
+		if(qtrim || qtrimLeft || qtrimRight){workers+=0.5f;}  // Quality trimming
+		if(filterGC){workers+=0.5f;}              // GC calculation and filtering
+		if(minIdFilter>=0 || maxIdFilter>=0 || USE_EDIT_FILTER){workers+=0.5f;}  // ID/edit filters
+
+		// Light operations (0.25f each)
+		if(forceTrimLeft>0 || forceTrimRight>=0 || forceTrimRight2>0 || forceTrimModulo>0){workers+=0.25f;}
+		if(minAvgQuality>0 || minAvgQualityBases>0){workers+=0.25f;}
+		if(maxNs>=0){workers+=0.25f;}
+		if(minConsecutiveBases>0){workers+=0.25f;}
+		if(minReadLength>0 || maxReadLength>0){workers+=0.25f;}
+		if(reverseComplement || reverseComplementMate || complement){workers+=0.25f;}
+		if(trimBadSequence){workers+=0.25f;}
+		if(pad){workers+=0.25f;}
+		if(remap1!=null || remap2!=null){workers+=0.25f;}
+		if(quantizeQuality){workers+=0.25f;}
+		if(fixHeaders || lastUnderscoreToSpace || uniqueNames){workers+=0.25f;}
+		if(iupacToN){workers+=0.25f;}
+
+		// Very light operations (0.1f each) 
+		if(tossJunk || chastityFilter){workers+=0.1f;}
+		if(removeBadBarcodes || barcodes!=null){workers+=0.1f;}
+		if(mappedOnly || unmappedOnly || pairedOnly || unpairedOnly || primaryOnly){workers+=0.1f;}
+		if(filterBits!=0 || requiredBits!=0){workers+=0.1f;}
+		if(minMapq>=0 || maxMapq>=0){workers+=0.1f;}
+		if(tag!=null){workers+=0.1f;}
+		if(minGC>0 || maxGC<1){workers+=0.1f;}
+		if(addslash || addcolon || addunderscore){workers+=0.1f;}
+		if(verifyinterleaving || verifypairing){workers+=0.1f;}
+
+		// Round up, with minimum 1 and maximum 24
+		int result=(int)Math.ceil(workers);
+		result=Tools.mid(result, 1, 24);
+		if(uniqueNames || sampleReadsExact || sampleBasesExact){result=1;}
+		return result;
+	}
+
 	public static final void pad(Read r, int padLeft, int padRight, byte padSymbol, byte padQ){
 		if(r==null || r.length()==0 || (padLeft<1 && padRight<1)){return;}
 		padLeft=Tools.max(0, padLeft);
@@ -784,7 +842,7 @@ public class ReformatProcessor implements Cloneable {
 		r.bases=pad(r.bases, padLeft, padRight, padSymbol);
 		r.quality=pad(r.quality, padLeft, padRight, padQ);
 	}
-	
+
 	private static final byte[] pad(byte[] old, int padLeft, int padRight, byte padSymbol){
 		if(old==null){return null;}
 		final int innerLimit=old.length+padLeft;
@@ -794,7 +852,7 @@ public class ReformatProcessor implements Cloneable {
 		for(int i=0; i<old.length; i++){array[i+padLeft]=old[i];}
 		return array;
 	}
-	
+
 	public boolean passesTagFilter(String s, String tag, char delimiter){
 		if(requiredValue!=null){
 			String value=Parse.parseString(s, tag, delimiter);
@@ -803,12 +861,12 @@ public class ReformatProcessor implements Cloneable {
 		double value=Parse.parseDouble(s, tag, delimiter);
 		return value>=minValue && value<=maxValue;
 	}
-	
+
 	public static final boolean passesIDFilter(Read r, float minId, float maxId, boolean requireMapped){
 		if(!passesMinIDFilter(r, minId, requireMapped)){return false;}
 		return passesMaxIDFilter(r, maxId);
 	}
-	
+
 	public static final boolean passesMinIDFilter(Read r, float minId, boolean requireMapped){
 		if(minId<=0 || r.perfect()){return true;}
 		if(r.match==null && r.samline!=null){
@@ -817,7 +875,7 @@ public class ReformatProcessor implements Cloneable {
 		if(r.match==null){return !requireMapped;}
 		return Read.identityFlat(r.match, true)>=minId;
 	}
-	
+
 	public static final boolean passesMaxIDFilter(Read r, float maxId){
 		if(maxId>=1){return true;}
 		if(r.match==null && r.samline!=null){
@@ -826,7 +884,7 @@ public class ReformatProcessor implements Cloneable {
 		if(r.match==null){return true;}
 		return Read.identityFlat(r.match, true)<=maxId;
 	}
-	
+
 	public final boolean passesEditFilter(Read r, boolean requireMapped){
 		if(r.perfect()){return true;}
 		if(r.match==null && r.samline!=null){
@@ -834,14 +892,14 @@ public class ReformatProcessor implements Cloneable {
 		}
 		if(r.match==null){return !requireMapped;}
 		r.toLongMatchString(false);
-		
+
 		final int sub=Read.countSubs(r.match);
 		final int ins=Read.countInsertions(r.match);
 		final int del=Read.countDeletions(r.match);
 		final int inscount=Read.countInsertionEvents(r.match);
 		final int delcount=Read.countDeletionEvents(r.match);
 		final int clip=SamLine.countLeadingClip(r.match)+SamLine.countTrailingClip(r.match);
-		
+
 		boolean bad=false;
 		bad=bad||(subfilter>=0 && sub>subfilter);
 		bad=bad||(minsubs>=0 && sub<minsubs);
@@ -852,16 +910,16 @@ public class ReformatProcessor implements Cloneable {
 		bad=bad||(dellenfilter>=0 && r.hasLongDeletion(dellenfilter));
 		bad=bad||(indelfilter>=0 && inscount+delcount>indelfilter);
 		bad=bad||(editfilter>=0 && sub+ins+del>editfilter);
-		
+
 		return !bad;
 	}
-	
+
 	public static final void underscoreToSpace(Read r){
 		if(r!=null){
 			r.id=underscoreToSpace(r.id);
 		} 
 	}
-	
+
 	public static String underscoreToSpace(String header){
 		int x=header.lastIndexOf('_');
 		if(x<0){return header;}
@@ -869,7 +927,7 @@ public class ReformatProcessor implements Cloneable {
 		bytes[x]=' ';
 		return new String(bytes);
 	}
-	
+
 	public static final void fixHeader(Read r){
 		if(r!=null){
 			r.id=fixHeader(r.id);
@@ -878,7 +936,7 @@ public class ReformatProcessor implements Cloneable {
 			}
 		} 
 	}
-	
+
 	public static final String fixHeader(String header){
 		if(header==null || header.length()<1){return header;}
 		byte[] array=new byte[header.length()];
@@ -892,8 +950,8 @@ public class ReformatProcessor implements Cloneable {
 		if(changed){header=new String(array);}
 		return header;
 	}
-	
-	/** Accumulate statistics from another processor */
+
+	@Override
 	public void add(ReformatProcessor other){
 		readsProcessedT+=other.readsProcessedT;
 		basesProcessedT+=other.basesProcessedT;
@@ -902,34 +960,34 @@ public class ReformatProcessor implements Cloneable {
 		singlesOut+=other.singlesOut;
 		pairBasesOut+=other.pairBasesOut;
 		singleBasesOut+=other.singleBasesOut;
-		
+
 		basesFTrimmedT+=other.basesFTrimmedT;
 		readsFTrimmedT+=other.readsFTrimmedT;
-		
+
 		basesQTrimmedT+=other.basesQTrimmedT;
 		readsQTrimmedT+=other.readsQTrimmedT;
-		
+
 		lowqBasesT+=other.lowqBasesT;
 		lowqReadsT+=other.lowqReadsT;
-		
+
 		badGcBasesT+=other.badGcBasesT;
 		badGcReadsT+=other.badGcReadsT;
-		
+
 		readShortDiscardsT+=other.readShortDiscardsT;
 		baseShortDiscardsT+=other.baseShortDiscardsT;
-		
+
 		unmappedReadsT+=other.unmappedReadsT;
 		unmappedBasesT+=other.unmappedBasesT;
-		
+
 		idfilteredReadsT+=other.idfilteredReadsT;
 		idfilteredBasesT+=other.idfilteredBasesT;
-		
+
 		basesSwappedT+=other.basesSwappedT;
 		readsSwappedT+=other.readsSwappedT;
-		
+
 		kmersProcessed+=other.kmersProcessed;
 		correctKmers+=other.correctKmers;
-		
+
 		if(loglog!=null) {loglog.add(other.loglog);}
 	}
 
@@ -937,11 +995,14 @@ public class ReformatProcessor implements Cloneable {
 	/*----------------            Stats             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	@Override
 	public void printStats(PrintStream stream) {
 		ByteBuilder bb=toStats();
+		if(bb.length>0) {bb.nl();}
 		stream.print(bb);
 	}
 
+	@Override
 	public ByteBuilder toStats() {
 		ByteBuilder bb=new ByteBuilder();
 		final double rpmult=100.0/readsProcessedT, bpmult=100.0/basesProcessedT;
@@ -987,18 +1048,18 @@ public class ReformatProcessor implements Cloneable {
 	/*--------------------------------------------------------------*/
 	/*----------------      Processing Fields       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	//Transformations
 	public boolean reverseComplementMate=false;
 	public boolean reverseComplement=false;
 	public boolean complement=false;
 	public boolean iupacToN=false;
-	
+
 	//Verification
 	public boolean verifyinterleaving=false;
 	public boolean verifypairing=false;
 	public boolean allowIdenticalPairNames=true;
-	
+
 	//Filtering
 	public boolean tossJunk=false;
 	public boolean chastityFilter=false;
@@ -1006,7 +1067,7 @@ public class ReformatProcessor implements Cloneable {
 	public boolean failBadBarcodes=false;
 	public boolean failIfNoBarcode=false;
 	public HashSet<String> barcodes=null;
-	
+
 	public boolean mappedOnly=false;
 	public boolean pairedOnly=false;
 	public boolean unpairedOnly=false;
@@ -1015,10 +1076,10 @@ public class ReformatProcessor implements Cloneable {
 	public int requiredBits=0;
 	public int filterBits=0;
 	public boolean invertFilters=false;
-	
+
 	public boolean bottom=true;
 	public boolean top=true;
-	
+
 	//ID/Edit filters
 	public float minIdFilter=-1;
 	public float maxIdFilter=-1;
@@ -1034,10 +1095,10 @@ public class ReformatProcessor implements Cloneable {
 	public int minMapq=-1;
 	public int maxMapq=-1;
 	public boolean USE_EDIT_FILTER=false;
-	
+
 	//Trimming
 	public boolean trimBadSequence=false;
-	
+
 	/** Recalibrate quality scores using matrices */
 	private boolean recalibrateQuality=false;
 	private boolean quantizeQuality=false;
@@ -1050,25 +1111,25 @@ public class ReformatProcessor implements Cloneable {
 	public int forceTrimModulo=0;
 	public float trimq=6;
 	public float trimE=0.01f;
-	
+
 	//Quality
 	public float minAvgQuality=0;
 	public int minAvgQualityBases=0;
 	public int maxNs=-1;
 	public int minConsecutiveBases=0;
-	
+
 	//Length
 	public int maxReadLength=0;
 	public int minReadLength=0;
 	public float minLenFraction=0;
 	public boolean requireBothBad=false;
-	
+
 	//GC
 	public float minGC=0;
 	public float maxGC=1;
 	public boolean filterGC=false;
 	public boolean usePairGC=false;
-	
+
 	//Header manipulation
 	public boolean fixHeaders=false;
 	public boolean lastUnderscoreToSpace=false;
@@ -1077,33 +1138,33 @@ public class ReformatProcessor implements Cloneable {
 	public boolean addcolon=false;
 	public boolean addunderscore=false;
 	public boolean stoptag=false;
-	
-	
+
+
 	/** For calculating kmer cardinality */
 	public CardinalityTracker loglog;
 	public int k=0;
-	
-	private ConcurrentHashMap<String,Integer> nameMap1=null;
-	private ConcurrentHashMap<String,Integer> nameMap2=null;
-	
+
+	private ObjectIntMap<String> nameMap1=null;
+	private ObjectIntMap<String> nameMap2=null;
+
 	//Padding
 	public boolean pad=false;
 	public byte padSymbol='N';
 	public byte padQ=0;
 	public int padLeft=0;
 	public int padRight=0;
-	
+
 	//Remapping
 	public byte[] remap1=null;
 	public byte[] remap2=null;
-	
+
 	//Tag filtering
 	public String tag=null;
 	public char delimiter=0;
 	public float minValue=Float.MIN_VALUE;
 	public float maxValue=Float.MAX_VALUE;
 	public String requiredValue=null;
-	
+
 	//Sampling
 	public float samplerate=1f;
 	public long sampleseed=-1;
@@ -1114,61 +1175,61 @@ public class ReformatProcessor implements Cloneable {
 	public long sampleReadsTarget=0;
 	public long sampleBasesTarget=0;
 	private Random randy=null;
-	
+
 	//Other
 	public ReadHeaderParser rhp=new IlluminaHeaderParser2();
 	private boolean fixCigar=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Statistics Fields       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public boolean MAKE_IHIST;
 	public ReadStats readstats;
-	
+
 	public long readsProcessedT=0;
 	public long basesProcessedT=0;
-	
+
 	public long pairsOut=0;
 	public long singlesOut=0;
 	public long pairBasesOut=0;
 	public long singleBasesOut=0;
-	
+
 	public long basesFTrimmedT=0;
 	public long readsFTrimmedT=0;
-	
+
 	public long basesQTrimmedT=0;
 	public long readsQTrimmedT=0;
-	
+
 	public long lowqBasesT=0;
 	public long lowqReadsT=0;
-	
+
 	public long badGcBasesT=0;
 	public long badGcReadsT=0;
-	
+
 	public long readShortDiscardsT=0;
 	public long baseShortDiscardsT=0;
-	
+
 	public long unmappedReadsT=0;
 	public long unmappedBasesT=0;
-	
+
 	public long idfilteredReadsT=0;
 	public long idfilteredBasesT=0;
-	
+
 	public long basesSwappedT=0;
 	public long readsSwappedT=0;
-	
+
 	public long kmersProcessed=0;
 	public double correctKmers=0;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Static Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	
+
 	/** For converting headers to filesystem-valid Strings */
 	private static final byte[] headerSymbols=new byte[128];
-	
+
 	static{
 		Arrays.fill(headerSymbols, (byte)'_');
 		for(int i=0; i<128; i++){
@@ -1181,10 +1242,10 @@ public class ReformatProcessor implements Cloneable {
 			headerSymbols[c]=(byte)c;
 		}
 	}
-	
+
 	private static String slash1=" /1";
 	private static String slash2=" /2";
 	private static final String colon1=" 1:";
 	private static final String colon2=" 2:";
-	
+
 }
