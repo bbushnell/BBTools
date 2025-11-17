@@ -18,6 +18,14 @@ import structures.CoverageArray;
  */
 public class GenerateConsensusVariations {
 	
+	/**
+	 * Program entry point that processes variants across multiple chromosomes.
+	 * Parses command-line arguments for input/output patterns, coverage thresholds,
+	 * and processing parameters, then processes each chromosome in the specified range.
+	 *
+	 * @param args Command-line arguments including input variant pattern, coverage pattern,
+	 * output pattern, and optional parameters (mincov, consensus, genome, etc.)
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -237,15 +245,25 @@ public class GenerateConsensusVariations {
 
 	/** TODO */
 	public static int THREADS=1;
+	/** Maximum distance for NOREF variant validation against reference sequence */
 	public static int NOREF_CAP=-1;
+	/** Minimum fraction of reads required to support a standard variant */
 	public static float consensusRatio=1f;
+	/** Minimum fraction of reads required to support a NOREF variant */
 	public static float consensusRatioNR=1f;
+	/** Count of input variants processed */
 	public static long VARS_IN=0;
+	/** Total length difference of input variants */
 	public static long VARLEN_IN=0;
+	/** Count of input NOREF variants processed */
 	public static long NOREFS_IN=0;
+	/** Count of variants written to output after filtering */
 	public static long VARS_OUT=0;
+	/** Total length difference of output variants after filtering */
 	public static long VARLEN_OUT=0;
+	/** Count of NOREF variants written to output after filtering */
 	public static long NOREFS_OUT=0;
+	/** Enable verbose output for debugging filter decisions */
 	public static boolean verbose=false;
 	
 }

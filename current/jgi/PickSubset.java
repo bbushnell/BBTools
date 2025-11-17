@@ -254,6 +254,12 @@ public class PickSubset {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads ANI comparison file and builds node graph.
+	 * Parses tab-delimited input lines, creates nodes and edges, skipping self-edges.
+	 * @param bf Input ByteFile to read from
+	 * @return List of edges read from file
+	 */
 	private ArrayList<Edge> readFile(ByteFile bf){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -283,6 +289,15 @@ public class PickSubset {
 		return edges;
 	}
 
+	/**
+	 * Selects maximally diverse subset by removing nodes with highest ANI.
+	 * Sorts edges by ANI descending and iteratively removes one node from each
+	 * high-similarity pair until desired count or ANI threshold is reached.
+	 *
+	 * @param list List of edges to process
+	 * @param desiredNodes Target number of nodes to retain
+	 * @return List of selected nodes
+	 */
 	ArrayList<Node> pickNodes(ArrayList<Edge> list, int desiredNodes){
 		int remaining=nodeMap.size();
 		for(Node n : nodeMap.values()) {n.calcSum();}
@@ -311,6 +326,11 @@ public class PickSubset {
 		return chosen;
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given file format.
+	 * @param ff FileFormat to write to, may be null
+	 * @return Started ByteStreamWriter, or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -318,12 +338,18 @@ public class PickSubset {
 		return bsw;
 	}
 	
+	/** Map of node names to Node objects for quick lookup during processing */
 	private HashMap<String, Node> nodeMap=new HashMap<String, Node>();
 	
 	/*--------------------------------------------------------------*/
 	
 	private class Node implements Comparable<Node> {
 		
+		/**
+		 * Constructs a Node from a tab-delimited input line.
+		 * Parses name from column 0, size from column 3, bases from column 5.
+		 * @param line Tab-delimited byte array containing node data
+		 */
 		Node(byte[] line){
 			lp.set(line);
 			name=lp.parseString(0);
@@ -331,6 +357,11 @@ public class PickSubset {
 			bases=lp.parseLong(5);
 		}
 		
+		/**
+		 * Calculates sum of KID values plus weighted ANI for all edges.
+		 * Used for node ranking when deciding which node to remove from similar pairs.
+		 * @return Calculated sum value
+		 */
 		float calcSum() {
 			sum=0;
 			for(Edge e : edges) {
@@ -340,6 +371,8 @@ public class PickSubset {
 			return sum;
 		}
 		
+		/** Marks this node as invalid and invalidates all its edges.
+		 * Used when removing nodes during subset selection. */
 		void setInvalid() {
 			assert(valid);
 			valid=false;
@@ -353,11 +386,17 @@ public class PickSubset {
 		}
 		
 		
+		/** Node name/identifier from input file */
 		final String name;
+		/** Node size value from input file */
 		long size;
+		/** Number of bases in the node sequence */
 		long bases;
+		/** Calculated sum of KID values and weighted ANI for ranking purposes */
 		float sum;
+		/** Whether this node is still valid (not removed from subset) */
 		boolean valid=true;
+		/** List of edges connected to this node */
 		ArrayList<Edge> edges=new ArrayList<Edge>();
 	}
 	
@@ -366,6 +405,11 @@ public class PickSubset {
 	
 	private class Edge implements Comparable<Edge> {
 		
+		/**
+		 * Constructs an Edge from tab-delimited input line.
+		 * Parses query name, reference name, ANI value, KID value, and SSU value.
+		 * @param line Tab-delimited byte array containing edge data
+		 */
 		Edge(byte[] line){
 			lp.set(line);
 			query=lp.parseString(0);
@@ -388,14 +432,21 @@ public class PickSubset {
 			return ref.compareTo(o.ref);
 		}
 		
+		/** Query sequence name in the ANI comparison */
 		final String query;
+		/** Reference sequence name in the ANI comparison */
 		final String ref;
+		/** Average Nucleotide Identity value between query and reference */
 		float ani;
+		/** K-mer Identity Distance value from input file */
 		float kid;
+		/** SSU (Small Subunit) similarity value from input file */
 		float ssu;
+		/** Whether this edge is still valid (not invalidated during processing) */
 		boolean valid=true;
 	}
 	
+	/** Tab-delimited line parser for processing input file lines */
 	private LineParser1 lp=new LineParser1('\t');
 	
 	/*--------------------------------------------------------------*/
@@ -411,21 +462,32 @@ public class PickSubset {
 	/** Junk output file path */
 	private String outInvalid=null;
 	
+	/** Target number of nodes to retain in subset */
 	private int desiredNodes=0;
+	/** Maximum ANI threshold for stopping subset selection */
 	private float desiredANI=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of edges processed (currently unused) */
 	private long edgesProcessed=0;
+	/** Number of nodes processed (currently unused) */
 	private long nodesProcessed=0;
+	/** Number of edges output (currently unused) */
 	private long edgesOut=0;
+	/** Number of nodes output (currently unused) */
 	private long nodesOut=0;
 	
+	/** Number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of output lines written (currently unused) */
 	private long linesOut=0;
+	/** Number of input bytes processed */
 	private long bytesProcessed=0;
+	/** Number of output bytes written (currently unused) */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process from input file */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

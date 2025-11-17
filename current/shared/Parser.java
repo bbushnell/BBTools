@@ -63,12 +63,23 @@ public class Parser {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a new Parser instance with default settings */
 	public Parser(){}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main parsing entry point that delegates to specialized parsing methods.
+	 * Attempts to parse the given argument by trying different parameter categories
+	 * in sequence until a match is found.
+	 *
+	 * @param arg The complete argument string (e.g., "qtrim=r")
+	 * @param a The parameter name portion (e.g., "qtrim")
+	 * @param b The parameter value portion (e.g., "r")
+	 * @return true if the argument was successfully parsed, false otherwise
+	 */
 	public boolean parse(String arg, String a, String b){
 		if(isJavaFlag(arg)){return true;}
 
@@ -89,6 +100,16 @@ public class Parser {
 		return false;
 	}
 
+	/**
+	 * Parses common parameters used across multiple BBTools programs.
+	 * Handles parameters like reads limit, sample rate, overwrite permissions,
+	 * and basic processing options.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseCommon(String arg, String a, String b){
 		if(a.equals("reads") || a.equals("maxreads")){
 			maxReads=Parse.parseKMG(b);
@@ -115,6 +136,16 @@ public class Parser {
 		return true;
 	}
 
+	/**
+	 * Parses cardinality estimation parameters for LogLog algorithms.
+	 * Handles k-mer cardinality tracking configuration including bucket counts,
+	 * hash functions, and statistical methods.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseCardinality(String arg, String a, String b){
 		if(a.equals("cardinality") || a.equals("loglog")){
 			if(b!=null && b.length()>0 && Tools.isDigit(b.charAt(0))){
@@ -185,6 +216,14 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses k-mer length parameter.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseK(String arg, String a, String b){
 		if(a.equalsIgnoreCase("k")){
 			k=Integer.parseInt(b);
@@ -194,6 +233,16 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses interleaved file format parameters.
+	 * Handles settings for paired-end read interleaving detection and enforcement,
+	 * including auto-detection and manual override options.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseInterleaved(String arg, String a, String b){
 		if(a.equals("testinterleaved")){
 			FASTQ.TEST_INTERLEAVED=Parse.parseBoolean(b);
@@ -220,6 +269,16 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses quality-based trimming parameters.
+	 * Handles quality trimming direction (left/right/both), window-based trimming,
+	 * optimal trimming algorithms, and polymer trimming options.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseQTrim(String arg, String a, String b){
 		if(a.equals("qtrim1")){
 			if(b!=null && ("f".equalsIgnoreCase(b) || "false".equalsIgnoreCase(b))){qtrim1=false;}
@@ -314,6 +373,12 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses polymer trimming parameter values.
+	 * Converts string values to integer thresholds for polymer detection.
+	 * @param b The parameter value string
+	 * @return Integer threshold for polymer detection (0=disabled, >0=enabled)
+	 */
 	public static int parsePoly(String b){
 		int r=2;
 		if(b!=null){
@@ -327,6 +392,16 @@ public class Parser {
 		return r;
 	}
 	
+	/**
+	 * Parses general trimming and filtering parameters.
+	 * Handles forced trimming, barcode filtering, read length filters,
+	 * GC content filtering, and quality-based read filtering.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseTrim(String arg, String a, String b){
 		
 		if(parseQTrim(arg, a, b)){
@@ -419,6 +494,12 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses quality trimming threshold values.
+	 * Supports single values or comma-separated arrays for position-specific thresholds.
+	 * @param a The parameter name
+	 * @param b The parameter value (single number or comma-separated list)
+	 */
 	private void parseTrimq(String a, String b){
 		if(b.indexOf(',')>=0){
 			String[] split=b.split(",");
@@ -434,6 +515,15 @@ public class Parser {
 //		assert(false) : Arrays.toString(trimq2);
 	}
 	
+	/**
+	 * Parses input and output file path parameters.
+	 * Handles standard input/output files, quality files, and file extensions.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value (file path)
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseFiles(String arg, String a, String b){
 		if(a.equals("in") || a.equals("input") || a.equals("in1") || a.equals("input1")){
 			in1=b;
@@ -468,6 +558,15 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses alignment and mapping filter parameters.
+	 * Handles identity filters, substitution/indel limits, and genome build settings.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public boolean parseMapping(String arg, String a, String b){
 		if(a.equals("idfilter") || a.equals("identityfilter") || a.equals("minidfilter") || a.equals("minidentityfilter")){
 			minIdFilter=Float.parseFloat(b);
@@ -509,6 +608,14 @@ public class Parser {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes configuration file arguments and expands them into parameter arrays.
+	 * Reads configuration files specified with "config=" parameter and inserts
+	 * their contents into the argument list.
+	 *
+	 * @param args Original command-line arguments
+	 * @return Expanded argument array with config file contents included
+	 */
 	static String[] parseConfig(String[] args){
 		boolean found=false;
 		for(String s : args){
@@ -549,6 +656,16 @@ public class Parser {
 		return list.toArray(new String[list.size()]);
 	}
 	
+	/**
+	 * Parses global static parameters that affect all BBTools programs.
+	 * Handles thread settings, memory options, file I/O modes, quality handling,
+	 * and system-wide configuration parameters.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseCommonStatic(String arg, String a, String b){
 		if(a.equals("null")){
 			//Do nothing
@@ -840,6 +957,16 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses quality score encoding and handling parameters.
+	 * Handles ASCII offset detection, Sanger vs Illumina encoding, and
+	 * fake quality generation for FASTA files.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseQuality(String arg, String a, String b){
 		parsedQuality=true; //For internal verification that this function was indeed called.
 		if(a.equals("ignorebadquality") || a.equals("ibq")){
@@ -891,11 +1018,26 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Checks if quality histogram files are all null.
+	 * Used to determine whether quality statistics collection should be enabled.
+	 * @return true if all quality histogram output files are null
+	 */
 	private static boolean qhistsNull(){
 		return ReadStats.BQUAL_HIST_FILE==null && ReadStats.QUAL_HIST_FILE!=null && ReadStats.AVG_QUAL_HIST_FILE!=null && ReadStats.BQUAL_HIST_OVERALL_FILE!=null
 				&& ReadStats.QUAL_COUNT_HIST_FILE==null;
 	}
 	
+	/**
+	 * Parses histogram output file parameters for various statistics.
+	 * Handles quality histograms, length histograms, GC content histograms,
+	 * and other statistical output options.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value (output file path)
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseHist(String arg, String a, String b){
 		if(a.equals("qualityhistogram") || a.equals("qualityhist") || a.equals("qhist")){
 			ReadStats.QUAL_HIST_FILE=(b==null || b.equalsIgnoreCase("null") || b.equalsIgnoreCase("none")) ? null : b;
@@ -1011,6 +1153,16 @@ public class Parser {
 		return true;
 	}
 
+	/**
+	 * Parses compression and decompression parameters.
+	 * Handles gzip, bgzip, pigz, bzip2 settings including compression levels,
+	 * thread counts, and tool preferences.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseZip(String arg, String a, String b){
 		if(a.equals("ziplevel") || a.equals("zl")){
 			int x=Integer.parseInt(b);
@@ -1115,6 +1267,16 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses SAM/BAM format parameters and output tags.
+	 * Handles SAM version, tag generation options, read group settings,
+	 * and alignment output formatting.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseSam(String arg, String a, String b){
 		if(a.equals("samversion") || a.equals("samv") || a.equals("sam")){
 			assert(b!=null) : "The sam flag requires a version number, e.g. 'sam=1.4'";
@@ -1252,6 +1414,15 @@ public class Parser {
 		return true;
 	}
 
+	/**
+	 * Parses FASTA format-specific parameters.
+	 * Handles read length splitting, minimum read lengths, and FASTA output formatting.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseFasta(String arg, String a, String b){
 		if(a.equals("fastareadlen") || a.equals("fastareadlength")){
 			FastaReadInputStream.TARGET_READ_LEN=Integer.parseInt(b);
@@ -1270,6 +1441,16 @@ public class Parser {
 		return true;
 	}
 	
+	/**
+	 * Parses quality score recalibration parameters.
+	 * Handles quality matrix loading, recalibration passes, and statistical methods
+	 * for improving quality score accuracy.
+	 *
+	 * @param arg The complete argument string
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseQualityAdjust(String arg, String a, String b){
 		int pass=0;
 		if(a.endsWith("_p1") || a.endsWith("_p2")){
@@ -1377,6 +1558,12 @@ public class Parser {
 		return true;
 	}
 
+	/**
+	 * Determines if an argument is a JVM flag rather than a program parameter.
+	 * Recognizes memory settings, assertion flags, and other JVM options.
+	 * @param arg The argument to check
+	 * @return true if the argument is a JVM flag, false otherwise
+	 */
 	static boolean isJavaFlag(String arg){
 		if(arg==null){return false;}
 		if(arg.startsWith("-Xmx") || arg.startsWith("-Xms") || arg.startsWith("-Xmn") || arg.startsWith("-xmx") || arg.startsWith("-xms") || arg.startsWith("-xmn")){
@@ -1414,6 +1601,8 @@ public class Parser {
 		return false;
 	}
 	
+	/** Prints version information and help message, then exits.
+	 * @param exitCode Exit code for System.exit() */
 	public static void printHelp(int exitCode){
 		System.err.println("BBTools version "+Shared.BBTOOLS_VERSION_STRING);
 		System.err.println("For help, please run the shellscript with no parameters, or look in /docs/.");
@@ -1501,91 +1690,162 @@ public class Parser {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Converts quality trimming threshold to error probability.
+	 * @return Error probability corresponding to the quality trimming threshold */
 	public float trimE(){
 		return (float)QualityTools.phredToProbError(trimq);
 	}
 	
+	/**
+	 * Converts quality trimming thresholds to error probabilities.
+	 * Handles both single threshold and position-specific threshold arrays.
+	 * @return Array of error probabilities for quality trimming
+	 */
 	public float[] trimE2(){
 		return QualityTools.phredToProbError(trimq2==null ? new float[] {trimq} : trimq2);
 	}
 
+	/** Enable LogLog cardinality estimation */
 	public boolean loglog=false;
+	/** Output LogLog cardinality estimates to file */
 	public boolean loglogOut=false;
+	/** Number of buckets for LogLog cardinality estimation */
 	public int loglogbuckets=2048;//1999
+	/** Number of bits per bucket for LogLog estimation */
 	public int loglogbits=8;
+	/** K-mer length for LogLog cardinality estimation */
 	public int loglogk=31;
+	/** Random seed for LogLog hash functions */
 	public long loglogseed=-1;
+	/** Minimum probability threshold for LogLog counting */
 	public float loglogMinprob=0;
+	/** List of k-mer lengths for multi-k LogLog estimation */
 	public IntList loglogKlist=new IntList();
 	
+	/** Enable quality score recalibration */
 	public boolean recalibrateQuality=false;
 	
+	/** Force trimming to multiples of this length (-1 to disable) */
 	public int forceTrimModulo=-1;
+	/** Force trimming of bases from left end (-1 to disable) */
 	public int forceTrimLeft=-1;
+	/** Force trimming of bases from right end (-1 to disable) */
 	public int forceTrimRight=-1;
+	/** Force trimming of bases from right end of read 2 (-1 to disable) */
 	public int forceTrimRight2=-1;
+	/** Genome build number for coordinate system */
 	public int build=1;
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	public long maxReads=-1;
+	/** Fraction of reads to randomly sample (1.0 for all reads) */
 	public float samplerate=1f;
+	/** Random seed for read sampling (-1 for random seed) */
 	public long sampleseed=-1;
 
+	/** Enable quality trimming from left end of reads */
 	public boolean qtrimLeft=false;
+	/** Enable quality trimming from right end of reads */
 	public boolean qtrimRight=false;
+	/** Enable adapter clipping during trimming */
 	public boolean trimClip=false;
+	/** Minimum poly-A tail length to trim (0 to disable) */
 	public int trimPolyA=0;
 	
+	/** Minimum poly-G length to trim from left end (0 to disable) */
 	public int trimPolyGLeft=0;
+	/** Minimum poly-G length to trim from right end (0 to disable) */
 	public int trimPolyGRight=0;
+	/** Minimum poly-G length to filter entire read (0 to disable) */
 	public int filterPolyG=0;
 	
+	/** Minimum poly-C length to trim from left end (0 to disable) */
 	public int trimPolyCLeft=0;
+	/** Minimum poly-C length to trim from right end (0 to disable) */
 	public int trimPolyCRight=0;
+	/** Minimum poly-C length to filter entire read (0 to disable) */
 	public int filterPolyC=0;
+	/** Maximum non-polymer bases allowed in polymer detection */
 	public int maxNonPoly=1;
 
+	/** Apply quality trimming only to read 1 of pairs */
 	public boolean qtrim1=false;
+	/** Apply quality trimming only to read 2 of pairs */
 	public boolean qtrim2=false;
 
+	/** Quality threshold for trimming (Phred score) */
 	public float trimq=6;
+	/** Position-specific quality thresholds for trimming */
 	public float[] trimq2=null;
+	/** Minimum average quality score to retain read */
 	public float minAvgQuality=0;
+	/** Minimum individual base quality score required */
 	public byte minBaseQuality=0;
+	/** Number of bases to use for average quality calculation */
 	public int minAvgQualityBases=0;
+	/** Maximum ambiguous (N) bases allowed per read (-1 for unlimited) */
 	public int maxNs=-1;
+	/** Minimum consecutive non-N bases required */
 	public int minConsecutiveBases=0;
+	/** Minimum read length after trimming to retain */
 	public int minReadLength=0;
+	/** Maximum read length allowed (-1 for unlimited) */
 	public int maxReadLength=-1;
+	/** Minimum length after trimming (-1 to use minReadLength) */
 	public int minTrimLength=-1;
+	/** Minimum length as fraction of original read length */
 	public float minLenFraction=0;
+	/** Minimum GC content fraction to retain read */
 	public float minGC=0;
+	/** Maximum GC content fraction to retain read */
 	public float maxGC=1;
+	/** Use combined pair GC content for filtering rather than individual reads */
 	public boolean usePairGC=true;
 //	public boolean filterGC=false;
+	/** Restore original read length by padding with Ns */
 	public boolean untrim=false;
+	/** Discard reads flagged as junk by quality checks */
 	public boolean tossJunk=false;
 
+	/** Minimum alignment identity to retain read (-1 to disable) */
 	public float minIdFilter=-1;
+	/** Maximum alignment identity to retain read */
 	public float maxIdFilter=999999999;
+	/** Maximum substitutions allowed in alignment (-1 to disable) */
 	public int subfilter=-1;
+	/** Maximum clipped bases allowed in alignment (-1 to disable) */
 	public int clipfilter=-1;
+	/** Maximum deletions allowed in alignment (-1 to disable) */
 	public int delfilter=-1;
+	/** Maximum insertions allowed in alignment (-1 to disable) */
 	public int insfilter=-1;
+	/** Maximum indels (insertions + deletions) allowed (-1 to disable) */
 	public int indelfilter=-1;
+	/** Maximum deletion length allowed in alignment (-1 to disable) */
 	public int dellenfilter=-1;
+	/** Maximum insertion length allowed in alignment (-1 to disable) */
 	public int inslenfilter=-1;
+	/** Maximum edit distance allowed in alignment (-1 to disable) */
 	public int editfilter=-1;
+	/** Maximum N bases allowed in alignment (-1 to disable) */
 	public int nfilter=-1;
 	
+	/** Length threshold for breaking long reads into fragments */
 	public int breakLength=0;
 	/** Toss pair only if both reads are shorter than limit */
 	public boolean requireBothBad=false;
+	/** Trim sequences identified as adapters or contaminants */
 	public boolean trimBadSequence=false;
+	/** Apply Illumina chastity filtering to remove low-quality reads */
 	public boolean chastityFilter=false;
+	/** Remove reads with invalid or unrecognized barcodes */
 	public boolean removeBadBarcodes=false;
+	/** Fail program execution if bad barcodes are encountered */
 	public boolean failBadBarcodes=false;
+	/** Fail program execution if reads lack expected barcodes */
 	public boolean failIfNoBarcode=false;
 	
+	/** Set of valid barcode sequences for filtering */
 	public HashSet<String> barcodes=null;
 	
 	/** Permission to overwrite existing files */
@@ -1593,47 +1853,75 @@ public class Parser {
 	
 	/** Permission to append to existing files */
 	public boolean append=false;
+	/** Test and report file sizes without processing */
 	public boolean testsize=false;
 	
 	/** Whether input file interleaving was explicitly set */
 	public boolean setInterleaved=false;
 	
+	/** Primary input file path */
 	public String in1=null;
+	/** Secondary input file path for paired reads */
 	public String in2=null;
 	
+	/** Primary quality file input path */
 	public String qfin1=null;
+	/** Secondary quality file input path */
 	public String qfin2=null;
 
+	/** Primary output file path */
 	public String out1=null;
+	/** Secondary output file path for paired reads */
 	public String out2=null;
+	/** Output file path for unpaired reads after filtering */
 	public String outsingle=null;
+	/** Whether output files were explicitly configured */
 	public boolean setOut=false;
 
+	/** Primary quality file output path */
 	public String qfout1=null;
+	/** Secondary quality file output path */
 	public String qfout2=null;
 	
+	/** Default extension for input files */
 	public String extin=null;
+	/** Default extension for output files */
 	public String extout=null;
 	
+	/** K-mer length for sequence analysis */
 	public int k=31;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Type of LogLog algorithm to use for cardinality estimation */
 	public static String loglogType="LogLog2";
+	/** Suppress progress and status messages */
 	public static boolean silent=false;
+	/** Print thread count changes to stderr */
 	public static boolean printSetThreads=true;
 	
+	/** Whether read name trimming was explicitly set */
 	private static boolean setTrimRname=false;
+	/** Input quality score ASCII offset */
 	private static byte qin=-1;
+	/** Output quality score ASCII offset */
 	private static byte qout=-1;
+	/** Whether quality parameters have been parsed */
 	private static boolean parsedQuality=false;
 	
+	/** Sets the quality score ASCII offset for both input and output.
+	 * @param x The ASCII offset value (-1 for auto-detection) */
 	public static void setQuality(int x){
 		qin=(byte)x;
 		parsedQuality=(x>-1);
 	}
+	/**
+	 * Applies parsed quality settings to global FASTQ configuration.
+	 * Sets ASCII offsets and enables/disables quality detection based on
+	 * previously parsed parameters.
+	 */
 	public static void processQuality(){
 //		assert(parsedQuality);
 		if(!parsedQuality){return;}
@@ -1650,6 +1938,11 @@ public class Parser {
 		}
 	}
 
+	/**
+	 * Validates multiple file formats for standard input/output compatibility.
+	 * @param ffa Array of FileFormat objects to validate
+	 * @return true if all formats are valid for stdio, false otherwise
+	 */
 	public boolean validateStdio(FileFormat... ffa) {
 		boolean b=true;
 		for(FileFormat ff:ffa){
@@ -1658,6 +1951,12 @@ public class Parser {
 		return b;
 	}
 
+	/**
+	 * Validates a file format for standard input/output compatibility.
+	 * Checks that required format information is available when using stdin/stdout.
+	 * @param ff The FileFormat to validate
+	 * @return true if the format is valid for stdio, false otherwise
+	 */
 	public boolean validateStdio(FileFormat ff) {
 		if(ff==null || !ff.stdio()){return true;}
 		if(ff.fastq() && ff.stdin()){

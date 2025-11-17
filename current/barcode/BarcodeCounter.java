@@ -36,6 +36,15 @@ public class BarcodeCounter {
 	/*----------------           File I/O           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Counts barcodes from a reads file with automatic format detection.
+	 * Detects barcode delimiter and count, then uses the main counting method.
+	 *
+	 * @param readsFile Path to the reads file (FASTQ or other supported format)
+	 * @param maxReads Maximum number of reads to process (0 = unlimited)
+	 * @param addTile Whether to include tile information in barcode keys
+	 * @return HashMap mapping barcode strings to Barcode objects with counts
+	 */
 	public static final HashMap<String, Barcode> countBarcodes(String readsFile, long maxReads, boolean addTile) {
 		FileFormat ff=FileFormat.testInput(readsFile, FileFormat.FASTQ, null, true, true);
 		final byte delimiter=(byte)ff.barcodeDelimiter();
@@ -43,6 +52,16 @@ public class BarcodeCounter {
 		return countBarcodes(ff, maxReads, addTile);
 	}
 	
+	/**
+	 * Main barcode counting method that processes reads from a FileFormat.
+	 * Creates a concurrent input stream, processes reads in batches, and maintains barcode counts.
+	 * Uses IlluminaHeaderParser2 to extract barcode information from read headers.
+	 *
+	 * @param ff FileFormat object containing input file configuration
+	 * @param maxReads Maximum number of reads to process (0 = unlimited)
+	 * @param addTile Whether to include tile information in barcode keys for uniqueness
+	 * @return HashMap mapping barcode strings (optionally with tile) to Barcode objects with counts
+	 */
 	public static final HashMap<String, Barcode> countBarcodes(FileFormat ff, long maxReads, boolean addTile) {
 		final ConcurrentReadInputStream cris=makeCris(ff, maxReads);
 		HashMap<String, Barcode> map=new HashMap<String, Barcode>();
@@ -76,6 +95,12 @@ public class BarcodeCounter {
 		return map;
 	}
 	
+	/**
+	 * Creates and starts a ConcurrentReadInputStream for the given file format.
+	 * @param ff1 FileFormat specifying input file and parameters
+	 * @param maxReads Maximum reads to process (0 = unlimited)
+	 * @return Started ConcurrentReadInputStream ready for reading
+	 */
 	private static final ConcurrentReadInputStream makeCris(FileFormat ff1, long maxReads){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(
 				maxReads, true, ff1, null);
@@ -122,6 +147,16 @@ public class BarcodeCounter {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads expected barcode sequences from a file or comma-separated string.
+	 * If the input is a valid file path, reads barcodes from file (one per line).
+	 * Otherwise treats input as comma-separated barcode list.
+	 * Filters out comment lines starting with '#' and applies barcode formatting.
+	 *
+	 * @param fname File path or comma-separated barcode string
+	 * @param forceDelimiter Delimiter character to force in barcode formatting
+	 * @return ArrayList of formatted barcode strings, or null if input is null
+	 */
 	public static final ArrayList<String> loadBarcodes(String fname, int forceDelimiter){
 		if(fname==null){return null;}
 		String[] codes;
@@ -145,6 +180,15 @@ public class BarcodeCounter {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads barcode count data from a tab-separated file.
+	 * Each line should contain barcode name and count separated by tab.
+	 * Filters results to include only barcodes meeting minimum count threshold.
+	 *
+	 * @param fname Path to tab-separated barcode count file
+	 * @param minCount Minimum count threshold for inclusion
+	 * @return ArrayList of Barcode objects meeting count threshold
+	 */
 	public static final ArrayList<Barcode> loadCounts(String fname, long minCount){
 		LineParser2 lp=new LineParser2('\t');
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
@@ -164,11 +208,36 @@ public class BarcodeCounter {
 		return list;
 	}
 	
+	/**
+	 * Writes barcode counts to file using FileFormat settings.
+	 * Delegates to main writeCounts method using FileFormat's overwrite and append settings.
+	 *
+	 * @param counts Collection of Barcode objects to write
+	 * @param minCount Minimum count threshold for inclusion
+	 * @param ff FileFormat specifying output settings
+	 * @param sort Whether to sort barcodes before writing
+	 * @param overwrite Whether to overwrite existing files
+	 * @param append Whether to append to existing files
+	 * @return true if writing succeeded, false otherwise
+	 */
 	public static final boolean writeCounts(Collection<Barcode> counts, long minCount, FileFormat ff, 
 			boolean sort, boolean overwrite, boolean append){
 		return writeCounts(counts, minCount, ff, sort, ff.overwrite(), ff.append());
 	}
 	
+	/**
+	 * Writes barcode counts to a tab-separated file with header information.
+	 * Optionally sorts barcodes before writing. Includes summary statistics in header.
+	 * Filters output to include only barcodes meeting minimum count threshold.
+	 *
+	 * @param counts Collection of Barcode objects to write
+	 * @param minCount Minimum count threshold for inclusion
+	 * @param fname Output file path
+	 * @param sort Whether to sort barcodes by count before writing
+	 * @param overwrite Whether to overwrite existing files
+	 * @param append Whether to append to existing files
+	 * @return true if writing succeeded, false otherwise
+	 */
 	public static final boolean writeCounts(Collection<Barcode> counts, long minCount, String fname, 
 			boolean sort, boolean overwrite, boolean append){
 		if(sort) {
@@ -200,6 +269,16 @@ public class BarcodeCounter {
 		return b;
 	}
 	
+	/**
+	 * Writes barcode counts from HashMap to tab-separated file.
+	 * Simple format with barcode name and count per line, no filtering or sorting.
+	 *
+	 * @param counts HashMap of barcode names to Barcode objects
+	 * @param fname Output file path
+	 * @param overwrite Whether to overwrite existing files
+	 * @param append Whether to append to existing files
+	 * @return true if writing succeeded, false otherwise
+	 */
 	public static final boolean writeCounts(HashMap<String, Barcode> counts, String fname, 
 			boolean overwrite, boolean append){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
@@ -215,6 +294,14 @@ public class BarcodeCounter {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads a barcode assignment map from tab-separated file.
+	 * Each line should contain two tab-separated values representing key-value pairs.
+	 * Skips comment lines starting with '#'.
+	 *
+	 * @param mapIn Path to tab-separated assignment map file
+	 * @return HashMap mapping first column values to second column values
+	 */
 	public static HashMap<String, String> loadAssignmentMap(String mapIn) {
 		LineParser2 lp=new LineParser2('\t');
 		ByteFile bf=ByteFile.makeByteFile(mapIn, true);
@@ -231,6 +318,16 @@ public class BarcodeCounter {
 		return map;
 	}
 	
+	/**
+	 * Writes a barcode assignment map to tab-separated file.
+	 * Each entry becomes one line with key and value separated by tab.
+	 *
+	 * @param assignmentMap HashMap containing key-value assignments to write
+	 * @param mapOut Output file path
+	 * @param overwrite Whether to overwrite existing files
+	 * @param append Whether to append to existing files
+	 * @return true if writing succeeded, false otherwise
+	 */
 	public static boolean writeAssignmentMap(HashMap<String, String> assignmentMap,
 			String mapOut, boolean overwrite, boolean append) {
 
@@ -250,6 +347,12 @@ public class BarcodeCounter {
 	/*----------------          Statistics          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a sorted SuperLongList of barcode counts for statistical analysis.
+	 * Extracts count values from Barcode objects and sorts them.
+	 * @param barcodes Collection of Barcode objects
+	 * @return Sorted SuperLongList containing all barcode counts
+	 */
 	public static SuperLongList makeCountList(Collection<Barcode> barcodes) {
 		SuperLongList sll=new SuperLongList(100000);
 		for(Barcode b : barcodes) {
@@ -278,6 +381,7 @@ public class BarcodeCounter {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Global error state flag indicating if any operations encountered errors */
 	public static boolean errorState=false;
 	
 }

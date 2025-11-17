@@ -34,6 +34,7 @@ public class QuabbleAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for QuabbleAligner instance */
 	public QuabbleAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -284,6 +285,20 @@ public class QuabbleAligner implements IDAligner{
 	}
 	
 	// Process the first topWidth rows using a dense approach
+	/**
+	 * Processes the first topWidth rows using dense dynamic programming approach.
+	 * Fills all cells in the top portion of the alignment matrix.
+	 * Used as initialization before switching to sparse algorithm.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param prev Previous row scores
+	 * @param curr Current row scores
+	 * @param viz Optional visualizer for debugging
+	 * @param topWidth Number of top rows to process densely
+	 * @param rLen Reference sequence length
+	 * @return Array containing [current_row, previous_row] after processing
+	 */
 	private static final long[][] alignDense(byte[] query, byte[] ref, long[] prev, 
 			long[] curr, Visualizer viz, int topWidth, int rLen) {
 		long mloops=0;
@@ -418,9 +433,16 @@ public class QuabbleAligner implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total inner loop iterations across all alignments */
 	private static AtomicLong loops=new AtomicLong(0);
+	/**
+	 * Returns the total number of inner loop iterations performed across all alignments
+	 */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -428,35 +450,55 @@ public class QuabbleAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position information in score encoding */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion count in score encoding */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score component in packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw alignment score from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for sequence matches */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous bases (N characters) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value indicating invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty and position increment for packed scoring */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Whether to extend alignment exploration from matching cells */
 	private static final boolean EXTEND_MATCH=true;
+	/** Whether to use loop-based or branchless version for position updates */
 	private static final boolean LOOP_VERSION=false;
+	/** Whether to build bridges across gaps to catch long deletions */
 	private static final boolean BUILD_BRIDGES=true;
+	/** Frequency of bridge building operations */
 	private static final int BRIDGE_PERIOD=16;
+	/** Whether to use dense alignment for top rows */
 	private static final boolean DENSE_TOP=false;
+	/** Whether to print detailed operation statistics for debugging */
 	private static final boolean PRINT_OPS=false;
 //	private static final boolean debug=false;
 	// This will force full-length alignment, but it will only be optimal
 	// if the global alignment is within the glocal bandwidth.
 	// Better to use Banded/Glocal for arbitrary global alignments.
+	/** Whether to force global alignment mode instead of glocal */
 	public static final boolean GLOBAL=false;
 
 }

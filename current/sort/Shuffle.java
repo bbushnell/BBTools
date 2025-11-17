@@ -41,6 +41,8 @@ public class Shuffle {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Program entry point that creates a Shuffle instance and executes processing.
+	 * @param args Command-line arguments specifying input files, output files, and mode */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Shuffle x=new Shuffle(args);
@@ -50,6 +52,12 @@ public class Shuffle {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a Shuffle instance and parses command-line arguments.
+	 * Sets up input/output file formats, processing mode, and validation parameters.
+	 * Configures threading options and determines paired vs unpaired processing.
+	 * @param args Command-line arguments including file paths and mode settings
+	 */
 	public Shuffle(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -205,6 +213,12 @@ public class Shuffle {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that reads all sequences, applies sorting/shuffling, and writes output.
+	 * Loads entire input into memory, performs the requested operation (shuffle or sort),
+	 * then writes the reordered sequences to output files.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		ArrayList<Read> bigList=new ArrayList<Read>(65530);
@@ -316,6 +330,8 @@ public class Shuffle {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Writes SAM/BAM header lines to the output stream if present.
+	 * @param bsw Output stream writer for header data */
 	private void writeHeader(ByteStreamWriter bsw){
 		ArrayList<byte[]> list=SamReadInputStream.getSharedHeader(true);
 		if(list==null){
@@ -332,8 +348,23 @@ public class Shuffle {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Threading wrapper for running shuffle operations in parallel.
+	 * Encapsulates input/output paths and processing mode for execution
+	 * in a separate thread with thread pool management.
+	 */
 	public static class ShuffleThread extends Thread{
 		
+		/**
+		 * Creates a new shuffle thread with specified input/output files and processing mode.
+		 *
+		 * @param in1_ Primary input file path
+		 * @param in2_ Secondary input file path for paired reads (may be null)
+		 * @param out1_ Primary output file path
+		 * @param out2_ Secondary output file path for paired reads (may be null)
+		 * @param mode_ Processing mode (shuffle, sort by name, sequence, coordinates, or ID)
+		 * @param ow_ Whether to overwrite existing output files
+		 */
 		public ShuffleThread(String in1_, String in2_, String out1_, String out2_, int mode_, boolean ow_){
 			in1=in1_;
 			in2=in2_;
@@ -366,9 +397,15 @@ public class Shuffle {
 			addThread(-1);
 		}
 		
+		/** Secondary input file path for this thread */
+		/** Primary input file path for this thread */
 		final String in1, in2;
+		/** Secondary output file path for this thread */
+		/** Primary output file path for this thread */
 		final String out1, out2;
+		/** Processing mode for this thread */
 		final int mode;
+		/** Whether this thread should overwrite output files */
 		final boolean ow;
 		
 	}
@@ -378,42 +415,61 @@ public class Shuffle {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
+	/** Quality file path for primary input */
 	private String qfin1=null;
+	/** Quality file path for secondary input */
 	private String qfin2=null;
 
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 
+	/** Quality file path for primary output */
 	private String qfout1=null;
+	/** Quality file path for secondary output */
 	private String qfout2=null;
 	
+	/** File extension for input files */
 	private String extin=null;
+	/** File extension for output files */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
+	/** Processing mode: shuffle, sort by name, sequence, coordinates, or ID */
 	private final int mode;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format handler for primary input */
 	private final FileFormat ffin1;
+	/** File format handler for secondary input */
 	private final FileFormat ffin2;
 
+	/** File format handler for primary output */
 	private final FileFormat ffout1;
+	/** File format handler for secondary output */
 	private final FileFormat ffout2;
 	
+	/** Whether to use shared SAM/BAM headers across outputs */
 	private final boolean useSharedHeader;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of concurrent shuffle threads allowed */
 	private static int maxShuffleThreads=1;
+	/** Current number of active shuffle threads */
 	private static int currentShuffleThreads=0;
 	
 	public static void setMaxThreads(final int x){
@@ -438,6 +494,8 @@ public class Shuffle {
 		}
 	}
 	
+	/** Blocks until all shuffle threads complete and thread count drops below maximum.
+	 * Used for synchronization when coordinating multiple parallel operations. */
 	public static void waitForFinish(){
 		synchronized(SHUFFLE_LOCK){
 			while(currentShuffleThreads>=maxShuffleThreads){
@@ -450,21 +508,35 @@ public class Shuffle {
 		}
 	}
 	
+	/** Synchronization lock object for thread pool management */
 	private static String SHUFFLE_LOCK=new String("SHUFFLE_LOCK");
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose logging output */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to display processing speed statistics */
 	public static boolean showSpeed=true;
+	/** Whether to print class information in help messages */
 	public static boolean printClass=true;
 
+	/** Mode constant for sorting reads by numeric ID */
+	/** Mode constant for sorting reads by mapping coordinates */
+	/** Mode constant for sorting reads by sequence content */
+	/** Mode constant for sorting reads by name */
+	/** Mode constant for random shuffling of reads */
 	public static final int SHUFFLE=1, SORT_NAME=2, SORT_SEQ=3, SORT_COORD=4, SORT_ID=5;
+	/** String representations of available processing modes */
 	public static final String[] MODES={"shuffle", "name", "sequence", "coordinate", "id"};
 	
 	

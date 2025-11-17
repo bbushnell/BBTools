@@ -532,6 +532,12 @@ public class KmerLimit extends SketchObject {
 			}
 		}
 		
+		/**
+		 * Merges local heap with shared heap if target limit not yet reached.
+		 * Thread-safe operation that checks the current k-mer count estimate
+		 * and transfers local k-mers to the shared heap when appropriate.
+		 * @return Current estimate of unique k-mers in the shared heap
+		 */
 		private long dumpHeap(){
 			long count=0;
 			synchronized(sharedHeap){
@@ -564,6 +570,7 @@ public class KmerLimit extends SketchObject {
 		/** Thread ID */
 		final int tid;
 		
+		/** Thread-local heap for collecting k-mers before merging with shared heap */
 		final SketchHeap localHeap;
 	}
 	
@@ -621,16 +628,25 @@ public class KmerLimit extends SketchObject {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
+	/** Shared heap for accumulating k-mers across all worker threads */
 	private final SketchHeap sharedHeap;
+	/** Size of the sketch heap in number of k-mers */
 	private final int heapSize;
+	/** Target number of k-mers to process before stopping */
 	private final long targetKmers;
+	/** Minimum count threshold for k-mers to be retained */
 	private final int minCount;
 
+	/** Bit shift value for k-mer encoding (2*k bits) */
 	final int shift;
+	/** Secondary bit shift value for reverse complement k-mer encoding */
 	final int shift2;
+	/** Bit mask for extracting k-mer values during rolling hash */
 	final long mask;
 	
+	/** Minimum probability threshold for quality-based k-mer filtering */
 	final float minProb;
+	/** Minimum quality score threshold for individual bases */
 	final byte minQual;
 	
 	/*--------------------------------------------------------------*/

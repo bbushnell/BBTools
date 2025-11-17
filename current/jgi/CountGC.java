@@ -24,6 +24,11 @@ import shared.Tools;
  */
 public class CountGC {
 	
+	/**
+	 * Program entry point for counting GC content in sequence files.
+	 * Parses command-line arguments, processes input files, and outputs statistics.
+	 * @param args Command-line arguments including input/output paths and format options
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -338,6 +343,14 @@ public class CountGC {
 		return overall;
 	}
 	
+	/**
+	 * Formats base count statistics as tab-delimited string using int array.
+	 * Calculates fractions and GC content based on selected output format.
+	 *
+	 * @param sb StringBuilder containing sequence identifier
+	 * @param counts Array of base counts [A, C, G, T, N, other]
+	 * @return Formatted string with statistics according to FORMAT setting
+	 */
 	private static String toString2(StringBuilder sb, int[] counts){
 		final long sum1=(long)counts[0]+(long)counts[1]+(long)counts[2]+(long)counts[3];
 		final long sum2=sum1+counts[4];
@@ -355,6 +368,14 @@ public class CountGC {
 		}
 	}
 	
+	/**
+	 * Formats base count statistics as tab-delimited string using long array.
+	 * Calculates fractions and GC content based on selected output format.
+	 *
+	 * @param sb StringBuilder containing sequence identifier
+	 * @param counts Array of base counts [A, C, G, T, N, other]
+	 * @return Formatted string with statistics according to FORMAT setting
+	 */
 	private static String toString2(StringBuilder sb, long[] counts){
 		final long sum1=(long)counts[0]+(long)counts[1]+(long)counts[2]+(long)counts[3];
 		final long sum2=sum1+counts[4];
@@ -372,13 +393,24 @@ public class CountGC {
 		}
 	}
 	
+	/** Lookup table for converting ASCII characters to base type indices */
 	private static final byte[] charToNum=makeCharToNum();
+	/** Output format: 1=full stats, 2=GC only, 4=length+GC */
 	public static int FORMAT=1;
+	/**
+	 * When true, suppresses per-sequence output and shows only overall statistics
+	 */
 	public static boolean SUMMARY_ONLY=false;
+	/** Total bytes read from input stream for speed calculation */
 	private static long LIMSUM=0;
 
+	/** FASTQ header prefix character '@' */
+	/** FASTA header prefix character '>' */
+	/** Newline character constant */
+	/** Carriage return character constant */
 	final static byte slashr='\r', slashn='\n', carrot='>', at='@';
 	
+	/** Output stream for program messages and summary statistics */
 	static PrintStream outstream=System.err;
 	
 	/**

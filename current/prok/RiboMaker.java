@@ -290,6 +290,8 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		}
 	}
 	
+	/** Loads reference sequence from file and creates padded version.
+	 * Initializes priority queues for storing alignments across reference regions. */
 	private void loadRef(){
 		ArrayList<Read> reads=ReadInputStream.toReads(ffref, -1);
 		ref0=reads.get(0).bases;
@@ -305,6 +307,14 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Creates a k-mer filter set from sequences in the specified file.
+	 * Generates canonical k-mers (max of forward/reverse complement) for filtering.
+	 *
+	 * @param ff FileFormat for the filter file
+	 * @param k K-mer length for filtering
+	 * @return LongHashSet containing canonical k-mers, or null if no filter
+	 */
 	public static LongHashSet loadFilter(FileFormat ff, int k){
 		if(ff==null){return null;}
 		ArrayList<Read> reads=ReadInputStream.toReads(ff, -1);
@@ -339,6 +349,15 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		return set;
 	}
 	
+	/**
+	 * Determines if a read contains any k-mers present in the filter set.
+	 * Uses canonical k-mer representation for consistent filtering.
+	 *
+	 * @param r Read to check against filter
+	 * @param k K-mer length for filtering
+	 * @param set Filter set of canonical k-mers
+	 * @return true if read contains filtered k-mers, false otherwise
+	 */
 	public static boolean passesFilter(Read r, int k, LongHashSet set){
 		if(r==null) {return false;}
 		if(set==null){return true;}
@@ -370,6 +389,8 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		return false;
 	}
 	
+	/** Creates and starts concurrent read input stream for processing files.
+	 * @return Started ConcurrentReadInputStream configured for input files */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -379,6 +400,11 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream with appropriate buffer sizing.
+	 * @param pairedInput Whether input reads are paired
+	 * @return ConcurrentReadOutputStream for writing results, or null if no output
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -440,6 +466,12 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds alignment to appropriate queue based on alignment start position.
+	 * @param best Alignment to add to queues
+	 * @param queues Array of priority queues organized by genomic position
+	 * @return true if alignment was added successfully
+	 */
 	boolean addToQueue(Alignment best, PriorityQueue<Alignment>[] queues){
 		int start=best.start;
 		int qnum=start/queueWidth;
@@ -447,6 +479,12 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		return addToQueue(best, queue);
 	}
 	
+	/**
+	 * Adds alignment to queue, maintaining size limit by evicting worst alignment.
+	 * @param best Alignment to add
+	 * @param queue Priority queue to add alignment to
+	 * @return true if alignment was added, false if rejected
+	 */
 	boolean addToQueue(Alignment best, PriorityQueue<Alignment> queue){
 		if(queue.size()<queueLen){queue.add(best);}
 		else{
@@ -523,6 +561,8 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 			}
 		}
 		
+		/** Processes a list of reads, validating and aligning each read pair.
+		 * @param ln ListNum containing reads to process */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -608,6 +648,7 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		boolean success=false;
 		
 
+		/** Thread-local priority queues for accumulating alignments */
 		private PriorityQueue<Alignment>[] queuesT;
 		
 		/** Shared input stream */
@@ -625,15 +666,20 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file path for primary input */
 	private String qfin1=null;
+	/** Quality file path for secondary input */
 	private String qfin2=null;
 
 	/** Primary output file path */
 	private String out1=null;
 
+	/** Quality output file path */
 	private String qfout1=null;
 	
+	/** Path to k-mer filter file for read selection */
 	private String filterFile;
+	/** Path to reference sequence file */
 	private String refFile;
 	
 	/** Override input file extension */
@@ -649,11 +695,16 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	/** Padded ref */
 	private byte[] ref;
 	
+	/** Number of bases to pad reference sequence on each end */
 	private int padding=100;
+	/** Maximum number of alignments to retain per queue */
 	private int queueLen=20;
+	/** Genomic window size for each priority queue */
 	private int queueWidth=20;
+	/** Minimum identity threshold for retaining alignments */
 	private float minID=0.4f;
 	
+	/** Array of priority queues for accumulating best alignments by position */
 	private PriorityQueue<Alignment>[] queues;
 	
 	/*--------------------------------------------------------------*/
@@ -687,7 +738,9 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	/** Primary output file */
 	private final FileFormat ffout1;
 	
+	/** Set of canonical k-mers for filtering reads */
 	private final LongHashSet filter;
+	/** K-mer length used for filtering (fixed at 31) */
 	private final int k=31;
 	
 	@Override

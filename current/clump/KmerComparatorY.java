@@ -1,7 +1,14 @@
 package clump;
 
+/**
+ * Y-coordinate focused k-mer comparator for optical duplicate detection.
+ * Extends KmerComparator2 with specialized sorting that prioritizes Y-coordinate
+ * over X-coordinate in optical mapping scenarios, optimizing for flowcell layout.
+ * @author Brian Bushnell
+ */
 public class KmerComparatorY extends KmerComparator2 {
 	
+	/** Private constructor prevents external instantiation */
 	private KmerComparatorY(){}
 	
 	@Override
@@ -20,6 +27,7 @@ public class KmerComparatorY extends KmerComparator2 {
 		return 0;
 	}
 	
+	/** Singleton instance for efficient reuse across the application */
 	static final KmerComparatorY comparator=new KmerComparatorY();
 	
 }

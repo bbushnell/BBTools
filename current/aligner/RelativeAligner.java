@@ -30,6 +30,7 @@ public class RelativeAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for RelativeAligner instances */
 	public RelativeAligner() {}
 	
 	/*--------------------------------------------------------------*/
@@ -51,6 +52,21 @@ public class RelativeAligner implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core alignment algorithm implementing space-efficient dynamic programming.
+	 * Uses relative scoring with periodic recalibration to stay within byte range.
+	 * Performs glocal alignment with gap penalties of -1 and match bonus of +1.
+	 *
+	 * The algorithm uses two alternating byte arrays to represent current and previous
+	 * rows of the DP matrix. Scores are kept relative to a midpoint (60) with periodic
+	 * recalibration every 60 rows to prevent byte overflow. Final score is adjusted
+	 * back to absolute values for identity calculation.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param posVector Output array for alignment coordinates [rStart, rStop], may be null
+	 * @return Identity score (fraction of query bases that align) from 0.0 to 1.0
+	 */
 	public static float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 	    // Get lengths of input sequences
 	    final int qLen=query.length;
@@ -203,6 +219,18 @@ public class RelativeAligner implements IDAligner{
 	    return identity;
 	}
 
+	/**
+	 * Post-processes alignment results to calculate final identity score.
+	 * Currently unused in favor of inline processing in alignStatic.
+	 *
+	 * @param prev Final row of DP matrix
+	 * @param qLen Query length
+	 * @param rLen Reference length
+	 * @param maxScore Maximum score found
+	 * @param maxPos Position of maximum score
+	 * @param pos Output array for alignment positions
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	private static final float postprocess(byte[] prev, int qLen, int rLen, int maxScore, int maxPos, int[] pos) {
 		
 	    // Process results and return identity
@@ -242,9 +270,14 @@ public class RelativeAligner implements IDAligner{
 		return id;
 	}
 	
+	/** Thread-safe counter for tracking alignment loop iterations */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the current loop counter value for performance tracking */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value for performance tracking.
+	 * @param x New loop counter value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Output destination path for alignment results */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -252,8 +285,11 @@ public class RelativeAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Run modes
+	/** Debug flag for printing alignment operations (currently disabled) */
 	private static final boolean PRINT_OPS=false;
+	/** Flag to enable global alignment mode instead of glocal (currently false) */
 	public static boolean GLOBAL=false;
+	/** Debug flag for verbose alignment output and scoring details */
 	public static boolean debug=true;
 
 }

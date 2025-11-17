@@ -34,6 +34,7 @@ public class QuantumAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public QuantumAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -278,6 +279,19 @@ public class QuantumAligner implements IDAligner{
 	}
 	
 	// Process the first topWidth rows using a dense approach
+	/**
+	 * Processes the first topWidth rows using dense matrix approach.
+	 * Used for initial alignment before switching to sparse traversal strategy.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param prev Previous row array
+	 * @param curr Current row array
+	 * @param viz Optional visualizer for debugging
+	 * @param topWidth Number of rows to process densely
+	 * @param rLen Reference sequence length
+	 * @return Array containing [current_row, previous_row] arrays
+	 */
 	private static final long[][] alignDense(byte[] query, byte[] ref, long[] prev, 
 			long[] curr, Visualizer viz, int topWidth, int rLen) {
 		long mloops=0;
@@ -387,6 +401,12 @@ public class QuantumAligner implements IDAligner{
 		return identity;
 	}
 	
+	/**
+	 * Converts bit-packed score array to readable format for debugging.
+	 * Extracts raw scores by shifting out position and deletion bits.
+	 * @param array Array of bit-packed scores
+	 * @return ByteBuilder containing formatted score values
+	 */
 	private static ByteBuilder toScore(long[] array) {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append('[');
@@ -423,9 +443,17 @@ public class QuantumAligner implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter for total matrix cell evaluations across all alignment operations
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the total number of matrix cell evaluations performed.
+	 * @return Current loop count across all alignments */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -433,35 +461,61 @@ public class QuantumAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits used to encode position information in packed scores (21 bits = 2M positions)
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used to encode deletion count in packed scores */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount to extract raw alignment score from packed value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw alignment score from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base (N) matches - neutral penalty */
 	private static final long N_SCORE=0L;
+	/** Sentinel value indicating invalid or uncomputed alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/**
+	 * Combined deletion penalty and position increment for quantum teleportation feature
+	 */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Whether to extend alignment from matching cells for deletion detection */
 	private static final boolean EXTEND_MATCH=true;
+	/**
+	 * Whether to use loop-based position addition (false = faster loop-free version)
+	 */
 	private static final boolean LOOP_VERSION=false;
+	/** Whether to build bridges for catching up with long deletions */
 	private static final boolean BUILD_BRIDGES=true;
+	/** Frequency of bridge-building attempts in alignment rows */
 	private static final int BRIDGE_PERIOD=16;
+	/** Whether to use dense alignment strategy for top band of matrix */
 	private static final boolean DENSE_TOP=false;
+	/** Debug flag for printing detailed operation counts and statistics */
 	private static final boolean PRINT_OPS=false;
 //	private static final boolean debug=false;
 	// This will force full-length alignment, but it will only be optimal
 	// if the global alignment is within the glocal bandwidth.
 	// Better to use Banded/Glocal for arbitrary global alignments.
+	/** Whether to force full-length global alignment instead of local alignment */
 	public static final boolean GLOBAL=false;
 
 }

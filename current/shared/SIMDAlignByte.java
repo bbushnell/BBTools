@@ -23,27 +23,56 @@ import structures.IntList;
 public class SIMDAlignByte {
 
 	//Example from https://medium.com/@Styp/java-18-vector-api-do-we-get-free-speed-up-c4510eda50d2
+	/** Vector species for 256-bit float vectors, used for SIMD float operations */
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;//FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
+	/** Number of float elements that fit in a 256-bit vector (8 floats) */
 	private static final int FWIDTH=FSPECIES.length();
 	//		private static final int boundMask=~(FWIDTH-1);
 
+	/** Vector species for 256-bit byte vectors, used for SIMD byte operations */
 	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;
+	/** Number of byte elements that fit in a 256-bit vector (32 bytes) */
 	private static final int BWIDTH=BSPECIES.length();
 
+	/**
+	 * Vector species for 256-bit integer vectors, used for SIMD integer operations
+	 */
 	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Number of integer elements that fit in a 256-bit vector (8 integers) */
 	private static final int IWIDTH=ISPECIES.length();
 
+	/** Vector species for 256-bit short vectors, used for SIMD short operations */
 	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Number of short elements that fit in a 256-bit vector (16 shorts) */
 	private static final int SWIDTH=SSPECIES.length();
 
+	/**
+	 * Vector species for 256-bit double vectors, used for SIMD double operations
+	 */
 	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Number of double elements that fit in a 256-bit vector (4 doubles) */
 	private static final int DWIDTH=DSPECIES.length();
 
+	/** Vector species for 256-bit long vectors, used for SIMD long operations */
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Number of long elements that fit in a 256-bit vector (4 longs) */
 	private static final int LWIDTH=LSPECIES.length();
 
+	/** Score awarded for matching bases in alignment (1 point) */
 	private static final byte MATCH=1, N_SCORE=0, SUB=-1, INS=-1, DEL=-1;
 
+	/**
+	 * Performs vectorized alignment scoring for a single query base against a reference band.
+	 * Computes alignment scores using SIMD operations for improved performance over scalar code.
+	 * Handles both diagonal and insertion operations within the specified band region.
+	 *
+	 * @param q Single query base to align
+	 * @param ref Reference sequence array
+	 * @param bandStart Starting position in the alignment band
+	 * @param bandEnd Ending position in the alignment band
+	 * @param prev Previous row of alignment scores
+	 * @param curr Current row being computed
+	 */
 	public static void alignBandVector(byte q, byte[] ref, int bandStart, int bandEnd, 
 			byte[] prev, byte[] curr) {
 
@@ -404,6 +433,16 @@ public class SIMDAlignByte {
 	}
 
 	// Helper method for scalar alignment without clipping
+	/**
+	 * Helper method for scalar alignment without clipping support.
+	 * Counts mismatches between query and reference starting at specified position.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param maxSubs Maximum substitutions before early termination
+	 * @param rStart Starting position in reference sequence
+	 * @return Number of substitutions found
+	 */
 	private static int alignScalar(byte[] query, byte[] ref, int maxSubs, int rStart) {
 	    int subs = 0;
 	    for(int i = 0, j = rStart; i < query.length && subs <= maxSubs; i++, j++) {
@@ -416,6 +455,18 @@ public class SIMDAlignByte {
 	}
 
 	// Helper method for scalar clipped alignment with proper clipping penalties
+	/**
+	 * Helper method for scalar clipped alignment with proper clipping penalties.
+	 * Handles alignments that extend beyond reference boundaries by applying
+	 * clipping penalties and counting excess clipping as substitutions.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param maxSubs Maximum substitutions allowed
+	 * @param maxClips Maximum clipping allowed before penalty
+	 * @param rStart Starting position in reference (may be negative for left clipping)
+	 * @return Total penalty score including substitutions and excess clipping
+	 */
 	private static int alignClippedScalar(byte[] query, byte[] ref, int maxSubs, int maxClips, int rStart){
 		final int rStop1=rStart+query.length;
 		final int leftClip=Math.max(0, -rStart);
@@ -482,6 +533,15 @@ public class SIMDAlignByte {
 	//	    }
 	//	}
 
+	/**
+	 * Processes deletion operations in alignment using vectorized shell sort approach.
+	 * Applies decreasing distance penalties to handle deletion gaps efficiently.
+	 * Combines scalar processing for boundary conditions with SIMD for bulk operations.
+	 *
+	 * @param curr Current alignment score array to update
+	 * @param bandStart Starting position of the alignment band
+	 * @param bandEnd Ending position of the alignment band
+	 */
 	public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd) {
 		final int maxDist = BWIDTH/2;
 

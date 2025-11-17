@@ -31,6 +31,8 @@ import structures.ListNum;
  */
 public class TranslateSixFrames {
 
+	/** Program entry point for six-frame translation tool.
+	 * @param args Command-line arguments for input/output files and translation options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		TranslateSixFrames x=new TranslateSixFrames(args);
@@ -40,6 +42,12 @@ public class TranslateSixFrames {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs TranslateSixFrames with command-line argument parsing.
+	 * Processes input/output file specifications, translation modes, and options.
+	 * Sets up file formats and validates parameter combinations.
+	 * @param args Command-line arguments including file paths and translation settings
+	 */
 	public TranslateSixFrames(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -190,6 +198,12 @@ public class TranslateSixFrames {
 		if((ffout1!=null && ffout1.fasta()) || (ffin1!=null && ffin1.fasta())){skipquality=true;}
 	}
 	
+	/**
+	 * Main processing method that performs the translation operation.
+	 * Reads input sequences, translates according to specified frames,
+	 * and writes output in the requested format.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -334,10 +348,32 @@ public class TranslateSixFrames {
 		}
 	}
 	
+	/**
+	 * Translates a single read to multiple reading frames.
+	 * Creates amino acid sequences for the specified number of frames.
+	 *
+	 * @param r1 The nucleotide read to translate
+	 * @param skipquality Whether to skip quality score translation
+	 * @param addTag Whether to add frame tags to sequence identifiers
+	 * @param frames Number of frames to translate (1-6)
+	 * @return List of translated reads, one per frame
+	 */
 	public static final ArrayList<Read> toFrames(Read r1, boolean skipquality, boolean addTag, int frames){
 		return toFrames(r1, skipquality, addTag, frames, new ArrayList<Read>(frames));
 	}
 	
+	/**
+	 * Translates a single read to multiple reading frames using provided output list.
+	 * Creates amino acid sequences for the specified number of frames.
+	 * Handles both single and paired reads with proper mate assignment.
+	 *
+	 * @param r1 The nucleotide read to translate
+	 * @param skipquality Whether to skip quality score translation
+	 * @param addTag Whether to add frame tags to sequence identifiers
+	 * @param frames Number of frames to translate (1-6)
+	 * @param listOut Output list to populate with translated reads
+	 * @return The populated output list
+	 */
 	public static final ArrayList<Read> toFrames(Read r1, boolean skipquality, boolean addTag, int frames, ArrayList<Read> listOut){
 		final Read r2=r1.mate;
 		final byte[][] bm1=AminoAcid.toAAsSixFrames(r1.bases);
@@ -362,19 +398,29 @@ public class TranslateSixFrames {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
+	/** Quality file for primary input */
 	private String qfin1=null;
+	/** Quality file for secondary input */
 	private String qfin2=null;
 
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 
+	/** Quality output file for primary sequences */
 	private String qfout1=null;
+	/** Quality output file for secondary sequences */
 	private String qfout2=null;
 	
+	/** File extension for input files */
 	private String extin=null;
+	/** File extension for output files */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
@@ -382,36 +428,58 @@ public class TranslateSixFrames {
 	/** Add /1 and /2 to paired reads */
 	private boolean addslash=false;
 
+	/** Whether to skip quality score processing during translation */
 	private boolean skipquality=false;
 	
+	/** Whether input sequences are nucleotides (true) or amino acids (false) */
 	private boolean NT_IN=true;
+	/**
+	 * Whether output sequences should be nucleotides (true) or amino acids (false)
+	 */
 	private boolean NT_OUT=false;
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Fraction of reads to randomly sample (1.0 for all reads) */
 	private float samplerate=1f;
+	/** Random seed for sampling (-1 for random seed) */
 	private long sampleseed=-1;
 	
+	/** Number of reading frames to translate (1-6) */
 	private final int FRAMES;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format for primary input file */
 	private final FileFormat ffin1;
+	/** File format for secondary input file */
 	private final FileFormat ffin2;
 
+	/** File format for primary output file */
 	private final FileFormat ffout1;
+	/** File format for secondary output file */
 	private final FileFormat ffout2;
 	
+	/** Frame identification tags appended to sequence names */
 	private static final String[] frametag=new String[] {" fr1", " fr2", " fr3", " fr4", " fr5", " fr6"};
+	/** Null quality arrays for six frames when quality is skipped */
 	private static final byte[][] QNULL=new byte[6][];
+	/** Whether to add frame tags to translated sequence identifiers */
 	private boolean addTag=true;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed progress reporting */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to use shared header for input/output streams */
 	private boolean useSharedHeader;
 	
 }

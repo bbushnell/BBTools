@@ -29,13 +29,29 @@ import structures.ByteBuilder;
 import structures.Range;
 import var.Variation;
 
+/**
+ * Central data manager for genome reference data, genes, and chromosomes.
+ * Provides synchronized loading and caching of genome sequences, gene annotations,
+ * and scaffold information. Handles dynamic configuration of genome builds and
+ * coordinates access to large genomic datasets.
+ *
+ * @author Brian Bushnell
+ * @date 2014
+ */
 public class Data {
 	
 	
+	/** Empty main method for class testing purposes.
+	 * @param args Command-line arguments (unused) */
 	public static void main(String[] args){}
 	
 	
 	//TODO IMPORTANT!  Ensure that this unloads everything big, AND that reloading subsequently works OK.
+	/**
+	 * Unloads all cached genome data and resets system to initial state.
+	 * Clears chromosome arrays, gene data, scaffold information, and resets
+	 * all counters and build numbers. Use when switching genomes or freeing memory.
+	 */
 	public static void unloadAll(){
 		chromosomePlusMatrix=null;
 		AbstractIndex.clear();
@@ -76,6 +92,11 @@ public class Data {
 	
 	
 	//TODO IMPORTANT!  Ensure that this unloads everything big, AND that reloading subsequently works OK.
+	/**
+	 * Unloads data for a specific chromosome to free memory.
+	 * @param chrom Chromosome number to unload
+	 * @param unloadSoft Whether to perform soft unload (currently unused)
+	 */
 	public static void unload(int chrom, boolean unloadSoft){
 
 //		unloadGenes(chrom);
@@ -83,6 +104,11 @@ public class Data {
 		chromosomePlusMatrix[chrom]=null;
 	}
 	
+	/**
+	 * Unloads all gene-related data structures for specified chromosome.
+	 * Clears gene matrices, range matrices, and lookup tables to free memory.
+	 * @param chrom Chromosome number to unload gene data for
+	 */
 	public static void unloadGenes(int chrom){
 		geneMatrix[chrom]=null;
 		geneSetMatrix[chrom]=null;
@@ -94,6 +120,12 @@ public class Data {
 		exonRangeMatrix[chrom]=null;
 	}
 	
+	/**
+	 * Finds the index of a value in a byte array.
+	 * @param x Value to search for
+	 * @param array Array to search in
+	 * @return Index of first occurrence, or -1 if not found
+	 */
 	public static byte find(int x, byte[] array){
 		for(byte i=0; i<array.length; i++){
 			if(array[i]==x){return i;}
@@ -101,6 +133,8 @@ public class Data {
 		return -1;
 	}
 	
+	/** Reverses a byte array in-place.
+	 * @param array Array to reverse */
 	public static void reverse(byte[] array){
 		int mid=array.length/2;
 		for(int i=0; i<mid; i++){
@@ -111,6 +145,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Retrieves all genes for specified chromosome, loading if necessary.
+	 * Uses lazy loading with thread-safe synchronization.
+	 * @param chrom Chromosome number
+	 * @return Array of genes on the chromosome
+	 */
 	public static Gene[] getGenes(int chrom){
 		if(geneMatrix[chrom]==null){
 			loadGenes(chrom);
@@ -119,6 +159,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Retrieves genes for specified chromosome filtered by strand.
+	 * @param chrom Chromosome number
+	 * @param strand Strand orientation (+ or -)
+	 * @return Array of genes on specified strand
+	 */
 	public static Gene[] getGenes(int chrom, byte strand){
 		ArrayList<Gene> genes=new ArrayList<Gene>();
 		for(Gene g : getGenes(chrom)){
@@ -130,6 +176,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Retrieves gene sets for specified chromosome, loading if necessary.
+	 * Gene sets group related transcript variants under common identifiers.
+	 * @param chrom Chromosome number
+	 * @return Array of gene sets on the chromosome
+	 */
 	public static GeneSet[] getGeneSets(int chrom){
 		if(geneSetMatrix[chrom]==null){
 			loadGenes(chrom);
@@ -138,6 +190,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Builds and caches a lookup table mapping gene IDs to gene sets.
+	 * Processes all chromosomes 1-25 to create comprehensive ID mapping.
+	 * Thread-safe with double-checked locking pattern.
+	 * @return HashMap mapping gene IDs to lists of associated gene sets
+	 */
 	public static HashMap<Integer, ArrayList<GeneSet>> getGeneIDTable(){
 		if(geneIDTable==null){
 
@@ -177,6 +235,14 @@ public class Data {
 		return geneIDTable;
 	}
 	
+	/**
+	 * Retrieves chromosome sequence data, loading from disk if necessary.
+	 * Uses thread-safe lazy loading with chromosome-specific locks.
+	 * Validates that padding was correctly applied during indexing.
+	 *
+	 * @param chrom Chromosome number
+	 * @return ChromosomeArray containing sequence data
+	 */
 	public static ChromosomeArray getChromosome(int chrom){
 		assert(chromosomePlusMatrix!=null);
 		assert(chromosomePlusMatrix.length>chrom) : chromosomePlusMatrix.length+", "+chrom;
@@ -190,6 +256,12 @@ public class Data {
 		return chromosomePlusMatrix[chrom];
 	}
 	
+	/**
+	 * Loads gene data for specified chromosome from serialized files.
+	 * Creates gene matrices, range matrices, and name lookup tables.
+	 * Handles both transcript-based and gene symbol-based indexing.
+	 * @param chrom Chromosome number to load
+	 */
 	private static void loadGenes(int chrom){
 		
 		if(geneMatrix[chrom]!=null){return;} //In case another thread already loaded the chromosome
@@ -266,6 +338,12 @@ public class Data {
 		}
 	}
 	
+	/**
+	 * Loads chromosome sequence data for range of chromosomes.
+	 * Uses ChromLoadThread for efficient parallel loading.
+	 * @param min Minimum chromosome number to load
+	 * @param max Maximum chromosome number to load
+	 */
 	public static void loadChromosomes(int min, int max){
 		synchronized(CHROMLOCKS){
 			String pattern=chromFname(GENOME_BUILD);
@@ -273,6 +351,11 @@ public class Data {
 		}
 	}
 	
+	/**
+	 * Loads single chromosome sequence data from disk.
+	 * Reads serialized ChromosomeArray and validates chromosome number.
+	 * @param chrom Chromosome number to load
+	 */
 	private static void loadChromosome(int chrom){
 //		assert(false);
 		assert(chromosomePlusMatrix[chrom]==null);
@@ -284,14 +367,27 @@ public class Data {
 		assert(chromosomePlusMatrix[chrom].chromosome==chrom);
 	}
 	
+	/** Returns file extension for chromosome files (.chrom or .chrom.gz) */
 	public static final String chromExtension(){
 		return ".chrom"+(CHROMGZ ? ".gz" : "");
 	}
 	
+	/**
+	 * Constructs file path for specific chromosome in genome build.
+	 * @param chrom Chromosome number
+	 * @param genome Genome build number
+	 * @return Full file path to chromosome data file
+	 */
 	public static final String chromFname(int chrom, int genome){
 		return ROOT_GENOME+genome+"/chr"+chrom+chromExtension();
 	}
 	
+	/**
+	 * Constructs file path pattern for all chromosomes in genome build.
+	 * Uses '#' placeholder for chromosome number.
+	 * @param genome Genome build number
+	 * @return File path pattern with chromosome placeholder
+	 */
 	public static final String chromFname(int genome){
 		return ROOT_GENOME+genome+"/chr#"+chromExtension();
 	}
@@ -344,6 +440,12 @@ public class Data {
 		return list.toArray(new Range[list.size()]);
 	}
 	
+	/**
+	 * Creates merged ranges from gene set coordinates with nearby padding.
+	 * Extends boundaries by NEAR distance to capture nearby regulatory regions.
+	 * @param genes Array of gene sets to process
+	 * @return Array of merged ranges with padded boundaries
+	 */
 	public static Range[] findGeneSetRanges(GeneSet[] genes){
 		
 		ArrayList<Range> list=new ArrayList<Range>(8192);
@@ -383,6 +485,16 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Creates ranges from individual exons with optional coding region filtering.
+	 * Can extend boundaries for nearby regions or restrict to coding sequences.
+	 * Merges overlapping exon ranges and groups associated genes.
+	 *
+	 * @param genes Array of genes to process exons from
+	 * @param nearby Whether to extend boundaries by NEAR distance
+	 * @param codingOnly Whether to restrict to coding regions only
+	 * @return Array of merged exon ranges with associated genes
+	 */
 	public static Range[] findCodeAndExonRanges(Gene[] genes, boolean nearby, boolean codingOnly){
 		
 		
@@ -500,6 +612,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Finds gene sets at specified genomic location using binary search.
+	 * @param chrom Chromosome number
+	 * @param loc Genomic coordinate
+	 * @return Array of gene sets at the location
+	 */
 	public static GeneSet[] getNearestGeneSets(int chrom, int loc){
 		Range[] r=geneSetRangeMatrix(chrom);
 		int index=driver.Search.findPointBinary(loc, r);
@@ -588,18 +706,41 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Determines if genomic position falls within exonic regions.
+	 *
+	 * @param chrom Chromosome number
+	 * @param point Genomic coordinate to test
+	 * @param thresh Distance threshold for nearby matches
+	 * @param isCoding Whether to check coding exons only or all exons
+	 * @return true if position is exonic within threshold
+	 */
 	public static boolean isExonic(byte chrom, int point, int thresh, boolean isCoding){
 		Range[] ranges=(isCoding ? Data.geneCodeAndExonRangeMatrix(chrom) : Data.exonRangeMatrix(chrom));
 		return Search.containsPointBinary(point, ranges, thresh);
 	}
 	
 
+	/**
+	 * Pads string to specified width by prepending symbol characters.
+	 *
+	 * @param num String to pad
+	 * @param width Target width
+	 * @param symbol Character to use for padding
+	 * @return Padded string
+	 */
 	public static final String padFront(String num, int width, String symbol){
 		String r=num;
 		while(r.length()<width){r=symbol+r;}
 		return r;
 	}
 	
+	/**
+	 * Converts number to binary string with specified width.
+	 * @param num Number to convert
+	 * @param width Minimum width with zero padding
+	 * @return Binary string representation
+	 */
 	public static final String toBinaryString(long num, int width){
 		String r=Long.toBinaryString(num);
 		while(r.length()<width){r="0"+r;}
@@ -762,6 +903,12 @@ public class Data {
 	}
 	
 	
+	/**
+	 * Sets active genome build number with validation and thread safety.
+	 * Prevents switching genomes after initialization to maintain data consistency.
+	 * @param g Genome build number (must be positive)
+	 * @throws RuntimeException if attempting to change already-set genome
+	 */
 	public static final synchronized void setGenome(int g){
 		assert(g>0) : "Genome build number must be at least 1.";
 		if(genome_set_to==g){return;}
@@ -772,6 +919,12 @@ public class Data {
 		}
 	}
 	
+	/**
+	 * Internal genome initialization method that loads configuration data.
+	 * Reads summary and info files to populate genome statistics and chromosome arrays.
+	 * Handles both file-based and list-based data sources with version compatibility.
+	 * @param g Genome build number to initialize
+	 */
 	private static final synchronized void setGenome2(int g){
 		assert(genome_set_to!=g);
 		GENOME_BUILD=g;
@@ -1047,6 +1200,12 @@ public class Data {
 //		return scaffoldNames[x][0];
 //	}
 	
+	/**
+	 * Builds and caches scaffold name lookup table for coordinate translation.
+	 * Maps scaffold names to ScafLoc objects containing chromosome and position.
+	 * Thread-safe with synchronized initialization.
+	 * @return HashMap mapping scaffold names to genomic locations
+	 */
 	public static HashMap<String, ScafLoc> scafNameTable(){
 		
 		if(GENOME_BUILD<0){
@@ -1088,6 +1247,14 @@ public class Data {
 	public static byte[] scaffoldName(int chrom, int loc, int idx){return scaffoldNames[chrom][idx];}
 	public static int scaffoldRelativeLoc(int chrom, int loc, int idx){return loc-scaffoldLocs[chrom][idx];}
 
+	/**
+	 * Finds scaffold index for genomic coordinate within chromosome.
+	 * Uses binary search with padding adjustment for gap handling.
+	 *
+	 * @param chrom Chromosome number
+	 * @param loc Genomic coordinate
+	 * @return Index of scaffold containing the coordinate
+	 */
 	public static int scaffoldIndex(int chrom, int loc){
 		int[] array=scaffoldLocs[chrom];
 		if(array==null || array.length<2){return 0;}
@@ -1170,6 +1337,8 @@ public class Data {
 		return Tools.overlapLength(loc1, loc2, lowerBound, upperBound);
 	}
 	
+	/** Trims whitespace from scaffold names in-place to save memory.
+	 * Truncates names at first whitespace character encountered. */
 	public static void trimScaffoldNames(){
 		if(scaffoldNames!=null){
 			for(int i=0; i<scaffoldNames.length; i++){
@@ -1191,8 +1360,21 @@ public class Data {
 		}
 	}
 	
+	/**
+	 * Locates resource file in standard BBTools directory structure.
+	 * @param fname Filename to locate
+	 * @return Full path to file or null if not found
+	 */
 	public static final String findPath(String fname){return findPath(fname, true);}
 	
+	/**
+	 * Locates resource file with optional warning for missing files.
+	 * Searches multiple standard locations and JAR resources.
+	 *
+	 * @param fname Filename to locate (prefix with ? for standard locations)
+	 * @param warn Whether to print warnings for missing files
+	 * @return Full path to file or null if not found
+	 */
 	public static final String findPath(String fname, boolean warn){
 		assert(fname!=null);
 		if(fname.startsWith("?")){//Look in standard locations
@@ -1268,8 +1450,11 @@ public class Data {
 	public static final float min(float x, float y){return x<y ? x : y;}
 	public static final float max(float x, float y){return x>y ? x : y;}
 	
+	/** Total number of chromosomes in current genome build */
 	public static int numChroms;
+	/** Total number of bases across all chromosomes */
 	public static long numBases;
+	/** Number of defined (non-N) bases across all chromosomes */
 	public static long numDefinedBases;
 	public static int numContigs;
 	public static int numScaffolds;
@@ -1325,6 +1510,7 @@ public class Data {
 	private static final int CODE_RANGE=1;
 	
 	
+	/** Distance in bases for "nearby" gene region calculations */
 	public static final int NEAR=200;
 	
 	public static String ROOT(){return ROOT;}
@@ -1352,6 +1538,12 @@ public class Data {
 		if(!Shared.WINDOWS || true){setPath("?local");}
 	}
 	
+	/**
+	 * Configures root directory paths for genome data storage.
+	 * Supports local, Windows, Unix, and custom path configurations.
+	 * Sets up directory structure for reference, genome, and temporary files.
+	 * @param path Path configuration string (?local, ?unix, ?windows, or custom path)
+	 */
 	public static void setPath(String path){
 //		System.err.println("***"+path);
 		if(path.indexOf('\\')>=0){path=path.replace('\\', '/');}
@@ -1400,6 +1592,7 @@ public class Data {
 	public static final String VAR_FOLDER="VAR/";
 	public static final String GENE_FOLDER="GENE/";
 	
+	/** Currently active genome build number (-1 if unset) */
 	public static int GENOME_BUILD=-1;
 	private static int genome_set_to=-1;
 	
@@ -1426,10 +1619,20 @@ public class Data {
 //		INTERNMAP=new HashMap<String, String>(INTERN_MAP_SIZE);
 //	}
 	
+	/** Interns all strings in array to reduce memory usage.
+	 * @param s Array of strings to intern (modified in-place) */
 	public static final void intern(String[] s){
 		if(s==null){return;}
 		for(int i=0; i<s.length; i++){s[i]=intern(s[i]);}
 	}
+	/**
+	 * Interns string using custom strategy based on length and content.
+	 * Short strings and DNA sequences get preferential interning.
+	 * Avoids interning very long strings to prevent memory issues.
+	 *
+	 * @param s String to intern
+	 * @return Interned string reference
+	 */
 	public static String intern(String s){
 		if(s==null || s.length()>25){return s;}
 //		calls++;
@@ -1482,9 +1685,12 @@ public class Data {
 	}
 	static int calls=0;
 	
+	/** System output stream for status messages */
 	public static PrintStream sysout=System.err;//System.out;
 	
+	/** Whether chromosome files are gzip compressed */
 	public static boolean CHROMGZ=true;
+	/** Whether to load detailed scaffold information from files */
 	public static boolean LOAD_SCAFFOLDS=true;
 
 //	private static final boolean GUNZIP=testExecute("gunzip --help");

@@ -166,6 +166,11 @@ public abstract class BBTool_ST {
 	/** Must be overridden if variables are defined at bottom of class file. */
 	protected abstract void setDefaults();
 	
+	/**
+	 * Re-parses selected arguments from command line.
+	 * Calls parseArgument for each argument without full initialization.
+	 * @param args Command line arguments to re-parse
+	 */
 	protected void reparse(String[] args){
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -241,6 +246,7 @@ public abstract class BBTool_ST {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Convenience method to process with a new Timer */
 	public void process(){process(new Timer());}
 
 	/** Create read streams and process all data */
@@ -403,49 +409,73 @@ public abstract class BBTool_ST {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	protected String in1=null;
+	/** Secondary input file path for paired reads */
 	protected String in2=null;
 	
+	/** Quality file for primary input */
 	protected String qfin1=null;
+	/** Quality file for secondary input */
 	protected String qfin2=null;
 
+	/** Primary output file path */
 	protected String out1=null;
+	/** Secondary output file path for paired reads */
 	protected String out2=null;
 
+	/** Quality file for primary output */
 	protected String qfout1=null;
+	/** Quality file for secondary output */
 	protected String qfout2=null;
 	
+	/** Input file extension override */
 	protected String extin=null;
+	/** Output file extension override */
 	protected String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary concurrent input stream */
 	private ConcurrentReadInputStream cris_primary;
+	/** Primary concurrent output stream */
 	private ConcurrentReadOutputStream ros_primary;
 	
+	/** Total number of reads processed */
 	protected long readsProcessed=0;
+	/** Total number of bases processed */
 	protected long basesProcessed=0;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** File format for primary input */
 	protected final FileFormat ffin1;
+	/** File format for secondary input */
 	protected final FileFormat ffin2;
 
+	/** File format for primary output */
 	protected FileFormat ffout1;
+	/** File format for secondary output */
 	protected FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	protected PrintStream outstream=System.err;
+	/** Enable verbose output messages */
 	public static boolean verbose=false;
+	/** Indicates if an error occurred during processing */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	protected boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	protected boolean append=false;
 	
 }

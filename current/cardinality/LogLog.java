@@ -52,6 +52,12 @@ public final class LogLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	//Restores floating point to integer
+	/**
+	 * Restores the original hash value from a leading zero count.
+	 * Used to convert stored leading zero counts back to approximate hash values.
+	 * @param score Leading zero count from stored hash
+	 * @return Approximated original hash value
+	 */
 	private long restore(int score){
 		int leading=score;
 		long mantissa=1;
@@ -146,6 +152,11 @@ public final class LogLog extends CardinalityTracker {
 //		return cardinality;
 //	}
 	
+	/**
+	 * Alternative cardinality calculation using harmonic mean.
+	 * Experimental method that may provide different accuracy characteristics.
+	 * @return Estimated cardinality using harmonic mean approach
+	 */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArrayA.length(); i++){
@@ -162,6 +173,12 @@ public final class LogLog extends CardinalityTracker {
 		add((LogLog)log);
 	}
 	
+	/**
+	 * Merges another LogLog into this one by taking maximum bucket values.
+	 * Updates each bucket with the higher leading zero count from either LogLog.
+	 * Handles both atomic and non-atomic array modes.
+	 * @param log LogLog instance to merge into this one
+	 */
 	public void add(LogLog log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -217,6 +234,9 @@ public final class LogLog extends CardinalityTracker {
 	/** Atomic version of maxArray. */
 	private final AtomicIntegerArray maxArrayA;
 	
+	/**
+	 * Pre-computed compensation factors to adjust for bucket count effects on accuracy
+	 */
 	private static final float[] compensationFactorLogBucketsArray={
 			0.053699781f, 0.49556874f, 0.742263622f, 0.861204899f, 0.926038294f,
 			0.967001269f, 0.982949748f, 0.992495155f, 0.996185775f, 0.998077246f

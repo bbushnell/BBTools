@@ -23,6 +23,12 @@ import structures.ListNum;
  */
 public class A_SampleD {
 
+	/**
+	 * Program entry point that initializes timing, creates instance, and processes data.
+	 * Follows standard BBTools pattern of timer creation, object instantiation,
+	 * processing execution, and cleanup.
+	 * @param args Command-line arguments for configuration
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -41,6 +47,12 @@ public class A_SampleD {
 //		MPIWrapper.mpiFinalize();
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Handles preprocessing for help and config files, parses standard BBTools
+	 * parameters, and sets up input/output file format objects.
+	 * @param args Command-line arguments containing input/output paths and options
+	 */
 	public A_SampleD(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -83,6 +95,12 @@ public class A_SampleD {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that reads sequences, processes them, and writes output.
+	 * Creates concurrent input/output streams, processes reads in batches using
+	 * a standard producer-consumer pattern, and reports performance statistics.
+	 * @param t Timer for tracking execution time and calculating throughput
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream crisD=ConcurrentReadInputStream.getReadInputStream(
@@ -151,19 +169,26 @@ public class A_SampleD {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Primary output file path */
 	private String out1=null;
 	
+	/** File format handler for input file validation and processing */
 	private final FileFormat ffin1;
+	/** File format handler for output file validation and processing */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process; -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for logging and status messages */
 	private java.io.PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed progress reporting */
 	public static boolean verbose=false;
 	
 }

@@ -36,6 +36,11 @@ public abstract class AbstractRemoveThread extends Thread{
 		while(processNextTable()){}
 	}
 	
+	/**
+	 * Processes the next available k-mer table for k-mer removal.
+	 * Implementation varies by k-mer table type (standard vs unlimited).
+	 * @return true if a table was processed, false if no tables remain
+	 */
 	abstract boolean processNextTable();
 	
 	/*--------------------------------------------------------------*/
@@ -113,6 +118,11 @@ public abstract class AbstractRemoveThread extends Thread{
 			return true;
 		}
 		
+		/**
+		 * Recursively traverses k-mer collision chain nodes to remove out-of-range k-mers.
+		 * Performs in-order traversal of the binary tree structure.
+		 * @param kn K-mer node to process (may be null)
+		 */
 		private void traverseKmerNode(KmerNode kn){
 			if(kn==null){return;}
 			final int value=kn.count();
@@ -121,6 +131,7 @@ public abstract class AbstractRemoveThread extends Thread{
 			traverseKmerNode(kn.right());
 		}
 		
+		/** Standard k-mer table set being processed by this thread */
 		private final KmerTableSet tables;
 		
 	}
@@ -157,6 +168,11 @@ public abstract class AbstractRemoveThread extends Thread{
 			return true;
 		}
 		
+		/**
+		 * Recursively traverses unlimited k-mer collision chain nodes to remove out-of-range k-mers.
+		 * Performs in-order traversal of the binary tree structure.
+		 * @param kn Unlimited k-mer node to process (may be null)
+		 */
 		private void traverseKmerNode(KmerNodeU kn){
 			if(kn==null){return;}
 			final int value=kn.count();
@@ -165,18 +181,24 @@ public abstract class AbstractRemoveThread extends Thread{
 			traverseKmerNode(kn.right());
 		}
 		
+		/** Unlimited k-mer table set being processed by this thread */
 		private final KmerTableSetU tables;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Number of k-mers removed by this thread */
 	long kmersRemovedT=0;
 	
+	/** Thread identifier for coordination and debugging */
 	final int id;
+	/** Minimum k-mer count threshold for retention */
 	final int min;
+	/** Maximum k-mer count threshold for retention */
 	final int max;
 	
+	/** Atomic counter for coordinating table processing across threads */
 	final AtomicInteger nextTable;
 	
 	/** Print messages to this stream */

@@ -34,6 +34,11 @@ import tracker.ReadStats;
  */
 public class KeepBestCopy {
 	
+	/**
+	 * Program entry point.
+	 * Creates instance, processes input, and closes streams.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -48,6 +53,12 @@ public class KeepBestCopy {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs KeepBestCopy instance with command-line arguments.
+	 * Parses arguments, initializes file formats, validates input/output paths.
+	 * Sets up shared configuration for threading and compression.
+	 * @param args Command-line arguments including input/output files and options
+	 */
 	public KeepBestCopy(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -133,6 +144,11 @@ public class KeepBestCopy {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, extin, true, true);
 	}
 	
+	/**
+	 * Creates and starts a concurrent read input stream for processing.
+	 * Configures stream with maximum read limit and input file format.
+	 * @return Started ConcurrentReadInputStream ready for reading
+	 */
 	ConcurrentReadInputStream makeCris(){
 		final ConcurrentReadInputStream cris;
 		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null, qfin1, null);
@@ -141,6 +157,12 @@ public class KeepBestCopy {
 		return cris;
 	}
 	
+	/**
+	 * Main processing method that reads input, processes sequences, and writes output.
+	 * Maintains map of best copies per taxonomic ID and outputs final results.
+	 * Tracks statistics for reads and bases processed versus output.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris=makeCris();
@@ -227,6 +249,14 @@ public class KeepBestCopy {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes a single read to determine if it should be kept.
+	 * Extracts taxonomic ID from read header and compares against stored copy.
+	 * Updates map if this is the first or best copy for the taxonomic ID.
+	 *
+	 * @param r The read to process
+	 * @return true if the read was stored as the best copy, false otherwise
+	 */
 	private boolean process(Read r){
 		int tid=GiToTaxid.parseTaxidNumber(r.id, '|');
 		if(tid<0){return false;}
@@ -239,6 +269,15 @@ public class KeepBestCopy {
 		return false;
 	}
 	
+	/**
+	 * Compares two reads to determine which is higher quality.
+	 * Prioritizes shorter reads when both exceed maxLen threshold.
+	 * Otherwise compares by defined base count (non-N bases) and total N count.
+	 *
+	 * @param r The candidate read to evaluate
+	 * @param old The current stored read (may be null)
+	 * @return true if r is better quality than old, false otherwise
+	 */
 	private boolean isBetterThan(Read r, Read old){
 		if(old==null){return true;}
 		int oldNs=r.countNocalls();
@@ -252,36 +291,52 @@ public class KeepBestCopy {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
 	
+	/** Quality file path for input (if separate from sequence file) */
 	private String qfin1=null;
 
+	/** Primary output file path */
 	private String out1=null;
 
+	/** Quality file path for output (if separate from sequence file) */
 	private String qfout1=null;
 	
+	/** Override input file extension for format detection */
 	private String extin=null;
+	/** Override output file extension for format detection */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum sequence length threshold for quality comparison logic */
 	int maxLen=1600;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
+	/** Map storing best copy of each sequence by taxonomic ID */
 	private LinkedHashMap<Integer, Read> map=new LinkedHashMap<Integer, Read>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format descriptor for primary input file */
 	private final FileFormat ffin1;
+	/** File format descriptor for primary output file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enables verbose logging throughout the processing pipeline */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

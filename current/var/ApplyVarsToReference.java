@@ -22,6 +22,13 @@ import tracker.ReadStats;
  */
 public class ApplyVarsToReference {
 	
+	/**
+	 * Main entry point for applying variations to reference genomes.
+	 * Parses command line arguments including input genome, output genome, chromosome range,
+	 * and processing options. Creates output directories and processes each chromosome
+	 * individually. Cleans up old index files after processing.
+	 * @param args Command line arguments including ingenome, outgenome, minchrom, maxchrom
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -121,6 +128,15 @@ public class ApplyVarsToReference {
 		
 	}
 	
+	/**
+	 * Processes a single chromosome by applying variations from a variant file.
+	 * Reads variants, loads chromosome array, and creates new chromosome with variants applied.
+	 * Handles different variation types (SNP, DELINS, INS, DEL, NOCALL, NOREF) while
+	 * maintaining coordinate tracking. Optionally regenerates N-blocks for gap consistency.
+	 * @param inVarsName Path to input variant file for this chromosome
+	 * @param outChromName Path for output chromosome file
+	 * @param chrom Chromosome number being processed
+	 */
 	public static void process(String inVarsName, String outChromName, int chrom) {
 		ArrayList<Varlet> vars=Varlet.fromTextFile(inVarsName);
 		ChromosomeArray cha=Data.getChromosome(chrom);
@@ -250,6 +266,17 @@ public class ApplyVarsToReference {
 		ReadWrite.write(chb, outChromName, false);
 	}
 	
+	/**
+	 * Regenerates N-blocks in chromosome arrays to standardize gap representation.
+	 * Processes start, middle, and end regions to ensure consistent N-block sizes.
+	 * When N-stretches exceed trigger length, expands them to full blocksize.
+	 * Adds endsize N's to chromosome termini for proper gap handling.
+	 * @param cha Input chromosome array to process
+	 * @param blocksize Target size for expanded N-blocks
+	 * @param trigger Minimum N-stretch length that triggers expansion
+	 * @param endsize Number of N's to add at chromosome ends
+	 * @return New chromosome array with regenerated N-blocks
+	 */
 	public static ChromosomeArray regenNBlocks(ChromosomeArray cha, int blocksize, int trigger, int endsize){
 		ChromosomeArray chb=new ChromosomeArray(cha.chromosome, cha.strand, cha.minIndex, cha.maxIndex);
 		chb.maxIndex=-1;
@@ -307,14 +334,24 @@ public class ApplyVarsToReference {
 		return chb;
 	}
 
+	/** Number of threads for parallel processing */
 	public static int THREADS=1;
 	
+	/** Flag tracking whether NOCALL variants have been encountered */
 	private static boolean foundNocall=false;
+	/**
+	 * Whether to skip variations that cause excessive coordinate drift from reference
+	 */
 	private static boolean STAY_NEAR_REF=false;
+	/** Maximum allowed coordinate difference before skipping variations */
 	private static final int REF_LIMIT=20;
+	/** Whether to regenerate N-blocks after applying variations */
 	public static boolean REGEN_N_BLOCKS=true;
+	/** Number of N bases to add at chromosome ends during N-block regeneration */
 	public static int N_BLOCK_END_SIZE=2000;
+	/** Target size for expanded N-blocks during regeneration */
 	public static int N_BLOCK_SIZE=300;
+	/** Minimum N-stretch length that triggers expansion to full block size */
 	public static int N_BLOCK_TRIGGER=80;
 	/** Permission to overwrite existing files */
 	public static boolean overwrite=true;

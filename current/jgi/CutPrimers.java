@@ -28,6 +28,8 @@ import structures.ListNum;
  */
 public class CutPrimers {
 
+	/** Program entry point. Creates CutPrimers instance and executes processing.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CutPrimers x=new CutPrimers(args);
@@ -37,6 +39,11 @@ public class CutPrimers {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs CutPrimers instance and parses command-line arguments.
+	 * Configures input/output files and processing parameters.
+	 * @param args Command-line arguments including SAM files and options
+	 */
 	public CutPrimers(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -83,6 +90,14 @@ public class CutPrimers {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that cuts primers from sequences.
+	 * Reads input sequences, matches them with primer locations from SAM files,
+	 * and generates trimmed output sequences based on primer positions.
+	 * Handles both primer-inclusive and primer-exclusive cutting modes.
+	 *
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -196,6 +211,12 @@ public class CutPrimers {
 		outstream.println("Sequences Generated:  "+readsSuccess);
 	}
 	
+	/**
+	 * Parses a SAM file into a map of sequence names to SAM alignment records.
+	 * Skips header lines and creates SamLine objects for alignment records.
+	 * @param fname Path to the SAM file to parse
+	 * @return LinkedHashMap mapping sequence names to their SAM alignment records
+	 */
 	public static LinkedHashMap<String, SamLine> toSamLines(String fname){
 		ByteFile tf=ByteFile.makeByteFile(fname, false);
 		LineParser1 lp=new LineParser1('\t');
@@ -214,24 +235,35 @@ public class CutPrimers {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input sequence file path */
 	private String in1=null;
+	/** First SAM file containing primer alignment positions */
 	private String sam1=null;
+	/** Second SAM file containing primer alignment positions */
 	private String sam2=null;
+	/** Output sequence file path */
 	private String out1=null;
 	
+	/** Whether to add fake reads when primer cutting fails */
 	private boolean ADD_FAKE_READS=true;
+	/** Whether to include primer sequences in the output or cut them out */
 	private boolean INCLUDE_PRIMERS=false;
 	
+	/** File format for input sequence file */
 	private final FileFormat ffin1;
+	/** File format for output sequence file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
+	/** Whether to print verbose processing messages */
 	public static boolean verbose=false;
 	
 }

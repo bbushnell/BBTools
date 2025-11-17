@@ -17,6 +17,12 @@ import structures.LongList;
  */
 public class Minimizer {
 	
+	/**
+	 * Demonstration and testing method for minimizer functionality.
+	 * Parses command line arguments for k-mer length, window size, and sequence.
+	 * Generates minimizers for the input sequence and prints results to stderr.
+	 * @param args Command line arguments: kmerlen, window, sequence
+	 */
 	public static void main(String[] args){
 		int k=4, w=7;
 		String seq="ACGTCTGAGCCTTGACACATGACT";
@@ -36,7 +42,18 @@ public class Minimizer {
 		System.err.println(Arrays.toString(array));
 	}
 
+	/**
+	 * Creates a Minimizer with default bits per symbol (2 for nucleotides).
+	 * @param k_ K-mer length for minimizer generation
+	 * @param window_ Window size for minimizer selection
+	 */
 	public Minimizer(int k_, int window_){this(k_, window_, 2);}
+	/**
+	 * Creates a Minimizer with specified parameters and precomputes bit manipulation constants.
+	 * @param k_ K-mer length for minimizer generation
+	 * @param window_ Window size for minimizer selection
+	 * @param bitsPerSymbol_ Bits per symbol (2 for nucleotides, 5 for amino acids)
+	 */
 	public Minimizer(int k_, int window_, int bitsPerSymbol_){
 		k=k_;
 		window=window_;
@@ -46,10 +63,20 @@ public class Minimizer {
 		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 	}
 	
+	/**
+	 * Generates minimizers from a string sequence.
+	 * @param str Input sequence as string
+	 * @return Array of unique minimizer hash codes
+	 */
 	public long[] minimize(String str){
 		return minimize(str.getBytes());
 	}
 
+	/**
+	 * Generates minimizers from a byte array sequence using new temporary collections.
+	 * @param bases Input sequence as byte array
+	 * @return Array of unique minimizer hash codes
+	 */
 	public long[] minimize(byte[] bases){
 		return minimize(bases, new LongList(16), new LongHashSet(16));
 	}
@@ -126,8 +153,26 @@ public class Minimizer {
 		return list.toArray();
 	}
 
+	/**
+	 * Returns the canonical form by taking the maximum of forward and reverse k-mer.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Canonical k-mer (maximum of the two)
+	 */
 	public static long canon(long kmer, long rkmer){return max(kmer, rkmer);}
+	/**
+	 * Computes hash code from canonical form of k-mer pair.
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Hash code of canonical k-mer
+	 */
 	public static long hash(long kmer, long rkmer){return hash(canon(kmer, rkmer));}
+	/**
+	 * Fast hash function using bit shifts and XOR operations.
+	 * Applies multiple rounds of bit manipulation to distribute hash values evenly.
+	 * @param key Input value to hash
+	 * @return Hash code as 64-bit long
+	 */
 	public static long hash(long key) {
 		key = (~key) + (key << 21); // key = (key << 21) - key - 1;
 		key = key ^ (key >>> 24);
@@ -138,17 +183,36 @@ public class Minimizer {
 		key = key + (key << 31);
 		return key;
 	}
+	/**
+	 * Returns the maximum of two long values.
+	 * @param x First value
+	 * @param y Second value
+	 * @return Maximum of x and y
+	 */
 	private static final long max(long x, long y){return x>y ? x : y;}
 
+	/** K-mer length for minimizer generation. */
 	public final int k;
+	/** Window size for minimizer selection. */
 	public final int window;
+	/** Bits per symbol (2 for nucleotides, 5 for amino acids). */
 	public final int bitsPerSymbol; //2 for nucleotides, 5 for amino acids.
+	/** Total bit shift for k-mer encoding (bitsPerSymbol * k). */
 	private final int shift;
+	/** Bit shift for reverse complement k-mer construction. */
 	private final int shift2;
+	/** Bit mask for k-mer length limitation in rolling hash. */
 	private final long mask;
+	/** Minimum acceptable hash code value for minimizer selection. */
 	private final long minCode=0;
 	
+	/**
+	 * Lookup table converting ASCII base characters to numeric values (A=0, C=1, G=2, T=3).
+	 */
 	static final byte[] baseToNumber = new byte[128];
+	/**
+	 * Lookup table converting ASCII base characters to complement numeric values.
+	 */
 	static final byte[] baseToComplementNumber = new byte[128];
 	
 	static {

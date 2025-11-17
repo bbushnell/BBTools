@@ -13,6 +13,12 @@ import stream.SiteScore;
 public final class MultiStateAligner9Flat extends MSA{
 	
 	
+	/**
+	 * Test harness for alignment algorithm development.
+	 * Creates alignments between two sequences provided as command-line arguments.
+	 * Prints alignment matrix states and final alignment results for debugging.
+	 * @param args Command-line arguments: read sequence and reference sequence
+	 */
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
@@ -43,6 +49,14 @@ public final class MultiStateAligner9Flat extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs a new MultiStateAligner9Flat with specified capacity.
+	 * Initializes packed scoring matrices, buffers, and limit arrays.
+	 * Sets up initial scoring conditions for alignment boundary cases.
+	 *
+	 * @param maxRows_ Maximum number of rows (query length) supported
+	 * @param maxColumns_ Maximum number of columns (reference length) supported
+	 */
 	public MultiStateAligner9Flat(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -2292,8 +2306,13 @@ public final class MultiStateAligner9Flat extends MSA{
 	}
 	
 
+	/** Three-dimensional scoring matrix packed with time and score information */
 	private final int[][][] packed;
+	/**
+	 * Buffer for storing gapped reference sequences during structural variant alignment
+	 */
 	private final byte[] grefbuffer;
+	/** Limit of valid data in gapped reference buffer */
 	private int greflimit=-1;
 	private int greflimit2=-1;
 	private int grefRefOrigin=-1;
@@ -2305,7 +2324,9 @@ public final class MultiStateAligner9Flat extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for pruning impossible alignment paths */
 	public final int[] vertLimit;
+	/** Horizontal score limits for pruning impossible alignment paths */
 	public final int[] horizLimit;
 
 	@Override
@@ -2322,6 +2343,14 @@ public final class MultiStateAligner9Flat extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity threshold to minimum score ratio.
+	 * Calculates score cutoff based on expected error rates and scoring parameters.
+	 * Used to set alignment score thresholds from identity percentage requirements.
+	 *
+	 * @param minid Minimum identity fraction (0.0-1.0) or percentage (1-100)
+	 * @return Minimum score ratio for alignment acceptance
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -2349,20 +2378,26 @@ public final class MultiStateAligner9Flat extends MSA{
 	public static final int TIMEMASK=~((-1)<<TIMEBITS);
 	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
 	
+	/** Score penalty for aligning against missing reference bases */
 	public static final int POINTS_NOREF=0;
 	public static final int POINTS_NOCALL=0;
+	/** Score reward for first match in a matching streak */
 	public static final int POINTS_MATCH=92;
+	/** Score reward for subsequent matches in a matching streak */
 	public static final int POINTS_MATCH2=100;
 	public static final int POINTS_COMPATIBLE=50;
+	/** Score penalty for substitutions */
 	public static final int POINTS_SUB=-87;
 	public static final int POINTS_SUBR=-89; //increased penalty if prior match streak was at most 1
 	public static final int POINTS_SUB2=-75;
 	public static final int POINTS_SUB3=-50;
 	public static final int POINTS_MATCHSUB=-10;
+	/** Score penalty for first insertion in an insertion streak */
 	public static final int POINTS_INS=-100;
 	public static final int POINTS_INS2=-81;
 	public static final int POINTS_INS3=-59;
 	public static final int POINTS_INS4=-45;
+	/** Score penalty for first deletion in a deletion streak */
 	public static final int POINTS_DEL=-140;
 	public static final int POINTS_DEL2=-73;
 	public static final int POINTS_DEL3=-58;
@@ -2380,7 +2415,9 @@ public final class MultiStateAligner9Flat extends MSA{
 	private static final int BARRIER_D1=1;
 	
 
+	/** Length threshold for transitioning to third-tier gap penalties */
 	public static final int LIMIT_FOR_COST_3=5;
+	/** Length threshold for transitioning to fourth-tier gap penalties */
 	public static final int LIMIT_FOR_COST_4=20;
 	public static final int LIMIT_FOR_COST_5=80;
 	
@@ -2542,7 +2579,9 @@ public final class MultiStateAligner9Flat extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Current number of rows in the alignment matrix */
 	private int rows;
+	/** Current number of columns in the alignment matrix */
 	private int columns;
 	
 }

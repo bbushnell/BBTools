@@ -17,6 +17,7 @@ public class WaveFrontAlignerViz implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
+    /** Default constructor */
     public WaveFrontAlignerViz() {}
 
 	@Override
@@ -34,13 +35,20 @@ public class WaveFrontAlignerViz implements IDAligner {
     
     @Override
     public long loops() {return loops;}
+	/** Sets the loop counter value.
+	 * @param x New loop counter value */
 	public void setLoops(long x) {loops=x;}
 
     // Operation types
+    /** Operation type: no operation recorded */
     private static final byte OP_NONE = 0;
+    /** Operation type: exact match between sequences */
     private static final byte OP_MATCH = 1;
+    /** Operation type: substitution (mismatch) */
     private static final byte OP_SUB = 2;
+    /** Operation type: insertion in query sequence */
     private static final byte OP_INS = 3;
+    /** Operation type: deletion from query sequence */
     private static final byte OP_DEL = 4;
 
     /**
@@ -367,13 +375,18 @@ public class WaveFrontAlignerViz implements IDAligner {
     }
     
     // Debug mode - set to true for detailed alignment output
+    /** Debug flag for detailed alignment output to console */
     private static final boolean DEBUG_MODE = false;
+    /** Flag for printing step-by-step visualization during alignment */
     private static final boolean PRINT_STEPS = false;
     
     // Last alignment result for debugging
+    /** Stores the formatted alignment result string for debugging purposes */
     private static String lastAlignment = "";
     
     // For tracking cells processed
+    /** Counter for the number of alignment loop iterations performed */
     static long loops = 0;
+    /** Output file path for visualization data (null disables visualization) */
     public static String output = null;
 }

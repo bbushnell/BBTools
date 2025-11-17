@@ -284,6 +284,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return freqs;
 	}
 	
+	/** Returns true if this Clade contains 16S or 18S rRNA sequences */
 	synchronized boolean hasSSU() {return r16S!=null | r18S!=null;}
 	
 	/**
@@ -314,6 +315,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return taxID-b.taxID;
 	}
 
+	/** Gets the cached taxonomic lineage or generates it from the taxonomic ID.
+	 * @return Formatted taxonomic lineage string, or "NA" if unavailable */
 	public CharSequence lineage() {
 		if(lineage!=null) {return lineage;}
 		return taxID<1 ? "NA" : (lineage=lineage(taxID).toString());
@@ -411,7 +414,9 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	/** Normalized frequencies or GC-compensated values */
 	public float[][] frequencies;
 
+	/** 16S ribosomal RNA sequence */
 	public byte[] r16S;
+	/** 18S ribosomal RNA sequence */
 	public byte[] r18S;
 	
 	/** Total number of bases in this Clade */
@@ -433,12 +438,19 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	/** Flag indicating whether this Clade has been completed with finish() */
 	private boolean finished=false;
 	
+	/** Constant for decimal encoding format */
 	public static final int DECIMAL=0, A48=1;
+	/** Output encoding format (DECIMAL or A48) */
 	public static int outputCoding=A48; //A48 breaks Cloudflare...  now bypassed
+	/** Maximum k-mer length to process */
 	public static int MAXK=5;
+	/** Flag to enable 16S/18S rRNA gene calling */
 	public static boolean callSSU=false;
+	/** Flag to include taxonomic lineage in output */
 	public static boolean writeLineage=true;
+	/** Flag to create frequency arrays */
 	public static boolean MAKE_FREQUENCIES=true;
+	/** Flag to delete count arrays after conversion to frequencies */
 	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.
 	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
 	

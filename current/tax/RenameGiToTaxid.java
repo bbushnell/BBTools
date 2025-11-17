@@ -34,6 +34,8 @@ import tracker.ReadStats;
  */
 public class RenameGiToTaxid {
 	
+	/** Program entry point for header renaming processing.
+	 * @param args Command-line arguments for input/output files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameGiToTaxid x=new RenameGiToTaxid(args);
@@ -43,6 +45,11 @@ public class RenameGiToTaxid {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a RenameGiToTaxid instance with parsed command-line arguments.
+	 * Initializes file formats, loads taxonomy databases, and validates parameters.
+	 * @param args Command-line arguments containing file paths and processing options
+	 */
 	public RenameGiToTaxid(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -236,6 +243,11 @@ public class RenameGiToTaxid {
 		}
 	}
 	
+	/**
+	 * Main processing method that renames headers in all input files.
+	 * Creates output streams, processes each input file, and reports statistics.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=(ffout1==null ? null : new ByteStreamWriter(ffout1)); //Actually, this is required.
@@ -364,6 +376,17 @@ public class RenameGiToTaxid {
 //		return ids;
 //	}
 	
+	/**
+	 * Processes a single input file by reading lines and renaming headers.
+	 * Parses taxonomy information from headers and replaces with taxonomy IDs.
+	 *
+	 * @param bf Input file reader
+	 * @param bsw Main output stream writer
+	 * @param bswInvalid Output stream for invalid sequences
+	 * @param bswBadHeaders Output stream for problematic headers
+	 * @param counts Hash table for counting occurrences of taxonomy IDs
+	 * @param ids Pre-computed taxonomy ID list (unused, for server mode compatibility)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid, ByteStreamWriter bswBadHeaders, HashArray1D counts, IntList ids){
 
 		int readsProcessedInner=0;
@@ -483,6 +506,12 @@ public class RenameGiToTaxid {
 		errorState|=bf.close();
 	}
 	
+	/**
+	 * Heuristically determines if a header line contains a real accession number.
+	 * Checks format constraints like length, dot placement, and character types.
+	 * @param line Header line bytes to evaluate
+	 * @return true if the line appears to contain a valid accession format
+	 */
 	private static boolean looksLikeRealAccession(byte[] line){
 		int space=Tools.indexOf(line, ' ');
 		if(space<0){space=line.length;}
@@ -505,6 +534,12 @@ public class RenameGiToTaxid {
 		return true;
 	}
 	
+	/**
+	 * Extracts identifier from header line and appends to query builder.
+	 * Parsing behavior depends on the current processing mode (GI, accession, etc).
+	 * @param line Header line starting with '>' or '@'
+	 * @param bb ByteBuilder to append extracted identifier
+	 */
 	void appendHeaderLine(byte[] line, ByteBuilder bb){
 		assert(line[0]=='>' || line[0]=='@') : new String(line);
 		
@@ -536,6 +571,15 @@ public class RenameGiToTaxid {
 		bb.append(',');
 	}
 	
+	/**
+	 * Updates headers in a batch of lines using server-based taxonomy lookup.
+	 * Delegates to format-specific methods based on file type.
+	 *
+	 * @param lines Batch of lines to process and modify
+	 * @param counts Hash table for counting taxonomy ID occurrences
+	 * @param bswBadHeaders Output stream for headers that cannot be resolved
+	 * @param format File format constant (FA, GFF, etc)
+	 */
 	private void updateHeadersFromServer(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders, int format){
 		if(format==FileFormat.FA){
 			updateHeadersFromServer_fasta(lines, counts, bswBadHeaders);
@@ -546,6 +590,14 @@ public class RenameGiToTaxid {
 		}
 	}
 	
+	/**
+	 * Processes FASTA format lines for server-based header updating.
+	 * Extracts identifiers, queries server for taxonomy IDs, and updates headers.
+	 *
+	 * @param lines FASTA format lines to process
+	 * @param counts Hash table for counting taxonomy occurrences
+	 * @param bswBadHeaders Output stream for unresolvable headers
+	 */
 	private void updateHeadersFromServer_fasta(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
 		ByteBuilder bb=new ByteBuilder();
 		ArrayList<String> names=new ArrayList<String>();
@@ -644,6 +696,14 @@ public class RenameGiToTaxid {
 		}
 	}
 	
+	/**
+	 * Translates a comma-separated list of identifiers to taxonomy IDs via server.
+	 * Implements retry logic to handle network issues and incomplete responses.
+	 *
+	 * @param bb ByteBuilder containing comma-separated identifiers
+	 * @param terms Expected number of identifiers in the query
+	 * @return Array of taxonomy IDs corresponding to input identifiers
+	 */
 	private int[] translateToTaxIDs(ByteBuilder bb, int terms) {
 		//This block was created due to mysterious crashes processing nr.faa.
 		//They seemed to be due to incomplete responses.
@@ -674,6 +734,14 @@ public class RenameGiToTaxid {
 		return response;
 	}
 	
+	/**
+	 * Processes GFF format lines for server-based header updating.
+	 * Extracts identifiers from first column and replaces with taxonomy prefixes.
+	 *
+	 * @param lines GFF format lines to process
+	 * @param counts Hash table for counting taxonomy occurrences
+	 * @param bswBadHeaders Output stream for unresolvable identifiers
+	 */
 	private void updateHeadersFromServer_gff(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
 		ByteBuilder bb=new ByteBuilder();
 		ArrayList<String> names=new ArrayList<String>();
@@ -764,6 +832,17 @@ public class RenameGiToTaxid {
 		}
 	}
 	
+	/**
+	 * Server-based processing mode that batches lines before taxonomy lookup.
+	 * Accumulates lines in memory buffer, then processes entire batches via server.
+	 *
+	 * @param bf Input file reader
+	 * @param bsw Main output stream writer
+	 * @param bswInvalid Output stream for invalid sequences
+	 * @param bswBadHeaders Output stream for problematic headers
+	 * @param counts Hash table for counting taxonomy ID occurrences
+	 * @param format File format constant for processing logic
+	 */
 	private void processInner_server(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid, ByteStreamWriter bswBadHeaders, HashArray1D counts, int format){
 		
 		ArrayList<byte[]> lines=new ArrayList<byte[]>();
@@ -804,6 +883,16 @@ public class RenameGiToTaxid {
 		errorState|=bf.close();
 	}
 	
+	/**
+	 * Writes buffered lines to appropriate output streams based on validity.
+	 * Tracks sequence counts and manages valid/invalid sequence routing.
+	 *
+	 * @param lines Buffered lines ready for output
+	 * @param valid Current validity state from previous processing
+	 * @param bsw Main output stream writer
+	 * @param bswInvalid Output stream for invalid sequences
+	 * @return Final validity state after processing all lines
+	 */
 	private boolean dumpBuffer(ArrayList<byte[]> lines, boolean valid, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		
 		for(byte[] line : lines){
@@ -867,67 +956,113 @@ public class RenameGiToTaxid {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Set of input file paths to process */
 	private LinkedHashSet<String> in1=new LinkedHashSet<String>();
+	/** Primary output file path for processed sequences */
 	private String out1=null;
+	/** Output file path for sequences with invalid taxonomy information */
 	private String outInvalid=null;
+	/**
+	 * Output file path for recording problematic headers that cannot be processed
+	 */
 	private String badHeaders=null;
 
+	/** Path to taxonomy tree file for taxonomic hierarchy information */
 	private String taxTreeFile=null;
+	/** Path to GI-to-taxonomy ID mapping table file */
 	private String giTableFile=null;
+	/** Path to accession-to-taxonomy ID mapping file */
 	private String accessionFile=null;
+	/** Path to file containing accession parsing patterns */
 	private String patternFile=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
 
+	/** Count of sequences with successfully resolved taxonomy information */
 	private long validReads=0;
+	/** Total number of bases in sequences with valid taxonomy */
 	private long validBases=0;
+	/** Count of sequences that could not be assigned taxonomy information */
 	private long invalidReads=0;
+	/** Total number of bases in sequences with invalid or missing taxonomy */
 	private long invalidBases=0;
+	/** Number of unique taxonomy IDs encountered during processing */
 	private long taxaCounted=0;
 
+	/** Total number of input lines processed (used for GFF files) */
 	private long linesIn=0;
+	/** Number of lines with successfully resolved taxonomy information */
 	private long validLines=0;
+	/** Number of lines that could not be assigned valid taxonomy information */
 	private long invalidLines=0;
 	
+	/** Maximum bytes to buffer before processing batch in server mode */
 	private long maxStoredBytes=10000000;
 	
+	/** Running count of sequence bases processed */
+	/** Running count of sequence records processed */
 	private long readsProcessed=0, basesProcessed=0;
 
+	/** Whether to retain original header information after taxonomy ID */
 	private boolean prefix=true;
+	/** Whether to maintain occurrence counts for taxonomy IDs */
 	private boolean countTable=true;
+	/** Whether to retain sequences even without valid taxonomy assignment */
 	private boolean keepAll=true;
+	/** Whether to truncate headers at first SOH character for nr/nt databases */
 	private boolean shrinkNames=false;
+	/** Whether to print warnings for headers that cannot be processed */
 	private boolean warnBadHeaders=true;
+	/** Whether to use remote server for taxonomy lookups instead of local files */
 	private boolean useServer=false;
 	/** Crash if the number of invalid headers exceeds this */
 	private long maxInvalidHeaders=-1;
 	/** Delete the output file if there are any invalid headers */
 	private boolean deleteInvalid=false;
 	
+	/** Processing mode determining how identifiers are parsed from headers */
 	private int mode;
+	/** Mode constant for processing UNITE database format headers */
+	/** Mode constant for parsing entire headers for taxonomy lookup */
+	/** Mode constant for parsing GI numbers from headers */
+	/** Mode constant for parsing accession numbers from headers */
 	private static final int ACCESSION_MODE=0, GI_MODE=1, HEADER_MODE=2, UNITE_MODE=3;
 	
+	/** Flag indicating if any input files are in GFF format */
 	private boolean gffIn=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format objects for all input files */
 	private final ArrayList<FileFormat> ffin1;
+	/** File format object for primary output file */
 	private final FileFormat ffout1;
+	/** File format object for invalid sequence output file */
 	private final FileFormat ffoutInvalid;
+	/** Taxonomy tree structure for hierarchical taxonomic information */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for progress messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Global flag controlling detailed logging output */
 	public static boolean verbose=false;
+	/** Flag indicating if processing encountered any errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 
+	/** Default header prefix for valid taxonomy assignments */
 	private static byte[] title=">tid|".getBytes();
+	/** Header prefix used to mark sequences with invalid taxonomy */
 	private static byte[] invalidTitle=">tid|-1".getBytes();
+	/** Prefix used to mark GFF lines with invalid taxonomy information */
 	private static byte[] invalidGffTitle="tid|-1".getBytes();
 	
 }

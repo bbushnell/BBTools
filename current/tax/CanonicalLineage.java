@@ -2,6 +2,12 @@ package tax;
 
 import structures.ByteBuilder;
 
+/**
+ * Represents canonical taxonomic lineage with standardized DADA2 format output.
+ * Constructs hierarchical taxonomy from TaxTree nodes and formats as semicolon-delimited
+ * string with standard prefixes (k__, p__, c__, o__, f__, g__, s__).
+ * @author Brian Bushnell
+ */
 public class CanonicalLineage {
 
 	/** 
@@ -78,13 +84,20 @@ public class CanonicalLineage {
 		return bb;
 	}
 
+	/** Returns string representation of the canonical lineage.
+	 * @return DADA2-formatted lineage string */
 	public String toString() {
 		return toBytes().toString();
 	}
 	
+	/** Original taxonomy ID used to construct this lineage */
 	public final int taxID;
+	/** Number of taxonomic levels successfully populated from the tree */
 	public final int levelsDefined;
 	/** Holds nodes for the 7 standard taxonomic levels */
 	final TaxNode[] nodes=new TaxNode[7];
+	/**
+	 * DADA2 standard prefixes for taxonomic levels: k__, p__, c__, o__, f__, g__, s__
+	 */
 	private static final String[] prefixes = {"k__", "p__", "c__", "o__", "f__", "g__", "s__"};
 }

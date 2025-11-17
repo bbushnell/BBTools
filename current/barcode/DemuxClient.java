@@ -25,6 +25,12 @@ import structures.StringNum;
  */
 public class DemuxClient {
 	
+	/**
+	 * Test method demonstrating client functionality with sample barcode pairs.
+	 * Creates test data, encodes it, sends to server, and validates round-trip.
+	 * Tests both dual barcode (with delimiter) and single barcode modes.
+	 * @param args Optional encoding type ("A48" for compressed encoding)
+	 */
 	public static void main(String[] args) {
 		
 		int coding=Sketch.RAW;
@@ -84,12 +90,23 @@ public class DemuxClient {
 		System.err.println("Decoded:\n"+pairs2);
 	}
 	
+	/** Creates a DemuxClient with default server address. */
 	public DemuxClient() {}
 	
+	/** Creates a DemuxClient with specified server address.
+	 * @param address_ Server address URL; uses default if null */
 	public DemuxClient(String address_) {
 		if(address_!=null) {address=address_;}
 	}
 
+	/**
+	 * Sends demux data to server and returns the response as a map.
+	 * Handles both raw and A48 encoded responses based on data encoding type.
+	 *
+	 * @param dd Demux data containing barcodes and configuration
+	 * @param verbose Whether to print debugging information
+	 * @return Map of barcode keys to corrected barcode values
+	 */
 	HashMap<String, String> getMap(DemuxData dd, boolean verbose) {
 		String response=sendAndReceive(dd, verbose);
 		if(dd.coding==Sketch.A48) {
@@ -99,6 +116,15 @@ public class DemuxClient {
 		}
 	}
 	
+	/**
+	 * Encodes demux data and sends it to the server, returning the response.
+	 * Handles chunked data transmission and error checking.
+	 * Optionally writes sent data to file for debugging.
+	 *
+	 * @param dd Demux data to encode and send
+	 * @param verbose Whether to print debugging information
+	 * @return Server response string
+	 */
 	private String sendAndReceive(DemuxData dd, boolean verbose) {
 		if(verbose && false) {
 			System.err.println("dd: type="+dd.type+", len1="+dd.length1+", len2="+dd.length2+
@@ -137,6 +163,14 @@ public class DemuxClient {
 		return response.s;
 	}
 	
+	/**
+	 * Parses raw tab-delimited response into key-value map.
+	 * Response format is line-separated records with tab-delimited key-value pairs.
+	 *
+	 * @param response Server response string in raw format
+	 * @param verbose Whether to print debugging information
+	 * @return Map of parsed key-value pairs
+	 */
 	private static HashMap<String, String> toMapRaw(String response, boolean verbose){
 		
 		HashMap<String, String> map=new HashMap<String, String>();
@@ -166,10 +200,32 @@ public class DemuxClient {
 		return map;
 	}
 	
+	/**
+	 * Parses A48-encoded response using DemuxData configuration.
+	 * Convenience method that extracts parameters from DemuxData object.
+	 *
+	 * @param response Server response bytes in A48 format
+	 * @param verbose Whether to print debugging information
+	 * @param dd DemuxData containing encoding parameters
+	 * @return Map of decoded key-value pairs
+	 */
 	private static HashMap<String, String> toMapA48(byte[] response, boolean verbose, DemuxData dd){
 		return toMapA48(response, verbose, dd.coding, dd.length1, dd.length2, (byte)dd.barcodeDelimiter);
 	}
 	
+	/**
+	 * Parses A48-encoded response into key-value map.
+	 * Handles compressed barcode encoding with dual or single barcode modes.
+	 * Reconstructs full barcodes from compressed format using specified lengths.
+	 *
+	 * @param response Server response bytes in A48 format
+	 * @param verbose Whether to print debugging information
+	 * @param coding Encoding type (A48 compression level)
+	 * @param len1 Length of first barcode segment
+	 * @param len2 Length of second barcode segment (0 for single mode)
+	 * @param delimiter Character separating dual barcodes (0 for concatenation)
+	 * @return Map of decoded barcode pairs
+	 */
 	private static HashMap<String, String> toMapA48(byte[] response, boolean verbose, int coding, int len1, int len2, byte delimiter){
 		HashMap<String, String> map=new HashMap<String, String>();
 		LineParser2 responseParser=new LineParser2('\n');
@@ -220,6 +276,17 @@ public class DemuxClient {
 		return map;
 	}
 	
+	/**
+	 * Decodes a single A48-compressed barcode segment.
+	 * Converts compressed numeric representation back to ACGTN bases.
+	 *
+	 * @param term Byte array containing encoded data
+	 * @param from Start position in array
+	 * @param to End position in array
+	 * @param bb ByteBuilder for constructing result
+	 * @param len Expected length of decoded barcode
+	 * @return Decoded barcode as byte array
+	 */
 	public static byte[] decodeA48(byte[] term, int from, int to, ByteBuilder bb, int len) {
 		bb.clear();
 		long x=DemuxData.parseA48(term, from);
@@ -227,13 +294,21 @@ public class DemuxClient {
 		return bb.toBytes();
 	}
 	
+	/**
+	 * Checks server response for HTTP error indicators.
+	 * @param s Server response string
+	 * @return true if response contains error indicators, false otherwise
+	 */
 	private static boolean checkForError(String s){
 		if(s==null){return false;}
 		return s.contains("java.io.IOException: Server returned HTTP response code:");
 	}
 	
+	/** Indicates whether an error occurred during server communication */
 	public boolean errorState=false;
+	/** Server address URL for demux service */
 	public String address=Shared.demuxServer();
+	/** Optional file path to write sent data for debugging purposes */
 	public static String writeSent=null;
 	
 }

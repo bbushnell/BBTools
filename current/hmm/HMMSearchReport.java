@@ -149,6 +149,12 @@ public class HMMSearchReport {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that executes HMM search result analysis.
+	 * Creates input file reader, processes all HMM search lines,
+	 * handles cleanup, and reports timing statistics.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -181,6 +187,14 @@ public class HMMSearchReport {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Internal processing logic for HMM search results.
+	 * Loads all HMM search lines and adds them to the protein summary map.
+	 * Outputs each processed line to stderr for monitoring.
+	 *
+	 * @param bf ByteFile reader for input HMM search results
+	 * @param bsw ByteStreamWriter for output (currently unused)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		ArrayList<HMMSearchLine> lines=load(bf);
 		for(HMMSearchLine line : lines){
@@ -189,6 +203,12 @@ public class HMMSearchReport {
 		}
 	}
 	
+	/**
+	 * Adds an HMM search line to the protein summary mapping.
+	 * Creates new ProteinSummary if none exists for the protein name,
+	 * otherwise adds the hit to the existing summary.
+	 * @param line HMMSearchLine containing search hit information
+	 */
 	private void addToMap(HMMSearchLine line){
 		ProteinSummary ps=map.get(line.name);
 		if(ps==null){
@@ -198,6 +218,14 @@ public class HMMSearchReport {
 		ps.add(line);
 	}
 	
+	/**
+	 * Loads and parses all HMM search lines from input file.
+	 * Skips comment lines starting with '#' and creates HMMSearchLine
+	 * objects for each valid result line. Updates processing statistics.
+	 *
+	 * @param bf ByteFile reader for the input file
+	 * @return ArrayList of parsed HMMSearchLine objects
+	 */
 	private ArrayList<HMMSearchLine> load(ByteFile bf){
 		byte[] line=bf.nextLine();
 		
@@ -217,6 +245,12 @@ public class HMMSearchReport {
 		return lines;
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for output formatting.
+	 * Returns null if no output format is specified.
+	 * @param ff FileFormat specification for output
+	 * @return Started ByteStreamWriter or null if no output needed
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -228,14 +262,18 @@ public class HMMSearchReport {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for HMM search results */
 	private String in=null;
 //	private String out=null;
 	
+	/** Protein summary mapping from protein names to their best hit summaries */
 	public HashMap<String, ProteinSummary> map=new HashMap<String, ProteinSummary>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines processed from input file */
 	private long linesProcessed=0;
+	/** Total number of bytes processed from input file */
 	private long bytesProcessed=0;
 //	private long linesOut=0;
 //	private long bytesOut=0;
@@ -244,6 +282,7 @@ public class HMMSearchReport {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin;
 //	private final FileFormat ffout;
 	
@@ -251,10 +290,15 @@ public class HMMSearchReport {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
+	/** Controls verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files rather than overwrite */
 	private boolean append=false;
 	
 }

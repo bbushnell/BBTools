@@ -25,14 +25,34 @@ public class MicroAligner2 implements MicroAligner {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Constructs MicroAligner2 by loading reference from file path.
+	 * @param k_ K-mer length for indexing
+	 * @param minIdentity_ Minimum identity threshold for matches
+	 * @param path Path to reference sequence file
+	 */
 	public MicroAligner2(int k_, float minIdentity_, String path) {
 		this(k_, minIdentity_, loadRef(path));
 	}
 
+	/**
+	 * Constructs MicroAligner2 with reference sequence and creates k-mer index.
+	 * @param k_ K-mer length for indexing
+	 * @param minIdentity_ Minimum identity threshold for matches
+	 * @param ref_ Reference sequence bases
+	 */
 	public MicroAligner2(int k_, float minIdentity_, byte[] ref_) {
 		this(k_, minIdentity_, ref_, indexRef(k_, ref_));
 	}
 
+	/**
+	 * Constructs MicroAligner2 with pre-computed k-mer index.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param minIdentity_ Minimum identity threshold for matches
+	 * @param ref_ Reference sequence bases
+	 * @param map_ Pre-computed k-mer hash map
+	 */
 	public MicroAligner2(int k_, float minIdentity_, byte[] ref_, LongHashMap map_) {
 		k=k_;
 		k2=k-1;
@@ -42,6 +62,12 @@ public class MicroAligner2 implements MicroAligner {
 		maxSubFraction=1-minIdentity;
 	}
 	
+	/**
+	 * Loads reference sequence from file path.
+	 * Handles special case of "phix" keyword to load PhiX reference.
+	 * @param path File path or special keyword
+	 * @return Reference sequence bases or null if path invalid
+	 */
 	private static byte[] loadRef(String path) {
 		if(path==null) {return null;}
 		if(!Tools.isReadableFile(path)) {
@@ -55,6 +81,15 @@ public class MicroAligner2 implements MicroAligner {
 	}
 	
 	//TODO: Add MaskMiddle and/or hdist
+	/**
+	 * Creates k-mer index of reference sequence for fast lookup.
+	 * Stores canonical k-mers (lexicographically smaller of forward/reverse)
+	 * with position and orientation information encoded in values.
+	 *
+	 * @param k K-mer length (must be ≤32)
+	 * @param ref Reference sequence to index
+	 * @return Hash map of canonical k-mers to encoded positions
+	 */
 	private static LongHashMap indexRef(int k, byte[] ref) {
 		LongHashMap map=new LongHashMap(ref.length*2);
 		byte[] bases=ref;
@@ -179,6 +214,19 @@ public class MicroAligner2 implements MicroAligner {
 		return id;
 	}
 	
+	/**
+	 * Aligns read to reference region with optional padding.
+	 * Attempts quick alignment first, falls back to dynamic programming if needed.
+	 *
+	 * @param r Read to align
+	 * @param ref Reference sequence
+	 * @param a Start position in reference
+	 * @param b End position in reference
+	 * @param pad Padding bases around alignment region
+	 * @param minIdentity Minimum identity threshold
+	 * @param extra Optional array for additional alignment statistics
+	 * @return Identity score (0.0-1.0)
+	 */
 	public float align(Read r, byte[] ref, int a, int b, int pad, float minIdentity, int[] extra){
 		float id=quickAlign(r, ref, a);
 		if(id>=minIdentity) {return id;}
@@ -198,6 +246,16 @@ public class MicroAligner2 implements MicroAligner {
 		return id;
 	}
 	
+	/**
+	 * Performs fast ungapped alignment by direct base comparison.
+	 * Counts matches and substitutions without considering indels.
+	 * Terminates early if substitution count exceeds threshold.
+	 *
+	 * @param read Query read
+	 * @param ref Reference sequence
+	 * @param a Starting offset in reference
+	 * @return Identity score based on matches/read_length
+	 */
 	public float quickAlign(Read read, byte[] ref, int a) {
 		quickAligns++;
 		byte[] bases=read.bases;
@@ -219,20 +277,33 @@ public class MicroAligner2 implements MicroAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Minimum identity threshold for considering alignments valid */
 	final float minIdentity;
+	/** Maximum fraction of substitutions allowed (1 - minIdentity) */
 	final float maxSubFraction;
+	/** K-mer length used for indexing and seed finding */
 	final int k;
+	/** K-mer length minus 1, used for position calculations */
 	final int k2;
+	/** Reference sequence bases */
 	final byte[] ref;
+	/** K-mer index mapping canonical k-mers to encoded positions */
 	final LongHashMap map;
+	/** Bitmask for skipping k-mer positions during seed search */
 	public int skipmask=0;
 
+	/** Total number of reads processed for alignment */
 	public long mapCount=0;
+	/** Number of alignments attempted using quick ungapped method */
 	public long quickAligns=0;
+	/** Number of alignments requiring dynamic programming fallback */
 	public long slowAligns=0;
+	/** Number of alignments meeting minimum identity threshold */
 	public long metCutoff=0;
+	/** Sum of identity scores for alignments meeting threshold */
 	public double idSum=0;
 	
 	//Indicates the position is on the minus strand
+	/** Constant added to positions to indicate minus strand orientation */
 	private static final int MINUS_CODE=1000000000;
 }

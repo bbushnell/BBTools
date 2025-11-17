@@ -127,14 +127,22 @@ public final class LongLongListHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a map with default initial size of 256 */
 	public LongLongListHashMap(){
 		this(256);
 	}
 	
+	/** Creates a map with specified initial size and default load factor.
+	 * @param initialSize Initial capacity of the hash table */
 	public LongLongListHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Creates a map with specified initial size and load factor.
+	 * @param initialSize Initial capacity of the hash table
+	 * @param loadFactor_ Load factor threshold for resizing (0.25-0.90)
+	 */
 	public LongLongListHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -148,6 +156,7 @@ public final class LongLongListHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all key-value mappings and recycles large lists */
 	public void clear(){
 		if(size<1){return;}
 		for(int i=0; i<values.length /*&& size>0*/; i++) {//TODO: Enable the early exit
@@ -164,15 +173,26 @@ public final class LongLongListHashMap{
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests if the specified key is mapped in this table.
+	 * @param key Key to test for presence
+	 * @return true if the key exists, false otherwise
+	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/** Alias for contains() method */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
+	/**
+	 * Returns the list of values mapped to the specified key.
+	 * @param key Key to look up
+	 * @return List of values for the key, or null if key not found
+	 */
 	public LongList get(long key){
 //		assert(verify()); //123
 		final int cell=findCell(key);
@@ -248,8 +268,10 @@ public final class LongLongListHashMap{
 		return true;
 	}
 	
+	/** Returns the number of key-value mappings in this map */
 	public int size(){return size;}
 	
+	/** Returns true if this map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -261,6 +283,7 @@ public final class LongLongListHashMap{
 		return toStringListView();
 	}
 	
+	/** Returns detailed string showing cell indices, keys, and value lists */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -275,6 +298,7 @@ public final class LongLongListHashMap{
 		return sb.toString();
 	}
 	
+	/** Returns a bracketed list of all keys in the map */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -289,6 +313,7 @@ public final class LongLongListHashMap{
 		return sb.toString();
 	}
 	
+	/** Returns an array containing all keys in this map */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -305,6 +330,7 @@ public final class LongLongListHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Verifies internal consistency of the hash table structure */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -338,6 +364,11 @@ public final class LongLongListHashMap{
 		return pass;
 	}
 	
+	/**
+	 * Rehashes all entries starting from the specified cell.
+	 * Used after removal to maintain proper hash table structure.
+	 * @param initial Starting cell position for rehashing
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -368,6 +399,7 @@ public final class LongLongListHashMap{
 		return true;
 	}
 	
+	/** Generates a new invalid value when the current one conflicts with data */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -414,6 +446,7 @@ public final class LongLongListHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Doubles the hash table size when load factor threshold is exceeded */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -455,30 +488,43 @@ public final class LongLongListHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the internal keys array (includes invalid entries) */
 	public long[] keys() {return keys;}
 
+	/** Returns the internal values array (includes null entries) */
 	public LongList[] values() {return values;}
 
+	/** Returns the current invalid value used for empty cells */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Array storing the hash table keys */
 	private long[] keys;
+	/** Array storing lists of values for each key */
 	private LongList[] values;
 //	private LongList keyList;//TODO: Store keys here for quick clearing, perhaps
+	/** Number of key-value pairs currently in the map */
 	private int size=0;
 	/** Value for empty cells */
 	private long invalid;
+	/** Prime number used for hash table indexing */
 	private int modulus;
+	/** Maximum entries before resizing is triggered */
 	private int sizeLimit;
+	/** Load factor threshold for triggering resize operations */
 	private final float loadFactor;
 	
+	/** Random number generator for creating invalid sentinel values */
 	private static final Random randy=new Random(1);
+	/** Bit mask for ensuring positive hash values (Long.MAX_VALUE) */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Bit mask for ensuring negative invalid values (Long.MIN_VALUE) */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
+	/** Additional buffer space added to hash table capacity */
 	private static final int extra=10;
 	
 }

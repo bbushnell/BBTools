@@ -13,6 +13,12 @@ import shared.Tools;
 public class BandedAlignerConcrete extends BandedAligner{
 	
 	
+	/**
+	 * Testing harness for banded alignment algorithms.
+	 * Runs forward, reverse, and combination alignment tests with both penalized
+	 * and unpenalized off-center scoring modes.
+	 * @param args Command line arguments: query_seq ref_seq [qstart] [rstart] [maxedits] [width]
+	 */
 	public static void main(String[] args){
 		byte[] query=args[0].getBytes();
 		byte[] ref=(args[1].equals(".") ? args[0].getBytes() : args[1].getBytes());
@@ -79,6 +85,12 @@ public class BandedAlignerConcrete extends BandedAligner{
 	}
 	
 	
+	/**
+	 * Creates a new banded aligner with specified band width.
+	 * Initializes working arrays and validates that the band width is sufficient
+	 * for the maximum edit distance calculations.
+	 * @param width_ Band width for alignment (must be odd, minimum 3)
+	 */
 	public BandedAlignerConcrete(int width_){
 		super(width_);
 		array1=new int[maxWidth+2];
@@ -549,7 +561,9 @@ public class BandedAlignerConcrete extends BandedAligner{
 		return edits;
 	}
 	
+	/** First working array for dynamic programming matrix calculations */
 	private final int[] array1;
+	/** Second working array for dynamic programming matrix calculations */
 	private final int[] array2;
 	private int[] arrayCurrent, arrayPrev, arrayTemp;
 	

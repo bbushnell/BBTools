@@ -129,6 +129,11 @@ public class A_SampleBasic2 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that coordinates the workflow.
+	 * Creates output writer, processes data, handles errors, and reports timing.
+	 * @param t Timer for execution time tracking
+	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=makeBSW(ffout);
@@ -156,6 +161,11 @@ public class A_SampleBasic2 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Inner processing loop that performs the main work.
+	 * Executes cycles of processing using the provided output writer.
+	 * @param bsw Output stream writer for results
+	 */
 	private void processInner(ByteStreamWriter bsw){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -164,6 +174,11 @@ public class A_SampleBasic2 {
 		}
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given file format.
+	 * @param ff File format specification
+	 * @return Started ByteStreamWriter, or null if format is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -171,6 +186,15 @@ public class A_SampleBasic2 {
 		return bsw;
 	}
 	
+	/**
+	 * Placeholder method for specific processing logic.
+	 * Currently contains commented-out template code for line processing.
+	 *
+	 * @param bsw Output stream writer
+	 * @param bb Byte buffer for building output
+	 * @param cycle Current processing cycle number
+	 * @return true indicating successful processing
+	 */
 	private boolean doSomething(ByteStreamWriter bsw, ByteBuilder bb, long cycle){
 
 //		if(line.length>0){
@@ -196,28 +220,38 @@ public class A_SampleBasic2 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output file path */
 	private String out=null;
+	/** Maximum number of processing cycles to execute */
 	private long maxCycles=100;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of output lines written */
 	private long linesOut=0;
+	/** Count of output bytes written */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for output */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and errors */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output and debugging information */
 	public static boolean verbose=false;
+	/** Tracks whether an error has occurred during processing */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

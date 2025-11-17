@@ -17,6 +17,7 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 	}
 	
 	
+	/** Default constructor - initializes aligner with default parameters */
 	public SingleStateAlignerFlatFloat(){}
 
 	@Override
@@ -33,6 +34,18 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 	public final float align(byte[] a, byte[] b, int[] posVector, int minScore) {return align(a, b, null, 0, b.length-1, minScore);}
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int from, int to) {return align(a, b, pos, from, to, -9999);}
+	/**
+	 * Core alignment method with full parameter control.
+	 * Swaps query and reference if query is longer to optimize memory usage.
+	 *
+	 * @param q Query sequence
+	 * @param r Reference sequence
+	 * @param pos Array to store alignment start/stop positions (may be null)
+	 * @param from Start position in reference
+	 * @param to End position in reference
+	 * @param minScore Minimum acceptable alignment score
+	 * @return Alignment identity score (0.0 to 1.0), or 0 if below minScore
+	 */
 	public float align(byte[] q, byte[] r, int[] pos, int from, int to, int minScore) {
 		if(q.length>r.length && pos==null) {byte[] s=q; q=r; r=s;}
 		assert(q.length<=r.length);
@@ -53,6 +66,8 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		return id;
 	}
 	
+	/** Initializes the top row of the dynamic programming matrix.
+	 * Sets minimal penalties to prefer leftmost alignments. */
 	private void prefillTopRow(){
 		final float[] header=packed[0];
 		final int qlen=rows;
@@ -68,6 +83,8 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		}
 	}
 	
+	/** Fills the left column of the DP matrix with insertion penalties.
+	 * @param i Starting row index for filling */
 	private void prefillLeftColumnStartingAt(int i){
 		packed[0][0]=MODE_MATCH;
 		i=Tools.max(1, i);
@@ -77,6 +94,12 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		}
 	}
 	
+	/**
+	 * Initializes or resizes the dynamic programming matrix.
+	 * Reuses existing matrix space when possible to reduce memory allocation.
+	 * @param rows_ Number of rows needed (query length + 1)
+	 * @param columns_ Number of columns needed (reference region + 1)
+	 */
 	private void initialize(int rows_, int columns_){
 		rows=rows_;
 		columns=columns_;
@@ -207,6 +230,19 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		return maxScore<minScore ? null : new int[] {rows, maxCol, maxState, (int)maxScore, (int)maxStart};
 	}
 	
+	/**
+	 * Determines the optimal state transition at a specific matrix position.
+	 * Compares match/substitution, deletion, and insertion scores.
+	 *
+	 * @param row Row position in matrix
+	 * @param col Column position in matrix
+	 * @param q Query base
+	 * @param r Reference base
+	 * @param refWeight Weight for reference position scoring
+	 * @param insWeight Weight for insertion penalty (unused)
+	 * @param delWeight Weight for deletion penalty (unused)
+	 * @return State constant (MODE_MATCH, MODE_SUB, MODE_DEL, MODE_INS, MODE_N)
+	 */
 	int getState(int row, int col, byte q, byte r, float refWeight, float insWeight, float delWeight){
 		final boolean match=(q==r);
 		final boolean defined=(q!='N' && r!='N');
@@ -235,6 +271,17 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		return MODE_INS;
 	}
 	
+	/**
+	 * Determines optimal state transition with simplified weighting.
+	 * Uses uniform insertion and deletion penalties.
+	 *
+	 * @param row Row position in matrix
+	 * @param col Column position in matrix
+	 * @param q Query base
+	 * @param r Reference base
+	 * @param refWeight Weight for reference position scoring
+	 * @return State constant (MODE_MATCH, MODE_SUB, MODE_DEL, MODE_INS, MODE_N)
+	 */
 	int getState(int row, int col, byte q, byte r, float refWeight){
 		final boolean match=(q==r);
 		final boolean defined=(q!='N' && r!='N');
@@ -514,6 +561,14 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Converts byte array region to string for debugging.
+	 *
+	 * @param ref Reference sequence
+	 * @param startLoc Start position (inclusive)
+	 * @param stopLoc Stop position (inclusive)
+	 * @return String representation of sequence region
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -544,6 +599,11 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
+	/**
+	 * Calculates total deletion penalty for given length.
+	 * @param len Number of deleted bases
+	 * @return Total deletion penalty (negative value)
+	 */
 	private static float calcDelScore(int len){
 		if(len<=0){return 0;}
 		float score=POINTS_DEL*len;
@@ -575,51 +635,82 @@ public final class SingleStateAlignerFlatFloat implements Aligner, IDAligner {
 	@Override
 	public int columns(){return columns;}
 	
+	/**
+	 * Sets position-specific scoring weights.
+	 * Only reference weights are currently used; insertion/deletion weights ignored.
+	 *
+	 * @param refWeights_ Per-position weights for match/substitution scoring
+	 * @param insWeights_ Per-position insertion weights (ignored)
+	 * @param delWeights_ Per-position deletion weights (ignored)
+	 */
 	public void setWeights(float[] refWeights_, float[] insWeights_, float[] delWeights_){
 		refWeights=refWeights_;
 //		insWeights=insWeights_;
 //		delWeights=delWeights_;
 	}
 	
+	/** Sets position-specific reference weights for scoring.
+	 * @param refWeights_ Per-position weights for match/substitution scoring */
 	public void setWeights(float[] refWeights_){
 		refWeights=refWeights_;
 	}
 	
+	/** Maximum number of rows allocated in DP matrix */
 	private int maxRows;
+	/** Maximum number of columns allocated in DP matrix */
 	private int maxColumns;
 	
+	/** Two-dimensional DP matrix storing alignment scores */
 	private float[][] packed;
 	
+	/** Position-specific weights for reference sequence scoring */
 	private float[] refWeights;
 	//These don't seem to help.
 //	private float[] insWeights;
 //	private float[] delWeights;
 	
+	/** Maximum allowed alignment score to prevent overflow */
 	public static final int MAX_SCORE=Integer.MAX_VALUE-2000;
+	/** Minimum allowed alignment score */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 	
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
+	/** State constant representing deletion operation */
 	private static final byte MODE_DEL=1;
+	/** State constant representing insertion operation */
 	private static final byte MODE_INS=2;
+	/** State constant representing substitution operation */
 	private static final byte MODE_SUB=3;
+	/** State constant representing match operation */
 	private static final byte MODE_MATCH=4;
+	/** State constant representing ambiguous base alignment */
 	private static final byte MODE_N=5;
 	
+	/** Score penalty for aligning to ambiguous reference bases */
 	public static final float POINTS_NOREF=-20;
+	/** Score reward for exact base matches */
 	public static final float POINTS_MATCH=100;
+	/** Score penalty for base substitutions */
 	public static final float POINTS_SUB=-50;
+	/** Score penalty for insertions in query sequence */
 	public static final float POINTS_INS=-121;
+	/** Score penalty for deletions from reference sequence */
 	public static final float POINTS_DEL=-111;
 	
+	/** Constant representing invalid/bad alignment score */
 	public static final int BAD=MIN_SCORE-1;
 	
+	/** Current number of rows in use in the DP matrix */
 	private int rows;
+	/** Current number of columns in use in the DP matrix */
 	private int columns;
 
 //	public long iterationsLimited=0;
 //	public long iterationsUnlimited=0;
 
+	/** Flag to enable verbose debug output */
 	public boolean verbose=false;
+	/** Flag to enable additional verbose debug output */
 	public boolean verbose2=false;
 	
 }

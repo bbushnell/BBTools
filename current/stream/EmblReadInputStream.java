@@ -9,8 +9,16 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Input stream for reading biological sequences from EMBL format files.
+ * Parses ID lines for sequence identifiers and SQ sections for sequence data.
+ * Converts sequence characters to uppercase and filters non-letter characters.
+ * @author Brian Bushnell
+ */
 public class EmblReadInputStream extends ReadInputStream {
 	
+	/** Test method that reads the first sequence from an EMBL file.
+	 * @param args Command-line arguments where args[0] is the EMBL file path */
 	public static void main(String[] args){
 		
 		EmblReadInputStream fris=new EmblReadInputStream(args[0], true);
@@ -20,10 +28,20 @@ public class EmblReadInputStream extends ReadInputStream {
 		
 	}
 	
+	/**
+	 * Constructs an EMBL read input stream from a filename.
+	 * @param fname Path to the EMBL format file
+	 * @param allowSubprocess_ Whether to allow subprocess execution for compressed files
+	 */
 	public EmblReadInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.EMBL, null, allowSubprocess_, false));
 	}
 	
+	/**
+	 * Constructs an EMBL read input stream from a FileFormat object.
+	 * Initializes the ByteFile and sets sequence flags for amino acid detection.
+	 * @param ff FileFormat object specifying the input file and options
+	 */
 	public EmblReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
 		flag=(Shared.AMINO_IN ? Read.AAMASK : 0);
@@ -59,6 +77,11 @@ public class EmblReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Fills the internal buffer with reads from the EMBL file.
+	 * Closes the file if fewer reads than expected are returned.
+	 * Updates generated count and sets error state if buffer is null.
+	 */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -147,20 +170,31 @@ public class EmblReadInputStream extends ReadInputStream {
 	@Override
 	public String fname(){return bf.name();}
 
+	/** Internal buffer for storing reads before they are consumed */
 	private ArrayList<Read> buffer=null;
+	/** Index of the next read to return from the buffer */
 	private int next=0;
 	
+	/** ByteFile object for reading the input file */
 	private final ByteFile bf;
+	/** Bit flags for read properties such as amino acid detection */
 	private final int flag;
 
+	/** Maximum number of reads to store in buffer at once */
 	private final int BUF_LEN=Shared.bufferLen();;
+	/** Maximum amount of data to buffer (unused in current implementation) */
 	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
 
+	/** Total number of reads generated from the input file */
 	public long generated=0;
+	/** Total number of reads consumed by the caller */
 	public long consumed=0;
+	/** Numeric ID to assign to the next read */
 	private long nextReadID=0;
 	
+	/** True if reading from standard input, false if reading from file */
 	public final boolean stdin;
+	/** Controls verbose output for debugging purposes */
 	public static boolean verbose=false;
 
 }

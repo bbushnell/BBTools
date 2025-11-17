@@ -278,6 +278,12 @@ public class BGI2Illumina {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and configures concurrent read input stream.
+	 * Initializes stream with specified file formats and starts processing
+	 * thread for efficient concurrent I/O operations.
+	 * @return Configured and started ConcurrentReadInputStream
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -287,6 +293,14 @@ public class BGI2Illumina {
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream matching input configuration.
+	 * Sets up output buffering and threading appropriate for paired or
+	 * single-end data processing.
+	 *
+	 * @param pairedInput Whether input data is paired-end
+	 * @return Configured ConcurrentReadOutputStream or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -412,7 +426,9 @@ public class BGI2Illumina {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality score input file path */
 	private String qfin1=null;
+	/** Secondary quality score input file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -420,7 +436,9 @@ public class BGI2Illumina {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary quality score output file path */
 	private String qfout1=null;
+	/** Secondary quality score output file path */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -431,8 +449,10 @@ public class BGI2Illumina {
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 	
+	/** Barcode sequence to include in converted Illumina headers */
 	private String barcode=null;
 	
+	/** Parser for converting BGI headers to Illumina format */
 	private BGIHeaderParser2 bhp=new BGIHeaderParser2();
 	
 	/*--------------------------------------------------------------*/

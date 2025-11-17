@@ -25,6 +25,14 @@ public abstract class HashArray extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a HashArray with a resizing schedule.
+	 * Uses the first size in the schedule as initial capacity.
+	 *
+	 * @param schedule_ Array of sizes for automatic resizing
+	 * @param coreMask_ Mask for computing hash cell positions
+	 * @param twod_ Whether this table stores 2D values (arrays)
+	 */
 	HashArray(int[] schedule_, long coreMask_, boolean twod_){
 		schedule=schedule_;
 		autoResize=schedule.length>1;
@@ -40,6 +48,14 @@ public abstract class HashArray extends AbstractKmerTable {
 		coreMask2=coreMask_; //Simplifies fast fill
 	}
 	
+	/**
+	 * Constructs a HashArray with fixed initial size.
+	 *
+	 * @param initialSize Initial hash table capacity
+	 * @param coreMask_ Mask for computing hash cell positions
+	 * @param autoResize_ Whether to automatically resize when load factor exceeded
+	 * @param twod_ Whether this table stores 2D values (arrays)
+	 */
 	HashArray(int initialSize, long coreMask_, boolean autoResize_, boolean twod_){
 		schedule=null;
 		prime=initialSize;
@@ -129,6 +145,11 @@ public abstract class HashArray extends AbstractKmerTable {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Maps a k-mer to its primary hash table cell position.
+	 * @param kmer The k-mer to hash
+	 * @return Cell index in the hash table array
+	 */
 	public final int kmerToCell(long kmer){
 		final int cell=(int)((kmer&coreMask)%prime);
 		return cell;
@@ -225,6 +246,12 @@ public abstract class HashArray extends AbstractKmerTable {
 		return readCellValue(cell);
 	}
 	
+	/**
+	 * Retrieves the single value associated with a k-mer, starting search from specified cell.
+	 * @param kmer The k-mer to look up
+	 * @param startCell Cell index to start the linear probe from
+	 * @return The value associated with the k-mer, or NOT_PRESENT if not found
+	 */
 	public final int getValue(long kmer, int startCell){
 		int cell=findKmer(kmer, startCell);
 		if(cell==NOT_PRESENT){return NOT_PRESENT;}
@@ -251,6 +278,11 @@ public abstract class HashArray extends AbstractKmerTable {
 		return true;
 	}
 	
+	/**
+	 * Retrieves the k-mer stored at a specific cell position.
+	 * @param cell The cell index
+	 * @return The k-mer at that position
+	 */
 	public final long getKmer(int cell) {
 		return array[cell];
 	}
@@ -333,7 +365,18 @@ public abstract class HashArray extends AbstractKmerTable {
 	/** This is for IntList3 support with HashArrayHybridFast */
 	protected abstract void insertValue(final long kmer, final int[] vals, final int cell, final int vlen);
 	
+	/**
+	 * Reads the single value stored at a specific cell.
+	 * @param cell The cell position to read from
+	 * @return The value stored at that position
+	 */
 	protected abstract int readCellValue(int cell);
+	/**
+	 * Reads all values stored at a specific cell.
+	 * @param cell The cell position to read from
+	 * @param singleton Array to reuse for single values
+	 * @return Array containing all values at that position
+	 */
 	protected abstract int[] readCellValues(int cell, int[] singleton);
 	
 	@Override
@@ -341,6 +384,11 @@ public abstract class HashArray extends AbstractKmerTable {
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Finds the cell position of a k-mer in the hash table.
+	 * @param kmer The k-mer to find
+	 * @return Cell position, NOT_PRESENT if not found, or HASH_COLLISION if in victim cache
+	 */
 	final int findKmer(long kmer){
 		return findKmer(kmer, kmerToCell(kmer));
 	}
@@ -355,6 +403,11 @@ public abstract class HashArray extends AbstractKmerTable {
 		return HASH_COLLISION;
 	}
 	
+	/**
+	 * Finds a k-mer or the first empty cell suitable for storing it.
+	 * @param kmer The k-mer to find or place
+	 * @return Cell position of k-mer or empty cell, or HASH_COLLISION if no space available
+	 */
 	final int findKmerOrEmpty(long kmer){
 		int cell=kmerToCell(kmer);
 		for(final int max=cell+extra; cell<max; cell++){
@@ -515,6 +568,8 @@ public abstract class HashArray extends AbstractKmerTable {
 		}
 	}
 	
+	/** Returns the victim cache used for collision handling.
+	 * @return The HashForest victim cache */
 	public HashForest victims(){
 		return victims;
 	}
@@ -523,32 +578,53 @@ public abstract class HashArray extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Thread ownership tracking array for cells */
 	AtomicIntegerArray owners;
+	/** Main hash table array storing k-mers */
 	long[] array;
+	/** Current hash table size (should be prime) */
 	int prime;
+	/** Number of k-mers currently stored in main table */
 	long size=0;
+	/** Size threshold that triggers resizing */
 	long sizeLimit;
+	/** Victim cache for handling hash collisions */
 	final HashForest victims;
+	/** Whether automatic resizing is enabled */
 	final boolean autoResize;
+	/** Whether this table stores 2D values (arrays) */
 	public final boolean twoD;
+	/** Lock for thread synchronization during critical operations */
 	private final Lock lock=new ReentrantLock();
+	/** Mask for extracting core bits from k-mer for hashing */
 	private final long coreMask;//for ways
+	/** Secondary core mask for cell calculations */
 	private final long coreMask2;//for cells
 	
+	/** Advances to the next size in the resize schedule.
+	 * @return The next scheduled size for resizing */
 	protected int nextScheduleSize(){
 		if(schedulePos<schedule.length-1){schedulePos++;}
 		return schedule[schedulePos];
 	}
 	
+	/** Checks if the hash table has reached its maximum scheduled size.
+	 * @return true if at maximum size, false if further resizing is possible */
 	protected boolean atMaxSize(){
 		return schedulePos>=schedule.length-1;
 	}
 	
+	/** Array of sizes for automatic resizing schedule */
 	protected final int[] schedule;
+	/** Current position in the resize schedule */
 	private int schedulePos=0;
 	
+	/** Returns the internal k-mer storage array.
+	 * @return The long array storing k-mers */
 	public long[] array(){return array;}
 	
+	/** Returns the ownership tracking array.
+	 * @return The atomic integer array tracking thread ownership */
 	public AtomicIntegerArray owners() {return owners;}
 	@Override
 	final Lock getLock(){return lock;}
@@ -557,14 +633,23 @@ public abstract class HashArray extends AbstractKmerTable {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Initial divisor for victim cache size relative to main table */
 	final static int victimRatio=16; //Initial divisor for victim cache size; it self-resizes.
+	/** Number of extra cells allocated for linear probing */
 	final static int extra=60; //Amazingly, increasing this gave increasing returns past 300.  Old default was 21.  Could allow higher maxLoadFactorFinal and smaller victim cache.
+	/** Maximum prime number usable for hash table size */
 	final static int maxPrime=Primes.primeAtMost(Integer.MAX_VALUE-extra-20);
+	/** Minimum resize multiplier when growing the table */
 	final static float resizeMult=2f; //Resize by a minimum of this much; not needed for schedule
+	/** Minimum load factor after resizing */
 	final static float minLoadFactor=0.58f; //Resize by enough to get the load above this factor; not needed for schedule
+	/** Load factor threshold that triggers automatic resizing */
 	final static float maxLoadFactor=0.88f; //Reaching this load triggers resizing
+	/** Maximum load factor for final size without further resizing */
 	final static float maxLoadFactorFinal=0.95f; //Reaching this load triggers killing
+	/** Inverse of minimum load factor for calculations */
 	final static float minLoadMult=1/minLoadFactor;
+	/** Inverse of maximum load factor for calculations */
 	final static float maxLoadMult=1/maxLoadFactor;
 	
 }

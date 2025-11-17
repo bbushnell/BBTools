@@ -14,6 +14,8 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Program entry point for testing BGI header parsing.
+	 * @param args Command-line arguments; first argument used as test header */
 	public static void main(String[] args) {
 		BGIHeaderParser ihp=new BGIHeaderParser();
 		ihp.test(args.length>0 ? args[0] : null);
@@ -33,6 +35,12 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a BGI sequencing read header identifier.
+	 * Initializes the internal line parser with the provided header string.
+	 * @param id_ The BGI header string to parse
+	 * @return This parser instance for method chaining
+	 */
 	public BGIHeaderParser parse(String id_) {
 		id=id_;
 		lp.set(id_);
@@ -40,6 +48,14 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	}
 
 	//@LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG (NovaseqX)
+	/**
+	 * Converts the parsed BGI header to Illumina-style format.
+	 * Constructs a header string following Illumina conventions:
+	 * machine:run:flowcell:lane:tile:x:y pairCode:N:controlBits:barcode
+	 *
+	 * @param barcode Optional barcode sequence to append
+	 * @return Illumina-formatted header string
+	 */
 	public String toIllumina(String barcode) {
 		bb.clear();
 		bb.append(machine()).colon();
@@ -113,7 +129,9 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Line parser configured with BGI header delimiters "_LCR/\t" */
 	private final LineParserS4 lp=new LineParserS4("_LCR/\t");
+	/** String builder for constructing Illumina-formatted output headers */
 	private final ByteBuilder bb=new ByteBuilder(64);
 	
 }

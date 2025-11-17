@@ -18,6 +18,11 @@ import structures.IntList;
  */
 public final class Vector {
 
+	/**
+	 * Performance benchmark comparing scalar and SIMD implementations.
+	 * Tests sum and max operations on integer arrays using both execution paths.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args) {
 		int[] array=new int[19999];
 		for(int i=0; i<array.length; i++) {
@@ -108,6 +113,12 @@ public final class Vector {
 		return c;
 	}
 
+	/**
+	 * Executes forward propagation for a neural network layer.
+	 * Computes weighted sums, applies bias, and calculates activation values.
+	 * @param layer Array of neural network cells to update
+	 * @param valuesIn Input values from previous layer
+	 */
 	public static final void feedForward(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
 		if(Shared.SIMD && valuesIn.length>=MINLEN32) {
@@ -127,6 +138,12 @@ public final class Vector {
 		}
 	}
 
+	/**
+	 * Dense forward propagation with SIMD disabled due to discovered anomaly.
+	 * Identical to feedForward but forces scalar implementation for consistent results.
+	 * @param layer Array of neural network cells to update
+	 * @param valuesIn Input values from previous layer
+	 */
 	public static final void feedForwardDense(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
 		if(false && Shared.SIMD && valuesIn.length>=MINLEN32) {//Discovered anomaly here; very different results
@@ -146,6 +163,14 @@ public final class Vector {
 		}
 	}
 
+	/**
+	 * Backpropagation fused multiply-add for neural network training.
+	 * Computes error gradients using matrix multiplication between weights and errors.
+	 *
+	 * @param layer Layer cells to update with error gradients
+	 * @param eOverNetNext Error derivatives from next layer
+	 * @param weightsOutLnum Weight matrix connecting this layer to next layer
+	 */
 	public static void backPropFma(Cell[] layer, float[] eOverNetNext, float[][] weightsOutLnum) {
 		if(Shared.SIMD && eOverNetNext.length>=MINLEN32) {
 			SIMD.backPropFma(layer, eOverNetNext, weightsOutLnum);
@@ -168,6 +193,12 @@ public final class Vector {
 		for(int i=0; i<a.length; i++) {a[i]+=incr[i];}
 	}
 
+	/**
+	 * Computes sum of absolute differences between two float vectors.
+	 * @param a First vector
+	 * @param b Second vector
+	 * @return Sum of |a[i] - b[i]| for all elements
+	 */
 	public static final float absDifFloat(float[] a, float[] b){
 		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.absDifFloat(a, b);}
 		assert(a.length==b.length);
@@ -178,6 +209,15 @@ public final class Vector {
 		return (float)sum;
 	}
 
+	/**
+	 * GC-content compensation for k-mer frequency arrays.
+	 * Normalizes values based on GC content to reduce compositional bias.
+	 *
+	 * @param a Array of k-mer counts
+	 * @param k K-mer length
+	 * @param gcmap GC content mapping for each k-mer
+	 * @return GC-compensated frequency array
+	 */
 	public static float[] compensate(long[] a, int k, int[] gcmap) {
 		final float[] aSum=new float[k+1];
 		final float inv=1f/(k+1);
@@ -201,6 +241,15 @@ public final class Vector {
 		return comp;
 	}
 
+	/**
+	 * GC-content compensation for k-mer frequency arrays (integer version).
+	 * Normalizes values based on GC content to reduce compositional bias.
+	 *
+	 * @param a Array of k-mer counts
+	 * @param k K-mer length
+	 * @param gcmap GC content mapping for each k-mer
+	 * @return GC-compensated frequency array
+	 */
 	public static float[] compensate(int[] a, int k, int[] gcmap) {
 		final float[] aSum=new float[k+1];
 		final float inv=1f/(k+1);
@@ -226,6 +275,16 @@ public final class Vector {
 
 
 
+	/**
+	 * Computes GC-compensated absolute difference between two k-mer frequency arrays.
+	 * Applies GC normalization before calculating sum of absolute differences.
+	 *
+	 * @param a First k-mer frequency array
+	 * @param b Second k-mer frequency array
+	 * @param k K-mer length
+	 * @param gcmap GC content mapping for each k-mer
+	 * @return GC-compensated absolute difference (0-1 range)
+	 */
 	public static float absDifComp(long[] a, long[] b, int k, int[] gcmap) {
 		//    	if(Shared.SIMD && a.length>Vector.MINLEN32) {return SIMD.absDifComp(a, b, k, gcmap);}
 		float[] af=compensate(a, k, gcmap);
@@ -234,6 +293,12 @@ public final class Vector {
 		return Tools.mid(0, 1, (Float.isFinite(ret) && ret>0 ? ret : 0));
 	}
 
+	/**
+	 * Computes cosine difference (1 - cosine similarity) between two vectors.
+	 * @param a First vector
+	 * @param b Second vector
+	 * @return Cosine difference value (0 = identical, higher = more different)
+	 */
 	public static float cosineDifference(int[] a, int[] b) {
 		float inva=1f/Math.max(1, sum(a));
 		float invb=1f/Math.max(1, sum(b));
@@ -241,6 +306,16 @@ public final class Vector {
 		return (Float.isFinite(ret) && ret>0 ? ret : 0);
 	}
 
+	/**
+	 * Computes cosine similarity between two normalized vectors.
+	 * Uses pre-computed inverse normalization factors for efficiency.
+	 *
+	 * @param a First vector
+	 * @param b Second vector
+	 * @param inva Inverse normalization factor for vector a
+	 * @param invb Inverse normalization factor for vector b
+	 * @return Cosine similarity (1 = identical, 0 = orthogonal)
+	 */
 	public static float cosineSimilarity(int[] a, int[] b, float inva, float invb) {
 		assert(a.length==b.length);
 		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.cosineSimilarity(a, b, inva, invb);}
@@ -286,12 +361,24 @@ public final class Vector {
 		for(int i=0; i<a.length; i++) {a[i]+=b[bSet[i]]*mult;}
 	}
 
+	/**
+	 * Copies elements from source array to destination array.
+	 * Uses SIMD acceleration when enabled and arrays are large enough.
+	 * @param dest Destination array
+	 * @param source Source array
+	 */
 	public static void copy(float[] dest, float[] source) {
 		//		assert(a.length==b.length);
 		if(SIMDCOPY && Shared.SIMD && dest.length>=MINLEN32) {SIMD.copy(dest, source); return;}
 		for(int i=0, max=Tools.min(dest.length, source.length); i<max; i++) {dest[i]=source[i];}
 	}
 
+	/**
+	 * Copies elements from source array to destination array (integer version).
+	 * Currently uses scalar implementation only.
+	 * @param dest Destination array
+	 * @param source Source array
+	 */
 	public static void copy(int[] dest, int[] source) {
 		//		assert(a.length==b.length);
 		//		if(SIMDCOPY && Shared.SIMD && dest.length>=MINLEN32) {SIMD.copy(dest, source); return;}//TODO
@@ -324,6 +411,11 @@ public final class Vector {
 	}
 
 
+	/**
+	 * Computes sum of all elements in float array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static double sum(float[] array){//
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
@@ -332,6 +424,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in byte array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static long sum(byte[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN8) {return SIMDByte256.sum(array, 0, array.length-1);}
@@ -340,6 +437,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in char array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static long sum(char[] array){
 		if(array==null){return 0;}
 		//		if(Shared.SIMD && array.length>=SMINLEN) {return SIMD.sum(array, 0, array.length-1);}
@@ -348,6 +450,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in short array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static long sum(short[] array){
 		if(array==null){return 0;}
 		//		if(Shared.SIMD && array.length>=SMINLEN) {return SIMD.sum(array, 0, array.length-1);}
@@ -356,6 +463,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in int array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static long sum(int[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
@@ -364,6 +476,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in double array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static double sum(double[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
@@ -372,6 +489,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of all elements in long array.
+	 * @param array Array to sum
+	 * @return Sum of all elements, or 0 if array is null
+	 */
 	public static long sum(long[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
@@ -380,6 +502,14 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of elements in int array within specified range.
+	 *
+	 * @param array Array to sum
+	 * @param from Start index (inclusive)
+	 * @param to End index (inclusive)
+	 * @return Sum of elements in range, or 0 if array is null
+	 */
 	public static long sum(int[] array, int from, int to){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
@@ -388,6 +518,14 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Computes sum of elements in long array within specified range.
+	 *
+	 * @param array Array to sum
+	 * @param from Start index (inclusive)
+	 * @param to End index (inclusive)
+	 * @return Sum of elements in range, or 0 if array is null
+	 */
 	public static long sum(long[] array, int from, int to){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
@@ -396,6 +534,11 @@ public final class Vector {
 		return x;
 	}
 
+	/**
+	 * Finds maximum value in int array.
+	 * @param array Array to search
+	 * @return Maximum value, or 0 if array is null
+	 */
 	public static final int max(int[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
@@ -407,6 +550,11 @@ public final class Vector {
 		return max;
 	}
 
+	/**
+	 * Finds maximum value in float array.
+	 * @param array Array to search
+	 * @return Maximum value, or 0 if array is null
+	 */
 	public static final float max(float[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
@@ -418,6 +566,11 @@ public final class Vector {
 		return max;
 	}
 
+	/**
+	 * Finds maximum value in long array.
+	 * @param array Array to search
+	 * @return Maximum value, or 0 if array is null
+	 */
 	public static final long max(long[] array){
 		if(array==null){return 0;}
 		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.max(array, 0, array.length-1);}
@@ -919,12 +1072,25 @@ public final class Vector {
 		catch(Throwable e){return false;}
 	}
 
+	/** Minimum array length for 8-bit SIMD operations */
 	public static final int MINLEN8=8;//Due to dual SIMD
+	/** Minimum array length for 16-bit SIMD operations */
 	public static final int MINLEN16=16;
+	/** Minimum array length for 32-bit SIMD operations (optimized for 16) */
 	public static final int MINLEN32=16;//16 or 32 are optimal; 0, 24, and 48 are worse.
+	/** Minimum array length for 64-bit SIMD operations */
 	public static final int MINLEN64=8;
+	/**
+	 * Whether to use SIMD for copy operations (disabled due to power usage concerns)
+	 */
 	public static boolean SIMDCOPY=false;//Does not seem to affect speed, but could increase power usage.
+	/**
+	 * Whether to use SIMD for sparse multiplication (grants speedup, currently broken at ebs=1)
+	 */
 	public static boolean SIMD_MULT_SPARSE=true;//Grants a speedup, and same results (but currently broken at ebs=1)
+	/**
+	 * Whether to use SIMD for sparse FMA operations (grants speedup, slightly different results)
+	 */
 	public static boolean SIMD_FMA_SPARSE=true;//Grants a speedup, slightly different results
 	public static final boolean vectorLoaded=vectorLoaded();
 	public static final boolean simd256=simd256Avaliable();

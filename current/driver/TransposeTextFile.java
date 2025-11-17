@@ -3,8 +3,20 @@ package driver;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
 
+/**
+ * Transposes tab-delimited text files by converting rows to columns.
+ * Processes single files or multiple chromosome-numbered files using # placeholder.
+ * Optionally skips header lines and outputs transposed data to .transposed files.
+ * @author Brian Bushnell
+ */
 public class TransposeTextFile {
 	
+	/**
+	 * Program entry point for file transposition utility.
+	 * Processes files with chromosome numbering (1-22) if # placeholder is present,
+	 * otherwise processes single file. Second argument specifies lines to skip.
+	 * @param args Command-line arguments: [filename] [optional_skip_lines]
+	 */
 	public static void main(String[] args){
 		
 		int skipLines=args.length>1 ? Integer.parseInt(args[1]) : 0;
@@ -23,6 +35,14 @@ public class TransposeTextFile {
 		
 	}
 	
+	/**
+	 * Transposes a tab-delimited text file by converting rows to columns.
+	 * Reads entire file into memory, skips specified header lines, then writes
+	 * each column as a tab-separated row to .transposed output file.
+	 *
+	 * @param fname Input filename to transpose
+	 * @param skipLines Number of header lines to skip during transposition
+	 */
 	public static void process(String fname, int skipLines){
 		TextFile tf=new TextFile(fname, false);
 		String[] lines=tf.toStringLines();

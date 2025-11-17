@@ -15,6 +15,8 @@ public class SuperLongList {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates a SuperLongList with default array limit of 100,000.
+	 * Values 0-99,999 stored in array, values 100,000+ stored in list. */
 	public SuperLongList(){
 		this(100000);
 	}
@@ -32,9 +34,17 @@ public class SuperLongList {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the internal count array for small values */
 	public long[] array(){return array;}
+	/** Gets the internal LongList for large values */
 	public LongList list(){return list;}
 	
+	/**
+	 * Adds this histogram's counts to the provided count array.
+	 * Array values are added to their corresponding indices in ca.
+	 * List values are added as single counts at their value indices (clamped to ca.length-1).
+	 * @param ca Count array to receive accumulated counts
+	 */
 	public void addTo(long[] ca){
 		final int max=ca.length-1;
 		{
@@ -80,8 +90,17 @@ public class SuperLongList {
 		sum+=x;
 		count++;
 	}
+	/** Alias for add(long x) - adds a single value to the histogram */
 	public void increment(long x){add(x);}
 	
+	/**
+	 * Increments the count for value x by the specified amount.
+	 * For array values, adds amt to array[x]. For list values, adds x to list amt times.
+	 * Updates total count and sum statistics.
+	 *
+	 * @param x Value to increment
+	 * @param amt Amount to increment by (must be non-negative)
+	 */
 	public void increment(long x, long amt){
 		assert(amt>=0) : "SLL does not support decrements.";
 		if(x<limit){array[(int)x]+=amt;}
@@ -92,6 +111,12 @@ public class SuperLongList {
 		count+=amt;
 	}
 	
+	/**
+	 * Merges another SuperLongList into this one.
+	 * If array lengths match, uses fast array addition and list appending.
+	 * Otherwise uses slower generic addition of counts and values.
+	 * @param sllT SuperLongList to merge into this one
+	 */
 	public void add(SuperLongList sllT){
 		if(array.length==sllT.array.length){//Fast, expected case
 			assert(array.length==sllT.array.length) : "Array lengths must match.";
@@ -106,8 +131,12 @@ public class SuperLongList {
 			add(sllT.list);
 		}
 	}
+	/**
+	 * Alias for add(SuperLongList sllT) - merges another SuperLongList into this one
+	 */
 	public void incrementBy(SuperLongList sllT) {add(sllT);}
 	
+	/** Sorts the list portion for operations requiring sorted order */
 	public void sort() {
 		list.sort();
 //		sorted=true;
@@ -117,6 +146,11 @@ public class SuperLongList {
 	/*----------------          Statistics          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calculates the standard deviation of all values in the histogram.
+	 * Computes variance across both array and list portions weighted by counts.
+	 * @return Standard deviation of the histogram values
+	 */
 	public double stdev(){
 		final long div=Tools.max(1, count);
 		double avg=sum/(double)div;
@@ -252,6 +286,12 @@ public class SuperLongList {
 	}
 	
 	//Slow, avoid using
+	/**
+	 * Returns the maximum value in the histogram.
+	 * Checks list maximum first, then scans array backwards for highest non-zero count.
+	 * Performance warning: slow operation, avoid frequent use.
+	 * @return Maximum value present in the histogram
+	 */
 	public long max(){
 		if(list.size>0){return list.max();}
 		for(int i=array.length-1; i>=0; i--){
@@ -260,14 +300,24 @@ public class SuperLongList {
 		return 0;
 	}
 	
+	/** Calculates the arithmetic mean of all values in the histogram.
+	 * @return Mean value (sum divided by count) */
 	public double mean(){
 		return sum/Tools.max(1.0, count);
 	}
 	
+	/** Returns the median value (50th percentile by count).
+	 * @return Median value of the histogram */
 	public long median(){
 		return percentileValueByCount(0.5);
 	}
 	
+	/**
+	 * Returns the mode (most frequently occurring value) of the histogram.
+	 * For array portion, finds index with highest count.
+	 * For list portion, requires sorting to count consecutive identical values.
+	 * @return Most frequently occurring value
+	 */
 	public long mode(){
 		long maxCount=0;
 		long maxValue=0;
@@ -326,18 +376,27 @@ public class SuperLongList {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the total count of all values added to the histogram */
 	public long count() {return count;}
+	/** Gets the total sum of all values added to the histogram */
 	public long sum() {return sum;}
 	
+	/** Total count of all values added to the histogram */
 	private long count;
+	/** Total sum of all values added to the histogram */
 	private long sum;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing counts for small values (0 to limit-1) */
 	final long[] array;
+	/** List storing individual occurrences of large values (limit and above) */
 	final LongList list;
+	/**
+	 * Threshold value separating array storage (below) from list storage (at/above)
+	 */
 	final int limit;
 	
 }

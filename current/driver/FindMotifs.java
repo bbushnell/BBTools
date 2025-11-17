@@ -10,9 +10,21 @@ import dna.MotifProbsN;
 import shared.Shared;
 
 
+/**
+ * Analyzes DNA motifs in genomic sequences to identify gene start sites.
+ * Uses probabilistic motif models to scan chromosomes and detect likely
+ * gene start locations based on sequence patterns and scoring thresholds.
+ * @author Brian Bushnell
+ */
 public class FindMotifs {
 	
 	
+	/**
+	 * Main entry point for motif analysis.
+	 * Creates motif probability matrices and analyzes chromosomes to find
+	 * gene start sites that match the motif patterns above threshold.
+	 * @param args Command line arguments, first argument specifies chromosome number
+	 */
 	public static void main(String[] args){
 		
 		int chrom=1;
@@ -143,6 +155,16 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Analyzes gene start sites on a chromosome using a motif model.
+	 * Scans regions around known gene starts to find motif matches above threshold.
+	 *
+	 * @param chrom Chromosome number to analyze
+	 * @param m Motif model to use for scoring
+	 * @param list Output list to store relative positions of motif matches
+	 * @param strand DNA strand to analyze (plus or minus)
+	 * @return Number of gene start sites analyzed
+	 */
 	public static long analyzeChromosomeGStarts(int chrom, Motif m, ArrayList<Integer> list, byte strand){
 		GeneSet[] genes=Data.getGeneSets(chrom);
 		assert(strand==Shared.PLUS) : "TODO";
@@ -177,6 +199,17 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Analyzes gene starts using stronger scoring criteria.
+	 * Finds motif matches that score equal to or better than the actual gene start position.
+	 *
+	 * @param chrom Chromosome number to analyze
+	 * @param m Motif model to use for scoring
+	 * @param list Output list for relative positions of motif matches
+	 * @param listBeat Output list for positions of first matches that beat the gene start
+	 * @param strand DNA strand to analyze
+	 * @return Number of gene start sites analyzed
+	 */
 	public static long analyzeChromosomeGStartsStronger(int chrom, Motif m, ArrayList<Integer> list, ArrayList<Integer> listBeat, byte strand){
 		GeneSet[] genes=Data.getGeneSets(chrom);
 		assert(strand==Shared.PLUS) : "TODO";
@@ -225,6 +258,18 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Analyzes gene starts with frame-specific scoring.
+	 * Only considers positions in specific reading frames relative to the gene start.
+	 *
+	 * @param chrom Chromosome number to analyze
+	 * @param m Motif model to use for scoring
+	 * @param list Output list for relative positions of motif matches
+	 * @param listBeat Output list for positions that beat the gene start score
+	 * @param in If true, analyze in-frame positions (i%3==0), else frame-shifted (i%3==1)
+	 * @param strand DNA strand to analyze
+	 * @return Number of gene start sites analyzed
+	 */
 	public static long analyzeChromosomeGStartsStrongerInFrame(int chrom, Motif m, ArrayList<Integer> list, ArrayList<Integer> listBeat, boolean in, byte strand){
 		GeneSet[] genes=Data.getGeneSets(chrom);
 		assert(strand==Shared.PLUS) : "TODO";
@@ -279,6 +324,14 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Calculates normalized motif match strength at a specific genomic position.
+	 *
+	 * @param point Position in the chromosome array to analyze
+	 * @param m Motif model to use for scoring
+	 * @param ca Chromosome array containing sequence data
+	 * @return Normalized motif match strength score
+	 */
 	public static float analyze(int point, Motif m, ChromosomeArray ca){
 		
 		float f=m.matchStrength(ca.array, point);
@@ -287,6 +340,12 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Pads a string with leading spaces to reach specified length.
+	 * @param s Input string to pad
+	 * @param len Target length after padding
+	 * @return String padded with leading spaces
+	 */
 	private static String padFront(String s, int len){
 		int spaces=len-s.length();
 		for(int i=0; i<spaces; i++){
@@ -295,12 +354,24 @@ public class FindMotifs {
 		return s;
 	}
 	
+	/**
+	 * Swaps two elements in a long array.
+	 * @param a Array containing elements to swap
+	 * @param x Index of first element
+	 * @param y Index of second element
+	 */
 	public static void swap(long[] a, int x, int y){
 		long temp=a[x];
 		a[x]=a[y];
 		a[y]=temp;
 	}
 	
+	/**
+	 * Swaps two elements in a character array.
+	 * @param a Array containing elements to swap
+	 * @param x Index of first element
+	 * @param y Index of second element
+	 */
 	public static void swap(char[] a, int x, int y){
 		char temp=a[x];
 		a[x]=a[y];
@@ -308,9 +379,13 @@ public class FindMotifs {
 	}
 	
 	
+	/**
+	 * Minimum motif match strength threshold for considering a match significant
+	 */
 	public static float THRESH=.2f;
 	
 	
+	/** Counter tracking total number of motif analyses performed */
 	public static long analyses=0;
 	
 	
@@ -347,13 +422,27 @@ public class FindMotifs {
 	/** Exon start using AC */
 	public static final int ESTARTAC=9;
 	
+	/** Maximum distance upstream from gene start to search for motifs */
 	private static final int CLEN=200;
 
+	/** Global list storing relative positions where motifs were found */
 	public static ArrayList<Integer> locations=new ArrayList<Integer>();
 	
 	
 
+	/**
+	 * Returns the smaller of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return The smaller value
+	 */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/**
+	 * Returns the larger of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return The larger value
+	 */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 }

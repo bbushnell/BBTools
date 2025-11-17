@@ -13,8 +13,19 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.StringNum;
 
+/**
+ * Client for querying taxonomic information from remote taxonomy server.
+ * Converts GI numbers, accession IDs, and organism names to taxonomic IDs.
+ * Supports both single queries and batch processing for efficiency.
+ * @author Brian Bushnell
+ */
 public class TaxClient {
 	
+	/**
+	 * Program entry point for taxonomic ID lookup queries.
+	 * Parses command-line arguments and processes taxonomic queries in batch or individual mode.
+	 * @param args Command-line arguments specifying query parameters and options
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		{//Preparse block for help, config files, and outstream
@@ -112,30 +123,57 @@ public class TaxClient {
 		t.stopAndPrint();
 	}
 	
+	/**
+	 * Converts a single accession ID to taxonomic ID using default server.
+	 * @param accession The accession identifier to look up
+	 * @return Taxonomic ID, or -1 if not found or invalid response
+	 */
 	public static int accessionToTaxid(String accession){
 		String s=sendAndReceive("pt/accession/",accession);
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return -1;}
 		return Integer.parseInt(s);
 	}
 	
+	/**
+	 * Converts a single accession ID to taxonomic ID using specified server.
+	 * @param path Server path/URL to query
+	 * @param accession The accession identifier to look up
+	 * @return Taxonomic ID, or -1 if not found or invalid response
+	 */
 	public static int accessionToTaxidSpecificServer(String path, String accession){
 		String s=sendAndReceiveSpecificServer(path,"pt/accession/",accession);
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return -1;}
 		return Integer.parseInt(s);
 	}
 	
+	/**
+	 * Converts a GI number to taxonomic ID.
+	 * @param gi The GI number to look up
+	 * @return Taxonomic ID, or -1 if not found or invalid response
+	 */
 	public static int giToTaxid(int gi){
 		String s=sendAndReceive("pt/gi/",Integer.toString(gi));
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return -1;}
 		return Integer.parseInt(s);
 	}
 	
+	/**
+	 * Converts an organism name to taxonomic ID.
+	 * Spaces in the name are replaced with underscores before lookup.
+	 * @param name The organism name to look up
+	 * @return Taxonomic ID, or -1 if not found or invalid response
+	 */
 	public static int nameToTaxid(String name){
 		String s=sendAndReceive("pt/name/",name.replace(' ', '_'));
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return -1;}
 		return Integer.parseInt(s);
 	}
 	
+	/**
+	 * Converts a sequence header to taxonomic ID.
+	 * @param header The sequence header to look up
+	 * @return Taxonomic ID, or -1 if not found or invalid response
+	 */
 	public static int headerToTaxid(String header){
 		String s=sendAndReceive("pt/name/",header);
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return -1;}
@@ -143,48 +181,95 @@ public class TaxClient {
 	}
 	
 	
+	/**
+	 * Converts comma-separated accession IDs to array of taxonomic IDs.
+	 * @param accession Comma-separated accession identifiers
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] accessionToTaxidArray(String accession){
 		String s=sendAndReceive("pt/accession/",accession);
 //		System.err.println("Sent "+accession+"\nReceived "+s);
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts comma-separated GI numbers to array of taxonomic IDs.
+	 * @param gi Comma-separated GI numbers as string
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] giToTaxidArray(String gi){
 		String s=sendAndReceive("pt/gi/",gi);
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts comma-separated organism names to array of taxonomic IDs.
+	 * Spaces in names are replaced with underscores before lookup.
+	 * @param name Comma-separated organism names
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] nameToTaxidArray(String name){
 		String s=sendAndReceive("pt/name/",name.replace(' ', '_'));
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts comma-separated sequence headers to array of taxonomic IDs.
+	 * @param header Comma-separated sequence headers
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] headerToTaxidArray(String header){
 		String s=sendAndReceive("pt/header/",header);
 		return splitOutput(s);
 	}
 	
 	
+	/**
+	 * Converts list of accession IDs to array of taxonomic IDs.
+	 * @param accession List of accession identifiers
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] accessionToTaxidArray(ArrayList<String> accession){
 		String s=sendAndReceive("pt/accession/",fuse(accession));
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts list of GI numbers to array of taxonomic IDs.
+	 * @param gi List of GI numbers
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] giToTaxidArray(ArrayList<Integer> gi){
 		String s=sendAndReceive("pt/gi/",fuse(gi));
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts list of organism names to array of taxonomic IDs.
+	 * Spaces in names are replaced with underscores before lookup.
+	 * @param name List of organism names
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] nameToTaxidArray(ArrayList<String> name){
 		String s=sendAndReceive("pt/name/",fuse(name).replace(' ', '_'));
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Converts list of sequence headers to array of taxonomic IDs.
+	 * @param header List of sequence headers
+	 * @return Array of taxonomic IDs, or null if invalid response
+	 */
 	public static int[] headerToTaxidArray(ArrayList<String> header){
 		String s=sendAndReceive("pt/header/",fuse(header));
 		return splitOutput(s);
 	}
 	
+	/**
+	 * Parses comma-separated taxonomic IDs from server response.
+	 * @param s Server response containing comma-separated taxonomic IDs
+	 * @return Array of parsed taxonomic IDs, or null if invalid format
+	 */
 	private static final int[] splitOutput(String s){
 		if(s==null || s.length()<1 || !Tools.isDigitOrSign(s.charAt(0))){return null;}
 		String[] split=s.split(",");
@@ -195,11 +280,26 @@ public class TaxClient {
 		return ret;
 	}
 	
+	/**
+	 * Sends query to default taxonomy server and receives response.
+	 * @param prefix URL prefix for the query type
+	 * @param message Query message to send
+	 * @return Server response string, or null if communication failed
+	 */
 	private static final String sendAndReceive(String prefix, String message){
 		String path=Shared.taxServer();
 		return sendAndReceiveSpecificServer(path, prefix, message);
 	}
 	
+	/**
+	 * Sends query to specified taxonomy server with retry logic.
+	 * Retries up to 12 times with exponential backoff starting at 200ms.
+	 *
+	 * @param path Server URL path
+	 * @param prefix URL prefix for the query type
+	 * @param message Query message to send
+	 * @return Server response string, or null if all retries failed
+	 */
 	private static final String sendAndReceiveSpecificServer(String path, String prefix, String message){
 		String response=null;
 		for(int i=0, millis=200; i<12 && (response==null || response.length()==0); i++) {
@@ -217,11 +317,26 @@ public class TaxClient {
 		return response;
 	}
 	
+	/**
+	 * Sends single query to default taxonomy server without retries.
+	 * @param prefix URL prefix for the query type
+	 * @param message Query message to send
+	 * @return Server response string, or null if communication failed
+	 */
 	private static String sendAndReceiveOnce(String prefix, String message){
 		String path=Shared.taxServer();
 		return sendAndReceiveOnceSpecificServer(path, prefix, message);
 	}
 	
+	/**
+	 * Sends single query to specified server using GET or POST based on message length.
+	 * Uses GET for messages under 2000 characters, POST for longer messages.
+	 *
+	 * @param path Server URL path
+	 * @param prefix URL prefix for the query type
+	 * @param message Query message to send
+	 * @return Server response string, or null if communication failed
+	 */
 	private static String sendAndReceiveOnceSpecificServer(String path, String prefix, String message){
 		final String response;
 		if(message.length()<2000){//NERSC Apache limit is around 8kb
@@ -238,6 +353,11 @@ public class TaxClient {
 		return response;
 	}
 	
+	/**
+	 * Concatenates ArrayList elements into comma-separated string.
+	 * @param list ArrayList of objects to concatenate
+	 * @return Comma-separated string representation, or null if list is null/empty
+	 */
 	private static String fuse(ArrayList<?> list){
 		if(list==null || list.size()<0){return null;} //Possible bug: size() is never negative
 		StringBuilder sb=new StringBuilder();
@@ -248,7 +368,9 @@ public class TaxClient {
 		return sb.toString();
 	}
 	
+	/** Output stream for results, defaults to System.err */
 	public static PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
 	
 }

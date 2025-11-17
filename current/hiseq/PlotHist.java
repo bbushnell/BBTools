@@ -196,6 +196,12 @@ public class PlotHist {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * First pass through the data to determine maximum values for each column
+	 * and parse the header. Resets the ByteFile position for subsequent processing.
+	 * Initializes the countMatrix based on discovered data structure.
+	 * @param bf ByteFile containing the input data to analyze
+	 */
 	private void gatherData(ByteFile bf) {
 		byte[] line=bf.nextLine();
 		
@@ -222,6 +228,12 @@ public class PlotHist {
 		countMatrix=new long[terms][bins+1];
 	}
 	
+	/**
+	 * Second pass through the data to populate histogram bins. Parses each data
+	 * line, calculates appropriate bin indices based on normalized values, and
+	 * increments count matrix accordingly.
+	 * @param bf ByteFile containing the input data to process
+	 */
 	private void processInner(ByteFile bf){
 		gatherData(bf);
 		
@@ -252,6 +264,11 @@ public class PlotHist {
 		}
 	}
 	
+	/**
+	 * Writes histogram data to separate TSV files for each column. Each output
+	 * file contains bin start values and corresponding counts, with filenames
+	 * based on column headers.
+	 */
 	private void writeData() {
 		ByteBuilder bb=new ByteBuilder();
 		for(int term=0; term<terms; term++) {
@@ -282,9 +299,13 @@ public class PlotHist {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of lines processed from input */
 	private long linesProcessed=0;
+	/** Count of lines written to output */
 	private long linesOut=0;
+	/** Count of bytes processed from input */
 	private long bytesProcessed=0;
+	/** Count of bytes written to output */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
@@ -294,10 +315,15 @@ public class PlotHist {
 	/** Input File */
 	private final FileFormat ffin1;
 	
+	/** Column headers from input file */
 	String[] header;
+	/** Matrix storing histogram counts for each column and bin */
 	long[][] countMatrix;
+	/** Maximum values for each column used for bin normalization */
 	double[] maxArray;
+	/** Number of histogram bins to generate */
 	int bins=1000;
+	/** Number of columns in the input data */
 	int terms=0;
 	
 	/*--------------------------------------------------------------*/

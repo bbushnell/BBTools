@@ -28,6 +28,7 @@ public class GlocalAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for GlocalAligner instances */
 	public GlocalAligner() {}
 	
 	/*--------------------------------------------------------------*/
@@ -218,9 +219,14 @@ public class GlocalAligner implements IDAligner{
 		return id;
 	}
 	
+	/** Thread-safe counter tracking total alignment loops performed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns the total number of alignment loops performed across all threads */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -228,26 +234,41 @@ public class GlocalAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits used to encode position information (21 bits) */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used to encode deletion count information (21 bits) */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for score encoding (42 bits) */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw score from packed scores */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases (+1 in upper bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 in upper bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in upper bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in upper bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base matches (0) */
 	private static final long N_SCORE=0L;
+	/** Invalid score marker for out-of-bounds calculations */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty and position increment for tracking deletions */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
+	/** Flag determining global vs local alignment mode */
 	public static boolean GLOBAL=false;
 
 }

@@ -25,6 +25,12 @@ import stream.SamLine;
 public final class BBMapAcc extends AbstractMapper  {
 	
 
+	/**
+	 * Program entry point for BBMapAcc alignment tool.
+	 * Initializes mapper, loads index, processes ambiguous mappings if needed,
+	 * executes alignment, and reports timing statistics.
+	 * @param args Command-line arguments for alignment parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMapAcc mapper=new BBMapAcc(args);
@@ -38,6 +44,8 @@ public final class BBMapAcc extends AbstractMapper  {
 		clearStatics();
 	}
 	
+	/** Constructs BBMapAcc mapper with command-line arguments.
+	 * @param args Command-line arguments for configuration */
 	public BBMapAcc(String[] args){
 		super(args);
 	}

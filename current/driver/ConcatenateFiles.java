@@ -11,8 +11,22 @@ import fileIO.TextFile;
 import fileIO.TextStreamWriter;
 import shared.Timer;
 
+/**
+ * Utility for concatenating multiple files into a single output file.
+ * Supports both directory-based concatenation and pattern-based sequence file merging.
+ * Provides binary file copying for general use and specialized FASTA processing.
+ * @author Brian Bushnell
+ */
 public class ConcatenateFiles {
 	
+	/**
+	 * Program entry point for file concatenation operations.
+	 * Routes to directory concatenation if input path is a directory,
+	 * otherwise performs pattern-based concatenation for sequence files.
+	 *
+	 * @param args Command-line arguments where args[0] is input path/pattern
+	 * and args[1] is optional output path
+	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();

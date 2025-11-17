@@ -9,6 +9,14 @@ import fileIO.TextFile;
  */
 public class FindString {
 	
+	/**
+	 * Program entry point that performs text search operation.
+	 * Takes a filename as the first argument followed by one or more search strings.
+	 * Reads the file line by line and prints any lines containing at least one search string.
+	 *
+	 * @param args Command-line arguments where args[0] is the filename and
+	 * args[1...n] are search strings
+	 */
 	public static void main(String[] args){
 		String fname=args[0];
 		TextFile tf=new TextFile(fname, true);

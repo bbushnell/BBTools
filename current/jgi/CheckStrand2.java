@@ -864,6 +864,11 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		errorState=bsw.poisonAndWait() | errorState;
 	}
 	
+	/**
+	 * Calculates strandedness statistics across genomic bins.
+	 * Analyzes strand bias in fixed-size windows across reference sequences.
+	 * @return Array containing various strandedness metrics or null if no bin data
+	 */
 	double[] binStrandedness() {
 		if(binMap==null || binMap.isEmpty()) {return null;}
 		long binsAligned=0;
@@ -905,6 +910,11 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		return new double[] {strandedness, strandednessN, strandednessS, strandednessNS};
 	}
 	
+	/**
+	 * Outputs per-sequence strandedness statistics to a report file.
+	 * Generates detailed statistics for each reference sequence individually.
+	 * @param fname Output file path for per-sequence report (null to skip)
+	 */
 	void binStrandednessPerSequence(String fname) {
 		if(binMap==null || binMap.isEmpty() || fname==null) {return;}
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, true);
@@ -962,6 +972,15 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Thread-safely increments strand counts for a specific gene.
+	 * Updates plus or minus strand counters in the gene mapping data structure.
+	 *
+	 * @param gene Gene identifier (null values are ignored)
+	 * @param map Thread-safe map containing gene strand counts
+	 * @param senseStrand Strand indicator (0 for plus, non-zero for minus)
+	 * @param amt Amount to increment the counter
+	 */
 	void incrementGeneMap(String gene, ConcurrentHashMap<String, LongPair> map, int senseStrand, int amt){
 		if(gene==null) {return;}
 		LongPair pair=map.get(gene);
@@ -975,6 +994,16 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Thread-safely increments strand counts for a genomic bin.
+	 * Updates positional strand statistics for fixed-size genomic windows.
+	 *
+	 * @param gene Sequence/scaffold identifier (null values are ignored)
+	 * @param map Thread-safe map containing sequence bin data
+	 * @param pos Genomic position for bin calculation
+	 * @param strand Strand indicator (0 for plus, non-zero for minus)
+	 * @param amt Amount to increment the counter
+	 */
 	void incrementBinMap(String gene, ConcurrentHashMap<String, Seq> map, int pos, int strand, int amt){
 		if(gene==null || map==null) {return;}
 		Seq seq=map.get(gene);
@@ -986,6 +1015,15 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		increment(seq.bins, idx, strand, amt);
 	}
 	
+	/**
+	 * Thread-safely increments strand counts in a bin array.
+	 * Extends the array if needed and initializes new bins.
+	 *
+	 * @param list Array of bin counters to update
+	 * @param idx Bin index to increment
+	 * @param strand Strand indicator (0 for plus, non-zero for minus)
+	 * @param amt Amount to increment the counter
+	 */
 	void increment(ArrayList<LongPair> list, int idx, int strand, int amt) {
 		LongPair bin;
 		synchronized(list) {
@@ -1281,6 +1319,12 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			
 		}
 		
+		/**
+		 * Legacy gene scoring method using k-mer enrichment analysis.
+		 * Scores reads against CDS, 16S, and 5S models on both strands.
+		 * Deprecated in favor of proper gene calling approach.
+		 * @param r Read sequence to score
+		 */
 		@Deprecated
 		/** 
 		 * Old version; just looked at enriched interior kmers instead of
@@ -1474,15 +1518,29 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	
 	static class Seq {
 		
+		/**
+		 * Creates a sequence scaffold record with strand counting bins.
+		 * @param name_ Scaffold/sequence name
+		 * @param len_ Scaffold length in bases
+		 */
 		public Seq(String name_, int len_) {
 			name=name_;
 			len=len_;
 		}
 		
+		/** Sequence/scaffold name identifier */
 		String name;
+		/** Length of sequence/scaffold in bases */
 		int len;
+		/** Array of genomic bins containing plus/minus strand read counts */
 		ArrayList<LongPair> bins=new ArrayList<LongPair>(1);
 		
+		/**
+		 * Parses SAM header to extract scaffold names and lengths.
+		 * Creates sequence records for genomic bin analysis.
+		 * @param ff FileFormat pointing to SAM/BAM file
+		 * @return Map of scaffold names to Seq objects with length information
+		 */
 		public static ConcurrentHashMap<String, Seq> loadSamHeader(FileFormat ff){
 			ConcurrentHashMap<String, Seq> map=new ConcurrentHashMap<String, Seq>();
 			ByteFile bf=ByteFile.makeByteFile(ff);
@@ -1514,15 +1572,23 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file for first read set */
 	private String qfin1=null;
+	/** Quality file for second read set */
 	private String qfin2=null;
 
+	/** Reference genome or transcriptome FASTA file path */
 	String fna=null;
+	/** GFF annotation file path for gene feature definitions */
 	String gff=null;
+	/** Prokaryotic gene model file path for gene calling */
 	String pgmFile=null;
+	/** Comma-separated list of GFF feature types to analyze */
 	private String types="CDS,rRNA,tRNA,ncRNA,exon,5S,16S,23S";
+	/** Parsed GFF annotation lines for feature mapping */
 	private ArrayList<GffLine> gffLines=null;
 	
+	/** Map of scaffold names to binned strand count data */
 	private ConcurrentHashMap<String, Seq> binMap;
 	
 	//TODO:
@@ -1547,11 +1613,13 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** File path for per-scaffold strandedness report */
 	private String scaffoldReport=null;
 	
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 	
+	/** Length of genomic bins for positional strand analysis */
 	private int binlen=0;
 	
 	/*--------------------------------------------------------------*/
@@ -1566,74 +1634,124 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** Number of bases processed */
 	protected long basesProcessed=0;
 	
+	/** Number of paired reads successfully merged */
 	protected long readsMerged=0;
 
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Fraction of input reads to sample for analysis (1.0 = all reads) */
 	private float samplerate=1;
+	/** Random seed for reproducible read sampling */
 	private long sampleseed=17;
+	/** Target size for k-mer sketches used in analysis */
 	private int sketchSize=80000;
 	
+	/** Minimum entropy threshold for k-mer inclusion in sketches */
 	private float minEntropy=0;
+	/** Minimum probability threshold for k-mer sketch inclusion */
 	private float minProb=0;
+	/** Minimum quality score for bases to include in k-mer analysis */
 	private byte minQual=0;
+	/** Whether to merge overlapping paired reads before analysis */
 	private boolean mergePairs=false;
+	/** Whether to perform k-mer depth-based strand analysis */
 	private final boolean doDepthAnalysis=true;
+	/** Whether to perform stop codon distribution analysis */
 	private boolean doStopAnalysis=true;
+	/** Whether to analyze poly-A tail patterns for strand detection */
 	private boolean testPolyA=true;
 	
+	/** Reference gene sequences for transcriptome comparison */
 	private ArrayList<Read> genes;
 	
+	/** Sketch tool for canonical k-mer analysis */
 	private SketchTool canonTool;
+	/** Sketch tool for forward-only k-mer analysis */
 	private SketchTool fwdTool;
 	
+	/** Accumulated canonical k-mer sketch heap from all threads */
 	private SketchHeap canonHeap=null;
+	/** Accumulated forward k-mer sketch heap from all threads */
 	private SketchHeap fwdHeap=null;
 	
+	/** Final canonical k-mer sketch for read data */
 	private Sketch canonSketch=null;
+	/** Final forward k-mer sketch for read data */
 	private Sketch fwdSketch=null;
 
+	/** Canonical k-mer sketch from reference genes */
 	private Sketch canonGeneSketch=null;
+	/** Plus-strand k-mer sketch from reference genes */
 	private Sketch plusSketch=null;
+	/** Minus-strand k-mer sketch from reference genes */
 	private Sketch minusSketch=null;
 
+	/** Total count of stop codons found on forward strand */
 	private long fCountSum=0;
+	/** Total count of stop codons found on reverse strand */
 	private long rCountSum=0;
+	/** Sum of longest ORF lengths on forward strand */
 	private long fPosSum=0;
+	/** Sum of longest ORF lengths on reverse strand */
 	private long rPosSum=0;
 
+	/** Whether to use first ORF position instead of longest ORF for analysis */
 	private boolean useFirstORF=false;
+	/** Counts of reads with best ORF in each forward reading frame */
 	private final long[] fBestFrame=new long[3];
+	/** Counts of reads with best ORF in each reverse reading frame */
 	private final long[] rBestFrame=new long[3];
+	/** Counts of each nucleotide (A, C, G, T) across all processed reads */
 	private final long[] ACGTCount=new long[4];
 	
+	/** Count of reads with terminal poly-A sequences */
 	private long polyACount=0;
+	/** Count of reads with terminal poly-T sequences */
 	private long polyTCount=0;
+	/** Minimum length of poly-A/T sequence required for detection */
 	private int minPolyA=6;
 
+	/** Count of reads where gene caller favored plus strand */
 	private long gCallerPlusCount=0;
+	/** Count of reads where gene caller favored minus strand */
 	private long gCallerMinusCount=0;
+	/** Count of reads with positive-scoring genes called on plus strand */
 	private long gCallerPlusCalled=0;
+	/** Count of reads with positive-scoring genes called on minus strand */
 	private long gCallerMinusCalled=0;
+	/** Cumulative gene calling scores for plus strand */
 	private double gCallerPlusScore=0;
+	/** Cumulative gene calling scores for minus strand */
 	private double gCallerMinusScore=0;
 	
+	/** Count of reads aligned to plus-strand features */
 	private long plusAlignedReads=0;
+	/** Count of reads aligned to minus-strand features */
 	private long minusAlignedReads=0;
+	/** Total count of aligned reads regardless of strand assignment */
 	private long allAlignedReads=0;
+	/** Total number of SAM alignment lines processed */
 	private long samLinesProcessed=0;
+	/** Number of SAM lines successfully mapped to annotated features */
 	private long samLinesAlignedToFeatures=0;
 	
 	//Possibly should change this to scoring the best orf per strand
 	//This gave the wrong answer for a metatranscriptome
+	/** Whether to perform gene calling analysis on individual reads */
 	private boolean scoreReadGenes=true;
+	/** Prokaryotic gene model used for gene calling operations */
 	private final GeneModel pgm;
+	/** Gene caller instance for identifying coding sequences */
 	private final GeneCaller gCaller;
+	/** Number of passes for refining gene models from reference data */
 	private int passes=2;
+	/** Whether to stream genome data instead of loading entirely into memory */
 	private boolean streamGenome=false;
+	/** Cached genome sequences to avoid repeated file loading */
 	private ArrayList<Read> genomeSequenceCache=null;
 
+	/** Thread-safe map of gene names to plus/minus strand read counts */
 	ConcurrentHashMap<String, LongPair> geneMap=new ConcurrentHashMap<String, LongPair>();
 	
 	/** Whether the input reference is a transcriptome or genome */
@@ -1641,7 +1759,9 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/** True for unknown sense contigs from RNA-seq data */
 	private boolean rnaContigs=false;
 	
+	/** Whether to normalize results for sequence composition bias */
 	private boolean normalize=false;
+	/** Minimum read count required for calculating strandedness statistics */
 	private int minReads=2;//Don't calculate strandedness from fewer reads
 	
 	/*--------------------------------------------------------------*/
@@ -1658,6 +1778,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock implementation for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

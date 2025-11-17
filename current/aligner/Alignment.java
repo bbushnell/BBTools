@@ -3,8 +3,18 @@ package aligner;
 import prok.GeneCaller;
 import stream.Read;
 
+/**
+ * Creates an Alignment wrapper for a Read object integrating with SingleStateAlignerFlat2
+ * backend for high-level alignment operations with caching and sorting capabilities.
+ * Stores alignment results including identity score, match string, and position coordinates.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class Alignment implements Comparable<Alignment>{
 	
+	/** Creates an Alignment wrapper for the specified Read object.
+	 * @param r_ The Read object to wrap for alignment operations */
 	public Alignment(Read r_){
 		r=r_;
 	}
@@ -14,6 +24,14 @@ public class Alignment implements Comparable<Alignment>{
 		return id>o.id ? 1 : id<o.id ? -1 : r.length()>o.r.length() ? 1 : r.length()<o.r.length() ? -1 : 0;
 	}
 	
+	/**
+	 * Aligns the wrapped read against the reference sequence and caches results.
+	 * Uses SingleStateAlignerFlat2 for alignment computation and stores identity,
+	 * match string, and position coordinates in instance variables.
+	 *
+	 * @param ref Reference sequence to align against
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	public float align(byte[] ref){
 		id=align(r, ref);
 		match=r.match;
@@ -22,6 +40,15 @@ public class Alignment implements Comparable<Alignment>{
 		return id;
 	}
 	
+	/**
+	 * Static alignment method performing complete alignment pipeline using SingleStateAlignerFlat2.
+	 * Executes fillUnlimited matrix computation, score boundary calculation, and traceback
+	 * generation to compute precise identity and update Read position coordinates.
+	 *
+	 * @param r Read object to align (position coordinates will be updated)
+	 * @param ref Reference sequence to align against
+	 * @return Identity score calculated from match string using Read.identity
+	 */
 	public static final float align(Read r, byte[] ref){
 		SingleStateAlignerFlat2 ssa=GeneCaller.getSSA();
 		final int a=0, b=ref.length-1;
@@ -45,10 +72,15 @@ public class Alignment implements Comparable<Alignment>{
 		return id;
 	}
 	
+	/** The Read object being aligned */
 	public final Read r;
+	/** Identity score from alignment, -1 if not yet computed */
 	public float id=-1;
+	/** Match string encoding alignment operations (matches, mismatches, gaps) */
 	public byte[] match;
+	/** Start position of alignment on reference sequence */
 	public int start;
+	/** Stop position of alignment on reference sequence */
 	public int stop;
 	
 }

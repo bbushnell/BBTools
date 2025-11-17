@@ -19,6 +19,14 @@ import structures.ByteBuilder;
 import structures.FloatList;
 import ukmer.Kmer;
 
+/**
+ * Represents a DNA/RNA sequence read with associated metadata and alignment information.
+ * Core data structure for storing genomic sequences with quality scores, mapping positions,
+ * and alignment details. Supports paired-end reads, quality filtering, format conversion,
+ * and various bioinformatics operations including duplicate detection and read merging.
+ *
+ * @author Brian Bushnell
+ */
 public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 	/**
@@ -37,10 +45,24 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		System.out.println(new String(d));
 	}
 
+	/**
+	 * Creates a read with bases, quality scores, and numeric ID.
+	 * @param bases_ Sequence bases
+	 * @param quals_ Quality scores (may be null)
+	 * @param id_ Numeric identifier
+	 */
 	public Read(byte[] bases_, byte[] quals_, long id_){
 		this(bases_, quals_, Long.toString(id_), id_);
 	}
 
+	/**
+	 * Creates a read with bases, quality scores, name, and numeric ID.
+	 *
+	 * @param bases_ Sequence bases
+	 * @param quals_ Quality scores (may be null)
+	 * @param name_ Read identifier string
+	 * @param id_ Numeric identifier
+	 */
 	public Read(byte[] bases_, byte[] quals_, String name_, long id_){
 		this(bases_, quals_, name_, id_, VALIDATE_IN_CONSTRUCTOR);
 	}
@@ -642,6 +664,14 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return true;
 	}
 
+	/**
+	 * Determines if two reads are duplicates based on mapping coordinates.
+	 *
+	 * @param r Read to compare against
+	 * @param bothEnds Whether to check both start and stop positions
+	 * @param checkAlignment Whether to compare alignment strings for similarity
+	 * @return true if reads map to same location and are considered duplicates
+	 */
 	public boolean isDuplicateByMapping(Read r, boolean bothEnds, boolean checkAlignment){
 		if(bases.length!=r.length()){
 			return isDuplicateByMappingDifferentLength(r, bothEnds, checkAlignment);
@@ -723,6 +753,14 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return true;
 	}
 
+	/**
+	 * Merges this read with another read, combining bases and quality scores.
+	 * Resolves conflicts by choosing higher-quality bases or N-calls.
+	 *
+	 * @param r Read to merge with
+	 * @param mergeVectors Whether to merge quality vectors
+	 * @param mergeN Whether to fill N-calls with corresponding bases
+	 */
 	public void merge(Read r, boolean mergeVectors, boolean mergeN){mergePrivate(r, mergeVectors, mergeN, true);}
 
 	private void mergePrivate(Read r, boolean mergeVectors, boolean mergeN, boolean mergeMate){
@@ -899,6 +937,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return bb.append(obj.toString());
 	}
 
+	/** Converts read to FASTQ format.
+	 * @return ByteBuilder containing FASTQ representation */
 	public ByteBuilder toFastq(){
 		return FASTQ.toFASTQ(this, (ByteBuilder)null);
 	}
@@ -907,6 +947,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return FASTQ.toFASTQ(this, bb);
 	}
 
+	/** Converts read to FASTA format with default line wrapping.
+	 * @return ByteBuilder containing FASTA representation */
 	public ByteBuilder toFasta(){return toFasta(Shared.FASTA_WRAP);}
 	public ByteBuilder toFasta(ByteBuilder bb){return toFasta(Shared.FASTA_WRAP, bb);}
 
@@ -914,6 +956,12 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return toFasta(wrap, (ByteBuilder)null);
 	}
 
+	/**
+	 * Converts read to FASTA format with specified line wrapping.
+	 * @param wrap Line wrap length (0 or negative for no wrapping)
+	 * @param bb Optional ByteBuilder to append to (null creates new one)
+	 * @return ByteBuilder containing FASTA representation
+	 */
 	public ByteBuilder toFasta(int wrap, ByteBuilder bb){
 		if(wrap<1){wrap=Integer.MAX_VALUE;}
 		int len=(id==null ? Tools.stringLength(numericID) : id.length())+(bases==null ? 0 : bases.length+bases.length/wrap)+5;
@@ -936,6 +984,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return bb;
 	}
 
+	/** Converts read to SAM format line.
+	 * @return ByteBuilder containing SAM representation */
 	public ByteBuilder toSam(){
 		return toSam((ByteBuilder)null);
 	}
@@ -1108,6 +1158,12 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return bb;
 	}
 
+	/**
+	 * Parses a read from BBTools native text format.
+	 * Reconstructs all read fields including mapping, quality, and metadata.
+	 * @param line Tab-delimited text line
+	 * @return Parsed Read object, or null if line is empty
+	 */
 	public static Read fromText(String line){
 		if(line.length()==1 && line.charAt(0)=='.'){return null;}
 
@@ -1720,8 +1776,16 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		return len;
 	}
 
+	/** Calculates sequence identity based on alignment match string.
+	 * @return Identity fraction from 0.0 to 1.0 */
 	public final float identity() {return identity(match);}
 
+	/**
+	 * Calculates sequence identity from match string.
+	 * Uses flat or skewed scoring based on configuration.
+	 * @param match Alignment match string
+	 * @return Identity fraction from 0.0 to 1.0
+	 */
 	public static final float identity(byte[] match) {
 		if(FLAT_IDENTITY){
 			return identityFlat(match, true);
@@ -2293,6 +2357,11 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	}
 
 	//This ignores N and clip, and counts each deletion event as a single error
+	/**
+	 * Counts alignment errors from match string.
+	 * Includes substitutions, insertions, and deletion events.
+	 * @return Number of errors
+	 */
 	public int countErrors(){
 		return countErrors(match);
 	}
@@ -3174,15 +3243,22 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	/** Alignment string.  E.G. mmmmDDDmmm would have 4 matching bases, then a 3-base deletion, then 3 matching bases. */
 	public byte[] match;
 
+	/** Gap coordinates for alignments spanning multiple reference regions */
 	public int[] gaps;
 
 	public String name() {return id;}
+	/** Read identifier string from sequence header */
 	public String id;
+	/** Numeric identifier for efficient processing */
 	public long numericID;
+	/** Reference chromosome/scaffold ID for mapped reads */
 	public int chrom=-1;
+	/** Mapping start position (0-based) */
 	public int start=-1;
+	/** Mapping stop position (0-based, inclusive) */
 	public int stop=-1;
 
+	/** Number of duplicate copies merged into this read */
 	public int copies=1;
 
 	/** Errors detected */
@@ -3191,12 +3267,18 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	/** Alignment score from BBMap.  Assumed to max at approx 100*bases.length */
 	public int mapScore=0;
 
+	/** List of potential alignment sites sorted by score */
 	public ArrayList<SiteScore> sites;
+	/** Original alignment site for synthetic reads */
 	public SiteScore originalSite; //Origin site for synthetic reads
 	public Object obj=null;//Don't set this to a SamLine; it's for other things.
 	public SamLine samline=null;
+	/** Paired-end mate read */
 	public Read mate;
 
+	/**
+	 * Bit flags storing read properties (strand, mapping status, quality flags, etc.)
+	 */
 	public int flags;
 
 	/** -1 if invalid.  TODO: Currently not retained through most processes. */
@@ -3218,6 +3300,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	/** Number of reads in this pair.  Returns 1 if the read has no mate, and 2 if it does. */
 	public int pairCount(){return 1+mateCount();}
 	public int pairMappedCount(){return (mapped() ? 1 : 0)+(mate==null || !mate.mapped() ? 0 : 1);}
+	/** Returns length of sequence in bases */
 	public int length(){return bases==null ? 0 : bases.length;}
 	public int numKmers(int k){return bases==null ? 0 : Tools.max(0, bases.length-k+1);}
 	public int qlength(){return quality==null ? 0 : quality.length;}
@@ -3299,11 +3382,15 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	}
 
 	public char strandChar(){return Shared.strandCodes2[strand()];}
+	/** Returns strand: 0 for plus strand, 1 for minus strand */
 	public byte strand(){return (byte)(flags&1);}
+	/** Returns true if read has been successfully mapped to reference */
 	public boolean mapped(){return (flags&MAPPEDMASK)==MAPPEDMASK;}
+	/** Returns true if read is part of a paired-end pair */
 	public boolean paired(){return (flags&PAIREDMASK)==PAIREDMASK;}
 	public boolean synthetic(){return (flags&SYNTHMASK)==SYNTHMASK;}
 	public boolean ambiguous(){return (flags&AMBIMASK)==AMBIMASK;}
+	/** Returns true if alignment is perfect (all matches, no errors) */
 	public boolean perfect(){return (flags&PERFECTMASK)==PERFECTMASK;}
 	//	public boolean semiperfect(){return perfect() ? true : list!=null && list.size()>0 ? list.get(0).semiperfect : false;} //TODO: This is a hack.  Add a semiperfect flag.
 	public boolean rescued(){return (flags&RESCUEDMASK)==RESCUEDMASK;}

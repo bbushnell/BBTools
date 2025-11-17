@@ -27,6 +27,12 @@ import tracker.ReadStats;
  */
 public class ErrorCorrect extends Thread{
 	
+	/**
+	 * Program entry point for error correction pipeline.
+	 * Parses command-line arguments, builds k-mer count table, and performs
+	 * error detection and correction on reads.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -118,6 +124,23 @@ public class ErrorCorrect extends Thread{
 	}
 	
 	//Only called by main...
+	/**
+	 * Constructs k-mer count table from input reads for error correction.
+	 * Supports multi-pass building for improved accuracy with low-coverage data.
+	 *
+	 * @param reads1 First input reads file
+	 * @param reads2 Second input reads file (may be null)
+	 * @param k K-mer length for counting
+	 * @param cbits Bits per count cell in bloom filter
+	 * @param hashes Number of hash functions in bloom filter
+	 * @param buildpasses Number of passes for table construction
+	 * @param matrixbits Size of bloom filter matrix in bits
+	 * @param maxreads Maximum reads to use for table building
+	 * @param stepsize Step size for k-mer sampling
+	 * @param thresh1 Initial threshold for first pass
+	 * @param thresh2 Final threshold for correction
+	 * @return Populated k-mer count array
+	 */
 	public static KCountArray makeTable(String reads1, String reads2, int k, int cbits, int hashes, int buildpasses, int matrixbits,
 			long maxreads, int stepsize, int thresh1, int thresh2){
 		
@@ -167,6 +190,21 @@ public class ErrorCorrect extends Thread{
 		return kca;
 	}
 	
+	/**
+	 * Detects and corrects errors in reads using k-mer count table.
+	 * Sets up input/output streams and delegates to core detection method.
+	 *
+	 * @param reads1 First input reads file
+	 * @param reads2 Second input reads file (may be null)
+	 * @param kca K-mer count array for error detection
+	 * @param k K-mer length
+	 * @param thresh Minimum k-mer count threshold
+	 * @param maxReads Maximum reads to process
+	 * @param output Output file path (may be null)
+	 * @param ordered Whether to maintain read order in output
+	 * @param append Whether to append to existing output file
+	 * @param overwrite Whether to overwrite existing output file
+	 */
 	public static void detect(String reads1, String reads2, KCountArray kca, int k, int thresh, long maxReads, String output, boolean ordered, boolean append, boolean overwrite) {
 
 		
@@ -216,6 +254,18 @@ public class ErrorCorrect extends Thread{
 		if(verbose){System.err.println("Closed stream");}
 	}
 	
+	/**
+	 * Core error detection and correction processing loop.
+	 * Processes reads from input stream, detects errors, attempts correction,
+	 * and writes results to output stream with correction statistics.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param kca K-mer count array for error detection
+	 * @param k K-mer length
+	 * @param thresh Minimum k-mer count threshold
+	 * @param maxReads Maximum reads to process
+	 * @param ros Output stream for corrected reads (may be null)
+	 */
 	public static void detect(ConcurrentReadInputStream cris, KCountArray kca, int k, int thresh, long maxReads, ConcurrentReadOutputStream ros) {
 		Timer tdetect=new Timer();
 		tdetect.start();
@@ -789,6 +839,14 @@ public class ErrorCorrect extends Thread{
 		return maxIndex;
 	}
 
+	/**
+	 * Converts BitSet to string representation for debugging.
+	 * Creates string of '1' and '0' characters representing bit states.
+	 *
+	 * @param bs BitSet to convert
+	 * @param len Length of string to generate
+	 * @return String representation of BitSet
+	 */
 	public static final String toString(BitSet bs, int len){
 //		assert(verbose);
 		StringBuilder sb=new StringBuilder(len);
@@ -796,6 +854,11 @@ public class ErrorCorrect extends Thread{
 		return sb.toString();
 	}
 	
+	/**
+	 * Removes reads with uncorrected errors from the list.
+	 * Sets list entries to null for reads (and their mates) that still have errors.
+	 * @param list List of reads to filter
+	 */
 	private static void removeBad(ArrayList<Read> list){
 		
 		for(int i=0; i<list.size(); i++){
@@ -809,6 +872,7 @@ public class ErrorCorrect extends Thread{
 		
 	}
 	
+	/** Controls verbose debug output during error correction */
 	public static boolean verbose=false;
 	/** Bails out if a read still has errors after correcting this many. */
 	public static int ERROR_CORRECTION_LIMIT=6;

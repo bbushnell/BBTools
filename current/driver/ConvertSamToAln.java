@@ -6,8 +6,19 @@ import java.io.PrintWriter;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
 
+/**
+ * Converts SAM alignment files to simplified ALN format.
+ * Extracts chromosome, position, and orientation from SAM records.
+ * Filters out unmapped reads and compresses output with gzip.
+ * @author Brian Bushnell
+ */
 public class ConvertSamToAln {
 	
+	/**
+	 * Program entry point that converts multiple SAM files.
+	 * Processes each filename argument and reports completion status.
+	 * @param args SAM filenames to convert
+	 */
 	public static void main(String[] args){
 		for(String s : args){
 			convert(s);
@@ -15,6 +26,14 @@ public class ConvertSamToAln {
 		}
 	}
 	
+	/**
+	 * Converts a single SAM file to ALN format.
+	 * Reads SAM records, extracts alignment information for mapped reads,
+	 * and writes chromosome, position, and strand to compressed ALN file.
+	 * Output filename replaces .sam extension with .aln.gz.
+	 *
+	 * @param fname Input SAM filename (may be compressed)
+	 */
 	public static final void convert(String fname){
 		TextFile tf=new TextFile(fname, false);
 		

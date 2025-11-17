@@ -27,6 +27,8 @@ import shared.Tools;
  */
 public final class LongLongHashMapHybrid{
 	
+	/** Test method demonstrating functionality and performance benchmarks.
+	 * @param args Command-line arguments (unused) */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		LongLongHashMapHybrid map=new LongLongHashMapHybrid(20, 0.7f);
@@ -138,14 +140,25 @@ public final class LongLongHashMapHybrid{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a hash map with default initial size of 256 and load factor 0.7.
+	 */
 	public LongLongHashMapHybrid(){
 		this(256);
 	}
 	
+	/** Constructs a hash map with specified initial size and default load factor 0.7.
+	 * @param initialSize Initial capacity of the hash map */
 	public LongLongHashMapHybrid(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Constructs a hash map with specified initial size and load factor.
+	 * Generates a random invalid key marker for empty cells.
+	 * @param initialSize Initial capacity of the hash map
+	 * @param loadFactor_ Load factor between 0.25 and 0.90
+	 */
 	public LongLongHashMapHybrid(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -159,6 +172,8 @@ public final class LongLongHashMapHybrid{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Removes all key-value mappings from the hash map.
+	 * Resets all keys to invalid marker and values to zero. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -167,15 +182,34 @@ public final class LongLongHashMapHybrid{
 //		assert(verify()); //123
 	}
 	
+	/**
+	 * Tests if the specified key exists in the hash map.
+	 * @param key The key to search for
+	 * @return true if the key is present, false otherwise
+	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
+	/**
+	 * Tests if the specified key exists in the hash map.
+	 * Alias for contains method.
+	 * @param key The key to search for
+	 * @return true if the key is present, false otherwise
+	 */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
+	/**
+	 * Returns the value or list index for the specified key.
+	 * For single values, returns the value directly.
+	 * For multiple values, returns negative index (-index-OFFSET) to the list.
+	 *
+	 * @param key The key to look up
+	 * @return The value, list index code, or NOTPRESENT if key not found
+	 */
 	public long get(long key){
 //		assert(verify()); //123
 		long value=NOTPRESENT;
@@ -186,11 +220,25 @@ public final class LongLongHashMapHybrid{
 		return value;
 	}
 	
+	/**
+	 * Retrieves the multi-value list from a negative list index code.
+	 * @param code Negative index code from get() method
+	 * @return The LongList containing multiple values
+	 */
 	public LongList getListFromCode(long code){
 		assert(code<=-OFFSET) : code;
 		return multivalues.get((int)(-code-OFFSET));
 	}
 	
+	/**
+	 * Fills the buffer with all values for the specified key.
+	 * For single values, adds the value to buffer.
+	 * For multiple values, returns the existing list directly.
+	 *
+	 * @param key The key to look up
+	 * @param buffer Buffer to fill with values (cleared first)
+	 * @return The buffer (for single values) or the multi-value list
+	 */
 	public LongList getOrFill(long key, LongList buffer){
 //		assert(buffer.isEmpty());
 		buffer.clear();
@@ -200,6 +248,14 @@ public final class LongLongHashMapHybrid{
 		return multivalues.get((int)(-code-OFFSET));
 	}
 	
+	/**
+	 * Fills the buffer with all values for the specified key.
+	 * Always uses the provided buffer, copying from multi-value lists if needed.
+	 *
+	 * @param key The key to look up
+	 * @param buffer Buffer to fill with values (cleared first)
+	 * @return The original get() return value or NOTPRESENT if not found
+	 */
 	public long fill(long key, LongList buffer){
 //		assert(buffer.isEmpty());
 		buffer.clear();
@@ -289,8 +345,10 @@ public final class LongLongHashMapHybrid{
 		return value;
 	}
 	
+	/** Returns the number of key-value mappings in the hash map */
 	public int size(){return size;}
 	
+	/** Returns true if the hash map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -302,6 +360,11 @@ public final class LongLongHashMapHybrid{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns detailed string showing array indices, keys, and values.
+	 * Format: [(index, key, value), ...] for debugging purposes.
+	 * @return Detailed string representation for debugging
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -316,6 +379,11 @@ public final class LongLongHashMapHybrid{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns compact string representation showing only keys.
+	 * Format: [key1, key2, key3, ...] similar to ArrayList.
+	 * @return Compact string representation of keys
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -330,6 +398,11 @@ public final class LongLongHashMapHybrid{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns an array containing all keys in the hash map.
+	 * Order is not guaranteed.
+	 * @return Array of all keys
+	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -342,6 +415,12 @@ public final class LongLongHashMapHybrid{
 		return x;
 	}
 	
+	/**
+	 * Returns an array of keys whose values meet the threshold.
+	 * Only includes keys with values greater than or equal to thresh.
+	 * @param thresh Minimum value threshold for inclusion
+	 * @return Array of keys with values >= thresh
+	 */
 	public long[] toArray(long thresh){
 		int len=0;
 //		assert(verify());
@@ -368,6 +447,12 @@ public final class LongLongHashMapHybrid{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Validates internal consistency of the hash map structure.
+	 * Checks that all keys hash to correct locations and counts match.
+	 * Used for debugging and testing purposes.
+	 * @return true if structure is valid, false otherwise
+	 */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -401,6 +486,11 @@ public final class LongLongHashMapHybrid{
 		return pass;
 	}
 	
+	/**
+	 * Rehashes all entries after the initial position to maintain hash table integrity.
+	 * Called after removing an entry to fill gaps and preserve lookup correctness.
+	 * @param initial Starting position for rehashing
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -431,6 +521,8 @@ public final class LongLongHashMapHybrid{
 		return true;
 	}
 	
+	/** Generates a new invalid key marker when the current one collides.
+	 * Updates all cells using the old invalid marker to the new one. */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -477,6 +569,8 @@ public final class LongLongHashMapHybrid{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Resizes the hash table to approximately double the current capacity.
+	 * Called when the size limit is reached. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -522,33 +616,49 @@ public final class LongLongHashMapHybrid{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns direct reference to the internal keys array */
 	public long[] keys() {return keys;}
 
+	/** Returns direct reference to the internal values array */
 	public long[] values() {return values;}
 
+	/** Returns the current invalid key marker used for empty cells */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Storage for keys with multiple values */
 	private ArrayList<LongList> multivalues=new ArrayList<LongList>(4);
 	
+	/** Hash table array storing keys */
 	private long[] keys;
+	/** Hash table array storing values or list indices */
 	private long[] values;
+	/** Number of key-value mappings currently stored */
 	private int size=0;
 	/** Value for empty cells */
 	private long invalid;
+	/** Prime number used for hash table size and modular arithmetic */
 	private int modulus;
+	/** Maximum size before triggering resize based on load factor */
 	private int sizeLimit;
+	/** Load factor determining when to resize the hash table */
 	private final float loadFactor;
 	
+	/** Random number generator for creating invalid key markers */
 	private static final Random randy=new Random(1);
+	/** Bit mask for positive long values used in hashing */
 	private static final long MASK=Long.MAX_VALUE;
+	/** Bit mask ensuring invalid markers are negative */
 	private static final long MINMASK=Long.MIN_VALUE;
+	/** Return value indicating a key was not found in the map */
 	public static final long NOTPRESENT=-1;
+	/** Offset added to list indices to create negative reference codes */
 	private static final long OFFSET=2;
 	
+	/** Extra capacity added during resize to reduce collision probability */
 	private static final int extra=10;
 	
 }

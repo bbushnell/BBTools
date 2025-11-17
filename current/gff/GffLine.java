@@ -291,6 +291,15 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return loadGffFileByType(ff, types, banUnprocessed);
 	}
 	
+	/**
+	 * Loads GFF file into separate arrays by feature type using FileFormat.
+	 * Creates one ArrayList per specified feature type.
+	 *
+	 * @param ff FileFormat object for input file
+	 * @param types Comma-separated feature types
+	 * @param banUnprocessed Skip unprocessed prokaryotic types
+	 * @return Array of lists, one per feature type
+	 */
 	public static ArrayList<GffLine>[] loadGffFileByType(FileFormat ff, String types, boolean banUnprocessed){
 		ArrayList<GffLine> list=loadGffFile(ff, types, banUnprocessed);
 		String[] typeArray=types.split(",");
@@ -307,6 +316,16 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return lists;
 	}
 	
+	/**
+	 * Loads GFF file filtering by feature types using FileFormat.
+	 * Core loading method used by other load methods.
+	 * Validates strand information and filters by type and prokaryotic processing.
+	 *
+	 * @param ff FileFormat object for input file
+	 * @param types Comma-separated feature types to include (null for all)
+	 * @param banUnprocessed Skip unprocessed prokaryotic types
+	 * @return List of matching GffLine objects
+	 */
 	public static ArrayList<GffLine> loadGffFile(FileFormat ff, String types, boolean banUnprocessed){
 		HashSet<String> set=null;
 		if(types!=null){
@@ -417,6 +436,14 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return bb.toString();
 	}
 	
+	/**
+	 * Appends tab-separated GFF3 format to ByteBuilder.
+	 * Handles missing fields by substituting '.' placeholder.
+	 * Formats score with 2 decimal places when present.
+	 *
+	 * @param bb ByteBuilder to append to
+	 * @return The same ByteBuilder for method chaining
+	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append(seqid==null ? "." : seqid).append('\t');
 		bb.append(source==null ? "." : source).append('\t');
@@ -440,6 +467,14 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return stop-start+1;
 	}
 	
+	/**
+	 * Finds index of byte value in array.
+	 * Used for strand character lookup.
+	 *
+	 * @param a Byte to find
+	 * @param array Array to search
+	 * @return Index of byte or -1 if not found
+	 */
 	private static int find(byte a, byte[] array){
 		for(int i=0; i<array.length; i++){
 			if(array[i]==a){return i;}
@@ -447,6 +482,11 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return -1;
 	}
 	
+	/**
+	 * Interns string for memory efficiency.
+	 * @param s String to intern
+	 * @return Interned string
+	 */
 	private static String intern(String s){
 		return Data.forceIntern(s);
 	}
@@ -518,6 +558,14 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return rangeMap;
 	}
 	
+	/**
+	 * Creates Range array for GFF features on single sequence.
+	 * Converts GffLine list to Range array and populates with feature data.
+	 * Removes empty ranges and condenses the array.
+	 *
+	 * @param listForOneSequence GFF features from single sequence
+	 * @return Range array for overlap queries, or null if empty
+	 */
 	public static Range[] makeRangesOneSequence(ArrayList<GffLine> listForOneSequence){
 		if(listForOneSequence==null || listForOneSequence.isEmpty()) {return null;}
 		String name=listForOneSequence.get(0).seqid;

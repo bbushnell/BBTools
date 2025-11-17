@@ -19,25 +19,41 @@ import javax.crypto.spec.SecretKeySpec;
  * @date May 21, 2025
  */
 public final class FastRandomAES extends Random {
+    /** Serialization version identifier for Random compatibility */
     private static final long serialVersionUID = 1L;
     
     // Buffer size in longs (512 bytes = 64 longs)
+    /** Buffer size in longs (512 bytes = 64 longs) for batch random generation */
     private static final int BUFFER_SIZE = 64;
     
     // Direct ByteBuffer for efficient native access
+    /** Direct ByteBuffer for efficient native access to random bytes */
     private final ByteBuffer directBuffer;
+    /** Buffer of 64 longs to store generated random values */
     private final long[] longBuffer = new long[BUFFER_SIZE];
+    /** Current position in the long buffer; starts at BUFFER_SIZE (empty) */
     private int bufferPos = BUFFER_SIZE; // Start empty
     
     // AES internals
+    /** AES cipher instance configured for counter mode encryption */
     private final Cipher cipher;
+    /** Counter block array for AES counter mode input */
     private final byte[] counterBlock;
+    /** Output block array for AES encryption results */
     private final byte[] outputBlock;
     
+    /** Creates a new AES-based random number generator seeded with current system nanoseconds.
+     * Initializes AES cipher in counter mode with a time-based seed. */
     public FastRandomAES() {
         this(System.nanoTime());
     }
     
+    /**
+     * Creates a new AES-based random number generator with the specified seed.
+     * Initializes counter and output blocks, sets up direct buffer, and configures
+     * AES cipher in counter mode with no padding.
+     * @param seed The initial seed value for the random number generator
+     */
     public FastRandomAES(long seed) {
         // Initialize counter and output blocks
         counterBlock = new byte[BUFFER_SIZE * 8];
@@ -55,6 +71,11 @@ public final class FastRandomAES extends Random {
     	setSeed(seed);
     }
     
+    /**
+     * Refills the internal buffer with new random data using AES encryption.
+     * Encrypts counter blocks to generate random bytes, then converts to longs
+     * using ByteBuffer for efficiency. Resets buffer position to zero.
+     */
     private void refillBuffer() {
         try {
             // Encrypt counter blocks to generate random bytes

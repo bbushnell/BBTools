@@ -6,19 +6,48 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import structures.ListNum;
 
+/**
+ * Abstract base class for reading biological sequence data from various input sources.
+ * Provides unified interface for reading sequences with support for both single-read
+ * and batch processing. Implementations handle different file formats and sources.
+ * @author Brian Bushnell
+ */
 public abstract class ReadInputStream {
 	
+	/**
+	 * Reads all sequences from a file into an ArrayList.
+	 * Auto-detects file format and creates appropriate input stream.
+	 *
+	 * @param fname Input filename, or null to return null
+	 * @param defaultFormat Default format code if detection fails
+	 * @param maxReads Maximum number of reads to load
+	 * @return ArrayList of Read objects, or null if fname is null
+	 */
 	public static final ArrayList<Read> toReads(String fname, int defaultFormat, long maxReads){
 		if(fname==null){return null;}
 		FileFormat ff=FileFormat.testInput(fname, defaultFormat, null, false, true);
 		return toReads(ff, maxReads);
 	}
 	
+	/**
+	 * Reads all sequences from a FileFormat into an array.
+	 * @param ff FileFormat object specifying input source and format
+	 * @param maxReads Maximum number of reads to load
+	 * @return Array of Read objects, or null if no reads loaded
+	 */
 	public static final Read[] toReadArray(FileFormat ff, long maxReads){
 		ArrayList<Read> list=toReads(ff, maxReads);
 		return list==null ? null : list.toArray(new Read[0]);
 	}
 	
+	/**
+	 * Reads all sequences from a FileFormat into an ArrayList.
+	 * Uses ConcurrentReadInputStream for efficient batch processing.
+	 *
+	 * @param ff FileFormat object specifying input source and format
+	 * @param maxReads Maximum number of reads to load
+	 * @return ArrayList containing all loaded reads
+	 */
 	public static final ArrayList<Read> toReads(FileFormat ff, long maxReads){
 		ArrayList<Read> list=new ArrayList<Read>();
 
@@ -43,17 +72,33 @@ public abstract class ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Reads the next batch of sequences from the input stream.
+	 * Batch processing is more efficient than individual reads.
+	 * @return ArrayList of Read objects, or null if no more reads
+	 */
 	public abstract ArrayList<Read> nextList();
 	
+	/** Checks if more sequences are available for reading.
+	 * @return true if more reads can be obtained, false otherwise */
 	public abstract boolean hasMore();
 
+	/** Resets the input stream to the beginning.
+	 * Allows re-reading the same input source from the start. */
 	public abstract void restart();
 	
 	/** Returns true if there was an error, false otherwise */
 	public abstract boolean close();
 
+	/** Indicates whether this stream contains paired-end reads.
+	 * @return true if reads are paired-end, false for single-end */
 	public abstract boolean paired();
 
+	/**
+	 * Converts a Read array to an ArrayList.
+	 * @param array Array of Read objects to convert
+	 * @return ArrayList containing the same reads, or null for empty/null input
+	 */
 	protected static final ArrayList<Read> toList(Read[] array){
 		if(array==null || array.length==0){return null;}
 		ArrayList<Read> list=new ArrayList<Read>(array.length);
@@ -66,6 +111,8 @@ public abstract class ReadInputStream {
 	/** TODO */
 	protected boolean errorState=false;
 	
+	/** Returns the filename or source identifier for this input stream.
+	 * @return Source filename/identifier, or null if not applicable */
 	public abstract String fname();
 	
 }

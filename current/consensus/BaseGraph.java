@@ -34,6 +34,17 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a BaseGraph from reference sequence data.
+	 * Initializes reference and deletion node arrays, pads sequence with N bases,
+	 * and creates initial base weights from quality scores.
+	 *
+	 * @param name_ Reference sequence identifier
+	 * @param bases_ Reference sequence bases
+	 * @param quals_ Quality scores for reference bases (may be null)
+	 * @param numericID_ Numeric identifier for the reference
+	 * @param pad_ Number of padding bases to add at sequence ends
+	 */
 	public BaseGraph(String name_, byte[] bases_, byte[] quals_, long numericID_, int pad_){
 		name=name_;
 		pad=pad_;
@@ -56,6 +67,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		}
 	}
 	
+	/**
+	 * Creates weight array from quality scores for reference positions.
+	 * Padding positions get zero weight, quality positions get scaled weights
+	 * from 0.6 to 1.0 based on quality score.
+	 *
+	 * @param quals Quality score array (may be null)
+	 * @return Weight array with same length as padded sequence
+	 */
 	private float[] makeWeightsFromQual(byte[] quals){
 		float[] w=new float[original.length];
 		Arrays.fill(w, 1f);
@@ -76,6 +95,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds padding bases to both ends of input sequence.
+	 *
+	 * @param in Input sequence to pad
+	 * @param pad Number of bases to add at each end
+	 * @param symbol Padding base character
+	 * @return Padded sequence array
+	 */
 	private static byte[] pad(byte[] in, int pad, byte symbol){
 		if(pad<1){return in;}
 		byte[] out=new byte[in.length+2*pad];
@@ -579,6 +606,11 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return bb;
 	}
 	
+	/**
+	 * Finds maximum depth (alignment coverage) across all reference positions.
+	 * Combines reference and deletion node counts at each position.
+	 * @return Maximum coverage depth in the graph
+	 */
 	int maxDepth(){
 		int maxDepth=0;
 		for(int i=0; i<ref.length; i++) {
@@ -592,6 +624,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return maxDepth;
 	}
 	
+	/**
+	 * Traverses graph to generate consensus sequence with quality scores.
+	 * Selects consensus bases based on weight ratios and allele frequencies,
+	 * handles insertions and deletions according to frequency thresholds.
+	 * Optionally trims low-depth regions from consensus ends.
+	 *
+	 * @return Read object containing consensus sequence and quality scores
+	 */
 	public Read traverse() {
 		//TODO: Note, this mutates the object due to refCount, subCount, insCount, delCount
 		//Maybe they should be cleared first, or just removed if not needed.
@@ -696,6 +736,11 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return r;
 	}
 	
+	/**
+	 * Calculates reference weights based on allele diversity at each position.
+	 * Higher diversity positions get lower weights for alignment scoring.
+	 * Updates refWeights array for use in alignment algorithms.
+	 */
 	public void makeWeights() {
 		
 		refWeights=new float[ref.length];
@@ -734,6 +779,14 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	}
 	
 	//TODO:  This does not seem to work properly; debug it.
+	/**
+	 * Determines optimal orientation for read alignment against reference.
+	 * Tests both forward and reverse complement orientations using alignment ratio.
+	 *
+	 * @param r Read to test for orientation
+	 * @param minRatio Minimum alignment ratio threshold
+	 * @return 0 for forward, 1 for reverse complement, -1 if neither adequate
+	 */
 	public int findBestOrientation(Read r, float minRatio){
 		FlatAligner2 fla=new FlatAligner2();
 		AlignmentResult ar0=fla.alignForwardShort(r.bases, original, 0, original.length-1, minRatio);
@@ -778,6 +831,11 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 		return identity;
 	}
 	
+	/**
+	 * Calculates probability scores for all nodes in the graph.
+	 * Processes reference nodes and their insertion chains to update
+	 * base probability distributions.
+	 */
 	void calcProbs(){
 		for(BaseNode n : ref){
 			for(BaseNode i=n; i!=null; i=i.insEdge){
@@ -800,38 +858,56 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Total number of reads added to this graph */
 	public long readTotal;
+	/** Total number of bases processed from all reads */
 	public long baseTotal;
+	/** Total number of CIGAR symbols processed */
 	public long symbolTotal;
+	/** Total number of match/substitution operations */
 	public long msTotal;
+	/** Total number of insertion operations */
 	public long insTotal;
+	/** Total number of deletion operations */
 	public long delTotal;
+	/** Sum of all quality scores processed */
 	public long qualTotal;
 	
 	
+	/** Count of substitutions in generated consensus */
 	public int subCount=0;
+	/** Count of reference matches in generated consensus */
 	public int refCount=0;
+	/** Count of deletions in generated consensus */
 	public int delCount=0;
+	/** Count of insertions in generated consensus */
 	public int insCount=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reference sequence identifier name */
 	public final String name;
+	/** Original reference sequence with padding bases */
 	public final byte[] original;
+	/** Numeric identifier for reference sequence */
 	public final long numericID;
+	/** Number of padding bases added to sequence ends */
 	public final int pad;
 	//For ref nodes, calculate total outgoing weight.
 	//Choose ins only if it is plurality allele. (or alternatively, majority allele).
 	//But return to ref once it is no longer the majority/plurality of the outgoing weight.
 	
+	/** Array of reference nodes, one per sequence position */
 	public final BaseNode[] ref;
+	/** Array of deletion nodes, one per sequence position */
 	public final BaseNode[] del;
 
 	//Original weights corresponding to conservation of sequence
 	//This is for alignment, not scoring or updating, and is a simplified version of the graph
 	//based on quality scores.
+	/** Reference position weights for alignment scoring based on conservation */
 	public float[] refWeights;
 //	public float[] insWeights;
 //	public float[] delWeights;
@@ -840,8 +916,11 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Dummy insertion node used when no insertion exists at position */
 	public static final BaseNode dummy=new BaseNode('.', INS, 0);
+	/** Default quality score used when quality data is unavailable */
 	public static byte fakeQuality=15;
+	/** Whether to calculate quality scores using allele diversity method */
 	public static boolean qualityByMS=true;
 	
 }

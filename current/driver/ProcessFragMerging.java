@@ -11,6 +11,12 @@ import shared.Tools;
  */
 public class ProcessFragMerging {
 	
+	/**
+	 * Program entry point that processes a BBMerge log file.
+	 * Parses the input file line by line, extracting specific statistics
+	 * and reformatting them as tab-separated output for data analysis.
+	 * @param args Command-line arguments where args[0] is the input filename
+	 */
 	public static void main(String[] args){
 		
 		String sym="\t";
@@ -46,6 +52,12 @@ public class ProcessFragMerging {
 		
 	}
 	
+	/**
+	 * Converts time string in "Xm Ys" format to total seconds.
+	 * Parses minutes and seconds from time output and returns combined value.
+	 * @param s Time string in format like "1m 23.456s"
+	 * @return Total time in seconds as a double
+	 */
 	public static double toSeconds(String s){
 		s=s.replaceAll("s", "");
 		String[] split=s.split("m");

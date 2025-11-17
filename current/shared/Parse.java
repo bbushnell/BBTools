@@ -6,6 +6,14 @@ import structures.LongList;
 public final class Parse {
 	
 
+	/**
+	 * Parses a string with optional KMG suffix into an integer value.
+	 * Supports suffixes like k (1000), m (million), g/b (billion), etc.
+	 *
+	 * @param b String to parse, may include KMG suffix
+	 * @return Parsed integer value
+	 * @throws AssertionError if the resulting value exceeds integer range
+	 */
 	public static int parseIntKMG(String b){
 		long x=parseKMG(b);
 		assert(x<=Integer.MAX_VALUE && x>Integer.MIN_VALUE) : "Value "+x+" is out of range for integers: "+b;
@@ -99,6 +107,14 @@ public final class Parse {
 		}
 	}
 	
+	/**
+	 * Parses a string with binary KMG suffixes (powers of 1024).
+	 * Supports k=1024, m=1024^2, g/b=1024^3, t=1024^4.
+	 *
+	 * @param b String to parse with binary suffix
+	 * @return Parsed long value using binary multipliers
+	 * @throws RuntimeException if suffix is unrecognized
+	 */
 	public static long parseKMGBinary(String b){
 		if(b==null){return 0;}
 		char c=Tools.toLowerCase(b.charAt(b.length()-1));
@@ -120,12 +136,22 @@ public final class Parse {
 		return (long)(Double.parseDouble(b)*mult);
 	}
 	
+	/**
+	 * Tests if a string represents a number by checking the first character.
+	 * @param s String to test
+	 * @return true if string starts with digit, '.', or '-'
+	 */
 	public static boolean isNumber(String s){
 		if(s==null || s.length()==0){return false;}
 		char c=s.charAt(0);
 		return Tools.isDigit(c) || c=='.' || c=='-';
 	}
 	
+	/**
+	 * Tests if a string represents a boolean value.
+	 * @param s String to test
+	 * @return true if string is "t", "f", "true", or "false" (case insensitive)
+	 */
 	public static boolean isBoolean(String s){
 		if(s==null || s.length()==0){return false;}
 		return "t".equalsIgnoreCase(s) || "f".equalsIgnoreCase(s) || "true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s);
@@ -148,6 +174,15 @@ public final class Parse {
 		return Boolean.parseBoolean(s);
 	}
 	
+	/**
+	 * Parses yes/no strings into boolean values.
+	 * Accepts "y"/"yes" for true, "n"/"no" for false.
+	 * Special case: "unknown" returns false for IMG database compatibility.
+	 *
+	 * @param s String to parse
+	 * @return true for yes values, false for no values
+	 * @throws RuntimeException if string is not recognized yes/no format
+	 */
 	public static boolean parseYesNo(String s){
 		if(s==null || s.length()<1){return true;}
 		if(s.length()==1){
@@ -183,8 +218,22 @@ public final class Parse {
 	
 	public static boolean equalsIgnoreCase(String a, byte[] b) {return equalsIgnoreCase(b, a);}
 	
+	/**
+	 * Parses a delimited string into a float array.
+	 * @param s String containing delimited float values
+	 * @param regex Delimiter pattern for splitting
+	 * @return Array of parsed float values, or null if input is null
+	 */
 	public static float[] parseFloatArray(String s, String regex){return parseFloatArray(s, regex, null);}
 	
+	/**
+	 * Parses a delimited string into a float array with wildcard support.
+	 *
+	 * @param s String containing delimited float values
+	 * @param regex Delimiter pattern for splitting
+	 * @param wildcard String that represents -1 value
+	 * @return Array of parsed float values, or null if input is null
+	 */
 	public static float[] parseFloatArray(String s, String regex, String wildcard){
 		if(s==null || "null".equals(s)){return null;}
 		String[] split=s.split(regex);
@@ -195,8 +244,22 @@ public final class Parse {
 		return array;
 	}
 	
+	/**
+	 * Parses a delimited string into an integer array.
+	 * @param s String containing delimited integer values
+	 * @param regex Delimiter pattern for splitting
+	 * @return Array of parsed integer values, or null if input is null
+	 */
 	public static int[] parseIntArray(String s, String regex){return parseIntArray(s, regex, null);}
 	
+	/**
+	 * Parses a delimited string into an integer array with wildcard support.
+	 *
+	 * @param s String containing delimited integer values
+	 * @param regex Delimiter pattern for splitting
+	 * @param wildcard String that represents -1 value
+	 * @return Array of parsed integer values, or null if input is null
+	 */
 	public static int[] parseIntArray(String s, String regex, String wildcard){
 		if(s==null || "null".equals(s)){return null;}
 		String[] split=s.split(regex);
@@ -207,6 +270,12 @@ public final class Parse {
 		return array;
 	}
 	
+	/**
+	 * Parses a delimited string into a byte array.
+	 * @param s String containing delimited byte values
+	 * @param regex Delimiter pattern for splitting
+	 * @return Array of parsed byte values, or null if input is null
+	 */
 	public static byte[] parseByteArray(String s, String regex){
 		if(s==null){return null;}
 		String[] split=s.split(regex);
@@ -249,10 +318,28 @@ public final class Parse {
 		return (float)parseDouble(array, a, b);
 	}
 	
+	/**
+	 * Parses a float value following a search term in a string.
+	 *
+	 * @param s String to search in
+	 * @param term Search term to find
+	 * @param delimiter Character that terminates the number
+	 * @return Parsed float value
+	 */
 	public static float parseFloat(String s, String term, char delimiter) {
 		return (float)parseDouble(s, term, delimiter);
 	}
 
+	/**
+	 * Parses a double value following a search term in a string.
+	 * Finds the term, then parses the number until delimiter is reached.
+	 *
+	 * @param s String to search in
+	 * @param term Search term to find
+	 * @param delimiter Character that terminates the number
+	 * @return Parsed double value
+	 * @throws AssertionError if term is not found
+	 */
 	public static double parseDouble(String s, String term, char delimiter) {
 		int idx=s.indexOf(term);
 		assert(idx>=0) : "No "+term+" in String: '"+s+"'";
@@ -263,6 +350,14 @@ public final class Parse {
 		return d;
 	}
 
+	/**
+	 * Extracts a substring following a search term.
+	 *
+	 * @param s String to search in
+	 * @param term Search term to find
+	 * @param delimiter Character that terminates the substring
+	 * @return Extracted substring, or null if term not found
+	 */
 	public static String parseString(String s, String term, char delimiter) {
 		int idx=s.indexOf(term);
 //		assert(idx>=0) : "No "+term+" in String: '"+s+"'";
@@ -379,6 +474,12 @@ public final class Parse {
 		return d;
 	}
 
+	/**
+	 * Parses an integer from a byte array starting at given position.
+	 * @param array Byte array containing ASCII digits
+	 * @param start Starting index
+	 * @return Parsed integer value
+	 */
 	public static int parseInt(byte[] array, int start){
 		return parseInt(array, start, array.length);
 	}
@@ -499,6 +600,14 @@ public final class Parse {
 		return r*mult;
 	}
 	
+	/**
+	 * Parses a double from a string starting at given position.
+	 * Automatically detects end of number.
+	 *
+	 * @param array String containing digits
+	 * @param a Starting index
+	 * @return Parsed double value
+	 */
 	public static double parseDouble(String array, int a){
 		int b=a;
 		while(b<array.length()) {
@@ -509,12 +618,29 @@ public final class Parse {
 		return parseDouble(array, a, b);
 	}
 	
+	/**
+	 * Parses a float from a string starting at given position.
+	 * @param array String containing digits
+	 * @param a Starting index
+	 * @return Parsed float value
+	 */
 	public static float parseFloat(String array, int a){
 		return (float)parseDouble(array, a);
 	}
 	
+	/**
+	 * Parses a long from entire byte array.
+	 * @param array Byte array containing ASCII digits
+	 * @return Parsed long value
+	 */
 	public static long parseLong(byte[] array){return parseLong(array, 0, array.length);}
 	
+	/**
+	 * Parses a long from byte array starting at given position.
+	 * @param array Byte array containing ASCII digits
+	 * @param start Starting index
+	 * @return Parsed long value
+	 */
 	public static long parseLong(byte[] array, int start){return parseLong(array, start, array.length);}
 	
 	/**
@@ -537,6 +663,15 @@ public final class Parse {
 		return r*mult;
 	}
 	
+	/**
+	 * Parses a long using 6-bit encoding with ASCII offset of 48.
+	 * Each byte is treated as a 6-bit value after subtracting 48.
+	 *
+	 * @param array Byte array containing encoded values
+	 * @param a Starting index (inclusive)
+	 * @param b Ending index (exclusive)
+	 * @return Parsed long value using 6-bit shifts
+	 */
 	public static long parseLongA48(byte[] array, int a, int b){
 		if(array.length==0){return 0;}
 		long x=0;
@@ -570,6 +705,12 @@ public final class Parse {
 
 	//Note: clen is optional, but allows poorly-formatted input like trailing whitespace
 	//Without clen ",,," would become {0,0,0,0} 
+	/**
+	 * Parses a string containing comma-separated numbers into a long array.
+	 * Handles malformed input like trailing whitespace.
+	 * @param sub String containing comma-separated numbers
+	 * @return Array of parsed long values, or null if input is null/empty
+	 */
 	public static long[] parseLongArray(String sub) {
 		if(sub==null || sub.length()<1){return null;}
 		long current=0;
@@ -598,6 +739,12 @@ public final class Parse {
 		return list.toArray();
 	}
 	
+	/**
+	 * Extracts ZMW (Zero Mode Waveguide) ID from PacBio read identifier.
+	 * Expected format: m54283_190403_183820/4194374/919_2614
+	 * @param id PacBio read identifier string
+	 * @return ZMW ID number, or -1 if format is invalid
+	 */
 	public static int parseZmw(String id){
 		//Example: m54283_190403_183820/4194374/919_2614
 		//Run ID is m54283_190403_183820
@@ -611,6 +758,14 @@ public final class Parse {
 		return Integer.parseInt(z);
 	}
 	
+	/**
+	 * Splits a string on the first occurrence of a character.
+	 * Returns array with one or two elements depending on whether character is found.
+	 *
+	 * @param s String to split
+	 * @param c Character to split on
+	 * @return Array containing parts before and after first occurrence of character
+	 */
 	public static String[] splitOnFirst(String s, char c) {
 		final int idx=s.indexOf(c);
 		if(idx<0) {return new String[] {s};}
@@ -619,6 +774,12 @@ public final class Parse {
 		return new String[] {a, s.substring(idx+1)};
 	}
 	
+	/**
+	 * Converts a symbol name to its character representation.
+	 * Handles escape sequences by removing leading backslashes.
+	 * @param b Symbol name string
+	 * @return Character representation, or 0 if string is multi-character after processing
+	 */
 	public static char parseSymbolToCharacter(String b){
 		b=parseSymbol(b);
 		while(b.length()>1 && b.charAt(0)=='\\'){
@@ -628,6 +789,14 @@ public final class Parse {
 		return b.length()>1 ? 0 : b.charAt(0);
 	}
 	
+	/**
+	 * Converts symbolic names to their string representations.
+	 * Handles convenience names like "space", "tab", "comma", etc.
+	 * Also handles Java regex metacharacters with proper escaping.
+	 *
+	 * @param b Symbol name to convert
+	 * @return String representation of the symbol, or original string if no match
+	 */
 	public static String parseSymbol(String b){
 		if(b==null || b.length()<2){return b;}
 		
@@ -699,6 +868,14 @@ public final class Parse {
 		return b;
 	}
 	
+	/**
+	 * Creates a character remapping array from a string specification.
+	 * String must have even length with character pairs (from->to).
+	 *
+	 * @param b Remap specification string, or "f"/"false" to disable
+	 * @return Byte array for character remapping, or null if disabled
+	 * @throws AssertionError if string length is odd
+	 */
 	public static byte[] parseRemap(String b){
 		final byte[] remap;
 		if(b==null || ("f".equalsIgnoreCase(b) || "false".equalsIgnoreCase(b))){
@@ -716,7 +893,9 @@ public final class Parse {
 		return remap;
 	}
 	
+	/** Returns the smaller of two integers */
 	public static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger of two integers */
 	public static final int max(int x, int y){return x>y ? x : y;}
 
 }

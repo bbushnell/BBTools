@@ -34,6 +34,11 @@ import tracker.ReadStats;
  */
 public class MergeReadHeaders {
 	
+	/**
+	 * Program entry point.
+	 * Creates MergeReadHeaders instance and executes header replacement process.
+	 * @param args Command-line arguments specifying input/output files and options
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MergeReadHeaders x=new MergeReadHeaders(args);
@@ -43,6 +48,14 @@ public class MergeReadHeaders {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs MergeReadHeaders instance and parses command-line arguments.
+	 * Validates input parameters, configures file formats, and sets up
+	 * input/output streams for processing.
+	 *
+	 * @param args Command-line arguments containing file paths and processing options
+	 * @throws RuntimeException If required parameters are missing or invalid
+	 */
 	public MergeReadHeaders(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -175,6 +188,15 @@ public class MergeReadHeaders {
 		ffheader=FileFormat.testInput(headerFile, FileFormat.TEXT, null, true, true);
 	}
 	
+	/**
+	 * Executes the header replacement process.
+	 * Reads sequence data and header file simultaneously, replacing each
+	 * read's header with the corresponding line from the header file.
+	 * Maintains read order and handles both single and paired-end data.
+	 *
+	 * @param t Timer for tracking execution time and performance statistics
+	 * @throws RuntimeException If processing encounters unrecoverable errors
+	 */
 	void process(Timer t){
 		
 		
@@ -263,6 +285,14 @@ public class MergeReadHeaders {
 		}
 	}
 	
+	/**
+	 * Processes a header string from the header file.
+	 * Currently returns the input string unchanged, but provides
+	 * extension point for future header transformations.
+	 *
+	 * @param s Header string to process
+	 * @return Processed header string (currently unchanged)
+	 */
 	public static String processHeader(String s){
 		assert(s!=null);
 		return s;
@@ -270,36 +300,56 @@ public class MergeReadHeaders {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Indicates if processing encountered errors that should terminate execution
+	 */
 	public boolean errorState=false;
 	
+	/** Path to text file containing replacement headers, one per line */
 	private String headerFile=null;
 	
+	/** Path to primary input sequence file (first mate for paired data) */
 	private String in1=null;
+	/** Path to secondary input sequence file (second mate for paired data) */
 	private String in2=null;
 
+	/** Path to primary output sequence file (first mate for paired data) */
 	private String out1=null;
+	/** Path to secondary output sequence file (second mate for paired data) */
 	private String out2=null;
 	
+	/** File extension override for input files */
 	private String extin=null;
+	/** File extension override for output files */
 	private String extout=null;
 	
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
+	/** Maximum number of reads to process (-1 for no limit) */
 	private long maxReads=-1;
 	
+	/** File format configuration for the header text file */
 	private final FileFormat ffheader;
 	
+	/** File format configuration for primary input sequence file */
 	private final FileFormat ffin1;
+	/** File format configuration for secondary input sequence file */
 	private final FileFormat ffin2;
 	
+	/** File format configuration for primary output sequence file */
 	private final FileFormat ffout1;
+	/** File format configuration for secondary output sequence file */
 	private final FileFormat ffout2;
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Enables detailed logging and status output during processing */
 	public static boolean verbose=false;
 	
 }

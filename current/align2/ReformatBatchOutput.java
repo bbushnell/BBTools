@@ -6,6 +6,14 @@ import java.util.Arrays;
 import fileIO.TextFile;
 import shared.Tools;
 
+/**
+ * Reformats batch mapping output from alignment tools into tabular format.
+ * Parses elapsed time, mapping statistics, and correctness metrics from
+ * alignment result files and outputs structured data suitable for analysis.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class ReformatBatchOutput {
 	
 //	Elapsed:	31.7
@@ -50,6 +58,8 @@ public class ReformatBatchOutput {
 //	false negative:        	 0.000%
 	
 	
+	/** Program entry point. Reads batch mapping output file and reformats data.
+	 * @param args Command-line arguments; args[0] should be input file path */
 	public static void main(String[] args){
 		TextFile tf=new TextFile(args[0], false);
 		String[] lines=tf.toStringLines();
@@ -81,12 +91,22 @@ public class ReformatBatchOutput {
 	}
 	
 	
+	/** Generates tab-delimited header for reformatted output table.
+	 * @return Header string containing column names for mapping statistics */
 	public static String header() {
 		return("program\tfile\tvartype\tcount\treads\tprimary\tsecondary\ttime\tmapped\tretained\tdiscarded\tambiguous\ttruePositive\t" +
 				"falsePositive\ttruePositiveL\tfalsePositiveL\tfalseNegative");
 	}
 	
 	//bwa_1S_0I_0D_0U_0N_r400000x100.sam
+	/**
+	 * Extracts read count from filename following BBTools naming conventions.
+	 * Parses filenames like "bwa_1S_0I_0D_0U_0N_r400000x100.sam" to extract
+	 * read count from the "r" field or "x" notation.
+	 *
+	 * @param name Filename to parse
+	 * @return Number of reads, or 0 if not found
+	 */
 	public static int getReads(String name){
 //		String[] split=name.substring(0, name.length()-4).split("_");
 		String[] split=name.split("_");
@@ -109,6 +129,14 @@ public class ReformatBatchOutput {
 		return 0;
 	}
 	
+	/**
+	 * Extracts variant type from filename based on BBTools naming convention.
+	 * Identifies the variant type character (S, I, D, U, N) from filename components
+	 * that start with non-zero digits.
+	 *
+	 * @param name Filename to parse
+	 * @return Variant type character, or '?' if not found
+	 */
 	public static char getVarType(String name){
 //		String[] split=name.substring(0, name.length()-4).split("_");
 		String[] split=name.split("_");
@@ -121,6 +149,12 @@ public class ReformatBatchOutput {
 		return '?';
 	}
 	
+	/**
+	 * Extracts variant count from filename based on BBTools naming convention.
+	 * Parses numerical prefix from filename components to determine variant count.
+	 * @param name Filename to parse
+	 * @return Variant count, or 0 if not found
+	 */
 	public static int getCount(String name){
 //		String[] split=name.substring(0, name.length()-4).split("_");
 		String[] split=name.split("_");
@@ -134,12 +168,24 @@ public class ReformatBatchOutput {
 		return 0;
 	}
 	
+	/**
+	 * Extracts program name from filename.
+	 * Returns substring before the first underscore character.
+	 * @param name Filename to parse
+	 * @return Program name prefix
+	 */
 	public static String getProgram(String name){
 		return name.substring(0, name.indexOf('_'));
 	}
 	
 	
 
+	/**
+	 * Processes a block of mapping statistics and outputs formatted results.
+	 * Parses elapsed time, alignment counts, mapping percentages, and correctness
+	 * metrics from the input lines and outputs a tab-delimited summary.
+	 * @param list List of lines containing mapping statistics for one alignment run
+	 */
 	public static void process(ArrayList<String> list){
 		
 		String name=null;

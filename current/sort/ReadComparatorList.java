@@ -16,6 +16,12 @@ import stream.Read;
 
 public final class ReadComparatorList extends ReadComparator {
 	
+	/**
+	 * Constructs a ReadComparatorList from a file or comma-separated string.
+	 * If fname corresponds to an existing file, reads one identifier per line.
+	 * Otherwise, treats fname as a comma-separated list of identifiers.
+	 * @param fname File path or comma-separated string of read identifiers
+	 */
 	public ReadComparatorList(String fname){
 		String[] array;
 		if(new File(fname).exists()){
@@ -36,6 +42,15 @@ public final class ReadComparatorList extends ReadComparator {
 		return ascending*x;
 	}
 	
+	/**
+	 * Internal comparison logic for ordering reads by reference list position.
+	 * Reads with null IDs or IDs not in the map are sorted after mapped reads.
+	 * For reads with equal positions, sorts by pair number.
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative, zero, or positive value for less than, equal, or greater than
+	 */
 	public int compareInner(Read r1, Read r2) {
 
 		Integer a=(r1.id==null ? null : map.get(r1.id));
@@ -49,6 +64,7 @@ public final class ReadComparatorList extends ReadComparator {
 		return dif;
 	}
 	
+	/** Multiplier for sort direction: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
 	@Override
@@ -56,6 +72,7 @@ public final class ReadComparatorList extends ReadComparator {
 		ascending=(asc ? 1 : -1);
 	}
 	
+	/** Maps read identifiers to their sort order positions */
 	private HashMap<String, Integer> map;
 	
 }

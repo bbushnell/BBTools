@@ -39,6 +39,11 @@ public class CrossContaminate {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Program entry point for cross-contamination simulation.
+	 * Creates CrossContaminate instance, processes files, and handles cleanup.
+	 * @param args Command-line arguments for input/output files and parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CrossContaminate x=new CrossContaminate(args);
@@ -48,6 +53,14 @@ public class CrossContaminate {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs CrossContaminate instance and parses command-line arguments.
+	 * Configures input/output files, contamination parameters, and processing options.
+	 * Validates file accessibility and parameter ranges before processing begins.
+	 *
+	 * @param args Command-line arguments containing file paths and parameters
+	 * @throws RuntimeException if input files are missing or output files cannot be written
+	 */
 	public CrossContaminate(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -200,6 +213,14 @@ public class CrossContaminate {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that generates cross-contaminated data.
+	 * Processes each input file sequentially, distributes reads to sink files,
+	 * optionally shuffles output files, and reports timing statistics.
+	 *
+	 * @param t Timer for tracking execution time and generating performance reports
+	 * @throws RuntimeException if processing fails or output becomes corrupted
+	 */
 	void process(Timer t){
 		
 		outstream.println("Processing data.");
@@ -246,6 +267,12 @@ public class CrossContaminate {
 		Shuffle.waitForFinish();
 	}
 	
+	/**
+	 * Processes reads from a single source file and distributes them to sink files.
+	 * Opens input stream, assigns contamination sinks, and routes each read
+	 * probabilistically to appropriate output files based on contamination model.
+	 * @param sourceNum Index of the source file in the input list to process
+	 */
 	void processOneSource(int sourceNum){
 		String fname=inNames.get(sourceNum);
 		
@@ -309,6 +336,14 @@ public class CrossContaminate {
 		errorState|=ReadWrite.closeStream(cris);
 	}
 	
+	/**
+	 * Routes a single read to an appropriate sink file based on probability thresholds.
+	 * Uses random sampling to select which vessel receives the read according to
+	 * the pre-computed cumulative probability distribution.
+	 *
+	 * @param r The read to be written to a sink file
+	 * @param list Ordered list of vessels with cumulative probability thresholds
+	 */
 	private void addRead(Read r, ArrayList<Vessel> list){
 		double p=randy.nextDouble();
 		for(Vessel v : list){
@@ -321,6 +356,12 @@ public class CrossContaminate {
 		assert(r==null) : p+"\n"+list;
 	}
 	
+	/**
+	 * Creates vessel objects for each output file.
+	 * Each vessel manages a ByteStreamWriter for efficient output file writing.
+	 * @param strings List of output file paths
+	 * @return List of initialized vessels ready for writing
+	 */
 	private ArrayList<Vessel> makeVessels(ArrayList<String> strings){
 		ArrayList<Vessel> list=new ArrayList<Vessel>(strings.size());
 		for(String s : strings){
@@ -330,6 +371,16 @@ public class CrossContaminate {
 		return list;
 	}
 	
+	/**
+	 * Assigns sink vessels for a source file with random contamination probabilities.
+	 * Randomly selects subset of vessels as contamination targets, assigns each
+	 * a probability weight, and creates cumulative probability distribution for
+	 * efficient read routing during processing.
+	 *
+	 * @param list Complete list of available vessel containers
+	 * @param sourceNum Index of source file to exclude from contamination targets
+	 * @return Ordered list of vessels with cumulative probability thresholds
+	 */
 	private ArrayList<Vessel> assignSinks(ArrayList<Vessel> list, int sourceNum){
 		int potential=list.size()-1;
 		assert(potential>=minSinks && maxSinks<=potential) : potential+", "+minSinks+", "+maxSinks;
@@ -398,8 +449,19 @@ public class CrossContaminate {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Container for output file management with contamination probability.
+	 * Encapsulates file format, stream writer, and probability threshold
+	 * for efficient read routing during cross-contamination simulation.
+	 */
 	private class Vessel{
 		
+		/**
+		 * Creates vessel for output file with configured stream writer.
+		 * Initializes file format detection and starts ByteStreamWriter for writing.
+		 * @param fname_ Output file path for this vessel
+		 * @param allowSubprocess Whether to allow subprocess for file writing
+		 */
 		public Vessel(String fname_, boolean allowSubprocess){
 			fname=fname_;
 			ff=FileFormat.testOutput(fname, FileFormat.FASTQ, null, allowSubprocess, overwrite, append, false);
@@ -407,6 +469,8 @@ public class CrossContaminate {
 			bsw.start();
 		}
 		
+		/** Closes the vessel's output stream and waits for completion.
+		 * @return true if an error occurred during closing, false otherwise */
 		public boolean close(){
 			return bsw.poisonAndWait();
 		}
@@ -416,10 +480,14 @@ public class CrossContaminate {
 			return fname+", "+Tools.format("%.6f", prob);
 		}
 		
+		/** Output file path for this vessel */
 		final String fname;
+		/** File format configuration for output writing */
 		final FileFormat ff;
+		/** Stream writer for efficient output file writing */
 		final ByteStreamWriter bsw;
 		
+		/** Cumulative probability threshold for read assignment */
 		double prob;
 		
 	}
@@ -431,22 +499,33 @@ public class CrossContaminate {
 	
 	/*--------------------------------------------------------------*/
 
+	/** List of input file paths to process */
 	private ArrayList<String> inNames=new ArrayList<String>();
+	/** List of output file paths for contaminated results */
 	private ArrayList<String> outNames=new ArrayList<String>();
 	
+	/** Container objects managing output streams for each file */
 	private ArrayList<Vessel> vessels;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process per file (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Random seed for reproducible contamination patterns (-1 for random) */
 	private long seed=-1;
 	
+	/** Minimum number of contamination target files per source */
 	private int minSinks=1;
+	/** Maximum number of contamination target files per source */
 	private int maxSinks=8;
+	/** Minimum contamination probability for any sink file */
 	private double minProb=0.000005;
+	/** Maximum contamination probability for any sink file */
 	private double maxProb=0.025;
 
+	/** Natural logarithm of minimum probability for exponential distribution */
 	private double minProbPow=Math.log(minProb);
+	/** Natural logarithm of maximum probability for exponential distribution */
 	private double maxProbPow=Math.log(maxProb);
 	
 //	private double root=3.0;
@@ -454,14 +533,20 @@ public class CrossContaminate {
 //	private double minProbRoot=Math.pow(minProb, 1/root);
 //	private double maxProbRoot=Math.pow(maxProb, 1/root);
 	
+	/** Random number generator for contamination probability sampling */
 	private final Random randy=new Random();
 	
+	/** Total number of reads processed across all files */
 	long readsProcessed=0;
+	/** Total number of bases processed across all reads */
 	long basesProcessed=0;
 	
+	/** Number of threads to use for output file shuffling */
 	private int shufflethreads=3;
 	
+	/** Whether to shuffle output files after contamination */
 	private boolean shuffle=false;
+	/** Whether to display processing speed statistics */
 	private boolean showspeed=true;
 	
 	/*--------------------------------------------------------------*/
@@ -471,10 +556,15 @@ public class CrossContaminate {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed progress reporting */
 	public static boolean verbose=false;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

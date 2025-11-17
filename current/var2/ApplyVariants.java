@@ -280,6 +280,11 @@ public class ApplyVariants {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates and starts the concurrent read input stream.
+	 * Configures stream for the primary input file and reports pairing status.
+	 * @return Started ConcurrentReadInputStream for processing input sequences
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
 		cris.start(); //Start the stream
@@ -289,6 +294,11 @@ public class ApplyVariants {
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts the concurrent read output stream.
+	 * Returns null if no output file is specified.
+	 * @return Started ConcurrentReadOutputStream for writing results, or null
+	 */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout1==null){return null;}
 
@@ -374,9 +384,19 @@ public class ApplyVariants {
 //		if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
 	}
 	
+	/** Applies depth filtering to a read by setting low-coverage bases to N.
+	 * @param r Read to modify with depth-based masking */
 	@SuppressWarnings("unused")
 	private void applyDepth(Read r){applyDepth(r, null);}
 	
+	/**
+	 * Applies depth filtering using provided coverage array.
+	 * Sets bases below minimum depth threshold to N symbol and removes
+	 * low-coverage indels from the variant list.
+	 *
+	 * @param r Read to modify with depth-based masking
+	 * @param ca Coverage array for depth values, or null to look up by read ID
+	 */
 	private void applyDepth(Read r, CoverageArray ca){
 		if(ca==null){ca=depthMap.get(r.id);}
 		if(ca==null){
@@ -544,6 +564,14 @@ public class ApplyVariants {
 		return mutant;
 	}
 	
+	/**
+	 * Generates new sequence name based on sample naming configuration.
+	 * Can use sample name as prefix, replacement, or with contig numbers.
+	 *
+	 * @param old Original sequence name
+	 * @param number Numeric ID for the sequence
+	 * @return Modified sequence name, or original if no sample name configured
+	 */
 	private String rename(String old, long number){
 		if(sampleName==null){return old;}
 		nameBuilder.clear();
@@ -577,10 +605,13 @@ public class ApplyVariants {
 	/** If positive, change regions below this depth to N */
 	private int minDepth=0;
 	
+	/** Symbol used to replace bases in low-coverage regions */
 	private byte noCovSymbol='N';
 	
+	/** Maps sequence names to their associated variant lists */
 	HashMap<String, ArrayList<Var>> varMap;
 	
+	/** Maps sequence names to their coverage arrays for depth filtering */
 	HashMap<String, CoverageArray> depthMap;
 	
 	/** Name of output sequences, if different from input */
@@ -599,6 +630,7 @@ public class ApplyVariants {
 	/** Ignore indels */
 	private boolean noIndels=false;
 	
+	/** Reusable string builder for constructing sequence names */
 	private ByteBuilder nameBuilder=new ByteBuilder();
 	
 	/*--------------------------------------------------------------*/
@@ -616,6 +648,7 @@ public class ApplyVariants {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Count of variants successfully applied */
 	private long applied=0;
 	
 	/*--------------------------------------------------------------*/

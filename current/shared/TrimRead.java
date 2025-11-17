@@ -24,6 +24,12 @@ public final class TrimRead implements Serializable {
 	 */
 	private static final long serialVersionUID = 8791743639124592480L;
 	
+	/**
+	 * Test program for trimming functionality.
+	 * Takes command-line arguments: bases, qualities, match string, minimum quality.
+	 * Demonstrates trimming and untrimming operations with debug output.
+	 * @param args Command-line arguments [bases, qualities, match, minq]
+	 */
 	public static void main(String[] args){
 		byte[] bases=args[0].getBytes();
 		byte[] quals=(args.length<2 ? null : args[1].getBytes());
@@ -65,6 +71,18 @@ public final class TrimRead implements Serializable {
 //		return (a+b==0 ? null : new TrimRead(r, a, b, trimq, minlen));
 //	}
 	
+	/**
+	 * Trims a read based on quality thresholds and creates a TrimRead object.
+	 * Uses optimal mode if enabled, otherwise falls back to window or simple thresholding.
+	 *
+	 * @param r Read to trim
+	 * @param trimLeft Whether to trim from the left end
+	 * @param trimRight Whether to trim from the right end
+	 * @param trimq Quality threshold for trimming
+	 * @param avgErrorRate Average error rate for optimal trimming mode
+	 * @param minlen Minimum length after trimming
+	 * @return TrimRead object containing trimming information, or null if no trimming needed
+	 */
 	public static TrimRead trim(Read r, boolean trimLeft, boolean trimRight, 
 			float trimq, float avgErrorRate, int minlen){
 		if(r==null || r.bases==null){return null;}
@@ -155,6 +173,12 @@ public final class TrimRead implements Serializable {
 		return trimByAmount(r, a, b, minResult, trimClip);
 	}
 	
+	/**
+	 * Untrim a read if it contains a TrimRead object.
+	 * Restores the read to its original state before trimming.
+	 * @param r Read to untrim
+	 * @return true if the read was successfully untrimmed, false otherwise
+	 */
 	public static boolean untrim(Read r){
 		if(r==null || r.obj==null){return false;}
 		if(r.obj.getClass()!=TrimRead.class){return false;}
@@ -166,6 +190,17 @@ public final class TrimRead implements Serializable {
 //		this(r_, (trimLeft ? testLeft(r_.bases, r_.quality, (byte)trimq_) : 0), (trimRight ? testRight(r_.bases, r_.quality, (byte)trimq_) : 0), trimq_, minlen_);
 //	}
 	
+	/**
+	 * Constructor that trims a read by specified amounts.
+	 * Stores original bases and qualities, then trims according to parameters.
+	 * Updates the read object with trimmed sequences and sets this object as the read's obj field.
+	 *
+	 * @param r_ Read to trim
+	 * @param trimLeft Number of bases to trim from left
+	 * @param trimRight Number of bases to trim from right
+	 * @param trimq_ Quality threshold used for trimming
+	 * @param minlen_ Minimum length after trimming
+	 */
 	public TrimRead(Read r_, int trimLeft, int trimRight, float trimq_, int minlen_){
 		minlen_=Tools.max(minlen_, 0);
 		r=r_;
@@ -462,6 +497,12 @@ public final class TrimRead implements Serializable {
 		return bases.length-lastBad;
 	}
 	
+	/**
+	 * Restores the read to its original pre-trimmed state.
+	 * Updates bases, qualities, match strings, and mapping coordinates.
+	 * Also handles SiteScore objects if present.
+	 * @return true if untrimming was performed, false if no trimming to undo
+	 */
 	public boolean untrim(){
 		if(leftTrimmed==0 && rightTrimmed==0){return false;}
 		r.setPerfect(false);
@@ -510,6 +551,12 @@ public final class TrimRead implements Serializable {
 		return true;
 	}
 	
+	/**
+	 * Untrim a SiteScore object by restoring its original coordinates and match string.
+	 * Updates the SiteScore to reflect the pre-trimmed state.
+	 * @param ss SiteScore to untrim
+	 * @return true if untrimming was performed, false otherwise
+	 */
 	private boolean untrim(SiteScore ss){
 		if(ss==null){return false;}
 		if(leftTrimmed==0 && rightTrimmed==0){return false;}
@@ -555,6 +602,14 @@ public final class TrimRead implements Serializable {
 		return true;
 	}
 	
+	/**
+	 * Adjusts match strings after trimming by setting them to null.
+	 * This is the "easy mode" implementation that discards alignment information.
+	 * Contains commented code for a more complex approach that would preserve alignment.
+	 *
+	 * @param r Read whose match string should be trimmed
+	 * @return true if match string was modified
+	 */
 	private static boolean trimMatch(Read r){
 		if(r.match==null && r.sites==null){return false;}
 		
@@ -849,10 +904,13 @@ public final class TrimRead implements Serializable {
 		return trimmed;
 	}
 
+	/** Returns the total number of bases trimmed from both ends.
+	 * @return Sum of left and right trimmed base counts */
 	public int trimmed() {
 		return leftTrimmed+rightTrimmed;
 	}
 	
+	/** The read object that was trimmed */
 	public final Read r;
 	
 	/** untrimmed bases */
@@ -865,21 +923,30 @@ public final class TrimRead implements Serializable {
 	public byte[] qual2;
 	
 	
+	/** Quality threshold used for trimming decision */
 	public final float trimq;
+	/** Number of bases trimmed from the left end */
 	public int leftTrimmed;
+	/** Number of bases trimmed from the right end */
 	public int rightTrimmed;
 	
 	/** Require this many consecutive good bases to stop trimming.  Minimum is 1.
 	 * This is for the old trimming mode and not really used anymore */
 	public static int minGoodInterval=2;
 	
+	/** Enable verbose debug output */
 	public static boolean verbose=false;
+	/** Use optimal trimming algorithm instead of simple threshold-based trimming */
 	public static boolean optimalMode=true;
+	/** Use sliding window trimming mode for right-end trimming */
 	public static boolean windowMode=false;
+	/** Override average error rate in optimal mode when >= 0 */
 	public static float optimalBias=-1f;
 	
+	/** Window size for sliding window trimming mode */
 	public static int windowLength=4;
 	
+	/** Probability assigned to N bases in optimal trimming calculations */
 	private static final float NPROB=0.75f;
 //	public static float PROB1=QualityTools.PROB_ERROR[1];
 	

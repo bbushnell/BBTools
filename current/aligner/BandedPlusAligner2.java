@@ -33,6 +33,7 @@ public class BandedPlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for BandedPlusAligner2 instances */
 	public BandedPlusAligner2() {}
 
 	/*--------------------------------------------------------------*/
@@ -259,9 +260,16 @@ public class BandedPlusAligner2 implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter tracking total matrix cells processed for performance analysis
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns the current count of matrix cells processed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value for performance tracking.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional file path for alignment matrix visualization output */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -269,26 +277,41 @@ public class BandedPlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits allocated for position tracking in bit-packed encoding */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for deletion counting in bit-packed encoding */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount for extracting score from bit-packed values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from packed values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting score information from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score value for sequence matches in bit-packed format */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions in bit-packed format */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions in bit-packed format */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions in bit-packed format */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score value for ambiguous nucleotide (N) matches */
 	private static final long N_SCORE=0L;
+	/** Sentinel value indicating invalid or unprocessed alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined position increment and deletion penalty for tracking deletions */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing detailed operation counts during alignment */
 	private static final boolean PRINT_OPS=false;
+	/** Flag controlling global vs local alignment mode initialization */
 	public static boolean GLOBAL=false;
 
 }

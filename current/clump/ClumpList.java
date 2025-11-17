@@ -23,11 +23,20 @@ import structures.LongM;
  */
 public class ClumpList extends ArrayList<Clump> {
 
+	/** Creates an empty ClumpList with specified k-mer length.
+	 * @param k_ The k-mer length for clump identification */
 	public ClumpList(int k_){
 		this(null, k_, false);
 	}
 	
 	//TODO: Add flag to remove duplicates, and remove optical duplicates
+	/**
+	 * Creates a ClumpList from a pre-sorted read collection.
+	 * Groups reads by k-mer and optionally generates consensus sequences.
+	 * @param list Pre-sorted reads to process (null allowed)
+	 * @param k_ K-mer length for grouping
+	 * @param makeSimpleConsensus_ Whether to generate consensus for each clump
+	 */
 	public ClumpList(ArrayList<Read> list, int k_, boolean makeSimpleConsensus_){
 		k=k_;
 		makeSimpleConsensus=makeSimpleConsensus_;
@@ -35,6 +44,12 @@ public class ClumpList extends ArrayList<Clump> {
 //		Shared.sort(this);//Does nothing since reads are already sorted by kmer.
 	}
 	
+	/**
+	 * Adds reads to clumps using optimal threading strategy.
+	 * Uses single-threaded processing for small lists, multi-threaded for large ones.
+	 * Reads must be pre-sorted by k-mer for correct grouping.
+	 * @param list Pre-sorted reads to add to clumps
+	 */
 	public void addReads(ArrayList<Read> list){
 		assert(list.getClass()!=Clump.class) : list.getClass();
 		if(list.size()<100000 || Shared.threads()<2){addReadsST(list);}
@@ -43,6 +58,11 @@ public class ClumpList extends ArrayList<Clump> {
 //		System.err.println(addedR+", "+addedC+", "+list.size());
 	}
 	
+	/**
+	 * Reorders clumps to group paired-end reads together efficiently.
+	 * More efficient than reorder() but requires paired reads with mate information.
+	 * Uses breadth-first traversal to cluster related clumps by mate pairs.
+	 */
 	public void reorderPaired(){//More efficient but requires unpair and repair, and paired reads.
 		ArrayList<Clump> temp=new ArrayList<Clump>(size());
 		for(Clump c : this){
@@ -57,6 +77,13 @@ public class ClumpList extends ArrayList<Clump> {
 		this.addAll(temp);
 	}
 	
+	/**
+	 * Recursively adds clumps linked by mate pairs to the reordered list.
+	 * Uses breadth-first search with depth limiting to prevent stack overflow.
+	 * @param c Current clump to process
+	 * @param temp Output list for reordered clumps
+	 * @param depth Recursion depth for overflow prevention
+	 */
 	private void addFriends(Clump c, ArrayList<Clump> temp, int depth){
 		LinkedList<Clump> q=(depth<100 ? new LinkedList<Clump>() : null);
 		for(Read r : c){
@@ -79,6 +106,11 @@ public class ClumpList extends ArrayList<Clump> {
 		}
 	}
 	
+	/**
+	 * Reorders clumps to group k-mer neighbors together.
+	 * Less efficient than reorderPaired() but works with unpaired reads.
+	 * Creates k-mer map and uses breadth-first clustering for related clumps.
+	 */
 	public void reorder(){//Less efficient but works with unpaired reads
 		ArrayList<Clump> temp=new ArrayList<Clump>(size());
 //		temp.addAll(this);
@@ -129,6 +161,11 @@ public class ClumpList extends ArrayList<Clump> {
 		this.addAll(temp);
 	}
 	
+	/**
+	 * Multi-threaded clump creation for large read collections.
+	 * Divides reads among worker threads, then merges results synchronously.
+	 * @param list Pre-sorted reads to process with multiple threads
+	 */
 	public void addReadsMT(ArrayList<Read> list){
 		int threads=Tools.mid(2, Shared.threads()/2, 16);
 //		assert(false) : threads;
@@ -181,6 +218,12 @@ public class ClumpList extends ArrayList<Clump> {
 //		return true;
 //	}
 	
+	/**
+	 * Single-threaded clump creation by grouping consecutive identical k-mers.
+	 * Creates new clumps when k-mer changes, adds reads to current clump otherwise.
+	 * Optionally generates consensus sequences for completed clumps.
+	 * @param list Pre-sorted reads to process sequentially
+	 */
 	public void addReadsST(ArrayList<Read> list){
 		Clump currentClump=null;
 		long currentKmer=-1;
@@ -260,6 +303,11 @@ public class ClumpList extends ArrayList<Clump> {
 		map=null;
 	}
 	
+	/**
+	 * Returns k-mer to clump mapping with lazy initialization.
+	 * Thread-safe creation of k-mer map for clump neighborhood analysis.
+	 * @return Map from k-mers to lists of clumps containing those k-mers
+	 */
 	public LinkedHashMap<LongM, ArrayList<Clump>> map(){
 		LinkedHashMap<LongM, ArrayList<Clump>> temp=map;
 		if(temp==null){
@@ -274,6 +322,11 @@ public class ClumpList extends ArrayList<Clump> {
 		return map;
 	}
 	
+	/**
+	 * Creates initial k-mer map and populates with consensus k-mers.
+	 * Thread-safe map creation with all k-mers from consensus sequences.
+	 * @return New k-mer to clump list mapping
+	 */
 	private synchronized LinkedHashMap<LongM, ArrayList<Clump>> makeMap(){
 		assert(this.map==null);
 		LinkedHashMap<LongM, ArrayList<Clump>> map=new LinkedHashMap<LongM, ArrayList<Clump>>(this.size());
@@ -287,6 +340,11 @@ public class ClumpList extends ArrayList<Clump> {
 		return map;
 	}
 	
+	/**
+	 * Populates k-mer map with all k-mers from consensus sequences.
+	 * Scans consensus reads to find all canonical k-mers and maps to clumps.
+	 * @param map K-mer map to populate with consensus k-mers
+	 */
 	private void fillMap(LinkedHashMap<LongM, ArrayList<Clump>> map){
 		final int shift=2*k;
 		final int shift2=shift-2;
@@ -324,8 +382,15 @@ public class ClumpList extends ArrayList<Clump> {
 		}
 	}
 	
+	/**
+	 * Worker thread for parallel clump processing operations.
+	 * Handles consensus generation, error correction, and duplicate removal
+	 * using atomic counter for work distribution among threads.
+	 */
 	private class ProcessThread extends Thread{
 		
+		/** Creates a processing thread with specified operation mode.
+		 * @param mode_ Processing mode (CONDENSE, CORRECT, or DEDUPE) */
 		public ProcessThread(int mode_){
 			mode=mode_;
 		}
@@ -363,14 +428,31 @@ public class ClumpList extends ArrayList<Clump> {
 			}
 		}
 		
+		/** Count of corrections made during error correction processing. */
 		public long corrections=0;
+		/** Count of duplicates removed during deduplication processing. */
 		public long duplicates=0;
+		/** Storage for processed reads from this thread. */
 		ArrayList<Read> storage=new ArrayList<Read>();
+		/** Processing mode for this thread (CONDENSE, CORRECT, or DEDUPE). */
 		private final int mode;
 	}
 	
+	/**
+	 * Worker thread for multi-threaded clump creation from read segments.
+	 * Processes a segment of pre-sorted reads and creates clumps for identical k-mers.
+	 * Handles boundary conditions between thread segments correctly.
+	 */
 	private static class ClumpThread extends Thread {
 		
+		/**
+		 * Creates a clump thread for processing a read segment.
+		 * @param input_ Complete sorted read list
+		 * @param startIndex_ Starting index for this thread's segment
+		 * @param stopIndex_ Ending index for this thread's segment
+		 * @param k K-mer length for clump identification
+		 * @param makeSimpleConsensus_ Whether to generate consensus sequences
+		 */
 		public ClumpThread(ArrayList<Read> input_, int startIndex_, int stopIndex_, int k, boolean makeSimpleConsensus_){
 			input=input_;
 			startIndex=startIndex_;
@@ -441,28 +523,42 @@ public class ClumpList extends ArrayList<Clump> {
 			currentClump=null;
 		}
 		
+		/** Thread-local flag for consensus generation. */
 		final boolean makeSimpleConsensusT;
+		/** Complete input read list shared among threads. */
 		final ArrayList<Read> input;
+		/** Starting index for this thread's read segment. */
 		final int startIndex;
+		/** Ending index for this thread's read segment. */
 		final int stopIndex;
+		/** ClumpList for storing this thread's created clumps. */
 		ClumpList storage;
+		/** Current clump being built during read processing. */
 		Clump currentClump;
 		long cAddedT=0, rAddedT=0;
 	}
 	
 	static final int CONDENSE=1, CORRECT=2, DEDUPE=3;
 	
+	/** Whether to generate simple consensus sequences for clumps. */
 	private final boolean makeSimpleConsensus;
 	long cAdded=0, rAdded=0;
 	
+	/** K-mer length used for clump identification and consensus generation. */
 	final int k;
+	/** Thread-safe pointer for work distribution among processing threads. */
 	final AtomicInteger ptr=new AtomicInteger(0);
+	/** Cached k-mer to clump mapping for neighborhood analysis. */
 	private LinkedHashMap<LongM, ArrayList<Clump>> map;
 
+	/** Whether to reverse-complement correction for swapped reads. */
 	public static boolean UNRCOMP=true;
+	/** Enables verbose output for threading operations. */
 	private static boolean verbose=false;
 	
+	/** Serial version UID for serialization compatibility. */
 	private static final long serialVersionUID = 1L;
+	/** Output stream for verbose progress messages. */
 	private static final PrintStream outstream=System.err;
 	
 }

@@ -16,10 +16,17 @@ public class KmerNode1D extends KmerNode {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constructs a KmerNode1D with specified pivot k-mer.
+	 * @param pivot_ The k-mer value serving as pivot for binary tree navigation */
 	public KmerNode1D(long pivot_){
 		super(pivot_);
 	}
 	
+	/**
+	 * Constructs a KmerNode1D with specified pivot k-mer and initial value.
+	 * @param pivot_ The k-mer value serving as pivot for binary tree navigation
+	 * @param value_ Initial count or value to associate with this k-mer
+	 */
 	public KmerNode1D(long pivot_, int value_){
 		super(pivot_);
 		value=value_;
@@ -170,6 +177,7 @@ public class KmerNode1D extends KmerNode {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** The single integer value stored in this k-mer node */
 	int value;
 	
 }

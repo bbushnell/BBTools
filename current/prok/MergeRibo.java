@@ -340,6 +340,11 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Converts the taxon-keyed map of ribosomal sequences into a prioritized queue.
+	 * Sorts lists by size (largest first) for load balancing across threads.
+	 * @return Queue of ribosomal sequence lists ordered by size
+	 */
 	private ConcurrentLinkedQueue<ArrayList<Ribo>> makeQueue(){
 		ArrayList<ArrayList<Ribo>> listList=new ArrayList<ArrayList<Ribo>>(listMap.size());
 		for(Entry<Integer, ArrayList<Ribo>> e : listMap.entrySet()){
@@ -355,6 +360,11 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		return q;
 	}
 	
+	/**
+	 * Creates and starts a concurrent read input stream for the specified file format.
+	 * @param ff FileFormat object specifying input file details
+	 * @return Started ConcurrentReadInputStream
+	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
 		cris.start(); //Start the stream
@@ -364,6 +374,11 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		return cris;
 	}
 	
+	/**
+	 * Creates and starts a concurrent read output stream if output is configured.
+	 * Buffer size is adjusted based on whether ordered output is required.
+	 * @return Started ConcurrentReadOutputStream or null if no output configured
+	 */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout1==null){return null;}
 
@@ -478,6 +493,11 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Processes a batch of reads from the input stream.
+		 * Validates reads and processes each individually.
+		 * @param ln ListNum containing a batch of reads to process
+		 */
 		void processInput(ListNum<Read> ln){
 			if(verbose && threadID==0){System.err.println("processInput() for tid="+threadID);}
 
@@ -502,6 +522,8 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			}
 		}
 		
+		/** Selects the best representative sequence for each taxonomic group.
+		 * Polls sequence lists from the queue and adds selected representatives to the best list. */
 		void pickBest(){
 			if(verbose && threadID==0){System.err.println("pickBest() for tid="+threadID);}
 			for(ArrayList<Ribo> list=queue.poll(); list!=null; list=queue.poll()){
@@ -539,6 +561,14 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			return best;
 		}
 		
+		/**
+		 * Core logic for selecting the best representative from multiple ribosomal sequences.
+		 * Uses either consensus generation or best-scoring selection based on configuration.
+		 * For consensus mode, aligns all sequences and generates a consensus sequence.
+		 *
+		 * @param list List of ribosomal sequences for the same taxonomic ID
+		 * @return Best representative sequence
+		 */
 		Ribo pickBestInner(ArrayList<Ribo> list){
 			if(verbose && threadID==0){System.err.println("pickBest(list[="+list.size()+"]) for tid="+threadID);}
 			assert(list!=null && list.size()>0);
@@ -604,6 +634,12 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Aligns a read to the appropriate consensus sequence (16S or 18S).
+		 * Returns the maximum identity score from enabled alignment modes.
+		 * @param r Read to align against consensus sequences
+		 * @return Maximum alignment identity score
+		 */
 		float align(Read r){
 			float a=(process16S ? ssa.align(r.bases, consensus16S) : 0);
 			float b=(process18S ? ssa.align(r.bases, consensus18S) : 0);
@@ -611,6 +647,9 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			return Tools.max(a, b);
 		}
 		
+		/**
+		 * Sequence aligner for computing identity scores against consensus sequences
+		 */
 		SingleStateAlignerFlat2 ssa=new SingleStateAlignerFlat2();
 
 		/** Number of reads processed by this thread */
@@ -627,11 +666,19 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		final int threadID;
 		
 		//Run mode
+		/** Whether this thread should process input sequences */
 		final boolean processInput;
+		/** Whether this thread is processing alternate input data */
 		final boolean altData;
 	}
 	
 	private class Ribo implements Comparable<Ribo>{
+		/**
+		 * Creates a ribosomal sequence entry with taxonomic assignment and quality score.
+		 * @param r_ Read containing the ribosomal sequence
+		 * @param tid_ Taxonomic identifier
+		 * @param identity_ Alignment identity to consensus sequence
+		 */
 		Ribo(Read r_, int tid_, float identity_){
 			r=r_;
 			tid=tid_;
@@ -648,13 +695,21 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			return 0;
 		}
 		
+		/** Gets the length of the ribosomal sequence.
+		 * @return Sequence length in bases */
 		int length(){return r.length();}
 		
+		/** Returns a string representation of the ribosomal sequence entry.
+		 * @return String containing taxonomic ID and sequence header */
 		public String toString() {return "tid="+tid+", header="+r.id;}
 		
+		/** The ribosomal sequence read */
 		Read r;
+		/** Taxonomic identifier for this sequence */
 		int tid;
+		/** Alignment identity score to consensus sequence */
 		float identity;
+		/** Combined quality score incorporating length and identity */
 		float product;
 	}
 	
@@ -667,6 +722,12 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		
 	}
 	
+	/**
+	 * Calculates length-based quality multiplier for sequence scoring.
+	 * Sequences closer to the ideal length receive higher multipliers.
+	 * @param len Sequence length to evaluate
+	 * @return Length quality multiplier (0.0 to 1.0)
+	 */
 	private float lengthMult(int len){
 		int idealLength=idealLength();
 		int max=Tools.max(len, idealLength, 1);
@@ -674,10 +735,21 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		return min/(float)max;
 	}
 	
+	/**
+	 * Calculates composite quality score combining length and identity metrics.
+	 * @param len Sequence length
+	 * @param identity Alignment identity to consensus
+	 * @return Combined quality score
+	 */
 	private float score(int len, float identity){
 		return lengthMult(len)*identity;
 	}
 	
+	/**
+	 * Loads the taxonomic tree for taxon resolution and lineage generation.
+	 * Uses default tree location if "auto" is specified for tree path.
+	 * @return Loaded TaxTree object
+	 */
 	private TaxTree loadTree() {
 		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
 		if(treePath!=null) {
@@ -704,30 +776,51 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** List of selected best representative sequences for output */
 	ArrayList<Ribo> bestList=new ArrayList<Ribo>();
+	/** Map of taxonomic IDs to their corresponding ribosomal sequence lists */
 	HashMap<Integer, ArrayList<Ribo>> listMap=new HashMap<Integer, ArrayList<Ribo>>(100000);
+	/** Queue of sequence lists for processing by worker threads */
 	ConcurrentLinkedQueue<ArrayList<Ribo>> queue;
 	
+	/** Taxonomic tree for taxon resolution and lineage generation */
 	private TaxTree tree=null;
+	/** Path to taxonomic tree file, defaults to automatic detection */
 	private String treePath="auto";
+	/** Whether to use taxonomic tree for taxon resolution */
 	private boolean useTree=false;
+	/** Extended taxonomic level for grouping sequences (-1 for no grouping) */
 	private int taxLevelE=-1;
+	/** Whether to generate DADA2-compatible output with taxonomic lineages */
 	private boolean dada2=false;
 	
+	/** Set of taxonomic IDs already processed to avoid duplicates */
 	IntHashSet seenTaxID=new IntHashSet(1000000);
 	
+	/** Consensus 16S rRNA sequence for alignment reference */
 	byte[] consensus16S;
+	/** Consensus 18S rRNA sequence for alignment reference */
 	byte[] consensus18S;
 	
+	/**
+	 * Gets the ideal sequence length based on the selected ribosomal RNA type.
+	 * Returns consensus sequence length for the active processing mode.
+	 * @return Ideal sequence length for current processing mode
+	 */
 	int idealLength(){
 		if(process16S){return consensus16S.length;}
 		return consensus18S.length;
 	}
 	
+	/** Whether to generate consensus sequences instead of selecting single best */
 	boolean useConsensus=false;
+	/** Whether to use fast mode that skips consensus generation */
 	boolean fast=false;
+	/** Maximum number of ambiguous bases allowed in sequences (-1 for no limit) */
 	int maxns=-1;
+	/** Minimum sequence length required for processing */
 	int minlen=1;
+	/** Maximum sequence length allowed for processing */
 	int maxlen=4000;
 	
 	/*--------------------------------------------------------------*/
@@ -745,9 +838,12 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
+	/** Minimum alignment identity required for sequence retention */
 	private float minID=0.62f;
 	
+	/** Whether to process 16S ribosomal RNA sequences */
 	private boolean process16S=true;
+	/** Whether to process 18S ribosomal RNA sequences */
 	private boolean process18S=false;
 	
 	/*--------------------------------------------------------------*/
@@ -756,15 +852,18 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 
 	/** Primary input file */
 	private final ArrayList<FileFormat> ffin;
+	/** File format object for alternate input file */
 	private final FileFormat ffalt;
 	
 	/** Primary output file */
 	private final FileFormat ffout1;
 	
+	/** Number of processing threads to use */
 	final int threads;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for coordinating thread access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

@@ -251,6 +251,11 @@ public class MultiCros3 extends BufferedMultiCros {
 		retireCalls++;
 	}
 	
+	/**
+	 * Generates formatted report of stream retirement timing statistics.
+	 * Shows breakdown of time spent in different phases of stream closure.
+	 * @return Formatted timing report string
+	 */
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -266,13 +271,24 @@ public class MultiCros3 extends BufferedMultiCros {
 		return bb.toString();
 	}
 
+	/** Time spent selecting streams to retire */
 	private long retireTime1=0;
+	/** Time spent dumping buffered reads before retirement */
 	private long retireTime2=0;
+	/** Time spent closing streams during retirement */
 	private long retireTime3=0;
+	/** Time spent waiting for stream joins during retirement */
 	private long retireTime4=0;
+	/** Total number of streams retired */
 	private long retireCount=0;
+	/** Number of retire() method invocations */
 	private long retireCalls=0;
 	
+	/**
+	 * Generates formatted report of stream creation timing statistics.
+	 * Shows breakdown of time spent in different phases of stream creation.
+	 * @return Formatted timing report string
+	 */
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
 		float mult=0.001f/retireCount;
@@ -285,10 +301,15 @@ public class MultiCros3 extends BufferedMultiCros {
 		return bb.toString();
 	}
 	
+	/** Time spent in stream creation phase 1 */
 	private long createTime1=0;
+	/** Time spent in stream creation phase 2 */
 	private long createTime2=0;
+	/** Time spent creating the actual stream object */
 	private long createTime3=0;
+	/** Time spent starting the stream */
 	private long createTime4=0;
+	/** Time spent adding stream to queue */
 	private long createTime5=0;
 	
 	/*--------------------------------------------------------------*/
@@ -302,6 +323,11 @@ public class MultiCros3 extends BufferedMultiCros {
 	 */
 	private class Buffer implements Comparable<Buffer>{
 		
+		/**
+		 * Constructs a buffer for the specified output destination name.
+		 * Initializes file formats, read list, and optional cardinality tracking.
+		 * @param name_ The destination name that will replace % in output patterns
+		 */
 		Buffer(String name_){
 			name=name_;
 			timestamp=(bufferTimer++);
@@ -532,6 +558,7 @@ public class MultiCros3 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Counter for generating buffer timestamps */
 	private long bufferTimer=0;
 	
 	/** Open stream names */

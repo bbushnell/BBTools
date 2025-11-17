@@ -23,6 +23,12 @@ public final class KmerTable extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a KmerTable with specified initial capacity and resize behavior.
+	 * Size is adjusted to the nearest prime for optimal hash distribution.
+	 * @param initialSize Initial hash table capacity (will be adjusted to nearest prime)
+	 * @param autoResize_ Whether to automatically resize when load factor is exceeded
+	 */
 	public KmerTable(int initialSize, boolean autoResize_){
 		if(initialSize>1){
 			initialSize=(int)Tools.min(maxPrime, Primes.primeAtLeast(initialSize));
@@ -196,6 +202,12 @@ public final class KmerTable extends AbstractKmerTable {
 		return n;
 	}
 	
+	/**
+	 * Inserts a KmerLink node into the appropriate hash table position.
+	 * Used during resizing operations to rehash existing nodes.
+	 * @param n The KmerLink node to insert
+	 * @return true if insertion was successful
+	 */
 	boolean insert(KmerLink n){
 		n.next=null;
 		int cell=(int)(n.pivot%prime);
@@ -327,11 +339,17 @@ public final class KmerTable extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array of KmerLink nodes forming the hash table buckets */
 	KmerLink[] array;
+	/** Current prime size of the hash table array */
 	int prime;
+	/** Number of k-mers currently stored in the table */
 	long size=0;
+	/** Size threshold that triggers automatic resizing when exceeded */
 	long sizeLimit;
+	/** Whether the table automatically resizes when size limit is reached */
 	final boolean autoResize;
+	/** ReentrantLock for coordinating thread-safe access to the table */
 	private final Lock lock=new ReentrantLock();
 	
 	@Override
@@ -341,11 +359,17 @@ public final class KmerTable extends AbstractKmerTable {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Largest prime number that fits in an integer, used as maximum table size */
 	final static int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE);
+	/** Minimum multiplier for table size during resize operations */
 	final static float resizeMult=2f; //Resize by a minimum of this much
+	/** Minimum load factor to maintain after resizing */
 	final static float minLoadFactor=0.5f; //Resize by enough to get the load above this factor
+	/** Maximum load factor before triggering resize */
 	final static float maxLoadFactor=0.98f; //Resize by enough to get the load under this factor
+	/** Reciprocal of minimum load factor for calculations */
 	final static float minLoadMult=1/minLoadFactor;
+	/** Reciprocal of maximum load factor for calculations */
 	final static float maxLoadMult=1/maxLoadFactor;
 	
 }

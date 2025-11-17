@@ -36,6 +36,15 @@ public abstract class PCRMatrix {
 	/*----------------         Constructor          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a PCRMatrix with specified barcode structure parameters.
+	 * Initializes counting matrix and validates licensing.
+	 *
+	 * @param length1_ Length of first barcode segment
+	 * @param length2_ Length of second barcode segment (0 for single barcodes)
+	 * @param delimiter_ Delimiter character between segments (0 for none)
+	 * @param hdistSum_ Whether to sum hamming distances or take maximum
+	 */
 	protected PCRMatrix(int length1_, int length2_, int delimiter_, boolean hdistSum_) {
 		writelock();
 		if(!valid()) {
@@ -59,10 +68,29 @@ public abstract class PCRMatrix {
 		writeunlock();
 	}
 	
+	/**
+	 * Factory method to create PCRMatrix with default settings.
+	 *
+	 * @param length1_ Length of first barcode segment
+	 * @param length2_ Length of second barcode segment
+	 * @param delimiter_ Delimiter character between segments
+	 * @return New PCRMatrix instance of the configured type
+	 */
 	public static PCRMatrix create(int length1_, int length2_, int delimiter_) {
 		return create(matrixType0, length1_, length2_, delimiter_, hdistSum0);
 	}
 	
+	/**
+	 * Factory method to create PCRMatrix of specified type.
+	 *
+	 * @param type Matrix implementation type (HDIST_TYPE, PROB_TYPE, or TILE_TYPE)
+	 * @param length1_ Length of first barcode segment
+	 * @param length2_ Length of second barcode segment
+	 * @param delimiter_ Delimiter character between segments
+	 * @param hdistSum_ Whether to sum hamming distances or take maximum
+	 * @return New PCRMatrix instance of the specified type
+	 * @throws RuntimeException if type is unknown
+	 */
 	public static PCRMatrix create(int type, int length1_, int length2_, int delimiter_, boolean hdistSum_) {
 		if(type==HDIST_TYPE) {
 			return new PCRMatrixHDist(length1_, length2_, delimiter_, hdistSum_);
@@ -82,6 +110,15 @@ public abstract class PCRMatrix {
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses static configuration parameters for PCRMatrix classes.
+	 * Handles parameters like localcounts, coding, matrixtype, and various flags.
+	 *
+	 * @param arg Full argument string
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return true if parameter was recognized and parsed
+	 */
 	public static boolean parseStatic(String arg, String a, String b){
 		
 		if(a.equals("localcounts")){
@@ -153,8 +190,19 @@ public abstract class PCRMatrix {
 		return true;
 	}
 	
+	/**
+	 * Parses instance-specific configuration parameters.
+	 * Implementation varies by concrete PCRMatrix subclass.
+	 *
+	 * @param arg Full argument string
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return true if parameter was recognized and parsed
+	 */
 	public abstract boolean parse(String arg, String a, String b);
 	
+	/** Finalizes static configuration after all parameters have been parsed.
+	 * Calls postParse methods on subclasses and sets tile mode flag. */
 	public static void postParseStatic(){
 		PCRMatrixHDist.postParseStatic();
 		PCRMatrixProbAbstract.postParseStatic();
@@ -169,8 +217,18 @@ public abstract class PCRMatrix {
 	/*----------------           File I/O           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Represents a mapping between observed and assigned barcodes with count and distance data.
+	 * Used for sorting and outputting barcode assignment results. */
 	public static class MapLine implements Comparable<MapLine> {
 		
+		/**
+		 * Constructs a MapLine with observed/assigned barcode mapping data.
+		 *
+		 * @param observed_ The observed barcode sequence
+		 * @param assigned_ The assigned reference barcode
+		 * @param count_ Number of observations
+		 * @param prob_ Assignment probability (-1 if not calculated)
+		 */
 		public MapLine(String observed_, String assigned_, long count_, float prob_){
 			observed=observed_;
 			assigned=assigned_;
@@ -188,6 +246,8 @@ public abstract class PCRMatrix {
 			return observed.compareTo(b.observed);
 		}
 		
+		/** Converts MapLine to tab-separated byte representation.
+		 * @return ByteBuilder containing formatted output */
 		public ByteBuilder toBytes() {
 			ByteBuilder bb=new ByteBuilder();
 			bb.append(observed).tab().append(assigned);
@@ -201,13 +261,27 @@ public abstract class PCRMatrix {
 			return toBytes().toString();
 		}
 		
+		/** The observed barcode sequence */
 		final String observed;
+		/** The assigned reference barcode sequence */
 		final String assigned;
+		/** Number of times this mapping was observed */
 		final long count;
+		/** Hamming distance between observed and assigned sequences */
 		final int hdist;
+		/** Assignment probability (-1 if not calculated) */
 		float prob=-1;
 	}
 	
+	/**
+	 * Prints barcode assignment map to file using barcode collection for counts.
+	 *
+	 * @param assignmentMap Map from observed to assigned barcodes
+	 * @param mapOut Output file path
+	 * @param counts Barcode collection with count data
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 */
 	public final void printAssignmentMap(HashMap<String, String> assignmentMap,
 			String mapOut, Collection<Barcode> counts, boolean overwrite, boolean append) {
 		readlock();
@@ -216,6 +290,15 @@ public abstract class PCRMatrix {
 		readunlock();
 	}
 	
+	/**
+	 * Prints barcode assignment map to file using barcode map for counts.
+	 *
+	 * @param assignmentMap Map from observed to assigned barcodes
+	 * @param mapOut Output file path
+	 * @param counts Barcode map with count data
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 */
 	public void printAssignmentMap(HashMap<String, String> assignmentMap,
 			String mapOut, HashMap<String, Barcode> counts, boolean overwrite, boolean append) {
 		readlock();
@@ -230,12 +313,30 @@ public abstract class PCRMatrix {
 		readunlock();
 	}
 	
+	/**
+	 * Static version of printAssignmentMap using barcode collection.
+	 *
+	 * @param assignmentMap Map from observed to assigned barcodes
+	 * @param mapOut Output file path
+	 * @param counts Barcode collection with count data
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 */
 	public static final void printAssignmentMapStatic(HashMap<String, String> assignmentMap,
 			String mapOut, Collection<Barcode> counts, boolean overwrite, boolean append) {
 		HashMap<String, Barcode> countMap=Barcode.barcodesToMap(counts);
 		printAssignmentMapStatic(assignmentMap, mapOut, countMap, overwrite, append);
 	}
 	
+	/**
+	 * Static version of printAssignmentMap using barcode map.
+	 *
+	 * @param assignmentMap Map from observed to assigned barcodes
+	 * @param mapOut Output file path
+	 * @param counts Barcode map with count data
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 */
 	public static void printAssignmentMapStatic(HashMap<String, String> assignmentMap,
 			String mapOut, HashMap<String, Barcode> counts, boolean overwrite, boolean append) {
 		ArrayList<MapLine> lines=new ArrayList<MapLine>();
@@ -248,6 +349,14 @@ public abstract class PCRMatrix {
 		printAssignmentMap(lines, mapOut, overwrite, append);
 	}
 	
+	/**
+	 * Prints pre-formatted assignment map lines to file.
+	 *
+	 * @param lines List of MapLine objects to output
+	 * @param mapOut Output file path
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 */
 	public static final void printAssignmentMap(ArrayList<MapLine> lines, String mapOut, 
 			boolean overwrite, boolean append) {
 		ByteStreamWriter bsw=new ByteStreamWriter(mapOut, overwrite, append, true);
@@ -260,6 +369,12 @@ public abstract class PCRMatrix {
 	/*----------------            HDist             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Fills IntList with hamming distances between query and reference sequences.
+	 * @param q Query sequence
+	 * @param list Array of reference sequences
+	 * @param hdList List to populate with distances
+	 */
 	protected static final void fillHDistList(byte[] q, byte[][] list, IntList hdList){
 		hdList.clear();
 		for(byte[] r : list) {
@@ -267,22 +382,63 @@ public abstract class PCRMatrix {
 		}
 	}
 
+	/**
+	 * Calculates hamming distance between two byte sequences.
+	 * @param q First sequence
+	 * @param r Second sequence
+	 * @return Hamming distance between sequences
+	 */
 	public static final int hdist(byte[] q, byte[] r) {return Barcode.hdist(q, r);}
 	
+	/**
+	 * Combines two distance values based on hdistSum setting.
+	 * @param d1 First distance value
+	 * @param d2 Second distance value
+	 * @return Combined distance (sum or maximum)
+	 */
 	public final int hdist(int d1, int d2) {return hdistSum ? d1+d2 : Tools.max(d1, d2);}
 	
+	/**
+	 * Calculates distance between barcode and string.
+	 * @param q Query barcode
+	 * @param r Reference string
+	 * @return Distance between sequences
+	 */
 	public final int hdist(Barcode q, String r) {
 		return hdist(q.name, r);
 	}
 	
+	/**
+	 * Calculates distance between two strings based on hdistSum setting.
+	 * For dual barcodes, computes left and right distances separately.
+	 *
+	 * @param q Query string
+	 * @param r Reference string
+	 * @return Combined distance
+	 */
 	public final int hdist(String q, String r) {
 		return hdistSum ? Barcode.hdist(q, r) : Tools.max(Barcode.hdistL(q, r), Barcode.hdistR(q, r));
 	}
 	
+	/**
+	 * Encodes index and two distance values into a single long.
+	 * Uses bit packing for efficient storage and retrieval.
+	 *
+	 * @param idx Index value
+	 * @param hdist First distance
+	 * @param hdist2 Second distance
+	 * @return Packed long containing all three values
+	 */
 	public static final long encodeHDist(long idx, long hdist, long hdist2) {
 		return idx|(hdist<<32)|(hdist2<<48);
 	}
 	
+	/**
+	 * Filters barcodes to only include those meeting minimum count threshold.
+	 * @param codeCounts Input barcode collection
+	 * @param minCount Minimum count threshold
+	 * @return Filtered list of barcodes above threshold
+	 */
 	protected final ArrayList<Barcode> highpass(Collection<Barcode> codeCounts, long minCount) {
 		if(minCount<=1) {
 			return codeCounts instanceof ArrayList ? (ArrayList<Barcode>)codeCounts 
@@ -299,11 +455,28 @@ public abstract class PCRMatrix {
 	/*----------------            HDist             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Finds closest matching barcode using hamming distance.
+	 * Dispatches to single or dual barcode implementation.
+	 *
+	 * @param s Query sequence
+	 * @param maxHDist Maximum allowed distance
+	 * @param clearzone Minimum distance margin to second-best match
+	 * @return Closest matching barcode or null if none found
+	 */
 	protected final Barcode findClosestHDist(String s, int maxHDist, int clearzone) {
 		return length2<1 ? findClosestSingleHDist(s, maxHDist, clearzone) : 
 			findClosestDualHDist(s, maxHDist, clearzone);
 	}
 	
+	/**
+	 * Finds closest matching single barcode using hamming distance.
+	 *
+	 * @param q Query sequence
+	 * @param maxHDist Maximum allowed distance
+	 * @param clearzone Minimum distance margin to second-best match
+	 * @return Closest matching barcode or null if none found
+	 */
 	protected final Barcode findClosestSingleHDist(String q, int maxHDist, int clearzone) {
 		assert(q.length()==length1) : q+", "+length1+", "+length2;
 		final byte[] left=q.getBytes();
@@ -318,6 +491,15 @@ public abstract class PCRMatrix {
 		return idx<0 ? null : leftCodes[idx];
 	}
 	
+	/**
+	 * Finds closest matching dual barcode using hamming distance.
+	 * Splits query into left and right segments and finds best matches for each.
+	 *
+	 * @param q Query sequence
+	 * @param maxHDist Maximum allowed distance
+	 * @param clearzone Minimum distance margin to second-best match
+	 * @return Closest matching barcode or null if none found
+	 */
 	protected final Barcode findClosestDualHDist(String q, int maxHDist, int clearzone) {
 		//if(verbose) {System.err.println("Looking for "+q);}
 		byte[] left=new byte[length1];
@@ -369,6 +551,16 @@ public abstract class PCRMatrix {
 		return bc;
 	}
 	
+	/**
+	 * Finds closest matching sequence from a list using hamming distance.
+	 * Returns packed long containing index and distance information.
+	 *
+	 * @param q Query sequence
+	 * @param list Array of reference sequences
+	 * @param maxHDist Maximum allowed distance
+	 * @param clearzone Minimum distance margin to second-best match
+	 * @return Packed long with index and distances, or -1 if none found
+	 */
 	protected final long findClosestHDist(byte[] q, byte[][] list, int maxHDist, int clearzone) {
 		assert(!expectedList.isEmpty());
 		int best=-1, best2=-1;
@@ -402,24 +594,64 @@ public abstract class PCRMatrix {
 	/*----------------           Various            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Finds closest matching barcode for the given sequence.
+	 * Implementation varies by concrete subclass.
+	 * @param s Query sequence
+	 * @return Closest matching barcode or null
+	 */
 	public abstract Barcode findClosest(String s);
 	
+	/**
+	 * Refines barcode assignments based on observed counts.
+	 * Implementation varies by concrete subclass.
+	 * @param codeCounts Observed barcode counts
+	 * @param minCount Minimum count threshold
+	 */
 	public abstract void refine(Collection<Barcode> codeCounts, long minCount);
 	
+	/**
+	 * Creates mapping from observed to assigned barcodes.
+	 * Implementation varies by concrete subclass.
+	 *
+	 * @param codeCounts Observed barcode counts
+	 * @param minCount Minimum count threshold
+	 * @return Map from observed to assigned barcode sequences
+	 */
 	public abstract HashMap<String, String> makeAssignmentMap(Collection<Barcode> codeCounts, long minCount);
 	
+	/**
+	 * Populates count data for barcode list.
+	 * Implementation varies by concrete subclass.
+	 * @param list List of barcodes to populate
+	 * @param minCount Minimum count threshold
+	 */
 	public abstract void populateCounts(ArrayList<Barcode> list, long minCount);
 	
+	/** Calculates probability matrices from count data.
+	 * Implementation varies by concrete subclass. */
 	public abstract void makeProbs();
 
+	/** Initializes data structures for the matrix.
+	 * Implementation varies by concrete subclass. */
 	public abstract void initializeData();
 	
+	/**
+	 * Validates licensing or other requirements.
+	 * Implementation varies by concrete subclass.
+	 * @return true if matrix is valid for use
+	 */
 	protected abstract boolean valid();// {return true;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Populating          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Populates the matrix with expected barcode sequences.
+	 * Creates internal data structures for tracking expected barcodes.
+	 * @param expected Collection of expected barcode sequences
+	 */
 	@SuppressWarnings("unchecked")
 	public final void populateExpected(Collection<String> expected) {
 		writelock();
@@ -440,6 +672,11 @@ public abstract class PCRMatrix {
 //		System.err.println("size="+expectedList.size());
 		writeunlock();
 	}
+	/**
+	 * Populates the matrix with expected barcode objects.
+	 * Creates internal data structures from existing Barcode objects.
+	 * @param expected Collection of expected Barcode objects
+	 */
 	public final void populateExpectedFromBarcodes(Collection<Barcode> expected) {
 		writelock();
 		assert(expectedList==null);
@@ -460,13 +697,22 @@ public abstract class PCRMatrix {
 		writeunlock();
 	}
 	
+	/** Populates data for unexpected (novel) barcodes.
+	 * Implementation varies by concrete subclass. */
 	public abstract void populateUnexpected();
 	
+	/** Populates split barcode data using default DemuxData settings.
+	 * Creates separate arrays for left and right barcode segments. */
 	public final void populateSplitCodes() {
 		DemuxData dd=new DemuxData(length1, length2, delimiter);
 		populateSplitCodes(dd);
 	}
 	
+	/**
+	 * Populates split barcode data using provided DemuxData configuration.
+	 * Creates arrays for left/right segments and all possible combinations.
+	 * @param dd DemuxData configuration object
+	 */
 	public final void populateSplitCodes(DemuxData dd) {
 		writelock();
 		assert(leftBytes==null) : "Already populated.";
@@ -560,6 +806,8 @@ public abstract class PCRMatrix {
 		writeunlock();
 	}
 	
+	/** Resets all count data to zero.
+	 * Clears count matrix and barcode counts. */
 	public void clearCounts() {
 		writelock();
 		Tools.fill(counts, 0);
@@ -568,20 +816,46 @@ public abstract class PCRMatrix {
 		writeunlock();
 	}
 	
+	/** Calculates fraction of reads that were assigned to any barcode.
+	 * @return Fraction of total reads that were assigned */
 	public final float assignedFraction() {
 		return (totalAssigned/(1.0f*totalCounted));
 	}
 	
+	/** Calculates fraction of reads assigned to expected barcodes.
+	 * @return Fraction of total reads assigned to expected barcodes */
 	public final float expectedFraction() {
 		return (totalAssignedToExpected/(1.0f*totalCounted));
 	}
 	
+	/** Calculates fraction of reads assigned to unexpected (chimeric) barcodes.
+	 * @return Fraction of reads assigned to chimeric barcodes */
 	public final float chimericFraction() {
 		return ((totalAssigned-totalAssignedToExpected)/(1.0f*totalCounted));
 	}
 
+	/**
+	 * Adds observed barcode data with reference barcode match.
+	 * @param query Observed barcode
+	 * @param ref Reference barcode match
+	 */
 	public final void add(Barcode query, Barcode ref) {add(query.name, ref, query.count());}
+	/**
+	 * Adds observed barcode data with specified count.
+	 * @param query Observed barcode sequence
+	 * @param ref Reference barcode match
+	 * @param count Number of observations
+	 */
 	public final void add(String query, Barcode ref, long count) {add(query, ref, count, 0);}
+	/**
+	 * Adds observed vs reference base counts to the matrix at each position.
+	 * Updates total counts and barcode-specific counts.
+	 *
+	 * @param query Observed barcode sequence
+	 * @param ref Reference barcode (null for unassigned)
+	 * @param count Number of observations
+	 * @param pos Starting position offset
+	 */
 	public final void add(String query, Barcode ref, long count, int pos) {
 		assert(ref==null || ref.length()==counts.length || matrixType0>=5);
 		for(int i=0; i<query.length(); i++, pos++) {
@@ -597,17 +871,41 @@ public abstract class PCRMatrix {
 		}
 	}
 	
+	/**
+	 * Converts count matrix to tab-separated byte format.
+	 * @param bb ByteBuilder to append to (created if null)
+	 * @return ByteBuilder containing formatted matrix data
+	 */
 	public ByteBuilder toBytes(ByteBuilder bb) {
 		return toBytes(counts, bb);
 	}
 	
+	/**
+	 * Converts count matrix to accuracy statistics format.
+	 * @param bb ByteBuilder to append to (created if null)
+	 * @param excludeUnknown Whether to exclude unknown base calls
+	 * @return ByteBuilder containing accuracy data
+	 */
 	public ByteBuilder toAccuracy(ByteBuilder bb, boolean excludeUnknown) {
 		return toAccuracy(counts, bb, excludeUnknown);
 	}
 	
+	/** Returns whether this matrix processes data by sequencing tile.
+	 * @return false for base implementation */
 	public boolean byTile() {return false;}
+	/**
+	 * Converts probability data to byte format.
+	 * Implementation varies by concrete subclass.
+	 * @param bb ByteBuilder to append to
+	 * @return ByteBuilder containing probability data
+	 */
 	public abstract ByteBuilder toBytesProb(ByteBuilder bb);
 	
+	/**
+	 * Adds another PCRMatrix's data to this matrix.
+	 * Combines count arrays and totals from both matrices.
+	 * @param p PCRMatrix to add data from
+	 */
 	final public void add(PCRMatrix p) {//Unused?
 		p.readlock();
 		writelock();
@@ -619,12 +917,25 @@ public abstract class PCRMatrix {
 		p.readunlock();
 	}
 	
+	/**
+	 * Retrieves expected barcode by sequence string.
+	 * @param s Barcode sequence
+	 * @return Barcode object or null if not found
+	 */
 	protected final Barcode getBarcode(String s) {return expectedMap.get(s);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Static method to convert count array to tab-separated format.
+	 * Creates detailed position-by-base count table.
+	 *
+	 * @param counts 3D count array [position][call][reference]
+	 * @param bb ByteBuilder to append to (created if null)
+	 * @return ByteBuilder containing formatted count data
+	 */
 	public static final ByteBuilder toBytes(long[][][] counts, ByteBuilder bb) {
 		if(bb==null) {bb=new ByteBuilder();}
 		bb.append("#pos\tcall\tA\tC\tG\tT\tN\tSum\n");
@@ -645,6 +956,15 @@ public abstract class PCRMatrix {
 		return bb;
 	}
 	
+	/**
+	 * Static method to convert count array to accuracy statistics.
+	 * Calculates call and reference accuracy by position.
+	 *
+	 * @param counts 3D count array [position][call][reference]
+	 * @param bb ByteBuilder to append to (created if null)
+	 * @param excludeUnknown Whether to exclude unknown bases from accuracy calculation
+	 * @return ByteBuilder containing accuracy statistics
+	 */
 	public static final ByteBuilder toAccuracy(long[][][] counts, ByteBuilder bb, boolean excludeUnknown) {
 		if(bb==null) {bb=new ByteBuilder();}
 
@@ -692,79 +1012,132 @@ public abstract class PCRMatrix {
 		return bb;
 	}
 	
+	/**
+	 * Creates a string of repeated characters.
+	 * @param c Character to repeat
+	 * @param len Number of repetitions
+	 * @return String containing repeated character
+	 */
 	private static String poly(char c, int len) {
 		ByteBuilder bb=new ByteBuilder(len);
 		for(int i=0; i<len; i++) {bb.append(c);}
 		return bb.toString();
 	}
 
+	/** Acquires write lock for thread-safe matrix modification. */
 	protected final void writelock() {rwlock.writeLock().lock();}
+	/** Releases write lock after matrix modification. */
 	protected final void writeunlock() {rwlock.writeLock().unlock();}
+	/** Acquires read lock for thread-safe matrix access. */
 	protected final void readlock() {rwlock.readLock().lock();}
+	/** Releases read lock after matrix access. */
 	protected final void readunlock() {rwlock.readLock().unlock();}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the ReadWriteLock used for thread synchronization.
+	 * @return ReadWriteLock instance for this matrix */
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** ReadWriteLock for thread-safe access to matrix data */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
+	/** Total length of barcode including delimiter */
 	protected final int length;
+	/** Length of first barcode segment */
 	protected final int length1;
+	/** Length of second barcode segment (0 for single barcodes) */
 	protected final int length2;
+	/** Delimiter character between barcode segments (0 for none) */
 	protected final int delimiter;
+	/** Position of delimiter in barcode (-1 if none) */
 	protected final int delimiterPos;
+	/** Starting position of second barcode segment (-1 if single) */
 	protected final int start2;
+	/** Total number of letter positions (excluding delimiter) */
 	protected final int letters;
+	/** Whether to sum hamming distances rather than take maximum */
 	protected final boolean hdistSum;
 	
 	/** [position][Call: A,C,G,T,N][Ref: A,C,G,T,N,Sum] */
 	protected final long[][][] counts;
+	/** Total number of barcodes processed */
 	protected long totalCounted;
+	/** Total number of barcodes assigned to any reference */
 	protected long totalAssigned;
+	/** Total number of barcodes assigned to expected references */
 	protected long totalAssignedToExpected;
 	
+	/** List of expected barcode sequences */
 	protected ArrayList<Barcode> expectedList;
+	/** Map from barcode sequence to expected Barcode object */
 	protected HashMap<String, Barcode> expectedMap;
 
+	/** Byte arrays for left barcode segments */
 	protected byte[][] leftBytes;
+	/** Byte arrays for right barcode segments */
 	protected byte[][] rightBytes;
+	/** Combined array containing leftBytes and rightBytes */
 	protected byte[][][] splitBytes;
 
+	/** Barcode objects for left segments */
 	protected Barcode[] leftCodes;
+	/** Barcode objects for right segments */
 	protected Barcode[] rightCodes;
+	/** Array of all possible barcode combinations */
 	protected Barcode[] allCodes;
+	/** Map from barcode sequence to Barcode object for all combinations */
 	protected HashMap<String, Barcode> allCodesMap;
 
+	/** Whether to output verbose debugging information */
 	public boolean verbose=true;
+	/** Global verbose flag for additional debugging output */
 	public static boolean verbose2=false;
+	/** Whether this matrix instance is in an error state */
 	public boolean errorState=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Global error state flag */
 	public static boolean errorStateS=false;
 
+	/** Whether to add poly-A sequences to barcode sets */
 	protected static boolean addPolyA=false;
+	/** Whether to add poly-C sequences to barcode sets */
 	protected static boolean addPolyC=false;
+	/** Whether to add poly-G sequences to barcode sets */
 	protected static boolean addPolyG=false;
+	/** Whether to add poly-T sequences to barcode sets */
 	protected static boolean addPolyT=false;
 	
 	//This is just a maximum; will not go over Shared.threads()
+	/** Maximum threads to use for matrix operations (capped by Shared.threads()) */
 	protected static int matrixThreads=64;
 	
+	/** Whether to use local count storage */
 	protected static boolean localCounts=true;
+	/** Whether to process data by sequencing tile */
 	public static boolean byTile=false;
+	/** Whether development mode is enabled */
 	protected static boolean devMode=false;
 	
+	/** Default setting for hamming distance calculation mode */
 	protected static boolean hdistSum0=false;
+	/** Constant for legacy hamming distance matrix type */
+	/** Constant for tile-based matrix type */
+	/** Constant for probability matrix type */
+	/** Constant for hamming distance matrix type */
 	public static final int HDIST_TYPE=0, PROB_TYPE=1, TILE_TYPE=2, 
 			HDIST_OLD_TYPE=7, PROB_OLD_TYPE=8;
+	/** Default matrix type for new instances */
 	protected static int matrixType0=HDIST_TYPE;
 	
+	/** Lookup array for converting bases to numeric codes */
 	protected static final byte[] baseToNumber=AminoAcid.baseToNumber4;
+	/** Lookup array for converting numeric codes to bases */
 	protected static final byte[] numberToBase=AminoAcid.numberToBase;
 	
 }

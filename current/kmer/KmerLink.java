@@ -20,10 +20,17 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constructs a KmerLink node with specified k-mer.
+	 * @param pivot_ The k-mer value for this node */
 	public KmerLink(long pivot_){
 		pivot=pivot_;
 	}
 	
+	/**
+	 * Constructs a KmerLink node with specified k-mer and count.
+	 * @param pivot_ The k-mer value for this node
+	 * @param value_ Initial count for this k-mer
+	 */
 	public KmerLink(long pivot_, int value_){
 		pivot=pivot_;
 		value=value_;
@@ -78,6 +85,11 @@ public class KmerLink extends AbstractKmerTable {
 		return next==null ? null : next.get(kmer);
 	}
 	
+	/**
+	 * Inserts a KmerLink node into the chain.
+	 * @param n Node to insert
+	 * @return true if inserted, false if k-mer already exists
+	 */
 	boolean insert(KmerLink n){
 		assert(pivot!=-1);
 		if(pivot==n.pivot){return false;}
@@ -91,11 +103,21 @@ public class KmerLink extends AbstractKmerTable {
 		return node!=null;
 	}
 	
+	/**
+	 * Traverses chain in reverse order, adding nodes to list.
+	 * Recursively processes next node first, then adds current node.
+	 * @param list List to add nodes to
+	 */
 	void traversePrefix(ArrayList<KmerLink> list){
 		if(next!=null){next.traversePrefix(list);}
 		list.add(this);
 	}
 	
+	/**
+	 * Traverses chain in forward order, adding nodes to list.
+	 * Adds current node first, then recursively processes next node.
+	 * @param list List to add nodes to
+	 */
 	void traverseInfix(ArrayList<KmerLink> list){
 		list.add(this);
 		if(next!=null){next.traverseInfix(list);}
@@ -247,6 +269,15 @@ public class KmerLink extends AbstractKmerTable {
 		return true;
 	}
 	
+	/**
+	 * Builds text representation of k-mers and counts in StringBuilder.
+	 * Recursively processes chain, appending qualifying k-mers.
+	 * @param sb StringBuilder to append to (created if null)
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold
+	 * @param maxcount Maximum count threshold (unused)
+	 * @return StringBuilder with accumulated text
+	 */
 	private final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(value<1){return sb;}
 		if(sb==null){sb=new StringBuilder(32);}
@@ -285,10 +316,22 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------       Invalid Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Rebalances linked list structure (unsupported).
+	 * @param list List of nodes to rebalance
+	 * @return Never returns - throws RuntimeException
+	 */
 	KmerLink rebalance(ArrayList<KmerLink> list){
 		throw new RuntimeException("Unsupported.");
 	}
 	
+	/**
+	 * Static rebalancing method (unsupported).
+	 * @param list List of nodes
+	 * @param a Start index
+	 * @param b End index
+	 * @return Never returns - throws RuntimeException
+	 */
 	private static KmerLink rebalance(ArrayList<KmerLink> list, int a, int b){
 		throw new RuntimeException("Unsupported.");
 	}
@@ -303,8 +346,12 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** The k-mer value stored in this node */
 	long pivot;
+	/** Count value for this k-mer */
 	int value;
+	/** Thread ownership identifier for concurrent access control */
 	int owner=-1;
+	/** Reference to next node in the linked chain */
 	KmerLink next;
 }

@@ -153,6 +153,12 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		return parser;
 	}
 	
+	/**
+	 * Parses the sequence types specification from command line.
+	 * Creates array with "Other" as first element followed by user-specified types.
+	 * Normalizes type names (converts 's' to 'S', handles 'its' prefix).
+	 * @param b Comma-separated list of sequence types (e.g., "16S,18S,23S")
+	 */
 	private void parseTypes(String b){
 		sequenceTypes=null;
 		if(b==null){
@@ -223,6 +229,12 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		return true;
 	}
 	
+	/**
+	 * Loads consensus sequences for each ribosomal RNA type from reference files.
+	 * Uses ProkObject to load type-specific consensus sequences and handles
+	 * special stripping options for mitochondrial and plastid sequences.
+	 * @return 2D array of consensus sequences indexed by type
+	 */
 	private final Read[][] loadConsensusSequenceFromFile(){
 		Read[][] seqs=new Read[numTypes][];
 		m16S_index=Tools.find("m16S", sequenceTypes);
@@ -298,6 +310,8 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		}
 	}
 	
+	/** Creates and starts the concurrent input stream for reading sequences.
+	 * @return Initialized and started ConcurrentReadInputStream */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null, qfin1, null);
 		cris.start(); //Start the stream
@@ -305,6 +319,8 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		return cris;
 	}
 	
+	/** Creates array of output streams, one for each sequence type.
+	 * @return Array of ConcurrentReadOutputStream objects for each type */
 	private ConcurrentReadOutputStream[] makeCrosArray(){
 		ConcurrentReadOutputStream[] rosa=new ConcurrentReadOutputStream[numTypes];
 		for(int i=0; i<numTypes; i++){
@@ -315,6 +331,12 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		return rosa;
 	}
 	
+	/**
+	 * Creates a single output stream for the specified sequence type.
+	 * Uses the output pattern to generate type-specific file names.
+	 * @param type The sequence type name (e.g., "16S", "18S")
+	 * @return ConcurrentReadOutputStream for this type, or null if no output pattern set
+	 */
 	private ConcurrentReadOutputStream makeCros(String type){
 		if(outPattern==null){return null;}
 
@@ -433,6 +455,11 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Processes a batch of reads by classifying each sequence by ribosomal RNA type.
+		 * Routes classified sequences to appropriate output streams and updates statistics.
+		 * @param ln ListNum containing a batch of reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -507,6 +534,15 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 			return bestID<minID ? 0 : bestType;
 		}
 		
+		/**
+		 * Aligns a read against a range of reference sequences and returns best identity.
+		 *
+		 * @param r Query read to align
+		 * @param refs Array of reference sequences
+		 * @param minRef Starting index in reference array
+		 * @param maxRef Ending index in reference array
+		 * @return Best alignment identity score, or -1 if no references
+		 */
 		private float align(Read r, Read[] refs, int minRef, int maxRef){
 			float bestID=-1;
 			if(refs!=null){
@@ -519,6 +555,7 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 			return bestID;
 		}
 		
+		/** Sequence aligner for computing alignment identity scores */
 		IDAligner ssa=aligner.Factory.makeIDAligner();
 
 		/** Number of reads processed by this thread */
@@ -549,6 +586,7 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 	/** Primary input file path */
 	private String in1=null;
 	
+	/** Quality scores input file path (optional) */
 	private String qfin1=null;
 
 	/** Primary output file path */
@@ -559,11 +597,16 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Minimum alignment identity required for classification */
 	float minID=0.59f; //This could be a per-type value
+	/** Identity threshold below which clade-specific alignment is attempted */
 	float refineID=0.70f; //Refine alignment if best is less than this
 	
+	/** Index of mitochondrial 16S type in sequence types array */
 	private int m16S_index=-2;
+	/** Index of mitochondrial 18S type in sequence types array */
 	private int m18S_index=-2;
+	/** Index of plastid 16S type in sequence types array */
 	private int p16S_index=-2;
 	
 	/*--------------------------------------------------------------*/
@@ -576,8 +619,11 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Array of sequence type names including "Other" as first element */
 	private String[] sequenceTypes=new String[] {"Other", "16S", "18S", "23S", "5S", "m16S", "m18S", "p16S"};
+	/** Number of sequence types being processed */
 	private final int numTypes;//=sequenceTypes.length;
+	/** 2D array of consensus sequences for each ribosomal RNA type */
 	final Read[][] consensusSequences;
 	
 	/** Number of reads retained */

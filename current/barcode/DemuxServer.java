@@ -472,6 +472,17 @@ public class DemuxServer {
 		}
 	}
 	
+	/**
+	 * Appends barcode pair to ByteBuilder using A48 compressed encoding format.
+	 * Only writes segments that differ from the previous pair to save space.
+	 *
+	 * @param bb ByteBuilder to append encoded data to
+	 * @param p Current barcode pair to encode
+	 * @param prev Previous barcode pair for comparison
+	 * @param length1 Length of first barcode segment
+	 * @param length2 Length of second barcode segment
+	 * @param buffer Working buffer for encoding operations
+	 */
 	private static void appendA48(ByteBuilder bb, Pair p, Pair prev, int length1, int length2, byte[] buffer) {
 		final String a1=p.a, b1=p.b, a0=prev.a, b0=prev.b;
 		
@@ -507,6 +518,14 @@ public class DemuxServer {
 		bb.nl();
 	}
 	
+	/**
+	 * Converts demux data into barcode assignment mappings using PCR matrix calculations.
+	 * Creates a probability matrix, populates it with expected barcodes, refines assignments,
+	 * and generates final barcode-to-assignment mappings.
+	 *
+	 * @param dd DemuxData containing barcode sequences and metadata
+	 * @return HashMap mapping observed barcodes to assigned reference barcodes
+	 */
 	private HashMap<String, String> toAssignmentMap(DemuxData dd){
 		System.err.println("dd: type="+dd.type+", len1="+dd.length1+", len2="+dd.length2+", delimiter="+dd.barcodeDelimiter+
 				", hdistsum="+dd.hdistSum+", expected="+dd.expectedList.size()+", counts="+dd.codeCounts.size());
@@ -519,6 +538,12 @@ public class DemuxServer {
 		return map;
 	}
 	
+	/**
+	 * Converts a HashMap to a sorted ArrayList of Pair objects.
+	 * Used for consistent ordering of barcode assignments in output.
+	 * @param map HashMap of key-value pairs to convert
+	 * @return Sorted ArrayList of Pair objects
+	 */
 	static final ArrayList<Pair> toPairList(HashMap<String, String> map){
 		ArrayList<Pair> list=new ArrayList<Pair>(map.size());
 		for(Entry<String, String> e : map.entrySet()) {
@@ -533,6 +558,11 @@ public class DemuxServer {
 	/*----------------            Helpers           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the complete HTTP request body into byte array chunks.
+	 * @param t The HTTP exchange containing the request body
+	 * @return ArrayList of byte arrays containing the request body data
+	 */
 	static ArrayList<byte[]> getBody(HttpExchange t){
 		if(verbose2){System.err.println("getBody");}
 		InputStream is=t.getRequestBody();
@@ -541,6 +571,12 @@ public class DemuxServer {
 		return list;
 	}
 	
+	/**
+	 * Generates and returns server statistics as HTTP response.
+	 * Updates timing measurements and sends basic server stats to client.
+	 * @param startTime Start time in nanoseconds for timing calculations
+	 * @param t HTTP exchange for sending the response
+	 */
 	private void returnStats(long startTime, HttpExchange t){
 		if(logUsage){System.err.println("stats");}
 		String stats=basicStats();
@@ -553,6 +589,11 @@ public class DemuxServer {
 		lastTimeUsage.set(elapsed);
 	}
 	
+	/**
+	 * Generates basic server statistics as formatted string.
+	 * Includes query counts, timing information, and data transfer statistics.
+	 * @return Formatted statistics string for display
+	 */
 	private String basicStats(){
 		if(!countQueries){return "";}
 		StringBuilder sb=new StringBuilder(500);
@@ -585,6 +626,18 @@ public class DemuxServer {
 		return sb.toString();
 	}
 	
+	/**
+	 * Analyzes and logs information about incoming HTTP requests.
+	 * Determines if request is from local or remote address and optionally prints
+	 * IP addresses, headers, and other diagnostic information.
+	 *
+	 * @param t HTTP exchange containing request information
+	 * @param prefix Address prefix to consider as local
+	 * @param allowLocalHost Whether to allow localhost connections
+	 * @param printIP Whether to print IP address information
+	 * @param printHeaders Whether to print HTTP headers
+	 * @return true if request is from local address, false if remote
+	 */
 	private static boolean printQuery(HttpExchange t, 
 			String prefix, boolean allowLocalHost, boolean printIP, boolean printHeaders){
 		
@@ -662,8 +715,18 @@ public class DemuxServer {
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Simple pair class for storing barcode key-value assignments.
+	 * Implements Comparable for consistent sorting by value then key.
+	 * @author Brian Bushnell
+	 */
 	static class Pair implements Comparable<Pair> {
 		
+		/**
+		 * Constructs a new barcode assignment pair.
+		 * @param a_ Key string (observed barcode)
+		 * @param b_ Value string (assigned barcode)
+		 */
 		Pair(String a_, String b_){
 			a=a_;
 			b=b_;
@@ -675,8 +738,12 @@ public class DemuxServer {
 			return x!=0 ? x : a.compareTo(o.a);
 		}
 		
+		/** Returns string representation of the pair as "key,value".
+		 * @return Comma-separated string representation */
 		public final String toString() {return a+","+b;}
 		
+		/** Value string of the barcode pair */
+		/** Key string of the barcode pair */
 		final String a, b;
 		
 	}
@@ -689,13 +756,18 @@ public class DemuxServer {
 	private AtomicLongArray timesByCount=new AtomicLongArray(10000);
 	private AtomicLongArray queryCounts=new AtomicLongArray(10000);
 	
+	/** Total number of demux queries processed */
 	private AtomicLong queries=new AtomicLong(0);
 	/** Same IP address mask */
 	private AtomicLong internalQueries=new AtomicLong(0);
+	/** Number of favicon.ico requests */
 	private AtomicLong iconQueries=new AtomicLong(0);
+	/** Number of base handler queries */
 	private AtomicLong baseQueries=new AtomicLong(0);
 	
+	/** Total bytes received from clients */
 	private AtomicLong bytesIn=new AtomicLong(0);
+	/** Total bytes sent to clients */
 	private AtomicLong bytesOut=new AtomicLong(0);
 	
 	private AtomicLong elapsedTimeUsage=new AtomicLong(0);
@@ -716,28 +788,40 @@ public class DemuxServer {
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to print IP address information for debugging */
 	private boolean printIP=true;
+	/** Whether to print HTTP headers for debugging */
 	private boolean printHeaders=false;
+	/** Whether to maintain query count statistics */
 	private boolean countQueries=true;
 	
+	/** Whether to allow connections from localhost */
 	final boolean allowLocalHost;
+	/** IP address prefix considered as local network */
 	final String addressPrefix;
 	/** Address of current server instance (optional) */
 	private String domain=null;
 
 	
 	
+	/** Server start time as formatted date string */
 	private final String startTime=new Date().toString();
 	
 	/** Listen on this port */
 	private final int port;
+	/** Number of threads for handling HTTP requests */
 	int handlerThreads=0;
 	
+	/** HTTP server instance for handling requests */
 	private final HttpServer httpServer;
+	/** Whether to use HTML formatting in responses */
 	private boolean useHtml=false;
+	/** Secret code required to remotely shutdown the server */
 	private String killCode=null;
 	
+	/** File path to favicon.ico resource */
 	private final String favIconPath=Data.findPath("?favicon.ico");
+	/** Favicon.ico data as byte array for HTTP responses */
 	private final byte[] favIcon=ReadWrite.readRaw(favIconPath);
 	
 	/*--------------------------------------------------------------*/

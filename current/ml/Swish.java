@@ -1,11 +1,22 @@
 package ml;
 
+/**
+ * Swish activation function implementation for neural network architectures.
+ * Implements the swish(x) = x * sigmoid(x) activation function, providing smoother
+ * gradients and improved performance compared to traditional activation functions like ReLU.
+ *
+ * @author Brian Bushnell
+ * @date 2024
+ */
 public class Swish extends Function {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Private constructor preventing external instantiation - use static instance
+	 */
 	private Swish() {}
 
 	@Override
@@ -30,8 +41,11 @@ public class Swish extends Function {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** String identifier for the Swish activation function */
 	static final String name="SWISH";
+	/** Numeric type identifier computed from the function name */
 	static final int type=Function.toType(name, true);
+	/** Singleton instance of the Swish activation function */
 	static final Swish instance=new Swish();
 
 }

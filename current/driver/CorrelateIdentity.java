@@ -110,6 +110,11 @@ public class CorrelateIdentity {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that correlates identity matrices.
+	 * Reads two tab-separated matrix files, extracts corresponding lower triangle values,
+	 * shuffles the pairs, and writes tab-separated output pairs.
+	 */
 	public void process(){
 		final String[][] matrix1, matrix2;
 		
@@ -155,10 +160,15 @@ public class CorrelateIdentity {
 	
 //	private Random randy=new Random();
 
+	/** Sampling rate for data selection (currently unused) */
 	private float samplerate=1;
+	/** Random seed for sampling (currently unused) */
 	private float sampleseed=-1;
+	/** Maximum column length limit (currently unused) */
 	private int columnLength=Integer.MAX_VALUE;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 	/*--------------------------------------------------------------*/

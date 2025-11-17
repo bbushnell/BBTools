@@ -11,6 +11,12 @@ import shared.Tools;
  */
 public final class Info {
 	
+	/**
+	 * Program entry point with dual modes for information content calculation.
+	 * Mode 1: Two arguments (sequence, bits) finds prefix length for target bits.
+	 * Mode 2: Variable arguments prints information content for each sequence.
+	 * @param args Command-line arguments - either sequence strings or sequence+bits pair
+	 */
 	public static void main(String[] args){
 		
 		if(args.length>0){
@@ -80,12 +86,19 @@ public final class Info {
 		}
 	}
 	
+	/** Prints sequence information including length, information content in bits, and raw value.
+	 * @param s The DNA sequence to analyze */
 	public static void printInfo(String s){
 		long r=info(s);
 		double bits=Math.log(r)/Math.log(2);
 		System.out.println(s+"\nlen="+s.length()+" \tinfo = "+Tools.format("%.2f", bits)+" bits. \t("+r+")");
 	}
 	
+	/**
+	 * Calculates information content for a string sequence.
+	 * @param s The DNA sequence string
+	 * @return Information content as combinatorial value
+	 */
 	public static long info(String s){
 		return info(s.getBytes(), 0, s.length());
 	}
@@ -169,6 +182,7 @@ public final class Info {
 		return r<info ? -1 : i;
 	}
 	
+	/** Array mapping base numbers (0-4) to ASCII characters (A, C, G, T, N) */
 	private static final byte[] numberToBase={
 		'A','C','G','T','N'
 	};
@@ -189,9 +203,23 @@ public final class Info {
 		baseToNumber['u']=3;
 	}
 	
+	/**
+	 * Returns the smaller of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return The smaller value
+	 */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/**
+	 * Returns the larger of two integers.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return The larger value
+	 */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
+	/** Maximum value used for overflow detection in information calculations */
 	private static final long MAX=Long.MAX_VALUE;
+	/** Inverse of natural logarithm of 2, used for converting to bits: 1/ln(2) */
 	private static final double invlog2=1.0/Math.log(2);
 }

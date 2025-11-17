@@ -43,6 +43,14 @@ public final class MultiStateAligner9XFlat extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs a MultiStateAligner9XFlat with specified matrix dimensions.
+	 * Initializes the 3D packed scoring matrix and auxiliary data structures.
+	 * Sets up vertical and horizontal scoring limits for bandwidth optimization.
+	 *
+	 * @param maxRows_ Maximum number of rows (read length) in alignment matrix
+	 * @param maxColumns_ Maximum number of columns (reference length) in alignment matrix
+	 */
 	public MultiStateAligner9XFlat(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -1509,6 +1517,14 @@ public final class MultiStateAligner9XFlat extends MSA{
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Converts gapped reference coordinate to original reference coordinate.
+	 * Accounts for compressed gap representations in coordinate translation.
+	 *
+	 * @param point Position in gapped reference
+	 * @param gref Gapped reference buffer
+	 * @return Corresponding position in original reference
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -1534,6 +1550,14 @@ public final class MultiStateAligner9XFlat extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Converts original reference coordinate to gapped reference coordinate.
+	 * Maps reference positions to gapped buffer accounting for gap compression.
+	 *
+	 * @param point Position in original reference
+	 * @param gref Gapped reference buffer
+	 * @return Corresponding position in gapped reference
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -2139,6 +2163,12 @@ public final class MultiStateAligner9XFlat extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion score with offset encoding for matrix storage.
+	 * Uses bit-shifted penalty values for packed matrix representation.
+	 * @param len Length of deletion
+	 * @return Offset-encoded deletion penalty
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -2168,6 +2198,12 @@ public final class MultiStateAligner9XFlat extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion score with offset encoding.
+	 * Provides bit-shifted penalty values for matrix operations.
+	 * @param len Length of insertion
+	 * @return Offset-encoded insertion penalty
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -2183,10 +2219,17 @@ public final class MultiStateAligner9XFlat extends MSA{
 	}
 	
 
+	/**
+	 * Three-dimensional packed alignment matrix storing scores and timing information
+	 */
 	private final int[][][] packed;
+	/** Buffer for storing gapped reference sequences during alignment */
 	private final byte[] grefbuffer;
+	/** Limit of valid data in gapped reference buffer */
 	private int greflimit=-1;
+	/** Extended limit including cushion data in gapped reference buffer */
 	private int greflimit2=-1;
+	/** Starting position in original reference for gapped reference buffer */
 	private int grefRefOrigin=-1;
 	
 	
@@ -2196,7 +2239,9 @@ public final class MultiStateAligner9XFlat extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical scoring limits for bandwidth optimization */
 	public final int[] vertLimit;
+	/** Horizontal scoring limits for bandwidth optimization */
 	public final int[] horizLimit;
 
 	@Override
@@ -2213,6 +2258,12 @@ public final class MultiStateAligner9XFlat extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity threshold to minimum score ratio.
+	 * Calculates expected score ratio based on error model and scoring parameters.
+	 * @param minid Minimum identity fraction (0.0 to 1.0, or percentage if >1)
+	 * @return Minimum score ratio for filtering alignments
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -2424,7 +2475,9 @@ public final class MultiStateAligner9XFlat extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Current number of rows in alignment matrix (query sequence length) */
 	private int rows;
+	/** Current number of columns in alignment matrix (reference region length) */
 	private int columns;
 	
 }

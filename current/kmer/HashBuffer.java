@@ -18,6 +18,16 @@ public class HashBuffer extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a HashBuffer with specified underlying tables and buffer configuration.
+	 * Initializes individual buffers for each table and calculates masking parameters.
+	 *
+	 * @param tables_ Array of underlying kmer tables to distribute data to
+	 * @param buflen_ Size of each internal buffer before flushing
+	 * @param k_ Kmer length for mask calculations
+	 * @param initValues Whether to initialize value buffers
+	 * @param setIfNotPresent_ Whether to use setIfNotPresent mode
+	 */
 	public HashBuffer(AbstractKmerTable[] tables_, int buflen_, int k_, boolean initValues, boolean setIfNotPresent_){
 		tables=tables_;
 		buflen=buflen_;
@@ -324,20 +334,35 @@ public class HashBuffer extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array of underlying kmer tables that store the actual data */
 	private final AbstractKmerTable[] tables;
+	/** Maximum size of each buffer before forced flushing */
 	private final int buflen;
+	/** Half of buffer length used as soft threshold for conditional flushing */
 	private final int halflen;
+	/** Number of underlying tables and corresponding buffers */
 	private final int ways;
+	/** Whether to use value buffers for storing kmer-associated values */
 	private final boolean useValues;
+	/** Array of individual buffers corresponding to each underlying table */
 	private final KmerBuffer[] buffers;
+	/** Bit mask for core kmer hashing that excludes terminal bases */
 	private final long coreMask;
+	/** Bit mask for middle region hashing to improve distribution */
 	private final long middleMask;
+	/** Combined core and middle mask for final kmer hashing */
 	private final long cmMask;
+	/** Total count of unique kmers added across all buffer operations */
 	public long uniqueAdded=0;
 	
+	/** Bit mask used for periodic buffer size checking optimization */
 	private static final int SIZEMASK=15;
+	/** Whether to use conditional setting mode when flushing buffers */
 	private final boolean setIfNotPresent;
 	
+	/**
+	 * Whether to sort buffer contents before flushing for duplicate consolidation
+	 */
 	public static boolean SORT_BUFFERS=false;
 
 }

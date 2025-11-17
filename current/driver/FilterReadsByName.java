@@ -37,6 +37,8 @@ import tracker.ReadStats;
  */
 public class FilterReadsByName {
 
+	/** Program entry point.
+	 * @param args Command-line arguments for filtering configuration */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FilterReadsByName x=new FilterReadsByName(args);
@@ -46,6 +48,12 @@ public class FilterReadsByName {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs FilterReadsByName with command-line arguments.
+	 * Parses all filtering parameters, input/output paths, and validation options.
+	 * Preprocesses name lists for case sensitivity and header symbol handling.
+	 * @param args Command-line arguments containing filtering criteria and file paths
+	 */
 	public FilterReadsByName(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -242,6 +250,11 @@ public class FilterReadsByName {
 		}
 	}
 	
+	/**
+	 * Extracts substring from start up to first whitespace character.
+	 * @param s Input string to process
+	 * @return Substring before first space or tab, or original string if no whitespace
+	 */
 	private static String substringUntilWhitespace(String s){
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
@@ -250,6 +263,12 @@ public class FilterReadsByName {
 		return s;
 	}
 	
+	/**
+	 * Main processing method that executes the read filtering pipeline.
+	 * Sets up input/output streams, processes reads in batches, and applies all filtering criteria.
+	 * Handles coordinate parsing, name matching, substring matching, and position-based trimming.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		
@@ -398,57 +417,90 @@ public class FilterReadsByName {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
+	/** Quality file path for primary input */
 	private String qfin1=null;
+	/** Quality file path for secondary input */
 	private String qfin2=null;
 
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 
+	/** Quality output file path for primary output */
 	private String qfout1=null;
+	/** Quality output file path for secondary output */
 	private String qfout2=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Whether to exclude matching reads (true) or include them (false) */
 	private boolean exclude=true;
+	/** Whether to use prefix matching mode for read names */
 	private boolean prefixmode=false;
+	/** Whether filter names can be substrings of read headers */
 	private boolean nameSubstringOfHeader=false;
+	/** Whether read headers can be substrings of filter names */
 	private boolean headerSubstringOfName=false;
+	/** Whether to perform case-insensitive name matching */
 	private boolean ignoreCase=true;
+	/** Whether to remove leading @ or > symbols from headers */
 	private boolean truncateHeaderSymbol=false;
+	/** Whether to trim leading and trailing whitespace from headers */
 	private boolean trimWhitespace=false;
+	/** Whether to use coordinate-based filtering from Illumina headers */
 	private boolean coordinate=false;
 //	private boolean ignoreAfterWhitespace=false;
 
+	/** Minimum read length required to retain the read */
 	private int minLength=0;
 
+	/** Starting position for read trimming (-1 if not set) */
 	private int fromPos=-1;
+	/** Ending position for read trimming (-1 if not set) */
 	private int toPos=-1;
 	
+	/** Set of read names/patterns to match for filtering */
 	private LinkedHashSet<String> names=new LinkedHashSet<String>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file format */
 	private final FileFormat ffin1;
+	/** Secondary input file format */
 	private final FileFormat ffin2;
 
+	/** Primary output file format */
 	private final FileFormat ffout1;
+	/** Secondary output file format */
 	private final FileFormat ffout2;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Whether to enable verbose logging output */
 	public static boolean verbose=false;
+	/** Whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
+	/** Whether to use shared header for SAM/BAM format compatibility */
 	private boolean useSharedHeader=false;
 	
 }

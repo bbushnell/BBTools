@@ -16,6 +16,11 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Test harness for BGI header parsing functionality.
+	 * Creates parser instance, runs tests, and demonstrates format conversion.
+	 * @param args Command-line arguments; first argument used as test header
+	 */
 	public static void main(String[] args) {
 		BGIHeaderParser2 ihp=new BGIHeaderParser2();
 		ihp.test(args.length>0 ? args[0] : null);
@@ -37,6 +42,14 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses a BGI format read header into component fields.
+	 * Optionally extracts comment section when PARSE_EXTRA is enabled.
+	 * Sets up reverse parser with BGI-specific delimiter pattern.
+	 *
+	 * @param id_ The complete read header string to parse
+	 * @return This parser instance for method chaining
+	 */
 	public BGIHeaderParser2 parse(String id_) {
 		id=id_;
 		extra=null;
@@ -51,6 +64,12 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		return this;
 	}
 	
+	/**
+	 * Finds the index of the first whitespace character in a string.
+	 * Used to separate header ID from comment section.
+	 * @param s String to search for whitespace
+	 * @return Index of first whitespace character, or -1 if none found
+	 */
 	private static int firstWhitespace(String s) {
 		for(int i=0; i<s.length(); i++) {
 			if(Character.isWhitespace(s.charAt(i))){
@@ -61,6 +80,14 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	}
 
 	//@LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG (NovaseqX)
+	/**
+	 * Converts BGI header format to Illumina-compatible header format.
+	 * Constructs standard Illumina header with machine:run:flowcell:lane:tile:x:y
+	 * format followed by pair info and optional barcode.
+	 *
+	 * @param barcode Barcode sequence to append (may be null)
+	 * @return Illumina-formatted header string
+	 */
 	public String toIllumina(String barcode) {
 		bb.clear();
 		bb.append(machine()).colon();
@@ -138,14 +165,20 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Storage for comment/extra information extracted from header */
 	private String extra=null;
+	/** Reverse line parser configured for BGI delimiter pattern "_LCR/" */
 	private final LineParserS4Reverse lp=new LineParserS4Reverse("_LCR/");
+	/** StringBuilder for efficient header format conversion */
 	private final ByteBuilder bb=new ByteBuilder(64);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Controls whether to parse comment fields from headers (slower but complete)
+	 */
 	public static boolean PARSE_EXTRA=false;
 	
 }

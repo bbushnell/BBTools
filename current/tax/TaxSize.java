@@ -209,6 +209,11 @@ public class TaxSize {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Propagates size and sequence counts up the taxonomic hierarchy.
+	 * For each node in the taxonomy tree, accumulates counts from child nodes
+	 * to parent nodes, computing cumulative statistics.
+	 */
 	void percolateUp(){
 		for(TaxNode tn : tree.nodes){
 			if(tn!=null){
@@ -279,12 +284,18 @@ public class TaxSize {
 	/** Override input file extension */
 	private String extin=null;
 	
+	/** Path to taxonomy tree file */
 	public String taxTreeFile=null;
 
+	/** Maps taxID to total sequence length in bases */
 	public IntLongHashMap sizeMap=new IntLongHashMap();
+	/** Maps taxID to cumulative sequence length including descendant nodes */
 	public IntLongHashMap cSizeMap=new IntLongHashMap();
+	/** Maps taxID to number of sequences */
 	public IntLongHashMap seqMap=new IntLongHashMap();
+	/** Maps taxID to cumulative sequence count including descendant nodes */
 	public IntLongHashMap cSeqMap=new IntLongHashMap();
+	/** Maps taxID to cumulative count of descendant nodes in taxonomy tree */
 	public IntLongHashMap cNodeMap=new IntLongHashMap();
 	
 	/*--------------------------------------------------------------*/
@@ -306,6 +317,7 @@ public class TaxSize {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Whether to include nodes with zero size in output */
 	private boolean printEmptyNodes=true;
 	
 	/*--------------------------------------------------------------*/
@@ -315,6 +327,7 @@ public class TaxSize {
 	/** Primary input file */
 	private final FileFormat ffin1;
 	
+	/** Taxonomy tree for mapping sequence headers to taxIDs */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/

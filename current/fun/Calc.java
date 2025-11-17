@@ -10,6 +10,14 @@ import shared.Timer;
 import shared.Tools;
 import tracker.ReadStats;
 
+/**
+ * Command-line statistical calculation tool that generates cumulative
+ * distribution statistics for bitwise-encoded integer combinations.
+ * Generates distribution by iterating through 2^(numStats*5) possible
+ * bit combinations and outputs cumulative percentage distribution.
+ *
+ * @author Brian Bushnell
+ */
 public class Calc {
 	
 	/*--------------------------------------------------------------*/
@@ -124,6 +132,14 @@ public class Calc {
 		}
 	}
 	
+	/**
+	 * Calculates sum of 5-bit chunks in an integer using bitwise operations.
+	 * Extracts each 5-bit segment (0x1F mask) and accumulates the total.
+	 * Used for bucket assignment in statistical distribution calculation.
+	 *
+	 * @param stats Integer containing bitwise-encoded statistical data
+	 * @return Sum of all 5-bit segments in the input
+	 */
 	int sum(int stats){
 		int sum=0;
 		while(stats>0){
@@ -144,6 +160,9 @@ public class Calc {
 	/** Primary output file path */
 	private String out1="stdout.txt";
 	
+	/**
+	 * Number of statistics to process, affects iteration count as 2^(numStats*5)
+	 */
 	private int numStats=6;
 	
 	/*--------------------------------------------------------------*/

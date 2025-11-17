@@ -20,12 +20,20 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
+/**
+ * Loads, processes, and analyzes Illumina HiSeq tile data for quality assessment.
+ * Identifies problematic micro-tiles based on quality metrics and statistical outliers.
+ * Supports multiple dump file versions and provides tile blurring functionality.
+ * @author Brian Bushnell
+ */
 public class TileDump {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------              CLI             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Program entry point for tile dump analysis.
+	 * @param args Command-line arguments */
 	public static void main(String[] args) {
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -37,6 +45,12 @@ public class TileDump {
 		td.process(t);
 	}
 	
+	/**
+	 * Main processing method that loads dump data and performs tile analysis.
+	 * Calculates statistics, marks problematic tiles, and writes output if specified.
+	 * Applies tile blurring and widening operations as configured.
+	 * @param t Timer for tracking execution time
+	 */
 	public void process(Timer t) {
 		final FlowCell fc0=loadDump(in);
 		FlowCell fc=fc0;
@@ -139,6 +153,15 @@ public class TileDump {
 		return parser;
 	}
 	
+	/**
+	 * Parses static configuration parameters for tile quality thresholds.
+	 * Handles deviation settings, fraction thresholds, and absolute limits.
+	 *
+	 * @param arg Original argument string
+	 * @param a Parameter name (lowercase)
+	 * @param b Parameter value
+	 * @return true if parameter was recognized and parsed, false otherwise
+	 */
 	public static boolean parseStatic(String arg, String a, String b) {
 		if(a.equals("qdeviations") || a.equals("qd")){
 			qDeviations=Float.parseFloat(b);
@@ -208,6 +231,14 @@ public class TileDump {
 	/*----------------           Writing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes FlowCell data to a tab-delimited output file.
+	 * Includes header metadata, statistics, and micro-tile data.
+	 *
+	 * @param fc FlowCell containing processed tile data
+	 * @param fname Output file name
+	 * @param overwrite Whether to overwrite existing files
+	 */
 	public static void write(FlowCell fc, String fname, boolean overwrite) {
 		assert(fname!=null);
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, false, true);
@@ -293,6 +324,14 @@ public class TileDump {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Prints an AtomicLongArray as tab-separated values with a label.
+	 * Only prints up to the last non-zero element to minimize output size.
+	 *
+	 * @param bsw ByteStreamWriter for output
+	 * @param list Array of long values to print
+	 * @param label Header label for the data row
+	 */
 	private static void printTSV(ByteStreamWriter bsw, AtomicLongArray list, String label) {
 		bsw.print(label);
 		int maxNonZero=-1;
@@ -309,10 +348,23 @@ public class TileDump {
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads tile dump data from a file into a new FlowCell with default k-mer size.
+	 * @param fname File name of dump data to load
+	 * @return FlowCell containing loaded tile data
+	 */
 	public static FlowCell loadDump(String fname){
 		return loadDump(fname, new FlowCell(31));
 	}
 	
+	/**
+	 * Loads tile dump data from a file into an existing FlowCell.
+	 * Supports multiple dump file versions with appropriate loading methods.
+	 *
+	 * @param fname File name of dump data to load
+	 * @param fc Existing FlowCell to populate with data
+	 * @return FlowCell containing loaded tile data
+	 */
 	public static FlowCell loadDump(String fname, FlowCell fc){
 		ByteFile bf=ByteFile.makeByteFile(fname, false);
 
@@ -330,6 +382,14 @@ public class TileDump {
 		return fc;
 	}
 
+	/**
+	 * Parses header lines from a dump file and configures FlowCell parameters.
+	 * Reads metadata including version, dimensions, k-mer size, and statistics.
+	 *
+	 * @param bf ByteFile to read header from
+	 * @param fc FlowCell to configure with header data
+	 * @return Version number of the dump file format
+	 */
 	public static int parseHeader(ByteFile bf, FlowCell fc) {
 		LineParser1 lp=new LineParser1('\t');
 		int version=1;
@@ -399,6 +459,14 @@ public class TileDump {
 		return version;
 	}
 	
+	/**
+	 * Loads micro-tile data from version 1 dump files.
+	 * Parses tab-delimited tile statistics and populates MicroTile objects.
+	 *
+	 * @param bf ByteFile containing tile data
+	 * @param fc FlowCell to populate with tile data
+	 * @return Number of lines processed
+	 */
 	public static long loadTiles1(ByteFile bf, FlowCell fc) {
 		final LineParser2 lp=new LineParser2('\t');
 		long lines=0;
@@ -468,6 +536,15 @@ public class TileDump {
 		return lines;
 	}
 	
+	/**
+	 * Loads micro-tile data from version 2+ dump files with extended metrics.
+	 * Includes additional statistics like base counts, error rates, and barcode data.
+	 *
+	 * @param bf ByteFile containing tile data
+	 * @param fc FlowCell to populate with tile data
+	 * @param dumpVersion Specific version number for format handling
+	 * @return Number of lines processed
+	 */
 	public static long loadTiles2(ByteFile bf, FlowCell fc, int dumpVersion) {
 		final LineParser2 lp=new LineParser2('\t');
 		long lines=0;
@@ -668,6 +745,16 @@ public class TileDump {
 //		return lines;
 //	}
 	
+	/**
+	 * Identifies and marks problematic micro-tiles based on quality thresholds.
+	 * Uses statistical analysis to flag tiles with poor quality, low uniqueness,
+	 * high error rates, or excessive poly-G content. Respects maximum discard limits.
+	 *
+	 * @param flowcell FlowCell containing aggregate statistics for comparison
+	 * @param mtList List of MicroTile objects to evaluate
+	 * @param outstream PrintStream for reporting flagged tiles summary
+	 * @return Total number of reads in flagged tiles
+	 */
 	static final long markTiles(FlowCell flowcell, ArrayList<MicroTile> mtList, PrintStream outstream){
 		for(MicroTile mt : mtList){
 			mt.discard=0;
@@ -775,42 +862,70 @@ public class TileDump {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output dump file format version number */
 	public static final int VERSION_OUT=3;
+	/** Input dump file format version number */
 	public static int VERSION_IN=1;
+	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum fraction of full-size tiles that can be discarded */
 	static float maxDiscardFraction=0.4f;
+	/** Maximum implied error rate threshold for tile filtering */
 	static float maxImpliedErrorRate=0.012f;
 	
+	/** Number of standard deviations above mean for quality-based tile filtering */
 	static float qDeviations=2.4f;
+	/** Number of standard deviations above mean for uniqueness-based filtering */
 	static float uDeviations=1.5f;
+	/** Number of standard deviations above mean for error-free filtering */
 	static float eDeviations=3.0f;
+	/** Number of standard deviations above mean for poly-G filtering */
 	static float pgDeviations=1.4f;
+	/** Number of standard deviations above mean for G-content filtering */
 	static float gDeviations=3f;
 	
+	/** Minimum quality difference as fraction of mean for tile filtering */
 	static float qualFraction=0.08f;
+	/** Minimum uniqueness difference as fraction of mean for tile filtering */
 	static float uniqueFraction=0.01f;
+	/** Minimum error-free difference as fraction of mean for tile filtering */
 	static float errorFreeFraction=0.2f;
+	/** Minimum poly-G difference as fraction of mean for tile filtering */
 	static float polyGFraction=0.2f;
+	/** Minimum G-content difference as fraction of mean for tile filtering */
 	static float gFraction=.1f;
 	
+	/** Absolute minimum quality threshold for tile filtering */
 	static float qualAbs=2.0f;
+	/** Absolute minimum uniqueness threshold for tile filtering */
 	static float uniqueAbs=1f;
+	/** Absolute minimum error-free threshold for tile filtering */
 	static float errorFreeAbs=6f;
+	/** Absolute minimum poly-G threshold for tile filtering */
 	static float polyGAbs=0.2f;
+	/** Absolute minimum G-content threshold for tile filtering */
 	static float gAbs=.1f;
 	
+	/** Input dump file name */
 	private String in=null;
+	/** Output file name for processed results */
 	private String out=null;
+	/** Target X dimension for tile widening operations */
 	private int targetX=-1;
+	/** Target Y dimension for tile widening operations */
 	private int targetY=-1;
+	/** Target number of reads per micro-tile for widening operations */
 	private int targetReads=-1;
+	/** Target number of aligned reads for regression analysis */
 	private int targetAlignedReads=250;
+	/** Whether to apply blurring/smoothing to tile statistics */
 	private boolean blurTiles=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
 	
 }

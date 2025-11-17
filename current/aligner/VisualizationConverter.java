@@ -24,8 +24,20 @@ import javax.imageio.ImageIO;
  */
 public class VisualizationConverter {
 	// Pixel scale factor - makes each character larger in the output image
+	/** Default pixel scale factor for enlarging each character in output image */
 	private static final int DEFAULT_SCALE = 2;
 
+	/**
+	 * Program entry point for command-line conversion.
+	 * Converts a text visualization file to a bitmap image.
+	 *
+	 * Usage patterns:
+	 * - Single argument: input.txt (creates input.png)
+	 * - Two arguments: input.txt output.png
+	 * - Three arguments: input.txt output.png colorScheme
+	 *
+	 * @param args Command-line arguments [input_file] [output_file] [color_scheme]
+	 */
 	public static void main(String[] args) {
 		if(args.length==1 && args[0].endsWith(".txt")) {
 			args=new String[] {args[0], args[0].replace(".txt", ".png")};
@@ -48,6 +60,15 @@ public class VisualizationConverter {
 		}
 	}
 
+	/**
+	 * Converts a text file to a bitmap image with color-coded pixels.
+	 * Reads the text file twice: first to determine dimensions, then to generate pixels.
+	 * Automatically scales output based on input dimensions (1x for wide images, 2x default).
+	 *
+	 * @param textFile Path to input text file containing character-encoded scores
+	 * @param imageFile Path to output image file (format determined by extension)
+	 * @throws IOException If file cannot be read or written
+	 */
 	private static void convertToBitmap(String textFile, String imageFile) throws IOException {
 		// Read text file to determine dimensions
 		int width = 0;
@@ -107,11 +128,27 @@ public class VisualizationConverter {
 	}
 
 
+	/**
+	 * Returns the color for a character using the specified color scheme.
+	 * Delegates to scheme-specific color mapping methods.
+	 *
+	 * @param level0 Character representing alignment score level
+	 * @param scheme Color scheme (1 or 2)
+	 * @return Color object for the character
+	 */
 	private static Color getColorForChar(char level0, int scheme) {
 		return scheme==1 ? getColorForChar1(level0) : getColorForChar2(level0);
 	}
 
 
+	/**
+	 * Maps characters to colors using green-to-red gradient scheme.
+	 * Score progression: green (a-p) → yellow (q-z, 0-9) → red (A-T) → purple (U-Z).
+	 * Special characters: space=black, period=gray, asterisk=white.
+	 *
+	 * @param level0 Character representing alignment score level
+	 * @return Color object for green-to-red scheme
+	 */
 	private static Color getColorForChar1(char level0) {
 		switch (level0) {
 			case ' ': return Color.BLACK;            // Unexplored
@@ -166,6 +203,14 @@ public class VisualizationConverter {
 		return Color.GRAY;
 	}
 	
+	/**
+	 * Maps characters to colors using blue-to-magenta gradient scheme.
+	 * Score progression: blue (a-p) → cyan (q-z, 0-9) → purple (A-T) → magenta (U-Z).
+	 * Special characters: space=black, period=gray, asterisk=white.
+	 *
+	 * @param level0 Character representing alignment score level
+	 * @return Color object for blue-to-magenta scheme
+	 */
 	private static Color getColorForChar2(char level0) {
 	    switch (level0) {
 	        case ' ': return Color.BLACK;            // Unexplored
@@ -202,6 +247,15 @@ public class VisualizationConverter {
 	    return Color.GRAY;
 	}
 
+	/**
+	 * Linearly interpolates between two colors based on position.
+	 * Clamps RGB values to valid range [0-255] to prevent overflow.
+	 *
+	 * @param c1 Starting color
+	 * @param c2 Ending color
+	 * @param position Interpolation position (0.0 = c1, 1.0 = c2)
+	 * @return Interpolated color between c1 and c2
+	 */
 	private static Color interpolateColor(Color c1, Color c2, float position) {
 		int red = (int)(c1.getRed() + position * (c2.getRed() - c1.getRed()));
 		int green = (int)(c1.getGreen() + position * (c2.getGreen() - c1.getGreen()));
@@ -213,6 +267,9 @@ public class VisualizationConverter {
 				);
 	}
 	
+	/**
+	 * Color scheme selector: 1 for green-red gradient, 2 for blue-magenta gradient
+	 */
 	public static int colorScheme=1;
 	
 }

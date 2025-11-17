@@ -11,11 +11,23 @@ import shared.Tools;
 import var.VarLine;
 import var.Variation;
 
+/**
+ * Translates genetic variation data between different genome builds.
+ * Uses chain files to convert genomic coordinates and handles strand orientation.
+ * Supports both VarLine and Variation object types for genomic variant data.
+ * @author Brian Bushnell
+ */
 public class Translator {
 	
 	
 	
 	
+	/**
+	 * Creates a translator for converting between genome builds.
+	 * Loads the appropriate chain files for coordinate translation.
+	 * @param from_ Source genome build version
+	 * @param to_ Target genome build version
+	 */
 	public Translator(int from_, int to_){
 		fromBuild=from_;
 		toBuild=to_;
@@ -23,6 +35,12 @@ public class Translator {
 	}
 	
 	
+	/**
+	 * Translates an array of VarLine arrays between genome builds.
+	 * Processes each VarLine individually and organizes results by chromosome.
+	 * @param in Input array of VarLine arrays organized by chromosome
+	 * @return Translated array of VarLine arrays, sorted by position within each chromosome
+	 */
 	public VarLine[][] translate(VarLine[][] in){
 		ArrayList<VarLine>[] alvls=new ArrayList[in.length];
 		for(int i=0; i<alvls.length; i++){
@@ -55,6 +73,12 @@ public class Translator {
 	}
 	
 	
+	/**
+	 * Translates an array of Variation arrays between genome builds.
+	 * Processes each Variation individually and organizes results by chromosome.
+	 * @param in Input array of Variation arrays organized by chromosome
+	 * @return Translated array of Variation arrays, sorted by position within each chromosome
+	 */
 	public Variation[][] translate(Variation[][] in){
 		ArrayList<Variation>[] alvls=new ArrayList[in.length];
 		for(int i=0; i<alvls.length; i++){
@@ -84,6 +108,14 @@ public class Translator {
 	}
 	
 	
+	/**
+	 * Translates a single VarLine between genome builds.
+	 * Uses chain files to convert coordinates and handles strand orientation.
+	 * Applies reverse complement to sequence strings when translating to minus strand.
+	 *
+	 * @param v VarLine to translate
+	 * @return Translated VarLine with updated coordinates and chromosome, or null if untranslatable
+	 */
 	public VarLine translate(VarLine v){
 		
 		ChainLine[] array=lines[v.chromosome];
@@ -144,6 +176,14 @@ public class Translator {
 	}
 	
 	
+	/**
+	 * Translates a single Variation between genome builds.
+	 * Delegates to VarLine translation if the object is a VarLine instance.
+	 * Uses chain files to convert coordinates and handles strand orientation.
+	 *
+	 * @param v Variation to translate
+	 * @return Translated Variation with updated coordinates and chromosome, or null if untranslatable
+	 */
 	public Variation translate(Variation v){
 		
 		if(v.getClass()==VarLine.class){
@@ -203,8 +243,11 @@ public class Translator {
 	}
 	
 	
+	/** Source genome build version */
 	public final int fromBuild;
+	/** Target genome build version */
 	public final int toBuild;
+	/** Chain file data for coordinate translation, organized by chromosome */
 	public final ChainLine[][] lines;
 	
 }

@@ -15,6 +15,14 @@ import shared.Tools;
  */
 public class ChromToFasta {
 	
+	/**
+	 * Program entry point for chromosome to FASTA conversion.
+	 * Processes command-line arguments, reads chromosome files, and outputs FASTA format.
+	 * Arguments: [input_path] [output_file] [block_length] [contig_trigger]
+	 *
+	 * @param args Command-line arguments specifying input files, output file, block size,
+	 * and optional contig splitting trigger
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -84,6 +92,18 @@ public class ChromToFasta {
 		System.err.println("Time:\t"+t);
 	}
 	
+	/**
+	 * Writes chromosome data as separate contigs, splitting on runs of N bases.
+	 * Creates new contig entries when encountering N-runs of specified length.
+	 * Removes trailing N bases from each contig before writing.
+	 *
+	 * @param cha Chromosome array containing sequence data
+	 * @param contig Starting contig number for naming
+	 * @param trigger Number of consecutive N bases that triggers contig split
+	 * @param fastaBlocklen Line length for FASTA output formatting
+	 * @param tsw Text stream writer for output
+	 * @return Next available contig number after processing
+	 */
 	public static int writeContigs(ChromosomeArray cha, int contig, int trigger, int fastaBlocklen, TextStreamWriter tsw){
 		
 		StringBuilder sb=new StringBuilder(4000);
@@ -122,6 +142,14 @@ public class ChromToFasta {
 		return contig;
 	}
 	
+	/**
+	 * Writes sequence data from StringBuilder to output stream in FASTA format blocks.
+	 * Splits long sequences into lines of specified length for proper FASTA formatting.
+	 *
+	 * @param sb StringBuilder containing sequence data to write
+	 * @param tsw Text stream writer for output
+	 * @param blocklen Maximum number of bases per line
+	 */
 	public static void writeContig(StringBuilder sb, TextStreamWriter tsw, int blocklen){
 		for(int i=0; i<sb.length(); i+=blocklen){
 			int max=Tools.min(i+blocklen, sb.length());
@@ -129,6 +157,14 @@ public class ChromToFasta {
 		}
 	}
 	
+	/**
+	 * Writes entire chromosome to a new FASTA file.
+	 * Creates output file with chromosome name as header and formatted sequence data.
+	 *
+	 * @param cha Chromosome array containing sequence data
+	 * @param fname Output filename for the FASTA file
+	 * @param blocklen Line length for FASTA output formatting
+	 */
 	public static void writeChrom(ChromosomeArray cha, String fname, int blocklen){
 		TextStreamWriter tsw=new TextStreamWriter(fname, true, false, false);
 		tsw.start();
@@ -137,6 +173,14 @@ public class ChromToFasta {
 		tsw.poison();
 	}
 	
+	/**
+	 * Writes entire chromosome to existing text stream in FASTA format.
+	 * Outputs chromosome name as header followed by formatted sequence data.
+	 *
+	 * @param cha Chromosome array containing sequence data
+	 * @param tsw Text stream writer for output
+	 * @param blocklen Line length for FASTA output formatting
+	 */
 	public static void writeChrom(ChromosomeArray cha, TextStreamWriter tsw, int blocklen){
 		tsw.println(">"+cha.chromosome);
 		for(int i=0; i<=cha.maxIndex; i+=blocklen){

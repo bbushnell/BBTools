@@ -32,6 +32,7 @@ public class BandedAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new BandedAligner instance with default settings */
 	public BandedAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -241,9 +242,16 @@ public class BandedAligner implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/**
+	 * Returns total number of alignment matrix cells processed across all alignments
+	 */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter to specified value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -251,26 +259,41 @@ public class BandedAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits used to encode reference positions in packed scores */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used to encode deletion counts in packed scores */
 	private static final int DEL_BITS=21;
+	/** Bit offset for alignment scores in packed score representation */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting reference position from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting alignment score from packed representation */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substituted bases */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for inserted bases */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deleted bases */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for alignments involving ambiguous nucleotides (N) */
 	private static final long N_SCORE=0L;
+	/** Invalid score value used to initialize matrix cells outside the band */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined score penalty and position increment for deletion operations */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Debug flag to print alignment operation counts */
 	private static final boolean PRINT_OPS=false;
+	/** Flag controlling global vs local alignment scoring */
 	public static final boolean GLOBAL=false;
 
 }

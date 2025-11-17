@@ -11,6 +11,15 @@ import shared.Tools;
  */
 public class MDWalker {
 
+	/**
+	 * Constructs an MDWalker for parsing alignment information.
+	 * Initializes position tracking variables and advances past initial clipping.
+	 *
+	 * @param tag MD tag string containing mismatch information
+	 * @param cigar_ CIGAR string for debugging (optional, may be null)
+	 * @param longmatch_ Match array to be corrected with MD tag information
+	 * @param sl_ SamLine object for debugging purposes
+	 */
 	MDWalker(String tag, String cigar_, byte[] longmatch_, SamLine sl_){//SamLine is just for debugging
 		mdTag=tag;
 		cigar=cigar_;
@@ -31,6 +40,12 @@ public class MDWalker {
 		}
 	}
 
+	/**
+	 * Corrects the match array using MD tag information and read bases.
+	 * Processes the entire MD tag, updating the longmatch array to reflect
+	 * actual substitutions, deletions, and insertions in the alignment.
+	 * @param bases Read sequence bases for ambiguous base checking
+	 */
 	void fixMatch(byte[] bases){
 		final boolean cigarContainsN=(cigar!=null && cigar.indexOf('N')>=0);
 		sym=0;
@@ -125,6 +140,11 @@ public class MDWalker {
 		//					+ new String(Read.toShortMatchString(longmatch))+"\n"+mdTag;
 	}
 
+	/**
+	 * Advances to the next substitution in the MD tag.
+	 * Updates position counters and returns true if a substitution is found.
+	 * @return true if another substitution exists, false if end of MD tag reached
+	 */
 	boolean nextSub(){
 		sym=0;
 		while(mdPos<mdTag.length()){
@@ -168,18 +188,26 @@ public class MDWalker {
 		return false;
 	}
 
+	/** Gets the current position in the match string.
+	 * @return Zero-based position in match array (last processed position) */
 	public int matchPosition(){
 		return matchPos-1;
 	}
 
+	/** Gets the current position in read bases.
+	 * @return Zero-based position in read sequence (last processed position) */
 	public int basePosition(){
 		return bpos-1;
 	}
 
+	/** Gets the current position in reference sequence.
+	 * @return Zero-based position in reference (last processed position) */
 	public int refPosition(){
 		return rpos-1;
 	}
 
+	/** Gets the current substitution symbol from MD tag.
+	 * @return Reference base character at current substitution position */
 	public char symbol(){
 		assert(sym!=0);
 		return sym;
@@ -191,18 +219,27 @@ public class MDWalker {
 	private int bpos;
 	/** Position in reference bases (excluding clipping) */
 	private int rpos;
+	/** Current substitution symbol from MD tag */
 	private char sym;
 
+	/** MD tag string containing mismatch and deletion information */
 	private String mdTag;
+	/** CIGAR string for debugging purposes (optional) */
 	private String cigar; //Optional; for debugging
+	/** Match array to be corrected with MD tag information */
 	private byte[] longmatch;
+	/** Current parsing position within the MD tag string */
 	private int mdPos;
+	/** Current numeric value being accumulated from MD tag digits */
 	private int current;
+	/** Current parsing mode (NORMAL, SUB, DEL, or INS) */
 	private int mode;
 
+	/** SamLine object for debugging purposes */
 	private SamLine sl;
 
 	//	private int dels=0, subs=0, normals=0;
+	/** Mode constant for normal matching bases */
 	private static final int NORMAL=0, SUB=1, DEL=2, INS=3;
 
 }

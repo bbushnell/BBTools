@@ -20,6 +20,8 @@ import shared.Timer;
  */
 public class RenameByHeader {
 	
+	/** Program entry point for file renaming utility.
+	 * @param args Command-line arguments specifying input files or directories */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameByHeader x=new RenameByHeader(args);
@@ -29,6 +31,12 @@ public class RenameByHeader {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs RenameByHeader instance and parses command-line arguments.
+	 * Processes input arguments to identify files and directories containing
+	 * FASTA/FASTQ files. Supports verbose mode and directory traversal.
+	 * @param args Command-line arguments including file paths and options
+	 */
 	public RenameByHeader(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -72,12 +80,25 @@ public class RenameByHeader {
 		
 	}
 	
+	/**
+	 * Processes all files in the input list for renaming.
+	 * Iterates through collected file paths and applies header-based renaming.
+	 * @param t Timer for tracking execution duration
+	 */
 	void process(Timer t){
 		for(String s : list){
 			processFile(s);
 		}
 	}
 	
+	/**
+	 * Processes a single file for header-based renaming.
+	 * Reads the first header line, extracts taxonomic information, and renames
+	 * the file using genus and species identifiers. Handles species abbreviations
+	 * and constructs new filename with original extension preserved.
+	 *
+	 * @param path Absolute path to the file to be renamed
+	 */
 	void processFile(String path){
 		TextFile tf=new TextFile(path);
 		String line=tf.nextLine();
@@ -113,8 +134,11 @@ public class RenameByHeader {
 	
 	/*--------------------------------------------------------------*/
 
+	/** List of file paths to process for renaming */
 	private ArrayList<String> list=new ArrayList<String>();
+	/** Output stream for messages and error reporting */
 	private PrintStream outstream=System.err;
+	/** Controls verbose output during file processing */
 	private static boolean verbose=false;
 	
 }

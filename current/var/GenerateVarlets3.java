@@ -31,6 +31,12 @@ import structures.ListNum;
 public class GenerateVarlets3 {
 	
 	
+	/**
+	 * Program entry point for variant calling from aligned reads.
+	 * Parses command-line arguments and initializes variant calling with
+	 * specified input files, output template, and processing parameters.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -120,11 +126,34 @@ public class GenerateVarlets3 {
 		gv.process();
 	}
 	
+	/**
+	 * Constructs GenerateVarlets3 with input file paths.
+	 *
+	 * @param fname1 Path to first input file (required)
+	 * @param fname2 Path to second input file (may be null for single-end)
+	 * @param outname_ Output file name template with '#' placeholder
+	 * @param maxReads Maximum reads to process, or -1 for unlimited
+	 * @param sitesfile_ Path to alignment sites file (may be null)
+	 * @param pcovFile Path to perfect coverage file (may be null)
+	 * @param distFromDefined_ Maximum distance from defined bases for no-refs
+	 */
 	public GenerateVarlets3(String fname1, String fname2, String outname_, long maxReads, String sitesfile_, String pcovFile, int distFromDefined_){
 		this(new RTextInputStream(fname1, fname2, maxReads), outname_, maxReads, sitesfile_, pcovFile, distFromDefined_);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
 	
+	/**
+	 * Constructs GenerateVarlets3 with input stream.
+	 * Initializes site mapping, coverage arrays, and nearest defined base arrays
+	 * for variant filtering and processing.
+	 *
+	 * @param stream_ Input stream for reading sequence data
+	 * @param outname_ Output file name template with '#' placeholder
+	 * @param maxReads Maximum reads to process
+	 * @param sitesfile_ Path to alignment sites file (may be null)
+	 * @param pcovFile Path to perfect coverage file (may be null)
+	 * @param distFromDefined_ Maximum distance from defined bases for no-refs
+	 */
 	public GenerateVarlets3(RTextInputStream stream_, String outname_, long maxReads, String sitesfile_, String pcovFile, int distFromDefined_){
 		sitesfile=sitesfile_;
 		sitesTextFile=new TextFile(sitesfile, false);
@@ -161,6 +190,8 @@ public class GenerateVarlets3 {
 		
 	}
 	
+	/** Completes processing by writing remaining variants and closing streams.
+	 * Sorts variant keys and writes any remaining buffered variants to output files. */
 	public void finish(){
 		
 		ArrayList<Long> keys=new ArrayList<Long>();
@@ -176,6 +207,11 @@ public class GenerateVarlets3 {
 		
 	}
 	
+	/**
+	 * Main processing method that coordinates multi-threaded variant calling.
+	 * Creates processing threads, collects statistics, and reports results.
+	 * Handles both concurrent and sequential read processing modes.
+	 */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -306,6 +342,14 @@ public class GenerateVarlets3 {
 		return maxSiteRead;
 	}
 	
+	/**
+	 * Converts text line to linked list of imperfect alignment sites.
+	 * Filters sites based on perfection status and coverage requirements.
+	 *
+	 * @param s Tab-delimited line of site data
+	 * @param retainSemiperfect Whether to retain semiperfect alignments
+	 * @return Head of linked list of retained sites, or null if none retained
+	 */
 	public SiteR toImperfectSites(String s, boolean retainSemiperfect){
 		SiteR head=null;
 		SiteR prev=null;
@@ -358,6 +402,11 @@ public class GenerateVarlets3 {
 	}
 
 	
+	/**
+	 * Alternative method to convert text to site array and link into list.
+	 * @param s Tab-delimited line of site data
+	 * @return Head of linked list of sites, or null if empty
+	 */
 	public static SiteR toImperfectSites2(String s){
 		SiteScoreR[] array=SiteScoreR.fromTextArray(s);
 		if(array!=null && array.length>0){
@@ -371,6 +420,25 @@ public class GenerateVarlets3 {
 		return null;
 	}
 
+	/**
+	 * Writes list of variants to appropriate output file based on genomic location.
+	 *
+	 * @param list List of variants to write
+	 * #JavadocStart
+	 * #BlockEnd
+	 *
+	 * #Package	var
+	 * #File	GenerateVarlets3.java
+	 * #DeclarationLine	778
+	 * #Type	Method
+	 * #Signature	protected static final long key(int chrom, int start)
+	 * #JavadocStart
+	 * Generates block key for genomic position using chromosome and block number.
+	 *
+	 * @param chrom Chromosome number
+	 * @param start Start position in chromosome
+	 * @return Encoded key for the genomic block
+	 */
 	private void writeList(ArrayList<Varlet> list){
 		assert(list!=null && list.size()>0);
 		long key=key(list.get(0).chromosome, list.get(0).beginLoc);
@@ -387,11 +455,18 @@ public class GenerateVarlets3 {
 	}
 	 
 	
+	/** Worker thread for processing reads and generating variants.
+	 * Handles alignment, variant calling, and filtering in parallel processing. */
 	private final class ProcessThread extends Thread {
 		
 		public ProcessThread(){
 		}
 		
+		/**
+		 * Updates read objects with their corresponding alignment sites from site map.
+		 * Handles both single and paired-end reads, removing sites from map after use.
+		 * @param reads List of reads to update with site information
+		 */
 		private void fixReadSites(ArrayList<Read> reads){
 			assert(sitemap!=null);
 			if(reads==null || reads.size()==0){return;}
@@ -481,6 +556,11 @@ public class GenerateVarlets3 {
 			synchronized(this){this.notifyAll();}
 		}
 		
+		/**
+		 * Processes a batch of reads for variant calling.
+		 * Handles both site-based and direct processing modes.
+		 * @param reads List of reads to process
+		 */
 		private void processReads(ArrayList<Read> reads){
 			if(sitemap==null){
 				for(Read r : reads){
@@ -511,6 +591,11 @@ public class GenerateVarlets3 {
 			}
 		}
 		
+		/**
+		 * Processes a single read with multiple alignment sites.
+		 * Calls variant processing for each site the read aligns to.
+		 * @param r Read to process with multiple sites
+		 */
 		private void multiprocessRead(Read r){
 
 //			assert(head==null) : "\n"+r.pairnum()+", "+key+",\n"+r.list+",\n"+r.mate.list+"\n"+head.toTextRecursive(null)+"\n";
@@ -543,6 +628,12 @@ public class GenerateVarlets3 {
 			return null;
 		}
 		
+		/**
+		 * Finds matching SiteScore in list for given SiteR.
+		 * @param sr Site record to match
+		 * @param list List of site scores to search
+		 * @return Matching SiteScore or null if not found
+		 */
 		private SiteScore find(SiteR sr, ArrayList<SiteScore> list) {
 			for(SiteScore ss : list){
 				if(sr.equals(ss)){return ss;}
@@ -551,6 +642,12 @@ public class GenerateVarlets3 {
 		}
 		
 
+		/**
+		 * Core method for processing individual reads to generate variants.
+		 * Handles alignment, variant calling, filtering, and statistics collection.
+		 * Applies distance filters, coverage filters, and end distance requirements.
+		 * @param r Read to process for variant calling
+		 */
 		private void processRead(Read r){
 			sitesProcessed++;
 			
@@ -728,6 +825,11 @@ public class GenerateVarlets3 {
 			}
 		}
 		
+		/**
+		 * Merges identical variants in the list to reduce redundancy.
+		 * Sorts variants and combines those with identical genomic positions and changes.
+		 * @param vars List of variants to merge
+		 */
 		private void mergeEqualVarlets(ArrayList<Varlet> vars){
 			
 			Shared.sort(vars);
@@ -752,23 +854,39 @@ public class GenerateVarlets3 {
 			Tools.condenseStrict(vars);
 		}
 
+		/** Returns true if this processing thread has completed */
 		protected boolean finished(){return finished;}
+		/** Sets termination flag to stop processing */
 		protected void terminate(){terminate=true;}
 		
+		/** Translator for handling colorspace reads and generating variants */
 		private final TranslateColorspaceRead tcr=new TranslateColorspaceRead(PAC_BIO_MODE ?
 				new MultiStateAligner9PacBio(ALIGN_ROWS, ALIGN_COLUMNS) :  new MultiStateAligner9ts(ALIGN_ROWS, ALIGN_COLUMNS));
+		/** Flag indicating if processing thread has completed */
 		private boolean finished=false;
+		/** Flag to signal thread termination */
 		private boolean terminate=false;
+		/** Count of total variants generated by this thread */
 		private long varsMade=0;
+		/** Count of no-ref variants generated by this thread */
 		private long norefsMade=0;
+		/** Count of SNP variants generated by this thread */
 		private long snpMade=0;
+		/** Count of deletion variants generated by this thread */
 		private long delMade=0;
+		/** Count of N-type substitution variants generated by this thread */
 		private long subnMade=0;
+		/** Count of deletion-type substitution variants generated by this thread */
 		private long subdMade=0;
+		/** Count of insertion-type substitution variants generated by this thread */
 		private long subiMade=0;
+		/** Count of insertion variants generated by this thread */
 		private long insMade=0;
+		/** Total length difference caused by variants from this thread */
 		private long deltaLen=0;
+		/** Count of alignment sites processed by this thread */
 		private long sitesProcessed=0;
+		/** Count of reads processed by this thread */
 		private long readsProcessed=0;
 		
 		
@@ -790,6 +908,12 @@ public class GenerateVarlets3 {
 		return keys;
 	}
 	
+	/**
+	 * Generates output filename for a genomic block key.
+	 * @param key Genomic block key
+	 * @param outname Output filename template with '#' placeholder
+	 * @return Actual filename with key substituted for '#'
+	 */
 	protected static final String fname(long key, String outname){
 		if(outname==null){outname="GV2TempFile_#.txt";}
 		assert(outname.contains("#")) : outname;
@@ -797,6 +921,8 @@ public class GenerateVarlets3 {
 		return outname.replace("#", "b"+Data.GENOME_BUILD+"_"+key);
 	}
 	
+	/** Creates mapping of genomic block keys to variant lists and initializes output files.
+	 * Writes headers to all output files and creates empty variant lists for each block. */
 	private final void makeKeyMap(){
 		final String header=Varlet.textHeader()+"\n";
 		keymap=new HashMap<Long, ArrayList<Varlet>>();
@@ -809,46 +935,85 @@ public class GenerateVarlets3 {
 		}
 	}
 	
+	/**
+	 * Maps genomic block keys to lists of variants for memory-efficient processing
+	 */
 	private HashMap<Long, ArrayList<Varlet>> keymap;
+	/**
+	 * Array of nearest defined base distances for each chromosome, used for no-ref filtering
+	 */
 	private final char[][] nearestDefinedBase;
+	/**
+	 * Maximum distance from defined reference bases for retaining no-ref variants
+	 */
 	private final int maxDistFromDefined;
 
+	/**
+	 * Perfect coverage arrays for each chromosome, used to filter variants in high-coverage regions
+	 */
 	private final CoverageArray[] pcov;
 
+	/** Output file name template containing '#' placeholder for block numbers */
 	public final String outname;
+	/** Path to file containing alignment sites for reads */
 	public final String sitesfile;
+	/** Text file reader for processing alignment sites */
 	private TextFile sitesTextFile;
+	/** Maximum site ID that has been read from the sites file */
 	private static long maxSiteRead=-1;
+	/** Maximum size reached by the site lookup table during processing */
 	private static long maxSiteTableSize=-1;
 
+	/** Total number of alignment sites loaded from file */
 	private static long sitesLoaded=0;
+	/** Number of alignment sites retained after filtering */
 	private static long sitesRetained=0;
+	/** Total number of lines loaded from sites file */
 	private static long linesLoaded=0;
+	/** Number of lines retained after filtering from sites file */
 	private static long linesRetained=0;
 	
+	/** Maps read numeric IDs to their alignment sites for processing */
 	private HashMap<Long, SiteR> sitemap=new HashMap<Long, SiteR>(4096);
+	/** Input stream for reading sequence data */
 	private final RTextInputStream stream;
+	/** Concurrent input stream for multi-threaded read processing */
 	private final ConcurrentLegacyReadInputStream cris;
 	
+	/** Whether to use concurrent read input stream for processing */
 	public static boolean USE_CRIS=true; //Similar speed either way.  "true" may be better with many threads.
 	
+	/** Number of processing threads to use */
 	public static int THREADS=Shared.LOGICAL_PROCESSORS;
+	/** Buffer size for variant lists before writing to disk */
 	public static int WRITE_BUFFER=16000; //Bigger number uses more memory, for less frequent writes.
 
+	/** Whether to condense adjacent variants into complex variants */
 	public static boolean CONDENSE=true;
+	/** Whether to condense adjacent SNPs into multi-base substitutions */
 	public static boolean CONDENSE_SNPS=true;
+	/** Whether to split substitutions into separate SNP events */
 	public static boolean SPLIT_SUBS=false;
 
+	/** Whether to discard unpaired read 1 from paired-end data */
 	public static boolean TOSS_SOLO1=false;
+	/** Whether to discard unpaired read 2 from paired-end data */
 	public static boolean TOSS_SOLO2=false;
 
+	/** Whether to merge identical variants from different reads */
 	public static boolean MERGE_EQUAL_VARLETS=false;
+	/** Whether to use PacBio-specific alignment parameters and processing */
 	public static boolean PAC_BIO_MODE=true;
+	/** Number of rows in alignment matrix for sequence alignment */
 	public static int ALIGN_ROWS=2020;
+	/** Number of columns in alignment matrix for sequence alignment */
 	public static int ALIGN_COLUMNS=3000;
 	
+	/** Maximum number of reads to process, or -1 for unlimited */
 	public static long MAX_READS=-1;
+	/** Minimum distance from read ends for variants to be retained */
 	public static int MIN_END_DIST=4;
+	/** Size of genomic blocks for splitting output files */
 	public static int BLOCKSIZE=1000000;
 	/** Imperfect reads fully covered by perfect reads to this depth or more will be tossed. */
 	public static int MIN_PCOV_DEPTH_TO_TOSS=2;

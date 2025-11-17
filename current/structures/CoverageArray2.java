@@ -5,6 +5,14 @@ import shared.KillSwitch;
 import shared.Tools;
 
 
+/**
+ * 16-bit coverage array implementation using char values to track read coverage.
+ * Provides efficient storage for moderate coverage depths up to 65,535x.
+ * Automatically resizes as needed and caps values at Character.MAX_VALUE with overflow warnings.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class CoverageArray2 extends CoverageArray {
 	
 	/**
@@ -12,12 +20,23 @@ public class CoverageArray2 extends CoverageArray {
 	 */
 	private static final long serialVersionUID = 8242586595591123194L;
 	
+	/**
+	 * Program entry point for speed testing and file conversion.
+	 * Loads a coverage array, converts it to .ca format, and measures I/O performance.
+	 * @param args Command-line arguments: [chromosome_number] [input_file]
+	 */
 	public static void main(String[] args){
 		runSpeedTest(args);
 		
 //		translateGenomeBuild(args);
 	}
 	
+	/**
+	 * Performs speed testing by loading, converting, and re-reading coverage arrays.
+	 * Measures time for file I/O operations and prints performance statistics.
+	 * Generates output filename based on chromosome and genome build.
+	 * @param args Command-line arguments containing chromosome number and input file
+	 */
 	public static void runSpeedTest(String[] args){
 		
 		long time1=System.nanoTime();
@@ -54,6 +73,12 @@ public class CoverageArray2 extends CoverageArray {
 		
 	}
 	
+	/**
+	 * Constructs a new coverage array for the specified chromosome.
+	 * Initializes with char array storage for 16-bit coverage values.
+	 * @param chrom Chromosome number identifier
+	 * @param len Initial length of the coverage array
+	 */
 	public CoverageArray2(int chrom, int len){
 		super(chrom, len);
 		array=KillSwitch.allocChar1D(len);
@@ -161,12 +186,14 @@ public class CoverageArray2 extends CoverageArray {
 	@Override
 	public char[] toArray() {return array;}
 	
+	/** Internal char array storing 16-bit coverage values */
 	public char[] array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
 	@Override
 	public int arrayLength(){return array.length;}
 	
+	/** Flag tracking whether any coverage value has exceeded Character.MAX_VALUE */
 	private static boolean OVERFLOWED=false;
 	/**
 	 * 

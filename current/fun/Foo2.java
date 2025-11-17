@@ -6,8 +6,17 @@ import java.util.regex.Pattern;
 
 import shared.Parse;
 
+/**
+ * Efficient file processing utility for parsing delimited text files with
+ * size-based filtering. Processes pipe-delimited text files extracting and
+ * aggregating file size information using two parsing strategies for
+ * performance comparison.
+ *
+ * @author Brian Bushnell
+ */
 public class Foo2 {
 	
+	/** Compiled regex pattern for splitting on pipe characters */
 	static final Pattern pipePattern=Pattern.compile("\\|");
 
 	public static void main(String[] args) throws Exception{
@@ -31,6 +40,16 @@ public class Foo2 {
 		System.out.println("chars="+chars);
 	}
 	
+	/**
+	 * Processes a pipe-delimited line using regex pattern splitting.
+	 * Extracts file size from the fourth field if the seventh field starts
+	 * with 'F'. This method demonstrates regex-based parsing but is slower
+	 * than manual parsing for large datasets.
+	 *
+	 * @param line The pipe-delimited input line to process
+	 * @return The file size from field 4 if field 7 starts with 'F',
+	 * otherwise -1 to indicate filtering
+	 */
 	static long processSlow(String line) {
 		String[] split=pipePattern.split(line);
 		if(split[6].charAt(0)!='F') {return -1;}
@@ -39,6 +58,16 @@ public class Foo2 {
 		return size;
 	}
 
+	/**
+	 * Processes a pipe-delimited line using manual character-by-character
+	 * parsing for optimal performance. Manually advances through pipe
+	 * delimiters to locate the fourth field (file size) and seventh field
+	 * (file type flag), filtering for entries starting with 'F'.
+	 *
+	 * @param line The pipe-delimited input line to process
+	 * @return The file size from field 4 if field 7 starts with 'F',
+	 * otherwise -1 to indicate filtering
+	 */
 	static long processFast(String line) {
 		final int delimiter='|';
 		final int len=line.length();

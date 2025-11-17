@@ -22,10 +22,17 @@ import shared.Tools;
  */
 public class RefToIndex {
 	
+	/** Clears the cached chromosome list to free memory */
 	public static final void clear(){
 		chromlist=null;
 	}
 	
+	/**
+	 * Constructs the file path for the genome summary file.
+	 * Transforms index directory path to genome directory and appends summary.txt.
+	 * @param build The genome build number
+	 * @return Path to the summary.txt file for this build
+	 */
 	public static String summaryLoc(int build){
 		String s=IndexMaker4.fname(1, 1, 13, 1, build);
 		String dir=new File(s).getParent();
@@ -35,10 +42,27 @@ public class RefToIndex {
 		return sf;
 	}
 	
+	/**
+	 * Constructs the file path for the Bloom filter file.
+	 * @param build The genome build number
+	 * @return Path to the bloom.serial file for this build
+	 */
 	public static String bloomLoc(int build){
 		return Data.ROOT_INDEX+build+"/bloom.serial";
 	}
 	
+	/**
+	 * Creates reference genome index from FASTA file.
+	 * Validates input file format, manages existing index cleanup, and delegates
+	 * to FastaToChromArrays2 for chromosome array generation. Handles directory
+	 * structure creation and logging.
+	 *
+	 * @param reference Path to input FASTA reference file
+	 * @param build Build number for this reference genome
+	 * @param sysout Output stream for status messages
+	 * @param keylen K-mer length for indexing
+	 * @throws RuntimeException if reference file is invalid or directories cannot be created
+	 */
 	public static void makeIndex(String reference, int build, PrintStream sysout, int keylen){
 		assert(reference!=null);
 		{
@@ -151,23 +175,37 @@ public class RefToIndex {
 
 	}
 
+	/** Automatically determine chromosome bit allocation based on reference size */
 	public static boolean AUTO_CHROMBITS=true;
+	/** Enable logging of index creation operations to log files */
 	public static boolean LOG=false;
+	/** Skip writing index files to disk (memory-only mode) */
 	public static boolean NODISK=false;
+	/** Force read-only mode, preventing any index creation or modification */
 	public static boolean FORCE_READ_ONLY=false;
+	/** Allow overwriting existing reference and index files */
 	public static boolean overwrite=true;
+	/** Append to existing files rather than overwriting */
 	public static boolean append=false;
+	/** Generate scaffold information metadata during index creation */
 	public static boolean genScaffoldInfo=true;
 	
+	/** Maximum chromosome length allowed before splitting (-1 for auto) */
 	public static long maxChromLen=-1;
 	
+	/** Padding bases added at chromosome starts (-1 for default) */
+	/** Padding bases added at chromosome ends (-1 for default) */
+	/** Padding bases inserted between joined scaffolds (-1 for default) */
+	/** Minimum scaffold length to include in index (-1 for default) */
 	public static int minScaf=-1, midPad=-1, stopPad=-1, startPad=-1;
+	/** Number of bits allocated for chromosome addressing (-1 for auto) */
 	public static int chrombits=-1;
 //	public static int minScaf=FastaToChromArrays2.MIN_SCAFFOLD;
 //	public static int midPad=FastaToChromArrays2.MID_PADDING;
 //	public static int startPad=FastaToChromArrays2.START_PADDING;
 //	public static int stopPad=FastaToChromArrays2.END_PADDING;
 	
+	/** Cached list of chromosome arrays from the most recent index creation */
 	public static ArrayList<ChromosomeArray> chromlist=null;
 	
 }

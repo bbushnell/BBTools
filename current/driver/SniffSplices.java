@@ -7,8 +7,22 @@ import dna.Motif;
 import dna.MotifProbsN;
 import shared.Tools;
 
+/**
+ * Analyzes DNA sequences for splice site motifs using position weight matrices.
+ * Provides command-line interface for testing motif strength at each position
+ * in input sequences. Supports multiple splice site types including exon starts,
+ * exon stops, gene starts, and gene stops with various motif variants.
+ *
+ * @author Brian Bushnell
+ */
 public class SniffSplices {
 	
+	/**
+	 * Program entry point for splice site analysis.
+	 * Processes command-line arguments to select motif type and input sequences,
+	 * then calculates and displays motif strength at each sequence position.
+	 * @param args Command-line arguments including motif type and sequences
+	 */
 	public static void main(String[] args){
 		
 //		MotifProbsN mAG=MotifProbsN.makeMotif("AG Exon Starts MP2", 11, 13, 11, 2);
@@ -171,6 +185,7 @@ public class SniffSplices {
 	}
 	
 
+	/** Motif version number used for constructing MotifProbsN instances */
 	private static final int N_MOTIF=2;
 	
 //	private static final MotifProbsN eStarts2=MotifProbsN.makeMotif("Exon Starts MP"+N_MOTIF, 12, 9, 2);
@@ -183,16 +198,27 @@ public class SniffSplices {
 //	private static final MotifProbsN trStarts2=MotifProbsN.makeMotif("Tr Starts MP"+N_MOTIF, 12, 7, 2);
 //	private static final MotifProbsN trStops2=MotifProbsN.makeMotif("Tr Stops MP"+N_MOTIF, 11, 6, 2);
 
+	/** Position weight matrix for detecting exon start sites */
 	private static final MotifProbsN eStarts2=MotifProbsN.makeMotif("Exon Starts MP"+N_MOTIF, 13, 9, 2);
+	/** Position weight matrix for detecting AC-type exon start sites */
 	private static final MotifProbsN eStarts2_AC=MotifProbsN.makeMotif("AC Exon Starts MP"+N_MOTIF, 13, 9, 2);
+	/**
+	 * Extended position weight matrix for detecting exon start sites using 15-bp window
+	 */
 	private static final MotifProbsN eStarts2_15=MotifProbsN.makeMotif("Exon Starts MP"+N_MOTIF, 19, 15, 2);
+	/** Position weight matrix for detecting exon stop sites */
 	private static final MotifProbsN eStops2=MotifProbsN.makeMotif("Exon Stops MP"+N_MOTIF, 13, 4, 2);
+	/** Position weight matrix for detecting GC-type exon stop sites */
 	private static final MotifProbsN eStops2_GC=MotifProbsN.makeMotif("GC Exon Stops MP"+N_MOTIF, 13, 4, 2);
 	
+	/** Position weight matrix for detecting gene start sites */
 	private static final MotifProbsN gStarts2=MotifProbsN.makeMotif("Gene Starts MP"+N_MOTIF, 13, 9, 2);
+	/** Position weight matrix for detecting gene stop sites */
 	private static final MotifProbsN gStops2=MotifProbsN.makeMotif("Gene Stops MP"+N_MOTIF, 13, 4, 2);
 	
+	/** Position weight matrix for detecting transcription start sites */
 	private static final MotifProbsN trStarts2=MotifProbsN.makeMotif("Tr Starts MP"+N_MOTIF, 13, 7, 2);
+	/** Position weight matrix for detecting transcription stop sites */
 	private static final MotifProbsN trStops2=MotifProbsN.makeMotif("Tr Stops MP"+N_MOTIF, 13, 7, 2);
 	
 	

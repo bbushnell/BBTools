@@ -253,6 +253,12 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes the primary input file sequentially.
+	 * Reads lines, filters based on validity (non-comment lines), and writes output.
+	 * Handles both valid output and optional invalid line routing.
+	 * @param ff FileFormat for the primary input file
+	 */
 	private void processFF1(FileFormat ff){
 		ByteFile bf=ByteFile.makeByteFile(ff);
 		ByteStreamWriter bsw=makeBSW(ffout1);
@@ -367,6 +373,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		/** Number of bases retained by this thread */
 		protected long bytesOutT=0;
 		
+		/** Error state flag for this thread */
 		protected boolean errorStateT=false;
 		
 		/** True only if this thread has completed successfully */
@@ -378,6 +385,12 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		final int tid;
 	}
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the given FileFormat.
+	 * Returns null if FileFormat is null.
+	 * @param ff FileFormat to create writer for, may be null
+	 * @return Started ByteStreamWriter or null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -403,11 +416,16 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of lines processed across all threads */
 	private long linesProcessed=0;
+	/** Total number of lines written to output */
 	private long linesOut=0;
+	/** Total number of bytes processed across all threads */
 	private long bytesProcessed=0;
+	/** Total number of bytes written to output */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process before stopping */
 	private static long maxLines=Long.MAX_VALUE;//TODO: Static to compile; make non-static if threads are non-static
 	
 	/*--------------------------------------------------------------*/
@@ -426,6 +444,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

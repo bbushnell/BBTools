@@ -2,6 +2,12 @@ package template;
 
 import java.util.concurrent.locks.ReadWriteLock;
 
+/**
+ * Utility class for managing and synchronizing thread operations.
+ * Provides static methods to start, wait for, and synchronize thread execution
+ * with optional result accumulation and thread-safe locking mechanisms.
+ * @author Brian Bushnell
+ */
 public class ThreadWaiter {
 	
 	/** Wait for all threads to start running */
@@ -65,6 +71,8 @@ public class ThreadWaiter {
 		return success;
 	}
 	
+	/** Starts all threads in the provided collection.
+	 * @param iter Collection of threads to start */
 	public static final <T extends Thread> void startThreads(Iterable<T> iter){
 		for(Thread t : iter){t.start();}
 	}

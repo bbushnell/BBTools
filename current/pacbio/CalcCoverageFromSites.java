@@ -22,6 +22,12 @@ import var.GenerateVarlets;
  */
 public class CalcCoverageFromSites {
 	
+	/**
+	 * Program entry point for coverage calculation from site data.
+	 * Parses command-line arguments including input file, output pattern, and thresholds.
+	 * Routes to processAndWrite() for array output or process() for statistics only.
+	 * @param args Command-line arguments: infile outfile genome [mincoverage=1]
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -512,6 +518,12 @@ public class CalcCoverageFromSites {
 	
 	
 	
+	/**
+	 * Parses a tab-delimited line into an array of SiteScoreR objects.
+	 * Each tab-separated field represents one site with position and correctness information.
+	 * @param s Tab-delimited string containing SiteScoreR text representations
+	 * @return Array of parsed SiteScoreR objects
+	 */
 	public static SiteScoreR[] toSites(String s){
 		String[] split=s.split("\t");
 		SiteScoreR[] scores=new SiteScoreR[split.length];
@@ -521,6 +533,7 @@ public class CalcCoverageFromSites {
 		return scores;
 	}
 	
+	/** Minimum distance from alignment ends to avoid counting coverage artifacts */
 	public static int MIN_END_DIST=GenerateVarlets.MIN_END_DIST; //These must be the same.
 	
 }

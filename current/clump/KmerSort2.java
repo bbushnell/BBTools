@@ -404,6 +404,16 @@ public class KmerSort2 extends KmerSort {
 		if(verbose){outstream.println("Done!");}
 	}
 	
+	/**
+	 * Distributes reads to output streams, with optional hash-based splitting for multi-group output.
+	 * For single output stream, writes directly. For multiple streams, creates new comparator,
+	 * splits reads by hash values, and distributes to appropriate output streams.
+	 *
+	 * @param rosa Array of output streams to write to
+	 * @param list List of reads to distribute
+	 * @param t Timer for tracking split and write performance
+	 * @param old Previous k-mer comparator to base new comparator parameters on
+	 */
 	private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old){
 		if(rosa==null){return;}
 		assert(rosa.length>0);
@@ -451,9 +461,12 @@ public class KmerSort2 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Array of input FileFormat objects for primary input files (read 1) */
 	private final FileFormat ffin1[];
+	/** Array of input FileFormat objects for secondary input files (read 2) */
 	private final FileFormat ffin2[];
 
+	/** Array of output FileFormat objects for writing processed reads */
 	private final FileFormat ffout1[];
 	
 }

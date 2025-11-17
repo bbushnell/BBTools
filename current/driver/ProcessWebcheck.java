@@ -27,6 +27,8 @@ import structures.IntList;
  */
 public class ProcessWebcheck {
 	
+	/** Program entry point for web log analysis.
+	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ProcessWebcheck x=new ProcessWebcheck(args);
@@ -36,6 +38,12 @@ public class ProcessWebcheck {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs ProcessWebcheck instance with parsed command-line arguments.
+	 * Configures input/output files, processing parameters, and validation settings.
+	 * Sets up file formats and validates output file accessibility.
+	 * @param args Command-line arguments array containing file paths and options
+	 */
 	public ProcessWebcheck(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -129,6 +137,14 @@ public class ProcessWebcheck {
 		assert(ffin1.size()>0) : "No input files.";
 	}
 	
+	/**
+	 * Main processing method that analyzes all input log files.
+	 * Creates output streams for results, failed requests, and invalid lines.
+	 * Processes each input file sequentially and generates comprehensive statistics.
+	 * Outputs aggregated results including latency metrics and failure codes.
+	 *
+	 * @param t Timer for tracking total execution time
+	 */
 	void process(Timer t){
 
 		ByteStreamWriter bsw=null;
@@ -209,6 +225,16 @@ public class ProcessWebcheck {
 		}
 	}
 		
+	/**
+	 * Processes individual log file parsing line-by-line entries.
+	 * Validates log format (pipe-separated fields), extracts HTTP codes and latency.
+	 * Categorizes entries as passing (200 codes) or failing, tracks statistics.
+	 * Writes failed and invalid entries to separate output streams if configured.
+	 *
+	 * @param bf Input ByteFile containing web check log entries
+	 * @param bswFail Output stream for failed requests (non-200 response codes)
+	 * @param bswInvalid Output stream for malformed/unparseable log lines
+	 */
 	private void process2(ByteFile bf, ByteStreamWriter bswFail, ByteStreamWriter bswInvalid){
 		
 		byte[] line=bf.nextLine();
@@ -276,41 +302,66 @@ public class ProcessWebcheck {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input log file paths to process */
 	private ArrayList<String> in1=new ArrayList<String>();
+	/** Primary output file path for aggregated statistics */
 	private String out1=null;
+	/** Output file path for invalid/unparseable log entries */
 	private String outInvalid=null;
+	/** Output file path for failed requests (non-200 response codes) */
 	private String outFail=null;
 	
+	/** Units suffix for latency display ("ms" for milliseconds or empty) */
 	private String ms="ms";
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of log lines processed across all input files */
 	private long linesProcessed=0;
+	/** Number of successfully parsed and valid log entries */
 	private long linesValid=0;
+	/** Total bytes processed from all input log files */
 	private long bytesProcessed=0;
 
+	/** Collection of latency values for successful requests (200 response codes) */
 	private IntList passLatency=new IntList();
+	/** Collection of latency values for failed requests (non-200 response codes) */
 	private IntList failLatency=new IntList();
+	/** Collection of HTTP response codes for failed requests */
 	private IntList failCode=new IntList();
 	
+	/** Maps response code strings to occurrence counts for statistics generation */
 	private HashMap<String, long[]> map=new HashMap<String, long[]>();
 	
+	/** Maximum number of lines to process from input files (default unlimited) */
 	private long maxLines=Long.MAX_VALUE;
+	/**
+	 * Whether to include extended statistics in output (latency metrics, fail codes)
+	 */
 	private boolean extendedStats=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format objects for all input log files */
 	private final ArrayList<FileFormat> ffin1;
+	/** File format object for primary statistics output file */
 	private final FileFormat ffout1;
+	/** File format object for invalid entries output file */
 	private final FileFormat ffoutInvalid;
+	/** File format object for failed requests output file */
 	private final FileFormat ffoutFail;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for console/redirected output (default System.out) */
 	private PrintStream outstream=System.out;
+	/** Global verbose logging flag for detailed processing information */
 	public static boolean verbose=false;
+	/** Tracks if any errors occurred during processing operations */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files (default true) */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

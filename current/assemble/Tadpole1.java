@@ -120,22 +120,154 @@ public class Tadpole1 extends Tadpole {
 	/*----------------        Recall Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Computes reverse complement of k-mer using fast binary transformation.
+	 * @param kmer Input k-mer in binary representation
+	 * @return Reverse complement k-mer value
+	 */
 	final long rcomp(long kmer){return AminoAcid.reverseComplementBinaryFast(kmer, k);}
+	/**
+	 * Converts k-mer and reverse complement pair to canonical hash table value
+	 * for consistent storage and lookup operations.
+	 *
+	 * @param kmer Forward k-mer representation
+	 * @param rkmer Reverse complement k-mer representation
+	 * @return Canonical value for hash table operations
+	 */
 	final long toValue(long kmer, long rkmer){return tables.toValue(kmer, rkmer);}
+	/**
+	 * Retrieves occurrence count for k-mer from hash tables using canonical
+	 * representation for consistent lookup regardless of strand orientation.
+	 *
+	 * @param kmer Forward k-mer representation
+	 * @param rkmer Reverse complement k-mer representation
+	 * @return Frequency count of k-mer in input data
+	 */
 	public final int getCount(long kmer, long rkmer){return tables.getCount(kmer, rkmer);}
+	/**
+	 * Claims ownership of k-mer for specified thread ID with automatic reverse
+	 * complement calculation for canonical claiming operations.
+	 *
+	 * @param kmer K-mer to claim ownership of
+	 * @param id Thread identifier for ownership tracking
+	 * @return true if ownership successfully claimed, false if already owned
+	 */
 	final boolean claim(long kmer, int id){return claim(kmer, rcomp(kmer), id);}
+	/**
+	 * Claims ownership of k-mer using provided k-mer and reverse complement pair
+	 * for thread-safe parallel processing operations.
+	 *
+	 * @param kmer Forward k-mer representation
+	 * @param rkmer Reverse complement k-mer representation
+	 * @param id Thread identifier for ownership tracking
+	 * @return true if ownership successfully claimed, false if already owned
+	 */
 	final boolean claim(long kmer, long rkmer, int id){return tables.claim(kmer, rkmer, id);}
+	/**
+	 * Claims ownership of all k-mers within sequence using double-pass validation
+	 * to ensure complete ownership of entire sequence for contig construction.
+	 *
+	 * @param bb Sequence data containing multiple k-mers
+	 * @param id Thread identifier for ownership tracking
+	 * @return true if all k-mers successfully claimed, false otherwise
+	 */
 	final boolean doubleClaim(ByteBuilder bb, int id/*, long rid*/){return tables.doubleClaim(bb, id/*, rid*/);}
+	/**
+	 * Claims ownership of k-mers within sequence with configurable early termination
+	 * behavior for performance optimization during partial ownership validation.
+	 *
+	 * @param bb Sequence data containing k-mers to claim
+	 * @param id Thread identifier for ownership tracking
+	 * @param earlyExit Stop claiming at first failure if true
+	 * @return true if claiming successful, false if ownership conflicts detected
+	 */
 	final boolean claim(ByteBuilder bb, int id, /*long rid, */boolean earlyExit){return tables.claim(bb, id/*, rid*/, earlyExit);}
+	/**
+	 * Claims ownership of k-mers within byte array sequence with length limit
+	 * and configurable early termination for optimized ownership validation.
+	 *
+	 * @param array Byte array containing sequence data
+	 * @param len Number of valid bytes in array
+	 * @param id Thread identifier for ownership tracking
+	 * @param earlyExit Stop claiming at first failure if true
+	 * @return true if claiming successful, false if ownership conflicts detected
+	 */
 	final boolean claim(byte[] array, int len, int id, /*long rid, */boolean earlyExit){return tables.claim(array, len, id/*, rid*/, earlyExit);}
+	/**
+	 * Identifies current owner thread ID for specified k-mer using canonical
+	 * representation lookup in ownership tracking system.
+	 * @param kmer K-mer to check ownership status
+	 * @return Thread ID of current owner, or -1 if unowned
+	 */
 	final int findOwner(long kmer){return tables.findOwner(kmer);}
+	/**
+	 * Locates owner of k-mers within sequence considering thread context for
+	 * ownership conflict detection during parallel processing operations.
+	 *
+	 * @param bb Sequence data to check ownership
+	 * @param id Requesting thread identifier
+	 * @return Thread ID of owner, or -1 if sequence is unowned
+	 */
 	final int findOwner(ByteBuilder bb, int id){return tables.findOwner(bb, id);}
+	/**
+	 * Determines ownership status of k-mers within byte array sequence with
+	 * specified length limit for partial sequence ownership validation.
+	 *
+	 * @param array Byte array containing sequence data
+	 * @param len Number of valid bytes to process
+	 * @param id Requesting thread identifier
+	 * @return Thread ID of owner, or -1 if sequence is unowned
+	 */
 	final int findOwner(byte[] array, int len, int id){return tables.findOwner(array, len, id);}
+	/**
+	 * Releases ownership of k-mer from specified thread allowing other threads
+	 * to claim ownership for subsequent processing operations.
+	 * @param key K-mer value to release ownership
+	 * @param id Thread identifier releasing ownership
+	 */
 	final void release(long key, int id){tables.release(key, id);}
+	/**
+	 * Releases ownership of all k-mers within sequence from specified thread
+	 * enabling other threads to process the sequence data.
+	 * @param bb Sequence data to release ownership
+	 * @param id Thread identifier releasing ownership
+	 */
 	final void release(ByteBuilder bb, int id){tables.release(bb, id);}
+	/**
+	 * Releases ownership of k-mers within byte array sequence with length limit
+	 * from specified thread for subsequent parallel processing.
+	 *
+	 * @param array Byte array containing sequence data
+	 * @param len Number of valid bytes to process
+	 * @param id Thread identifier releasing ownership
+	 */
 	final void release(byte[] array, int len, int id){tables.release(array, len, id);}
+	/**
+	 * Analyzes right-side nucleotide extensions for k-mer by checking frequency
+	 * counts of all four possible next bases (A, C, G, T) for path exploration.
+	 *
+	 * @param kmer Forward k-mer representation
+	 * @param rkmer Reverse complement k-mer representation
+	 * @param counts Array to store frequency counts for each nucleotide
+	 * @return Position of highest-frequency nucleotide extension
+	 */
 	final int fillRightCounts(long kmer, long rkmer, int[] counts){return tables.fillRightCounts(kmer, rkmer, counts, mask, shift2);}
+	/**
+	 * Analyzes left-side nucleotide extensions for k-mer by checking frequency
+	 * counts of all four possible previous bases (A, C, G, T) for reverse exploration.
+	 *
+	 * @param kmer Forward k-mer representation
+	 * @param rkmer Reverse complement k-mer representation
+	 * @param counts Array to store frequency counts for each nucleotide
+	 * @return Position of highest-frequency nucleotide extension
+	 */
 	final int fillLeftCounts(long kmer, long rkmer, int[] counts){return tables.fillLeftCounts(kmer, rkmer, counts, mask, shift2);}
+	/**
+	 * Converts binary k-mer representation to human-readable DNA sequence string
+	 * for debugging and visualization purposes.
+	 * @param kmer Binary k-mer representation
+	 * @return DNA sequence string representation
+	 */
 	final StringBuilder toText(long kmer){return AbstractKmerTable.toText(kmer, k);}
 	
 	/*--------------------------------------------------------------*/
@@ -156,6 +288,14 @@ public class Tadpole1 extends Tadpole {
 	 */
 	private class BuildThread extends AbstractBuildThread{
 		
+		/**
+		 * Constructs BuildThread worker with thread identification, processing mode,
+		 * and input stream configuration for parallel assembly operations.
+		 *
+		 * @param id_ Unique thread identifier for coordination
+		 * @param mode_ Processing mode flags for assembly behavior
+		 * @param crisa_ Array of concurrent input streams for read processing
+		 */
 		public BuildThread(int id_, int mode_, ConcurrentReadInputStream[] crisa_){
 			super(id_, mode_, crisa_);
 		}
@@ -194,6 +334,14 @@ public class Tadpole1 extends Tadpole {
 			}
 		}
 		
+		/**
+		 * Processes next available hash table using atomic work distribution to prevent
+		 * race conditions. Iterates through all table cells applying coverage threshold
+		 * filtering and ownership claiming for contig seed identification.
+		 *
+		 * @param aint Atomic counter for thread-safe table assignment
+		 * @return true if table was processed, false if no more tables available
+		 */
 		private boolean processNextTable(AtomicInteger aint){
 			final int tnum=aint.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
@@ -206,6 +354,12 @@ public class Tadpole1 extends Tadpole {
 			return true;
 		}
 		
+		/**
+		 * Processes collision victim structures (HashForest) using atomic work distribution
+		 * for comprehensive k-mer processing including overflow entries from hash collisions.
+		 * @param aint Atomic counter for thread-safe victim structure assignment
+		 * @return true if victim structure was processed, false if no more available
+		 */
 		private boolean processNextVictims(AtomicInteger aint){
 			final int tnum=aint.getAndAdd(1);
 			if(tnum>=tables.ways){return false;}
@@ -220,6 +374,14 @@ public class Tadpole1 extends Tadpole {
 			return true;
 		}
 		
+		/**
+		 * Processes individual hash table cell by applying coverage threshold filtering
+		 * and thread ownership claiming before delegating to k-mer-based contig construction.
+		 *
+		 * @param table Hash table containing k-mer data
+		 * @param cell Cell index to process
+		 * @return Length of contig constructed, or 0 if no contig created
+		 */
 		private int processCell(HashArray1D table, int cell){
 			int count=table.readCellValue(cell);
 			if(count<minCountSeedCurrent){return 0;}
@@ -238,6 +400,14 @@ public class Tadpole1 extends Tadpole {
 			return processKmer(key);
 		}
 		
+		/**
+		 * Recursively traverses binary tree structure of KmerNode processing all
+		 * k-mers within collision resolution tree using in-order traversal for
+		 * comprehensive k-mer processing.
+		 *
+		 * @param kn Root KmerNode of binary tree structure
+		 * @return Total length of contigs constructed from tree k-mers
+		 */
 		private int traverseKmerNode(KmerNode kn){
 			int sum=0;
 			if(kn!=null){
@@ -252,6 +422,14 @@ public class Tadpole1 extends Tadpole {
 			return sum;
 		}
 		
+		/**
+		 * Processes individual KmerNode by extracting pivot k-mer, applying coverage
+		 * thresholds, claiming ownership, and initiating contig construction from
+		 * validated k-mer seeds.
+		 *
+		 * @param kn KmerNode containing k-mer and associated metadata
+		 * @return Length of contig constructed from k-mer, or 0 if no contig created
+		 */
 		private int processKmerNode(KmerNode kn){
 			final long key=kn.pivot();
 			final int count=kn.getValue(key);
@@ -269,6 +447,14 @@ public class Tadpole1 extends Tadpole {
 			return processKmer(key);
 		}
 		
+		/**
+		 * Constructs contig from k-mer seed using bidirectional extension with coverage
+		 * validation. Applies minimum/maximum coverage filters and length requirements
+		 * before adding successful contigs to output collection.
+		 *
+		 * @param key K-mer value to use as contig seed
+		 * @return Length of constructed contig, or 0 if construction failed
+		 */
 		private int processKmer(long key){
 			Contig contig=makeContig(key, builderT, true);
 			if(contig!=null){
@@ -284,6 +470,11 @@ public class Tadpole1 extends Tadpole {
 			return 0;
 		}
 		
+		/**
+		 * Processes reads from concurrent input stream in batches using thread-safe
+		 * list iteration and paired-read handling for read extension operations.
+		 * @param cris Concurrent input stream providing read batches for processing
+		 */
 		private void run(ConcurrentReadInputStream cris){
 			
 			ListNum<Read> ln=cris.nextList();
@@ -308,6 +499,14 @@ public class Tadpole1 extends Tadpole {
 			cris.returnList(ln);
 		}
 		
+		/**
+		 * Processes paired reads for insert size estimation or sequence extension based
+		 * on processing mode. Handles ECCO overlapping, quality filtering, and contig
+		 * construction from individual reads with paired-read awareness.
+		 *
+		 * @param r1 First read in pair (required)
+		 * @param r2 Second read in pair (may be null for single-end)
+		 */
 		private void processReadPair(Read r1, Read r2){
 			if(verbose){outstream.println("Considering read "+r1.id+" "+new String(r1.bases));}
 			
@@ -616,8 +815,20 @@ public class Tadpole1 extends Tadpole {
 		}
 	}
 	
+	/**
+	 * Specialized worker thread for parallel contig connectivity analysis implementing
+	 * bidirectional edge detection through k-mer overlap exploration. Identifies
+	 * connections between contigs by analyzing terminal k-mer neighborhoods and
+	 * tracing paths to establish graph connectivity relationships.
+	 */
 	class ProcessContigThread extends AbstractProcessContigThread {
 		
+		/**
+		 * Constructs ProcessContigThread worker with contig collection and atomic
+		 * work distribution counter for parallel connectivity analysis.
+		 * @param contigs_ List of contigs for processing
+		 * @param next_ Atomic counter for thread-safe work assignment
+		 */
 		ProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_){
 			super(contigs_, next_);
 			lastExitCondition=BAD_SEED;
@@ -701,6 +912,19 @@ public class Tadpole1 extends Tadpole {
 			}
 		}
 
+		/**
+		 * Explores rightward path from k-mer seed to identify connection targets through
+		 * graph traversal with junction detection and termination condition tracking.
+		 * Implements bounded exploration (max 500 bases) with comprehensive exit status
+		 * recording for connectivity analysis.
+		 *
+		 * @param kmer Starting k-mer for exploration
+		 * @param rkmer Reverse complement of starting k-mer
+		 * @param leftCounts Array for left-side nucleotide analysis
+		 * @param rightCounts Array for right-side nucleotide analysis
+		 * @param bb ByteBuilder for path sequence construction
+		 * @return Target contig ID if connection found, or -1 for no connection
+		 */
 		private int exploreRight(long kmer, long rkmer, int[] leftCounts, int[] rightCounts, ByteBuilder bb){
 			int length=1;
 			int owner=-1;
@@ -783,6 +1007,16 @@ public class Tadpole1 extends Tadpole {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Estimates insert size between paired reads by tracing k-mer path through
+	 * assembly graph. Identifies rightmost k-mers from each read and measures
+	 * intervening distance using graph traversal with overlap compensation.
+	 *
+	 * @param r1 First read in pair
+	 * @param r2 Second read in pair
+	 * @param rightCounts Working array for nucleotide frequency analysis
+	 * @return Estimated insert size in bases, or -1 if measurement failed
+	 */
 	public int findInsertSize(Read r1, Read r2, int[] rightCounts){
 		final long kmer1=tables.rightmostKmer(r1.bases, r1.length());
 		final long kmer2=tables.rightmostKmer(r2.bases, r2.length());
@@ -1409,6 +1643,14 @@ public class Tadpole1 extends Tadpole {
 		return errorCorrect(r, leftCounts, rightCounts, kmers, counts, counts2, bb, bb2, tracker, bs);
 	}
 	
+	/**
+	 * Performs rapid error screening by sampling k-mers from list and checking
+	 * coverage patterns. Uses incremental sampling with minimum count validation
+	 * and adjacent k-mer comparison for efficient error detection.
+	 *
+	 * @param kmers List of k-mers extracted from read sequence
+	 * @return true if errors likely present, false if sequence appears clean
+	 */
 	boolean hasErrorsFast(LongList kmers){
 		if(kmers.size<1){return false;}
 		int prev=-1;
@@ -1957,6 +2199,9 @@ public class Tadpole1 extends Tadpole {
 
 	@Override
 	public final KmerTableSet tables(){return tables;}
+	/**
+	 * K-mer hash table collection containing frequency counts and collision handling
+	 */
 	public final KmerTableSet tables;
 	
 	/** Normal kmer length */
@@ -1964,8 +2209,11 @@ public class Tadpole1 extends Tadpole {
 	/** k-1; used in some expressions */
 	final int k2;
 	
+	/** Bit shift value (2*k) for k-mer binary encoding and mask operations */
 	final int shift;
+	/** Secondary shift value (shift-2) for reverse complement k-mer operations */
 	final int shift2;
+	/** Bit mask for k-mer binary representation with overflow protection */
 	final long mask;
 	
 }

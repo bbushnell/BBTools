@@ -17,8 +17,21 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Benchmarking tool for testing sequence alignment performance on random DNA sequences.
+ * Generates pairs of random sequences of varying lengths and aligns them using GlocalPlusAligner5
+ * to measure alignment identity distributions and performance characteristics.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class AlignRandom {
 
+	/**
+	 * Program entry point for alignment benchmarking.
+	 * Runs alignment tests across multiple sequence lengths with specified parameters.
+	 * @param args Command-line arguments: [min_length] [step_multiplier] [intervals] [iterations] [buckets] [max_loops] [output_file]
+	 */
 	public static void main(String[] args) {
 		args=new PreParser(args, System.err, null, false, true, false).args;
 		Shared.SIMD=true;
@@ -43,6 +56,15 @@ public class AlignRandom {
 		bsw.poisonAndWait();
 	}
 
+	/**
+	 * Runs single-threaded alignment benchmark for sequences of specified length.
+	 * Generates random sequence pairs, aligns them, and records identity scores in histogram.
+	 *
+	 * @param len Length of random sequences to generate
+	 * @param iters Number of alignment iterations to perform
+	 * @param buckets Number of histogram buckets for identity scores
+	 * @return Histogram array of alignment identity frequencies
+	 */
 	private static int[] runInterval(int len, int iters, int buckets) {
 		int[] hist=new int[buckets+1];
 		Random randy=Shared.threadLocalRandom(-1);
@@ -56,6 +78,14 @@ public class AlignRandom {
 		return hist;
 	}
 
+	/**
+	 * Generates a random DNA sequence of specified length.
+	 * Uses equal probability for all four standard bases (A, C, G, T).
+	 *
+	 * @param len Desired sequence length in bases
+	 * @param randy Random number generator instance
+	 * @return Random DNA sequence as byte array
+	 */
 	public static byte[] randomSequence(int len, Random randy) {
 		byte[] array=new byte[len];
 		for(int i=0; i<len; i++) {
@@ -66,6 +96,15 @@ public class AlignRandom {
 		return array;
 	}
 
+	/**
+	 * Prints alignment benchmark results for one sequence length interval.
+	 * Outputs sequence length followed by normalized frequency values for each identity bucket.
+	 *
+	 * @param len Sequence length tested
+	 * @param iters Total iterations performed
+	 * @param hist Histogram of alignment identity frequencies
+	 * @param bsw Output stream writer
+	 */
 	private static void printInterval(int len, int iters, int[] hist, ByteStreamWriter bsw) {
 		assert(iters==Tools.sum(hist));
 		float inv=1f/iters;
@@ -77,6 +116,12 @@ public class AlignRandom {
 		bsw.print(bb.nl());
 	}
 
+	/**
+	 * Creates header row for benchmark output table.
+	 * Contains "ANI" label followed by normalized identity bucket values.
+	 * @param buckets Number of identity histogram buckets
+	 * @return Header row as ByteBuilder
+	 */
 	private static ByteBuilder header(int buckets) {
 		float inv=1f/buckets;
 		ByteBuilder bb=new ByteBuilder();

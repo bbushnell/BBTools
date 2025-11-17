@@ -16,10 +16,17 @@ public class CoverageArray3A extends CoverageArray {
 	 */
 	private static final long serialVersionUID = 98483952072098494L;
 	
+	/** Program entry point.
+	 * @param args Command-line arguments (currently unused) */
 	public static void main(String[] args){
 		//TODO
 	}
 	
+	/**
+	 * Constructs a new thread-safe coverage array.
+	 * @param chrom Chromosome identifier
+	 * @param len Length of the coverage array to allocate
+	 */
 	public CoverageArray3A(int chrom, int len){
 		super(chrom, len);
 		array=KillSwitch.allocAtomicInt(len);
@@ -113,12 +120,14 @@ public class CoverageArray3A extends CoverageArray {
 	}
 	
 	
+	/** Atomic integer array storing the coverage values for thread-safe access */
 	public final AtomicIntegerArray array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
 	@Override
 	public int arrayLength(){return array.length();}
 	
+	/** Flag tracking whether overflow has occurred to avoid duplicate warnings */
 	private static boolean OVERFLOWED=false;
 	
 }

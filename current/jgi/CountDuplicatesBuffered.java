@@ -346,6 +346,11 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 		}
 	}
 	
+	/**
+	 * Creates and starts concurrent read input stream.
+	 * Configures stream for paired/unpaired input detection and begins reading.
+	 * @return Started ConcurrentReadInputStream for input processing
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -355,6 +360,14 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream for non-duplicate reads.
+	 * Configures buffer size based on ordering requirements and sets up
+	 * interleaved output when appropriate.
+	 *
+	 * @param pairedInput true if input contains paired reads
+	 * @return Started ConcurrentReadOutputStream or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -371,6 +384,12 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 		return ros;
 	}
 	
+	/**
+	 * Creates concurrent read output stream for duplicate reads.
+	 * Similar to makeCros but handles duplicate read output specifically.
+	 * @param pairedInput true if input contains paired reads
+	 * @return Started ConcurrentReadOutputStream or null if no duplicate output
+	 */
 	private ConcurrentReadOutputStream makeCrosD(boolean pairedInput){
 		if(ffoutd1==null){return null;}
 
@@ -382,6 +401,12 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 		return rosd;
 	}
 	
+	/**
+	 * Calculates and reports duplicate detection statistics.
+	 * Generates histogram of read copy counts, computes duplication rates,
+	 * and writes detailed statistics to specified file or stdout.
+	 * @param fname Output filename for statistics or null for stdout
+	 */
 	private void calcStatistics(String fname){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -467,6 +492,12 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for parallel duplicate detection processing.
+	 * Processes read lists from shared input stream, computes hash codes,
+	 * updates hash tables via buffered writes, and outputs results to
+	 * appropriate streams based on duplicate status.
+	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
@@ -526,6 +557,12 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 			}
 		}
 		
+		/**
+		 * Processes a list of reads for duplicate detection.
+		 * Validates reads, tracks statistics, applies duplicate filtering via
+		 * processReadPair, and sends results to appropriate output streams.
+		 * @param ln ListNum containing reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -621,9 +658,19 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 		/** Thread ID */
 		final int tid;
 		
+		/** Buffered hash table for efficient concurrent duplicate tracking */
 		final HashBuffer table;
 	}
 	
+	/**
+	 * Computes rolling hash code from byte array using lookup tables.
+	 * Initializes with array length XOR salt XOR pairnum, then processes each
+	 * byte through 32-mode hashcode lookup table with left rotation.
+	 *
+	 * @param bytes Input byte array to hash
+	 * @param pairnum Pair number (0 or 1) for differentiation
+	 * @return Hash code for the byte array
+	 */
 	public static long hash(byte[] bytes, int pairnum){
 		if(bytes==null){return 0;}
 		long code=(bytes.length+pairnum)^salt;
@@ -646,7 +693,9 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary quality input file path */
 	private String qfin1=null;
+	/** Secondary quality input file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -654,7 +703,9 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary quality output file path */
 	private String qfout1=null;
+	/** Secondary quality output file path */
 	private String qfout2=null;
 
 	/** Primary dupe output file path */
@@ -670,18 +721,26 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/** Stats output */
 	private String stats="stdout.txt";
 	
+	/** Maximum allowed fraction of duplicate reads; negative disables check */
 	private double maxFraction=-1;
+	/** Maximum allowed duplication rate; negative disables check */
 	private double maxRate=-1;
+	/** Exit code to return when duplicate thresholds are exceeded */
 	private int failCode=0;
+	/** True if duplicate thresholds were exceeded */
 	boolean failed=false;
 	
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 
+	/** K-mer hash tables for duplicate detection */
 	private KmerTableSet tables;
 
+	/** Whether to include base sequences in duplicate hash computation */
 	private boolean hashBases=true;
+	/** Whether to include read identifiers in duplicate hash computation */
 	private boolean hashNames=false;
+	/** Whether to include quality scores in duplicate hash computation */
 	private boolean hashQualities=false;
 	
 	/*--------------------------------------------------------------*/
@@ -698,7 +757,9 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
+	/** Fraction of reads to process for duplicate detection; 1.0 processes all */
 	private double samplerate=1;
+	/** Currently unused field that may control duplicate counting behavior */
 	private int maxCount=1;
 	
 	/*--------------------------------------------------------------*/
@@ -720,16 +781,25 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/** Secondary dupe output file */
 	private final FileFormat ffoutd2;
 	
+	/** Precomputed hash lookup tables with 32 modes for rolling hash computation */
 	private static final long[][] hashcodes=Dedupe.makeCodes2(32);
+	/** Random salt value for hash initialization to prevent collision attacks */
 	private static final long salt=new Random(173).nextLong();
+	/**
+	 * Bit mask (1023) for sampling hash codes to determine processing eligibility
+	 */
 	private final int sampleMask=1023;
+	/** Threshold computed from samplerate for sampling decision */
 	private final int sampleThresh;
 	
+	/** Constant indicating read was not selected for processing due to sampling */
 	private final int UNSAMPLED=-1;
+	/** Constant indicating read was identified as duplicate */
 	private final int DUPLICATE=-2;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

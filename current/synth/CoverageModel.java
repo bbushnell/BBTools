@@ -16,10 +16,25 @@ class CoverageModel{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Creates a coverage model with default parameters.
+	 * Uses 4 waves, 0.7 max amplitude, 0.25 max ORI bias, and 0.1 min probability.
+	 * @param randy Random number generator for parameter initialization
+	 */
 	public CoverageModel(Random randy){
 		this(4, 0.7, 0.25, 0.1, randy);
 	}
 
+	/**
+	 * Creates a coverage model with specified parameters and default period range.
+	 * Uses default period range of 2000-80000 bases.
+	 *
+	 * @param numWaves Number of sine waves to combine for variation
+	 * @param maxAmplitude_ Maximum amplitude for combined wave effects
+	 * @param maxOriBias Maximum strength of origin of replication bias
+	 * @param minProb Minimum probability threshold for read generation
+	 * @param randy Random number generator for parameter initialization
+	 */
 	public CoverageModel(int numWaves, double maxAmplitude_, double maxOriBias, 
 			double minProb, Random randy){
 		this(numWaves, maxAmplitude_, maxOriBias, minProb, randy, 2000, 80000);
@@ -301,15 +316,22 @@ class CoverageModel{
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Amplitude values for each sine wave component */
 	private final float[] amplitudes;
+	/** Pre-computed 2*PI/period values for efficient angle calculations */
 	private final float[] inversePeriods; // Store 2*PI/period for performance
+	/** Phase offset values for each sine wave component */
 	private final float[] offsets;
+	/** Maximum strength of origin of replication bias effect */
 	private final float maxOriBiasStrength;
+	/** Minimum probability threshold for read generation */
 	private final float minProbability;
+	/** Maximum possible sum of all effects for probability normalization */
 	private final float maxPossibleSum;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Pre-computed value of 2*PI for performance optimization */
 	private static final float pi2=(float)(2*Math.PI);
 
 }

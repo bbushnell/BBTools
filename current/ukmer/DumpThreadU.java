@@ -63,13 +63,21 @@ public class DumpThreadU extends Thread{
 		success=true;
 	}
 	
+	/** K-mer length for output formatting */
 	final int k;
+	/** Minimum count threshold for k-mer inclusion */
 	final int mincount;
+	/** Maximum count threshold for k-mer inclusion */
 	final int maxcount;
+	/** Atomic counter for coordinating table assignment among threads */
 	final AtomicInteger nextTable;
+	/** AtomicLong counter tracking remaining k-mers to dump */
 	final AtomicLong remaining;
+	/** Array of AbstractKmerTableU instances to dump */
 	final AbstractKmerTableU[] tables;
+	/** ByteStreamWriter for thread-safe output coordination */
 	final ByteStreamWriter bsw;
+	/** Flag indicating whether thread completed successfully */
 	boolean success=false;
 	
 }

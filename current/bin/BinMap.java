@@ -8,8 +8,18 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import shared.Tools;
 
+/**
+ * Multi-dimensional hash map for organizing genomic bins by GC content and coverage depth.
+ * Uses quantized GC and depth levels as keys to efficiently store similar genomic bins.
+ * Enables fast nearest-neighbor searches within specified similarity tolerances.
+ *
+ * @author Brian Bushnell
+ * @date Feb 4, 2025
+ */
 public class BinMap extends BinObject implements Iterable<Cluster> {
 	
+	/** Constructs a BinMap with the specified list of contigs.
+	 * @param contigs List of contigs for reference */
 	public BinMap(ArrayList<Contig> contigs) {contigList=contigs;}
 	
 	/** Higher is less stringent; 1.0 is neutral, 0 is exact match */
@@ -27,6 +37,12 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return null;
 	}
 	
+	/**
+	 * Adds all bins from a collection to the map.
+	 * Bins below minimum size are added to residual collection.
+	 * @param bins Collection of bins to add
+	 * @param minSize Minimum size threshold for map inclusion
+	 */
 	void addAll(Collection<? extends Bin> bins, int minSize) {
 		Key key=new Key();
 		for(Bin b : bins) {
@@ -38,6 +54,14 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		}
 	}
 	
+	/**
+	 * Converts a bin to a cluster and adds it to the appropriate hash bucket.
+	 * Thread-safe operation using synchronized access to bucket lists.
+	 *
+	 * @param a Bin to convert and add
+	 * @param key Hash key for bucket selection (created if null)
+	 * @return The newly created cluster
+	 */
 	Cluster add(Bin a, Key key) {
 		Cluster c=a.toCluster();
 		if(key==null) {key=new Key();}
@@ -47,6 +71,14 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return c;
 	}
 	
+	/**
+	 * Retrieves or creates the cluster list for the specified key.
+	 * Updates global grid bounds for GC and depth levels when creating new buckets.
+	 * Thread-safe using putIfAbsent for concurrent access.
+	 *
+	 * @param key Hash key identifying the bucket
+	 * @return List of clusters for this key
+	 */
 	public ArrayList<Cluster> getOrMakeList(Key key){
 		ArrayList<Cluster> list=map.get(key);
 		if(list==null) {
@@ -62,6 +94,18 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return list;
 	}
 	
+	/**
+	 * Searches for the best matching cluster within specified GC/depth tolerances.
+	 * Uses oracle similarity scoring with size-adjusted thresholds.
+	 * Explores a 3D grid centered on the bin's quantized GC/depth coordinates.
+	 *
+	 * @param a Bin seeking a matching cluster
+	 * @param minSizeToCompare Minimum cluster size for comparison
+	 * @param key Working key for hash operations (created if null)
+	 * @param matrixRange Search radius in quantized space
+	 * @param oracle Similarity calculator that tracks best match
+	 * @return Best matching cluster or null if none found
+	 */
 	public Cluster findBestCluster(Bin a, int minSizeToCompare, Key key, int matrixRange, Oracle oracle) {
 		if(key==null) {key=new Key();}
 		oracle.clear();
@@ -111,6 +155,17 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return (Cluster)oracle.best;
 	}
 	
+	/**
+	 * Finds the best matching bin within a specific cluster list.
+	 * Iterates through clusters in size order, updating oracle with best match.
+	 * Stops early when clusters become too small for comparison.
+	 *
+	 * @param a Query bin
+	 * @param clusters List of candidate clusters
+	 * @param minSizeToCompare Minimum size threshold for comparison
+	 * @param oracle Similarity calculator that tracks best match
+	 * @return Index of best match or -1 if none found
+	 */
 	private int findBestBinIndex(Bin a, ArrayList<? extends Bin> clusters, 
 			int minSizeToCompare, Oracle oracle) {
 		
@@ -135,6 +190,12 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return bestIdx;
 	}
 	
+	/**
+	 * Converts the hash map contents to a flat list of clusters.
+	 * Optionally includes residual bins as single-contig clusters.
+	 * @param addResidue Whether to include residual bins in the output
+	 * @return List containing all clusters from the map
+	 */
 	ArrayList<Cluster> toList(boolean addResidue){
 		ArrayList<Cluster> list=new ArrayList<Cluster>();
 		for(Entry<Key, ArrayList<Cluster>> e : map.entrySet()) {
@@ -153,6 +214,11 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return toList(false).iterator();
 	}
 	
+	/**
+	 * Clears the hash map and optionally the residual collection.
+	 * Resets grid bounds to initial values.
+	 * @param clearResidual Whether to also clear the residual bin collection
+	 */
 	public void clear(boolean clearResidual) {
 		map.clear();
 		if(clearResidual) {residual.clear();}	
@@ -162,6 +228,11 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		maxGridDepth=0;
 	}
 	
+	/**
+	 * Validates the internal consistency of the map structure.
+	 * Checks contig list, residual collection, and all stored clusters.
+	 * @return true if all validations pass
+	 */
 	public boolean isValid() {
 		assert(isValid(contigList, true));
 		assert(isValid(residual, false));
@@ -171,19 +242,30 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		return true;
 	}
 	
+	/** Counts the total number of clusters stored in the map.
+	 * @return Total cluster count across all hash buckets */
 	public int countClusters() {
 		int sum=0;
 		for(ArrayList<Cluster> list : map.values()) {sum+=list.size();}
 		return sum;
 	}
 	
+	/**
+	 * Primary hash map storing clusters indexed by quantized GC and depth levels
+	 */
 	public ConcurrentHashMap<Key, ArrayList<Cluster>> map=
 			new ConcurrentHashMap<Key, ArrayList<Cluster>>(2000, 0.6f, 32);
+	/** Collection of bins that don't meet size thresholds for clustering */
 	public ArrayList<Bin> residual=new ArrayList<Bin>();//Should really be contigs
+	/** Reference list of all contigs being processed */
 	public ArrayList<Contig> contigList;
+	/** Minimum GC level observed in the current grid */
 	private int minGridGC=999999;
+	/** Maximum GC level observed in the current grid */
 	private int maxGridGC=0;
+	/** Minimum depth level observed in the current grid */
 	private int minGridDepth=999999;
+	/** Maximum depth level observed in the current grid */
 	private int maxGridDepth=0;
 	
 //	public AtomicLong fastComparisons=new AtomicLong(0);

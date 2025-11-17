@@ -9,8 +9,19 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Input stream for reading sequences from GenBank format (.gbk) files.
+ * Parses GenBank files to extract sequence data from ORIGIN sections.
+ * Extends ReadInputStream to provide buffered reading capabilities for GenBank format.
+ * @author Brian Bushnell
+ */
 public class GbkReadInputStream extends ReadInputStream {
 	
+	/**
+	 * Test method for GbkReadInputStream functionality.
+	 * Creates a stream from the first command-line argument and prints the first read.
+	 * @param args Command-line arguments where args[0] is the input filename
+	 */
 	public static void main(String[] args){
 		
 		GbkReadInputStream fris=new GbkReadInputStream(args[0], true);
@@ -20,10 +31,21 @@ public class GbkReadInputStream extends ReadInputStream {
 		
 	}
 	
+	/**
+	 * Creates a GbkReadInputStream from a filename.
+	 * @param fname Input filename for GenBank format file
+	 * @param allowSubprocess_ Whether to allow subprocess for decompression
+	 */
 	public GbkReadInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.GBK, null, allowSubprocess_, false));
 	}
 	
+	/**
+	 * Creates a GbkReadInputStream from a FileFormat object.
+	 * Sets up buffering, amino acid flags, and validates the file format.
+	 * Issues warning if file extension doesn't match GenBank format.
+	 * @param ff FileFormat object containing file information and settings
+	 */
 	public GbkReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
 		flag=(Shared.AMINO_IN ? Read.AAMASK : 0);
@@ -58,6 +80,11 @@ public class GbkReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Fills the internal buffer with reads from the GenBank file.
+	 * Parses GenBank format to extract sequences and creates Read objects.
+	 * Closes the file when fewer reads than buffer size are returned.
+	 */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -146,20 +173,31 @@ public class GbkReadInputStream extends ReadInputStream {
 	@Override
 	public boolean errorState(){return errorState || FASTQ.errorState();}
 
+	/** Internal buffer holding parsed Read objects */
 	private ArrayList<Read> buffer=null;
+	/** Index of next read to return from buffer */
 	private int next=0;
 	
+	/** ByteFile for reading from the GenBank input file */
 	private final ByteFile bf;
+	/** Read flags such as amino acid mask */
 	private final int flag;
 
+	/** Buffer length for reads from shared buffer settings */
 	private final int BUF_LEN=Shared.bufferLen();;
+	/** Maximum data size from shared buffer settings */
 	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
 
+	/** Total number of reads generated from the file */
 	public long generated=0;
+	/** Total number of reads consumed by caller */
 	public long consumed=0;
+	/** Numeric ID for the next read to be created */
 	private long nextReadID=0;
 	
+	/** Whether input is from standard input */
 	public final boolean stdin;
+	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
 
 }

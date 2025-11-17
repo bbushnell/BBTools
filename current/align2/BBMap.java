@@ -24,6 +24,11 @@ import stream.SamLine;
 public final class BBMap extends AbstractMapper {
 	
 
+	/**
+	 * Program entry point for BBMap alignment.
+	 * Initializes mapper, loads index, processes ambiguous mappings, and executes alignment.
+	 * @param args Command-line arguments for alignment configuration
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMap mapper=new BBMap(args);
@@ -37,6 +42,11 @@ public final class BBMap extends AbstractMapper {
 		clearStatics();
 	}
 	
+	/**
+	 * Constructs BBMap instance with specified arguments.
+	 * Inherits configuration parsing and validation from AbstractMapper.
+	 * @param args Command-line arguments for mapper configuration
+	 */
 	public BBMap(String[] args){
 		super(args);
 	}

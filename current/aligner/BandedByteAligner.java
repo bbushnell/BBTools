@@ -32,6 +32,7 @@ public class BandedByteAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new BandedByteAligner instance */
 	public BandedByteAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -195,6 +196,17 @@ public class BandedByteAligner implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector, absScore);
 	}
 	
+	/**
+	 * Rebalances alignment scores to prevent overflow in long alignments.
+	 * Adjusts all scores in the current band to keep maximum around 60.
+	 * Prevents byte overflow while maintaining score relationships.
+	 *
+	 * @param curr Current alignment score row
+	 * @param bandStart Start position of the active band
+	 * @param bandEnd End position of the active band
+	 * @param oldMax Previous maximum absolute score
+	 * @return Updated absolute maximum score
+	 */
 	private static int rebalance(byte[] curr, int bandStart, int bandEnd, int oldMax) {
 		int max=-127;
 		for(int j=bandStart; j<=bandEnd; j++) {
@@ -274,9 +286,14 @@ public class BandedByteAligner implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment loop iterations */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns the total number of alignment loop iterations performed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter for alignment statistics.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -284,15 +301,23 @@ public class BandedByteAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Scoring constants
+	/** Score bonus for matching bases */
 	private static final byte MATCH=1;
+	/** Score penalty for substitutions */
 	private static final byte SUB=-1;
+	/** Score penalty for insertions */
 	private static final byte INS=-1;
+	/** Score penalty for deletions */
 	private static final byte DEL=-1;
+	/** Score for aligning ambiguous bases (N characters) */
 	private static final byte N_SCORE=0;
+	/** Score representing invalid or uncomputable alignment cells */
 	private static final byte BAD=Byte.MIN_VALUE/2;
 
 	// Run modes
+	/** Debug flag for printing alignment operations */
 	private static final boolean PRINT_OPS=false;
+	/** Global debug flag for detailed alignment tracing */
 	public static final boolean debug=false;
 //	public static boolean GLOBAL=false; //Cannot handle global alignments
 

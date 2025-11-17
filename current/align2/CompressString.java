@@ -4,8 +4,22 @@ import dna.ChromosomeArray;
 import dna.Data;
 import structures.IntList;
 
+/**
+ * Utility class for compressing strings by identifying and removing repetitive patterns.
+ * Provides various algorithms for detecting and compacting repeated sequences with
+ * different period lengths and compression strategies. Used for reducing memory
+ * footprint of genomic data with repetitive elements.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class CompressString {
 	
+	/**
+	 * Program entry point for testing compression algorithms.
+	 * Demonstrates various compression methods on command-line input and chromosome data.
+	 * @param args Command-line arguments where args[0] is the string to compress
+	 */
 	public static void main(String[] args){
 		
 		String s;
@@ -58,6 +72,12 @@ public class CompressString {
 //		System.out.println("compress(1,3) length: "+s.length());
 	}
 	
+	/**
+	 * Compresses a string using multiple passes with increasing period lengths.
+	 * Applies compression with periods 1, 2, and 3 sequentially for maximum compression.
+	 * @param s The string to compress
+	 * @return Compressed string with repetitive patterns removed
+	 */
 	public static String compress(String s){
 		String s1=compressRepeats(s.getBytes(), 1);
 		String s2=compressRepeats(s1.getBytes(), 2);
@@ -65,6 +85,15 @@ public class CompressString {
 		return s3;
 	}
 	
+	/**
+	 * Compresses repetitive patterns in byte array using single fixed period length.
+	 * Identifies repeated sequences of specified period length and applies logarithmic
+	 * compression based on repeat count. Skips compression for 0-2 repeats.
+	 *
+	 * @param array The byte array to compress
+	 * @param period The period length for pattern detection
+	 * @return Compressed string representation
+	 */
 	public static String compressRepeats(byte[] array, int period){
 		
 		StringBuilder sb=new StringBuilder(array.length);
@@ -111,6 +140,17 @@ public class CompressString {
 		return sb.toString();
 	}
 	
+	/**
+	 * Compresses repetitive patterns using variable period lengths within specified range.
+	 * Scans for repeats from minimum to maximum period length, compressing first match found.
+	 * Uses logarithmic compression strategy for significant repeat counts.
+	 *
+	 * @param array The byte array to compress
+	 * @param minPeriod Minimum period length to test
+	 * @param maxPeriod Maximum period length to test
+	 * @param list Optional IntList to track compressed positions (may be null)
+	 * @return Compressed string representation
+	 */
 	public static String compressRepeatsMultiperiod(byte[] array, int minPeriod, int maxPeriod, IntList list){
 		
 		StringBuilder sb=new StringBuilder(array.length);
@@ -184,6 +224,17 @@ public class CompressString {
 		return sb.toString();
 	}
 	
+	/**
+	 * Optimized compression algorithm for repetitive patterns with minimal overhead.
+	 * Uses simplified compression strategy that stores only one copy of repeated patterns
+	 * regardless of repeat count. More aggressive compression than other methods.
+	 *
+	 * @param array The byte array to compress
+	 * @param minPeriod Minimum period length to test
+	 * @param maxPeriod Maximum period length to test
+	 * @param list Optional IntList to track compressed positions (may be null)
+	 * @return Compressed string representation with maximum compression
+	 */
 	public static String compressRepeatsUltra(byte[] array, int minPeriod, int maxPeriod, IntList list){
 		
 		StringBuilder sb=new StringBuilder(array.length);
@@ -243,6 +294,16 @@ public class CompressString {
 		return sb.toString();
 	}
 	
+	/**
+	 * Counts consecutive repetitions of a pattern starting at specified base position.
+	 * Compares pattern of given period length against subsequent occurrences in array
+	 * until mismatch is found or end of array is reached.
+	 *
+	 * @param array The byte array to analyze
+	 * @param base Starting position for pattern comparison
+	 * @param period Length of pattern to match
+	 * @return Number of complete repetitions found (0 if no repeats)
+	 */
 	public static int countRepeats(byte[] array, int base, int period){
 		
 		int max=array.length-period+1;

@@ -4,8 +4,19 @@ import java.util.ArrayList;
 
 import fileIO.ReadWrite;
 
+/**
+ * Memory testing utility for determining available RAM and memory allocation patterns.
+ * Allocates arrays of long values to test memory limits and create temporary files
+ * with serialized data for testing read/write operations.
+ * @author Brian Bushnell
+ */
 public class ClearRam {
 	
+	/**
+	 * Program entry point. Runs memory allocation test twice with garbage collection
+	 * between attempts to determine maximum available memory.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		
 		for(int i=0; i<2; i++){
@@ -20,6 +31,11 @@ public class ClearRam {
 		}
 	}
 	
+	/**
+	 * Attempts to allocate maximum memory by creating long arrays.
+	 * Creates arrays of 2^20 long values until OutOfMemoryError occurs.
+	 * Tracks current allocation count for memory usage reporting.
+	 */
 	public static void attempt(){
 		ArrayList<long[]> list=new ArrayList<long[]>(8000);
 		current=0;
@@ -38,6 +54,12 @@ public class ClearRam {
 		}
 	}
 	
+	/**
+	 * Creates and writes serialized long array data files for testing.
+	 * Generates sequential long values based on current system time and writes
+	 * them to disk as serialized objects. Also validates existing files.
+	 * @param megs Size in megabytes for the data array to create
+	 */
 	public static void writeJunk(int megs){
 		try {
 			long[] old=(long[]) ReadWrite.readObject("JUNK"+megs+".long", false);
@@ -59,6 +81,7 @@ public class ClearRam {
 		System.err.println("Wrote "+((8*array.length)/(1024000))+" MB junk");
 	}
 	
+	/** Counter tracking total number of long values allocated during memory test */
 	private static long current=0;
 	
 }

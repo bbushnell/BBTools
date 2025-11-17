@@ -32,6 +32,8 @@ import tracker.ReadStats;
  */
 public class GetReads {
 	
+	/** Program entry point for extracting reads by ID.
+	 * @param args Command-line arguments including input files and read IDs */
 	public static void main(String[] args){
 		GetReads x=new GetReads(args);
 		
@@ -39,6 +41,15 @@ public class GetReads {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs GetReads instance and processes the extraction workflow.
+	 * Parses command-line arguments, sets up input/output streams, builds
+	 * read ID lookup table, and extracts matching reads through multiple passes.
+	 * Supports range specifications (e.g., "1-100") and comma-separated lists
+	 * for flexible read selection.
+	 *
+	 * @param args Command-line arguments specifying files and read IDs to extract
+	 */
 	public GetReads(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -304,7 +315,9 @@ public class GetReads {
 		
 	}
 
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Controls verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
 	
 }

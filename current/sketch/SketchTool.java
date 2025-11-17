@@ -40,10 +40,24 @@ public final class SketchTool extends SketchObject {
 	/*----------------         Constructor          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a SketchTool with parameters from a DisplayParams object.
+	 * @param size_ Target sketch size (number of k-mers to retain)
+	 * @param params Display parameters containing configuration values
+	 */
 	public SketchTool(int size_, DisplayParams params){
 		this(size_, params.minKeyOccuranceCount, params.trackCounts(), params.mergePairs, SketchObject.rcomp);
 	}
 	
+	/**
+	 * Main constructor for SketchTool with explicit parameters.
+	 *
+	 * @param size_ Target sketch size (number of k-mers to retain)
+	 * @param minKeyOccuranceCount_ Minimum k-mer count threshold for inclusion
+	 * @param trackCounts_ Whether to track k-mer occurrence counts
+	 * @param mergePairs_ Whether to merge read pairs before sketching
+	 * @param rcomp_ Whether to include reverse complement k-mers
+	 */
 	public SketchTool(int size_, int minKeyOccuranceCount_, boolean trackCounts_, 
 			boolean mergePairs_, boolean rcomp_){
 		stTargetSketchSize=size_;
@@ -61,11 +75,23 @@ public final class SketchTool extends SketchObject {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts k-mer table set to a sketch using single or multithreaded approach.
+	 * @param tables K-mer table set containing counted k-mers
+	 * @param multithreaded Whether to use multithreaded processing
+	 * @return Generated sketch from the k-mer tables
+	 */
 	public Sketch toSketch(KmerTableSet tables, boolean multithreaded){
 		final int threads=(multithreaded ? Tools.mid(1, Shared.threads(), tables.ways()) : 1);
 		return (threads<2 ? toSketch_ST(tables) : toSketch_MT(tables, threads));
 	}
 	
+	/**
+	 * Single-threaded sketch generation from k-mer tables.
+	 * Creates either a fixed-size heap or unlimited list based on target size.
+	 * @param tables K-mer table set to process
+	 * @return Generated sketch
+	 */
 	private Sketch toSketch_ST(KmerTableSet tables){
 		SketchHeap heap=(stTargetSketchSize>0 ? new SketchHeap(stTargetSketchSize, minKeyOccuranceCount, trackCounts) : null);
 		LongList list=new LongList();
@@ -124,6 +150,14 @@ public final class SketchTool extends SketchObject {
 		return stTargetSketchSize>=0 ? toSketch(heaps, true) : toSketch(list);//TODO:  Could add counts here
 	}
 	
+	/**
+	 * Converts a single hash table to a sketch heap.
+	 * Processes both main array and overflow forest structures.
+	 *
+	 * @param table Hash table containing k-mers and counts
+	 * @param heap Target heap to accumulate k-mers (or null to create)
+	 * @return The heap with added k-mers
+	 */
 	public SketchHeap toHeap(HashArray1D table, SketchHeap heap){
 //		if(heap==null){heap=new LongHeap(size, true);}
 		long[] kmers=table.array();
@@ -148,6 +182,14 @@ public final class SketchTool extends SketchObject {
 		return heap;
 	}
 	
+	/**
+	 * Converts a hash table to an unlimited list of k-mer hashes.
+	 * Used when no size limit is specified for the sketch.
+	 *
+	 * @param table Hash table containing k-mers and counts
+	 * @param list Target list to accumulate k-mers
+	 * @return The list with added k-mers
+	 */
 	public LongList toList(HashArray1D table, LongList list){
 //		if(heap==null){heap=new LongHeap(size, true);}
 		long[] kmers=table.array();
@@ -183,6 +225,14 @@ public final class SketchTool extends SketchObject {
 //		return list.toArray();
 //	}
 	
+	/**
+	 * Combines multiple sketch heaps into a single sketch.
+	 * Merges heaps by adding them together sequentially.
+	 *
+	 * @param heaps List of sketch heaps to combine
+	 * @param allowZeroSizeSketch Whether to allow creation of empty sketches
+	 * @return Combined sketch or null if no valid heaps
+	 */
 	public Sketch toSketch(ArrayList<SketchHeap> heaps, boolean allowZeroSizeSketch){
 		if(heaps==null || heaps.isEmpty()){
 			if(allowZeroSizeSketch){
@@ -200,6 +250,12 @@ public final class SketchTool extends SketchObject {
 		return new Sketch(a, false, trackCounts, null);
 	}
 	
+	/**
+	 * Converts a list of k-mer hashes to a sketch.
+	 * Sorts, deduplicates, and transforms the list for sketch creation.
+	 * @param list List of k-mer hash values
+	 * @return Sketch created from the list
+	 */
 	Sketch toSketch(LongList list){
 		list.sort();
 		assert(list.size==0 || list.get(list.size()-1)>=minHashValue) : list.size+", "+list.get(list.size()-1)+", "+minHashValue;
@@ -213,6 +269,12 @@ public final class SketchTool extends SketchObject {
 	/*----------------           Helpers            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Recursively traverses k-mer tree and adds qualifying k-mers to heap.
+	 * Processes left and right subtrees in depth-first order.
+	 * @param heap Target sketch heap
+	 * @param kn Current k-mer tree node
+	 */
 	private void addRecursive(SketchHeap heap, KmerNode kn){
 		if(kn==null){return;}
 		if(kn.count()>=minKeyOccuranceCount){
@@ -225,6 +287,12 @@ public final class SketchTool extends SketchObject {
 		if(kn.right()!=null){addRecursive(heap, kn.right());}
 	}
 	
+	/**
+	 * Recursively traverses k-mer tree and adds qualifying k-mers to list.
+	 * Processes left and right subtrees in depth-first order.
+	 * @param list Target k-mer list
+	 * @param kn Current k-mer tree node
+	 */
 	private void addRecursive(LongList list, KmerNode kn){
 		if(kn==null){return;}
 		if(kn.count()>=minKeyOccuranceCount){
@@ -259,21 +327,58 @@ public final class SketchTool extends SketchObject {
 //		return loadSketches_MT(0, null, fnames.toArray(new String[0]));
 //	}
 	
+	/**
+	 * Multithreaded sketch loading from collection of filenames using DisplayParams.
+	 * @param params Display parameters for processing configuration
+	 * @param fnames Collection of filenames to load sketches from
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketches_MT(DisplayParams params, Collection<String> fnames){
 		return loadSketches_MT(params.mode, params.samplerate, params.maxReads,
 				params.minEntropy, params.minProb, params.minQual, fnames);
 	}
 	
+	/**
+	 * Multithreaded sketch loading from filenames array using DisplayParams.
+	 * @param params Display parameters for processing configuration
+	 * @param fnames Filenames to load sketches from
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketches_MT(DisplayParams params, String...fnames){
 		return loadSketches_MT(params.mode, params.samplerate, params.maxReads,
 				params.minEntropy, params.minProb, params.minQual, fnames);
 	}
 	
+	/**
+	 * Multithreaded sketch loading from collection with explicit parameters.
+	 *
+	 * @param mode Processing mode (per file, per sequence, etc.)
+	 * @param samplerate Fraction of reads to sample (0.0 to 1.0)
+	 * @param reads Maximum number of reads to process
+	 * @param minEntropy Minimum sequence entropy threshold
+	 * @param minProb Minimum base call probability
+	 * @param minQual Minimum quality score threshold
+	 * @param fnames Collection of filenames to process
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketches_MT(int mode, float samplerate, long reads, float minEntropy, float minProb, byte minQual, Collection<String> fnames){
 		return loadSketches_MT(mode, samplerate, reads, minEntropy, minProb, minQual, fnames.toArray(new String[0]));
 	}
 	
 	//TODO: This is only multithreaded per file in persequence mode.
+	/**
+	 * Main multithreaded sketch loading method.
+	 * Handles comma-separated filename expansion and parallel processing.
+	 *
+	 * @param mode Processing mode (per file, per sequence, etc.)
+	 * @param samplerate Fraction of reads to sample (0.0 to 1.0)
+	 * @param reads Maximum number of reads to process
+	 * @param minEntropy Minimum sequence entropy threshold
+	 * @param minProb Minimum base call probability
+	 * @param minQual Minimum quality score threshold
+	 * @param fnames Filenames to process (may contain comma-separated lists)
+	 * @return List of loaded sketches from all files
+	 */
 	public ArrayList<Sketch> loadSketches_MT(int mode, float samplerate, long reads, float minEntropy, float minProb, byte minQual, String...fnames){
 		
 		ConcurrentLinkedQueue<StringNum> decomposedFnames=new ConcurrentLinkedQueue<StringNum>();
@@ -857,6 +962,12 @@ public final class SketchTool extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads sketches from a string containing sketch data.
+	 * Parses the same format as sketch files but from memory.
+	 * @param sketchString String containing sketch data in text format
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketchesFromString(String sketchString){
 		boolean A48=(Sketch.CODING==Sketch.A48), HEX=(Sketch.CODING==Sketch.HEX), NUC=false, delta=true, counts=false, unsorted=false;
 		
@@ -1069,8 +1180,21 @@ public final class SketchTool extends SketchObject {
 	
 	
 	
+	/** Worker thread for multithreaded sketch file loading.
+	 * Processes files from a shared queue and collects resulting sketches. */
 	private class LoadThread extends Thread{
 		
+		/**
+		 * Constructs a LoadThread with processing parameters.
+		 *
+		 * @param queue_ Shared queue of files to process
+		 * @param mode_ Processing mode
+		 * @param samplerate_ Sampling rate for reads
+		 * @param reads_ Maximum reads to process per file
+		 * @param minEntropy Minimum sequence entropy threshold
+		 * @param minProb Minimum base call probability
+		 * @param minQual Minimum quality score threshold
+		 */
 		public LoadThread(ConcurrentLinkedQueue<StringNum> queue_, int mode_, float samplerate_, long reads_, float minEntropy, float minProb, byte minQual) {
 			queue=queue_;
 			list=new ArrayList<Sketch>();
@@ -1129,19 +1253,35 @@ public final class SketchTool extends SketchObject {
 //			}
 		}
 		
+		/** Shared queue of filenames for LoadThread processing */
 		final ConcurrentLinkedQueue<StringNum> queue;
+		/** List to collect sketches loaded by this thread */
 		ArrayList<Sketch> list;
+		/** Success flag indicating if thread completed without errors */
 		boolean success=false;
+		/** SketchMakerMini instance for processing sequences */
 		final SketchMakerMini smm;
+		/** Sampling rate for read processing */
 		final float samplerate;
+		/** Maximum number of reads to process */
 		final long reads;
 		
 //		ConcurrentHashMap<Integer, Sketch> map;
 		
 	}
 	
+	/** Worker thread for multithreaded sequence file processing.
+	 * Processes read lists from a concurrent input stream to generate sketches. */
 	private class LoadThread2 extends Thread{
 		
+		/**
+		 * Constructs a LoadThread2 for sequence processing.
+		 *
+		 * @param cris_ Concurrent read input stream
+		 * @param minEntropy Minimum sequence entropy threshold
+		 * @param minProb Minimum base call probability
+		 * @param minQual Minimum quality score threshold
+		 */
 		LoadThread2(ConcurrentReadInputStream cris_, float minEntropy, float minProb, byte minQual){
 			cris=cris_;
 			smm=new SketchMakerMini(SketchTool.this, ONE_SKETCH, minEntropy, minProb, minQual);
@@ -1185,8 +1325,11 @@ public final class SketchTool extends SketchObject {
 			}
 		}
 		
+		/** Whether to validate reads during processing */
 		private final boolean validate=!Read.VALIDATE_IN_CONSTRUCTOR;
+		/** Concurrent read input stream for LoadThread2 */
 		ConcurrentReadInputStream cris;
+		/** SketchMakerMini instance for sequence processing */
 		SketchMakerMini smm;
 		
 	}
@@ -1194,6 +1337,11 @@ public final class SketchTool extends SketchObject {
 	/** Converts KmerTableSets to Heaps */
 	private class SketchThread extends Thread {
 
+		/**
+		 * Constructs a SketchThread for parallel k-mer table processing.
+		 * @param next_ Atomic counter for distributing work
+		 * @param kts_ K-mer table set to process
+		 */
 		SketchThread(AtomicInteger next_, KmerTableSet kts_){
 			next=next_;
 			kts=kts_;
@@ -1216,9 +1364,13 @@ public final class SketchTool extends SketchObject {
 			}
 		}
 
+		/** Atomic counter for distributing work among SketchThreads */
 		final AtomicInteger next;
+		/** K-mer table set being processed by this thread */
 		final KmerTableSet kts;
+		/** Sketch heap for collecting k-mers (when using size limit) */
 		SketchHeap heap;
+		/** List for collecting k-mers (when no size limit) */
 		LongList list;
 	}
 	
@@ -1226,6 +1378,21 @@ public final class SketchTool extends SketchObject {
 	/*----------------         Read Loading         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Multithreaded sketch generation from sequence file reads.
+	 * Handles paired-end filename patterns with # placeholder.
+	 *
+	 * @param fname Input filename (may contain # for paired reads)
+	 * @param maxThreads Maximum processing threads
+	 * @param reads Maximum reads to process
+	 * @param mode Processing mode
+	 * @param samplerate Sampling rate for reads
+	 * @param minEntropy Minimum entropy threshold
+	 * @param minProb Minimum probability threshold
+	 * @param minQual Minimum quality threshold
+	 * @param allowZeroSizeSketch Whether to allow empty sketches
+	 * @return Generated sketch from the reads
+	 */
 	public Sketch processReadsMT(String fname, int maxThreads, long reads, int mode, float samplerate,
 			float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch){
 		if(fname.indexOf('#')>=0 && FileFormat.isFastqExt(ReadWrite.rawExtension(fname)) && !new File(fname).exists()){
@@ -1236,6 +1403,21 @@ public final class SketchTool extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Multithreaded sketch generation from paired sequence files.
+	 *
+	 * @param fname1 First read file
+	 * @param fname2 Second read file (may be null)
+	 * @param maxThreads Maximum processing threads
+	 * @param reads Maximum reads to process
+	 * @param mode Processing mode
+	 * @param samplerate Sampling rate for reads
+	 * @param minEntropy Minimum entropy threshold
+	 * @param minProb Minimum probability threshold
+	 * @param minQual Minimum quality threshold
+	 * @param allowZeroSizeSketch Whether to allow empty sketches
+	 * @return Generated sketch from the reads
+	 */
 	public Sketch processReadsMT(String fname1, String fname2, int maxThreads, long reads, int mode, float samplerate,
 			float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch){
 		final FileFormat ffin1=FileFormat.testInput(fname1, FileFormat.FASTQ, null, true, true);
@@ -1243,10 +1425,39 @@ public final class SketchTool extends SketchObject {
 		return processReadsMT(ffin1, ffin2, maxThreads, reads, mode, samplerate, minEntropy, minProb, minQual, allowZeroSizeSketch);
 	}
 	
+	/**
+	 * Multithreaded read processing with DisplayParams configuration.
+	 *
+	 * @param ffin1 First input file format
+	 * @param ffin2 Second input file format (may be null)
+	 * @param maxThreads Maximum processing threads
+	 * @param reads Maximum reads to process
+	 * @param mode Processing mode
+	 * @param params Display parameters for configuration
+	 * @param allowZeroSizeSketch Whether to allow empty sketches
+	 * @return Generated sketch from the reads
+	 */
 	public Sketch processReadsMT(FileFormat ffin1, FileFormat ffin2, int maxThreads, long reads, int mode, DisplayParams params, boolean allowZeroSizeSketch){
 		return processReadsMT(ffin1, ffin2, maxThreads, reads, mode, params.samplerate, params.minEntropy, params.minProb, params.minQual, allowZeroSizeSketch);
 	}
 	
+	/**
+	 * Main multithreaded read processing implementation.
+	 * Creates concurrent read stream and worker threads for parallel k-mer
+	 * extraction and sketch generation.
+	 *
+	 * @param ffin1 First input file format
+	 * @param ffin2 Second input file format (may be null)
+	 * @param maxThreads Maximum processing threads
+	 * @param reads Maximum reads to process
+	 * @param mode Processing mode (must be ONE_SKETCH or PER_FILE)
+	 * @param samplerate Sampling rate for reads
+	 * @param minEntropy Minimum entropy threshold
+	 * @param minProb Minimum probability threshold
+	 * @param minQual Minimum quality threshold
+	 * @param allowZeroSizeSketch Whether to allow empty sketches
+	 * @return Generated sketch from all processing threads
+	 */
 	public Sketch processReadsMT(FileFormat ffin1, FileFormat ffin2, int maxThreads, long reads, int mode, float samplerate,
 			float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch){
 		assert(mode==ONE_SKETCH || mode==PER_FILE);
@@ -1309,6 +1520,12 @@ public final class SketchTool extends SketchObject {
 	/*----------------           Writing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes sketches to multiple output files in round-robin fashion.
+	 * @param sketches List of sketches to write
+	 * @param ff Array of output file formats
+	 * @return true if any errors occurred during writing
+	 */
 	public static boolean write(ArrayList<Sketch> sketches, FileFormat ff[]){
 		final int len=ff.length;
 		ByteStreamWriter tsw[]=new ByteStreamWriter[len];
@@ -1326,6 +1543,12 @@ public final class SketchTool extends SketchObject {
 		return error;
 	}
 	
+	/**
+	 * Writes all sketches to a single output file.
+	 * @param sketches List of sketches to write
+	 * @param ff Output file format
+	 * @return true if errors occurred during writing
+	 */
 	public static boolean write(ArrayList<Sketch> sketches, FileFormat ff){
 		final ByteStreamWriter tsw=new ByteStreamWriter(ff);
 		final ByteBuilder bb=new ByteBuilder();
@@ -1336,6 +1559,12 @@ public final class SketchTool extends SketchObject {
 		return tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Writes a single sketch to an output file.
+	 * @param sketch Sketch to write
+	 * @param ff Output file format
+	 * @return true if errors occurred during writing
+	 */
 	public static boolean write(Sketch sketch, FileFormat ff){
 //		System.err.println(ff.name()+", "+new File(ff.name()).exists());
 		ByteStreamWriter tsw=new ByteStreamWriter(ff);
@@ -1345,6 +1574,12 @@ public final class SketchTool extends SketchObject {
 		return tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Core sketch writing method using byte stream writer.
+	 * @param sketch Sketch to write
+	 * @param tsw Target byte stream writer
+	 * @param bb Byte builder for temporary storage (may be null)
+	 */
 	public static void write(Sketch sketch, ByteStreamWriter tsw, ByteBuilder bb){
 		if(bb==null){bb=new ByteBuilder();}
 		else{bb.clear();}
@@ -1357,15 +1592,20 @@ public final class SketchTool extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 //	final EntropyTracker eTracker;
+	/** Target sketch size (maximum number of k-mers to retain) */
 	final int stTargetSketchSize;
+	/** Minimum k-mer occurrence count threshold for inclusion in sketch */
 	public final int minKeyOccuranceCount;
 	/** Force kmer counts to be tracked. */
 	public final boolean trackCounts;
 	/** Merge reads before processing kmers. */
 	public final boolean mergePairs;
+	/** Whether to include reverse complement k-mers in sketches */
 	public final boolean rcomp;
 	
+	/** Buffer length for buffered sketch file reading */
 	public static int BUFLEN=16384;
+	/** Whether to use buffered reader for sketch file loading */
 	public static boolean BUFFERED_READER=false;
 	
 	/*--------------------------------------------------------------*/

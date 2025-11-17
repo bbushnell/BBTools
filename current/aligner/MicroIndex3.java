@@ -24,10 +24,26 @@ public class MicroIndex3 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Constructs a MicroIndex3 by loading reference from file.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param midMaskLen_ Number of middle bases to mask in k-mers
+	 * @param path File path to reference sequence
+	 * @param setSamStatics Whether to initialize SAM header and genome data structures
+	 */
 	public MicroIndex3(int k_, int midMaskLen_, String path, boolean setSamStatics) {
 		this(k_, midMaskLen_, loadRef(path, setSamStatics));
 	}
 
+	/**
+	 * Constructs a MicroIndex3 from a Read object.
+	 * Initializes k-mer indexing parameters and builds the hash map index.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param midMaskLen_ Number of middle bases to mask in k-mers for approximate matching
+	 * @param r Reference sequence as Read object
+	 */
 	public MicroIndex3(int k_, int midMaskLen_, Read r) {
 //		this(k_, minIdentity_, ref_.length);
 		ref=r.bases;
@@ -42,6 +58,14 @@ public class MicroIndex3 {
 		assert(map.size()>0) : ref.length+", "+k;
 	}
 	
+	/**
+	 * Creates a bit mask that zeros out middle bases of k-mers for fuzzy matching.
+	 * Allows k-mers with different middle bases but matching flanking regions to match.
+	 *
+	 * @param k K-mer length
+	 * @param midMaskLen Number of middle bases to mask out
+	 * @return Bit mask with middle region zeroed
+	 */
 	public static long makeMidMask(int k, int midMaskLen) {
 		assert(k>midMaskLen+1);
 		int bitsPerBase=2;
@@ -51,6 +75,15 @@ public class MicroIndex3 {
 		return middleMask;
 	}
 	
+	/**
+	 * Loads reference sequence from file and optionally initializes SAM header data.
+	 * Sets up genome data structures including scaffold names, locations, and lengths
+	 * required for SAM output formatting.
+	 *
+	 * @param path File path to reference sequence
+	 * @param setSamStatics Whether to initialize Data class static fields for SAM output
+	 * @return Reference sequence as Read object
+	 */
 	public static Read loadRef(String path, boolean setSamStatics) {
 		ArrayList<Read> list=ConcurrentGenericReadInputStream.getReads(1, false, 
 				FileFormat.testInput(path, null, false), null, null, null);
@@ -71,8 +104,20 @@ public class MicroIndex3 {
 		return r;
 	}
 	
+	/** Builds the k-mer index from the reference sequence */
 	public void index() {indexRef(k, middleMask, ref, map);}
 	
+	/**
+	 * Builds a k-mer hash map index from reference sequence.
+	 * Uses canonical k-mers (max of forward/reverse) with middle masking applied.
+	 * Stores position with strand information encoded using MINUS_CODE.
+	 *
+	 * @param k K-mer length
+	 * @param midMask Bit mask for middle base masking
+	 * @param ref Reference sequence bases
+	 * @param map Hash map to populate with k-mer positions
+	 * @return The populated hash map
+	 */
 	private static LongHashMap indexRef(int k, long midMask, byte[] ref, LongHashMap map) {
 		map.clear();
 		byte[] bases=ref;
@@ -200,17 +245,27 @@ public class MicroIndex3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the k-mer index hash map */
 	public LongHashMap getMap() {return map;}
 	
+	/** K-mer length used for indexing */
 	final int k;
+	/** K-mer length minus 1 (k-1) for offset calculations */
 	final int k2;
+	/** Number of middle bases masked in k-mers for approximate matching */
 	final int midMaskLen;
+	/** Bit mask for zeroing middle bases in k-mers */
 	final long middleMask;
+	/** Reference sequence name/identifier */
 	final private String refname;
+	/** Reference sequence bases */
 	final byte[] ref;
+	/** Hash map storing canonical k-mers to reference positions */
 	final LongHashMap map;
 	
 	//Indicates the position is on the minus strand
+	/** Code added to positions on minus strand (1000000000) */
 	static final int MINUS_CODE=1000000000;
+	/** Return value indicating no mapping found (Integer.MIN_VALUE) */
 	static final int NO_HIT=Integer.MIN_VALUE;
 }

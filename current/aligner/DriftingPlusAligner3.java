@@ -34,6 +34,7 @@ public class DriftingPlusAligner3 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new DriftingPlusAligner3 instance */
 	public DriftingPlusAligner3() {}
 
 	/*--------------------------------------------------------------*/
@@ -292,9 +293,15 @@ public class DriftingPlusAligner3 implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter for total alignment matrix cells processed across all instances
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
 	public long loops() {return loops.get();}
 	public void setLoops(long x) {loops.set(x);}
+	/**
+	 * Optional filename for alignment visualization output; null disables visualization
+	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -302,26 +309,47 @@ public class DriftingPlusAligner3 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits reserved for encoding alignment starting position in score values
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits reserved for encoding deletion count in score values */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount to access raw alignment score in packed values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/**
+	 * Bit mask for extracting alignment starting position from packed score values
+	 */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from packed score values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw alignment score from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases in alignment matrix */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substituting bases in alignment matrix */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for inserting bases in alignment matrix */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deleting bases in alignment matrix */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for aligning ambiguous bases (N characters) in sequences */
 	private static final long N_SCORE=0L;
+	/** Sentinel value representing invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/**
+	 * Combined score and position increment for deletion operations in alignment
+	 */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag to enable printing of alignment operation details to stderr */
 	private static final boolean PRINT_OPS=false;
+	/** Alignment mode flag; false for local alignment, true for global alignment */
 	public static final boolean GLOBAL=false;
 
 }

@@ -12,12 +12,23 @@ import shared.Tools;
  */
 public abstract class BandedAligner {
 	
+	/**
+	 * Constructs a banded aligner with specified maximum band width.
+	 * Ensures width is odd and at least 3 for proper diagonal band calculation.
+	 * @param width_ Maximum width of the alignment band
+	 */
 	public BandedAligner(int width_){
 		maxWidth=Tools.max(width_, 3)|1;
 		assert(maxWidth>=3) : "width<3 : "+width_+" -> "+maxWidth;
 		assert(big>maxWidth/2);
 	}
 	
+	/**
+	 * Factory method to create appropriate BandedAligner implementation.
+	 * Currently returns BandedAlignerConcrete; JNI implementation is disabled.
+	 * @param width_ Maximum width of the alignment band
+	 * @return BandedAligner instance optimized for the current environment
+	 */
 	public static final BandedAligner makeBandedAligner(int width_){
 		//TODO: Remove the false condition when BandedAlignerJNI yields identical results to BandedAlignerConcrete.
 		BandedAligner ba=((Shared.USE_JNI && false) ? new BandedAlignerJNI(width_) : new BandedAlignerConcrete(width_));
@@ -92,6 +103,12 @@ public abstract class BandedAligner {
 	 */
 	public abstract int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 	
+	/**
+	 * Fills array interior elements with large sentinel values.
+	 * Preserves first and last elements while setting middle values to 'big'.
+	 * Used to initialize alignment arrays before dynamic programming.
+	 * @param array Array to initialize with sentinel values
+	 */
 	protected void fillBig(int[] array){
 		final int lim=array.length-1;
 		for(int i=1; i<lim; i++){array[i]=big;}
@@ -113,6 +130,15 @@ public abstract class BandedAligner {
 		return center-minLoc;
 	}
 	
+	/**
+	 * Old version of off-center penalty function.
+	 * Adds linear penalty to alignment scores based on distance from center.
+	 * Deprecated in favor of penalizeOffCenter which uses max instead of addition.
+	 *
+	 * @param array Alignment scores array to modify
+	 * @param halfWidth Half-width of the penalty band
+	 * @return Minimum penalized score
+	 */
 	protected int penalizeOffCenter_old(int[] array, int halfWidth){
 		if(verbose){
 			System.err.println("penalizeOffCenter_old("+Arrays.toString(array)+", "+halfWidth);
@@ -131,6 +157,15 @@ public abstract class BandedAligner {
 		return edits;
 	}
 	
+	/**
+	 * Applies penalty for alignments away from center diagonal.
+	 * Uses max function to ensure minimum penalty based on distance from center.
+	 * Prevents alignments that are heavily biased toward indels over matches.
+	 *
+	 * @param array Alignment scores array to modify
+	 * @param halfWidth Half-width of the penalty band
+	 * @return Minimum penalized score after applying off-center penalties
+	 */
 	protected int penalizeOffCenter(int[] array, int halfWidth){
 		if(verbose){
 			System.err.println("penalizeOffCenter("+Arrays.toString(array)+", "+halfWidth);
@@ -158,12 +193,19 @@ public abstract class BandedAligner {
 	 * Positive value is to the right (ref sequence longer than query), negative value left (ref shorter than query) */
 	protected int lastOffset;
 	
+	/** Final position in reference sequence from last alignment */
 	public int lastRefLoc;
+	/** Final position in query sequence from last alignment */
 	public int lastQueryLoc;
 	
+	/** Maximum width of the alignment band, guaranteed to be odd and at least 3 */
 	public final int maxWidth;
 	
+	/**
+	 * Large sentinel value used to represent impossible or very poor alignment scores
+	 */
 	public static final int big=99999999;
+	/** Debug flag to enable verbose output during alignment operations */
 	public static boolean verbose=false;
 	/** Penalizes non-length-neutral alignments.
 	 * This causes query-to-ref alignment to yield same score as ref-to-query alignment, which is useful for assertions.  */

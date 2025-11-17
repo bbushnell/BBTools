@@ -71,6 +71,16 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Constructs a PacBio-optimized index for the specified chromosome range.
+	 * Initializes scoring parameters and cycle arrays for multi-block processing.
+	 *
+	 * @param k_ K-mer length for indexing
+	 * @param minChrom_ Minimum chromosome number to index
+	 * @param maxChrom_ Maximum chromosome number to index
+	 * @param kfilter_ K-mer filtering threshold
+	 * @param msa_ Multi-state aligner for scoring calculations
+	 */
 	public BBIndexPacBioSkimmer(int k_, int minChrom_, int maxChrom_, int kfilter_, MSA msa_){
 		super(k_, kfilter_, BASE_HIT_SCORE, minChrom_, maxChrom_, msa_);
 		INV_BASE_KEY_HIT_SCORE=1f/BASE_KEY_HIT_SCORE;
@@ -487,6 +497,21 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 
 
+	/**
+	 * Core alignment site discovery method for both forward and reverse strands.
+	 * Implements multi-stage filtering: hit counting, greedy trimming, and detailed alignment.
+	 * Uses prescanning to identify promising regions before expensive alignment extension.
+	 *
+	 * @param basesP Plus-strand sequence bases
+	 * @param basesM Minus-strand sequence bases
+	 * @param qual Base quality scores
+	 * @param baseScoresP Plus-strand base alignment scores
+	 * @param keyScoresP K-mer quality scores
+	 * @param offsetsP K-mer positions within read
+	 * @param obeyLimits Whether to enforce search space limits
+	 * @param id Read identifier for debugging
+	 * @return List of scored alignment sites
+	 */
 	public final ArrayList<SiteScore> find(byte[] basesP, byte[] basesM, byte[] qual,  byte[] baseScoresP, int[] keyScoresP, int[] offsetsP, boolean obeyLimits, long id){
 
 		assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
@@ -1497,6 +1522,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/** Returns absolute difference between two integers */
 	private static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
@@ -1518,6 +1544,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Calculates maximum possible quick score from k-mer arrangement.
+	 * Combines k-mer scores with positional bonus terms for alignment evaluation.
+	 *
+	 * @param offsets K-mer positions within read
+	 * @param keyScores Individual k-mer quality scores
+	 * @return Maximum quick score achievable with this k-mer set
+	 */
 	public final int maxQuickScore(int[] offsets, int[] keyScores){
 
 //		int x=offsets.length*BASE_KEY_HIT_SCORE;
@@ -1933,6 +1967,18 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 
+	/**
+	 * Calculates alignment score contribution from k-mers right of center.
+	 * Applies indel penalties and list size bonuses as configured.
+	 *
+	 * @param locs K-mer alignment coordinates
+	 * @param keyScores K-mer quality scores
+	 * @param centerIndex Index of central alignment anchor
+	 * @param sizes Hit list sizes for bonus calculation
+	 * @param penalizeIndels Whether to apply indel penalties
+	 * @param numHits Total number of hits
+	 * @return Score contribution from rightward k-mer extension
+	 */
 	private final int scoreRight(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels, int numHits){
 		
 		int score=0;
@@ -1968,6 +2014,17 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		
 	}
 	
+	/**
+	 * Calculates alignment score contribution from k-mers left of center.
+	 * Applies indel penalties and list size bonuses as configured.
+	 *
+	 * @param locs K-mer alignment coordinates
+	 * @param keyScores K-mer quality scores
+	 * @param centerIndex Index of central alignment anchor
+	 * @param sizes Hit list sizes for bonus calculation
+	 * @param penalizeIndels Whether to apply indel penalties
+	 * @return Score contribution from leftward k-mer extension
+	 */
 	private final int scoreLeft(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels){
 		
 		callsToScore++;
@@ -2025,24 +2082,39 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		return (number&SITE_MASK);
 	}
 
+	/**
+	 * Returns minimum chromosome number for the block containing specified chromosome
+	 */
 	public static final int minChrom(int chrom){return Tools.max(MINCHROM, chrom&CHROM_MASK_HIGH);}
+	/** Returns base chromosome number for coordinate calculations */
 	public static final int baseChrom(int chrom){return Tools.max(0, chrom&CHROM_MASK_HIGH);}
+	/**
+	 * Returns maximum chromosome number for the block containing specified chromosome
+	 */
 	public static final int maxChrom(int chrom){return Tools.max(MINCHROM, Tools.min(MAXCHROM, chrom|CHROM_MASK_LOW));}
 	
 	
+	/**
+	 * Retrieves reusable offset array of specified length, creating if necessary
+	 */
 	private final int[] getOffsetArray(int len){
 		if(offsetArrays[len]==null){offsetArrays[len]=new int[len];}
 		return offsetArrays[len];
 	}
+	/**
+	 * Retrieves reusable location array of specified length, creating if necessary
+	 */
 	private final int[] getLocArray(int len){
 		if(len>=locArrays.length){return new int[len];}
 		if(locArrays[len]==null){locArrays[len]=new int[len];}
 		return locArrays[len];
 	}
+	/** Retrieves reusable array for greedy algorithm processing */
 	private final int[] getGreedyListArray(int len){
 		if(greedyListArrays[len]==null){greedyListArrays[len]=new int[len];}
 		return greedyListArrays[len];
 	}
+	/** Retrieves reusable generic integer array of specified length */
 	private final int[] getGenericArray(int len){
 		if(genericArrays[len]==null){genericArrays[len]=new int[len];}
 		return genericArrays[len];
@@ -2060,6 +2132,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];
 	}
+	/** Retrieves reusable key weight array for greedy algorithm calculations */
 	private final float[] getKeyWeightArray(int len){
 		if(len>=keyWeightArrays.length){return new float[len];}
 		if(keyWeightArrays[len]==null){keyWeightArrays[len]=new float[len];}
@@ -2071,28 +2144,53 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/** Cache of reusable location arrays for alignment extension */
 	private final int[][] locArrays=new int[4001][];
+	/** Array for storing site coordinate values during alignment */
 	private final int[] valueArray=new int[1001];
+	/** Array for storing hit list sizes */
 	private final int[] sizeArray=new int[1001];
+	/** Cache of reusable offset arrays for k-mer positions */
 	private final int[][] offsetArrays=new int[1001][];
+	/** Cache of arrays for greedy trimming algorithm */
 	private final int[][] greedyListArrays=new int[1001][];
+	/** Cache of generic integer arrays for various calculations */
 	private final int[][] genericArrays=new int[1001][];
+	/** Array for hit list start positions */
 	private final int[] startArray=new int[1001];
+	/** Array for hit list stop positions */
 	private final int[] stopArray=new int[1001];
+	/** Pre-allocated Quad objects for coordinate tracking during alignment walks */
 	private final Quad[] tripleStorage=makeQuadStorage(1001);
+	/** Return array for greedy algorithm results */
 	private final int[] greedyReturn=KillSwitch.allocInt1D(2);
+	/** Return arrays for shrink2 method results */
 	private final int[][] shrinkReturn2=new int[3][];
+	/** Return arrays for shrink method results */
 	private final int[][] shrinkReturn3=new int[5][];
+	/** Return arrays for prescan method results */
 	private final int[][] prescanReturn=new int[2][];
+	/** Array for storing prescanning scores across blocks */
 	private final int[] prescoreArray;
+	/** Array for storing prescanning hit counts across blocks */
 	private final int[] precountArray;
 
+	/** Cache of reusable base score arrays indexed by [strand][length] */
 	private final byte[][][] baseScoreArrays=new byte[2][4001][];
+	/** Cache of reusable k-mer score arrays indexed by [strand][length] */
 	private final int[][][] keyScoreArrays=new int[2][1001][];
+	/** Array for storing k-mer probability values */
 	final float[] keyProbArray=new float[4001];
+	/** Cache of reusable key weight arrays for greedy calculations */
 	private final float[][] keyWeightArrays=new float[1001][];
 	
 	
+	/**
+	 * Creates array of Quad objects for coordinate tracking during alignment.
+	 * Pre-initializes objects to avoid allocation during search.
+	 * @param number Number of Quad objects to create
+	 * @return Array of initialized Quad tracking objects
+	 */
 	private final static Quad[] makeQuadStorage(int number){
 		Quad[] r=new Quad[number];
 		for(int i=0; i<number; i++){r[i]=new Quad(i, 0, 0);}
@@ -2100,9 +2198,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 
+	/** Priority queue for coordinate-ordered processing during alignment walks */
 	private final QuadHeap heap=new QuadHeap(1023);
 	
+	/** Number of bits to shift for coordinate encoding calculations */
 	static int SHIFT_LENGTH=(32-1-NUM_CHROM_BITS);
+	/** Maximum allowed chromosome index value for bit packing */
 	static int MAX_ALLOWED_CHROM_INDEX=~((-1)<<SHIFT_LENGTH);
 	
 	/** Mask the number to get the site, which is in the lower bits */
@@ -2114,6 +2215,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	/** Mask the chromosome's lower bits to get the high bits */
 	static int CHROM_MASK_HIGH=~CHROM_MASK_LOW;
 	
+	/**
+	 * Configures chromosome bit encoding parameters for index structure.
+	 * Calculates bit masks and shift values for coordinate packing.
+	 * @param x Number of bits to allocate for chromosome encoding
+	 */
 	static void setChromBits(int x){
 		
 		NUM_CHROM_BITS=x;
@@ -2132,25 +2238,39 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		assert(Integer.numberOfLeadingZeros(SITE_MASK)==(NUM_CHROM_BITS+1)) : Integer.toHexString(SITE_MASK);
 	}
 	
+	/** Number of processing cycles for multi-block chromosome iteration */
 	private final int cycles;
 
+	/** Base score value for aligned nucleotides */
 	public static final int BASE_HIT_SCORE=100;
+	/** Maximum number of alignment columns for matrix operations */
 	public static final int ALIGN_COLUMNS=5500;
+	/** Maximum indel length allowed in alignments */
 	public static int MAX_INDEL=96; //Max indel length, min 0, default 400; longer is more accurate
+	/** Extended maximum indel length for less stringent operations */
 	public static int MAX_INDEL2=8*MAX_INDEL;
 	
+	/** Inverse of base key hit score for normalization calculations */
 	private final float INV_BASE_KEY_HIT_SCORE;
+	/** Base penalty for indel operations */
 	private final int INDEL_PENALTY; //default (HIT_SCORE/2)-1
+	/** Multiplier for indel length penalties */
 	private final int INDEL_PENALTY_MULT; //default 20; penalty for indel length
+	/** Maximum penalty that can be applied for misaligned k-mer hits */
 	private final int MAX_PENALTY_FOR_MISALIGNED_HIT;
+	/** Pre-calculated Z-score for single k-mer alignments */
 	private final int SCOREZ_1KEY;
 	
+	/** Whether to include Z-score component in alignment scoring */
 	public static final boolean ADD_SCORE_Z=true; //Increases quality, decreases speed
+	/** Multiplier for Z-score component in alignment scoring */
 	public static final int Z_SCORE_MULT=25;
+	/** Multiplier for Y-score component based on k-mer positioning */
 	public static final int Y_SCORE_MULT=5;
 	
 	/** Y2 score: based on distance between hits within Y2_INDEL of center */
 	public static final int Y2_SCORE_MULT=5;
+	/** Maximum indel distance for Y2-score calculations */
 	public static final int Y2_INDEL=4;
 	
 	
@@ -2184,8 +2304,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		MAX_INDEL2=0;
 	}
 	
+	/** Fraction of most frequent k-mers to exclude from searches for performance */
 	static float FRACTION_GENOME_TO_EXCLUDE=0.005f; //Default .04; lower is slower and more accurate
 	
+	/**
+	 * Sets fraction of most frequent k-mers to exclude from searches.
+	 * Adjusts various search thresholds based on exclusion fraction.
+	 * @param f Fraction to exclude (0.0 to 1.0)
+	 */
 	public static final void setFractionToExclude(float f){
 		assert(f>=0 && f<1);
 		FRACTION_GENOME_TO_EXCLUDE=f;
@@ -2204,12 +2330,16 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	/** Range: 2 to infinity.  Lower should be faster and less accurate. */
 	static final int MIN_HIT_LISTS_TO_RETAIN=12;
 	
+	/** Maximum average hit list length before search limitations apply */
 	static int MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 	//lower is faster
+	/** Secondary maximum average hit list length threshold */
 	static int MAX_AVERAGE_LIST_TO_SEARCH2=(int)(1000*(1-1.4*FRACTION_GENOME_TO_EXCLUDE)); //default 910
 	//lower is faster
+	/** Maximum length for individual hit lists during search */
 	static int MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935
 	//lower is faster
+	/** Maximum length threshold for shortest hit list filtering */
 	static int MAX_SHORTEST_LIST_TO_SEARCH=(int)(1000*(1-2.8*FRACTION_GENOME_TO_EXCLUDE)); //Default 860
 	
 	/** To increase accuracy on small genomes, override greedy list dismissal when the list is at most this long. */
@@ -2217,12 +2347,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	
 	static{assert(!(TRIM_BY_GREEDY && TRIM_BY_TOTAL_SITE_COUNT)) : "Pick one.";}
 	
+	/** Maximum distance for considering k-mer repeats as clumpy */
 	static final int CLUMPY_MAX_DIST=5; //Keys repeating over intervals of this or less are clumpy.
 	
 	/** Minimum length of list before clumpiness is considered. This is an index in the length histogram, from 0 to 1000. */
 	static final int CLUMPY_MIN_LENGTH_INDEX=2800;
+	/** Fraction threshold for identifying clumpy k-mer patterns */
 	static final float CLUMPY_FRACTION=0.8f; //0 to 1; higher is slower but more stringent. 0.5 means the median distance is clumpy.
 	
+	/** Maximum length for alignment subsumption operations */
 	static final int MAX_SUBSUMPTION_LENGTH=MAX_INDEL2;
 	
 	private static final int calcQScoreCutoff(final int max, final int score, final int currentCutoff){
@@ -2263,11 +2396,17 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		return Tools.max(currentCutoff, Tools.min((int)(SKIM_LEVEL_H*keys), (int)(DYNAMIC_SKIM_LEVEL_H*hits)));
 	}
 	
+	/** Whether to perform quick score prescanning for optimization */
 	public static boolean PRESCAN_QSCORE=true && USE_EXTENDED_SCORE; //Decrease quality and increase speed
+	/** Whether to apply quick score filtering during alignment */
 	public static final boolean FILTER_BY_QSCORE=true; //Slightly lower quality, but very fast.
+	/** Minimum score multiplier for alignment cutoff thresholds */
 	public static final float MIN_SCORE_MULT=(USE_AFFINE_SCORE ? 0.03f : USE_EXTENDED_SCORE ? .3f : 0.10f);  //Fraction of max score to use as cutoff.  Default 0.15, max is 1; lower is more accurate
+	/** Minimum quick score multiplier for filtering thresholds */
 	public static final float MIN_QSCORE_MULT=0.03f;  //Fraction of max score to use as cutoff.  Default 0.025, max is 1; lower is more accurate.  VERY SENSITIVE.
+	/** Secondary minimum quick score multiplier for stricter filtering */
 	public static final float MIN_QSCORE_MULT2=0.03f;
+	/** Dynamic score threshold for adaptive cutoff calculations */
 	static final float DYNAMIC_SCORE_THRESH=(USE_AFFINE_SCORE ? 0.55f : USE_EXTENDED_SCORE ? .74f : 0.6f); //Default .85f; lower is more accurate
 	static{
 		assert(MIN_SCORE_MULT>=0 && MIN_SCORE_MULT<1);

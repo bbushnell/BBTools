@@ -299,8 +299,16 @@ public class KmerReduce {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Worker thread that processes reads and extracts feature kmers.
+	 * Converts reads to their representative kmer sequences using KmerComparator hashing. */
 	private class HashThread extends Thread{
 
+		/**
+		 * Constructs a HashThread with required processing components.
+		 * @param cris_ Input stream for reading data
+		 * @param ros_ Output stream for writing results
+		 * @param kc_ KmerComparator for hashing reads
+		 */
 		HashThread(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream ros_, KmerComparator kc_){
 			cris=cris_;
 			ros=ros_;
@@ -337,13 +345,19 @@ public class KmerReduce {
 			}
 		}
 		
+		/** Input stream for reading sequence data */
 		final ConcurrentReadInputStream cris;
+		/** Output stream for writing processed results */
 		final ConcurrentReadOutputStream ros;
+		/** KmerComparator instance for hashing reads to feature kmers */
 		final KmerComparator kc;
 		
+		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
+		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
+		/** Default header string for generated reads */
 		private static final String header="1";
 	}
 	
@@ -368,46 +382,65 @@ public class KmerReduce {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Kmer length for sequence hashing and reduction */
 	private int k=31;
+	/** Whether to apply prefiltering during kmer table construction */
 	static boolean prefilter=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input filename */
 	private String in1=null;
+	/** Secondary input filename for paired reads */
 	private String in2=null;
 	
+	/** Output filename for processed results */
 	private String out1=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of reads processed across all threads */
 	protected long readsProcessed=0;
+	/** Total number of bases processed across all threads */
 	protected long basesProcessed=0;
 	
+	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
+	/** Whether to apply error correction and overlap detection */
 	protected boolean ecco=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** File format handler for primary input */
 	private final FileFormat ffin1;
+	/** File format handler for secondary input */
 	private final FileFormat ffin2;
 
+	/** File format handler for output */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Whether to print verbose status messages */
 	public static boolean verbose=false;
+	/** Whether an error has occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

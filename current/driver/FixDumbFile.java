@@ -14,6 +14,12 @@ import fileIO.TextFile;
  */
 public class FixDumbFile {
 	
+	/**
+	 * Program entry point that processes and reorganizes tabular data.
+	 * Reads input file, groups entries by first column key, and writes reorganized output.
+	 * Skips header lines starting with "library_name" and preserves entry ordering.
+	 * @param args Command-line arguments: [0] input filename, [1] output filename
+	 */
 	public static void main(String[] args){
 		
 		String in=args[0];

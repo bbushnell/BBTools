@@ -21,6 +21,8 @@ import structures.ListNum;
  */
 public class A_Sample2 {
 
+	/** Program entry point that initializes timer, creates instance, and processes data.
+	 * @param args Command-line arguments for configuration */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -35,6 +37,11 @@ public class A_Sample2 {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams and processing parameters.
+	 * @param args Command-line arguments containing file paths and options
+	 */
 	public A_Sample2(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -74,6 +81,12 @@ public class A_Sample2 {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that reads sequences, processes them, and writes output.
+	 * Uses concurrent input/output streams for efficient parallel processing.
+	 * Contains placeholder loop where custom read processing logic should be added.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -142,19 +155,26 @@ public class A_Sample2 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for sequence data */
 	private String in1=null;
+	/** Output file path for processed sequence data */
 	private String out1=null;
 	
+	/** File format handler for input stream */
 	private final FileFormat ffin1;
+	/** File format handler for output stream */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Print stream for program output and logging */
 	private java.io.PrintStream outstream=System.err;
+	/** Controls verbose logging output during processing */
 	public static boolean verbose=false;
 	
 }

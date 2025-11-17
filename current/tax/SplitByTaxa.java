@@ -364,8 +364,12 @@ public class SplitByTaxa {
 	/** Secondary input file */
 	private final FileFormat ffin2;
 	
+	/** Taxonomic tree for parsing and resolving taxonomic classifications */
 	private final TaxTree tree;
 	
+	/**
+	 * Default taxonomy node for sequences with unresolvable taxonomic information
+	 */
 	private final TaxNode unknown=new TaxNode(-99, -99, TaxTree.LIFE, TaxTree.LIFE_E, "UNKNOWN");
 	
 	/*--------------------------------------------------------------*/

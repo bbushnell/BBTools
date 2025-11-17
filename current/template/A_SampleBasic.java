@@ -151,6 +151,14 @@ public class A_SampleBasic {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that handles file reading, processing, and writing.
+	 * Creates input and output streams, processes file content, and reports
+	 * processing statistics including timing and line counts.
+	 *
+	 * @param t Timer object for tracking execution time
+	 * @throws RuntimeException If processing encounters errors
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -183,6 +191,14 @@ public class A_SampleBasic {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core processing logic that reads lines and extracts content before tabs.
+	 * Reads each line from input file, extracts characters before the first tab
+	 * character, and writes the processed content to the output stream.
+	 *
+	 * @param bf Input ByteFile for reading data
+	 * @param bsw Output ByteStreamWriter for writing processed data
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -207,6 +223,11 @@ public class A_SampleBasic {
 		}
 	}
 	
+	/**
+	 * Creates and initializes a ByteStreamWriter for the specified file format.
+	 * @param ff FileFormat specifying output file details, may be null
+	 * @return Initialized ByteStreamWriter or null if no output format specified
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -218,31 +239,44 @@ public class A_SampleBasic {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path */
 	private String in=null;
+	/** Output file path */
 	private String out=null;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of valid output lines written */
 	private long linesOut=0;
+	/** Total number of input bytes processed */
 	private long bytesProcessed=0;
+	/** Total number of output bytes written */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin;
+	/** Output file format specification */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Print stream for status and error messages */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output mode for debugging */
 	public static boolean verbose=false;
+	/** Indicates whether processing encountered errors */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

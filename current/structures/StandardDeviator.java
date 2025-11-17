@@ -11,8 +11,21 @@ import shared.Tools;
 import template.Accumulator;
 import template.ThreadWaiter;
 
+/**
+ * Calculates standard deviation and statistical metrics for coverage arrays across scaffolds.
+ * Supports both single-threaded and multi-threaded processing with optional strand-specific analysis.
+ * Designed for efficient statistical analysis of genomic coverage data with minimal memory overhead.
+ *
+ * @author Brian Bushnell
+ * @date July 23, 2024
+ */
 public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThread> {
 
+	/**
+	 * Constructs a StandardDeviator with strand configuration.
+	 * @param stranded_ Whether to analyze both strands separately
+	 * @param strand_ Target strand for analysis (0 or 1)
+	 */
 	public StandardDeviator(boolean stranded_, int strand_) {
 		stranded=stranded_;
 		strand=strand_;
@@ -68,6 +81,21 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //		return errorState;
 //	}
 	
+	/**
+	 * Calculates comprehensive statistics for coverage arrays using multi-threading.
+	 * Performs two passes: first to calculate global mean, second to compute requested statistics.
+	 *
+	 * @param threads0 Maximum number of threads to use
+	 * @param scaffolds List of scaffolds containing coverage data
+	 * @param calcStd Whether to calculate standard deviation
+	 * @param calcMedian Whether to calculate median values
+	 * @param calcHist Whether to generate coverage histograms
+	 * @param minDepth Minimum depth threshold for coverage calculations
+	 * @param histMax Maximum coverage value for histogram bins
+	 * @param windowAvg Average coverage threshold for window analysis
+	 * @param window Window size for sliding window analysis
+	 * @return true if any errors occurred during processing
+	 */
 	public boolean calculateStuff(int threads0, ArrayList<Scaffold> scaffolds, 
 			boolean calcStd, boolean calcMedian, boolean calcHist, 
 			int minDepth, int histMax, double windowAvg, int window) {
@@ -112,6 +140,14 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		return errorState;
 	}
 
+	/**
+	 * Calculates mean and standard deviation across all scaffolds meeting minimum length requirement.
+	 * Single-threaded implementation for smaller datasets or when threading overhead is undesirable.
+	 *
+	 * @param scaffolds List of scaffolds to analyze
+	 * @param minscaf0 Minimum scaffold length to include in calculations
+	 * @return Array containing [mean, standard_deviation]
+	 */
 	public double[] standardDeviation(ArrayList<Scaffold> scaffolds, int minscaf0){
 		totalSum=bins=0;
 		mean=stdev=0;
@@ -199,6 +235,16 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 	}
 
 	//Unsafe because it will fail if there are over 2 billion bins
+	/**
+	 * Calculates binned statistics using unsafe operations for performance.
+	 * Creates a sorted list of all bin values for comprehensive statistical analysis.
+	 *
+	 * @param fname Filename parameter (currently unused)
+	 * @param scaffolds List of scaffolds to analyze
+	 * @param binsize Size of each bin in bases
+	 * @param minscaf0 Minimum scaffold length to include
+	 * @return Array containing [mean, median, mode, standard_deviation]
+	 */
 	public double[] standardDeviationBinnedUnsafe(String fname, ArrayList<Scaffold> scaffolds, int binsize, int minscaf0){
 		final int minscaf=Tools.max(minscaf0, 1);
 		
@@ -285,8 +331,25 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //		final int window;
 //	}
 	
+	/** Worker thread for parallel coverage analysis.
+	 * Processes assigned scaffolds and accumulates statistical data for later combination. */
 	class ProcessThread extends Thread {
 		
+		/**
+		 * Constructs a ProcessThread with analysis parameters.
+		 *
+		 * @param tid_ Thread identifier
+		 * @param threads_ Total number of threads in pool
+		 * @param list_ Complete scaffold list (thread processes subset)
+		 * @param calcStd_ Whether to calculate standard deviation
+		 * @param calcMedian_ Whether to calculate median values
+		 * @param calcHist_ Whether to generate coverage histograms
+		 * @param minDepth_ Minimum depth threshold
+		 * @param histMax_ Maximum histogram bin value
+		 * @param globalMean_ Global mean for deviation calculations
+		 * @param windowAvg_ Average coverage threshold for windows
+		 * @param window_ Window size for analysis
+		 */
 		ProcessThread(int tid_, int threads_, ArrayList<Scaffold> list_, 
 				boolean calcStd_, boolean calcMedian_, boolean calcHist_, int minDepth_, int histMax_, 
 				double globalMean_, double windowAvg_, int window_){
@@ -346,6 +409,12 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			}
 		}
 		
+		/**
+		 * Adds coverage values to thread-local histogram.
+		 * @param ca Coverage array to add (may be null for zero coverage)
+		 * @param strand Strand identifier for histogram selection
+		 * @param length Length for null coverage arrays
+		 */
 		private void addToHist(CoverageArray ca, int strand, int length) {
 			LongList hist=(strand==0 ? hist0 : hist1);
 			assert(hist!=null) : stranded+", "+strand+", "+length;
@@ -360,25 +429,46 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			}
 		}
 		
+		/** Thread-local total sum of coverage values */
 		long totalSumT=0;
+		/** Thread-local count of processed positions */
 		long binsT=0;
 		
+		/** Thread identifier for this ProcessThread */
 		final int tid;
+		/** Total number of threads in the processing pool */
 		final int threads;
+		/** Complete scaffold list shared among all threads */
 		final ArrayList<Scaffold> list;
+		/** Thread-local histogram for strand 0 */
 		LongList hist0;
+		/** Thread-local histogram for strand 1 */
 		LongList hist1;
 		
+		/** Whether this thread should calculate standard deviation */
 		final boolean calcStd;
+		/** Whether this thread should calculate median values */
 		final boolean calcMedian;
+		/** Whether this thread should generate coverage histograms */
 		final boolean calcHist;
+		/** Minimum depth threshold for coverage calculations */
 		final int minDepth;
+		/** Maximum coverage value for histogram binning */
 		final int histMax;
+		/** Global mean coverage for deviation calculations */
 		final double globalMean;
+		/** Average coverage threshold for window analysis */
 		final double windowAvg;
+		/** Window size for sliding window coverage analysis */
 		final int window;
 	}
 	
+	/**
+	 * Retrieves next scaffold from blocking queue with error handling.
+	 * Blocks until an item is available or poison pill is received.
+	 * @param queue Blocking queue containing scaffolds
+	 * @return Next scaffold or POISON sentinel value
+	 */
 	private static Scaffold getNext(ArrayBlockingQueue<Scaffold> queue) {
 		Scaffold next=null;
 		while(next==null) {
@@ -392,6 +482,12 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		return next;
 	}
 	
+	/**
+	 * Adds scaffold to blocking queue with error handling.
+	 * Blocks until space is available in the queue.
+	 * @param queue Target blocking queue
+	 * @param s Scaffold to add (including poison pills)
+	 */
 	private static void addToQueue(ArrayBlockingQueue<Scaffold> queue, Scaffold s) {
 		while(s!=null) {
 			try {
@@ -426,28 +522,44 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Total sum of all coverage values across processed scaffolds */
 	long totalSum;
+	/** Total number of positions (bins) processed */
 	long bins;
+	/** Calculated mean coverage value */
 	double mean;
+	/** Calculated standard deviation of coverage */
 	double stdev;
 	
+	/** Total sum for binned calculations */
 	long totalSumBinned;
+	/** Total number of bins for binned calculations */
 	long binsBinned;
+	/** Calculated mean for binned data */
 	double meanBinned;
+	/** Calculated standard deviation for binned data */
 	double stdevBinned;
 
+	/** Coverage histogram for strand 0 */
 	public LongList hist0;
+	/** Coverage histogram for strand 1 (if stranded analysis enabled) */
 	public LongList hist1;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Thread synchronization lock for coordinating access to shared data */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 
+	/** Target strand for analysis (0 or 1) */
 	public final int strand;
+	/** Whether to perform strand-specific analysis */
 	public final boolean stranded;
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
+	/** Sentinel value used to signal thread termination in queued processing */
 	private static final Scaffold POISON=new Scaffold("POISON", null, -1);
+	/** Controls verbose output during processing */
 	public static boolean verbose=false;
 	
 }

@@ -478,6 +478,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		return clade;
 	}
 	
+	/**
+	 * Adds ribosomal RNA sequences to existing clades from a FASTA file.
+	 *
+	 * @param cladeMap Map of existing clades to add ribosomal data to
+	 * @param ssuFile FASTA file containing ribosomal RNA sequences
+	 * @param r16s true for 16S rRNA, false for 18S rRNA
+	 * @return Number of ribosomal sequences successfully added
+	 */
 	static int addRibo(ConcurrentHashMap<Integer, Clade> cladeMap, String ssuFile, boolean r16s) {
 		FileFormat ff=FileFormat.testInput(ssuFile, FileFormat.FASTA, null, true, false);
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
@@ -488,6 +496,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		return added;
 	}
 	
+	/**
+	 * Adds ribosomal RNA sequences from a read input stream.
+	 *
+	 * @param map Map of clades to add ribosomal data to
+	 * @param cris Input stream containing ribosomal RNA reads
+	 * @param r16s true for 16S rRNA, false for 18S rRNA
+	 * @return Number of ribosomal sequences successfully added
+	 */
 	static int addRibo(ConcurrentHashMap<Integer, Clade> map, ConcurrentReadInputStream cris, boolean r16s) {
 		ListNum<Read> ln=cris.nextList();
 		int added=0;
@@ -504,6 +520,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		return added;
 	}
 	
+	/**
+	 * Adds a single ribosomal RNA sequence to the appropriate clade.
+	 *
+	 * @param map Map of clades to search for matching taxonomic ID
+	 * @param r Read containing ribosomal sequence with TID header
+	 * @param r16s true for 16S rRNA, false for 18S rRNA
+	 * @return 1 if sequence was added, 0 if not added or clade not found
+	 */
 	static int addRibo(ConcurrentHashMap<Integer, Clade> map, Read r, boolean r16s) {
 		int tid=TaxTree.parseHeaderStatic(r.id);
 		if(tid<0) {return 0;}
@@ -762,8 +786,10 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
+		/** Entropy tracker for calculating sequence complexity metrics */
 		private EntropyTracker et=new EntropyTracker(entropyK, entropyWindow, false);
 		
+		/** Thread-local dummy clade for accumulating data before emission */
 		private final Clade dummy=new Clade(-1, -1, null);
 		
 		/** Shared input stream */
@@ -781,8 +807,11 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	/** Primary input file path */
 	private ArrayList<String> in=new ArrayList<String>();
 
+	/** List of 16S ribosomal RNA files to add to clades */
 	private ArrayList<String> r16sFile=new ArrayList<String>();
+	/** List of 18S ribosomal RNA files to add to clades */
 	private ArrayList<String> r18sFile=new ArrayList<String>();
+	/** Count of 16S sequences successfully added to clades */
 	int r16sAdded=0, r18sAdded=0;
 	
 	/** Primary output file path */
@@ -814,6 +843,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	/** Whether to merge duplicate tax IDs */
 	static boolean mergeDuplicateTaxIDs=false;
 	
+	/** Whether to replace existing ribosomal RNA sequences */
 	static boolean replaceRibo=false;
 	
 	/*--------------------------------------------------------------*/
@@ -825,6 +855,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

@@ -12,6 +12,11 @@ import shared.KillSwitch;
  */
 public class ThreadPoolJob<X, Y> {
 
+	/**
+	 * Constructs a ThreadPoolJob with input data and destination queue.
+	 * @param x_ Input data to be processed by this job
+	 * @param dest_ Queue where completed jobs are returned for coordination
+	 */
 	public ThreadPoolJob(X x_, ArrayBlockingQueue<X> dest_){
 		x=x_;
 		dest=dest_;
@@ -43,10 +48,15 @@ public class ThreadPoolJob<X, Y> {
 		}
 	}
 	
+	/** Checks if this job is a poison pill for thread pool shutdown.
+	 * @return true if x is null (poison pill), false otherwise */
 	final boolean isPoison(){return x==null;}
 	
+	/** Input data to be processed by this job */
 	public final X x;
+	/** Destination queue for returning completed jobs */
 	final ArrayBlockingQueue<X> dest;
+	/** Result of job processing, set by doWork() method */
 	public Y result; 
 	
 }

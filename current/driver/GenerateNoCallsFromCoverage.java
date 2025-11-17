@@ -10,6 +10,12 @@ import structures.CoverageArray2;
 import var.VarLine;
 import var.Variation;
 
+/**
+ * Generates no-call variant entries from coverage data.
+ * Creates VarLine objects representing genomic regions with insufficient coverage
+ * for confident variant calling, handling both haploid and diploid chromosomes.
+ * @author Brian Bushnell
+ */
 public class GenerateNoCallsFromCoverage {
 	
 //	@Deprecated
@@ -87,6 +93,17 @@ public class GenerateNoCallsFromCoverage {
 	
 	
 	
+	/**
+	 * Generates no-call VarLine entries for regions with insufficient coverage.
+	 * Analyzes coverage data to identify regions below the minimum thresholds and
+	 * creates appropriate no-call entries for each haplotype based on chromosome type.
+	 *
+	 * @param chrom Chromosome number (1-25, where 23=X, 24=Y, 25=MT)
+	 * @param ca Coverage array containing per-base coverage counts
+	 * @param build Genome build number (must match Data.GENOME_BUILD)
+	 * @param gender Sample gender ('M' or 'F'), affects haploid chromosome handling
+	 * @return List of VarLine objects representing no-call regions
+	 */
 	public static ArrayList<VarLine> generate(byte chrom, CoverageArray2 ca, int build, char gender){
 		
 		assert(minCovered>=1);
@@ -187,6 +204,15 @@ public class GenerateNoCallsFromCoverage {
 	}
 	
 	
+	/**
+	 * Removes overlapping no-call entries by splitting haplotypes and processing separately.
+	 * Splits the input by haplotype, removes duplicates within each haplotype,
+	 * then recombines and sorts the results.
+	 *
+	 * @param input List of VarLine objects that may contain overlapping no-calls
+	 * @param copies Number of chromosome copies (affects haplotype splitting logic)
+	 * @return Deduplicated and sorted list of VarLine objects
+	 */
 	public static ArrayList<VarLine> removeDuplicateNocalls(List<VarLine> input, int copies){
 		ArrayList<VarLine>[] haplo=splitHaplotypes(input, copies);
 
@@ -208,6 +234,14 @@ public class GenerateNoCallsFromCoverage {
 		return output;
 	}
 	
+	/**
+	 * Validates that no genomic position is covered by multiple VarLines within a haplotype.
+	 * Checks for overlapping entries and nocall duplicates which would indicate
+	 * processing errors in the variant calling pipeline.
+	 *
+	 * @param list List of VarLine objects from a single haplotype to validate
+	 * @return true if no overlaps are found, false if validation fails
+	 */
 	public static boolean checkCopyCountHaplotyped(List<VarLine> list){
 		
 		int max=0;
@@ -392,6 +426,15 @@ public class GenerateNoCallsFromCoverage {
 	}
 	
 	
+	/**
+	 * Separates VarLine objects into haplotype-specific arrays.
+	 * Splits entries marked as haplotype 3 (both haplotypes) into separate
+	 * entries for haplotypes 1 and 2 when multiple copies are present.
+	 *
+	 * @param input List of VarLine objects with mixed haplotype assignments
+	 * @param copies Number of chromosome copies (affects splitting of haplotype 3)
+	 * @return Array of two ArrayLists, [0] for haplotype 1, [1] for haplotype 2
+	 */
 	public static ArrayList<VarLine>[] splitHaplotypes(List<VarLine> input, int copies){
 		ArrayList<VarLine>[] haplo=new ArrayList[2];
 		for(int i=0; i<haplo.length; i++){
@@ -418,7 +461,13 @@ public class GenerateNoCallsFromCoverage {
 	}
 	
 
+	/**
+	 * Minimum coverage required for both haplotypes to be callable (diploid regions)
+	 */
 	public static int minCovered=2;
+	/**
+	 * Minimum coverage required for one haplotype to be callable (haploid regions)
+	 */
 	public static int minHalfCovered=1;
 	
 }

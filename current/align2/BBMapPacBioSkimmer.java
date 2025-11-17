@@ -26,6 +26,12 @@ import stream.SamLine;
 public final class BBMapPacBioSkimmer extends AbstractMapper  {
 	
 
+	/**
+	 * Program entry point for PacBio read mapping.
+	 * Initializes mapper, loads index, processes ambiguous mappings,
+	 * executes alignment pipeline, and reports timing statistics.
+	 * @param args Command-line arguments for mapping configuration
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMapPacBioSkimmer mapper=new BBMapPacBioSkimmer(args);
@@ -39,6 +45,8 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		clearStatics();
 	}
 	
+	/** Constructs BBMapPacBioSkimmer with command-line arguments.
+	 * @param args Command-line arguments for mapper configuration */
 	public BBMapPacBioSkimmer(String[] args){
 		super(args);
 	}

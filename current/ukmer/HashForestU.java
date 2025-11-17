@@ -29,6 +29,15 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 //		this(initialSize, autoResize_, false);
 //	}
 	
+	/**
+	 * Constructs a hash forest with specified parameters.
+	 * Initializes hash table with prime-sized array and configures k-mer parameters.
+	 *
+	 * @param initialSize Initial size of hash table (will be adjusted to nearest prime)
+	 * @param k_ K-mer length
+	 * @param autoResize_ Whether to automatically resize when load factor exceeds limit
+	 * @param twod_ Whether to use 2D value storage mode
+	 */
 	public HashForestU(int initialSize, int k_, boolean autoResize_, boolean twod_){
 		if(initialSize>1){
 			initialSize=(int)Tools.min(maxPrime, Primes.primeAtLeast(initialSize));
@@ -44,13 +53,39 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 		TWOD=twod_;
 	}
 	
+	/**
+	 * Creates a new node with single integer value.
+	 * @param kmer K-mer to store in the node
+	 * @param val Integer value to associate with the k-mer
+	 * @return New node containing the k-mer and value
+	 */
 	private KmerNodeU makeNode(Kmer kmer, int val){return makeNode(kmer.key(), val);}
+	/**
+	 * Creates a new node with array of integer values.
+	 * @param kmer K-mer to store in the node
+	 * @param vals Array of integer values to associate with the k-mer
+	 * @return New node containing the k-mer and values
+	 */
 	private KmerNodeU makeNode(Kmer kmer, int[] vals){return makeNode(kmer.key(), vals);}
 	
+	/**
+	 * Creates a new node with single integer value from raw k-mer key.
+	 * Chooses 1D or 2D node type based on TWOD configuration.
+	 *
+	 * @param kmer Raw k-mer key as long array
+	 * @param val Integer value to associate with the k-mer
+	 * @return New node containing the k-mer and value
+	 */
 	private KmerNodeU makeNode(long[] kmer, int val){
 		return (TWOD ? new KmerNodeU2D(kmer, val) : new KmerNodeU1D(kmer, val));
 	}
 	
+	/**
+	 * Creates a new 2D node with array of integer values from raw k-mer key.
+	 * @param kmer Raw k-mer key as long array
+	 * @param vals Array of integer values to associate with the k-mer
+	 * @return New 2D node containing the k-mer and values
+	 */
 	private KmerNodeU makeNode(long[] kmer, int[] vals){
 		assert(TWOD);
 		return new KmerNodeU2D(kmer, vals);
@@ -340,11 +375,22 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 		return n;
 	}
 	
+	/**
+	 * Gets the root node for a specific hash table cell.
+	 * @param cell Hash table cell index
+	 * @return Root node for the cell, or null if cell is empty
+	 */
 	public final KmerNodeU getNode(int cell){
 		KmerNodeU n=array[cell];
 		return n;
 	}
 	
+	/**
+	 * Inserts a node into the appropriate hash table cell.
+	 * Clears existing left/right pointers and finds correct position in tree.
+	 * @param n Node to insert
+	 * @return true if insertion was successful
+	 */
 	boolean insert(KmerNodeU n){
 		n.left=null;
 		n.right=null;
@@ -421,6 +467,7 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 		}
 	}
 	
+	/** Removes all k-mers from the table and resets size to zero */
 	public void clear() {
 		size=0;
 		Arrays.fill(array, null);
@@ -515,6 +562,11 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 		return toList().iterator();
 	}
 	
+	/**
+	 * Converts all nodes in the table to an ArrayList.
+	 * Performs infix traversal of all binary trees.
+	 * @return ArrayList containing all nodes in the table
+	 */
 	public ArrayList<KmerNodeU> toList(){
 		assert(size<Integer.MAX_VALUE);
 		ArrayList<KmerNodeU> list=new ArrayList<KmerNodeU>((int)size);
@@ -533,16 +585,26 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the underlying hash table array for direct access */
 	public KmerNodeU[] array() {return array;}
 	
+	/** Hash table array where each cell contains root of binary search tree */
 	KmerNodeU[] array;
+	/** Current size of hash table array (always prime number) */
 	int prime;
+	/** Total number of k-mers currently stored in the table */
 	long size=0;
+	/** Size threshold that triggers automatic resizing when exceeded */
 	long sizeLimit;
+	/** K-mer length used for this table */
 	final int k;
+	/** Bit mask for extracting core k-mer bits during hashing */
 	final long coreMask;
+	/** Whether table automatically resizes when size limit is exceeded */
 	final boolean autoResize;
+	/** Whether table operates in 2D mode with multiple values per k-mer */
 	final boolean TWOD;
+	/** Reentrant lock for thread-safe operations */
 	private final Lock lock=new ReentrantLock();
 	
 	@Override
@@ -552,11 +614,17 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Largest prime number that fits in an integer */
 	final static int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE);
+	/** Minimum multiplier for table size when resizing */
 	final static float resizeMult=2.5f; //Resize by a minimum of this much
+	/** Target load factor after resizing to avoid immediate re-resize */
 	final static float minLoadFactor=0.75f; //Resize by enough to get the load above this factor
+	/** Maximum load factor before triggering resize operation */
 	final static float maxLoadFactor=2.5f; //Resize by enough to get the load under this factor
+	/** Inverse of minimum load factor for resize calculations */
 	final static float minLoadMult=1/minLoadFactor;
+	/** Inverse of maximum load factor for resize calculations */
 	final static float maxLoadMult=1/maxLoadFactor;
 	
 

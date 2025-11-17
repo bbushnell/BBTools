@@ -25,6 +25,8 @@ import template.BBTool_ST;
  */
 public class SplitNexteraLMP extends BBTool_ST {
 	
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		SplitNexteraLMP bbt=new SplitNexteraLMP(args);
@@ -355,6 +357,19 @@ public class SplitNexteraLMP extends BBTool_ST {
 		throw new RuntimeException("Do not use.");
 	}
 	
+	/**
+	 * Processes a read pair to identify and split junction sequences.
+	 * Optionally merges overlapping reads, masks junction k-mers, then searches for
+	 * junction symbols to split reads into LMP pairs, fragment pairs, or singletons.
+	 *
+	 * @param r1 First read in pair
+	 * @param r2 Second read in pair (may be null for single-end)
+	 * @param outLmp Output list for long mate-pair reads
+	 * @param outFrag Output list for fragment pair reads
+	 * @param outUnk Output list for unknown/unclassified reads
+	 * @param outSingle Output list for singleton reads
+	 * @return Always returns true
+	 */
 	boolean processReadPair(Read r1, Read r2, ArrayList<Read> outLmp, ArrayList<Read> outFrag, ArrayList<Read> outUnk, ArrayList<Read> outSingle) {
 		boolean needsMasking=mask;
 		if(merge){
@@ -537,6 +552,20 @@ public class SplitNexteraLMP extends BBTool_ST {
 		return true;
 	}
 
+	/**
+	 * Processes a merged read to identify junction sequences and create output pairs.
+	 * Searches for junction symbols in the merged sequence and splits into left/right
+	 * segments to form long mate-pairs or singletons.
+	 *
+	 * @param merged The merged read containing both original reads
+	 * @param r1 Original first read (for statistics)
+	 * @param r2 Original second read (for statistics)
+	 * @param outLmp Output list for long mate-pair reads
+	 * @param outFrag Output list for fragment pair reads
+	 * @param outUnk Output list for unknown/unclassified reads
+	 * @param outSingle Output list for singleton reads
+	 * @return Always returns true
+	 */
 	boolean processMergedRead(Read merged, Read r1, Read r2, ArrayList<Read> outLmp, ArrayList<Read> outFrag, ArrayList<Read> outUnk, ArrayList<Read> outSingle) {
 		
 //		int a=0, b, c;
@@ -603,34 +632,51 @@ public class SplitNexteraLMP extends BBTool_ST {
 	/*----------------        Masking Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Default Nextera adapter junction sequences to search for in reads */
 	private String[] literals=new String[] {"CTGTCTCTTATACACATCTAGATGTGTATAAGAGACAG"};
 	
+	/** K-mer tables for masking junction sequences if masking is enabled */
 	private final AbstractKmerTable[] tables;
 	
+	/** K-mer length for junction sequence masking */
 	private int k=19;
+	/** Minimum k-mer length for masking operations */
 	private int mink=11;
+	/** Maximum Hamming distance allowed when masking k-mers */
 	private int hdist=1;
+	/** Secondary Hamming distance parameter for k-mer masking */
 	private int hdist2=0;
+	/** Maximum edit distance allowed when masking k-mers */
 	private int edist=0;
+	/** Whether to consider reverse complement when masking k-mers */
 	private boolean rcomp=true;
+	/** Whether to mask middle bases of k-mers during comparison */
 	private boolean maskMiddle=false;
 	
+	/** Optional file path to dump k-mer tables for debugging */
 	private String dump=null;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** K-mer table reader for junction sequence masking operations */
 	private TableReader reader;
 	
+	/** Output destination for processing statistics */
 	protected String outStats="stderr";
 	
+	/** Output file path for first reads in fragment pairs */
 	protected String outFrag1;
+	/** Output file path for second reads in fragment pairs */
 	protected String outFrag2;
 	
+	/** Output file path for first reads in unknown/unclassified pairs */
 	protected String outUnk1;
+	/** Output file path for second reads in unknown/unclassified pairs */
 	protected String outUnk2;
 	
+	/** Output file path for singleton reads */
 	protected String outSingle;
 	
 	protected FileFormat ffoutFrag1;
@@ -645,19 +691,33 @@ public class SplitNexteraLMP extends BBTool_ST {
 	protected ConcurrentReadOutputStream rosUnk;
 	protected ConcurrentReadOutputStream rosSingle;
 
+	/** Minimum length required for reads after junction splitting */
 	private int minReadLength;
 
+	/** Whether to mask junction sequences using k-mer tables */
 	private boolean mask;
+	/**
+	 * Whether to attempt merging overlapping read pairs before junction detection
+	 */
 	private boolean merge;
+	/** Threshold for automatically enabling merging based on overlap rate */
 	private double testmerge;
 	
+	/** Gets the count of long mate-pair reads produced */
 	public long readsLmp(){return readsLmp;}
+	/** Gets the count of bases in long mate-pair reads produced */
 	public long basesLmp(){return basesLmp;}
+	/** Gets the count of fragment pair reads produced */
 	public long readsFrag(){return readsFrag;}
+	/** Gets the count of bases in fragment pair reads produced */
 	public long basesFrag(){return basesFrag;}
+	/** Gets the count of unknown/unclassified reads produced */
 	public long readsUnk(){return readsUnk;}
+	/** Gets the count of bases in unknown/unclassified reads produced */
 	public long basesUnk(){return basesUnk;}
+	/** Gets the count of singleton reads produced */
 	public long readsSingle(){return readsSingle;}
+	/** Gets the count of bases in singleton reads produced */
 	public long basesSingle(){return basesSingle;}
 	
 	private long readsLmp=0;
@@ -673,11 +733,15 @@ public class SplitNexteraLMP extends BBTool_ST {
 	
 	private long junctionsSought=0, junctionsDetected=0;
 	
+	/** Whether the input consists of paired reads */
 	private boolean pairedInput;
 	
+	/** The junction adapter symbol character to search for in reads */
 	private byte symbol;
+	/** Whether to output inner long mate-pairs in addition to outer pairs */
 	private boolean useInnerLMP;
 	
+	/** Whether to rename read identifiers when creating paired outputs */
 	private boolean RENAME;
 
 }

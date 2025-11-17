@@ -34,6 +34,8 @@ import structures.ByteBuilder;
  */
 public class MakeContaminatedGenomes {
 
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MakeContaminatedGenomes x=new MakeContaminatedGenomes(args);
@@ -43,6 +45,11 @@ public class MakeContaminatedGenomes {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs MakeContaminatedGenomes with command-line arguments.
+	 * Parses input parameters, initializes file formats, and validates configuration.
+	 * @param args Command-line arguments containing input files and options
+	 */
 	public MakeContaminatedGenomes(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -128,6 +135,11 @@ public class MakeContaminatedGenomes {
 		fffofn=FileFormat.testInput(fofn, FileFormat.TXT, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that generates contaminated genomes.
+	 * Creates specified number of chimeric sequences by randomly sampling and fusing input files.
+	 * @param t Timer for tracking execution time and performance statistics
+	 */
 	void process(Timer t){
 		final String[] in=TextFile.toStringLines(fffofn);
 //		final long sizes[]=calcSizes(in);
@@ -171,6 +183,15 @@ public class MakeContaminatedGenomes {
 //		return sizes;
 //	}
 	
+	/**
+	 * Creates a single contaminated genome by fusing two randomly selected input files.
+	 * Selects two different files, determines sampling fractions, and generates chimeric output.
+	 *
+	 * @param in Array of input file paths
+	 * @param randy Random number generator for stochastic sampling
+	 * @param cid Chimera identifier number
+	 * @return Output file path of the generated contaminated genome
+	 */
 	String makeOne(String[] in, Random randy, int cid){
 //		System.err.println("A");
 		int a=randy.nextInt(in.length);
@@ -194,6 +215,20 @@ public class MakeContaminatedGenomes {
 		return writeChimera(in[a], in[b], readsA, readsB, fracA, fracB, randy, cid);
 	}
 	
+	/**
+	 * Writes a contaminated genome by processing and combining reads from two sources.
+	 * Applies sampling fractions to reads and writes output in order of dominance.
+	 *
+	 * @param inA First input file path
+	 * @param inB Second input file path
+	 * @param readsA Reads from first source
+	 * @param readsB Reads from second source
+	 * @param fracA Sampling fraction for first source
+	 * @param fracB Sampling fraction for second source
+	 * @param randy Random number generator for processing
+	 * @param cid Chimera identifier number
+	 * @return Output file path containing the contaminated genome
+	 */
 	String writeChimera(String inA, String inB, ArrayList<Read> readsA, ArrayList<Read> readsB, double fracA, double fracB, Random randy, int cid){
 		ByteBuilder bb=new ByteBuilder();
 		long sizeA=0, sizeB=0;
@@ -238,6 +273,15 @@ public class MakeContaminatedGenomes {
 		return out;
 	}
 	
+	/**
+	 * Processes a single read by applying genome sampling and introducing mutations.
+	 * Randomly samples a fraction of the genome and optionally adds substitutions and indels.
+	 *
+	 * @param r The read to process (modified in place)
+	 * @param bb Byte builder for sequence manipulation
+	 * @param genomeFraction Fraction of the genome to retain (0.0-1.0)
+	 * @param randy Random number generator for stochastic operations
+	 */
 	public void processRead(Read r, ByteBuilder bb, double genomeFraction, Random randy){
 		
 		//Setup
@@ -307,37 +351,58 @@ public class MakeContaminatedGenomes {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File of filenames containing input genome paths */
 	private String fofn=null;
 
+	/** Output filename pattern with placeholders for contamination metadata */
 	private String outPattern=null;
+	/** Output file for writing generated filename list */
 	private String outNames=null;
 	
+	/** Number of contaminated genomes to generate */
 	private int chimeras=1;
+	/** Random seed for reproducible contamination patterns */
 	private long seed=-1;
+	/** Power law exponent for sampling first genome fraction */
 	double exponent1=1;
+	/** Power law exponent for sampling second genome fraction */
 	double exponent2=1;
+	/** Delimiter character for output filename metadata fields */
 	String delimiter="_";
+	/** Regular expression pattern for filename substitution */
 	String regex="#";
 	
+	/** Rate of substitution mutations to introduce */
 	double subRate=0;
+	/** Rate of insertion/deletion mutations to introduce */
 	double indelRate=0;
+	/** Total error rate combining substitutions and indels */
 	double errorRate=0;
+	/** Total number of bases retained after processing */
 	long basesRetained=0;
 
+	/** Total number of reads processed */
 	long readsProcessed=0;
+	/** Total number of bases processed */
 	long basesProcessed=0;
 	
+	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format object for the input file of filenames */
 	private final FileFormat fffofn;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Enables verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
+	/** Indicates whether the program encountered errors during execution */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

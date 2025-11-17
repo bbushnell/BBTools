@@ -27,6 +27,15 @@ import tracker.ReadStats;
  */
 public class MakeLengthHistogram {
 	
+	/**
+	 * Program entry point for length histogram generation.
+	 * Parses command-line arguments and processes sequence files to generate
+	 * histograms with statistics including min, max, average, median, mode, and
+	 * standard deviation of read lengths.
+	 *
+	 * @param args Command-line arguments specifying input files, output location,
+	 * and histogram parameters
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -102,6 +111,16 @@ public class MakeLengthHistogram {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Calculates length histogram from input sequence files.
+	 * Processes paired or unpaired reads, counts sequences by length bins,
+	 * computes statistics (mean, median, mode, standard deviation), and outputs
+	 * detailed histogram with both read counts and base counts per length bin.
+	 *
+	 * @param in1 Primary input file (FASTA/FASTQ format)
+	 * @param in2 Secondary input file for paired reads (may be null)
+	 * @param out Output file for histogram results (uses stdout if null)
+	 */
 	public static void calc(String in1, String in2, String out){
 		
 		FastaReadInputStream.MIN_READ_LEN=1;
@@ -227,18 +246,29 @@ public class MakeLengthHistogram {
 		tsw.poisonAndWait();
 	}
 	
+	/** Maximum number of reads to process; -1 for unlimited */
 	public static long maxReads=-1;
+	/** Total number of reads processed during histogram generation */
 	public static long readsProcessed=0;
+	/** Total number of bases processed across all reads */
 	public static long basesProcessed=0;
+	/** Maximum sequence length for histogram bins (default 80000) */
 	public static int MAX_LENGTH=80000;
+	/** Bin size multiplier for grouping lengths into histogram bins (default 10) */
 	public static int MULT=10;
+	/** Whether to round read lengths to nearest bin center (default false) */
 	public static boolean ROUND_BINS=false;
+	/** Whether to output only histogram bins with non-zero counts (default true) */
 	public static boolean NON_ZERO_ONLY=true;
 	
+	/** Output stream for status messages and results */
 	static PrintStream outstream=System.err;
 	
+	/** Whether to append to existing output file rather than overwrite */
 	public static boolean append=false;
+	/** Whether to overwrite existing output files (default true) */
 	public static boolean overwrite=true;
+	/** Whether to output verbose progress messages during processing */
 	public static boolean verbose=false;
 	
 }

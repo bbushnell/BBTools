@@ -10,6 +10,15 @@ import shared.Tools;
 public final class SingleStateAlignerPacBioAdapter {
 	
 	
+	/**
+	 * Constructs aligner with specified dimensions and PacBio-optimized scoring.
+	 * Initializes packed scoring matrix and pre-computed scoring arrays for efficient
+	 * gap penalty calculation with streak-aware scoring.
+	 *
+	 * @param maxRows_ Maximum number of query rows supported
+	 * @param maxColumns_ Maximum number of reference columns supported
+	 * @param qlen Query sequence length for scoring initialization
+	 */
 	public SingleStateAlignerPacBioAdapter(int maxRows_, int maxColumns_, int qlen){
 //		assert(maxColumns_>=200);
 //		assert(maxRows_>=200);
@@ -315,12 +324,26 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
+	/**
+	 * Converts reference subsequence to string representation.
+	 *
+	 * @param ref Reference sequence bytes
+	 * @param startLoc Starting position (inclusive)
+	 * @param stopLoc Stopping position (inclusive)
+	 * @return String representation of reference subsequence
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
 		return sb.toString();
 	}
 	
+	/**
+	 * Calculates deletion penalty score for given length.
+	 * First deletion uses POINTS_DEL, subsequent deletions use POINTS_DEL2.
+	 * @param len Deletion length in bases
+	 * @return Total deletion penalty score
+	 */
 	public static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL;
@@ -330,6 +353,11 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
+	/**
+	 * Calculates bit-shifted deletion penalty for packed scoring.
+	 * @param len Deletion length in bases
+	 * @return Deletion penalty shifted by SCOREOFFSET
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -339,6 +367,12 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion penalty score for given length.
+	 * First insertion uses POINTS_INS, subsequent insertions use POINTS_INS2.
+	 * @param len Insertion length in bases
+	 * @return Total insertion penalty score
+	 */
 	public static int calcInsScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_INS;
@@ -349,6 +383,11 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
+	/**
+	 * Calculates bit-shifted insertion penalty for packed scoring.
+	 * @param len Insertion length in bases
+	 * @return Insertion penalty shifted by SCOREOFFSET
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -360,17 +399,26 @@ public final class SingleStateAlignerPacBioAdapter {
 	}
 	
 	
+	/** Maximum number of query rows this aligner can handle */
 	private final int maxRows;
+	/** Maximum number of reference columns this aligner can handle */
 	public final int maxColumns;
 
+	/** Packed scoring matrix storing score, mode, and position information */
 	private final int[][] packed;
 
+	/** Vertical pruning limits for optimization */
 	private final int[] vertLimit;
+	/** Horizontal pruning limits for optimization */
 	private final int[] horizLimit;
 
+	/** Pre-computed insertion scores for different preceding states */
 	private final int[] insScoreArray;
+	/** Pre-computed deletion scores for different preceding states */
 	private final int[] delScoreArray;
+	/** Pre-computed match scores for different preceding states */
 	private final int[] matchScoreArray;
+	/** Pre-computed substitution scores for different preceding states */
 	private final int[] subScoreArray;
 
 	public static final int MODEBITS=3;
@@ -437,13 +485,19 @@ public final class SingleStateAlignerPacBioAdapter {
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
+	/** Current number of query rows in alignment */
 	private int rows;
+	/** Current number of reference columns in alignment */
 	private int columns;
 
+	/** Counter for limited alignment iterations for performance analysis */
 	public long iterationsLimited=0;
+	/** Counter for unlimited alignment iterations for performance analysis */
 	public long iterationsUnlimited=0;
 
+	/** Enable verbose debugging output */
 	public boolean verbose=false;
+	/** Enable additional verbose debugging output */
 	public boolean verbose2=false;
 	
 }

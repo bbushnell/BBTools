@@ -347,6 +347,11 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		}
 	}
 	
+	/**
+	 * Creates and starts the concurrent read input stream.
+	 * Configures stream for paired or unpaired processing based on input files.
+	 * @return Started ConcurrentReadInputStream ready for reading
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -356,6 +361,12 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent output stream for non-duplicate reads.
+	 * Configures buffer size based on ordering requirements and thread count.
+	 * @param pairedInput Whether input reads are paired-end
+	 * @return ConcurrentReadOutputStream for filtered output, or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -372,6 +383,12 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		return ros;
 	}
 	
+	/**
+	 * Creates concurrent output stream for duplicate reads.
+	 * Uses same buffer sizing strategy as main output stream.
+	 * @param pairedInput Whether input reads are paired-end
+	 * @return ConcurrentReadOutputStream for duplicate output, or null if not specified
+	 */
 	private ConcurrentReadOutputStream makeCrosD(boolean pairedInput){
 		if(ffoutd1==null){return null;}
 
@@ -383,6 +400,12 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		return rosd;
 	}
 	
+	/**
+	 * Calculates and outputs duplication statistics from k-mer hash tables.
+	 * Generates histogram of read copy counts and computes fraction/rate metrics.
+	 * Optionally writes detailed statistics to specified file.
+	 * @param fname Output file name for statistics, or null for stdout only
+	 */
 	private void calcStatistics(String fname){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -523,6 +546,12 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			}
 		}
 		
+		/**
+		 * Processes a batch of reads for duplicate detection.
+		 * Generates hashcodes, checks against hash tables, and separates
+		 * unique reads from duplicates for appropriate output streams.
+		 * @param ln ListNum containing batch of reads to process
+		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -569,6 +598,12 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		}
 		
 		//Critical section
+		/**
+		 * Thread-safe processing of hashcodes against k-mer tables.
+		 * Increments counts for each hashcode and marks duplicates when
+		 * count exceeds threshold. Requires synchronization on tables.
+		 * @return Number of duplicates identified in this batch
+		 */
 		private int processCodes(){
 			int dupes=0;
 			synchronized(tables){
@@ -587,6 +622,11 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			return dupes;
 		}
 
+		/**
+		 * Generates hashcodes for all reads in the batch.
+		 * Populates codes list with computed hash values for duplicate checking.
+		 * @param reads List of reads to hash
+		 */
 		private void hashList(ArrayList<Read> reads){
 			codes.clear();
 			for(final Read r1 : reads){
@@ -641,9 +681,20 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 		/** Thread ID */
 		final int tid;
 		
+		/** List storing computed hash codes for current read batch */
 		final LongList codes=new LongList(Shared.bufferLen());
 	}
 	
+	/**
+	 * Core hashing function for byte arrays using precomputed hash tables.
+	 * Incorporates array length and pair number with salt for initial seed.
+	 * Uses rotating XOR operations with position-dependent hash values.
+	 *
+	 * @param bytes Byte array to hash (sequence, name, or quality data)
+	 * @param pairnum Read pair number (0 or 1) for differentiation
+	 * @return Hash code computed from byte array
+	 * @throws AssertionError If array contains invalid characters
+	 */
 	public static long hash(byte[] bytes, int pairnum){
 		if(bytes==null){return 0;}
 		long code=(bytes.length+pairnum)^salt;
@@ -666,7 +717,9 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file path for primary input */
 	private String qfin1=null;
+	/** Quality file path for secondary input */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -674,7 +727,9 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Quality output file path for primary reads */
 	private String qfout1=null;
+	/** Quality output file path for secondary reads */
 	private String qfout2=null;
 
 	/** Primary dupe output file path */
@@ -690,18 +745,26 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	/** Stats output */
 	private String stats="stdout.txt";
 	
+	/** Maximum allowable fraction of duplicate reads before failure */
 	private double maxFraction=-1;
+	/** Maximum allowable duplication rate before failure */
 	private double maxRate=-1;
+	/** Exit code to return when failure conditions are met */
 	private int failCode=0;
+	/** Flag indicating whether failure conditions have been triggered */
 	boolean failed=false;
 	
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 
+	/** Hash table set for storing k-mer counts and duplicate tracking */
 	private KmerTableSet tables;
 
+	/** Whether to include DNA base sequences in hash calculation */
 	private boolean hashBases=true;
+	/** Whether to include read names/identifiers in hash calculation */
 	private boolean hashNames=false;
+	/** Whether to include quality scores in hash calculation */
 	private boolean hashQualities=false;
 	
 	/*--------------------------------------------------------------*/
@@ -718,7 +781,9 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
+	/** Fraction of reads to process (1.0 = all reads) */
 	private double samplerate=1;
+	/** Maximum occurrence count before marking as duplicate */
 	private int maxCount=1;
 	
 	/*--------------------------------------------------------------*/
@@ -740,16 +805,23 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	/** Secondary dupe output file */
 	private final FileFormat ffoutd2;
 	
+	/** Precomputed hash lookup tables for efficient byte array hashing */
 	private static final long[][] hashcodes=Dedupe.makeCodes2(32);
+	/** Random salt value for hash function initialization */
 	private static final long salt=new Random(173).nextLong();
+	/** Bit mask for sampling hash values (1023 = 10 bits) */
 	private final int sampleMask=1023;
+	/** Threshold for sample rate filtering based on hash values */
 	private final int sampleThresh;
 	
+	/** Constant indicating read was excluded by sampling */
 	private final int UNSAMPLED=-1;
+	/** Constant indicating read was identified as duplicate */
 	private final int DUPLICATE=-2;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

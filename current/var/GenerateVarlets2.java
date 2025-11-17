@@ -29,6 +29,11 @@ import structures.ListNum;
 public class GenerateVarlets2 {
 	
 	
+	/**
+	 * Program entry point for generating varlets from sequence reads.
+	 * Parses command-line arguments and executes the variation detection pipeline.
+	 * @param args Command-line arguments including input reads, output name, and parameters
+	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -98,11 +103,34 @@ public class GenerateVarlets2 {
 		gv.process();
 	}
 	
+	/**
+	 * Creates a GenerateVarlets2 instance from input file names.
+	 * Wraps file names in RTextInputStream for processing.
+	 *
+	 * @param fname1 Primary input reads file
+	 * @param fname2 Secondary input reads file (may be null)
+	 * @param outname_ Output file name template containing '#' placeholder
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 * @param maxReads Maximum number of reads to process
+	 * @param sitesfile_ Sites file for variant calling context
+	 */
 	public GenerateVarlets2(String fname1, String fname2, String outname_, byte minChrom, byte maxChrom, long maxReads, String sitesfile_){
 		this(new RTextInputStream(fname1, fname2, maxReads), outname_, minChrom, maxChrom, maxReads, sitesfile_);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
 	
+	/**
+	 * Creates a GenerateVarlets2 instance from an existing read stream.
+	 * Initializes the processing pipeline with specified parameters.
+	 *
+	 * @param stream_ Input read stream for processing
+	 * @param outname_ Output file name template containing '#' placeholder
+	 * @param minChrom Minimum chromosome number to process
+	 * @param maxChrom Maximum chromosome number to process
+	 * @param maxReads Maximum number of reads to process
+	 * @param sitesfile_ Sites file for variant calling context
+	 */
 	public GenerateVarlets2(RTextInputStream stream_, String outname_, byte minChrom, byte maxChrom, long maxReads, String sitesfile_){
 		sitesfile=sitesfile_;
 		stream=stream_;
@@ -114,6 +142,8 @@ public class GenerateVarlets2 {
 		if(CONDENSE_SNPS){assert(!SPLIT_SUBS);}
 	}
 	
+	/** Completes processing by writing remaining varlets and closing streams.
+	 * Sorts keys and writes all accumulated variations to output files. */
 	public void finish(){
 		
 		ArrayList<Long> keys=new ArrayList<Long>();
@@ -129,6 +159,8 @@ public class GenerateVarlets2 {
 		
 	}
 	
+	/** Main processing method that executes the varlet generation pipeline.
+	 * Starts worker threads, processes reads, and collects statistics on variations found. */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -226,6 +258,11 @@ public class GenerateVarlets2 {
 	}
 	
 
+	/**
+	 * Writes a list of varlets to the appropriate output file.
+	 * Determines output file based on chromosome and position key.
+	 * @param list List of varlets to write to file
+	 */
 	private void writeList(ArrayList<Varlet> list){
 		assert(list!=null && list.size()>0);
 		long key=key(list.get(0).chromosome, list.get(0).beginLoc);
@@ -242,6 +279,8 @@ public class GenerateVarlets2 {
 	}
 	 
 	
+	/** Worker thread for processing reads and generating varlets.
+	 * Each thread maintains its own statistics and processes read lists independently. */
 	private final class ProcessThread extends Thread {
 		
 		public ProcessThread(){
@@ -276,6 +315,11 @@ public class GenerateVarlets2 {
 			synchronized(this){this.notifyAll();}
 		}
 		
+		/**
+		 * Processes a list of reads to generate varlets.
+		 * Handles both single and paired-end reads, applying filtering rules.
+		 * @param reads List of reads to process for variant detection
+		 */
 		private void processReads(ArrayList<Read> reads){
 
 			if(sitemap==null){
@@ -305,6 +349,11 @@ public class GenerateVarlets2 {
 			}
 		}
 		
+		/**
+		 * Deprecated method for processing reads with multiple sites.
+		 * @param r Read to process
+		 * @deprecated This method is no longer used
+		 */
 		@Deprecated
 		private void multiprocessRead_old(Read r){
 			long key=r.numericID;
@@ -333,6 +382,11 @@ public class GenerateVarlets2 {
 			}
 		}
 		
+		/**
+		 * Processes a read that may have multiple alignment sites.
+		 * Iterates through all sites associated with the read's ID and processes each one.
+		 * @param r Read to process for multiple site alignments
+		 */
 		private void multiprocessRead(Read r){
 			long key=r.numericID;
 			if((r.pairnum()&1)==1){
@@ -377,6 +431,12 @@ public class GenerateVarlets2 {
 			return null;
 		}
 		
+		/**
+		 * Finds a matching SiteScore in a list based on SiteR criteria.
+		 * @param sr SiteR to match against
+		 * @param list List of SiteScore objects to search
+		 * @return Matching SiteScore or null if not found
+		 */
 		private SiteScore find(SiteR sr, ArrayList<SiteScore> list) {
 			for(SiteScore ss : list){
 				if(sr.equals(ss)){return ss;}
@@ -385,6 +445,12 @@ public class GenerateVarlets2 {
 		}
 		
 
+		/**
+		 * Processes a single read to generate varlets for variant calling.
+		 * Performs alignment, match string generation, and variation identification.
+		 * Filters variations based on end distance and adds valid ones to output.
+		 * @param r Read to process for variant detection
+		 */
 		private void processRead(Read r){
 			sitesProcessed++;
 			
@@ -531,6 +597,11 @@ public class GenerateVarlets2 {
 			}
 		}
 		
+		/**
+		 * Merges identical varlets to reduce redundancy in output.
+		 * Sorts varlets and combines those with identical positions and variations.
+		 * @param vars List of varlets to merge
+		 */
 		private void mergeEqualVarlets(ArrayList<Varlet> vars){
 			
 			Shared.sort(vars);
@@ -555,29 +626,55 @@ public class GenerateVarlets2 {
 			Tools.condenseStrict(vars);
 		}
 
+		/** Returns whether this thread has finished processing */
 		protected boolean finished(){return finished;}
+		/** Signals this thread to terminate processing */
 		protected void terminate(){terminate=true;}
 		
+		/**
+		 * Translator for processing colorspace reads and generating alignment match strings
+		 */
 		private final TranslateColorspaceRead tcr=new TranslateColorspaceRead(PAC_BIO_MODE ?
 				new MultiStateAligner9ts(ALIGN_ROWS, ALIGN_COLUMNS) :  new MultiStateAligner9ts(ALIGN_ROWS, ALIGN_COLUMNS));
+		/** Flag indicating whether this thread has completed processing */
 		private boolean finished=false;
+		/** Flag indicating this thread should terminate processing */
 		private boolean terminate=false;
+		/** Count of total variations generated by this thread */
 		private long varsMade=0;
+		/** Count of no-reference variations generated by this thread */
 		private long norefsMade=0;
+		/** Count of single nucleotide polymorphisms generated by this thread */
 		private long snpMade=0;
+		/** Count of deletions generated by this thread */
 		private long delMade=0;
+		/** Count of substitutions with no net length change generated by this thread */
 		private long subnMade=0;
+		/** Count of deletion-type substitutions generated by this thread */
 		private long subdMade=0;
+		/** Count of insertion-type substitutions generated by this thread */
 		private long subiMade=0;
+		/** Count of insertions generated by this thread */
 		private long insMade=0;
+		/** Cumulative length difference of all variations generated by this thread */
 		private long deltaLen=0;
+		/** Count of alignment sites processed by this thread */
 		private long sitesProcessed=0;
+		/** Count of reads processed by this thread */
 		private long readsProcessed=0;
 		
 		
 	}
 	
 
+	/**
+	 * Generates a block key for partitioning output files by genomic location.
+	 * Combines chromosome and position information into a single long value.
+	 *
+	 * @param chrom Chromosome number
+	 * @param start Starting position
+	 * @return Block key for file partitioning
+	 */
 	protected static final long key(int chrom, int start){
 		long k=((long)chrom<<32)+(Tools.max(start, 0))/BLOCKSIZE;
 		return k;
@@ -593,6 +690,14 @@ public class GenerateVarlets2 {
 		return keys;
 	}
 	
+	/**
+	 * Generates output filename from block key and template name.
+	 * Replaces '#' placeholder with genome build and key information.
+	 *
+	 * @param key Block key for file identification
+	 * @param outname Template filename containing '#' placeholder
+	 * @return Complete output filename
+	 */
 	protected static final String fname(long key, String outname){
 		if(outname==null){outname="GV2TempFile_#.txt";}
 		assert(outname.contains("#")) : outname;
@@ -600,6 +705,8 @@ public class GenerateVarlets2 {
 		return outname.replace("#", "b"+Data.GENOME_BUILD+"_"+key);
 	}
 	
+	/** Initializes the key map for output file partitioning.
+	 * Creates output buffers for each chromosome block and writes headers. */
 	private final void makeKeyMap(){
 		final String header=Varlet.textHeader()+"\n";
 		keymap=new HashMap<Long, ArrayList<Varlet>>();
@@ -612,35 +719,56 @@ public class GenerateVarlets2 {
 		}
 	}
 	
+	/** Map from block keys to varlet lists for output file partitioning */
 	private HashMap<Long, ArrayList<Varlet>> keymap;
 
+	/** Output filename template containing '#' placeholder for key substitution */
 	public final String outname;
+	/** Sites file name for variant calling context */
 	public final String sitesfile;
 //	private HashMap<Long, ArrayList<SiteScoreR>> sitemap=null;
+	/** Map from read IDs to site information for processing context */
 	private HashMap<Long, SiteR> sitemap=null;
+	/** Input stream for reading sequence data */
 	private final RTextInputStream stream;
+	/** Concurrent input stream for multi-threaded read processing */
 	private final ConcurrentLegacyReadInputStream cris;
 	
 	
+	/** Whether to use concurrent read input stream for multi-threaded processing */
 	public static boolean USE_CRIS=true; //Similar speed either way.  "true" may be better with many threads.
 	
+	/** Number of processing threads to use */
 	public static int THREADS=7;
+	/** Buffer size for batching varlets before writing to output files */
 	public static int WRITE_BUFFER=200000; //Bigger number uses more memory, for less frequent writes.
 
+	/** Whether to condense adjacent variations into compound events */
 	public static boolean CONDENSE=true;
+	/** Whether to condense adjacent single nucleotide polymorphisms */
 	public static boolean CONDENSE_SNPS=true;
+	/** Whether to split complex substitutions into separate events */
 	public static boolean SPLIT_SUBS=false;
 
+	/** Whether to discard unpaired reads from first mate */
 	public static boolean TOSS_SOLO1=false;
+	/** Whether to discard unpaired reads from second mate */
 	public static boolean TOSS_SOLO2=false;
 	
+	/** Whether to merge identical varlets to reduce output redundancy */
 	public static boolean MERGE_EQUAL_VARLETS=false;
+	/** Whether to use Pacific Biosciences long-read processing mode */
 	public static boolean PAC_BIO_MODE=true;
+	/** Number of rows in alignment matrix for sequence alignment */
 	public static int ALIGN_ROWS=2020;
+	/** Number of columns in alignment matrix for sequence alignment */
 	public static int ALIGN_COLUMNS=3000;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	public static long MAX_READS=-1;
+	/** Minimum distance from read end required for a variation to be considered */
 	public static final int MIN_END_DIST=4;
+	/** Size of genomic blocks for partitioning output files */
 	public static int BLOCKSIZE=1000000;
 	
 }

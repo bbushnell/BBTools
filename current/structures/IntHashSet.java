@@ -126,14 +126,23 @@ public class IntHashSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Creates an IntHashSet with default capacity of 256 and load factor of 0.7 */
 	public IntHashSet(){
 		this(256);
 	}
 	
+	/** Creates an IntHashSet with specified initial capacity and default load factor of 0.7.
+	 * @param initialSize Initial capacity for the hash table */
 	public IntHashSet(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
+	/**
+	 * Creates an IntHashSet with specified initial capacity and load factor.
+	 * Load factor is clamped between 0.25 and 0.90 for optimal performance.
+	 * @param initialSize Initial capacity for the hash table
+	 * @param loadFactor_ Target load factor before resizing (0.25-0.90)
+	 */
 	public IntHashSet(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -147,12 +156,20 @@ public class IntHashSet{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Removes all elements from the set by filling array with invalid sentinel value
+	 */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(array, invalid);
 		size=0;
 	}
 	
+	/**
+	 * Tests whether the set contains the specified value.
+	 * @param value The integer value to search for
+	 * @return true if the value is present in the set, false otherwise
+	 */
 	public boolean contains(int value){
 		return value==invalid ? false : findCell(value)>=0;
 	}
@@ -190,6 +207,14 @@ public class IntHashSet{
 	}
 	
 	//Does not get added to the list in an IntHashSetList.  For rehashing.  Cannot be overriden.
+	/**
+	 * Internal add method used during rehashing operations.
+	 * Identical to add() but marked final to prevent override in subclasses.
+	 * Used specifically for rehashing to avoid triggering list updates in subclasses.
+	 *
+	 * @param value The integer value to add
+	 * @return true if the value was added, false if already contained
+	 */
 	protected final boolean addSpecial(int value){
 		if(value==invalid){resetInvalid();}
 		int cell=findCellOrEmpty(value);
@@ -220,9 +245,12 @@ public class IntHashSet{
 		return true;
 	}
 
+	/** Returns the number of elements currently in the set */
 	public int size(){return size;}
+	/** Returns the maximum size before next resize based on current load factor */
 	public int sizeLimit(){return sizeLimit;}
 	
+	/** Returns true if the set contains no elements */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
@@ -234,6 +262,11 @@ public class IntHashSet{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns a string representation showing array positions and values.
+	 * Format: [(index, value), ...] for occupied cells only.
+	 * @return String showing internal array structure
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -248,6 +281,11 @@ public class IntHashSet{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns a string representation showing only the stored values.
+	 * Format: [value1, value2, ...] similar to standard collections.
+	 * @return String showing stored values only
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -262,6 +300,11 @@ public class IntHashSet{
 		return sb.toString();
 	}
 	
+	/**
+	 * Returns an array containing all elements in the set.
+	 * Order is not guaranteed and depends on internal hash table structure.
+	 * @return Array containing all set elements
+	 */
 	public int[] toArray(){
 		int[] x=new int[size];
 		int i=0;
@@ -278,6 +321,12 @@ public class IntHashSet{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Validates internal consistency of the hash table structure.
+	 * Checks that all stored values can be found at their expected positions.
+	 * Used primarily for debugging and testing.
+	 * @return true if the internal structure is consistent, false otherwise
+	 */
 	public boolean verify(){
 		int numValues=0;
 		int numFound=0;
@@ -296,6 +345,11 @@ public class IntHashSet{
 		return numValues==numFound && numValues==size;
 	}
 	
+	/**
+	 * Rehashes elements starting from the specified position after a removal.
+	 * Uses wrap-around search to maintain proper hash table invariants.
+	 * @param initial Starting position for rehashing operation
+	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=array.length;
@@ -323,6 +377,11 @@ public class IntHashSet{
 		return true;
 	}
 	
+	/**
+	 * Generates a new invalid sentinel value and updates all empty cells.
+	 * Called when a user attempts to add the current invalid value to avoid conflicts.
+	 * Ensures the invalid value is always negative and not already in the set.
+	 */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -366,6 +425,7 @@ public class IntHashSet{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	/** Doubles the hash table size plus one and rehashes all elements */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(array.length*2L+1);
@@ -402,18 +462,37 @@ public class IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Hash table array storing integer values and invalid sentinels for empty cells
+	 */
 	private int[] array;
+	/** Current number of elements stored in the set */
 	private int size=0;
 	/** Value for empty cells */
 	private int invalid;
+	/**
+	 * Prime number used as modulus for hash function to distribute values evenly
+	 */
 	private int modulus;
+	/** Maximum number of elements before triggering resize based on load factor */
 	private int sizeLimit;
+	/** Target ratio of occupied cells to total capacity before resizing */
 	private final float loadFactor;
 	
+	/**
+	 * Random number generator for creating invalid sentinel values, seeded for reproducibility
+	 */
 	private static final Random randy=new Random(1);
+	/** Bit mask (Integer.MAX_VALUE) used to ensure hash values are positive */
 	private static final int MASK=Integer.MAX_VALUE;
+	/**
+	 * Bit mask (Integer.MIN_VALUE) used to ensure invalid sentinels are negative
+	 */
 	private static final int MINMASK=Integer.MIN_VALUE;
 	
+	/**
+	 * Additional capacity beyond prime modulus to reduce collisions at array boundaries
+	 */
 	private static final int extra=10;
 	
 }

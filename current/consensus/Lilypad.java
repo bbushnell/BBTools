@@ -299,6 +299,8 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 	}
 
+	/** Loads reference contigs into memory with both full and trimmed name mappings.
+	 * Creates Contig objects for each reference sequence for scaffolding operations. */
 	private synchronized void loadReferenceCustom(){
 		assert(!loadedRef);
 		ConcurrentReadInputStream cris=makeRefCris();
@@ -316,6 +318,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		loadedRef=true;
 	}
 	
+	/**
+	 * Creates input stream for reading reference sequences.
+	 * Validates that references are not paired and configures stream parameters.
+	 * @return Configured ConcurrentReadInputStream for reference data
+	 */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -333,6 +340,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		return ss;
 	}
 	
+	/**
+	 * Creates output stream for writing scaffolded sequences.
+	 * Buffer size is optimized based on whether ordered output is required.
+	 * @return Configured ConcurrentReadOutputStream or null if no output format
+	 */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -396,6 +408,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs final scaffolds from processed contigs and writes output.
+	 * Batches scaffolds for efficient output and tracks scaffold statistics.
+	 * @param ros Output stream for writing scaffold sequences
+	 */
 	private void makeScaffolds(ConcurrentReadOutputStream ros){
 		ByteBuilder bb=new ByteBuilder(1000000);
 
@@ -427,6 +444,12 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Calculates insert size from SAM line template length field.
+	 * Assumes properly paired, primary alignment on same chromosome.
+	 * @param sl SamLine with valid pairing information
+	 * @return Insert size as positive integer
+	 */
 	private static int calcInsertSize(SamLine sl) {
 		assert(sl.mapped() && sl.pairedOnSameChrom());
 		assert(sl.primary());
@@ -457,6 +480,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 //		return insertSize;
 	}
 	
+	/**
+	 * Retrieves contig by reference name, trying both full and trimmed names.
+	 * @param rname Reference sequence name from SAM file
+	 * @return Matching Contig object
+	 */
 	private Contig getScaffold(String rname){
 		Contig scaf=refMap.get(rname);
 		if(scaf==null){scaf=refMap2.get(Tools.trimToWhitespace(rname));}
@@ -504,6 +532,8 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			
 		}
 		
+		/** Processes a batch of reads, validating and tracking statistics.
+		 * @param ln ListNum containing batch of reads to process */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -583,9 +613,12 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 		
+		/** Sum of insert sizes observed by this thread */
 		protected long totalInsertSumT=0;
+		/** Count of insert sizes observed by this thread */
 		protected long totalInsertCountT=0;
 		
+		/** Cumulative insert size sum for this thread */
 		long insertSum=0;
 		
 		/** True only if this thread has completed successfully */
@@ -597,6 +630,12 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		final int tid;
 	}
 	
+	/**
+	 * Traverses scaffold graph to find the leftmost contig in a scaffold chain.
+	 * Handles contig orientation flipping and validates edge consistency.
+	 * @param source Starting contig for leftward traversal
+	 * @return Leftmost contig in the scaffold chain
+	 */
 	Contig findLeftmost(Contig source){
 		if(verbose){System.err.println("findLeftmost("+source.name+")");}
 		while(true) {
@@ -702,8 +741,16 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Represents a reference contig with coverage tracking and edge connections.
+	 * Maintains bidirectional edge maps for scaffold construction and orientation state. */
 	private class Contig {
 		
+		/**
+		 * Creates contig with sequence data and initializes coverage tracking array.
+		 * @param name_ Contig identifier from reference
+		 * @param bases_ Sequence bases
+		 * @param numericID_ Numeric identifier for the contig
+		 */
 		Contig(String name_, byte[] bases_, long numericID_){
 			name=name_;
 			bases=bases_;
@@ -711,12 +758,24 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			depthArray=new AtomicIntegerArray(bases.length);
 		}
 		
+		/**
+		 * Constructs complete scaffold starting from this contig.
+		 * Finds leftmost position and expands rightward to build full sequence.
+		 * @param bb ByteBuilder for sequence construction
+		 * @return Read containing scaffolded sequence
+		 */
 		public Read makeScaffold(ByteBuilder bb) {
 			assert(!processed());
 			Contig leftmost=findLeftmost(this);
 			return expandRight(leftmost, bb);
 		}
 		
+		/**
+		 * Selects highest quality edge connection based on weight and strand consistency.
+		 * Applies filtering thresholds for minimum depth, weight ratio, and strand ratio.
+		 * @param left true to examine left edges, false for right edges
+		 * @return Best qualifying Edge or null if no edges meet criteria
+		 */
 		Edge bestEdge(boolean left) {
 			final LinkedHashMap<String, Edge> map=(left ? leftEdgeMap : rightEdgeMap);
 			if(map.isEmpty()){return null;}
@@ -736,6 +795,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			return best;
 		}
 
+		/**
+		 * Processes mapped read to update coverage and build inter-contig connections.
+		 * Handles singleton reads, proper pairs, and mixed chromosome pairs differently.
+		 * @param sl Mapped SAM line with primary alignment
+		 */
 		void add(SamLine sl){
 			assert(sl.mapped() && sl.primary() && !sl.supplementary());
 			if(sl.nextMapped()){
@@ -754,6 +818,8 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			}
 		}
 		
+		/** Adds coverage for single read based on CIGAR alignment length.
+		 * @param sl SAM line with valid CIGAR string */
 		private void addCoverageSingleton(SamLine sl){
 			assert(sl.cigar!=null);
 			int start=sl.pos-1;
@@ -766,6 +832,11 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Adds coverage for entire insert region of properly paired reads.
+		 * Uses template length to determine coverage span.
+		 * @param sl Leftmost SAM line of proper pair on same chromosome
+		 */
 		private void addCoveragePaired(SamLine sl){
 			assert(sl.cigar!=null);
 			assert(sl.leftmost() && sl.pairedOnSameChrom() && sl.nextMapped());
@@ -799,6 +870,8 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			e.add(sl);
 		}
 		
+		/** Reverses contig orientation by reverse complementing sequence and swapping edge maps.
+		 * Updates strand state and exchanges left/right edge connections. */
 		void flip(){//Be careful with this
 			Vector.reverseComplementInPlace(bases);
 			strand^=1;
@@ -807,30 +880,56 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			rightEdgeMap=temp;
 		}
 		
+		/** Returns the length of the contig sequence.
+		 * @return Number of bases in the contig */
 		int length(){return bases.length;}
 		
+		/** Numeric identifier for the contig */
 		final int numericID;
+		/** Text identifier for the contig from reference headers */
 		final String name;
+		/** Sequence bases for the contig */
 		final byte[] bases;
+		/** Per-base coverage depth tracking array */
 		final AtomicIntegerArray depthArray;
+		/** Current orientation state (0=forward, 1=reverse) */
 		int strand=0;
 
+		/** Indicates if leftward processing is complete */
 		boolean processedLeft=false;
+		/** Indicates if rightward processing is complete */
 		boolean processedRight=false;
+		/** Indicates whether this contig has been included in scaffolding.
+		 * @return true if either left or right processing is complete */
 		boolean processed(){return processedLeft || processedRight;}
 
+		/** Map of left-side connections to other contigs */
 		LinkedHashMap<String, Edge> leftEdgeMap=new LinkedHashMap<String, Edge>();
+		/** Map of right-side connections to other contigs */
 		LinkedHashMap<String, Edge> rightEdgeMap=new LinkedHashMap<String, Edge>();
 	}
 	
+	/** Represents connection between two contigs based on paired read evidence.
+	 * Tracks strand orientation, distance statistics, and connection quality metrics. */
 	private class Edge{
 		
+		/**
+		 * Creates edge connection between source and destination contigs.
+		 * @param source_ Source contig for the connection
+		 * @param dest_ Destination contig for the connection
+		 * @param left_ true if this is a left-side edge from source
+		 */
 		Edge(Contig source_, Contig dest_, boolean left_){
 			source=source_;
 			dest=dest_;
 			leftEdge=left_;
 		}
 
+		/**
+		 * Adds paired read evidence to this edge connection.
+		 * Calculates distance between contigs and updates strand orientation statistics.
+		 * @param sl SAM line providing connection evidence
+		 */
 		void add(SamLine sl){
 			final boolean sameStrandReads=(sl.strand()==sl.mateStrand());
 			final boolean sameStrandContigs=(sameStrandPairs==sameStrandReads);
@@ -864,10 +963,14 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 //			assert(false) : weight;
 		}
 		
+		/** Calculates strand consistency ratio for this edge.
+		 * @return Ratio of dominant strand orientation (0.5-1.0) */
 		public float strandRatio() {
 			return Tools.max(sameStrandCount, difStrandCount)/(float)(sameStrandCount+difStrandCount);
 		}
 		
+		/** Determines if contigs should have same strand orientation.
+		 * @return true if same-strand connections are more frequent */
 		public boolean sameStrand(){
 			return sameStrandCount>=difStrandCount;
 		}
@@ -878,15 +981,25 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 					", same="+sameStrandCount+", dif="+difStrandCount+", bad="+badCount+")";
 		}
 		
+		/** Returns total number of supporting paired reads for this edge.
+		 * @return Sum of same-strand and different-strand counts */
 		long count(){return sameStrandCount+difStrandCount;}
 		
+		/** Source contig for this edge connection */
 		final Contig source;
+		/** Destination contig for this edge connection */
 		final Contig dest;
+		/** Count of read pairs supporting same-strand orientation */
 		long sameStrandCount;
+		/** Count of read pairs supporting different-strand orientation */
 		long difStrandCount;
+		/** Cumulative distance measurements between contigs */
 		long distanceSum;
+		/** Quality-weighted evidence score for this connection */
 		long weight;
+		/** Count of connections exceeding maximum distance threshold */
 		long badCount;
+		/** true if this edge connects to the left side of source contig */
 		final boolean leftEdge;
 	}
 	
@@ -907,6 +1020,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	/** Override output file extension */
 	private String extout=null;
 	
+	/** Optional file path for insert size distribution data */
 	private String insertList=null;
 	
 	/*--------------------------------------------------------------*/
@@ -931,9 +1045,12 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
+	/** Whether properly paired reads should be on same strand */
 	boolean sameStrandPairs=false;
 	
+	/** Count of gaps added between scaffolded contigs */
 	int gapsAdded=0;
+	/** Total number of N bases added as gap sequences */
 	long nsAdded=0;
 	
 	/*--------------------------------------------------------------*/
@@ -941,21 +1058,31 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	/** Threads dedicated to reading the sam file */
 	private int streamerThreads=-1;
 	
+	/** Flag indicating whether reference sequences have been loaded */
 	private boolean loadedRef=false;
 	
+	/** Minimum read depth required for edge connections */
 	private int minDepth=4;
 
+	/** Minimum ratio of best edge weight to total weight */
 	private float minWeightRatio=0.8f;
+	/** Minimum strand consistency ratio for valid connections */
 	private float minStrandRatio=0.8f;
 	
+	/** Minimum number of N bases to insert between scaffolded contigs */
 	private int scaffoldBreakNs=10;
 	
+	/** Maximum allowed distance between paired reads for scaffolding */
 	private int maxPairDist=3000;
 	
+	/** Number of percentile buckets for insert size distribution analysis */
 	private int buckets=1000;
+	/** Thread-safe array tracking insert size frequency distribution */
 	protected AtomicLongArray insertCounts=new AtomicLongArray(20000);
+	/** Insert sizes corresponding to each percentile bucket */
 	protected int[] insertByPercentile;
 	
+	/** Filter configuration for SAM/BAM input processing */
 	public final SamFilter samFilter=new SamFilter();
 	
 	/** Uses full ref names */
@@ -977,6 +1104,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

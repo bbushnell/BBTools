@@ -30,6 +30,7 @@ public class QuantumAlignerConcise2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for aligner instance */
 	public QuantumAlignerConcise2() {}
 
 	/*--------------------------------------------------------------*/
@@ -196,7 +197,10 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return id;
 	}
 	
+	/** Returns -1 indicating loop counting is not implemented */
 	public long loops() {return -1;}
+	/** No-op method for setting loop count.
+	 * @param x Loop count value (ignored) */
 	public void setLoops(long x) {}
 
 	/*--------------------------------------------------------------*/

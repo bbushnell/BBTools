@@ -158,6 +158,12 @@ public class MultiCros2 extends BufferedMultiCros {
 	 */
 	private class Buffer {
 		
+		/**
+		 * Constructs a Buffer for reads with the specified name/barcode.
+		 * Creates FileFormat objects by substituting name into output patterns.
+		 * Initializes read list and sets up file handling with append mode.
+		 * @param name_ The name/barcode for this buffer (replaces % in patterns)
+		 */
 		Buffer(String name_){
 			name=name_;
 			String s1=pattern1.replaceFirst("%", name);
@@ -234,6 +240,11 @@ public class MultiCros2 extends BufferedMultiCros {
 			return size0;
 		}
 		
+		/**
+		 * Deletes the file associated with the given FileFormat if it exists.
+		 * Used for overwrite mode to remove existing files before writing.
+		 * @param ff FileFormat containing the file path to delete, may be null
+		 */
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			File f=new File(ff.name());

@@ -31,6 +31,19 @@ public class GeneCaller extends ProkObject {
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs a GeneCaller with specified thresholds and gene model.
+	 *
+	 * @param minLen_ Minimum gene length in bases
+	 * @param maxOverlapSameStrand_ Maximum overlap for same-strand genes
+	 * @param maxOverlapOppositeStrand_ Maximum overlap for opposite-strand genes
+	 * @param minStartScore_ Minimum start codon score threshold
+	 * @param minStopScore_ Minimum stop codon score threshold
+	 * @param minInnerScore_ Minimum average inner k-mer score
+	 * @param minOrfScore_ Minimum overall ORF score
+	 * @param minAvgScore_ Minimum score per base
+	 * @param pgm_ Gene model containing probability matrices
+	 */
 	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_, 
 			float minStartScore_, float minStopScore_, float minInnerScore_,
 			float minOrfScore_, float minAvgScore_, GeneModel pgm_){
@@ -51,6 +64,12 @@ public class GeneCaller extends ProkObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calls genes on a collection of reads.
+	 * Processes each read individually and combines results.
+	 * @param reads Collection of reads to process
+	 * @return List of all identified ORFs across all reads
+	 */
 	public ArrayList<Orf> callGenes(ArrayList<Read> reads){
 		ArrayList<Orf> orfs=new ArrayList<Orf>();
 		for(Read r : reads) {
@@ -60,14 +79,34 @@ public class GeneCaller extends ProkObject {
 		return orfs;
 	}
 	
+	/**
+	 * Calls genes on a single read using default settings.
+	 * @param r Read to process
+	 * @return List of identified ORFs
+	 */
 	public ArrayList<Orf> callGenes(Read r){
 		return callGenes(r, pgm, true);
 	}
 	
+	/**
+	 * Calls genes on a single read with configurable ORF breaking.
+	 * @param r Read to process
+	 * @param breakOrfs Whether to break long ORFs into multiple starts
+	 * @return List of identified ORFs
+	 */
 	public ArrayList<Orf> callGenes(Read r, boolean breakOrfs){
 		return callGenes(r, pgm, breakOrfs);
 	}
 	
+	/**
+	 * Main gene calling method with full parameter control.
+	 * Identifies ORFs on both strands, calls RNA features, and finds optimal path.
+	 *
+	 * @param r Read to process
+	 * @param pgm_ Gene model to use for scoring
+	 * @param breakOrfs Whether to generate multiple starts per stop
+	 * @return List of non-overlapping ORFs in optimal arrangement
+	 */
 	public ArrayList<Orf> callGenes(Read r, GeneModel pgm_, boolean breakOrfs){
 		pgm=pgm_;
 		assert(pgm!=null);
@@ -199,6 +238,11 @@ public class GeneCaller extends ProkObject {
 		return best1!=null ? best1 : best2;
 	}
 	
+	/**
+	 * Selects the highest-scoring ORF from a list.
+	 * @param list List of ORFs to evaluate
+	 * @return ORF with highest score, or null if list is empty
+	 */
 	final Orf pickBest(ArrayList<Orf> list){
 		if(list==null){return null;}
 		Orf best=null;
@@ -714,6 +758,15 @@ public class GeneCaller extends ProkObject {
 		return orfs;
 	}
 	
+	/**
+	 * Fills array with cumulative count of observed k-mers from reference set.
+	 * Used to validate RNA predictions against known k-mer signatures.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param kmersSeen Output array of cumulative k-mer counts
+	 * @param set Reference k-mer set for this feature type
+	 * @param k K-mer length for rolling hash
+	 */
 	void fillKmersSeen(byte[] bases, int[] kmersSeen, LongHashSet set, int k){
 		final long mask=~((-1L)<<(2*k));
 		long kmer=0;
@@ -733,6 +786,19 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Refines RNA boundaries using start/stop models and alignment validation.
+	 * Tests all combinations of potential start and stop positions within slop range.
+	 * Validates refined ORF against consensus sequences if available.
+	 *
+	 * @param orf RNA candidate to refine (modified in place)
+	 * @param bases Sequence bases
+	 * @param strand Current strand
+	 * @param sc Statistics container for scoring
+	 * @param scores Cumulative k-mer scores array
+	 * @param kmersSeen K-mer observation counts (may be null)
+	 * @return true if refinement successful, false if ORF should be rejected
+	 */
 	boolean refineRna(Orf orf, byte[] bases, int strand, StatsContainer sc, float[] scores, int[] kmersSeen){
 		if(orf==null){return false;}
 		if(verbose){System.err.println("REFINE: "+orf.toStringFlipped());}
@@ -849,6 +915,16 @@ public class GeneCaller extends ProkObject {
 		return refineByAlignment(orf, bases, strand, sc);//Returns true if no consensus is present
 	}
 	
+	/**
+	 * Refines ORF boundaries by alignment to consensus sequences.
+	 * Attempts alignment with all available consensus sequences for the feature type.
+	 *
+	 * @param orf ORF to refine
+	 * @param bases Sequence bases
+	 * @param strand Current strand
+	 * @param sc Statistics container with consensus data
+	 * @return true if successful alignment found
+	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc){
 		if(verbose){System.err.println("ALIGN");}
 		Read[] consensus=ProkObject.consensusReads(sc.type);
@@ -1273,13 +1349,21 @@ public class GeneCaller extends ProkObject {
 	GeneModel pgm;
 	
 	//Gene-calling cutoffs
+	/** Minimum gene length in bases to consider */
 	final int minLen;
+	/** Maximum overlap allowed between genes on the same strand */
 	final int maxOverlapSameStrand;
+	/** Maximum overlap allowed between genes on opposite strands */
 	final int maxOverlapOppositeStrand;
+	/** Minimum start codon score threshold */
 	final float minStartScore;
+	/** Minimum stop codon score threshold */
 	final float minStopScore;
+	/** Minimum average inner k-mer score threshold */
 	final float minInnerScore;
+	/** Minimum overall ORF score threshold */
 	final float minOrfScore;
+	/** Minimum average score per base threshold */
 	final float minAvgScore;
 
 //	static float[] cutoff1=new float[] {0, 40f, 200f, 150f, 45f};
@@ -1355,37 +1439,68 @@ public class GeneCaller extends ProkObject {
 //	static float[] biases=new float[] {1f, 1.50f, 1.30f, 1.30f, 1.55f, 1.30f};
 
 //	{"CDS", "tRNA", "16S", "23S", "5S", "18S", "28S", "RNA"};
+	/** Sum score cutoffs for initial RNA detection by feature type */
 	static float[] cutoff1=new float[] {0, 20f, 300f, 400f, 100f, 400f};//sum score
+	/** ORF score cutoffs for refined RNA evaluation by feature type */
 	static float[] cutoff2=new float[] {0, 36f, 300f, 300f, 32f, 300f};//orf score //tRNA is very sensitive here
+	/** Start score thresholds for RNA boundary refinement by feature type */
 	static float[] cutoff3=new float[] {0, 2.4f, 1.65f, 1.6f, 1.8f, 1.5f};//start score
+	/** Stop score thresholds for RNA boundary refinement by feature type */
 	static float[] cutoff4=new float[] {0, 1.5f, 1.70f, 0.90f, 1.0f, 1.1f};//stop score
+	/** Inner k-mer score thresholds for RNA validation by feature type */
 	static float[] cutoff5=new float[] {0, 2.2f, 1.70f, 1.55f, 2.6f, 1.5f};//inner score
+	/** Score multipliers applied to final scores by feature type */
 	static float[] scoreMult=new float[] {1f, 1.0f, 35f, 80f, 1.25f, 35f};//score mult
+	/** Bias values for k-mer probability calculations by feature type */
 	static float[] biases=new float[] {1f, 1.45f, 1.30f, 1.30f, 1.55f, 1.50f};
 	
+	/** Counter for total gene stops created during processing */
 	long geneStopsMade=0;
+	/** Counter for total gene starts created during processing */
 	long geneStartsMade=0;
+	/** Counter for gene starts retained after filtering */
 	long geneStartsRetained=0;
+	/** Counter for gene stops retained after filtering */
 	long geneStopsRetained=0;
+	/** Counter for final gene starts in output path */
 	long geneStartsOut=0;
 
+	/** Counter for tRNA features in final output */
 	long tRNAOut=0;
+	/** Counter for 16S rRNA features in final output */
 	long r16SOut=0;
+	/** Counter for 23S rRNA features in final output */
 	long r23SOut=0;
+	/** Counter for 5S rRNA features in final output */
 	long r5SOut=0;
+	/** Counter for 18S rRNA features in final output */
 	long r18SOut=0;	
 	
+	/** Score tracker for CDS features during processing */
 	ScoreTracker stCds=new ScoreTracker(CDS);
+	/** Secondary score tracker for CDS features */
 	ScoreTracker stCds2=new ScoreTracker(CDS);
+	/** Score tracker for CDS features passing final filters */
 	ScoreTracker stCdsPass=new ScoreTracker(CDS);
+	/** Score tracker for tRNA features */
 	ScoreTracker sttRNA=new ScoreTracker(tRNA);
+	/** Score tracker for 16S rRNA features */
 	ScoreTracker st16s=new ScoreTracker(r16S);
+	/** Score tracker for 23S rRNA features */
 	ScoreTracker st23s=new ScoreTracker(r23S);
+	/** Score tracker for 5S rRNA features */
 	ScoreTracker st5s=new ScoreTracker(r5S);
+	/** Score tracker for 18S rRNA features */
 	ScoreTracker st18s=new ScoreTracker(r18S);
 	
+	/** Array of all score trackers for different feature types */
 	ScoreTracker[] trackers=new ScoreTracker[] {stCdsPass, sttRNA, st16s, st23s, st5s, st18s};
 	
+	/**
+	 * Gets thread-local SingleStateAlignerFlat2 instance.
+	 * Creates new instance if none exists for current thread.
+	 * @return SingleStateAlignerFlat2 for current thread
+	 */
 	public static SingleStateAlignerFlat2 getSSA(){
 		SingleStateAlignerFlat2 ssa=localSSA.get();
 		if(ssa==null){
@@ -1400,6 +1515,11 @@ public class GeneCaller extends ProkObject {
 		return ssa;
 	}
 	
+	/**
+	 * Gets thread-local SingleStateAlignerFlat3 instance.
+	 * Creates new instance if none exists for current thread.
+	 * @return SingleStateAlignerFlat3 for current thread
+	 */
 	public static SingleStateAlignerFlat3 getSSA3(){
 		SingleStateAlignerFlat3 ssa=localSSA3.get();
 		if(ssa==null){
@@ -1414,6 +1534,11 @@ public class GeneCaller extends ProkObject {
 		return ssa;
 	}
 	
+	/**
+	 * Gets thread-local SingleStateAlignerFlatFloat instance.
+	 * Creates new instance if none exists for current thread.
+	 * @return SingleStateAlignerFlatFloat for current thread
+	 */
 	public static SingleStateAlignerFlatFloat getSSAF(){
 		SingleStateAlignerFlatFloat ssa=localSSAF.get();
 		if(ssa==null){
@@ -1428,41 +1553,65 @@ public class GeneCaller extends ProkObject {
 		return ssa;
 	}
 	
+	/** Whether to retain at least one ORF even if it fails quality filters */
 	public boolean keepAtLeastOneOrf=false;
 
+	/** Thread-local storage for SingleStateAlignerFlat2 instances */
 	private static ThreadLocal<SingleStateAlignerFlat2> localSSA=new ThreadLocal<SingleStateAlignerFlat2>();
+	/** Thread-local storage for SingleStateAlignerFlat3 instances */
 	private static ThreadLocal<SingleStateAlignerFlat3> localSSA3=new ThreadLocal<SingleStateAlignerFlat3>();
+	/** Thread-local storage for SingleStateAlignerFlatFloat instances */
 	private static ThreadLocal<SingleStateAlignerFlatFloat> localSSAF=new ThreadLocal<SingleStateAlignerFlatFloat>();
 //	public static int maxAlignmentEndpointDifference=15;
+	/** Padding bases added around ORF boundaries for alignment */
 	public static int alignmentPadding=300;
+	/** Padding bases for IDAligner-specific alignments */
 	public static int alignmentPaddingIDA=80;//TODO: Recur for edge alignments, and add start hint
+	/** Whether to use IDAligner instead of SingleStateAligner for refinement */
 	public static boolean useIDAligner=false;//Quantum/Drifting are fastest
 	
+	/** Maximum number of alternative starts to generate per stop codon */
 	public static int breakLimit=12;
+	/** Lookback distance for plus-strand path scoring */
 	public static int lookbackPlus=70;
+	/** Lookback distance for minus-strand path scoring */
 	public static int lookbackMinus=25;
 	
 //	pathScore+=p0+p1*(Tools.mid(p5*(p2+pathLength), p6*(p3-pathLength), p4));
 	
 	//Operon length modifiers for same strand
+	/** Base penalty constant for same-strand operon scoring */
 	public static float p0=-30f;
+	/** Length-dependent coefficient for same-strand operon scoring */
 	public static float p1=-0.35f; //Sensitive - higher decreases FP and TP
+	/** Positive length bias parameter for same-strand scoring */
 	public static float p2=4.0f;//Insensitive - higher positive decreases FP and TP
+	/** Negative length bias parameter for same-strand scoring */
 	public static float p3=12f; //Higher decreases FP (substantially) and TP (slightly)
+	/** Minimum penalty floor for same-strand scoring */
 	public static float p4=-10f; //Lower decreases FP (weakly) and TP (greatly)
+	/** Positive length scaling factor for same-strand scoring */
 	public static float p5=2.0f; //Insensitive - lower increases FP and TP
+	/** Negative length scaling factor for same-strand scoring */
 	public static float p6=2f; //Greater increases FP and TP
 	
 //	pathScore+=q1+Tools.mid(q2*prevLength, q3+q4*prevLength, q5);
 	
 	//Operon length modifiers for opposite strand
+	/** Base penalty constant for opposite-strand transitions */
 	public static float q1=-36f;
+	/** Previous length coefficient for opposite-strand scoring */
 	public static float q2=-1.6f; //q2 and q4 must have opposite signs
+	/** Base value for opposite-strand length adjustment */
 	public static float q3=-12f;
+	/** Previous length multiplier for opposite-strand scoring */
 	public static float q4=3.0f; //(Lower [even negative] decreases FP and TP)
+	/** Maximum penalty ceiling for opposite-strand scoring */
 	public static float q5=-40f;
 	
+	/** Output stream for debugging messages */
 	private static PrintStream outstream=System.err;
+	/** Whether to print verbose debugging output */
 	static boolean verbose;
 	
 }

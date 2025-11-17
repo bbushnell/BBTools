@@ -205,6 +205,20 @@ public class CrossCutAligner implements IDAligner{
 		return postprocess(bottom, qLen, rLen, posVector); // Process and return final result
 	}
 	
+	/**
+	 * Handles top row (row=1) cell processing in diagonal iteration.
+	 * Calculates cell value for matrix positions where row=1 and processes boundary conditions.
+	 * Updates bottom array for special case when qLen=1.
+	 *
+	 * @param q Query base at current position
+	 * @param r Reference base at current position
+	 * @param qLen Query sequence length
+	 * @param col Column position being processed
+	 * @param diag_k Current diagonal array
+	 * @param diag_km1 Previous diagonal array
+	 * @param bottom Bottom row tracking array
+	 * @return Calculated cell value with bit-packed score, position, and deletion count
+	 */
 	private static final long handleTop(long q, long r, int qLen, int col,
 			long[] diag_k, long[] diag_km1, long[] bottom) {
 		final int row=1;//This function is only for row 1
@@ -234,6 +248,20 @@ public class CrossCutAligner implements IDAligner{
 		return maxValue;
 	}
 	
+	/**
+	 * Handles left column (col=1) cell processing in diagonal iteration.
+	 * Calculates cell value for matrix positions where col=1 and processes boundary conditions.
+	 * Updates bottom array when row=qLen (bottom row).
+	 *
+	 * @param q Query base at current position
+	 * @param r Reference base at current position
+	 * @param qLen Query sequence length
+	 * @param row Row position being processed
+	 * @param diag_k Current diagonal array
+	 * @param diag_km1 Previous diagonal array
+	 * @param bottom Bottom row tracking array
+	 * @return Calculated cell value with bit-packed score, position, and deletion count
+	 */
 	private static final long handleLeft(long q, long r, int qLen, int row,
 			long[] diag_k, long[] diag_km1, long[] bottom) {
 		final int col=1;//This function is only for column 1
@@ -287,6 +315,18 @@ public class CrossCutAligner implements IDAligner{
 	    return (maxDiagUp&SCORE_MASK)>=leftScore?maxDiagUp:leftScore; // Compare with left
 	}
 
+	/**
+	 * Post-processes alignment results using mathematical constraint solving.
+	 * Finds optimal alignment position in bottom row and extracts operation counts.
+	 * Uses constraint system M+S+I=qLen, M+S+D=refAlnLength, Score=M-S-I-D for exact recovery.
+	 * Handles special cases for negative scores and misaligned sequences.
+	 *
+	 * @param bottom Bottom row array containing final alignment scores
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for returning {rStart, rStop} coordinates
+	 * @return Identity score (0.0-1.0) based on exact operation counts
+	 */
 	private static final float postprocess(long[] bottom, int qLen, int rLen, int[] posVector) {
 
 		if(debug) { // If debug mode is on
@@ -390,9 +430,13 @@ public class CrossCutAligner implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter tracking total matrix cells processed across all alignments
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
 	public long loops() {return loops.get();}
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for alignment matrix visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -400,26 +444,47 @@ public class CrossCutAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits (21) allocated for position encoding in bit-packed values */
 	private static final int POSITION_BITS=21;
+	/**
+	 * Number of bits (21) allocated for deletion count encoding in bit-packed values
+	 */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount (42) for score field in 64-bit packed encoding */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting 21-bit position field from packed values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting 21-bit deletion count field from packed values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting 22-bit score field from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Bit-shifted match score (+1) for alignment scoring */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Bit-shifted substitution penalty (-1) for alignment scoring */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Bit-shifted insertion penalty (-1) for alignment scoring */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Bit-shifted deletion penalty (-1) for alignment scoring */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/**
+	 * Score (0) assigned when either query or reference contains ambiguous nucleotide
+	 */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid or uninitialized matrix cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/**
+	 * Combined deletion penalty and position increment for efficient bit-packed operations
+	 */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing detailed operation counts during postprocessing */
 	private static final boolean PRINT_OPS=false;
+	/** Debug flag for detailed alignment matrix processing output */
 	public static final boolean debug=false;
 
 }

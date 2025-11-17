@@ -387,27 +387,42 @@ public class SampleSet implements Cloneable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the number of input features in the underlying matrix */
 	final int numInputs() {return matrix.numInputs();}
+	/** Returns the number of output features in the underlying matrix */
 	final int numOutputs() {return matrix.numOutputs();}
+	/**
+	 * Returns the midpoint value for output classification from the underlying matrix
+	 */
 	final float outputMidpoint() {return matrix.outputMidpoint();}
 
+	/** The underlying data matrix containing inputs, outputs, and weights */
 	final Matrix matrix;
 	int numPositive=0, numNegative=0;
+	/** Array of all samples in their current order */
 	Sample[] samples;
+	/** Array of samples sorted by their predicted result values */
 	Sample[] samplesSortedByResult;
+	/** Array of sample subsets for cross-validation training */
 	private Subset[] subsets;
 	
+	/** Index of the currently active subset */
 	private int currentSubset=0;
+	/** Number of times the samples have been shuffled */
 	private int numShuffles=0;
+	/** Seed value for reproducible sample shuffling */
 	static long shuffleSeed=0;
+	/** Whether to shuffle samples during subset transitions */
 	static boolean shuffle=true;
 	
+	/** The epoch number when the next subset transition should occur */
 	int nextSubsetEpoch=subsetInterval;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Number of epochs between subset transitions during training */
 	static int subsetInterval=64;
 	
 }

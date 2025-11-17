@@ -71,6 +71,8 @@ public class LogLog_old {
 //		assert(false) : "steps="+steps+", "+tables.length+", "+tables[0].length+", "+tables[0][0].length;
 	}
 	
+	/** Program entry point for LogLog cardinality estimation.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		LogLogWrapper llw=new LogLogWrapper(args);
 		
@@ -88,10 +90,18 @@ public class LogLog_old {
 //		return cardinality(mult);
 //	}
 	
+	/** Estimates cardinality using standard LogLog formula with default multiplier.
+	 * @return Estimated number of distinct elements */
 	public final long cardinality(){
 		return cardinality(0.7947388);
 	}
 	
+	/**
+	 * Estimates cardinality using LogLog formula with specified multiplier.
+	 * Formula: ((2^mean - 1) * buckets * SKIPMOD) / 1.258275
+	 * @param mult Multiplier parameter (currently unused in calculation)
+	 * @return Estimated number of distinct elements
+	 */
 	public final long cardinality(double mult){
 		long sum=0;
 		//assert(atomic);
@@ -110,6 +120,11 @@ public class LogLog_old {
 		return cardinality;
 	}
 	
+	/**
+	 * Estimates cardinality using harmonic mean formula.
+	 * Alternative calculation method for comparison purposes.
+	 * @return Estimated cardinality using harmonic mean
+	 */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArrayA.length(); i++){
@@ -144,21 +159,42 @@ public class LogLog_old {
 		return code;
 	}
 	
+	/** Adds a number to the LogLog sketch.
+	 * @param number Number to add */
 	public void add(long number){
 		hash(number);
 	}
 	
+	/**
+	 * Processes a read and its mate, extracting and hashing k-mers.
+	 * Only processes reads/mates that are at least k bases long.
+	 * @param r Read to process (may be null)
+	 */
 	public void hash(Read r){
 		if(r==null){return;}
 		if(r.length()>=k){hash(r.bases, r.quality);}
 		if(r.mateLength()>=k){hash(r.mate.bases, r.mate.quality);}
 	}
 	
+	/**
+	 * Hashes k-mers from a sequence, choosing small or big k-mer handling.
+	 * Routes to hashSmall for k<32 or hashBig for k>=32.
+	 * @param bases DNA sequence bases
+	 * @param quals Quality scores (may be null)
+	 */
 	public void hash(byte[] bases, byte[] quals){
 		if(k<32){hashSmall(bases, quals);}
 		else{hashBig(bases, quals);}
 	}
 	
+	/**
+	 * Processes k-mers from sequences where k < 32 using long integers.
+	 * Maintains rolling forward and reverse k-mers with quality filtering.
+	 * Only adds canonical k-mers (lexicographically smaller of forward/reverse).
+	 *
+	 * @param bases DNA sequence bases
+	 * @param quals Quality scores for probability filtering (may be null)
+	 */
 	public void hashSmall(byte[] bases, byte[] quals){
 		final int shift=2*k;
 		final int shift2=shift-2;
@@ -218,6 +254,12 @@ public class LogLog_old {
 		}
 	}
 	
+	/**
+	 * Processes k-mers from sequences where k >= 32 using Kmer objects.
+	 * Uses thread-local Kmer objects for efficient large k-mer handling.
+	 * @param bases DNA sequence bases
+	 * @param quals Quality scores for probability filtering (may be null)
+	 */
 	public void hashBig(byte[] bases, byte[] quals){
 		
 		Kmer kmer=getLocalKmer();
@@ -247,6 +289,11 @@ public class LogLog_old {
 		}
 	}
 	
+	/**
+	 * Merges another LogLog into this one by taking maximum values in each bucket.
+	 * Supports both atomic and non-atomic array operations.
+	 * @param log LogLog to merge into this one
+	 */
 	public void add(LogLog_old log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -286,6 +333,15 @@ public class LogLog_old {
 		}
 	}
 	
+	/**
+	 * Generates randomized lookup tables for hash functions.
+	 * Creates tables with controlled bit counts (31-33 bits set) for good distribution.
+	 *
+	 * @param length Number of steps in hash function
+	 * @param bits Bits per step
+	 * @param seed Random seed for reproducible tables
+	 * @return 2D array of hash lookup values
+	 */
 	private static long[][] makeCodes(int length, int bits, long seed){
 		Random randy=Shared.threadLocalRandom(seed);
 		int modes=1<<bits;
@@ -306,20 +362,39 @@ public class LogLog_old {
 		return r;
 	}
 	
+	/** K-mer length for sequence processing */
 	public final int k;
+	/** Number of hash tables used (fixed at 4) */
 	public final int numTables=4;
+	/** Bit mask for selecting hash table (numTables-1) */
 	public final int numTablesMask=numTables-1;
+	/** Number of bits processed per hash step */
 	public final int bits;
+	/**
+	 * Minimum probability threshold for including k-mers based on quality scores
+	 */
 	public final float minProb;
 //	public final int hashes;
+	/** Number of steps in hash function calculation */
 	public final int steps;
+	/** Lookup tables for hash function calculation */
 	private final long[][][] tables;
+	/** Atomic array for bucket maximum values in multithreaded mode */
 	public final AtomicIntegerArray maxArrayA;
+	/** Regular array for bucket maximum values in single-threaded mode */
 	public final int[] maxArray;
+	/** Number of buckets in the LogLog sketch */
 	public final int buckets;
+	/** Bit mask for selecting bucket index (buckets-1) */
 	public final int bucketMask;
+	/** Thread-local storage for Kmer objects used in large k-mer processing */
 	private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
 	
+	/**
+	 * Gets a thread-local Kmer object for large k-mer processing.
+	 * Creates new Kmer if none exists for current thread, clears and returns it.
+	 * @return Thread-local Kmer object, cleared and ready for use
+	 */
 	protected Kmer getLocalKmer(){
 		Kmer kmer=localKmer.get();
 		if(kmer==null){
@@ -542,13 +617,24 @@ public class LogLog_old {
 		/*--------------------------------------------------------------*/
 	}
 	
+	/**
+	 * Lookup table for probability that a base with given quality score is correct
+	 */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 128);
+	/**
+	 * Lookup table for inverse probability values for quality score calculations
+	 */
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 128);
 	
+	/** Output stream for messages */
 	private static PrintStream outstream=System.err;
+	/** Enable verbose output messages */
 	public static boolean verbose=false;
+	/** Whether to use atomic operations for thread safety (fixed at true) */
 	public static final boolean atomic=true;
+	/** Modulus value for skipping hash values (set to 3) */
 	private static final long SKIPMOD=3;
+	/** Last calculated cardinality value for reference */
 	public static long lastCardinality=-1;
 	
 }

@@ -34,6 +34,7 @@ public class DriftingPlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a new DriftingPlusAligner2 instance with default settings */
 	public DriftingPlusAligner2() {}
 
 	/*--------------------------------------------------------------*/
@@ -292,9 +293,18 @@ public class DriftingPlusAligner2 implements IDAligner{
 		return id;
 	}
 
+	/**
+	 * Thread-safe counter for total alignment loop iterations across all instances
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Returns total loop iterations performed by all aligner instances */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/**
+	 * Output file path for alignment visualization (null disables visualization)
+	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -302,26 +312,41 @@ public class DriftingPlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits used to store reference position in score field */
 	private static final int POSITION_BITS=21;
+	/** Number of bits used to store deletion count in score field */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount to access alignment score in packed field */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask for extracting reference position from score field */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting deletion count from score field */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting alignment score from packed field */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases (+1 in high bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 in high bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in high bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in high bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for alignments involving ambiguous bases (N) - no penalty */
 	private static final long N_SCORE=0L;
+	/** Score representing invalid/impossible alignment states */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined score and position increment for deletion operations */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
+	/** Whether to use global alignment scoring (false = glocal alignment) */
 	public static final boolean GLOBAL=false;
 
 }

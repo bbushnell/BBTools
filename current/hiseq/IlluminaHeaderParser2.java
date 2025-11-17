@@ -48,6 +48,8 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Test method for header parsing functionality.
+	 * @param args Command-line arguments, first argument used as test header */
 	public static void main(String[] args) {
 		IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 		ihp.test(args.length>0 ? args[0] : null);
@@ -57,6 +59,12 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses an Illumina sequencing read header and initializes internal state.
+	 * Tokenizes the header using colon delimiter and locates whitespace separator.
+	 * @param id_ The complete read header string to parse
+	 * @return This parser instance for method chaining
+	 */
 	public IlluminaHeaderParser2 parse(String id_) {
 		id=id_;
 		lp.set(id_);
@@ -64,14 +72,29 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 		return this;
 	}
 	
+	/**
+	 * Determines if this header can be shortened by removing redundant information.
+	 * A header can be shrunk if it looks valid but is not already in shrunk format.
+	 * @return true if header can be compressed to save space
+	 */
 	public boolean canShrink() {
 		return looksValid() && !looksShrunk();
 	}
 	
+	/**
+	 * Validates header structure by checking term count and whitespace position.
+	 * Valid headers have 8+ terms with whitespace at position 6 or 7.
+	 * @return true if header appears to be valid Illumina format
+	 */
 	public boolean looksValid() {
 		return(lp.terms()>=8 && whitespaceIndex>=6 && whitespaceIndex<=7);
 	}
 	
+	/**
+	 * Checks if header is already in compressed format.
+	 * Shrunk headers have >3 terms with the third term starting at position 2.
+	 * @return true if header is already compressed
+	 */
 	public boolean looksShrunk() {
 		return(lp.terms()>3 && lp.bounds().get(2)==2);
 	}
@@ -137,15 +160,35 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 		return lp.terms()<=whitespaceIndex+5 ? null : lp.parseString(whitespaceIndex+5);
 	}
 	
+	/**
+	 * Appends a specific term from the parsed header to a ByteBuilder.
+	 * Provides efficient access to individual header components.
+	 *
+	 * @param bb ByteBuilder to append to
+	 * @param term Term index to append
+	 * @return The modified ByteBuilder for method chaining
+	 */
 	public ByteBuilder appendTerm(ByteBuilder bb, int term) {
 		return lp.appendTerm(bb, term);
 	}
 	
+	/**
+	 * Appends coordinate information in lane:tile:x:y format to ByteBuilder.
+	 * Creates standardized coordinate string representation.
+	 * @param bb ByteBuilder to append coordinates to
+	 * @return The modified ByteBuilder with coordinate information
+	 */
 	public ByteBuilder appendCoordinates(ByteBuilder bb) {
 		return bb.append(lane()).colon().append(tile()).colon()
 		.append(xPos()).colon().append(yPos());
 	}
 	
+	/**
+	 * Encodes coordinate information into a single long value using bit shifting.
+	 * Packs lane (upper bits), tile (17 bits), x-position (20 bits),
+	 * and y-position (20 bits) for efficient storage and comparison.
+	 * @return Encoded coordinate value as long integer
+	 */
 	public long encodeCoordinates() {
 		long x=lane();
 		x=(x<<17)^tile();
@@ -158,8 +201,11 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Line parser configured with colon delimiter for header tokenization */
 	private final LineParserS3 lp=new LineParserS3(':');
+	/** Returns the internal line parser for direct access */
 	public LineParser lp() {return lp;}
+	/** Index position of whitespace separator in tokenized header, -1 if unset */
 	int whitespaceIndex=-1;
 	
 }

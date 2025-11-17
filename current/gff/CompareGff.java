@@ -153,6 +153,12 @@ public class CompareGff {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method for GFF comparison analysis.
+	 * Loads reference GFF, processes query lines, calculates statistics,
+	 * and outputs comprehensive comparison metrics including SNR.
+	 * @param t Timer for performance tracking
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -197,6 +203,12 @@ public class CompareGff {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core comparison logic between reference and query GFF files.
+	 * Builds hash maps from reference file for efficient lookup, then processes
+	 * each query line to determine true/false positives and negatives.
+	 * @param bf ByteFile reader for the query GFF file
+	 */
 	@SuppressWarnings("unchecked")
 	private void processInner(ByteFile bf){
 		byte[] line=bf.nextLine();
@@ -253,6 +265,12 @@ public class CompareGff {
 		}
 	}
 	
+	/**
+	 * Processes individual query GFF line against reference data.
+	 * Compares feature type, strand, start, and stop positions to classify
+	 * as true positive, false positive, or false negative matches.
+	 * @param gline Query GFF line to evaluate against reference
+	 */
 	private void processLine(GffLine gline){
 //		boolean cds=gline.type.equals("CDS");
 //		boolean trna=gline.type.equals("tRNA");
@@ -305,14 +323,19 @@ public class CompareGff {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Input query GFF file path */
 	private String in=null;
+	/** Reference GFF file path for comparison */
 	private String ref=null;
 	
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maps sequence ID and stop position to reference GFF lines for lookup */
 	private HashMap<StringNum, GffLine> lineMap;
+	/** Tracks count of start position matches for each reference feature */
 	private HashMap<StringNum, Integer> startCountMap;
+	/** Tracks count of stop position matches for each reference feature */
 	private HashMap<StringNum, Integer> stopCountMap;
 	
 //	private HashMap<Integer, ArrayList<GffLine>> map;
@@ -321,43 +344,67 @@ public class CompareGff {
 //	private HashSet<Integer> stopSetM;
 //	private HashSet<Integer> startSetM;
 	
+	/** Total number of input lines processed */
 	private long linesProcessed=0;
+	/** Number of lines written to output */
 	private long linesOut=0;
+	/** Total bytes read from input files */
 	private long bytesProcessed=0;
+	/** Total bytes written to output files */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process (configurable limit) */
 	private long maxLines=Long.MAX_VALUE;
 
+	/** Count of incorrect start positions in query (reference-relative) */
 	private long falsePositiveStart=0;
+	/** Count of incorrect stop positions in query (reference-relative) */
 	private long falsePositiveStop=0;
+	/** Count of correct start positions in query (reference-relative) */
 	private long truePositiveStart=0;
+	/** Count of correct stop positions in query (reference-relative) */
 	private long truePositiveStop=0;
+	/** Count of missing start positions in query (reference features not found) */
 	private long falseNegativeStart=0;
+	/** Count of missing stop positions in query (reference features not found) */
 	private long falseNegativeStop=0;
 	
+	/** Count of incorrect start positions in query (query-relative) */
 	private long falsePositiveStart2=0;
+	/** Count of incorrect stop positions in query (query-relative) */
 	private long falsePositiveStop2=0;
+	/** Count of correct start positions in query (query-relative) */
 	private long truePositiveStart2=0;
+	/** Count of correct stop positions in query (query-relative) */
 	private long truePositiveStop2=0;
 	
+	/** Total number of features in reference GFF file */
 	private long refCount=0;
+	/** Total number of features in query GFF file */
 	private long queryCount=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** File format handler for input query GFF file */
 	private final FileFormat ffin;
+	/** File format handler for reference GFF file */
 	private final FileFormat ffref;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for results and error messages */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
+	/** Tracks whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

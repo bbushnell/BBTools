@@ -21,6 +21,7 @@ public class WaveFrontAligner2 implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
+    /** Default constructor for WaveFrontAligner2 */
     public WaveFrontAligner2() {}
 
 	@Override
@@ -36,11 +37,34 @@ public class WaveFrontAligner2 implements IDAligner {
         return alignStatic(a, b, pos, rStart, rStop);
     }
     
+	/**
+	 * Thread-safe counter for tracking algorithm loop iterations across instances
+	 */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the current loop counter value for performance metrics */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value for performance tracking.
+	 * @param x New loop counter value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output string for debugging or result storage */
 	public static String output=null;
 	
+	/**
+	 * Core wavefront alignment algorithm implementation.
+	 * Uses dynamic programming with wavefront propagation to compute global alignment.
+	 * Tracks both edit distance and match count to calculate precise identity scores.
+	 *
+	 * The algorithm works by:
+	 * 1. Initializing wavefronts for each edit distance level
+	 * 2. Extending matches along diagonals as far as possible
+	 * 3. Propagating edit operations (insertion, deletion, substitution) to next wavefront
+	 * 4. Continuing until complete alignment is found or maximum edit distance reached
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param posVector Array to store alignment start/end positions (may be null)
+	 * @return Identity score as fraction of matches over total alignment length
+	 */
 	public static float alignStatic(byte[] query, byte[] ref, int[] posVector){
 	    final int qLen=query.length;
 	    final int rLen=ref.length;

@@ -101,6 +101,7 @@ public class SamStreamer implements Streamer {
 	@Override
 	public ListNum<Read> nextList(){return nextReads();}
 	
+	/** Returns the next batch of parsed Read objects from the processing queue */
 	public ListNum<Read> nextReads(){
 		assert(makeReads);
 		ListNum<SamLine> lines=nextLines();
@@ -339,7 +340,9 @@ public class SamStreamer implements Streamer {
 	
 	final OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>> oqs;
 	
+	/** Number of worker threads for concurrent processing */
 	final int threads;
+	/** Whether to preserve SAM header lines during processing */
 	final boolean saveHeader;
 	final boolean makeReads;
 	
@@ -359,6 +362,7 @@ public class SamStreamer implements Streamer {
 
 	public static int TARGET_LIST_SIZE=200;
 	public static int TARGET_LIST_BYTES=250000;
+	/** Default number of processing threads when not specified */
 	public static int DEFAULT_THREADS=3;
 	
 	/*--------------------------------------------------------------*/

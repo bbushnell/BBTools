@@ -3,14 +3,36 @@ package var;
 import dna.Gene;
 
 
+/**
+ * Represents a single genomic variant with detailed parsing and conversion capabilities.
+ * Extends Variation to add haplotype information and specialized parsing
+ * for tab-delimited variant files.
+ * Supports multiple version formats and provides string conversion methods
+ * for different output formats.
+ *
+ * @author Brian Bushnell
+ */
 public class VarLine extends Variation{
 	
+	/**
+	 * Serialization version identifier for maintaining compatibility across versions
+	 */
 	public static final long serialVersionUID = -4089933371294357462L;
 	
 //	>locus  ploidy  haplotype       chromosome      begin   end     varType reference       alleleSeq       totalScore      hapLink xRef
 
+	/** Default constructor creates an empty VarLine instance */
 	public VarLine(){}
 
+	/**
+	 * Constructs a VarLine by parsing a tab-delimited string representation.
+	 * Supports multiple version formats with different column arrangements.
+	 * Version 1 uses totalScore and hapLink directly, while version 2+ uses
+	 * varScoreVAF, varScoreEAF, and varQuality fields.
+	 *
+	 * @param s Tab-delimited string containing variant data
+	 * @param version Format version number affecting column interpretation
+	 */
 	public VarLine(String s, float version){
 		String[] line=s.split("\t", -1);
 		
@@ -102,6 +124,11 @@ public class VarLine extends Variation{
 		return v;
 	}
 	
+	/**
+	 * Splits a heterozygous variant (haplotype 3) into two separate haplotypes.
+	 * Creates two VarLine copies with haplotypes 1 and 2 respectively.
+	 * @return Array of two VarLine objects representing individual haplotypes
+	 */
 	public VarLine[] splitLine(){
 		assert(haplotype==3) : this;
 		VarLine[] r=new VarLine[2];
@@ -113,6 +140,11 @@ public class VarLine extends Variation{
 		return r;
 	}
 	
+	/**
+	 * Creates a reference point variant from this point variant.
+	 * Sets variant type to REFPOINT and clears reference and call sequences.
+	 * @return New VarLine representing a reference point at the same location
+	 */
 	public VarLine spawnEqualPoint(){
 		assert(this.isPoint());
 		VarLine v=this.clone();
@@ -121,6 +153,14 @@ public class VarLine extends Variation{
 		return v;
 	}
 	
+	/**
+	 * Creates a reference point variant at the specified genomic location.
+	 *
+	 * @param chrom Chromosome identifier
+	 * @param loc Genomic position
+	 * @param hap Haplotype identifier
+	 * @return New VarLine representing a reference point
+	 */
 	public static VarLine makeEqualPoint(byte chrom, int loc, byte hap){
 		VarLine v=new VarLine();
 		v.chromosome=chrom;
@@ -155,6 +195,8 @@ public class VarLine extends Variation{
 		return sb.toString();
 	}
 	
+	/** Returns the header line for source format output files.
+	 * @return Tab-delimited header string with column names */
 	public static String sourceHeader(){
 		return "#locus\tploidy\tallele\tchromosome\tbegin\tend\tvarType\treference\talleleSeq\ttotalScore\thapLink\txRef";
 //		return "#locus\tploidy\tallele\tchromosome\tbegin\tend\tvarType\treference\talleleSeq\t
@@ -208,6 +250,12 @@ public class VarLine extends Variation{
 	
 	@SuppressWarnings("unused")
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/**
+	 * Returns the maximum of two integer values.
+	 * @param x First integer
+	 * @param y Second integer
+	 * @return The larger of the two values
+	 */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	
@@ -219,6 +267,12 @@ public class VarLine extends Variation{
 		return super.compareTo(other);
 	}
 	
+	/**
+	 * Compares this VarLine to another VarLine for ordering.
+	 * First compares using superclass comparison, then by haplotype if equal.
+	 * @param other VarLine to compare against
+	 * @return Negative, zero, or positive integer for less than, equal to, or greater than
+	 */
 	public int compareTo(VarLine other) {
 		int x=super.compareTo((Variation)other);
 		if(x!=0){return x;}
@@ -233,6 +287,12 @@ public class VarLine extends Variation{
 		return super.equals(other);
 	}
 	
+	/**
+	 * Tests equality with another VarLine.
+	 * Uses compareTo method to determine equality.
+	 * @param other VarLine to test for equality
+	 * @return true if VarLines are equal, false otherwise
+	 */
 	public boolean equals(VarLine other){
 		return compareTo(other)==0;
 	}
@@ -242,11 +302,14 @@ public class VarLine extends Variation{
 		return super.equals(other);
 	}
 	
+	/** Ploidy level of the genomic region containing this variant */
 	public byte ploidy;
 
 	/** Which copy this is on */
 	public byte haplotype;
+	/** Total quality score for this variant call */
 	public int totalScore;
+	/** Link identifier connecting variants on the same haplotype */
 	public int hapLink;
 	
 	public static final String[] VQARRAY=new String[] {"?", "VQLOW", "VQHIGH"};

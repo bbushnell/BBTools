@@ -18,25 +18,46 @@ public class Ksw2gg implements IDAligner {
         Test.testAndPrint(c, args);
     }
     
+    /** Dynamic programming cell storing alignment scores.
+     * Contains main score and gap-extension score for traceback. */
     private static class Cell {
         int h, e; // h=score, e=gap-extension score
     }
     
     // Constants
+    /** Negative infinity value for impossible alignment states */
     private static final int NEG_INF=-1000000000;
     
     // Scoring parameters
+    /** Score awarded for matching bases */
     private int matchScore=1;
+    /** Score penalty for mismatching bases */
     private int mismatchScore=-1;
+    /** Penalty for opening a new gap */
     private int gapOpen=-1;
+    /** Penalty for extending an existing gap */
     private int gapExtend=-1;
+    /**
+     * Width of diagonal band for alignment computation; -1 uses max sequence length
+     */
     private int bandWidth=-1; // default: use max of sequence lengths
     
     // For interface compliance
+    /** Number of alignment loops performed for interface compliance */
     private long loops=-1;
     
+    /** Creates aligner with default scoring parameters */
     public Ksw2gg() {}
     
+    /**
+     * Creates aligner with specified scoring parameters.
+     *
+     * @param match Score for matching bases
+     * @param mismatch Score penalty for mismatches
+     * @param gapOpen Penalty for gap opening
+     * @param gapExtend Penalty for gap extension
+     * @param bandWidth Diagonal band width for computation
+     */
     public Ksw2gg(int match, int mismatch, int gapOpen, int gapExtend, int bandWidth) {
         this.matchScore=match;
         this.mismatchScore=mismatch;
@@ -103,6 +124,16 @@ public class Ksw2gg implements IDAligner {
         return id;
     }
     
+    /**
+     * Core banded global alignment algorithm implementation.
+     * Uses dynamic programming within diagonal band to compute optimal alignment.
+     * Stores traceback information if position vector is provided.
+     *
+     * @param query Query sequence bases
+     * @param ref Reference sequence bases
+     * @param posVector Optional output for position tracking (null to skip traceback)
+     * @return Final alignment score
+     */
     private int alignSequences(byte[] query, byte[] ref, int[] posVector) {
         int qlen=query.length;
         int tlen=ref.length;
@@ -205,6 +236,17 @@ public class Ksw2gg implements IDAligner {
         return score;
     }
     
+    /**
+     * Processes alignment traceback to determine start and end positions.
+     * Walks backwards through traceback matrix to find alignment boundaries.
+     *
+     * @param z Traceback direction matrix
+     * @param off Column offset array for each row
+     * @param nCol Number of columns in band
+     * @param tlen Target sequence length minus 1
+     * @param qlen Query sequence length minus 1
+     * @param posVector Output array for start and end positions
+     */
     private void processCigar(byte[] z, int[] off, int nCol, int tlen, int qlen, int[] posVector) {
         int i=tlen, j=qlen;
         int startRef=0, endRef=tlen;

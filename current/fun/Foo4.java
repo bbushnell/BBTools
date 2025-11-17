@@ -222,6 +222,16 @@ public class Foo4 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core data processing logic that reads input lines and generates statistics.
+	 * Parses each line to extract file sizes and access times, builds sorted
+	 * lists, and calculates percentile statistics. Outputs time-based file
+	 * access reports showing what percentage of files haven't been accessed
+	 * since specific dates.
+	 * @param bf Input ByteFile for reading data
+	 * @param bsw Primary output stream writer (unused in current implementation)
+	 * @param bswInvalid Invalid data output stream writer (unused)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		LongList sizes=new LongList(100000000);
@@ -270,8 +280,18 @@ public class Foo4 {
 		System.out.println("P95 size:   \t"+sizes.get((int)(sizes.size*0.95))+" bytes");
 	}
 
+	/** Pipe delimiter character for parsing input lines */
 	static final byte delimiter=(byte)'|';
 	
+	/**
+	 * Parses a single pipe-delimited line to extract file size and access time.
+	 * Advances through 12 pipe-delimited fields to locate file size (field 4)
+	 * and last access time (field 12). Only processes files marked as 'F' in
+	 * field 7. Adds valid entries to the size list and time-size pair list.
+	 * @param line Byte array containing the pipe-delimited line data
+	 * @param list ArrayList to collect Pair objects with size and time data
+	 * @param sizes LongList to collect file sizes for statistical analysis
+	 */
 	void processLine(byte[] line, ArrayList<Pair> list, LongList sizes) {
 		int a=0, b=0;
 
@@ -348,6 +368,11 @@ public class Foo4 {
 //	P90 File Size: 1187502 bytes
 //	P95 File Size: 10694780 bytes
 	
+	/**
+	 * Creates and starts a ByteStreamWriter for the specified FileFormat.
+	 * @param ff FileFormat to create writer for, may be null
+	 * @return Started ByteStreamWriter or null if ff is null
+	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -357,6 +382,11 @@ public class Foo4 {
 	
 	private static class Pair implements Comparable<Pair> {
 		
+		/**
+		 * Constructor for file size and access time pair.
+		 * @param size_ File size in bytes
+		 * @param time_ Last access time as Unix timestamp
+		 */
 		Pair(long size_, long time_){
 			size=size_;
 			time=time_;
@@ -371,6 +401,11 @@ public class Foo4 {
 		
 	}
 	
+	/**
+	 * Converts millisecond timestamp to PST timezone formatted date string.
+	 * @param time Millisecond timestamp to convert
+	 * @return Formatted date string in "yyyy-MM-dd HH:mm:ss" format
+	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
@@ -393,11 +428,16 @@ public class Foo4 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Count of input lines processed */
 	private long linesProcessed=0;
+	/** Count of valid output lines generated */
 	private long linesOut=0;
+	/** Total bytes read from input */
 	private long bytesProcessed=0;
+	/** Total bytes written to output */
 	private long bytesOut=0;
 	
+	/** Maximum number of lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/

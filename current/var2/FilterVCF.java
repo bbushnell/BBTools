@@ -756,9 +756,13 @@ public class FilterVCF {
 
 		/** Thread-local statistics */
 		long linesProcessedT=0;
+		/** Thread-local header lines processed counter */
 		long headerLinesProcessedT=0;
+		/** Thread-local variant lines processed counter */
 		long variantLinesProcessedT=0;
+		/** Thread-local variant lines output counter */
 		long variantLinesOutT=0;
+		/** Thread-local bytes processed counter */
 		long bytesProcessedT=0;
 		/** Thread-local quality score histogram for aggregation */
 		private long[] scoreHistT=new long[scoreHist.length];

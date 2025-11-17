@@ -24,6 +24,12 @@ import tracker.ReadStats;
  */
 public class CopyFile {
 	
+	/**
+	 * Program entry point that parses command-line arguments and performs file copying with timing.
+	 * Supports arguments for input file, output file, overwrite mode, and append mode.
+	 * Reports copy speed in MB/s after completion.
+	 * @param args Command-line arguments including in=file, out=file, overwrite=boolean, append=boolean
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -71,6 +77,17 @@ public class CopyFile {
 	}
 	
 	
+	/**
+	 * Copies a file from source to destination path with configurable options.
+	 * Uses 16KB buffer for efficient byte-level copying between input and output streams.
+	 * Handles special cases for ZipOutputStream with proper entry closure and finishing.
+	 *
+	 * @param source Source file path to copy from
+	 * @param dest Destination file path to copy to
+	 * @param createPathIfNeeded If true, creates parent directories if they don't exist
+	 * @param overwrite If false, asserts that destination file doesn't already exist
+	 * @throws RuntimeException if FileNotFoundException or IOException occurs during copy
+	 */
 	public static synchronized void copyFile(String source, String dest, boolean createPathIfNeeded, boolean overwrite){
 
 		assert(overwrite || !new File(dest).exists()) : "Destination file already exists: "+dest;

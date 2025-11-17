@@ -5,14 +5,24 @@ import shared.Shared;
 import shared.Tools;
 
 
+/**
+ * Represents a gene with genomic coordinates, exon structure, and annotation data.
+ * Supports gene intersection queries, coordinate transformations, and comparison operations.
+ * Used for parsing and manipulating gene annotation data from RefSeq, GTF, and CCDS formats.
+ *
+ * @author Brian Bushnell
+ * @date Created 2012
+ */
 public class Gene implements Comparable<Gene>, Serializable{
 	
 //	/**
 //	 *
 //	 */
+	/** Serial version UID for serialization compatibility */
 	private static final long serialVersionUID = -1342555621377050981L;
 	
 	
+	/** Creates an empty Gene with default values (-1) for all numeric fields */
 	public Gene(){
 		chromosome=-1;
 //		nc_accession=null;
@@ -45,6 +55,30 @@ public class Gene implements Comparable<Gene>, Serializable{
 		primarySource=-1;
 	}
 	
+	/**
+	 * Creates a Gene with full annotation data and calculates derived fields.
+	 * Computes exon lengths, UTR lengths, and amino acid count from provided coordinates.
+	 *
+	 * @param chrom chromosome number
+	 * @param strand_ + (0) or - (1) strand
+	 * @param txStart_ transcription start position
+	 * @param txStop_ transcription end position
+	 * @param cdStart_ coding region start
+	 * @param cdStop_ coding region end
+	 * @param gid gene ID number
+	 * @param name_ gene symbol/name
+	 * @param trans_ mRNA transcript accession
+	 * @param protTrans_ protein accession
+	 * @param status_ validation status string
+	 * @param completeness_ completeness status string
+	 * @param exons_ array of exon objects
+	 * @param untran true if untranslated gene
+	 * @param pseudo_ true if pseudogene
+	 * @param valid_ true if gene data is valid
+	 * @param primarySource_ source database name
+	 * @param descript_ gene description
+	 * @param fullDescript_ full gene description
+	 */
 	public Gene(byte chrom, byte strand_, int txStart_, int txStop_, int cdStart_, int cdStop_, int gid,
 			String name_, String trans_, String protTrans_, String status_, String completeness_,
 			Exon[] exons_, boolean untran, boolean pseudo_, boolean valid_,
@@ -132,6 +166,14 @@ public class Gene implements Comparable<Gene>, Serializable{
 	}
 	
 	
+	/**
+	 * Merges annotation data from another gene with the same genomic location.
+	 * Fills in missing fields (nulls and -1 values) with data from the other gene.
+	 * Used to combine incomplete gene records from different sources.
+	 *
+	 * @param g gene to merge with this one
+	 * @return new merged Gene object
+	 */
 	public Gene merge(Gene g){
 
 		assert((exons==null && g.exons==null) ||
@@ -218,6 +260,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return out;
 	}
 	
+	/**
+	 * Converts strand string to numeric code.
+	 * @param s strand string ("+", "-", or "?")
+	 * @return 0 for plus strand, 1 for minus strand, 2 for unknown
+	 */
 	public static byte toStrand(String s){
 		assert(s!=null && s.length()==1);
 		final char c=s.charAt(0);
@@ -272,6 +319,15 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return Integer.parseInt(s2);
 	}
 	
+	/**
+	 * Parses comma-separated exon coordinates and creates Exon objects.
+	 * Converts to 0-based coordinates and determines CDS/UTR status for each exon.
+	 *
+	 * @param eStarts comma-separated exon start positions
+	 * @param eEnds comma-separated exon end positions
+	 * @param chr chromosome number
+	 * @param str strand
+	 */
 	private void fillExons(String eStarts, String eEnds, byte chr, byte str){
 		String[] s1=eStarts.split(",");
 		String[] s2=eEnds.split(",");
@@ -297,6 +353,15 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 	}
 	
+	/**
+	 * Parses CCDS-format exon coordinate string into Exon array.
+	 * Handles bracket notation: "[start1-end1, start2-end2, ...]"
+	 *
+	 * @param estring CCDS exon coordinate string
+	 * @param chr chromosome number
+	 * @param str strand
+	 * @return array of Exon objects
+	 */
 	private Exon[] fillExonsCCDS(String estring, byte chr, byte str){
 		String[] intervals=estring.replace("[","").replace("]","").replace(" ","").split(",");
 		
@@ -325,6 +390,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return array;
 	}
 	
+	/**
+	 * Converts genomic coordinate to gene-relative offset.
+	 * Calculates cumulative distance from gene start, accounting for introns and strand.
+	 * @param index genomic coordinate
+	 * @return offset from gene start in gene coordinates
+	 */
 	public int toGeneRelativeOffset(int index){
 		
 		int off=0;
@@ -370,6 +441,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return off;
 	}
 	
+	/**
+	 * Converts genomic coordinate to exon-relative coordinates.
+	 * @param index genomic coordinate
+	 * @return array of [exon_number, offset_within_exon]
+	 */
 	public int[] toExonRelativeOffset(int index){
 		
 		int ex=0;
@@ -433,11 +509,19 @@ public class Gene implements Comparable<Gene>, Serializable{
 	}
 	
 	
+	/** Determines if this gene is a hypothetical/predicted gene based on symbol naming.
+	 * @return true if gene symbol indicates hypothetical status */
 	public boolean isHypothetical(){
 		return isHypothetical(symbol);
 	}
 	
 	
+	/**
+	 * Determines if gene symbol indicates hypothetical/predicted status.
+	 * Checks for "Corf" patterns and "LOC" prefixes with numeric suffixes.
+	 * @param s gene symbol string
+	 * @return true if symbol indicates hypothetical gene
+	 */
 	public static boolean isHypothetical(String s){
 		if(s==null){return false;}
 		if(s.startsWith("C") && s.contains("orf")){return true;}
@@ -446,23 +530,49 @@ public class Gene implements Comparable<Gene>, Serializable{
 	}
 	
 	
+	/**
+	 * Tests if gene is a normal protein-coding gene.
+	 * Excludes untranslated, pseudogenes, and hypothetical genes.
+	 * @return true if valid protein-coding gene
+	 */
 	public boolean isNormalGene(){
 		return valid && !untranslated && !pseudo && !isHypothetical();
 	}
 	
 
+	/**
+	 * Tests if genomic position intersects transcribed region.
+	 * @param point genomic coordinate
+	 * @return true if point is within transcription boundaries
+	 */
 	public boolean intersectsTx(int point){
 		return point>=txStart && point<=txStop;
 	}
+	/**
+	 * Tests if genomic position intersects translated region.
+	 * @param point genomic coordinate
+	 * @return true if point is within translation boundaries
+	 */
 	public boolean intersectsTr(int point){
 		assert(!untranslated);
 		return (untranslated ? false : point>=translationStart() && point<=translationStop());
 	}
+	/**
+	 * Tests if genomic position intersects coding region.
+	 * For untranslated genes, uses transcription boundaries instead.
+	 * @param point genomic coordinate
+	 * @return true if point intersects coding sequence
+	 */
 	public boolean intersectsCode(int point){
 //		assert(!untranslated) : "point = "+point+"\ngene = "+this;
 //		return (untranslated ? false : point>=codeStart && point<=codeEnd);
 		return (untranslated ? intersectsTx(point) : point>=codeStart && point<=codeStop);
 	}
+	/**
+	 * Tests if genomic position intersects any exon.
+	 * @param point genomic coordinate
+	 * @return true if point falls within an exon
+	 */
 	public boolean intersectsExon(int point){
 		for(Exon e : exons){
 			if(e.intersects(point)){return true;}
@@ -517,6 +627,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return false;
 	}
 	
+	/**
+	 * Tests if interval intersects exon splice sites (start/end boundaries).
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval crosses exon boundaries
+	 */
 	public boolean intersectsSplice(int a, int b){
 		assert(b>=a);
 		if(exons==null || exons.length<2){return false;}
@@ -528,10 +644,24 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return false;
 	}
 	
+	/**
+	 * Tests if interval intersects gene within nearby distance threshold.
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval is near gene coding regions
+	 */
 	public boolean intersectsNearby(int a, int b){
 		return intersectsCodeAndExon(a-NEAR, b+NEAR);
 	}
 	
+	/**
+	 * Finds which endpoint (a or b) is closer to the given point.
+	 *
+	 * @param a first coordinate
+	 * @param b second coordinate
+	 * @param point target coordinate
+	 * @return the coordinate (a or b) closest to point
+	 */
 	private static int closestToPoint(int a, int b, int point){
 		int a2=(a>point ? a-point : point-a);
 		int b2=(b>point ? b-point : point-b);
@@ -629,21 +759,47 @@ public class Gene implements Comparable<Gene>, Serializable{
 	
 	
 	
+	/**
+	 * Tests if interval intersects transcribed region.
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval overlaps transcription boundaries
+	 */
 	public boolean intersectsTx(int a, int b){
 		assert(a<=b);
 		return overlap(a, b, txStart, txStop);
 	}
+	/**
+	 * Tests if interval intersects translated region.
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval overlaps translation boundaries
+	 */
 	public boolean intersectsTr(int a, int b){
 		assert(a<=b);
 		assert(!untranslated);
 		return (untranslated ? false : overlap(a, b, translationStart(), translationStop()));
 	}
+	/**
+	 * Tests if interval intersects coding region.
+	 * For untranslated genes, uses transcription boundaries instead.
+	 *
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval overlaps coding sequence
+	 */
 	public boolean intersectsCode(int a, int b){
 		assert(a<=b);
 //		assert(!untranslated) : "a="+a+", b="+b+"\ngene = "+this;
 //		return (untranslated ? false : overlap(a, b, codeStart, codeEnd));
 		return (untranslated ? intersectsTx(a, b) : overlap(a, b, codeStart, codeStop));
 	}
+	/**
+	 * Tests if interval intersects any exon.
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval overlaps an exon
+	 */
 	public boolean intersectsExon(int a, int b){
 //		if(!intersectsCode(a, b)){return false;}
 		assert(a<=b);
@@ -652,6 +808,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 		return false;
 	}
+	/**
+	 * Tests if interval intersects untranslated regions (5' or 3' UTR).
+	 * @param a start coordinate
+	 * @param b end coordinate
+	 * @return true if interval overlaps UTR regions
+	 */
 	public boolean intersectsUTR(int a, int b){
 		if(!intersectsTx(a,b)){return false;}
 		if(untranslated){return true;}
@@ -682,11 +844,22 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return false;
 	}
 	
+	/**
+	 * Tests if two intervals overlap.
+	 *
+	 * @param a1 start of first interval
+	 * @param b1 end of first interval
+	 * @param a2 start of second interval
+	 * @param b2 end of second interval
+	 * @return true if intervals overlap
+	 */
 	private static boolean overlap(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
 		return a2<=b1 && b2>=a1;
 	}
 	
+	/** Returns tab-delimited header string for gene output format.
+	 * @return header string for gene table output */
 	public static final String header(){
 		return "#chrom\tsymbol\tgeneId\tmrnaAcc\tproteinAcc" +
 				"\tstrand\tcodeStart\tcodeStop\ttxStart\ttxStop" +
@@ -741,6 +914,8 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return Character.isWhitespace(s.charAt(0)) ? s : s.trim();
 	}
 	
+	/** Returns abbreviated string representation with key gene information.
+	 * @return compact gene summary string */
 	public String toShortString(){
 		
 		StringBuilder sb=new StringBuilder(256);
@@ -783,6 +958,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return mrnaAcc.compareTo(other.mrnaAcc);
 	}
 	
+	/**
+	 * Tests if genes have identical genomic coordinates and exon structure.
+	 * More strict than equals() - checks exact coordinate and exon matches.
+	 * @param other gene to compare
+	 * @return true if genes are structurally identical
+	 */
 	public boolean isIdenticalTo(Gene other){
 		if(chromosome!=other.chromosome){return false;}
 		if(strand!=other.strand){return false;}
@@ -811,6 +992,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return equals((Gene)other);
 	}
 	
+	/**
+	 * Tests equality using compareTo() method for consistent ordering.
+	 * @param other gene to compare
+	 * @return true if genes are equal
+	 */
 	public boolean equals(Gene other){//TODO check this
 		return this==other ? true : compareTo(other)==0;
 	}
@@ -823,22 +1009,44 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return xor;
 	}
 	
+	/**
+	 * Returns start coordinate of translated region.
+	 * Uses first exon start if exons exist, otherwise coding start.
+	 * @return translation start position
+	 */
 	public int translationStart(){ //TODO Make into a field
 		return (exons==null || exons.length==0) ? codeStart : exons[0].a;
 	}
 	
+	/**
+	 * Returns end coordinate of translated region.
+	 * Uses last exon end if exons exist, otherwise coding end.
+	 * @return translation stop position
+	 */
 	public int translationStop(){ //TODO Make into a field
 		return (exons==null || exons.length==0) ? codeStop : exons[exons.length-1].b;
 	}
 	
+	/**
+	 * Returns coding start position adjusted for strand orientation.
+	 * On plus strand returns codeStart, on minus strand returns codeStop.
+	 * @return strand-adjusted coding start
+	 */
 	public int codeStartStrandCompensated(){ //TODO Make into a field
 		return strand==Shared.PLUS ? codeStart : codeStop;
 	}
 	
+	/**
+	 * Returns coding stop position adjusted for strand orientation.
+	 * On plus strand returns codeStop, on minus strand returns codeStart.
+	 * @return strand-adjusted coding stop
+	 */
 	public int codeStopStrandCompensated(){ //TODO Make into a field
 		return strand==Shared.PLUS ? codeStop : codeStart;
 	}
 	
+	/** Returns translation start position adjusted for strand orientation.
+	 * @return strand-adjusted translation start */
 	public int translationStartStrandCompensated(){ //TODO Make into a field
 		if(strand==Shared.PLUS){
 			return (exons==null || exons.length==0) ? codeStart : exons[0].a;
@@ -847,6 +1055,8 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 	}
 	
+	/** Returns translation stop position adjusted for strand orientation.
+	 * @return strand-adjusted translation stop */
 	public int translationStopStrandCompensated(){ //TODO Make into a field
 		if(strand==Shared.PLUS){
 			return (exons==null || exons.length==0) ? codeStop : exons[exons.length-1].b;
@@ -855,6 +1065,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 	}
 	
+	/**
+	 * Returns exon start position adjusted for strand orientation.
+	 * @param exNum exon number (0-based)
+	 * @return strand-adjusted exon start position
+	 */
 	public int exonStartStrandCompensated(int exNum){
 		if(strand==Shared.PLUS){
 			return (exons==null || exons.length==0) ? codeStart : exons[exNum].a;
@@ -863,6 +1078,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 	}
 	
+	/**
+	 * Returns exon stop position adjusted for strand orientation.
+	 * @param exNum exon number (0-based)
+	 * @return strand-adjusted exon stop position
+	 */
 	public int exonStopStrandCompensated(int exNum){
 		if(strand==Shared.PLUS){
 			return (exons==null || exons.length==0) ? codeStop : exons[exNum].b;
@@ -871,6 +1091,14 @@ public class Gene implements Comparable<Gene>, Serializable{
 		}
 	}
 
+	/**
+	 * Finds exon number closest to the given interval.
+	 * Returns strand-compensated exon number for consistent orientation.
+	 *
+	 * @param a interval start
+	 * @param b interval end
+	 * @return exon number closest to interval
+	 */
 	public int findClosestExon(int a, int b) {
 		if(exons==null || exons.length==0){return 0;}
 		int best=Integer.MAX_VALUE;
@@ -902,7 +1130,9 @@ public class Gene implements Comparable<Gene>, Serializable{
 	}
 	
 
+	/** Returns minimum of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns maximum of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/** Transcription start position */
@@ -929,7 +1159,9 @@ public class Gene implements Comparable<Gene>, Serializable{
 	/** Number of amino acids (excluding stop codon) */
 	public final int aaLength;
 	
+	/** Length of 5' untranslated region */
 	public final int utrLength5prime;
+	/** Length of 3' untranslated region */
 	public final int utrLength3prime;
 
 	/** Reference sequence chromosome or scaffold */
@@ -941,6 +1173,7 @@ public class Gene implements Comparable<Gene>, Serializable{
 	/** ? */
 	public final byte cdsEndStat;
 	
+	/** True if gene was parsed successfully from input */
 	public final boolean readCorrectly;
 	
 	/** Array of exons used by this gene */
@@ -958,10 +1191,13 @@ public class Gene implements Comparable<Gene>, Serializable{
 	/** Alternate name (e.g. gene_id from GTF) */
 	public final String symbol;
 	
+	/** Brief gene description */
 	public final String description;
 	
+	/** Complete gene description */
 	public final String fullDescription;
 	
+	/** Index into sourceCodes array for data source */
 	public final byte primarySource;
 	
 	/* CCDS file format:
@@ -970,15 +1206,22 @@ public class Gene implements Comparable<Gene>, Serializable{
 	/* CCDS format stuff */
 
 //	public final String nc_accession;
+	/** Validation status index into statusCodes array */
 	public final byte status;
+	/** Completeness status index into completenessCodes array */
 	public final byte completeness;
+	/** Numeric gene identifier */
 	public final int id;
 	
 
+	/** True if gene is not translated to protein */
 	public final boolean untranslated;
+	/** True if gene is a pseudogene */
 	public final boolean pseudo;
+	/** True if gene data passed validation checks */
 	public final boolean valid;
 	
+	/** Array of data source names for primarySource field indexing */
 	public static final String[] sourceCodes={
 		"seqGene", "knownGene", "refGene", "unionGene",
 		"reserved1", "reserved2", "reserved3", "reserved4"
@@ -987,6 +1230,7 @@ public class Gene implements Comparable<Gene>, Serializable{
 	/** Index with cdsStartStat and cdsEndStat */
 	public static final String[] endStatCodes={"none", "unk", "incmpl", "cmpl"};
 	
+	/** Array of gene validation status names */
 	public static final String[] statusCodes={
 		"Unknown","Reviewed","Validated","Provisional","Predicted","Inferred","Public"
 		
@@ -996,6 +1240,7 @@ public class Gene implements Comparable<Gene>, Serializable{
 		
 	};
 	
+	/** Array of gene completeness status names */
 	public static final String[] completenessCodes={
 		"Unknown","Complete5End","Complete3End","FullLength","IncompleteBothEnds","Incomplete5End","Incomplete3End","Partial"
 	};
@@ -1006,14 +1251,22 @@ public class Gene implements Comparable<Gene>, Serializable{
 		"7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
 		"19", "20", "21", "22", "X", "Y", "M", "U"};
 	
+	/** Distance threshold for nearby intersection queries */
 	private static final int NEAR=Data.NEAR;
 
+	/** Status code for unknown gene validation status */
 	public static final byte STAT_UNKNOWN=0;
+	/** Status code for reviewed gene */
 	public static final byte STAT_REVIEWED=1;
+	/** Status code for validated gene */
 	public static final byte STAT_VALIDATED=2;
+	/** Status code for provisional gene */
 	public static final byte STAT_PROVISIONAL=3;
+	/** Status code for predicted gene */
 	public static final byte STAT_PREDICTED=4;
+	/** Status code for inferred gene */
 	public static final byte STAT_INFERRED=5;
+	/** Status code for public gene */
 	public static final byte STAT_PUBLIC=6;
 
 }

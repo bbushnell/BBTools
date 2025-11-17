@@ -22,6 +22,8 @@ import shared.Timer;
  */
 public class CountSharedLines {
 
+	/** Main entry point. Creates CountSharedLines instance and processes files.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CountSharedLines x=new CountSharedLines(args);
@@ -31,6 +33,11 @@ public class CountSharedLines {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes settings.
+	 * Handles preprocessing, file lists, matching options, and output parameters.
+	 * @param args Command-line arguments to parse
+	 */
 	public CountSharedLines(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -122,6 +129,11 @@ public class CountSharedLines {
 		if(in1==null || in2==null){throw new RuntimeException("Error - at least one input file is required from each set.");}
 	}
 	
+	/**
+	 * Generates output filename by prepending "out_" to the original filename.
+	 * @param fname Input filename
+	 * @return Modified filename with "out_" prefix
+	 */
 	final static String getOutputName(String fname){
 		fname=fname.replaceAll("\\\\", "/");
 		if(!fname.contains("/")){fname="./"+fname;}
@@ -130,6 +142,11 @@ public class CountSharedLines {
 		return out;
 	}
 	
+	/**
+	 * Main processing method that counts shared lines between file sets.
+	 * Processes each file in set 1 against set 2, and vice versa.
+	 * @param t Timer for performance tracking
+	 */
 	void process(Timer t){
 
 		for(String fname : in1){
@@ -149,6 +166,12 @@ public class CountSharedLines {
 			
 	}
 	
+	/**
+	 * Reads file contents into a LinkedHashSet with optional processing.
+	 * Applies case conversion, string replacement, and prefix mode if enabled.
+	 * @param fname Input filename to read
+	 * @return Set of processed lines from the file
+	 */
 	LinkedHashSet<String> getContents(String fname){
 		final FileFormat ff=FileFormat.testInput(fname, FileFormat.TEXT, null, true, true);
 		final LinkedHashSet<String> set=new LinkedHashSet<String>();
@@ -173,6 +196,13 @@ public class CountSharedLines {
 		return set;
 	}
 	
+	/**
+	 * Processes a single input file against a collection of comparison files.
+	 * Counts shared lines and writes results to output file in tab-separated format.
+	 * @param fnameIn Input filename to process
+	 * @param fnameOut Output filename for results
+	 * @param list Collection of filenames to compare against
+	 */
 	void processInner(String fnameIn, String fnameOut, Collection<String> list){
 		
 		final LinkedHashSet<String> set1=getContents(fnameIn);
@@ -207,29 +237,47 @@ public class CountSharedLines {
 	
 	/*--------------------------------------------------------------*/
 
+	/** First set of input filenames to process */
 	private LinkedHashSet<String> in1=new LinkedHashSet<String>();
+	/** Second set of input filenames to compare against */
 	private LinkedHashSet<String> in2=new LinkedHashSet<String>();
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Whether to exclude matching lines (currently unused in this implementation)
+	 */
 	private boolean exclude=true;
+	/** Whether to treat filename as substring of file lines for matching */
 	private boolean nameSubstringOfLine=false;
+	/** Whether to treat file lines as substrings of filename for matching */
 	private boolean lineSubstringOfName=false;
+	/** Whether to perform case-insensitive string matching */
 	private boolean ignoreCase=true;
+	/** Whether to extract only prefix before first whitespace for matching */
 	private boolean prefixMode=false;
+	/** Maximum number of lines to process (-1 for unlimited) */
 	private long maxLines=-1;
 
+	/** String to search for in replacement operation */
 	private String replace1=null;
+	/** String to replace with in replacement operation */
 	private String replace2=null;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
+	/** Global flag for verbose output during processing */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
+	/** Flag for shared header usage (appears unused in current implementation) */
 	private boolean useSharedHeader=false;
 	
 }

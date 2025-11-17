@@ -23,6 +23,11 @@ public final class LineParser4 implements LineParser {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
+	/**
+	 * Test program for LineParser4 functionality.
+	 * Takes a filename/literal and delimiter string as arguments.
+	 * @param args Command-line arguments: [filename/literal] [delimiter_string]
+	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -47,10 +52,14 @@ public final class LineParser4 implements LineParser {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Constructs a LineParser4 with delimiter string.
+	 * @param delimiters_ String containing delimiter sequence */
 	public LineParser4(String delimiters_) {
 		this(delimiters_.getBytes());
 	}
 
+	/** Constructs a LineParser4 with delimiter byte array.
+	 * @param delimiters_ Byte array containing delimiter sequence */
 	public LineParser4(byte[] delimiters_) {
 		delimiters=delimiters_;
 		maxDPos=delimiters.length-1;
@@ -113,6 +122,7 @@ public final class LineParser4 implements LineParser {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the number of parsed fields */
 	public int terms() {return bounds.size();}
 	
 	@Override
@@ -121,6 +131,15 @@ public final class LineParser4 implements LineParser {
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/**
+	 * Parses substring of specified field as integer.
+	 * Extracts portion from offset 'from' to offset 'to' within the field.
+	 *
+	 * @param term Field index to parse
+	 * @param from Starting offset within the field
+	 * @param to Ending offset within the field
+	 * @return Integer value of the substring
+	 */
 	public int parseInt(int term, int from, int to) {
 		setBounds(term);
 		return Parse.parseInt(line, a+from, Tools.min(line.length, a+to));
@@ -305,6 +324,11 @@ public final class LineParser4 implements LineParser {
 		return b-a;
 	}
 	
+	/**
+	 * Advances to the next field using the next delimiter in sequence.
+	 * Scans from current position until delimiter is found or line ends.
+	 * @return Length of the field that was advanced over
+	 */
 	private int advance() {
 		byte delimiter=(delimiterPos<delimiters.length ? delimiters[delimiterPos] : 0);
 		delimiterPos++;
@@ -336,14 +360,21 @@ public final class LineParser4 implements LineParser {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** List storing end positions of each parsed field */
 	private final IntList bounds=new IntList();
 	
+	/** Start position of current field being processed */
 	private int a=-1;
+	/** End position of current field being processed */
 	private int b=-1;
+	/** The line being parsed as byte array */
 	private byte[] line;
 	
+	/** Array of delimiter bytes used for field separation */
 	public final byte[] delimiters;
+	/** Maximum valid index in the delimiters array */
 	private final int maxDPos;
+	/** Current position in delimiter sequence being used */
 	private int delimiterPos=0;
 	
 }

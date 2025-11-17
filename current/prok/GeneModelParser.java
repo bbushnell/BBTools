@@ -6,18 +6,33 @@ import fileIO.ByteFile;
 import shared.Parse;
 import shared.Tools;
 
+/**
+ * Parses gene model files containing pre-computed k-mer statistics for prokaryotic gene prediction.
+ * Loads statistical models for CDS, tRNA, 16S, 23S, 5S, and 18S sequence types with frame-specific
+ * k-mer frequency data used by prokaryotic gene annotation tools.
+ * @author Brian Bushnell
+ */
 public class GeneModelParser {
 	
+	/**
+	 * Constructs a parser for the specified gene model file.
+	 * Loads all lines from the file and initializes an empty GeneModel for population.
+	 * @param fname_ Path to the gene model file to parse
+	 */
 	GeneModelParser(String fname_){
 		fname=fname_;
 		lines=ByteFile.toLines(fname);
 		gm=new GeneModel(false);
 	}
 	
+	/** Checks if more lines are available for parsing.
+	 * @return true if there are unprocessed lines remaining in the file */
 	boolean hasMore(){
 		return pos<lines.size();
 	}
 	
+	/** Returns the next line from the file and advances the position cursor.
+	 * @return The next line as a byte array, or null if at end of file */
 	byte[] nextLine(){
 		if(pos>=lines.size()){return null;}
 		byte[] line=lines.get(pos);
@@ -25,20 +40,36 @@ public class GeneModelParser {
 		return line;
 	}
 	
+	/** Path to the gene model file being parsed */
 	final String fname;
+	/** All lines from the gene model file stored as byte arrays */
 	final ArrayList<byte[]> lines;
+	/** The GeneModel object being populated during parsing */
 	private final GeneModel gm;
+	/** Current position in the lines array during parsing */
 	int pos=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Loads a complete gene model from the specified file.
+	 * Creates a parser instance and processes the entire file to build the model.
+	 * @param fname Path to the gene model file
+	 * @return A fully populated GeneModel with all statistics containers
+	 */
 	public static GeneModel loadModel(String fname) {
 		GeneModelParser gmp=new GeneModelParser(fname);
 		return gmp.parse();
 	}
 	
+	/**
+	 * Parses the entire gene model file and populates the GeneModel object.
+	 * First processes header information, then parses 6 StatsContainer objects
+	 * for different sequence types (CDS, tRNA, 16S, 23S, 5S, 18S).
+	 * @return The fully populated GeneModel with all statistical data
+	 */
 	private GeneModel parse(){
 		while(hasMore()){
 			byte[] line=nextLine();
@@ -79,6 +110,12 @@ public class GeneModelParser {
 		return gm;
 	}
 	
+	/**
+	 * Parses a single StatsContainer section from the gene model file.
+	 * Reads container metadata (name, type, length statistics) followed by
+	 * three FrameStats objects for inner, start, and stop regions.
+	 * @return A populated StatsContainer with all frame statistics
+	 */
 	private StatsContainer parseContainer(){
 		String name=null;
 		int type=-1;
@@ -127,6 +164,12 @@ public class GeneModelParser {
 		return sc;
 	}
 	
+	/**
+	 * Parses a single FrameStats section containing k-mer frequency data.
+	 * Reads metadata (name, k-mer length, frame count, offset) followed by
+	 * frequency data for each frame in both forward and reverse orientations.
+	 * @return A populated FrameStats object with k-mer frequency tables
+	 */
 	private FrameStats parseStats(){
 		String name=null;
 		int k=-1, frames=-1, offset=-1;
@@ -168,15 +211,33 @@ public class GeneModelParser {
 		return fs;
 	}
 	
+	/**
+	 * Extracts a string value from a tab-delimited line.
+	 * Returns the portion after the first tab character.
+	 * @param line The line to parse as byte array
+	 * @return The string value after the tab separator
+	 */
 	private static String parseString(byte[] line){
 		int idx=Tools.indexOf(line, '\t');
 		String s=new String(line, idx+1, line.length-idx-1);
 		return s;
 	}
+	/**
+	 * Extracts an integer value from a tab-delimited line.
+	 * Parses the portion after the first tab character as an integer.
+	 * @param line The line to parse as byte array
+	 * @return The integer value after the tab separator
+	 */
 	private static int parseInt(byte[] line){
 		int idx=Tools.indexOf(line, '\t');
 		return Parse.parseInt(line, idx+1, line.length);
 	}
+	/**
+	 * Extracts a long value from a tab-delimited line.
+	 * Parses the portion after the first tab character as a long.
+	 * @param line The line to parse as byte array
+	 * @return The long value after the tab separator
+	 */
 	private static long parseLong(byte[] line){
 		int idx=Tools.indexOf(line, '\t');
 		return Parse.parseLong(line, idx+1, line.length);
@@ -212,6 +273,14 @@ public class GeneModelParser {
 //		}
 //	}
 	
+	/**
+	 * Parses header lines that contain file metadata and global statistics.
+	 * Processes lines starting with '#' to extract file counts, tax IDs,
+	 * scaffold counts, base counts, and gene counts into the GeneModel.
+	 *
+	 * @param line The header line to parse as byte array
+	 * @return true if the line was a valid header, false if parsing should continue elsewhere
+	 */
 	public boolean parseHeader(byte[] line){
 		if(line[0]!='#'){return false;}
 		

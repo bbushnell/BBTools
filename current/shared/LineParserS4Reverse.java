@@ -26,6 +26,11 @@ public final class LineParserS4Reverse implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
+	/**
+	 * Test entry point for the line parser.
+	 * Accepts a filename/literal and delimiter string for parsing demonstration.
+	 * @param args Command-line arguments: [filename/literal] [delimiter_string]
+	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -51,6 +56,11 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Constructs a reverse line parser with specified delimiters.
+	 * Reverses the delimiter string internally for right-to-left parsing.
+	 * @param delimiters_ Delimiter string to use for parsing (will be reversed internally)
+	 */
 	public LineParserS4Reverse(String delimiters_) {
 		delimiters=new String(Tools.reverseAndCopy(delimiters_.toCharArray()));
 		maxDPos=delimiters.length()-1;
@@ -110,6 +120,7 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the number of parsed terms in the current line */
 	public int terms() {return bounds.size();}
 	
 	@Override
@@ -118,6 +129,14 @@ public final class LineParserS4Reverse implements LineParserS {
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/**
+	 * Parses a substring of the specified term as an integer.
+	 *
+	 * @param term Zero-based term index to parse
+	 * @param from Starting offset within the term
+	 * @param to Ending offset within the term
+	 * @return Integer value of the substring
+	 */
 	public int parseInt(int term, int from, int to) {
 		setBounds(term);
 		return Parse.parseInt(line, a+from, Tools.min(line.length(), a+to));
@@ -301,6 +320,11 @@ public final class LineParserS4Reverse implements LineParserS {
 		return b-a;
 	}
 	
+	/**
+	 * Advances the parser to find the next delimiter boundary.
+	 * Searches backwards through the line for the current delimiter.
+	 * @return Length of the current segment
+	 */
 	private int advance() {
 		char delimiter=(delimiterPos<delimiters.length() ? delimiters.charAt(delimiterPos) : 0);
 		delimiterPos++;
@@ -333,15 +357,22 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** List storing the boundary positions of all terms */
 	private final IntList bounds=new IntList();
 	
+	/** Start position of the current field being parsed */
 	private int a=-1;
+	/** End position of the current field being parsed */
 	private int b=-1;
+	/** The current line being parsed */
 	private String line;
 	
 	//This is already reversed
+	/** Delimiter string in reversed order for right-to-left parsing */
 	public final String delimiters;
+	/** Maximum delimiter position (length - 1 of delimiter string) */
 	private final int maxDPos;
+	/** Current position in the delimiter string during parsing */
 	private int delimiterPos=0;
 	
 }

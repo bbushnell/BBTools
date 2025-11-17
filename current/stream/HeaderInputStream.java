@@ -16,6 +16,11 @@ import shared.Shared;
  */
 public class HeaderInputStream extends ReadInputStream {
 	
+	/**
+	 * Program entry point for testing HeaderInputStream functionality.
+	 * Reads first header from specified file and prints it.
+	 * @param args Command-line arguments where args[0] is the input filename
+	 */
 	public static void main(String[] args){
 		
 		HeaderInputStream his=new HeaderInputStream(args[0], true);
@@ -26,11 +31,21 @@ public class HeaderInputStream extends ReadInputStream {
 		
 	}
 	
+	/**
+	 * Creates HeaderInputStream from filename with subprocess option.
+	 * @param fname Input filename to read headers from
+	 * @param allowSubprocess_ Whether to allow subprocess for compressed files
+	 */
 	public HeaderInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.FASTQ, null, allowSubprocess_, false));
 	}
 
 	
+	/**
+	 * Creates HeaderInputStream from FileFormat specification.
+	 * Initializes ByteFile reader and sets stdin flag based on format.
+	 * @param ff FileFormat containing input source and format information
+	 */
 	public HeaderInputStream(FileFormat ff){
 		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
 		
@@ -62,6 +77,11 @@ public class HeaderInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/**
+	 * Fills the internal buffer with reads from the input file.
+	 * Reads up to BUF_LEN header lines and converts them to Read objects.
+	 * Closes file when fewer than BUF_LEN reads are obtained.
+	 */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -101,6 +121,16 @@ public class HeaderInputStream extends ReadInputStream {
 		tf.reset();
 	}
 	
+	/**
+	 * Converts lines from ByteFile into a list of Read objects.
+	 * Each line becomes a Read with only the name field populated from the line content.
+	 * Reads up to maxReadsToReturn lines or until end of file.
+	 *
+	 * @param tf ByteFile to read lines from
+	 * @param maxReadsToReturn Maximum number of reads to create
+	 * @param numericID Starting numeric ID for the first read
+	 * @return ArrayList of Read objects created from input lines
+	 */
 	public static ArrayList<Read> toReadList(ByteFile tf, int maxReadsToReturn, long numericID){
 		byte[] line=null;
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
@@ -146,19 +176,28 @@ public class HeaderInputStream extends ReadInputStream {
 	@Override
 	public boolean errorState(){return errorState;}
 
+	/** Buffer holding current batch of Read objects */
 	private ArrayList<Read> buffer=null;
+	/** Index of next Read to return from buffer */
 	private int next=0;
 	
+	/** ByteFile reader for the input source */
 	private final ByteFile tf;
 //	private final boolean interleaved;
 
+	/** Buffer size for batch reading from shared configuration */
 	private final int BUF_LEN=Shared.bufferLen();;
 	
+	/** Total number of reads generated from input */
 	public long generated=0;
+	/** Total number of reads consumed by caller */
 	public long consumed=0;
+	/** Numeric ID to assign to the next read created */
 	private long nextReadID=0;
 	
+	/** Whether input is coming from standard input */
 	public final boolean stdin;
+	/** Controls verbose output during stream operations */
 	public static boolean verbose=false;
 
 }

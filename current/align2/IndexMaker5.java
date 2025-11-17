@@ -75,6 +75,24 @@ public class IndexMaker5 {
 		return index;
 	}
 	
+	/**
+	 * Creates a single Block for the specified chromosome range.
+	 * This method contains assertion failures and appears to be for debugging purposes.
+	 *
+	 * @param minChrom Starting chromosome number
+	 * @param maxChrom Ending chromosome number
+	 * @param k K-mer length for indexing
+	 * @param CHROMBITS Number of bits for chromosome encoding
+	 * @param MAX_ALLOWED_CHROM_INDEX Maximum chromosome index allowed
+	 * @param CHROM_MASK_LOW Low chromosome mask
+	 * @param CHROM_MASK_HIGH High chromosome mask
+	 * @param SITE_MASK Site position mask
+	 * @param SHIFT_LENGTH Position encoding shift length
+	 * @param WRITE Whether to write to disk
+	 * @param DISK_INVALID Whether disk version is invalid
+	 * @param matrix Block matrix to update
+	 * @return Generated Block object
+	 */
 	public static Block makeBlock(int minChrom, int maxChrom, int k, int CHROMBITS, int MAX_ALLOWED_CHROM_INDEX,
 			int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH, boolean WRITE, boolean DISK_INVALID, Block[] matrix){
 		assert(false) : maxChrom+", "+MAX_ALLOWED_CHROM_INDEX;
@@ -98,6 +116,23 @@ public class IndexMaker5 {
 	
 	private static class BlockMaker extends Thread{
 
+		/**
+		 * Constructs a BlockMaker thread for processing a chromosome range.
+		 * Initializes all bit masks and encoding parameters for k-mer indexing.
+		 *
+		 * @param minChrom_ Starting chromosome number
+		 * @param maxChrom_ Ending chromosome number
+		 * @param k K-mer length
+		 * @param CHROMBITS_ Chromosome encoding bits
+		 * @param MAX_ALLOWED_CHROM_INDEX_ Maximum chromosome index
+		 * @param CHROM_MASK_LOW_ Low chromosome mask
+		 * @param CHROM_MASK_HIGH_ High chromosome mask
+		 * @param SITE_MASK_ Site position mask
+		 * @param SHIFT_LENGTH_ Position shift length
+		 * @param WRITE_TO_DISK_ Whether to write results to disk
+		 * @param DISK_INVALID_ Whether disk version is invalid
+		 * @param matrix_ Block matrix to populate
+		 */
 		public BlockMaker(int minChrom_, int maxChrom_, int k, int CHROMBITS_,
 				int MAX_ALLOWED_CHROM_INDEX_, int CHROM_MASK_LOW_, int CHROM_MASK_HIGH_, int SITE_MASK_, int SHIFT_LENGTH_,
 				boolean WRITE_TO_DISK_, boolean DISK_INVALID_, Block[] matrix_){
@@ -130,6 +165,14 @@ public class IndexMaker5 {
 		}
 
 
+		/**
+		 * Creates k-mer index arrays for the assigned chromosome range.
+		 * First attempts to load existing index from disk, otherwise generates
+		 * new index using parallel CountThread workers. Coordinates thread
+		 * synchronization for size counting, array allocation, and filling phases.
+		 *
+		 * @return Generated Block containing the k-mer index arrays
+		 */
 		Block makeArrays(){
 			
 			{
@@ -207,6 +250,16 @@ public class IndexMaker5 {
 
 		private class CountThread extends Thread{
 
+			/**
+			 * Constructs a CountThread for parallel k-mer index generation.
+			 * Each thread handles k-mers starting with a specific base (A,C,G,T).
+			 * Calculates index range and polymeric k-mer banning parameters.
+			 *
+			 * @param id_ Thread identifier (0-3 for A,C,G,T respectively)
+			 * @param sizes_ Shared array for k-mer counts per index
+			 * @param intercom_ Inter-thread communication array for synchronization
+			 * @param indexHolder_ Shared holder for the final Block object
+			 */
 			public CountThread(int id_, int[] sizes_, int[] intercom_, Block[] indexHolder_){
 				id=id_;
 				idb=AminoAcid.numberToBase[id];
@@ -232,16 +285,25 @@ public class IndexMaker5 {
 				}
 			}
 
+			/** Thread identifier (0-3 for bases A,C,G,T respectively) */
 			private final int id;
+			/** Byte value of the base this thread processes */
 			private final int idb;
+			/** Shared array tracking k-mer counts for each index position */
 			private final int[] sizes;
 			/** {sizeSum, #finishedCounting, #finishedAllocating, #finishedFilling} */
 			private final int[] intercom;
+			/** Shared holder for the final generated Block object */
 			private final Block[] indexHolder;
+			/** Minimum k-mer index value this thread handles */
 			private final int minIndex;
+			/** Maximum k-mer index value this thread handles */
 			private final int maxIndex;
+			/** Bitmask pattern for polymeric k-mers to exclude from indexing */
 			private final int banned;
+			/** Bit mask used for polymeric k-mer detection and filtering */
 			private final int banmask;
+			/** Bit shift value for polymeric k-mer ban mask calculations */
 			private static final int banshift=4;
 
 			@Override
@@ -448,30 +510,75 @@ public class IndexMaker5 {
 			return out;
 		}
 
+		/**
+		 * Calculates base chromosome value using high chromosome mask.
+		 * Used for chromosome encoding/decoding operations.
+		 * @param chrom Chromosome number
+		 * @return Base chromosome value after masking
+		 */
 		public final int baseChrom(int chrom){return Tools.max(0, chrom&CHROM_MASK_HIGH);}
 
+		/** K-mer length for this block maker */
 		final int KEYLEN;
+		/** Number of bits allocated for chromosome encoding */
 		private final int CHROMBITS;
+		/** Total number of possible k-mer values (4^KEYLEN) */
 		private final int KEYSPACE;
+		/** Maximum chromosome index value allowed for processing */
 		final int MAX_ALLOWED_CHROM_INDEX;
+		/** Whether to write the generated index to disk */
 		public final boolean WRITE_TO_DISK;
+		/** Whether the existing disk index is invalid and needs regeneration */
 		public final boolean DISK_INVALID;
 
+		/** Bit mask for low chromosome bits in encoding */
 		private final int CHROM_MASK_LOW;
+		/** Bit mask for high chromosome bits in encoding */
 		private final int CHROM_MASK_HIGH;
+		/** Bit mask for genomic site position in encoding */
 		private final int SITE_MASK;
+		/** Number of bits to shift for position encoding */
 		private final int SHIFT_LENGTH;
 
+		/** Starting chromosome number for this block */
 		final int minChrom;
+		/** Ending chromosome number for this block */
 		final int maxChrom;
 
+		/** Array of Block objects to populate with generated indices */
 		private final Block[] matrix;
 
 	}
 
+	/**
+	 * Calculates minimum chromosome value using high chromosome mask.
+	 *
+	 * @param chrom Input chromosome number
+	 * @param MINCHROM Minimum allowed chromosome value
+	 * @param CHROM_MASK_HIGH High bits mask for chromosome
+	 * @return Maximum of MINCHROM and masked chromosome value
+	 */
 	public static final int minChrom(int chrom, int MINCHROM, int CHROM_MASK_HIGH){return Tools.max(MINCHROM, chrom&CHROM_MASK_HIGH);}
+	/**
+	 * Calculates maximum chromosome value using low chromosome mask.
+	 *
+	 * @param chrom Input chromosome number
+	 * @param MINCHROM Minimum allowed chromosome value
+	 * @param MAXCHROM Maximum allowed chromosome value
+	 * @param CHROM_MASK_LOW Low bits mask for chromosome
+	 * @return Constrained chromosome value within allowed range
+	 */
 	public static final int maxChrom(int chrom, int MINCHROM, int MAXCHROM, int CHROM_MASK_LOW){return Tools.max(MINCHROM, Tools.min(MAXCHROM, chrom|CHROM_MASK_LOW));}
 	
+	/**
+	 * Generates filename for index storage based on chromosome range and parameters.
+	 *
+	 * @param minChrom Starting chromosome number
+	 * @param maxChrom Ending chromosome number
+	 * @param k K-mer length
+	 * @param chrombits Number of chromosome encoding bits
+	 * @return Filename string for storing the index
+	 */
 	public static final String fname(int minChrom, int maxChrom, int k, int chrombits){
 		String suffix="_index_k"+k+"_c"+chrombits+"_b"+Data.GENOME_BUILD+".blockB";
 		if(minChrom!=maxChrom){
@@ -481,6 +588,11 @@ public class IndexMaker5 {
 		}
 	}
 	
+	/**
+	 * Thread-safe counter for active block processing threads.
+	 * Implements blocking when maximum concurrent blocks is reached.
+	 * @param i Increment value (positive to increase, negative to decrease)
+	 */
 	static void incrementActiveBlocks(int i){
 		assert(i!=0);
 		synchronized(THREAD_SYNC){
@@ -503,17 +615,26 @@ public class IndexMaker5 {
 		}
 	}
 
+	/** Whether to output verbose debugging information */
 	public static boolean verbose=false;
 
+	/** Whether to synchronize memory allocation for contiguous arrays */
 	public static boolean USE_ALLOC_SYNC=false;
+	/** Synchronization object for memory allocation operations */
 	static final String ALLOC_SYNC=new String("ALLOC_SYNC");
+	/** Synchronization object for thread coordination operations */
 	private static final String THREAD_SYNC=new String("THREAD_SYNC");
 	
+	/** Maximum number of blocks that can be processed concurrently */
 	public static int MAX_CONCURRENT_BLOCKS=(Shared.WINDOWS ? 1 : 2);
+	/** Current number of actively processing blocks */
 	private static int ACTIVE_BLOCKS=0;
 
+	/** Whether to allow polymeric k-mers in the index */
 	public static boolean ALLOW_POLYMERS=false;
+	/** Whether to use modulo filtering for k-mer selection */
 	public static boolean USE_MODULO=false;
+	/** Modulo value used for k-mer filtering when enabled */
 	private static final int MODULO=IndexMaker4.MODULO;
 	
 }

@@ -8,8 +8,30 @@ import shared.Shared;
 import shared.Tools;
 import structures.Range;
 
+/**
+ * Command-line utility for extracting and manipulating genomic sequences from chromosomes.
+ * Retrieves genomic sequence segments by chromosome, location, and optional strand.
+ * Supports flexible chromosome and location input parsing with genomic build selection.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class GetSequence {
 	
+	/**
+	 * Main entry point for genomic sequence extraction.
+	 * Parses command-line arguments for chromosome, build, strand, and coordinates.
+	 * Extracts sequences from specified genomic regions and outputs original and
+	 * reverse complement sequences with amino acid translations.
+	 *
+	 * Supports command-line format:
+	 * - build=N (genome build selection)
+	 * - chrN (chromosome specification)
+	 * - + or - (strand specification, currently only + supported)
+	 * - coordinate ranges in formats: start-end, [start,end], (start,end)
+	 *
+	 * @param args Command-line arguments including build, chromosome, strand, and coordinates
+	 */
 	public static void main(String[] args){
 		
 		int chrom=-1;
@@ -81,15 +103,40 @@ public class GetSequence {
 		System.out.println("\nAAs (reverse comp):\n"+AminoAcid.stringToAAs(AminoAcid.reverseComplementBases(combined)));
 	}
 	
+	/**
+	 * Retrieves a single base from a specified chromosome at a given position.
+	 * @param chrom Chromosome number (1-based)
+	 * @param a Genomic position on the chromosome
+	 * @return Base value at the specified position
+	 */
 	public static byte get(int chrom, int a){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return cha.get(a);
 	}
 	
+	/**
+	 * Retrieves a genomic sequence from a chromosome between two positions.
+	 * Uses positive strand by default.
+	 *
+	 * @param chrom Chromosome number (1-based)
+	 * @param a Start position (inclusive)
+	 * @param b End position (inclusive)
+	 * @return Genomic sequence as a string between positions a and b
+	 */
 	public static String get(int chrom, int a, int b){
 		return get(chrom, a, b, Shared.PLUS);
 	}
 	
+	/**
+	 * Retrieves a genomic sequence from a chromosome between two positions on specified strand.
+	 * Currently only supports positive strand (Shared.PLUS).
+	 *
+	 * @param chrom Chromosome number (1-based)
+	 * @param a Start position (inclusive)
+	 * @param b End position (inclusive)
+	 * @param strand Strand orientation (currently only Shared.PLUS supported)
+	 * @return Genomic sequence as a string between positions a and b
+	 */
 	public static String get(int chrom, int a, int b, byte strand){
 		assert(strand==Shared.PLUS) : "TODO";
 		ChromosomeArray cha=Data.getChromosome(chrom);

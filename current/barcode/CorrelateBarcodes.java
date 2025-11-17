@@ -32,6 +32,8 @@ import tracker.ReadStats;
  */
 public class CorrelateBarcodes {
 
+	/** Program entry point. Creates a CorrelateBarcodes instance and processes the input.
+	 * @param args Command-line arguments for input/output files and parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CorrelateBarcodes x=new CorrelateBarcodes(args);
@@ -41,6 +43,12 @@ public class CorrelateBarcodes {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams, quality thresholds, and histogram parameters.
+	 * Handles paired-end detection and validates file accessibility.
+	 * @param args Command-line arguments containing file paths and processing options
+	 */
 	public CorrelateBarcodes(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -171,6 +179,14 @@ public class CorrelateBarcodes {
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
 	
+	/**
+	 * Main processing method that reads input sequences and analyzes barcode quality.
+	 * Extracts barcodes from read identifiers, calculates quality correlations,
+	 * filters reads based on barcode quality thresholds, and generates output files
+	 * including correlation matrices and quality histograms.
+	 *
+	 * @param t Timer for tracking processing time and generating performance statistics
+	 */
 	void process(Timer t){
 		
 		
@@ -375,55 +391,86 @@ public class CorrelateBarcodes {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path for read data */
 	private String in1=null;
+	/** Secondary input file path for paired-end read data */
 	private String in2=null;
 	
+	/** Quality file path for primary input reads */
 	private String qfin1=null;
+	/** Quality file path for secondary input reads */
 	private String qfin2=null;
 
+	/** Primary output file path for filtered reads */
 	private String out1=null;
+	/** Secondary output file path for filtered paired-end reads */
 	private String out2=null;
 	
+	/** File extension for input files */
 	private String extin=null;
+	/** File extension for output files */
 	private String extout=null;
 
+	/** Output file path for quality correlation matrix */
 	private String outcor=null;
+	/** Output file path for barcode quality histogram */
 	private String bqhist=null;
+	/** Output file path for average quality histogram */
 	private String aqhist=null;
+	/** Output file path for minimum quality histogram */
 	private String mqhist=null;
 
+	/** Minimum average quality threshold for barcode filtering */
 	private float minBarcodeAverageQuality=0;
+	/** Minimum quality threshold for lowest quality base in barcode */
 	private int minBarcodeMinQuality=0;
 
+	/** Quality correlation matrix for read 1 vs barcode quality (50x50) */
 	private long[][] qualCor1=new long[50][50];
+	/** Quality correlation matrix for read 2 vs barcode quality (50x50) */
 	private long[][] qualCor2=new long[50][50];
 
+	/** Histogram array for average barcode quality scores (0-99) */
 	private long[] aqhistArray=new long[100];
+	/** Histogram array for minimum barcode quality scores (0-99) */
 	private long[] mqhistArray=new long[100];
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for primary input file */
 	private final FileFormat ffin1;
+	/** File format specification for secondary input file */
 	private final FileFormat ffin2;
 	
+	/** File format specification for correlation matrix output */
 	private final FileFormat ffcor;
+	/** File format specification for average quality histogram output */
 	private final FileFormat ffaq;
+	/** File format specification for minimum quality histogram output */
 	private final FileFormat ffmq;
 
+	/** File format specification for primary output file */
 	private final FileFormat ffout1;
+	/** File format specification for secondary output file */
 	private final FileFormat ffout2;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Global flag enabling verbose output and debugging information */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Flag controlling whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Flag controlling whether to append to existing output files */
 	private boolean append=false;
 	
 }

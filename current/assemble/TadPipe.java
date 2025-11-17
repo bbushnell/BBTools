@@ -110,6 +110,18 @@ public class TadPipe {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Executes the complete read processing and assembly pipeline.
+	 * Creates temporary files and runs sequential stages:
+	 * 1. BBDuk adapter trimming and quality filtering
+	 * 2. BBMerge overlap-based error correction
+	 * 3. Clumpify optical duplicate removal and error correction
+	 * 4. BBMerge read pair merging
+	 * 5. Tadpole k-mer based error correction
+	 * 6. Tadpole read extension (single or dual pass)
+	 * 7. TadpoleWrapper multi-k assembly
+	 * Cleans up temporary files if deleteTemp is enabled.
+	 */
 	public void process(){
 		
 		File tmpfile=(tempdir==null ? null : new File(tempdir));
@@ -421,31 +433,44 @@ public class TadPipe {
 //
 //	private ArrayList<String> adapterArgs=new ArrayList<String>();
 	
+	/** Arguments for BBDuk adapter trimming and quality filtering stage */
 	private ArrayList<String> trimArgs=new ArrayList<String>();
 	
+	/** Arguments for BBMerge overlap-based error correction stage */
 	private ArrayList<String> eccoArgs=new ArrayList<String>();
 	
+	/** Arguments for Clumpify deduplication and error correction stage */
 	private ArrayList<String> clumpifyArgs=new ArrayList<String>();
 	
+	/** Arguments for TadpoleWrapper multi-k assembly stage */
 	private ArrayList<String> assembleArgs=new ArrayList<String>();
 	
+	/** Arguments for BBMerge read pair merging stage */
 	private ArrayList<String> mergeArgs=new ArrayList<String>();
 	
+	/** Arguments for Tadpole k-mer based error correction stage */
 	private ArrayList<String> eccArgs=new ArrayList<String>();
 	
+	/** Arguments for first Tadpole read extension stage */
 	private ArrayList<String> extendArgs=new ArrayList<String>();
 	
+	/** Arguments for optional second Tadpole read extension stage */
 	private ArrayList<String> extend2Args=new ArrayList<String>();
 	
 	private String in1, in2;
 	
+	/** Output fasta file path for assembled contigs */
 	private String out="contigs.fa";
 	
+	/** Directory path for storing temporary intermediate files */
 	private String tempdir=Shared.tmpdir();
 
+	/** Whether to delete temporary files after pipeline completion */
 	private boolean deleteTemp=true;
+	/** Whether to compress temporary files with gzip */
 	private boolean gz=false;
 	
+	/** Whether to perform second round of read extension with longer k-mers */
 	private boolean extend2=false;
 	
 	/*--------------------------------------------------------------*/

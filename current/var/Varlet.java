@@ -8,6 +8,12 @@ import fileIO.TextFile;
 import shared.Shared;
 import shared.Tools;
 
+/**
+ * Detailed representation of a genetic variation with comprehensive read and quality metadata.
+ * Stores and processes variant information from sequencing reads, capturing strand, quality,
+ * and mapping details. Packs quality metrics into single integer using bitwise operations.
+ * @author Brian Bushnell
+ */
 public class Varlet extends var.Variation {
 	
 	private static final long serialVersionUID = -606340580378991068L;
@@ -64,8 +70,15 @@ public class Varlet extends var.Variation {
 	@Override
 	public String toString(){return toText().toString();}
 	
+	/** Returns the header string for text output format.
+	 * @return Tab-delimited header string for Varlet text representation */
 	public static String header(){return textHeader().toString();}
 	
+	/**
+	 * Creates the tab-delimited header for text output format.
+	 * Contains column names for all Varlet fields in output order.
+	 * @return StringBuilder containing the complete header line with tabs
+	 */
 	public static CharSequence textHeader(){
 		StringBuilder sb=new StringBuilder(64);
 		
@@ -106,6 +119,11 @@ public class Varlet extends var.Variation {
 		return sb;
 	}
 	
+	/**
+	 * Converts this Varlet to tab-delimited text representation.
+	 * Includes all variant properties, quality metrics, and strand counts.
+	 * @return StringBuilder with tab-separated values matching textHeader format
+	 */
 	public final StringBuilder toText(){
 		StringBuilder sb=new StringBuilder(64);
 		
@@ -147,6 +165,12 @@ public class Varlet extends var.Variation {
 		return sb;
 	}
 	
+	/**
+	 * Reads Varlet objects from a text file.
+	 * Skips comment lines starting with '#' and parses each data line.
+	 * @param fname Path to the input text file
+	 * @return ArrayList of parsed Varlet objects
+	 */
 	public static final ArrayList<Varlet> fromTextFile(String fname){
 		TextFile tf=new TextFile(fname, false);
 		ArrayList<Varlet> list=new ArrayList<Varlet>(2000);
@@ -162,6 +186,12 @@ public class Varlet extends var.Variation {
 		return list;
 	}
 	
+	/**
+	 * Parses a single tab-delimited line into a Varlet object.
+	 * Expects fields in the order defined by textHeader method.
+	 * @param line Tab-delimited string containing variant data
+	 * @return Parsed Varlet object
+	 */
 	public static final Varlet fromText(String line){
 		String[] split=line.split("\t");
 		
@@ -236,6 +266,14 @@ public class Varlet extends var.Variation {
 		return(compareTo((Varlet)other));
 	}
 	
+	/**
+	 * Compares this Varlet to another for sorting.
+	 * Primary sort by chromosome, position, variant type, then call sequence.
+	 * Secondary sort by read coordinates, strand, and quality.
+	 *
+	 * @param other The Varlet to compare against
+	 * @return Negative, zero, or positive integer for less than, equal, or greater
+	 */
 	public int compareTo(Varlet other) {
 		
 //		int a=compareTo2(other);
@@ -288,25 +326,48 @@ public class Varlet extends var.Variation {
 	}
 	
 	
+	/**
+	 * Packed quality vector containing avgVarQuality, avgReadQuality, maxVarQuality, maxReadQuality
+	 */
 	private int qvector;
 	
+	/** Gets average variant quality from packed qvector */
 	public int avgVarQuality(){return qvector&0xFF;}
+	/** Gets average read quality from packed qvector */
 	public int avgReadQuality(){return (qvector>>8)&0xFF;};
+	/** Gets maximum variant quality from packed qvector */
 	public int maxVarQuality(){return (qvector>>16)&0xFF;};
+	/** Gets maximum read quality from packed qvector */
 	public int maxReadQuality(){return (qvector>>24)&0xFF;};
 	
+	/** Sets average variant quality in packed qvector.
+	 * @param value Average variant quality score (0-255) */
 	public void setAvgVarQuality(int value){
 		qvector=((qvector&0xFFFFFF00)|(value&0xFF));
 	}
+	/** Sets average read quality in packed qvector.
+	 * @param value Average read quality score (0-255) */
 	public void setAvgReadQuality(int value){
 		qvector=((qvector&0xFFFF00FF)|((value&0xFF)<<8));
 	}
+	/** Sets maximum variant quality in packed qvector.
+	 * @param value Maximum variant quality score (0-255) */
 	public void setMaxVarQuality(int value){
 		qvector=((qvector&0xFF00FFFF)|((value&0xFF)<<16));
 	}
+	/** Sets maximum read quality in packed qvector.
+	 * @param value Maximum read quality score (0-255) */
 	public void setMaxReadQuality(int value){
 		qvector=((qvector&0x00FFFFFF)|((value&0xFF)<<24));
 	}
+	/**
+	 * Sets all quality values in packed qvector using bitwise operations.
+	 *
+	 * @param avq Average variant quality
+	 * @param arq Average read quality
+	 * @param mvq Maximum variant quality
+	 * @param mrq Maximum read quality
+	 */
 	public void setQvector(int avq, int arq, int mvq, int mrq){
 		qvector=mrq&0xFF;
 		qvector=(qvector<<8)|(mvq&0xFF);
@@ -316,31 +377,47 @@ public class Varlet extends var.Variation {
 	
 	
 	
+	/** Mapping score of the read containing this variant */
 	public int mapScore;
+	/** Number of errors in the read alignment */
 	public int errors;
 	
+	/** Expected number of errors based on quality scores */
 	public float expectedErrors;
 
+	/** Start position of the match within the alignment */
 	public int matchStart;
+	/** Stop position of the match within the alignment */
 	public int matchStop;
 	
+	/** Start position of the read alignment on the reference */
 	public int readStart;
+	/** Stop position of the read alignment on the reference */
 	public int readStop;
 
+	/** Distance from variant to 5' end of read */
 	public int headDist;
+	/** Distance from variant to 3' end of read */
 	public int tailDist;
+	/** Distance from variant to nearest read end */
 	public int endDist;
 	
+	/** Strand orientation of the read (+ or -) */
 	public byte strand;
+	/** Number of paired reads supporting this variant */
 	public int paired;
 
+	/** Unique identifier of the read containing this variant */
 	public long readID;
 	
 	/** Length of read when used for calling vars; ie, after being trimmed. */
 	public int readLen;
 	
+	/** Total number of reads supporting this variant */
 	public int numReads;
+	/** Number of semi-unique reads supporting this variant */
 	public int numSemiUniqueReads=1;
+	/** Number of unique reads supporting this variant */
 	public int numUniqueReads=1;
 	
 	/** Varlets from read 1 mapped to plus strand */
@@ -375,10 +452,19 @@ public class Varlet extends var.Variation {
 		return numMinusReads1+numPlusReads2;
 	}
 	
+	/** Gets minimum number of reads between plus and minus mapped strands.
+	 * @return Minimum of numPlusMappedReads and numMinusMappedReads */
 	public int minStrandReads(){return Tools.min(numPlusMappedReads(), numMinusMappedReads());}
 	
 //	public byte numStrands(){return (byte)((numPlusReads>0 ? 1 : 0)+(numMinusReads>0 ? 1 : 0));}
+	/** Gets minimum read count among all four strand-pair combinations.
+	 * @return Minimum of numPlusReads1, numMinusReads1, numPlusReads2, numMinusReads2 */
 	public int minStrandReads4(){return Tools.min(numPlusReads1, numMinusReads1, numPlusReads2, numMinusReads2);}
+	/**
+	 * Gets second lowest number among four strand-pair combinations.
+	 * Complex algorithm to find second minimum value.
+	 * @return Second lowest read count among the four strand-pair values
+	 */
 	public int minStrandReads3(){//return second lowest number
 
 		final int a, b, c, d;
@@ -390,10 +476,17 @@ public class Varlet extends var.Variation {
 		return Tools.min(b, d, (a>=c ? a : c));
 		
 	}
+	/**
+	 * Counts how many of the four strand-pair combinations have reads.
+	 * @return Number of non-zero values among numPlusReads1, numMinusReads1,
+	 * numPlusReads2, numMinusReads2
+	 */
 	public int strandReadCount(){
 		return (numPlusReads1>0 ? 1 : 0)+(numMinusReads1>0 ? 1 : 0)+(numPlusReads2>0 ? 1 : 0)+(numMinusReads2>0 ? 1 : 0);
 	}
 	
+	/** Determines which read pair this variant came from.
+	 * @return 0 if from read1 pair, 1 if from read2 pair */
 	public int pairNum(){
 		return (numPlusReads1+numMinusReads1)>0 ? 0 : 1;
 	}

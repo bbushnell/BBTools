@@ -279,6 +279,11 @@ public class AdjustHomopolymers {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates and starts concurrent read input stream for file processing.
+	 * Configures stream for specified maximum reads and paired-end detection.
+	 * @return Started ConcurrentReadInputStream for reading input files
+	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -288,6 +293,12 @@ public class AdjustHomopolymers {
 		return cris;
 	}
 	
+	/**
+	 * Creates concurrent read output stream for writing processed reads.
+	 * Configures output buffering and interleaving based on input characteristics.
+	 * @param pairedInput Whether input data is paired-end
+	 * @return ConcurrentReadOutputStream for output, or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -439,6 +450,12 @@ public class AdjustHomopolymers {
 		}
 	}
 	
+	/**
+	 * Generates or reuses fake quality score array for reads without quality data.
+	 * Expands internal buffer as needed and fills with default quality values.
+	 * @param minlen Minimum required array length
+	 * @return Byte array filled with fake quality scores
+	 */
 	private byte[] fakeQuality(int minlen){
 		if(fakeQuality.length<minlen){
 			fakeQuality=KillSwitch.allocByte1D(minlen+10);
@@ -456,7 +473,9 @@ public class AdjustHomopolymers {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Primary input quality file path (optional) */
 	private String qfin1=null;
+	/** Secondary input quality file path (optional) */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -464,7 +483,9 @@ public class AdjustHomopolymers {
 	/** Secondary output file path */
 	private String out2=null;
 
+	/** Primary output quality file path (optional) */
 	private String qfout1=null;
+	/** Secondary output quality file path (optional) */
 	private String qfout2=null;
 	
 	/** Override input file extension */
@@ -475,11 +496,15 @@ public class AdjustHomopolymers {
 	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 
+	/** Reusable buffer for building adjusted base sequences */
 	private ByteBuilder bbBases=new ByteBuilder();
+	/** Reusable buffer for building adjusted quality sequences */
 	private ByteBuilder bbQuals=new ByteBuilder();
 	
+	/** Homopolymer adjustment rate (positive=expand, negative=contract) */
 	private float rate=0.0f;
 	
+	/** Reusable array for generating fake quality scores when needed */
 	private byte[] fakeQuality=new byte[0];
 	
 	/*--------------------------------------------------------------*/

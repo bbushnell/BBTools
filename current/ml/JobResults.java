@@ -1,5 +1,13 @@
 package ml;
 
+/**
+ * Encapsulates computational results and performance metrics for individual
+ * machine learning job executions during neural network training.
+ * Stores comprehensive job execution details including error metrics,
+ * classification outcomes, and network reference for distributed training scenarios.
+ *
+ * @author Brian Bushnell
+ */
 public class JobResults implements Comparable<JobResults>{
 	
 	JobResults(final CellNet net_, final int epoch_, final int numProcessed_, int tid_, int jid_,
@@ -22,6 +30,14 @@ public class JobResults implements Comparable<JobResults>{
 		assert(weightedErrorSum>=0 || epoch==-1) : this;
 	}
 	
+	/**
+	 * Returns a compact string representation of job results for debugging.
+	 * Format: "jR: e=[epoch], jid=[jobId], num=[processed], err=[errorSum],
+	 * wer=[weightedErrorSum], fn=[falseNegatives], fp=[falsePositives],
+	 * tn=[trueNegatives], tp=[truePositives]"
+	 *
+	 * @return Compact string summary of all job metrics
+	 */
 	public String toString() {
 		return "jR: e="+epoch+", jid="+jid+", num="+numProcessed+", err="+errorSum+", wer="+weightedErrorSum+", fn="+fnSum+", fp="+fpSum+", tn="+tnSum+", tp="+tpSum;
 	}
@@ -31,16 +47,24 @@ public class JobResults implements Comparable<JobResults>{
 		return epoch==o.epoch ? jid-o.jid : epoch-o.epoch;
 	}
 	
+	/** Neural network reference associated with this job execution */
 	final CellNet net;
 
+	/** Training epoch number when this job was executed */
 	final int epoch;
+	/** Number of training samples processed during this job */
 	final int numProcessed;
+	/** Thread ID of the worker thread that executed this job */
 	final int tid;
+	/** Job ID for identification and ordering within an epoch */
 	final int jid;
 	
+	/** Sum of raw error values across all samples processed in this job */
 	final double errorSum;
+	/** Sum of weighted error values across all samples processed in this job */
 	final double weightedErrorSum;
 	final int tpSum, tnSum, fpSum, fnSum;
 	
+	/** Sentinel instance used for thread termination in producer-consumer queues */
 	static final JobResults POISON=new JobResults(null, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1);
 }

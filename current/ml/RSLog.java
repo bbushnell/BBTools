@@ -1,5 +1,13 @@
 package ml;
 
+/**
+ * Rotationally symmetric logarithmic activation function.
+ * Implements rslog(x) = log(|x|+1) * sign(x), providing a smooth logarithmic
+ * transformation that preserves sign and handles both positive and negative inputs.
+ * Part of the machine learning function library for neural network activations.
+ *
+ * @author Brian Bushnell
+ */
 public class RSLog extends Function {
 	
 	/*--------------------------------------------------------------*/
@@ -30,8 +38,11 @@ public class RSLog extends Function {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Function name identifier for this activation function */
 	static final String name="RSLOG";
+	/** Function type constant derived from the name for lookup operations */
 	static final int type=Function.toType(name, true);
+	/** Singleton instance of the RSLog activation function */
 	static final RSLog instance=new RSLog();
 
 }

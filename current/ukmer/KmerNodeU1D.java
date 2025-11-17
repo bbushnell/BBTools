@@ -16,10 +16,17 @@ public class KmerNodeU1D extends KmerNodeU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Constructs a k-mer node with specified pivot k-mer.
+	 * @param pivot_ The k-mer data as a long array */
 	public KmerNodeU1D(long[] pivot_){
 		super(pivot_);
 	}
 	
+	/**
+	 * Constructs a k-mer node with specified pivot k-mer and value.
+	 * @param pivot_ The k-mer data as a long array
+	 * @param value_ The integer value associated with this k-mer
+	 */
 	public KmerNodeU1D(long[] pivot_, int value_){
 		super(pivot_);
 		value=value_;
@@ -170,6 +177,7 @@ public class KmerNodeU1D extends KmerNodeU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** The integer value associated with this k-mer node */
 	int value;
 	
 }

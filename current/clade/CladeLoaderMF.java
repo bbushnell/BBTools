@@ -617,10 +617,15 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
+		/** Entropy tracker for sequence analysis with k=4 and window size */
 		private EntropyTracker et=new EntropyTracker(entropyK, entropyWindow, false);
+		/** Whether this thread treats each contig as a separate clade */
 		private final boolean perContig;
+		/** Minimum contig length for this thread to process */
 		private final int minContig;
+		/** Maximum number of reads for this thread to process */
 		private final long maxReads;
+		/** Whether this thread finishes clades after processing */
 		private final boolean finish;
 		
 		/** Shared data source */
@@ -677,6 +682,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe access coordination */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

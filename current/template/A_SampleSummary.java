@@ -21,6 +21,11 @@ import structures.ListNum;
  */
 public class A_SampleSummary {
 
+	/**
+	 * Program entry point following standard BBTools pattern.
+	 * Creates timer, instantiates processor, runs processing, and closes streams.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -35,6 +40,11 @@ public class A_SampleSummary {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Handles preprocessing, argument parsing, and file format validation.
+	 * @param args Command-line arguments to parse
+	 */
 	public A_SampleSummary(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -74,6 +84,12 @@ public class A_SampleSummary {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that reads input files and processes reads.
+	 * Sets up concurrent read input stream, iterates through reads,
+	 * tracks statistics, and outputs results.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -125,6 +141,8 @@ public class A_SampleSummary {
 		assert(!errorState) : "An error was encountered.";
 	}
 	
+	/** Outputs processing results to the specified output file.
+	 * Creates output writer and writes processed data. */
 	private void outputResults(){
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout1);
 		bsw.start();
@@ -139,20 +157,28 @@ public class A_SampleSummary {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path */
 	private String in1=null;
+	/** Output file path */
 	private String out1=null;
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Tracks whether an error occurred during processing */
 	private boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
+	/** Controls verbosity of status output */
 	public static boolean verbose=false;
 	
 }

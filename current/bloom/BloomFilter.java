@@ -172,11 +172,42 @@ public class BloomFilter implements Serializable {
 		filter=load();
 	}
 	
+	/**
+	 * Constructor with direct parameter specification.
+	 * Creates a BloomFilter with specified k-mer parameters and memory allocation.
+	 *
+	 * @param k_ Small k-mer length
+	 * @param kbig_ Large k-mer length
+	 * @param bits_ Bits per k-mer count
+	 * @param hashes_ Number of hash functions
+	 * @param minConsecutiveMatches_ Minimum consecutive k-mer matches required
+	 * @param rcomp_ Use reverse complement matching
+	 * @param ecco_ Enable error correction
+	 * @param merge_ Merge overlapping reads
+	 * @param memFraction Fraction of available memory to use
+	 */
 	public BloomFilter(int k_, int kbig_, int bits_, int hashes_,
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction){
 		this(null, null, null, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction);
 	}
 	
+	/**
+	 * Constructor with input files and parameter specification.
+	 * Creates a BloomFilter from specified input files with given parameters.
+	 *
+	 * @param in1_ Primary input file path
+	 * @param in2_ Secondary input file path
+	 * @param extra_ Additional input file paths
+	 * @param k_ Small k-mer length
+	 * @param kbig_ Large k-mer length
+	 * @param bits_ Bits per k-mer count
+	 * @param hashes_ Number of hash functions
+	 * @param minConsecutiveMatches_ Minimum consecutive k-mer matches required
+	 * @param rcomp_ Use reverse complement matching
+	 * @param ecco_ Enable error correction
+	 * @param merge_ Merge overlapping reads
+	 * @param memFraction Fraction of available memory to use
+	 */
 	public BloomFilter(String in1_, String in2_, ArrayList<String> extra_, int k_, int kbig_, int bits_, int hashes_,
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction){
 		if(extra_!=null){
@@ -202,6 +233,18 @@ public class BloomFilter implements Serializable {
 		filter=load();
 	}
 
+	/**
+	 * Constructor for loading from BBMap index.
+	 * Creates a BloomFilter by loading k-mer data from an existing BBMap index.
+	 *
+	 * @param bbmapIndex_ Must be true to indicate BBMap index loading
+	 * @param k_ Small k-mer length
+	 * @param kbig_ Large k-mer length
+	 * @param bits_ Bits per k-mer count
+	 * @param hashes_ Number of hash functions
+	 * @param minConsecutiveMatches_ Minimum consecutive k-mer matches required
+	 * @param rcomp_ Use reverse complement matching
+	 */
 	public BloomFilter(boolean bbmapIndex_, int k_, int kbig_, int bits_, int hashes_, int minConsecutiveMatches_, boolean rcomp_) {
 		assert(bbmapIndex_);
 		filterMemory=setMemory(0.75);
@@ -222,6 +265,12 @@ public class BloomFilter implements Serializable {
 		filter=loadFromIndex();
 	}
 	
+	/**
+	 * Calculates available memory for filter allocation.
+	 * Determines usable memory based on JVM settings and applies multiplier.
+	 * @param mult Fraction of available memory to allocate
+	 * @return Memory in bytes available for filter
+	 */
 	private static long setMemory(double mult){
 		if(printMem) {Shared.printMemory();}
 		
@@ -245,6 +294,11 @@ public class BloomFilter implements Serializable {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Loads k-mer data from input files into a KCountArray.
+	 * Creates and populates the count array from reference sequences.
+	 * @return Populated KCountArray7MTA with k-mer counts
+	 */
 	private KCountArray7MTA load(){
 		final int cbits=bits;
 		final long totalBits=8*filterMemory;
@@ -262,6 +316,11 @@ public class BloomFilter implements Serializable {
 		return kca;
 	}
 
+	/**
+	 * Loads k-mer data from an existing BBMap index.
+	 * Creates a KCountArray from pre-built index rather than raw sequences.
+	 * @return KCountArray7MTA populated from index data
+	 */
 	private KCountArray7MTA loadFromIndex(){
 		KmerCountAbstract.CANONICAL=true;
 		final int cbits=bits;
@@ -314,6 +373,12 @@ public class BloomFilter implements Serializable {
 		return sum/Tools.max(counted, 1f);
 	}
 	
+	/**
+	 * Finds the minimum k-mer count in a read.
+	 * Useful for detecting contamination or low-coverage regions.
+	 * @param r Read to analyze
+	 * @return Minimum k-mer count, or -1 if read too short
+	 */
 	public int minCount(Read r) {
 		if(r==null || r.length()<k-1){return -1;}
 		final byte[] bases=r.bases;
@@ -428,6 +493,15 @@ public class BloomFilter implements Serializable {
 		return counted<1 ? 0 : highCount/(float)counted;
 	}
 	
+	/**
+	 * Determines if a read pair represents junk/contamination.
+	 * Tests k-mer counts at read ends within specified range.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param range Number of bases from ends to examine
+	 * @return true if reads appear to be junk/contamination
+	 */
 	public boolean isJunk(Read r1, Read r2, int range){
 		assert(bits>1);
 		if(r2==null || r2.length()<k){return isJunk(r1, range);}
@@ -437,12 +511,28 @@ public class BloomFilter implements Serializable {
 		return getRightCount(r1.bases, range)<3 || getRightCount(r2.bases, range)<3;
 	}
 	
+	/**
+	 * Determines if a single read represents junk/contamination.
+	 * Tests k-mer counts at both ends within specified range.
+	 *
+	 * @param r Read to evaluate
+	 * @param range Number of bases from ends to examine
+	 * @return true if read appears to be junk/contamination
+	 */
 	public boolean isJunk(Read r, int range){
 		assert(bits>1);
 		if(r.length()<k){return true;}
 		return getLeftCount(r.bases, range)<2 && getRightCount(r.bases, range)<2;
 	}
 	
+	/**
+	 * Gets minimum k-mer count from left end of sequence.
+	 * Examines k-mers within specified range from start.
+	 *
+	 * @param bases Sequence bases
+	 * @param range Number of bases from start to examine
+	 * @return Minimum k-mer count in left region, or -1 if too short
+	 */
 	private int getLeftCount(byte[] bases, int range){
 		assert(range>0) : range;
 		if(bases.length<k){return -1;}
@@ -470,6 +560,14 @@ public class BloomFilter implements Serializable {
 		return counted>0 ? min : -1;
 	}
 	
+	/**
+	 * Gets minimum k-mer count from right end of sequence.
+	 * Examines k-mers within specified range from end.
+	 *
+	 * @param bases Sequence bases
+	 * @param range Number of bases from end to examine
+	 * @return Minimum k-mer count in right region, or -1 if too short
+	 */
 	private int getRightCount(byte[] bases, int range){
 		assert(range>0) : range;
 		if(bases.length<k){return -1;}
@@ -670,6 +768,12 @@ public class BloomFilter implements Serializable {
 	}
 	
 	
+	/**
+	 * Fills counts for precomputed big k-mers.
+	 * More efficient when k-mers are already available.
+	 * @param kmers List of big k-mers
+	 * @param counts List to fill with corresponding counts
+	 */
 	public void fillCountsBig(LongList kmers, IntList counts){
 		assert(smallPerBig>1) : smallPerBig;
 		counts.clear();
@@ -696,6 +800,12 @@ public class BloomFilter implements Serializable {
 		return getCountBig(kmer);
 	}
 	
+	/**
+	 * Gets big k-mer count by breaking into constituent small k-mers.
+	 * Returns minimum count across all small k-mers in the big k-mer.
+	 * @param kmer Big k-mer to analyze
+	 * @return Minimum count among constituent small k-mers
+	 */
 	public int getCountBig(long kmer){
 		int min=Integer.MAX_VALUE;
 		for(int i=0; i<smallPerBig && min>0; i++){
@@ -782,9 +892,13 @@ public class BloomFilter implements Serializable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of reads to process for filter construction */
 	long maxReads=-1;
+	/** Enable error correction during k-mer counting */
 	boolean ecco=false;
+	/** Merge overlapping read pairs before k-mer extraction */
 	boolean merge=false;
+	/** Minimum quality score for k-mer inclusion */
 	byte minq=0;
 
 	/** Primary input file path */
@@ -792,34 +906,50 @@ public class BloomFilter implements Serializable {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Additional input file paths beyond primary and secondary */
 	private ArrayList<String> extra=new ArrayList<String>();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** The underlying k-mer count array for filtering operations */
 	public final KCountArray7MTA filter;
+	/** Small k-mer length for filtering */
 	final int k;
+	/** Large k-mer length for enhanced specificity */
 	final int kbig;
+	/** Number of small k-mers per big k-mer (kbig-k+1) */
 	final int smallPerBig;
+	/** Bits allocated per k-mer count in the array */
 	final int bits;
+	/** Number of hash functions used in the count array */
 	final int hashes;
+	/** Minimum consecutive k-mer matches required to trigger filtering */
 	final int minConsecutiveMatches;//Note this is similar to smallPerBig
 	
+	/** Bit shift amount for k-mer encoding (bitsPerBase * k) */
 	final int shift;
+	/** Secondary bit shift for reverse complement operations */
 	final int shift2;
+	/** Bit mask for extracting k-mer values during rolling hash */
 	final long mask;
+	/** Whether to use reverse complement canonical k-mer representation */
 	final boolean rcomp;
 
 //	private final long usableMemory;
+	/** Memory allocated for the k-mer count array in bytes */
 	private final long filterMemory;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Override value for number of hash table cells (for testing) */
 	public static long OVERRIDE_CELLS=-1;
+	/** Number of bits used to encode each DNA base */
 	static final int bitsPerBase=2;
+	/** Whether to print memory usage information during initialization */
 	public static boolean printMem=true;
 	
 	/*--------------------------------------------------------------*/

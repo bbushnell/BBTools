@@ -110,10 +110,14 @@ public class ComparisonHeap {
 //        return best;
 //    }
     
+    /** Returns the worst comparison currently in the heap without removing it.
+     * @return The worst comparison, or null if heap is empty */
     public Comparison worst() {
     	return heap.peek();
     }
     
+    /** Priority queue maintaining comparisons with worst element at top */
     private final PriorityQueue<Comparison> heap;
+    /** Maximum number of comparisons to retain in the heap */
     private final int maxSize;
 }

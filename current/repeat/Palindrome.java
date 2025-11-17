@@ -3,14 +3,37 @@ package repeat;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * Represents a palindromic sequence within DNA/RNA with position and match information.
+ * Tracks start/stop positions and counts of matching and mismatching bases.
+ * Supports comparison and cloning operations for analysis and sorting.
+ * @author Brian Bushnell
+ */
 public class Palindrome implements Comparable<Palindrome>, Cloneable {
 	
+	/** Creates an empty palindrome with all values initialized to zero */
 	public Palindrome(){}
 	
+	/**
+	 * Creates a palindrome with specified position and match information.
+	 *
+	 * @param a_ Start position of the palindrome
+	 * @param b_ Stop position of the palindrome
+	 * @param matches_ Number of matching bases in the palindromic region
+	 * @param mismatches_ Number of mismatching bases in the palindromic region
+	 */
 	public Palindrome(int a_, int b_, int matches_, int mismatches_){
 		set(a_, b_, matches_, mismatches_);
 	}
 	
+	/**
+	 * Sets the position and match information for this palindrome.
+	 *
+	 * @param a_ Start position of the palindrome
+	 * @param b_ Stop position of the palindrome
+	 * @param matches_ Number of matching bases in the palindromic region
+	 * @param mismatches_ Number of mismatching bases in the palindromic region
+	 */
 	public void set(int a_, int b_, int matches_, int mismatches_){
 		a=a_;
 		b=b_;
@@ -18,11 +41,18 @@ public class Palindrome implements Comparable<Palindrome>, Cloneable {
 		mismatches=mismatches_;
 	}
 	
+	/** Copies all values from another palindrome to this one.
+	 * @param p Source palindrome to copy from (must not be this instance) */
 	public void setFrom(Palindrome p){
 		assert(p!=this);
 		set(p.a, p.b, p.matches, p.mismatches);
 	}
 	
+	/**
+	 * Returns a string representation showing position range and match statistics.
+	 * Format: (start-stop,matches=X,mismatches=Y)
+	 * @return String representation of this palindrome
+	 */
 	public String toString() {
 		return "("+a+"-"+b+",matches="+matches+",mismatches="+mismatches+")";
 	}
@@ -60,17 +90,30 @@ public class Palindrome implements Comparable<Palindrome>, Cloneable {
 		return bb.append(')');
 	}
 	
+	/** Returns the palindromic length (matches plus mismatches).
+	 * @return Total number of bases in the palindromic region */
 	public int plen() {return matches+mismatches;}
 	
+	/** Returns the total length of the palindrome region including loop.
+	 * @return Distance from start to stop position plus one */
 	public int length() {return b-a+1;}
 	
+	/**
+	 * Calculates the loop size between palindromic arms.
+	 * Loop size is total length minus twice the matching region length.
+	 * @return Number of bases in the central non-palindromic loop
+	 */
 	public int loop() {return length()-2*matches;}
 	
+	/** Resets all fields to zero and returns this instance for chaining.
+	 * @return This palindrome instance after clearing */
 	public Palindrome clear() {
 		a=b=matches=mismatches=0;
 		return this;
 	}
 	
+	/** Creates a shallow copy of this palindrome.
+	 * @return New palindrome instance with identical field values */
 	public Palindrome clone() {
 		Palindrome p=null;
 		try {p=(Palindrome) super.clone();} 

@@ -12,16 +12,38 @@ import stream.Read;
  */
 public class Blacklist {
 	
+	/**
+	 * Determines if a read or its mate maps to a whitelisted scaffold.
+	 * Returns true if either the read or its mate is mapped to a scaffold
+	 * present in the whitelist.
+	 *
+	 * @param r The read to check (may be null)
+	 * @return true if read or mate maps to whitelisted scaffold, false otherwise
+	 */
 	public static boolean inWhitelist(Read r){
 		return r==null ? false : (inWhitelist2(r) || inWhitelist2(r.mate));
 	}
 	
+	/**
+	 * Helper method to check if a single read maps to a whitelisted scaffold.
+	 * Verifies the read is mapped and its scaffold name exists in the whitelist.
+	 * @param r The read to check (may be null)
+	 * @return true if read maps to whitelisted scaffold, false otherwise
+	 */
 	private static boolean inWhitelist2(Read r){
 		if(r==null || !r.mapped() || whitelist==null || whitelist.isEmpty()){return false;}
 		byte[] name=r.getScaffoldName(false);
 		return (name!=null && whitelist.contains(new String(name)));
 	}
 	
+	/**
+	 * Determines if a read pair should be filtered based on blacklist criteria.
+	 * Complex logic filters read pairs when one or both reads map to blacklisted
+	 * scaffolds, accounting for mate mapping status.
+	 *
+	 * @param r The read to check (may be null)
+	 * @return true if read pair should be filtered out, false otherwise
+	 */
 	public static boolean inBlacklist(Read r){
 		if(r==null){return false;}
 		boolean a=inBlacklist2(r);
@@ -33,20 +55,45 @@ public class Blacklist {
 		return b && !r.mapped();
 	}
 	
+	/**
+	 * Helper method to check if a single read maps to a blacklisted scaffold.
+	 * Verifies the read is mapped and its scaffold name exists in the blacklist.
+	 * @param r The read to check (may be null)
+	 * @return true if read maps to blacklisted scaffold, false otherwise
+	 */
 	private static boolean inBlacklist2(Read r){
 		if(r==null || !r.mapped() || blacklist==null || blacklist.isEmpty()){return false;}
 		byte[] name=r.getScaffoldName(false);
 		return (name!=null && blacklist.contains(new String(name)));
 	}
 	
+	/**
+	 * Loads scaffold names from a file into the blacklist.
+	 * Convenience method that calls addToSet with black=true.
+	 * @param fname Path to file containing scaffold names to blacklist
+	 */
 	public static void addToBlacklist(String fname){
 		addToSet(fname, true);
 	}
 	
+	/**
+	 * Loads scaffold names from a file into the whitelist.
+	 * Convenience method that calls addToSet with black=false.
+	 * @param fname Path to file containing scaffold names to whitelist
+	 */
 	public static void addToWhitelist(String fname){
 		addToSet(fname, false);
 	}
 	
+	/**
+	 * Reads scaffold names from a file and adds them to blacklist or whitelist.
+	 * Supports both FASTA format (>scaffold_name) and plain text (one name per line).
+	 * Thread-safe operation that auto-detects file format and reports duplicates.
+	 *
+	 * @param fname Path to input file containing scaffold names
+	 * @param black true to add to blacklist, false for whitelist
+	 * @return Number of unique scaffold names added (excludes duplicates)
+	 */
 	public static synchronized int addToSet(String fname, boolean black){
 		final HashSet<String> set;
 		int added=0, overwritten=0;
@@ -88,13 +135,19 @@ public class Blacklist {
 		return added-overwritten;
 	}
 
+	/** Returns true if blacklist exists and contains entries */
 	public static boolean hasBlacklist(){return blacklist!=null && !blacklist.isEmpty();}
+	/** Returns true if whitelist exists and contains entries */
 	public static boolean hasWhitelist(){return whitelist!=null && !whitelist.isEmpty();}
 
+	/** Clears the blacklist by setting it to null */
 	public static void clearBlacklist(){blacklist=null;}
+	/** Clears the whitelist by setting it to null */
 	public static void clearWhitelist(){whitelist=null;}
 	
+	/** Set of scaffold names to exclude from processing */
 	private static HashSet<String> blacklist=null;
+	/** Set of scaffold names to exclusively include in processing */
 	private static HashSet<String> whitelist=null;
 	
 }

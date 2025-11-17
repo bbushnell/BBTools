@@ -19,6 +19,14 @@ import stream.SamLine;
  */
 public final class SelectReads {
 	
+	/**
+	 * Program entry point for read selection based on CIGAR operations.
+	 * Takes command-line arguments: input_file output_file [symbol] [min_length] [max_reads]
+	 * Processes SAM file and outputs reads containing specified operations above minimum length.
+	 *
+	 * @param args Command-line arguments: input SAM file, output SAM file,
+	 * optional CIGAR symbol (M/S/D/I/C), optional minimum length, optional max reads
+	 */
 	public static void main(String[] args){
 		
 		assert(args.length>=2) : "Need 2 file names: <input> <output>";
@@ -66,6 +74,15 @@ public final class SelectReads {
 	}
 	
 	
+	/**
+	 * Tests if a SAM line contains the specified CIGAR operation above minimum length.
+	 * Parses CIGAR string and checks if the operation at the given index meets length requirement.
+	 *
+	 * @param sl The SAM line to test
+	 * @param minlen Minimum length required for the operation
+	 * @param index Index of the CIGAR operation to check (0=M, 1=S, 2=D, 3=I, 4=C)
+	 * @return true if the line contains the operation above minimum length, false otherwise
+	 */
 	private static boolean testLine(SamLine sl, int minlen, int index){
 		assert(sl!=null);
 		if(!sl.mapped() || sl.cigar==null){return false;}

@@ -15,6 +15,11 @@ import stream.SiteScore;
 public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	
 	
+	/**
+	 * Program entry point for testing and demonstration.
+	 * Creates an aligner instance and demonstrates alignment between two sequences.
+	 * @param args Command-line arguments: read sequence and reference sequence
+	 */
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
@@ -63,6 +68,14 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	}
 	
 	
+	/**
+	 * Constructs aligner with specified matrix dimensions.
+	 * Initializes three-dimensional packed score matrix and boundary arrays.
+	 * Sets up insertion score progression for first column based on PacBio parameters.
+	 *
+	 * @param maxRows_ Maximum number of rows (read length) the aligner can handle
+	 * @param maxColumns_ Maximum number of columns (reference length) the aligner can handle
+	 */
 	public MultiStateAligner9PacBioAdapter_WithBarriers(int maxRows_, int maxColumns_){
 //		assert(maxColumns_>=200);
 //		assert(maxRows_>=200);
@@ -821,6 +834,18 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
 	
+	/**
+	 * Quality-aware alignment incorporating base quality scores.
+	 * Modifies alignment scores based on sequencing quality values.
+	 *
+	 * @deprecated Needs to be redone to work with score cutoffs
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence array
+	 * @param baseScores Quality scores for each base in the read
+	 * @param refStartLoc Starting position in reference sequence
+	 * @param refEndLoc Ending position in reference sequence
+	 * @return Array containing [maxRow, maxCol, maxState, maxScore]
+	 */
 	@Deprecated
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public final int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc){
@@ -1351,6 +1376,16 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		return score;
 	}
 	
+	/**
+	 * Convenience method for aligning reads to SiteScore locations.
+	 * Extracts coordinates and gaps from SiteScore object for alignment.
+	 *
+	 * @param read Query sequence to align
+	 * @param ss SiteScore containing chromosome, coordinates, and gap information
+	 * @param thresh Threshold for extending alignment boundaries
+	 * @param minScore Minimum alignment score threshold
+	 * @return Array containing [score, bestRefStart, bestRefStop] or null if threshold not met
+	 */
 	public final int[] fillAndScoreLimited(byte[] read, SiteScore ss, int thresh, int minScore){
 		return fillAndScoreLimited(read, ss.chrom, ss.start, ss.stop, thresh, minScore, ss.gaps);
 	}
@@ -1602,6 +1637,14 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Converts gapped reference coordinate to original reference coordinate.
+	 * Accounts for compressed gap regions when mapping positions.
+	 *
+	 * @param point Position in gapped reference sequence
+	 * @param gref Gapped reference sequence array
+	 * @return Corresponding position in original reference sequence
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -1627,6 +1670,14 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Converts original reference coordinate to gapped reference coordinate.
+	 * Maps positions accounting for compressed gap regions.
+	 *
+	 * @param point Position in original reference sequence
+	 * @param gref Gapped reference sequence array
+	 * @return Corresponding position in gapped reference sequence
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -1652,6 +1703,19 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Alignment workflow using chromosome coordinates.
+	 * Retrieves chromosome array and performs limited alignment with threshold extension.
+	 *
+	 * @param read Query sequence to align
+	 * @param chrom Chromosome identifier for reference lookup
+	 * @param start Starting coordinate on chromosome
+	 * @param stop Ending coordinate on chromosome
+	 * @param thresh Threshold for extending alignment boundaries
+	 * @param minScore Minimum alignment score threshold
+	 * @param gaps Gap coordinates array, or null for ungapped alignment
+	 * @return Array containing [score, bestRefStart, bestRefStop] or null if threshold not met
+	 */
 	public final int[] fillAndScoreLimited(byte[] read, int chrom, int start, int stop, int thresh, int minScore, int[] gaps){
 		return fillAndScoreLimited(read, Data.getChromosome(chrom).array, start-thresh, stop+thresh, minScore, gaps);
 	}
@@ -1722,6 +1786,14 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 //	}
 	
 
+	/**
+	 * Calculates alignment score without allowing insertions or deletions.
+	 * Uses match/substitution scoring only for rapid alignment assessment.
+	 *
+	 * @param read Query sequence to score
+	 * @param ss SiteScore containing alignment location
+	 * @return Alignment score using only matches and substitutions
+	 */
 	public final static int scoreNoIndels(byte[] read, SiteScore ss){
 		ChromosomeArray cha=Data.getChromosome(ss.chrom);
 		return scoreNoIndels(read, cha.array, ss.start, ss);
@@ -2247,10 +2319,20 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		return score;
 	}
 	
+	/**
+	 * Calculates theoretical maximum alignment score for perfect match.
+	 * @param numBases Length of sequence in bases
+	 * @return Maximum possible alignment score
+	 */
 	public static final int maxQuality(int numBases){
 		return POINTS_MATCH+(numBases-1)*(POINTS_MATCH2);
 	}
 	
+	/**
+	 * Calculates theoretical maximum alignment score including quality bonuses.
+	 * @param baseScores Quality scores for sequence
+	 * @return Maximum possible alignment score with quality adjustments
+	 */
 	public static final int maxQuality(byte[] baseScores){
 		return POINTS_MATCH+(baseScores.length-1)*(POINTS_MATCH2)+Tools.sumInt(baseScores);
 	}
@@ -2437,10 +2519,16 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	}
 	
 	
+	/** Maximum number of rows (read length) this aligner can handle */
 	public final int maxRows;
+	/** Maximum number of columns (reference length) this aligner can handle */
 	public final int maxColumns;
 
+	/**
+	 * Three-dimensional matrix storing packed alignment scores and timing information
+	 */
 	private final int[][][] packed;
+	/** Buffer for storing gapped reference sequences during alignment */
 	private final byte[] grefbuffer;
 	private int greflimit=-1;
 	private int greflimit2=-1;
@@ -2461,7 +2549,9 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for pruning unpromising alignment regions */
 	public final int[] vertLimit;
+	/** Horizontal score limits for pruning unpromising alignment regions */
 	public final int[] horizLimit;
 
 	CharSequence showVertLimit(){
@@ -2522,18 +2612,25 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	
 	public static final int POINTS_NOREF=-8;
 	public static final int POINTS_NOCALL=-8;
+	/** Score awarded for nucleotide matches optimized for PacBio sequencing */
 	public static final int POINTS_MATCH=90;
+	/** Score awarded for consecutive nucleotide matches in PacBio alignment */
 	public static final int POINTS_MATCH2=100; //Note:  Changing to 90 substantially reduces false positives
 	public static final int POINTS_COMPATIBLE=50;
+	/** Penalty for nucleotide substitutions tuned for PacBio error patterns */
 	public static final int POINTS_SUB=-141;
 	public static final int POINTS_SUBR=-159; //increased penalty if prior match streak was at most 1
 	public static final int POINTS_SUB2=-49;
 	public static final int POINTS_SUB3=-27;
 	public static final int POINTS_MATCHSUB=-10;
+	/**
+	 * Penalty for sequence insertions optimized for PacBio indel characteristics
+	 */
 	public static final int POINTS_INS=-204;
 	public static final int POINTS_INS2=-42;
 	public static final int POINTS_INS3=-25;
 	public static final int POINTS_INS4=-8;
+	/** Penalty for sequence deletions optimized for PacBio indel characteristics */
 	public static final int POINTS_DEL=-287;
 	public static final int POINTS_DEL2=-39;
 	public static final int POINTS_DEL3=-21;
@@ -2583,13 +2680,19 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
+	/** Current number of rows (read length) being processed */
 	private int rows;
+	/** Current number of columns (reference length) being processed */
 	private int columns;
 
+	/** Counter for iterations performed during limited alignment mode */
 	public long iterationsLimited=0;
+	/** Counter for iterations performed during unlimited alignment mode */
 	public long iterationsUnlimited=0;
 
+	/** Enables verbose output for debugging alignment operations */
 	public boolean verbose=false;
+	/** Enables detailed verbose output for debugging alignment matrix operations */
 	public boolean verbose2=false;
 	
 }

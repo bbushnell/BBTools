@@ -28,6 +28,7 @@ public class GlocalPlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor */
 	public GlocalPlusAligner2() {}
 	
 	/*--------------------------------------------------------------*/
@@ -132,6 +133,17 @@ public class GlocalPlusAligner2 implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}
 
+	/**
+	 * Processes final alignment scores to extract identity and alignment positions.
+	 * Unpacks bit-encoded scores and solves equation system to determine operation counts.
+	 *
+	 * @param prev Final score array from alignment
+	 * @param qLen Query length
+	 * @param bandStart Band start position
+	 * @param bandEnd Band end position
+	 * @param posVector Optional array to store alignment coordinates
+	 * @return Identity score calculated from match/mismatch/indel counts
+	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
 		long maxScore=Long.MIN_VALUE;
@@ -213,9 +225,14 @@ public class GlocalPlusAligner2 implements IDAligner{
 		return id;
 	}
 	
+	/** Counter for total alignment loops across all instances */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the total number of alignment loops performed */
 	public long loops() {return loops.get();}
+	/** Sets the loop counter value.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/** Optional output file path for visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -223,26 +240,41 @@ public class GlocalPlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/** Number of bits reserved for position encoding in score field */
 	private static final int POSITION_BITS=21;
+	/** Number of bits reserved for deletion count in score field */
 	private static final int DEL_BITS=21;
+	/** Bit shift amount to access score portion of packed value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
+	/** Bit mask to extract position from packed score value */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask to extract deletion count from packed score value */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
+	/** Bit mask to extract score from packed value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
+	/** Score increment for matching bases (positive value in upper bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (negative value in upper bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (negative value in upper bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (negative value in upper bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base matches (zero penalty) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value for invalid alignment positions */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined deletion penalty and position increment for efficient tracking */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
+	/** Debug flag to print alignment operation details */
 	private static final boolean PRINT_OPS=false;
+	/** Whether to perform global alignment instead of glocal alignment */
 	public static boolean GLOBAL=false;
 
 }

@@ -9,8 +9,27 @@ import java.util.Map;
 import fileIO.ReadWrite;
 import json.JsonObject;
 
+/**
+ * Writes execution metadata for BBTools programs to files in TSV or JSON format.
+ * Captures runtime information including timestamps, system details, version info,
+ * command line parameters, and processing statistics for program execution tracking.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class MetadataWriter {
 	
+	/**
+	 * Writes execution metadata to a file in the configured format.
+	 * Uses the global jsonMode flag to determine output format (JSON or TSV).
+	 *
+	 * @param fname Output filename, or null to use fnameStatic
+	 * @param readsIn Number of input reads processed
+	 * @param basesIn Number of input bases processed
+	 * @param readsOut Number of output reads produced
+	 * @param basesOut Number of output bases produced
+	 * @param append Whether to append to existing file or overwrite
+	 */
 	public static void write(String fname, long readsIn, long basesIn, long readsOut, long basesOut, boolean append){
 		if(fname==null){fname=fnameStatic;}
 		if(fname==null){return;}
@@ -24,6 +43,17 @@ public class MetadataWriter {
 		ReadWrite.writeStringInThread(s, fname, append);
 	}
 	
+	/**
+	 * Formats execution metadata as tab-separated values.
+	 * Includes timestamp, hostname, BBTools version, Java version, command line,
+	 * shell script equivalent, and read/base counts.
+	 *
+	 * @param readsIn Number of input reads processed
+	 * @param basesIn Number of input bases processed
+	 * @param readsOut Number of output reads produced
+	 * @param basesOut Number of output bases produced
+	 * @return TSV-formatted metadata string
+	 */
 	public static String toTsv(long readsIn, long basesIn, long readsOut, long basesOut){
 		Map<String,String> env=System.getenv();
 		StringBuilder sb=new StringBuilder();
@@ -47,6 +77,16 @@ public class MetadataWriter {
 		return sb.toString();
 	}
 	
+	/**
+	 * Formats execution metadata as a JSON object.
+	 * Contains the same metadata as TSV format but structured as JSON.
+	 *
+	 * @param readsIn Number of input reads processed
+	 * @param basesIn Number of input bases processed
+	 * @param readsOut Number of output reads produced
+	 * @param basesOut Number of output bases produced
+	 * @return JSON-formatted metadata string
+	 */
 	public static String toJson(long readsIn, long basesIn, long readsOut, long basesOut){
 		Map<String,String> env=System.getenv();
 		JsonObject jo=new JsonObject();
@@ -72,6 +112,14 @@ public class MetadataWriter {
 		return jo.toString();
 	}
 	
+	/**
+	 * Translates Java class command line to equivalent shell script command.
+	 * Uses the shellMap to convert Java class names to their corresponding
+	 * shell script names (e.g., "jgi.BBDuk" becomes "bbduk.sh").
+	 *
+	 * @param command Full command line string starting with Java class name
+	 * @return Shell script equivalent command, or null if no mapping found
+	 */
 	private static String commandToShellscript(String command) {
 		if(command==null) {return null;}
 		final HashMap<String, String> map=shellMap();
@@ -109,7 +157,9 @@ public class MetadataWriter {
 		return map;
 	}
 	
+	/** Static filename to use when no filename is explicitly provided to write() */
 	public static String fnameStatic;
+	/** Whether to output metadata in JSON format (true) or TSV format (false) */
 	public static boolean jsonMode=true;
 	
 }

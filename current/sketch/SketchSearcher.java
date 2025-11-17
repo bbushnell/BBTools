@@ -19,12 +19,32 @@ import structures.IntHashMap;
 import tax.TaxNode;
 import tax.TaxTree;
 
+/**
+ * Searches sketch databases for similar sequences using k-mer based comparisons.
+ * Supports multithreaded comparison against reference databases and can create
+ * indices for faster searches. Handles various reference databases including
+ * RefSeq, SILVA, IMG, and protein datasets.
+ *
+ * @author Brian Bushnell
+ */
 public class SketchSearcher extends SketchObject {
 	
+	/** Creates a new SketchSearcher with default settings */
 	public SketchSearcher(){
 		
 	}
 
+	/**
+	 * Parses command-line arguments specific to sketch searching.
+	 * Handles reference database selection, threading, indexing options,
+	 * and taxonomy filtering parameters.
+	 *
+	 * @param arg Complete argument string
+	 * @param a Argument key (before '=' sign)
+	 * @param b Argument value (after '=' sign, may be null)
+	 * @param addFileIfNotFound Whether to add file paths that aren't recognized as parameters
+	 * @return true if argument was successfully parsed, false otherwise
+	 */
 	public boolean parse(String arg, String a, String b, boolean addFileIfNotFound){
 		
 //		System.err.println("Parsing "+arg+"; ref="+refFiles); //123
@@ -70,6 +90,17 @@ public class SketchSearcher extends SketchObject {
 		return true;
 	}
 
+	/**
+	 * Compares query sketches against reference database and formats results.
+	 * Processes multiple query sketches in sequence, performing comparisons
+	 * and accumulating results in the provided StringBuilder.
+	 *
+	 * @param querySketches List of query sketches to compare
+	 * @param sb StringBuilder to accumulate formatted results
+	 * @param params Display and filtering parameters for output
+	 * @param maxThreads Maximum number of threads to use for comparisons
+	 * @return true if all comparisons completed successfully
+	 */
 	public boolean compare(ArrayList<Sketch> querySketches, ByteBuilder sb, DisplayParams params, int maxThreads){
 		assert(params.postParsed);
 		final boolean json=params.json();
@@ -115,8 +146,21 @@ public class SketchSearcher extends SketchObject {
 		return success;
 	}
 	
+	/** Worker thread for parallel sketch comparison operations.
+	 * Each thread processes a subset of reference sketches against a single query. */
 	private class CompareThread extends Thread {
 		
+		/**
+		 * Creates a comparison thread for processing sketch pairs.
+		 *
+		 * @param a_ Query sketch to compare against references
+		 * @param localRefSketches_ List of reference sketches to process
+		 * @param pid_ Thread identifier for workload distribution
+		 * @param incr_ Increment for stride-based work distribution
+		 * @param fakeID_ Atomic counter for generating temporary taxonomy IDs
+		 * @param map_ Concurrent map for collecting comparison results
+		 * @param params_ Parameters for filtering and display
+		 */
 		CompareThread(Sketch a_, ArrayList<Sketch> localRefSketches_, int pid_, int incr_,
 				AtomicInteger fakeID_, ConcurrentHashMap<Integer, Comparison> map_, DisplayParams params_){
 			a=a_;
@@ -145,18 +189,40 @@ public class SketchSearcher extends SketchObject {
 			comparisons.getAndAdd(localComparisons);
 		}
 		
+		/** Atomic counter for generating temporary taxonomy IDs when none exist */
 		final AtomicInteger fakeID;
+		/** Thread-safe map for collecting comparison results keyed by taxonomy ID */
 		final ConcurrentHashMap<Integer, Comparison> map;
+		/** Thread-local buffer for efficient sketch comparison calculations */
 		final CompareBuffer buffer;
+		/** Increment for stride-based work distribution across threads */
 		final int incr;
+		/** Thread identifier used as starting position for stride pattern */
 		final int pid;
+		/** Query sketch being compared against reference database */
 		final Sketch a;
+		/** Parameters controlling filtering criteria and output formatting */
 		final DisplayParams params;
+		/** Reference sketches assigned to this thread for processing */
 		final ArrayList<Sketch> localRefSketches;
+		/** Count of comparisons performed by this thread */
 		long localComparisons=0;
 		
 	}
 	
+	/**
+	 * Processes a single query sketch against the reference database.
+	 * Creates bit sets for efficient comparison, retrieves candidate references
+	 * from index if available, and performs comparisons using single or multiple threads.
+	 *
+	 * @param a Query sketch to process
+	 * @param buffer Reusable buffer for comparison calculations
+	 * @param fakeID Atomic counter for temporary taxonomy IDs
+	 * @param map Concurrent map for collecting results
+	 * @param params Filtering and display parameters
+	 * @param maxThreads Maximum threads to use for this sketch
+	 * @return SketchResults containing all matches above thresholds
+	 */
 	public SketchResults processSketch(Sketch a, CompareBuffer buffer, AtomicInteger fakeID, 
 			ConcurrentHashMap<Integer, Comparison> map, DisplayParams params, int maxThreads){
 		if(a.length()<1 || a.length()<params.minHits || (params.requireSSU && !a.hasSSU())){return new SketchResults(a);}
@@ -218,6 +284,15 @@ public class SketchSearcher extends SketchObject {
 	}
 	
 	//For remote homology
+	/**
+	 * Determines if sketch pair passes taxonomic filtering for remote homology detection.
+	 * Checks if both query and reference have valid taxonomy IDs at or above
+	 * the minimum taxonomic level, and share a common ancestor at the required level.
+	 *
+	 * @param q Query sketch
+	 * @param ref Reference sketch
+	 * @return true if taxonomic criteria are met for comparison
+	 */
 	boolean passesTax(Sketch q, Sketch ref){
 		assert(minLevelExtended>=0);
 		final int qid=q.taxID;
@@ -238,6 +313,18 @@ public class SketchSearcher extends SketchObject {
 		return false;
 	}
 
+	/**
+	 * Spawns and manages multiple comparison threads for parallel processing.
+	 * Calculates optimal thread count, creates worker threads with stride distribution,
+	 * waits for completion, and aggregates contamination bit sets if needed.
+	 *
+	 * @param a Query sketch to compare
+	 * @param refs Reference sketches to process
+	 * @param fakeID Atomic counter for taxonomy IDs
+	 * @param map Concurrent result collection map
+	 * @param params Filtering and display parameters
+	 * @param maxThreads Maximum number of threads to spawn
+	 */
 	private void spawnThreads(Sketch a, ArrayList<Sketch> refs, AtomicInteger fakeID,
 			ConcurrentHashMap<Integer, Comparison> map, DisplayParams params, int maxThreads){
 		final int toSpawn=Tools.max(1, Tools.min((refs.size()+7)/8, threads, maxThreads, Shared.threads()));
@@ -281,6 +368,20 @@ public class SketchSearcher extends SketchObject {
 //		}
 //	}
 	
+	/**
+	 * Processes a single sketch pair and adds valid comparisons to result map.
+	 * Applies filtering based on genome size, taxonomy, size ratios, and similarity thresholds.
+	 * Handles taxonomy ID assignment and maintains best match per taxonomic group.
+	 *
+	 * @param a Query sketch
+	 * @param b Reference sketch
+	 * @param buffer Reusable comparison buffer
+	 * @param abs AbstractBitSet for efficient k-mer counting
+	 * @param fakeID Atomic counter for temporary taxonomy IDs
+	 * @param map Concurrent map for storing best matches
+	 * @param params Filtering and display parameters
+	 * @return true if pair was processed and added to results
+	 */
 	boolean processPair(Sketch a, Sketch b, CompareBuffer buffer, AbstractBitSet abs,
 			AtomicInteger fakeID, ConcurrentHashMap<Integer, Comparison> map, DisplayParams params){
 //		System.err.println("Comparing "+a.name()+" and "+b.name());
@@ -386,6 +487,14 @@ public class SketchSearcher extends SketchObject {
 		return null;
 	}
 	
+	/**
+	 * Adds reference files or predefined database paths to the search set.
+	 * Recognizes standard database names (nt, nr, refseq, silva, etc.) and
+	 * automatically configures appropriate parameters including k-mer sizes,
+	 * blacklists, and autosize factors.
+	 *
+	 * @param a Database name or file path to add
+	 */
 	public void addRefFiles(String a){
 		if(a.equalsIgnoreCase("nr")){
 			addRefFiles(NR_PATH());
@@ -455,6 +564,14 @@ public class SketchSearcher extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Recursively adds files to a set, handling comma-separated lists and
+	 * numbered file patterns using '#' placeholder. Verifies file existence
+	 * before adding to prevent duplicates.
+	 *
+	 * @param a File path, comma-separated list, or pattern with '#'
+	 * @param list Set to add validated file paths to
+	 */
 	static void addFiles(String a, Set<String> list){
 		if(a==null){return;}
 		File f=new File(a);
@@ -475,16 +592,35 @@ public class SketchSearcher extends SketchObject {
 		}
 	}
 	
+	/** Creates and loads a sketch index for faster database searches.
+	 * Index allows rapid filtering of reference sketches before detailed comparison. */
 	public void makeIndex(){
 		assert(index==null);
 		index=new SketchIndex(refSketches);
 		index.load();
 	}
 	
+	/**
+	 * Loads reference sketches using parameters from DisplayParams.
+	 * Convenience method that extracts relevant filtering parameters.
+	 * @param mode_ Loading mode (per file, per taxa, etc.)
+	 * @param params Display parameters containing filtering thresholds
+	 */
 	public void loadReferences(int mode_, DisplayParams params){
 		loadReferences(mode_, params.minKeyOccuranceCount, params.minEntropy, params.minProb, params.minQual);
 	}
 	
+	/**
+	 * Loads reference sketches from configured file list with quality filtering.
+	 * Creates sketch tool, loads sketches in multithreaded mode, builds taxonomy
+	 * mapping, and optionally creates search index.
+	 *
+	 * @param mode_ Loading mode controlling sketch organization
+	 * @param minKeyOccuranceCount Minimum k-mer occurrence threshold
+	 * @param minEntropy Minimum sequence entropy filter
+	 * @param minProb Minimum k-mer probability threshold
+	 * @param minQual Minimum base quality score
+	 */
 	public void loadReferences(int mode_, int minKeyOccuranceCount, float minEntropy, float minProb, byte minQual) {
 		makeTool(minKeyOccuranceCount, false, false);
 		refSketches=tool.loadSketches_MT(mode_, 1f, -1, minEntropy, minProb, minQual, refFiles);
@@ -505,19 +641,39 @@ public class SketchSearcher extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Creates SketchTool instance for sketch loading and processing operations.
+	 * Configures tool with sketch size, occurrence filtering, and pairing options.
+	 *
+	 * @param minKeyOccuranceCount Minimum times k-mer must occur to be included
+	 * @param trackCounts Whether to maintain k-mer occurrence counts
+	 * @param mergePairs Whether to merge paired-end reads during processing
+	 */
 	public void makeTool(int minKeyOccuranceCount, boolean trackCounts, boolean mergePairs){
 		if(tool==null){
 			tool=new SketchTool(targetSketchSize, minKeyOccuranceCount, trackCounts, mergePairs, rcomp);
 		}
 	}
 	
+	/**
+	 * Loads sketches from string representation using the configured tool.
+	 * @param sketchString String containing sketch data
+	 * @return List of loaded Sketch objects
+	 */
 	public ArrayList<Sketch> loadSketchesFromString(String sketchString){
 		return tool.loadSketchesFromString(sketchString);
 	}
 	
+	/** Gets the number of reference files configured for searching */
 	public int refFileCount(){return refFiles==null ? 0 : refFiles.size();}
+	/** Gets the number of reference sketches currently loaded */
 	public int refSketchCount(){return refSketches==null ? 0 : refSketches.size();}
 	
+	/**
+	 * Finds reference sketch by taxonomy ID using the internal mapping.
+	 * @param taxID NCBI taxonomy ID to search for
+	 * @return Sketch with matching taxonomy ID, or null if not found
+	 */
 	public Sketch findReferenceSketch(int taxID){
 		if(taxID<1){return null;}
 		int skid=taxIDToSketchIDMap.get(taxID);
@@ -526,19 +682,31 @@ public class SketchSearcher extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Optional index for accelerated sketch database searches */
 	public SketchIndex index=null;
+	/** Whether to automatically create index when database size warrants it */
 	public boolean autoIndex=true;
 	
+	/** Tool for loading and processing sketch files */
 	public SketchTool tool=null;
+	/** List of loaded reference sketches for comparison */
 	public ArrayList<Sketch> refSketches;
+	/**
+	 * Set of reference file paths, preserving insertion order and preventing duplicates
+	 */
 	LinkedHashSet<String> refFiles=new LinkedHashSet<String>();
 	/** For ref sketch lookups by TaxID */
 	private IntHashMap taxIDToSketchIDMap;
+	/** Number of threads to use for parallel sketch comparisons */
 	public int threads=Shared.threads();
+	/** Whether to print verbose debugging information during processing */
 	boolean verbose;
+	/** Flag indicating whether an error condition has occurred */
 	boolean errorState=false;
+	/** Thread-safe counter for total number of sketch comparisons performed */
 	AtomicLong comparisons=new AtomicLong(0);
 	
+	/** Minimum taxonomic level for remote homology filtering (-1 disables) */
 	int minLevelExtended=-1;
 	
 }

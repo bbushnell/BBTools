@@ -10,6 +10,15 @@ import fileIO.TextFile;
 public class KmerSample {
 	
 	
+	/**
+	 * Creates a bit array representing all k-mers found in a FASTA file.
+	 * Each k-mer is encoded as a 2K-bit integer and stored as a single bit in the array.
+	 * Processes sequences line by line, handling FASTA headers and resetting k-mers on ambiguous bases.
+	 *
+	 * @param K Length of k-mers to extract (must be ≤31 for 64-bit encoding)
+	 * @param filename Path to FASTA file to process
+	 * @return Bit array where each bit represents presence of one possible k-mer
+	 */
 	public static int[] makeKmerSet(int K, String filename){
 		
 		//Number of bits in a kmer
@@ -101,6 +110,14 @@ public class KmerSample {
 		return array;
 	}
 	
+	/**
+	 * Tests whether a specific k-mer is present in the bit array.
+	 * Uses bit manipulation to check the appropriate bit position for the k-mer.
+	 *
+	 * @param kmer The k-mer to search for, encoded as a long integer
+	 * @param array Bit array created by makeKmerSet containing k-mer presence data
+	 * @return true if the k-mer is present in the array, false otherwise
+	 */
 	public static boolean containsKmer(long kmer, int[] array){
 		
 		//The index in the array is the upper bits of the kmer.  Each location in the array is 32 bits.

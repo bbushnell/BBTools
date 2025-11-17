@@ -16,6 +16,7 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		Test.testAndPrint(c, args);
 	}
 	
+	/** Default constructor creates new aligner instance */
 	public SingleStateAlignerFlat2(){}
 
 	@Override
@@ -32,6 +33,19 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 	public final float align(byte[] a, byte[] b, int[] posVector, int minScore) {return align(a, b, null, 0, b.length-1, minScore);}
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int from, int to) {return align(a, b, pos, from, to, -9999);}
+	/**
+	 * Main alignment method with full parameter control.
+	 * Swaps sequences if query is longer than reference for efficiency.
+	 * Performs dynamic programming alignment and calculates identity.
+	 *
+	 * @param q Query sequence
+	 * @param r Reference sequence
+	 * @param pos Array to fill with alignment start/stop positions (may be null)
+	 * @param from Start position in reference
+	 * @param to End position in reference
+	 * @param minScore Minimum alignment score threshold
+	 * @return Identity fraction between aligned sequences
+	 */
 	public float align(byte[] q, byte[] r, int[] pos, int from, int to, int minScore) {
 		if(q.length>r.length && pos==null) {byte[] s=q; q=r; r=s;}
 		assert(q.length<=r.length);
@@ -52,6 +66,8 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		return id;
 	}
 	
+	/** Prefills the top row of the DP matrix with initial scores.
+	 * Sets minimal negative scores to prefer leftmost alignments. */
 	private void prefillTopRow(){
 		final int[] header=packed[0];
 		final int qlen=rows;
@@ -67,6 +83,11 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		}
 	}
 	
+	/**
+	 * Prefills the left column of DP matrix starting at specified row.
+	 * Fills with insertion penalties for alignment initialization.
+	 * @param i Starting row index for prefill
+	 */
 	private void prefillLeftColumnStartingAt(int i){
 		packed[0][0]=MODE_MATCH;
 		i=Tools.max(1, i);
@@ -76,6 +97,12 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		}
 	}
 	
+	/**
+	 * Initializes or expands the DP matrix to required dimensions.
+	 * Reallocates memory if current matrix is too small, otherwise reuses existing.
+	 * @param rows_ Required number of rows
+	 * @param columns_ Required number of columns
+	 */
 	private void initialize(int rows_, int columns_){
 		rows=rows_;
 		columns=columns_;
@@ -199,6 +226,17 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		return maxScore<minScore ? null : new int[] {rows, maxCol, maxState, maxScore, maxStart};
 	}
 	
+	/**
+	 * Determines the optimal alignment state at given matrix position.
+	 * Calculates scores for match/mismatch, deletion, and insertion operations.
+	 * Returns the state that produced the maximum score.
+	 *
+	 * @param row Row position in DP matrix
+	 * @param col Column position in DP matrix
+	 * @param q Query base at this position
+	 * @param r Reference base at this position
+	 * @return State constant (MODE_MATCH, MODE_SUB, MODE_N, MODE_DEL, or MODE_INS)
+	 */
 	int getState(int row, int col, byte q, byte r){//zxvzxcv TODO: Fix - needs to find max
 		final boolean match=(q==r);
 		final boolean defined=(q!='N' && r!='N');
@@ -474,6 +512,14 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 		return score;
 	}
 	
+	/**
+	 * Converts reference subsequence to string representation.
+	 *
+	 * @param ref Reference sequence
+	 * @param startLoc Start position (inclusive)
+	 * @param stopLoc Stop position (inclusive)
+	 * @return String representation of subsequence
+	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -496,33 +542,53 @@ public final class SingleStateAlignerFlat2 implements Aligner, IDAligner {
 	public int columns(){return columns;}
 	
 	
+	/** Maximum number of rows allocated in DP matrix */
 	private int maxRows;
+	/** Maximum number of columns allocated in DP matrix */
 	private int maxColumns;
 
+	/** Two-dimensional DP matrix storing alignment scores */
 	private int[][] packed;
 	
+	/** Maximum possible alignment score to prevent overflow */
 	public static final int MAX_SCORE=Integer.MAX_VALUE-2000;
+	/** Minimum possible alignment score (one point above BAD) */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
+	/** Alignment state constant for deletion operation */
 	private static final byte MODE_DEL=1;
+	/** Alignment state constant for insertion operation */
 	private static final byte MODE_INS=2;
+	/** Alignment state constant for substitution operation */
 	private static final byte MODE_SUB=3;
+	/** Alignment state constant for match operation */
 	private static final byte MODE_MATCH=4;
+	/** Alignment state constant for ambiguous base alignment */
 	private static final byte MODE_N=5;
 	
+	/** Score penalty for aligning against undefined reference bases */
 	public static final int POINTS_NOREF=-20;
+	/** Score reward for matching bases in alignment */
 	public static final int POINTS_MATCH=100;
+	/** Score penalty for substitution (mismatch) in alignment */
 	public static final int POINTS_SUB=-50;
+	/** Score penalty for insertion operation in alignment */
 	public static final int POINTS_INS=-121;
+	/** Score penalty for deletion operation in alignment */
 	public static final int POINTS_DEL=-111;
 	
+	/** Score indicating invalid or failed alignment */
 	public static final int BAD=MIN_SCORE-1;
 	
+	/** Current number of rows being used in DP matrix */
 	private int rows;
+	/** Current number of columns being used in DP matrix */
 	private int columns;
 
+	/** Flag to enable verbose output for debugging */
 	public boolean verbose=false;
+	/** Flag to enable additional verbose output for debugging */
 	public boolean verbose2=false;
 	
 }

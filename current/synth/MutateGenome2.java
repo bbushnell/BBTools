@@ -29,6 +29,8 @@ import var2.Var;
  */
 public class MutateGenome2 {
 
+	/** Program entry point for genome mutation tool.
+	 * @param args Command-line arguments specifying input files and mutation parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MutateGenome2 x=new MutateGenome2(args);
@@ -38,6 +40,11 @@ public class MutateGenome2 {
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Constructor that parses command-line arguments and initializes mutation parameters.
+	 * Configures substitution rates, indel rates, ploidy, heterozygosity, and file I/O settings.
+	 * @param args Command-line arguments containing mutation parameters and file paths
+	 */
 	public MutateGenome2(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -148,6 +155,12 @@ public class MutateGenome2 {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, null, true, true);
 	}
 
+	/**
+	 * Main processing loop that reads input sequences, applies mutations, and writes outputs.
+	 * Processes each sequence through mutation pipeline and generates VCF variant file.
+	 * Reports detailed statistics on mutations introduced and processing performance.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadInputStream cris;
@@ -253,6 +266,12 @@ public class MutateGenome2 {
 		t.stop();
 	}
 
+	/**
+	 * Creates ploidy array indicating which haplotypes carry a mutation.
+	 * For heterozygous mutations, randomly selects subset of haplotypes to mutate.
+	 * For homozygous mutations, marks all haplotypes as carrying the variant.
+	 * @return Array of 1s and 0s indicating mutation presence per haplotype
+	 */
 	public int[] makePresentArray(){
 		int[] present=new int[ploidy];
 		if(ploidy>1 && randy.nextFloat()<hetRate){
@@ -272,6 +291,15 @@ public class MutateGenome2 {
 		return present;
 	}
 
+	/**
+	 * Checks if a deletion would create or extend a homopolymer run.
+	 * Used to avoid homopolymer mutations when banHomopolymers is enabled.
+	 *
+	 * @param bases The sequence being mutated
+	 * @param pos Position of proposed deletion
+	 * @param len Length of proposed deletion
+	 * @return true if deletion would create homopolymer, false otherwise
+	 */
 	public boolean isHomopolymerDel(byte[] bases, int pos, int len){
 		final byte b=bases[pos];
 		for(int i=1; i<len; i++){
@@ -282,12 +310,29 @@ public class MutateGenome2 {
 		return false;
 	}
 
+	/**
+	 * Checks if inserting a single base would create or extend a homopolymer run.
+	 *
+	 * @param bases The sequence being mutated
+	 * @param pos Position of proposed insertion
+	 * @param b The base to be inserted
+	 * @return true if insertion would create homopolymer, false otherwise
+	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, byte b){
 		if(b==bases[pos]){return true;}
 		if(pos>0 && b==bases[pos-1]){return true;}
 		return false;
 	}
 
+	/**
+	 * Checks if inserting a sequence would create or extend a homopolymer run.
+	 * First verifies that the insertion sequence itself is a homopolymer.
+	 *
+	 * @param bases The sequence being mutated
+	 * @param pos Position of proposed insertion
+	 * @param sb The sequence to be inserted
+	 * @return true if insertion would create homopolymer, false otherwise
+	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
 		for(int i=1; i<sb.length(); i++) {
@@ -296,6 +341,17 @@ public class MutateGenome2 {
 		return isHomopolymerIns(bases, pos, b);
 	}
 
+	/**
+	 * Applies mutations to a single DNA sequence read.
+	 * Handles genome fraction sampling, introduces substitutions and indels based on configured rates.
+	 * Creates separate haplotypes for polyploid genomes and records variants for VCF output.
+	 *
+	 * @param r The input read to mutate
+	 * @param bba Array of ByteBuilders for constructing mutated haplotypes
+	 * @param vars List to collect variant records for VCF output
+	 * @param headers List to collect sequence headers for VCF contig records
+	 * @return List of mutated reads (one per haplotype)
+	 */
 	public ArrayList<Read> processRead(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
 		if(r.aminoacid()) {
@@ -513,6 +569,17 @@ public class MutateGenome2 {
 		return ret;
 	}
 
+	/**
+	 * Applies mutations to amino acid sequences using the 21-letter amino acid alphabet.
+	 * Similar to DNA mutation logic but operates on protein sequences with amino acid substitutions.
+	 * Does not perform homopolymer checking since concept doesn't apply to amino acids.
+	 *
+	 * @param r The input amino acid sequence to mutate
+	 * @param bba Array of ByteBuilders for constructing mutated haplotypes
+	 * @param vars List to collect variant records for VCF output
+	 * @param headers List to collect sequence headers for VCF contig records
+	 * @return List of mutated amino acid reads (one per haplotype)
+	 */
 	public ArrayList<Read> processReadAmino(Read r, ByteBuilder[] bba, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
 		assert(r.aminoacid());
@@ -713,6 +780,12 @@ public class MutateGenome2 {
 
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Optimizes variant list by merging adjacent indels into substitutions and extending indels.
+	 * Two-pass algorithm: first fuses del+ins pairs into substitutions, then extends matching indels.
+	 * Improves VCF output readability and reduces variant count.
+	 * @param vars List of variants to optimize (modified in place)
+	 */
 	private void condenseVars(ArrayList<SmallVar> vars){
 		if(vars==null || vars.size()<2){return;}
 
@@ -783,6 +856,14 @@ public class MutateGenome2 {
 		}
 	}
 
+	/**
+	 * Writes variant records to VCF format output file.
+	 * Generates complete VCF header with metadata and contig information.
+	 * Formats each variant with genotype information for polyploid samples.
+	 *
+	 * @param vars List of variants to write to VCF
+	 * @param headers List of sequence headers for VCF contig records
+	 */
 	void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers){
 		if(ffoutVcf==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffoutVcf);
@@ -827,6 +908,19 @@ public class MutateGenome2 {
 
 	private static class SmallVar{
 
+		/**
+		 * Constructor for variant record.
+		 *
+		 * @param type_ Variant type (SUB, INS, or DEL)
+		 * @param start_ Start position (0-based)
+		 * @param stop_ Stop position (0-based, exclusive)
+		 * @param alt_ Alternate allele sequence
+		 * @param ref_ Reference allele sequence
+		 * @param prevChar_ Base preceding the variant (for VCF formatting)
+		 * @param rname_ Reference sequence name
+		 * @param scafNum_ Numeric scaffold identifier
+		 * @param present_ Array indicating which haplotypes carry this variant
+		 */
 		SmallVar(int type_, int start_, int stop_, String alt_, String ref_, char prevChar_, String rname_, long scafNum_, int[] present_){
 			type=type_;
 			start=start_;
@@ -839,10 +933,17 @@ public class MutateGenome2 {
 			present=present_;
 		}
 
+		/** Checks if variant is valid (substitution has different ref and alt alleles).
+		 * @return true if variant is valid, false if ref equals alt for substitution */
 		boolean valid(){
 			return type!=SUB || !alt.equals(ref);
 		}
 
+		/**
+		 * Formats variant as VCF record line.
+		 * Handles different formatting for substitutions vs indels according to VCF specification.
+		 * @param bb ByteBuilder to append VCF-formatted variant record
+		 */
 		void toVcf(ByteBuilder bb){
 			bb.append(rname).append('\t');
 			if(type==SUB){
@@ -870,6 +971,12 @@ public class MutateGenome2 {
 			bb.append("PASS");
 		}
 
+		/**
+		 * Checks if two variants affect the same set of haplotypes.
+		 * Used for merging adjacent variants that occur on identical haplotype sets.
+		 * @param sv Variant to compare phasing against
+		 * @return true if variants affect identical haplotype sets, false otherwise
+		 */
 		boolean sharesPhase(SmallVar sv){
 			for(int i=0; i<present.length; i++){
 				if(present[i]!=sv.present[i]){return false;}
@@ -877,62 +984,102 @@ public class MutateGenome2 {
 			return true;
 		}
 
+		/** Variant type (SUB, INS, or DEL) */
 		int type;
+		/** Start position of variant (0-based) */
 		final int start;
+		/** Stop position of variant (0-based, exclusive) */
 		int stop;
+		/** Reference allele sequence */
 		String ref;
+		/** Alternate allele sequence */
 		String alt;
+		/** Base preceding variant (for VCF formatting) */
 		final char prevChar;
+		/** Reference sequence name */
 		final String rname;
+		/** Numeric scaffold identifier */
 		final long scafNum;
 
+		/** Array indicating which haplotypes carry this variant */
 		final int[] present;
 
 	}
 
 	/*--------------------------------------------------------------*/
 
+	/** Input sequence file path */
 	private String in1=null;
+	/** Output sequence file path */
 	private String out1=null;
+	/** Output VCF variant file path */
 	private String outVcf=null;
 
+	/** Prefix for generated sequence names */
 	private String prefix=null;
 
+	/** File format handler for input sequences */
 	private final FileFormat ffin1;
+	/** File format handler for output sequences */
 	private final FileFormat ffout1;
+	/** File format handler for VCF output */
 	private final FileFormat ffoutVcf;
 
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	//	private long mutationsAdded=0;
 
+	/** Number of haplotype copies to generate per input sequence */
 	private int ploidy=1;
+	/** Rate of heterozygous mutations (vs homozygous) for polyploid genomes */
 	private float hetRate=0.5f;
 
+	/** Total length of mutations added (for identity calculation) */
 	private long mutationLengthAdded=0;
+	/** Count of substitution mutations added */
 	private long subsAdded=0;
+	/** Count of insertion mutations added */
 	private long insAdded=0;
+	/** Count of deletion mutations added */
 	private long delsAdded=0;
+	/** Count of chimeric junctions added during genome fraction sampling */
 	private long junctionsAdded=0;
 
+	/** Fixed period for regular mutation introduction (-1 for random) */
 	private int period=-1;
 
+	/**
+	 * Fraction of genome to retain (creates chimeric sequences if less than 1.0)
+	 */
 	private float genomeFraction=1;
+	/** Total bases retained in output after fraction sampling */
 	private long basesRetained;
 
+	/** Count of input sequences processed */
 	private long readsProcessed=0;
+	/** Total bases in input sequences processed */
 	private long basesProcessed=0;
 
+	/** Rate of substitution mutations per base */
 	private float subRate=0;
+	/** Rate of indel mutations per base */
 	private float indelRate=0;
+	/** Maximum length for indel mutations */
 	private int maxIndel=1;
+	/** Minimum spacing between indel mutations */
 	private int indelSpacing=10;
+	/** Whether to avoid mutations that create homopolymer runs */
 	private boolean banHomopolymers=false;
+	/** Combined substitution and indel error rate */
 	private final float errorRate;
+	/** Adjusted error rate accounting for average indel length */
 	private final float errorRate2;
 
+	/** Random number generator for mutation decisions */
 	private final Random randy;
+	/** Seed for random number generator (-1 for system time) */
 	private long seed=-1;
 
 	/*--------------------------------------------------------------*/
@@ -944,9 +1091,14 @@ public class MutateGenome2 {
 	/** Append to existing output files */
 	private boolean append=false;
 
+	/** Constant for deletion variant type */
+	/** Constant for insertion variant type */
+	/** Constant for substitution variant type */
 	private static final int SUB=Var.SUB, INS=Var.INS, DEL=Var.DEL;
 
+	/** Print stream for status messages and error reporting */
 	private java.io.PrintStream outstream=System.err;
+	/** Whether to print verbose processing messages */
 	public static boolean verbose=false;
 
 }

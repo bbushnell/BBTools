@@ -21,6 +21,8 @@ import shared.Tools;
  */
 public class SummarizeCrossblock {
 	
+	/** Program entry point that creates SummarizeCrossblock instance and processes files.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		SummarizeCrossblock x=new SummarizeCrossblock(args);
@@ -30,6 +32,12 @@ public class SummarizeCrossblock {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs SummarizeCrossblock instance with argument parsing and file setup.
+	 * Disables compression utilities, parses command-line arguments, and configures
+	 * input/output files with validation.
+	 * @param args Command-line arguments for configuration
+	 */
 	public SummarizeCrossblock(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -96,6 +104,14 @@ public class SummarizeCrossblock {
 		ffout1=FileFormat.testOutput(out1, FileFormat.TEXT, null, true, overwrite, append, false);
 	}
 	
+	/**
+	 * Main processing method that summarizes crossblock results for all input files.
+	 * Creates output stream, processes each input file with ParseCrossblockResults,
+	 * and writes tab-delimited summary including filename, copies, contigs, and bases
+	 * statistics. Handles processing errors gracefully.
+	 *
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		final TextStreamWriter tsw;
 		tsw=ffout1!=null ? new TextStreamWriter(ffout1) : null;
@@ -123,32 +139,48 @@ public class SummarizeCrossblock {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	private ArrayList<String> inList=new ArrayList<String>();
+	/** Output file path for summary results */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Total count of bases retained after processing */
 	private long basesKept=0;
+	/** Total count of bases discarded during processing */
 	private long basesDiscarded=0;
+	/** Total count of contigs retained after processing */
 	private long contigsKept=0;
+	/** Total count of contigs discarded during processing */
 	private long contigsDiscarded=0;
 
+	/** Returns the total number of bases kept after processing */
 	public long basesKept(){return basesKept;}
+	/** Returns the total number of bases discarded during processing */
 	public long basesDiscarded(){return basesDiscarded;}
+	/** Returns the total number of contigs kept after processing */
 	public long contigsKept(){return contigsKept;}
+	/** Returns the total number of contigs discarded during processing */
 	public long contigsDiscarded(){return contigsDiscarded;}
 	
 	/*--------------------------------------------------------------*/
 	
+	/** FileFormat for output file configuration */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for messages, defaults to System.err */
 	private PrintStream outstream=System.err;
+	/** Global verbosity flag for detailed output */
 	public static boolean verbose=false;
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

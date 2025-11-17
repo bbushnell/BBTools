@@ -1,5 +1,11 @@
 package aligner;
 
+/**
+ * Interface for sequence alignment algorithms in BBTools.
+ * Provides methods for dynamic programming-based alignment with various scoring options.
+ * Implementations handle the core alignment computations and traceback operations.
+ * @author Brian Bushnell
+ */
 public interface Aligner {
 
 	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
@@ -34,7 +40,9 @@ public interface Aligner {
 
 //	int maxRows();
 //	int maxColumns();
+	/** Gets the number of rows in the alignment matrix */
 	int rows();
+	/** Gets the number of columns in the alignment matrix */
 	int columns();
 	
 }

@@ -25,6 +25,11 @@ import structures.ListNum;
  */
 public class PlotReadPosition {
 
+	/**
+	 * Program entry point for plotting read positions from sequencing data.
+	 * Creates instance and processes the data with timing information.
+	 * @param args Command-line arguments including input/output files and parameters
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -39,6 +44,12 @@ public class PlotReadPosition {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs PlotReadPosition with command-line argument parsing.
+	 * Parses input/output files, expected barcode file, and processing parameters.
+	 * Sets up file formats and PCR matrix for barcode distance calculations.
+	 * @param args Command-line arguments for configuration
+	 */
 	public PlotReadPosition(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -87,6 +98,14 @@ public class PlotReadPosition {
 		matrix.populateExpected(expected);
 	}
 	
+	/**
+	 * Main processing method that executes the read position plotting pipeline.
+	 * Reads input FASTQ files, extracts x/y coordinates from headers, calculates
+	 * barcode distances, and writes tab-delimited output with position and distance data.
+	 * Uses concurrent streams for efficient processing of large datasets.
+	 *
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -164,23 +183,37 @@ public class PlotReadPosition {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input FASTQ file path */
 	private String in1=null;
+	/** Output file path for tab-delimited position and distance data */
 	private String out1=null;
+	/** Path to file containing expected barcode sequences */
 	private String expectedPath=null;
 	
+	/** File format object for input FASTQ file processing */
 	private final FileFormat ffin1;
+	/** File format object for output header file generation */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * PCR matrix for calculating Hamming distances between actual and expected barcodes
+	 */
 	private final PCRMatrixHDist matrix;
+	/**
+	 * Header parser for extracting x/y coordinates and barcode from Illumina read headers
+	 */
 	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 	
+	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
+	/** Controls verbose output during processing */
 	public static boolean verbose=false;
 	
 }

@@ -34,6 +34,8 @@ import tracker.ReadStats;
  */
 public class FilterSilva {
 	
+	/** Program entry point for Silva sequence filtering.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -48,6 +50,12 @@ public class FilterSilva {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a FilterSilva instance with command-line arguments.
+	 * Parses arguments, sets up I/O streams, and initializes the taxonomic tree.
+	 * Configures Silva mode for taxonomic processing.
+	 * @param args Command-line arguments including input/output files and options
+	 */
 	public FilterSilva(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -134,6 +142,12 @@ public class FilterSilva {
 		tree=TaxTree.loadTaxTree(treeFile, outstream, true, false);
 	}
 	
+	/**
+	 * Main processing method that filters Silva sequences.
+	 * Reads input sequences, applies taxonomic filtering logic, and writes filtered output.
+	 * Removes eukaryotic sequences that are actually bacterial organelles.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -216,6 +230,15 @@ public class FilterSilva {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Determines whether a single read should be kept based on taxonomic classification.
+	 * Parses taxonomic information from the read header and applies filtering rules.
+	 * Removes chloroplast and mitochondrial sequences, and bacterial sequences
+	 * misclassified as eukaryotes.
+	 *
+	 * @param r The read to evaluate
+	 * @return true if the read should be kept, false if it should be filtered out
+	 */
 	private boolean process(Read r){
 		TaxNode tn=tree.parseNodeFromHeader(r.id, true);
 		if(tn==null){return false;}
@@ -230,33 +253,47 @@ public class FilterSilva {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path */
 	private String in1=null;
 
+	/** Output file path */
 	private String out1=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
+	/** Path to taxonomic tree file, defaults to "auto" for automatic detection */
 	private String treeFile="auto";
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
 
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
+	/** Taxonomic tree for sequence classification */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output mode */
 	public static boolean verbose=false;
+	/** Tracks whether processing encountered any errors */
 	public boolean errorState=false;
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

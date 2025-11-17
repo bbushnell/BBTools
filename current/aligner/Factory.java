@@ -4,12 +4,28 @@ import java.util.Arrays;
 
 import shared.Tools;
 
+/**
+ * Factory class for creating different types of sequence aligners and encoding sequences.
+ * Provides a unified interface for instantiating various alignment algorithms and
+ * converting DNA sequences to numeric encodings for alignment processing.
+ * @author Brian Bushnell
+ */
 public class Factory {
 
+	/** Creates an IDAligner using the default aligner type.
+	 * @return A new IDAligner instance of the currently configured type */
 	public static IDAligner makeIDAligner() {
 		return makeIDAligner(type);
 	}
 
+	/**
+	 * Creates an IDAligner of the specified type.
+	 * Supports multiple alignment algorithms including glocal, banded, drifting,
+	 * wobble, quantum, crosscut, single-state, and wavefront aligners.
+	 *
+	 * @param type The aligner type constant (GLOCAL, BANDED, DRIFTING, etc.)
+	 * @return A new IDAligner instance of the specified type
+	 */
 	public static IDAligner makeIDAligner(int type) {
 		if(type==GLOCAL) {return new GlocalAligner();}
 		if(type==BANDED) {return new BandedAligner();}
@@ -36,6 +52,14 @@ public class Factory {
 		return out;
 	}
 	
+	/**
+	 * Encodes a DNA sequence as long array without padding.
+	 * Converts DNA bases to numeric codes using the standard encoding table.
+	 *
+	 * @param in Input DNA sequence as byte array
+	 * @param nCode Code to use for ambiguous bases
+	 * @return Long array with encoded sequence
+	 */
 	public static final long[] encodeLong(byte[] in, byte nCode) {
 		long[] out=new long[in.length];
 		for(int i=0; i<in.length; i++) {
@@ -45,6 +69,14 @@ public class Factory {
 		return out;
 	}
 	
+	/**
+	 * Encodes a DNA sequence as int array.
+	 * Converts DNA bases to numeric codes using the standard encoding table.
+	 *
+	 * @param in Input DNA sequence as byte array
+	 * @param nCode Code to use for ambiguous bases
+	 * @return Int array with encoded sequence
+	 */
 	public static final int[] encodeInt(byte[] in, byte nCode) {
 		int[] out=new int[in.length];
 		for(int i=0; i<in.length; i++) {
@@ -54,6 +86,14 @@ public class Factory {
 		return out;
 	}
 	
+	/**
+	 * Encodes a DNA sequence as byte array.
+	 * Converts DNA bases to numeric codes using the standard encoding table.
+	 *
+	 * @param in Input DNA sequence as byte array
+	 * @param nCode Code to use for ambiguous bases
+	 * @return Byte array with encoded sequence
+	 */
 	public static final byte[] encodeByte(byte[] in, byte nCode) {
 		byte[] out=new byte[in.length];
 		for(int i=0; i<in.length; i++) {
@@ -63,6 +103,12 @@ public class Factory {
 		return out;
 	}
 
+	/**
+	 * Sets the default aligner type from a string name.
+	 * Accepts aligner type names like "GLOCAL", "BANDED", "QUANTUM", etc.
+	 * @param b String name of the aligner type (case insensitive)
+	 * @return The numeric type constant, or current type if input is null
+	 */
 	public static int setType(String b) {
 		if(b==null) {return type;}
 		return type=Tools.find(b.toUpperCase(), types);
@@ -72,9 +118,19 @@ public class Factory {
 			WOBBLE=4, QUANTUM=5, CROSSCUT=6, SSA2=7, SSA3=8, WAVE=9;
 	public static final String[] types={"NULL", "GLOCAL", "BANDED", "DRIFTING", 
 			"WOBBLE", "QUANTUM", "CROSSCUT", "SSA2", "SSA3", "WAVE"};
+	/** Currently selected default aligner type */
 	public static int type=QUANTUM;
 	
+	/** Lookup table for converting DNA bases to numeric codes */
 	public static final byte[] codes=makeCodes((byte)(15+16));
+	/**
+	 * Creates a lookup table for DNA base encoding.
+	 * Maps A=1, C=2, G=4, T/U=8, with all other characters mapped to nCode.
+	 * Uses bit-based encoding where each base has a unique power-of-2 value.
+	 *
+	 * @param nCode Code to assign to ambiguous or invalid bases
+	 * @return Byte array lookup table for ASCII characters to numeric codes
+	 */
 	public static final byte[] makeCodes(byte nCode) {
 		byte[] codes=new byte[128];
 		Arrays.fill(codes, nCode);

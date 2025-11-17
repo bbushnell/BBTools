@@ -7,14 +7,34 @@ import shared.Shared;
 import shared.Tools;
 import stream.SiteScore;
 
+/**
+ * Utility class for handling gaps in sequence alignments within the BBTools framework.
+ * Provides methods for gap array processing, validation, merging, and length calculations.
+ * Gaps are represented as integer arrays with alternating start/stop coordinates.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class GapTools {
 	
+	/**
+	 * Fixes gap array inconsistencies within a SiteScore object.
+	 * Updates the SiteScore's gaps array to ensure proper coordinate ordering and boundaries.
+	 * @param ss SiteScore containing gap array to fix
+	 * @return Fixed gap array with corrected coordinates
+	 */
 	public static int[] fixGaps(SiteScore ss){
 		int[] r=fixGaps(ss.start(), ss.stop(), ss.gaps, Shared.MINGAP);
 		ss.gaps=r;
 		return r;
 	}
 	
+	/**
+	 * Converts a gap array to string representation with tilde separators.
+	 * Returns null if input array is null.
+	 * @param gaps Gap array to convert
+	 * @return String representation with coordinates separated by tildes, or null
+	 */
 	public static String toString(int[] gaps){
 		if(gaps==null){return null;}
 		StringBuilder sb=new StringBuilder();
@@ -25,6 +45,17 @@ public class GapTools {
 		return sb.toString();
 	}
 	
+	/**
+	 * Fixes gap array inconsistencies within specified coordinate boundaries.
+	 * Ensures gap coordinates are properly ordered, within bounds, and removes invalid gaps.
+	 * Constrains all coordinates to the range [a, b] and maintains monotonic ordering.
+	 *
+	 * @param a Start coordinate boundary
+	 * @param b End coordinate boundary
+	 * @param gaps Gap array with alternating start/stop coordinates
+	 * @param minGap Minimum gap size threshold
+	 * @return Fixed gap array or null if no valid gaps remain
+	 */
 	public static int[] fixGaps(int a, int b, int[] gaps, int minGap){
 //		System.err.println("fixGaps Input: "+a+", "+b+", "+Arrays.toString(gaps)+", "+minGap);
 //		assert(false) : "fixGaps called!";
@@ -119,12 +150,31 @@ public class GapTools {
 		return len;
 	}
 	
+	/**
+	 * Calculates number of gap symbols needed for coordinate span.
+	 * Subtracts GAPBUFFER2 padding and divides by GAPLEN compression ratio.
+	 *
+	 * @param a Start coordinate
+	 * @param b End coordinate (must be greater than a)
+	 * @return Number of gap symbols required, minimum 0
+	 */
 	public static int calcNumGapSymbols(int a, int b){
 		assert(b>a);
 		int gap=b-a-Shared.GAPBUFFER2;
 		return Tools.max(0, gap/Shared.GAPLEN);
 	}
 	
+	/**
+	 * Advanced gap fixing algorithm that merges overlapping or closely spaced gaps.
+	 * Converts gaps to Range objects, merges ranges separated by less than minGap,
+	 * then converts back to gap array format. Handles null range cleanup.
+	 *
+	 * @param a Start coordinate boundary
+	 * @param b End coordinate boundary
+	 * @param gaps Gap array to process
+	 * @param minGap Minimum spacing between gaps before merging
+	 * @return Merged and fixed gap array, or null if insufficient gaps remain
+	 */
 	public static final int[] fixGaps2(int a, int b, int[] gaps, int minGap){
 		if(verbose){System.err.println("Input: "+a+", "+b+", "+Arrays.toString(gaps)+", "+minGap);}
 		ArrayList<Range> list=toList(gaps);
@@ -176,14 +226,31 @@ public class GapTools {
 		return gaps2;
 	}
 	
+	/**
+	 * Converts gap array to list of Range objects.
+	 * Creates Range objects from alternating start/stop coordinates in gaps array.
+	 * @param gaps Gap array with alternating start/stop coordinates
+	 * @return ArrayList of Range objects representing gaps
+	 */
 	public static final ArrayList<Range> toList(int[] gaps){
 		ArrayList<Range> list=new ArrayList<Range>(gaps.length/2);
 		for(int i=0; i<gaps.length; i+=2){list.add(new Range(gaps[i], gaps[i+1]));}
 		return list;
 	}
 	
+	/**
+	 * Represents a coordinate range with start and end positions.
+	 * Used internally for gap processing and merging operations.
+	 * Implements Comparable for sorting by start then end coordinates.
+	 */
 	public static class Range implements Comparable<Range>{
 		
+		/**
+		 * Constructs a Range with specified start and end coordinates.
+		 * Asserts that end coordinate is not less than start coordinate.
+		 * @param a_ Start coordinate
+		 * @param b_ End coordinate (must be >= a_)
+		 */
 		public Range(int a_, int b_){
 			assert(b_>=a_);
 			a=a_;
@@ -205,6 +272,11 @@ public class GapTools {
 
 		@Override
 		public boolean equals(Object other){return equals((Range)other);}
+		/**
+		 * Tests equality with another Range using compareTo.
+		 * @param other Range to compare against
+		 * @return true if ranges have identical coordinates, false otherwise
+		 */
 		public boolean equals(Range other){return compareTo(other)==0;}
 		
 		@Override
@@ -213,10 +285,13 @@ public class GapTools {
 			return super.hashCode();
 		}
 
+		/** Start coordinate of the range */
 		public int a;
+		/** End coordinate of the range */
 		public int b;
 	}
 	
+	/** Controls debug output verbosity for gap processing operations */
 	public static boolean verbose=false;
 	
 }

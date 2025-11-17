@@ -52,6 +52,8 @@ public class CoveragePileup {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Program entry point for coverage analysis.
+	 * @param args Command-line arguments specifying input files and parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		
@@ -73,6 +75,12 @@ public class CoveragePileup {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs CoveragePileup instance and parses command-line arguments.
+	 * Initializes all parameters for coverage calculation including input/output
+	 * files, filtering criteria, and processing modes.
+	 * @param args Command-line arguments array
+	 */
 	public CoveragePileup(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -379,6 +387,11 @@ public class CoveragePileup {
 		totalScaffolds=0;
 	}
 	
+	/**
+	 * Initializes data structures for scaffold storage and coverage tracking.
+	 * Creates scaffold list, lookup table, and configures parsing options
+	 * based on processing mode (physical coverage, GC counting, etc.).
+	 */
 	public void createDataStructures(){
 		refBases=0;
 		mappedBases=0;
@@ -475,6 +488,11 @@ public class CoveragePileup {
 		if(tsw!=null){tsw.waitForFinish();}
 	}
 	
+	/**
+	 * Processes SAM data using multi-threaded SamLineStreamer for performance.
+	 * Handles large input files by streaming SAM lines in batches across threads.
+	 * @param tsw Optional output writer for streaming SAM data
+	 */
 	private void processViaStreamer(ByteStreamWriter tsw){
 		Streamer ss=StreamerFactory.makeSamOrBamStreamer(in1, streamerThreads, true, false, maxReads, false);
 		ss.start();
@@ -500,6 +518,12 @@ public class CoveragePileup {
 		}
 	}
 	
+	/**
+	 * Processes SAM data line-by-line using single-threaded ByteFile reader.
+	 * Alternative processing method for smaller files or when streaming is disabled.
+	 * @param tf Input file reader
+	 * @param tsw Optional output writer for streaming SAM data
+	 */
 	private void processViaByteFile(ByteFile tf, ByteStreamWriter tsw){
 		processHeaderOld(tf, tsw);
 		for(byte[] line=tf.nextLine(); line!=null && readsProcessed<maxReads; line=tf.nextLine()){
@@ -513,6 +537,11 @@ public class CoveragePileup {
 	
 	//Untested
 	//See also CoverageArray.loadDepth; that implementation is better (also untested)
+	/**
+	 * Loads pre-computed coverage data from external coverage file.
+	 * Parses tab-delimited coverage format and populates coverage arrays or bitsets.
+	 * @param fname Path to coverage file
+	 */
 	private void loadCoverageFile(String fname) {
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		
@@ -659,6 +688,12 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Loads scaffold information from BBMap genome index.
+	 * Alternative to SAM header parsing when using indexed references.
+	 * @param minChrom Minimum chromosome number to load
+	 * @param maxChrom Maximum chromosome number to load
+	 */
 	public void loadScaffoldsFromIndex(int minChrom, int maxChrom){
 		
 		final int[][] lengths=Data.scaffoldLengths;
@@ -691,6 +726,11 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Processes FASTA reference file to calculate GC content and validate lengths.
+	 * Compares reference scaffold lengths with SAM header information and
+	 * calculates per-scaffold GC percentages.
+	 */
 	public void processReference(){
 		if(reference==null){return;}
 
@@ -761,6 +801,14 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Processes ORF FASTA file and calculates coverage statistics for each ORF.
+	 * Parses Prodigal-format ORF headers and maps coverage data to ORF regions.
+	 *
+	 * @param fname_in Input ORF FASTA file path
+	 * @param fname_out Output coverage statistics file path
+	 * @param map Scaffold lookup table for coverage data
+	 */
 	public void processOrfsFasta(String fname_in, String fname_out, HashMap<String, Scaffold> map){
 		TextFile tf=new TextFile(fname_in, false);
 		assert(!fname_in.equalsIgnoreCase(fname_out));
@@ -1034,6 +1082,14 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Processes a single SAM line from byte array format.
+	 * Handles both header lines and alignment records, converting alignment
+	 * data to SamLine objects for coverage calculation.
+	 *
+	 * @param line SAM line as byte array
+	 * @return true if line was successfully processed
+	 */
 	public boolean processSamLine(byte[] line){
 		if(line==null || line.length<3){
 			return false;
@@ -1063,6 +1119,14 @@ public class CoveragePileup {
 		return false;
 	}
 	
+	/**
+	 * Applies quality and boundary trimming to aligned reads.
+	 * Combines border trimming (avoiding scaffold ends) with quality trimming
+	 * based on Phred scores to remove low-quality regions.
+	 *
+	 * @param sl SAM line to trim
+	 * @return Number of bases trimmed from the read
+	 */
 	private int trim(SamLine sl){
 		assert(border>0 || (trimq>=0 && (qtrimLeft || qtrimRight)));
 		Read r=null;
@@ -1102,6 +1166,14 @@ public class CoveragePileup {
 		return trimmed;
 	}
 	
+	/**
+	 * Main method for processing individual SAM alignment records.
+	 * Applies filtering, trimming, and quality checks before adding coverage data.
+	 * Handles both single-read and paired-end physical coverage modes.
+	 *
+	 * @param sl Parsed SAM line object
+	 * @return true if read was processed and added to coverage
+	 */
 	public boolean processSamLine(SamLine sl){
 		readsProcessed++;
 		basesProcessed+=sl.length();
@@ -1149,6 +1221,12 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Processes BBMap Read objects for coverage calculation.
+	 * Alternative processing path for BBMap-generated alignments.
+	 * @param r Read object with alignment information
+	 * @return true if read was successfully processed
+	 */
 	public boolean processRead(Read r){
 		readsProcessed++;
 		final int kmers=Tools.countKmers(r.bases, k);
@@ -1189,6 +1267,14 @@ public class CoveragePileup {
 	}
 	
 	
+	/**
+	 * Processes Read object with specific SiteScore alignment.
+	 * Used for multi-mapping reads with multiple alignment sites.
+	 *
+	 * @param r Read object
+	 * @param ss Specific alignment site information
+	 * @return true if alignment was processed
+	 */
 	public boolean processRead(Read r, SiteScore ss){
 		if(ss!=null && r.bases!=null){
 			if(coords.set(ss)){
@@ -1205,6 +1291,11 @@ public class CoveragePileup {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Generates all requested output files from collected coverage data.
+	 * Produces statistics files, histograms, per-base coverage, binned coverage,
+	 * and normalized coverage based on configuration parameters.
+	 */
 	public void printOutput(){
 		
 		totalScaffolds=list.size();
@@ -1422,6 +1513,15 @@ public class CoveragePileup {
 		return baseCount;
 	}
 	
+	/**
+	 * Writes detailed coverage statistics for all scaffolds.
+	 * Generates comprehensive statistics file with per-scaffold metrics including
+	 * average coverage, GC content, read counts, and coverage distribution.
+	 *
+	 * @param fname Output filename for statistics
+	 * @param strand Strand to analyze (0=plus, 1=minus)
+	 * @return Coverage histogram array for further processing
+	 */
 	public long[] writeStats(String fname, int strand){
 //		outstream.println("Writing stats for "+fname+", "+strand);
 		final TextStreamWriter tsw=(fname==null ? null : new TextStreamWriter(fname, overwrite, false, true));
@@ -1853,6 +1953,16 @@ public class CoveragePileup {
 		return new double[] {mean, median, mode, stdev};
 	}
 
+	/**
+	 * Calculates mean and standard deviation for binned coverage data.
+	 * Two-pass algorithm computes statistics across all bins from all scaffolds.
+	 *
+	 * @param scaffolds List of scaffolds to analyze
+	 * @param binsize Size of coverage bins
+	 * @param strand Strand to analyze (0=plus, 1=minus)
+	 * @param minscaf Minimum scaffold length to include
+	 * @return Array containing [mean, standard_deviation]
+	 */
 	public static double[] standardDeviationBinned(ArrayList<Scaffold> scaffolds, int binsize, int strand, int minscaf){
 		double totalSum=0;
 		long bins=0;
@@ -1909,6 +2019,15 @@ public class CoveragePileup {
 		return new double[] {mean, stdev};
 	}
 
+	/**
+	 * Calculates mean and standard deviation for per-base coverage data.
+	 * Two-pass algorithm across all bases in all qualifying scaffolds.
+	 *
+	 * @param scaffolds List of scaffolds to analyze
+	 * @param strand Strand to analyze (0=plus, 1=minus)
+	 * @param minscaf Minimum scaffold length to include
+	 * @return Array containing [mean, standard_deviation]
+	 */
 	public static double[] standardDeviation(ArrayList<Scaffold> scaffolds, int strand, int minscaf){
 		long totalSum=0, bins=0, scafsCounted=0;
 		for(Scaffold scaf : scaffolds){
@@ -2189,9 +2308,11 @@ public class CoveragePileup {
 	/** Secondary input file (typically for coverage directly from BBMap) */
 	public String in2=null;
 	
+	/** List of pre-computed coverage files to load */
 	public ArrayList<String> covIn=new ArrayList<String>();
 	/** Optional, for calculating GC */
 	public String reference=null;
+	/** Input ORF FASTA file for ORF coverage analysis */
 	public String orffasta=null;
 
 	//Outputs
@@ -2199,6 +2320,7 @@ public class CoveragePileup {
 	public String outsam=null;
 	/** Coverage statistics, one line per scaffold */
 	public String covstats=null;
+	/** Output file for ORF coverage statistics */
 	public String outorf=null;
 	/** Coverage histogram, one line per depth and one point per base */
 	public String histogram=null;
@@ -2215,6 +2337,7 @@ public class CoveragePileup {
 	/** rpkm/fpkm output, similar to Seal */
 	public String outrpkm=null;
 	
+	/** Output file for coverage ranges above minimum depth */
 	public String rangecov=null;
 	
 	/** Typically indicates that a header line was encountered in an unexpected place, e.g. with concatenated sam files. */
@@ -2225,12 +2348,19 @@ public class CoveragePileup {
 	
 	/** Total length of reference */
 	public long refBases=0;
+	/** Total mapped bases including clipped regions */
 	public long mappedBases=0;
+	/** Total mapped bases excluding soft-clipped regions */
 	public long mappedNonClippedBases=0;
+	/** Total reference bases covered including deletion positions */
 	public long mappedBasesWithDels=0;
+	/** Count of successfully mapped reads */
 	public long mappedReads=0;
+	/** Count of reads in proper pairs */
 	public long properPairs=0;
+	/** Total count of reads processed from input */
 	public long readsProcessed=0;
+	/** Total count of bases processed from input reads */
 	public long basesProcessed=0;
 	public long kmersProcessed=0;
 	public long mappedKmers=0;
@@ -2241,16 +2371,25 @@ public class CoveragePileup {
 	public long scaffoldsWithCoverage2=0;
 	public long totalScaffolds=0;
 
+	/** K-mer length for k-mer coverage statistics */
 	public int k=0;
 	
 	//Don't reset these variables when clearing.
+	/** Maximum number of reads to process (-1 for unlimited) */
 	public long maxReads=-1;
+	/** Initial capacity for scaffold data structures */
 	public int initialScaffolds=4096;
+	/** Size of coverage bins in base pairs */
 	public int binsize=1000;
+	/** Use 32-bit coverage arrays instead of 16-bit for high coverage */
 	public boolean bits32=false;
+	/** Minimum mapping quality score to include reads */
 	public int minMapq=0;
+	/** Use multi-threaded SAM processing for performance */
 	public boolean useStreamer=true;
+	/** Number of threads for multi-threaded SAM processing */
 	public int streamerThreads=2;
+	/** Minimum coverage depth to consider position as covered */
 	public int minDepthToBeCovered=1;
 	
 	private boolean qtrimLeft=false;
@@ -2262,6 +2401,7 @@ public class CoveragePileup {
 	/** Don't print coverage info for scaffolds shorter than this */
 	public int minscaf=0;
 	
+	/** Table for tracking mate pairs in physical coverage mode */
 	public HashMap<String, SamLine> pairTable=new HashMap<String, SamLine>();
 	
 	public PrintStream outstream=System.err;
@@ -2344,6 +2484,7 @@ public class CoveragePileup {
 	/** Include reads flagged as duplicates in coverage */
 	public static boolean INCLUDE_DUPLICATES=true;
 
+	/** Output summary statistics in machine-readable key=value format */
 	public static boolean KEY_VALUE;
 	
 	/** Translation array for tracking base counts */

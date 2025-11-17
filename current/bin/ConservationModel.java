@@ -18,10 +18,22 @@ public class ConservationModel {
     /*----------------             Init             ----------------*/
     /*--------------------------------------------------------------*/
 
+    /**
+     * Creates a conservation model with default parameters.
+     * Uses zero base mutation rate and 3 sine waves.
+     * @param randy Random number generator for wave parameters
+     */
     public ConservationModel(Random randy) {
         this(0.0f, 3, randy);
     }
 
+    /**
+     * Creates a conservation model with specified base rate and wave count.
+     * Uses default amplitude (0.3) and period range (200-500 bp).
+     * @param baseMutationRate Base mutation probability (0-1)
+     * @param numWaves Number of sine waves to combine
+     * @param randy Random number generator for wave parameters
+     */
     public ConservationModel(float baseMutationRate, int numWaves, Random randy) {
         this(baseMutationRate, numWaves, 0.3f, randy, 200, 500);
     }
@@ -106,13 +118,18 @@ public class ConservationModel {
     /*----------------           Fields             ----------------*/
     /*--------------------------------------------------------------*/
     
+    /** Base mutation probability applied uniformly across sequence */
     private final float baseMutationRate;
+    /** Amplitude values for each sine wave component */
     private final float[] amplitudes;
+    /** Pre-computed 2*PI/period values for efficient sine calculation */
     private final float[] inversePeriods; // Store 2*PI/period for performance
+    /** Random phase offsets for each sine wave component */
     private final float[] offsets;
     
     /*--------------------------------------------------------------*/
     
+    /** Pre-computed 2*PI constant for sine wave calculations */
     private static final float pi2 = (float)(2 * Math.PI);
     
 }

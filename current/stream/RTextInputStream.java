@@ -20,6 +20,11 @@ import structures.ListNum;
  */
 public class RTextInputStream extends ReadInputStream {
 	
+	/**
+	 * Test program entry point that demonstrates basic stream functionality.
+	 * Creates a stream from command-line arguments and prints all reads.
+	 * @param args Command-line arguments for stream creation
+	 */
 	public static void main(String[] args){
 		RTextInputStream rtis=new RTextInputStream(args, 0);
 		ArrayList<Read> list=rtis.nextList();
@@ -31,16 +36,44 @@ public class RTextInputStream extends ReadInputStream {
 		}
 	}
 
+	/**
+	 * Creates a stream from FileFormat objects.
+	 * @param ff1 Primary file format
+	 * @param ff2 Mate file format (may be null)
+	 * @param crisReadLimit Maximum reads to process
+	 */
 	public RTextInputStream(FileFormat ff1, FileFormat ff2, long crisReadLimit){
 		this(ff1.name(), (ff2==null ? null : ff2.name()), crisReadLimit);
 	}
 
+	/**
+	 * Creates a stream from two filename strings.
+	 * Validates that input files have different names if both are specified.
+	 *
+	 * @param fname1 Primary input filename
+	 * @param fname2 Mate filename (may be null or "null")
+	 * @param crisReadLimit Maximum reads to process
+	 */
 	public RTextInputStream(String fname1, String fname2, long crisReadLimit){
 		this(new String[] {fname1}, (fname2==null || "null".equalsIgnoreCase(fname2)) ? null : new String[] {fname2}, crisReadLimit);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
+	/**
+	 * Creates a stream from filename array without mate files.
+	 * @param fnames_ Array of input filenames
+	 * @param crisReadLimit Maximum reads to process
+	 */
 	public RTextInputStream(String[] fnames_, long crisReadLimit){this(fnames_, null, crisReadLimit);}
 	
+	/**
+	 * Main constructor that creates text input stream from filename arrays.
+	 * Sets up TextFile objects, determines interleaving mode, and configures
+	 * optional mate stream with concurrent processing.
+	 *
+	 * @param fnames_ Array of primary input filenames
+	 * @param mate_fnames_ Array of mate filenames (may be null)
+	 * @param crisReadLimit Maximum reads to process (-1 for unlimited)
+	 */
 	public RTextInputStream(String[] fnames_, String[] mate_fnames_, long crisReadLimit){
 		fnames=fnames_;
 		textfiles=new TextFile[fnames.length];
@@ -63,6 +96,12 @@ public class RTextInputStream extends ReadInputStream {
 		if(cris!=null){cris.start();}
 	}
 	
+	/**
+	 * Determines if a file contains interleaved paired reads.
+	 * Checks for "#INTERLEAVED" marker in the first line of the file.
+	 * @param fname Filename to check
+	 * @return true if file is marked as interleaved
+	 */
 	public static boolean isInterleaved(String fname){
 		File f=new File(fname);
 		assert(f.exists() && f.isFile());
@@ -86,6 +125,12 @@ public class RTextInputStream extends ReadInputStream {
 		return readList();
 	}
 	
+	/**
+	 * Internal method that reads and processes a batch of reads.
+	 * Merges reads from multiple files, handles mate pairing, and manages
+	 * site score consolidation across synchronized files.
+	 * @return Processed list of reads with merged data
+	 */
 	private synchronized ArrayList<Read> readList(){
 		assert(buffer==null);
 //		System.out.println((mateStream==null ? "F5: " : "F3: ")+" Entering readList");
@@ -173,6 +218,14 @@ public class RTextInputStream extends ReadInputStream {
 		return merged;
 	}
 	
+	/**
+	 * Reads a batch of reads from a single text file.
+	 * Handles comment line skipping, interleaved processing, and mate pairing
+	 * for reads within the same file.
+	 *
+	 * @param tf TextFile to read from
+	 * @return List of reads from the file
+	 */
 	private ArrayList<Read> getListFromFile(TextFile tf){
 		
 		int len=READS_PER_LIST;
@@ -214,6 +267,8 @@ public class RTextInputStream extends ReadInputStream {
 		return mateStream!=null || interleaved;
 	}
 	
+	/** Shuts down the stream and all associated resources.
+	 * Closes mate streams and concurrent processing threads. */
 	public final void shutdown(){
 		finished=true;
 		if(mateStream!=null){mateStream.shutdown();}
@@ -223,21 +278,35 @@ public class RTextInputStream extends ReadInputStream {
 	@Override
 	public String fname(){return Arrays.toString(fnames);}
 	
+	/** Indicates whether the stream has finished reading all data */
 	public boolean finished=false;
+	/** Array of input filenames */
 	public String[] fnames;
+	/** Array of TextFile objects for reading input files */
 	public TextFile[] textfiles;
 	
+	/** Internal buffer for individual read access */
 	private ArrayList<Read> buffer=null;
+	/** Index of next read in the buffer */
 	private int next=0;
 	
+	/** Total number of reads processed so far */
 	private long readCount;
+	/** Maximum number of reads to process */
 	private final long readLimit;
+	/** Whether input files contain interleaved paired reads */
 	private final boolean interleaved;
 	
+	/** Number of reads to process in each batch */
 	public static final int READS_PER_LIST=Shared.bufferLen();;
 
+	/** Optional separate stream for mate reads */
 	private final RTextInputStream mateStream;
+	/** Optional concurrent wrapper for mate stream processing */
 	private final ConcurrentLegacyReadInputStream cris;
+	/**
+	 * Flag to enable concurrent processing which doubles read speed for zipped paired files
+	 */
 	public static boolean USE_CRIS=true; //Doubles read speed for zipped paired files
 
 	@Override

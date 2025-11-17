@@ -52,6 +52,12 @@ public final class LogLog2 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	//Restores floating point to integer
+	/**
+	 * Converts compressed floating-point score back to original long value.
+	 * Reconstructs mantissa and applies appropriate bit shifts based on leading zeros.
+	 * @param score Compressed score containing leading zeros and truncated mantissa
+	 * @return Restored original long value
+	 */
 	private long restore(int score){
 		long lowbits=(~score)&mask;
 		int leading=(int)(score>>>mantissabits);
@@ -161,6 +167,11 @@ public final class LogLog2 extends CardinalityTracker {
 //		return cardinality;
 //	}
 	
+	/**
+	 * Alternative cardinality calculation using harmonic mean approach.
+	 * Computes harmonic mean of bucket values and applies LogLog formula.
+	 * @return Cardinality estimate based on harmonic mean
+	 */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArrayA.length(); i++){
@@ -177,6 +188,11 @@ public final class LogLog2 extends CardinalityTracker {
 		add((LogLog2)log);
 	}
 	
+	/**
+	 * Merges another LogLog2 by taking maximum values from each bucket.
+	 * Handles both atomic and non-atomic array implementations.
+	 * @param log LogLog2 instance to merge with this one
+	 */
 	public void add(LogLog2 log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -247,6 +263,12 @@ public final class LogLog2 extends CardinalityTracker {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets the number of mantissa bits for floating-point compression.
+	 * Updates mask value accordingly. Must be less than 25 bits and allow
+	 * room for 6 additional bits within 32-bit integer constraint.
+	 * @param x Number of mantissa bits (0-24, with x+6<32)
+	 */
 	public static void setMantissaBits(int x){
 		assert(x>=0 && x<25);
 		assert(x+6<32);
@@ -254,6 +276,7 @@ public final class LogLog2 extends CardinalityTracker {
 		mask=(1<<mantissabits)-1;
 	}
 
+	/** Bit width of long values (64 bits) used in hash processing */
 	private static final int wordlen=64;
 	/** Precision or mantissa bits.
 	 * This should not be changed.  As long as it is >10 the result will be accurate.
@@ -261,6 +284,7 @@ public final class LogLog2 extends CardinalityTracker {
 	 * and would need a fixed multiplier.  
 	 */
 	private static int mantissabits=20;
+	/** Bit mask for extracting mantissa bits from compressed values */
 	private static int mask=(1<<mantissabits)-1;
 //	private static final int shift=wordlen-leading-mantissabits-1;
 	

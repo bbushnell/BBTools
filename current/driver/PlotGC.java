@@ -33,6 +33,11 @@ import tracker.ReadStats;
  */
 public class PlotGC {
 	
+	/**
+	 * Program entry point for GC content analysis.
+	 * Creates PlotGC instance and executes the processing pipeline.
+	 * @param args Command-line arguments for input/output files and parameters
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		PlotGC x=new PlotGC(args);
@@ -42,6 +47,12 @@ public class PlotGC {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs PlotGC instance and parses command-line arguments.
+	 * Initializes file formats, output streams, and processing parameters.
+	 * Sets up input validation and error checking for file operations.
+	 * @param args Command-line arguments containing file paths and options
+	 */
 	public PlotGC(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -123,6 +134,12 @@ public class PlotGC {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, extin, true, true);
 	}
 	
+	/**
+	 * Main processing method that calculates GC content across sequences.
+	 * Reads input sequences, applies sliding window analysis, and outputs results.
+	 * Processes each sequence in intervals, counting ACGT bases and calculating GC percentage.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -232,6 +249,18 @@ public class PlotGC {
 		}
 	}
 	
+	/**
+	 * Converts base composition counts to formatted GC content string.
+	 * Calculates GC percentage from ACGT counts and formats output line.
+	 *
+	 * @param name Sequence identifier
+	 * @param start Start position within sequence (0-based)
+	 * @param stop Stop position within sequence (0-based, inclusive)
+	 * @param rstart Running start position across all sequences
+	 * @param rstop Running stop position across all sequences
+	 * @param acgt Array of base counts [A, C, G, T]
+	 * @return Formatted tab-separated string with positions and GC percentage
+	 */
 	private String toGC(String name, int start, int stop, long rstart, long rstop, int[] acgt){
 		int at=acgt[0]+acgt[3];
 		int gc=acgt[1]+acgt[2];
@@ -245,35 +274,50 @@ public class PlotGC {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary input file path for sequence data */
 	private String in1=null;
 	
+	/** Output file path for GC content results */
 	private String out1="stdout.txt";
 	
+	/** Input file extension override */
 	private String extin=null;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
+	/** Window size in bases for GC content calculation */
 	private int interval=1000;
+	/** Position offset to add to output coordinates */
 	private int offset=0;
 
+	/** Whether to display processing speed statistics */
 	private boolean showSpeed=false;
+	/** Whether to output final partial bins shorter than full interval */
 	private boolean printShortBins=true;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** File format specification for primary input file */
 	private final FileFormat ffin1;
 
+	/** File format specification for output file */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and errors */
 	private PrintStream outstream=System.err;
+	/** Global verbosity flag for detailed logging */
 	public static boolean verbose=false;
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

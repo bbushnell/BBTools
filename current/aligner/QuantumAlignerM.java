@@ -33,6 +33,7 @@ public class QuantumAlignerM implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor for QuantumAlignerM aligner */
 	public QuantumAlignerM() {}
 
 	/*--------------------------------------------------------------*/
@@ -260,6 +261,22 @@ public class QuantumAlignerM implements IDAligner{
 	}
 	
 	
+	/**
+	 * Extracts alignment statistics from encoded score and calculates final identity.
+	 * Solves system of equations to determine match, substitution, insertion, and deletion counts.
+	 * Uses bit field decoding to extract position and match count information.
+	 *
+	 * Equation system solved:
+	 * 1. M + S + I = queryLength
+	 * 2. M + S + D = refAlignmentLength
+	 * 3. Score = M - S - I - D
+	 *
+	 * @param maxScore Encoded score containing position, matches, and raw score
+	 * @param maxPos Reference position of optimal alignment end
+	 * @param qLen Query sequence length
+	 * @param posVector Array to populate with alignment bounds [rStart, rStop]
+	 * @return Final identity score as matches/(total alignment length)
+	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int[] posVector) {
 		// Extract alignment information
 		final int originPos=(int)(maxScore&POSITION_MASK);
@@ -313,6 +330,20 @@ public class QuantumAlignerM implements IDAligner{
 	
 	
 	// Process the first topWidth rows using a dense approach
+	/**
+	 * Processes initial alignment rows using dense dynamic programming.
+	 * Fills complete alignment matrix for the top band to establish high-quality seed alignments.
+	 * Used when DENSE_TOP is enabled to ensure optimal alignment initiation.
+	 *
+	 * @param query Query sequence being aligned
+	 * @param ref Reference sequence
+	 * @param prev Previous row scores array (will be modified)
+	 * @param curr Current row scores array (will be modified)
+	 * @param viz Optional visualizer for alignment debugging (may be null)
+	 * @param topWidth Number of rows to process densely
+	 * @param rLen Reference sequence length
+	 * @return Two-element array containing [current_row, previous_row] after processing
+	 */
 	private static final long[][] alignDense(byte[] query, byte[] ref, long[] prev, long[] curr, Visualizer viz, int topWidth, int rLen) {
 		long mloops=0;
 		for(int i=1; i<topWidth; i++) {
@@ -387,9 +418,16 @@ public class QuantumAlignerM implements IDAligner{
 		return id;
 	}
 
+	/** Thread-safe counter for total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
+	/** Gets the total number of alignment matrix cells processed */
 	public long loops() {return loops.get();}
+	/** Sets the alignment loop counter.
+	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
+	/**
+	 * Optional output path for alignment visualization (null disables visualization)
+	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -397,30 +435,55 @@ public class QuantumAlignerM implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
+	/**
+	 * Number of bits allocated for position encoding in score field (21 bits = ~2M positions)
+	 */
 	private static final int POSITION_BITS=21;
+	/** Number of bits allocated for match count encoding in score field */
 	private static final int MATCH_BITS=21;
+	/** Bit shift amount to access raw score portion of encoded score */
 	private static final int SCORE_SHIFT=POSITION_BITS+MATCH_BITS;
 
 	// Masks
+	/** Bit mask for extracting position information from encoded scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
+	/** Bit mask for extracting match count from encoded scores */
 	private static final long MATCH_MASK=((1L << MATCH_BITS)-1) << POSITION_BITS;
+	/** Bit mask for extracting raw score portion from encoded scores */
 	private static final long SCORE_MASK=~(POSITION_MASK | MATCH_MASK);
 
 	// Scoring constants
+	/** Score increment for sequence matches (+1 in score bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
+	/** Score penalty for substitutions (-1 in score bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
+	/** Score penalty for insertions (-1 in score bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
+	/** Score penalty for deletions (-1 in score bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
+	/** Score for ambiguous base matches (neutral, 0 penalty) */
 	private static final long N_SCORE=0L;
+	/** Sentinel value indicating invalid or cleared alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
+	/** Combined increment for matches: adds both score and position tracking */
 	private static final long MATCH_INCREMENT=MATCH+(1L<<POSITION_BITS);
 
 	// Run modes
+	/** Enables extension from matching cells to find deletions */
 	private static final boolean EXTEND_MATCH=true;
+	/**
+	 * Controls whether to use loop-based or optimized position addition strategy
+	 */
 	private static final boolean LOOP_VERSION=false;
+	/** Enables bridge building to catch long deletions via periodic exploration */
 	private static final boolean BUILD_BRIDGES=true;
+	/**
+	 * Enables dense processing of initial alignment rows for better seed quality
+	 */
 	private static final boolean DENSE_TOP=true;
+	/** Debug flag to print detailed operation counts and alignment statistics */
 	private static final boolean PRINT_OPS=false;
+	/** Controls global vs local alignment mode (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

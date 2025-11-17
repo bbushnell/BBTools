@@ -17,20 +17,41 @@ import ukmer.Kmer;
  */
 public class Contig {
 	
+	/** Creates a contig with sequence data and default parameters.
+	 * @param bases_ The sequence bases for this contig */
 	public Contig(byte[] bases_){
 		this(bases_, null, 0);
 	}
 	
+	/**
+	 * Creates a contig with sequence data and specified ID.
+	 * @param bases_ The sequence bases for this contig
+	 * @param id_ Unique identifier for this contig
+	 */
 	public Contig(byte[] bases_, int id_){
 		this(bases_, null, id_);
 	}
 	
+	/**
+	 * Creates a contig with sequence data, name, and ID.
+	 * @param bases_ The sequence bases for this contig
+	 * @param name_ Optional name for this contig
+	 * @param id_ Unique identifier for this contig
+	 */
 	public Contig(byte[] bases_, String name_, int id_){
 		bases=bases_;
 		name=name_;
 		id=id_;
 	}
 	
+	/**
+	 * Converts this contig to FASTA format with optional line wrapping.
+	 * Appends header and sequence data to the provided ByteBuilder.
+	 *
+	 * @param wrap Number of bases per line (unlimited if <1)
+	 * @param sb ByteBuilder to append FASTA output to
+	 * @return The ByteBuilder with FASTA content appended
+	 */
 	public ByteBuilder toFasta(int wrap, ByteBuilder sb){
 		if(wrap<1){wrap=Integer.MAX_VALUE;}
 		sb.append('>');
@@ -55,16 +76,29 @@ public class Contig {
 		return name2();
 	}
 
+	/** Gets the basic header name for this contig.
+	 * @return Header string with contig name and basic statistics */
 	public String name() {
 		return toHeader(new ByteBuilder()).toString();
 	}
 
+	/**
+	 * Gets extended header name with additional status information.
+	 * Includes flip status, usage state, and association flags.
+	 * @return Extended header string with detailed contig status
+	 */
 	public String name2() {//Extra info
 		ByteBuilder bb=toHeader(new ByteBuilder());
 		bb.append(" flipped="+flipped+", used="+used+", associate="+associate);
 		return bb.toString();
 	}
 	
+	/**
+	 * Builds contig header with comprehensive metadata.
+	 * Includes coverage statistics, GC content, branching information, and edge details.
+	 * @param bb ByteBuilder to append header information to
+	 * @return The ByteBuilder with header content appended
+	 */
 	private ByteBuilder toHeader(ByteBuilder bb){
 		if(name!=null){return bb.append(name);}
 		bb.append("contig_").append(id);
@@ -93,6 +127,12 @@ public class Contig {
 		return bb;
 	}
 	
+	/**
+	 * Appends edge information to a ByteBuilder for header formatting.
+	 * @param edges List of edges to append
+	 * @param bb ByteBuilder to append edge information to
+	 * @return Number of edges successfully appended
+	 */
 	int appendEdges(ArrayList<Edge> edges, ByteBuilder bb){
 		int added=0;
 		if(edges==null || edges.isEmpty()){return 0;}
@@ -127,8 +167,14 @@ public class Contig {
 		return gc*1f/(at+gc);
 	}
 	
+	/** Gets the length of this contig's sequence in bases */
 	public int length(){return bases.length;}
 	
+	/**
+	 * Extracts k-mer from the left end of the contig sequence.
+	 * @param k Length of k-mer to extract (must be <32)
+	 * @return Long representation of the leftmost k-mer
+	 */
 	long leftKmer(int k){
 		assert(k<32);
 		long kmer=0;
@@ -141,6 +187,11 @@ public class Contig {
 		return kmer;
 	}
 	
+	/**
+	 * Extracts k-mer from the right end of the contig sequence.
+	 * @param k Length of k-mer to extract (must be <32)
+	 * @return Long representation of the rightmost k-mer
+	 */
 	long rightKmer(int k){
 		assert(k<32);
 		long kmer=0;
@@ -153,6 +204,11 @@ public class Contig {
 		return kmer;
 	}
 	
+	/**
+	 * Populates a Kmer object with the leftmost k-mer from this contig.
+	 * @param kmer Kmer object to populate (will be cleared first)
+	 * @return The populated Kmer object
+	 */
 	Kmer leftKmer(Kmer kmer){
 		kmer.clearFast();
 		for(int i=0; i<kmer.kbig; i++){
@@ -161,6 +217,11 @@ public class Contig {
 		return kmer;
 	}
 	
+	/**
+	 * Populates a Kmer object with the rightmost k-mer from this contig.
+	 * @param kmer Kmer object to populate (will be cleared first)
+	 * @return The populated Kmer object
+	 */
 	Kmer rightKmer(Kmer kmer){
 		kmer.clearFast();
 		for(int i=bases.length-kmer.kbig; i<bases.length; i++){
@@ -169,6 +230,11 @@ public class Contig {
 		return kmer;
 	}
 	
+	/**
+	 * Determines if this contig is in canonical orientation.
+	 * Compares the sequence to its reverse complement to determine lexicographic order.
+	 * @return true if contig is in canonical form, false otherwise
+	 */
 	boolean canonical(){
 		for(int i=0, j=bases.length-1; i<bases.length; i++, j--){
 			final byte a=AminoAcid.baseToComplementExtended[i], b=bases[j];
@@ -183,6 +249,8 @@ public class Contig {
 //		return rightKmer>=leftRKmer;
 	}
 	
+	/** Reverse complements this contig's sequence and swaps associated metadata.
+	 * Updates sequence bases, edge orientations, branching codes, and ratios. */
 	void rcomp(){
 		Vector.reverseComplementInPlace(bases);
 		{
@@ -202,23 +270,36 @@ public class Contig {
 		}
 	}
 	
+	/** Checks if this contig has a branch on the left end */
 	boolean leftBranch(){return Tadpole.isBranchCode(leftCode);}
+	/** Checks if this contig has a branch on the right end */
 	boolean rightBranch(){return Tadpole.isBranchCode(rightCode);}
 	
+	/** Checks if this contig has a forward branch on the left end */
 	boolean leftForwardBranch(){return leftCode==Tadpole.F_BRANCH;}
+	/** Checks if this contig has a forward branch on the right end */
 	boolean rightForwardBranch(){return rightCode==Tadpole.F_BRANCH;}
 	
+	/** Checks if this contig has a backward branch on the left end */
 	boolean leftBackwardBranch(){return leftCode==Tadpole.B_BRANCH;}
+	/** Checks if this contig has a backward branch on the right end */
 	boolean rightBackwardBranch(){return rightCode==Tadpole.B_BRANCH;}
 	
+	/** Gets the number of edges connected to the left end of this contig */
 	final int leftEdgeCount(){
 		return leftEdges==null ? 0 : leftEdges.size();
 	}
 	
+	/** Gets the number of edges connected to the right end of this contig */
 	final int rightEdgeCount(){
 		return rightEdges==null ? 0 : rightEdges.size();
 	}
 	
+	/**
+	 * Adds an edge connection to the left end of this contig.
+	 * Merges with existing edges to the same destination if appropriate.
+	 * @param e The edge to add
+	 */
 	public void addLeftEdge(Edge e) {
 		assert(!hasLeftEdge(e.destination, e.bases, e.orientation)) : e+"\n"+leftEdges;
 		Edge old=getLeftEdge(e.destination, e.orientation);
@@ -234,6 +315,11 @@ public class Contig {
 		leftEdges.add(e);
 	}
 	
+	/**
+	 * Adds an edge connection to the right end of this contig.
+	 * Merges with existing edges to the same destination if appropriate.
+	 * @param e The edge to add
+	 */
 	public void addRightEdge(Edge e) {
 		assert(!hasRightEdge(e.destination, e.bases, e.orientation)) : e+"\n"+rightEdges;
 		Edge old=getRightEdge(e.destination, e.orientation);
@@ -257,9 +343,27 @@ public class Contig {
 //		return hasRightEdge(dest, null);
 //	}
 
+	/**
+	 * Removes edge from left end to specified destination.
+	 * @param dest Destination contig ID
+	 * @param destRight Whether edge connects to destination's right end
+	 */
 	public void removeLeftEdge(int dest, boolean destRight){leftEdges=removeEdge(dest, destRight, leftEdges);}
+	/**
+	 * Removes edge from right end to specified destination.
+	 * @param dest Destination contig ID
+	 * @param destRight Whether edge connects to destination's right end
+	 */
 	public void removeRightEdge(int dest, boolean destRight){rightEdges=removeEdge(dest, destRight, rightEdges);}
 	
+	/**
+	 * Removes all edges to a specific destination from an edge list.
+	 *
+	 * @param dest Destination contig ID to remove
+	 * @param destRight Whether to match destination's right end
+	 * @param edges Edge list to modify
+	 * @return Modified edge list (null if empty after removal)
+	 */
 	public static ArrayList<Edge> removeEdge(int dest, boolean destRight, ArrayList<Edge> edges){
 		if(edges==null){return null;}
 		int removed=0;
@@ -275,6 +379,12 @@ public class Contig {
 		return (edges.isEmpty() ? null : edges);
 	}
 	
+	/**
+	 * Finds edge from left end to specified destination and orientation.
+	 * @param dest Destination contig ID
+	 * @param orientation Required orientation (<0 for any)
+	 * @return Matching edge or null if not found
+	 */
 	public Edge getLeftEdge(int dest, int orientation){
 		if(leftEdges==null){return null;}
 		for(Edge e : leftEdges){
@@ -285,6 +395,12 @@ public class Contig {
 		return null;
 	}
 	
+	/**
+	 * Finds edge from right end to specified destination and orientation.
+	 * @param dest Destination contig ID
+	 * @param orientation Required orientation (<0 for any)
+	 * @return Matching edge or null if not found
+	 */
 	public Edge getRightEdge(int dest, int orientation){
 		if(rightEdges==null){return null;}
 		for(Edge e : rightEdges){
@@ -295,6 +411,14 @@ public class Contig {
 		return null;
 	}
 	
+	/**
+	 * Checks if left end has edge to destination with specific path and orientation.
+	 *
+	 * @param dest Destination contig ID
+	 * @param path Required edge path (null for any)
+	 * @param orientation Required orientation
+	 * @return true if matching edge exists
+	 */
 	public boolean hasLeftEdge(int dest, byte[] path, int orientation) {
 		if(leftEdges!=null){
 			for(Edge e : leftEdges){
@@ -308,6 +432,14 @@ public class Contig {
 		return false;
 	}
 	
+	/**
+	 * Checks if right end has edge to destination with specific path and orientation.
+	 *
+	 * @param dest Destination contig ID
+	 * @param path Required edge path (null for any)
+	 * @param orientation Required orientation
+	 * @return true if matching edge exists
+	 */
 	public boolean hasRightEdge(int dest, byte[] path, int orientation) {
 		if(rightEdges!=null){
 			for(Edge e : rightEdges){
@@ -321,8 +453,14 @@ public class Contig {
 		return false;
 	}
 	
+	/** Gets the flip status of this contig */
 	public final boolean flipped(){return flipped;}
 	
+	/**
+	 * Flips this contig's orientation and updates all associated edges.
+	 * Reverse complements sequence, swaps end metadata, and updates edge orientations.
+	 * @param inbound List of edges that point to this contig
+	 */
 	final void flip(ArrayList<Edge> inbound){
 		if(Tadpole.verbose){System.err.println("Flipping contig "+name());}
 		flipped=!flipped;
@@ -361,10 +499,21 @@ public class Contig {
 		if(Tadpole.verbose){System.err.println("Flipped contig "+name());}
 	}
 	
+	/** Gets the usage status of this contig */
 	public final boolean used(){return used;}
 	
+	/**
+	 * Marks this contig as used and removes all its edges.
+	 * @param map Map of contig IDs to inbound edge lists
+	 * @param allContigs List of all contigs for edge cleanup
+	 */
 	final void setUsed(HashMap<Integer, ArrayList<Edge>> map, ArrayList<Contig> allContigs){setUsed(map.get(id), allContigs);}
 	
+	/**
+	 * Marks this contig as used and removes all its edges.
+	 * @param inbound List of edges pointing to this contig
+	 * @param allContigs List of all contigs for edge cleanup
+	 */
 	final void setUsed(ArrayList<Edge> inbound, ArrayList<Contig> allContigs){
 		assert(!used);
 		assert(!associate);
@@ -372,10 +521,24 @@ public class Contig {
 		removeAllEdges(inbound, allContigs);
 	}
 	
+	/**
+	 * Gets the association status of this contig (unused path in collapsed bubble)
+	 */
 	public final boolean associate(){return associate;}
 	
+	/**
+	 * Marks this contig as an associate and removes all its edges.
+	 * @param map Map of contig IDs to inbound edge lists
+	 * @param allContigs List of all contigs for edge cleanup
+	 */
 	final void setAssociate(HashMap<Integer, ArrayList<Edge>> map, ArrayList<Contig> allContigs){setAssociate(map.get(id), allContigs);}
 	
+	/**
+	 * Marks this contig as an associate and removes all its edges.
+	 * Associates represent unused paths in collapsed bubbles.
+	 * @param inbound List of edges pointing to this contig
+	 * @param allContigs List of all contigs for edge cleanup
+	 */
 	final void setAssociate(ArrayList<Edge> inbound, ArrayList<Contig> allContigs){
 		assert(!used);
 		assert(!associate);
@@ -383,6 +546,11 @@ public class Contig {
 		removeAllEdges(inbound, allContigs);
 	}
 	
+	/**
+	 * Removes all outbound and inbound edges for this contig.
+	 * @param inbound List of edges pointing to this contig
+	 * @param allContigs List of all contigs for bidirectional edge cleanup
+	 */
 	void removeAllEdges(ArrayList<Edge> inbound, ArrayList<Contig> allContigs){
 		leftEdges=null;
 		rightEdges=null;
@@ -400,10 +568,14 @@ public class Contig {
 		}
 	}
 	
+	/** Removes all left edges that point to the specified destination node.
+	 * @param destNode Target contig ID to remove edges to */
 	private void removeLeftEdgesTo(int destNode) {
 		leftEdges=removeEdgesTo(leftEdges, destNode);
 	}
 	
+	/** Removes all right edges that point to the specified destination node.
+	 * @param destNode Target contig ID to remove edges to */
 	private void removeRightEdgesTo(int destNode) {
 		rightEdges=removeEdgesTo(rightEdges, destNode);
 	}
@@ -447,24 +619,41 @@ public class Contig {
 		id=newID;
 	}
 	
+	/** Optional name for this contig */
 	public String name;
+	/** Sequence bases for this contig */
 	public byte[] bases;
+	/** Average k-mer coverage for this contig */
 	public float coverage;
+	/** Minimum k-mer coverage observed in this contig */
 	public int minCov;
+	/** Maximum k-mer coverage observed in this contig */
 	public int maxCov;
+	/** Branching code for the left end of this contig */
 	int leftCode;
+	/** Branching code for the right end of this contig */
 	int rightCode;
+	/** Coverage ratio for left end branching */
 	float leftRatio;
+	/** Coverage ratio for right end branching */
 	float rightRatio;
+	/** Unique identifier for this contig */
 	public int id;
 	
+	/**
+	 * Whether this contig has been reverse complemented from its original orientation
+	 */
 	private boolean flipped=false;
+	/** Whether this contig has been incorporated into the final assembly */
 	private boolean used=false;
+	/** Whether this contig represents an unused path in a collapsed bubble */
 	private boolean associate=false;//The unused path in a collapsed bubble
 	
 //	public Edge[] leftEdges;
 //	public Edge[] rightEdges;
 
+	/** Edges connecting from the left end of this contig */
 	ArrayList<Edge> leftEdges;
+	/** Edges connecting from the right end of this contig */
 	ArrayList<Edge> rightEdges;
 }

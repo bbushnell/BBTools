@@ -64,6 +64,8 @@ public class SamStreamerMF {
 	/*--------------------------------------------------------------*/
 
 	
+	/** Test method that consumes all reads from the input files.
+	 * Iterates through all available read lists and optionally prints progress information. */
 	final void test(){
 		for(ListNum<Read> list=nextReads(); list!=null; list=nextReads()){
 			if(verbose){outstream.println("Got list of size "+list.size());}
@@ -83,7 +85,15 @@ public class SamStreamerMF {
 		if(verbose){outstream.println("Finished; closing streams.");}
 	}
 
+	/** Alias for nextReads() method.
+	 * @return Next available list of reads, or null if no more reads available */
 	public final ListNum<Read> nextList(){return nextReads();}
+	/**
+	 * Retrieves the next batch of reads from active streamers using round-robin scheduling.
+	 * Manages dynamic activation of streamers as others complete, ensuring continuous processing.
+	 * Updates global counters and propagates SAM headers when streamers finish.
+	 * @return Next available list of reads, or null when all files are processed
+	 */
 	public final ListNum<Read> nextReads(){
 		ListNum<Read> list=null;
 		assert(activeStreamers!=null);
@@ -153,6 +163,7 @@ public class SamStreamerMF {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Whether to save and propagate SAM headers from input files */
 	final boolean saveHeader;
 
 	/** Primary input file */
@@ -161,15 +172,19 @@ public class SamStreamerMF {
 	/** Readers */
 //	final Streamer[] streamers;
 	private ArrayDeque<Streamer> streamerSource;
+	/** Queue of currently active streamers processing files */
 	private ArrayDeque<Streamer> activeStreamers;
 	
+	/** Number of threads to use for concurrent processing */
 	final int threads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Default number of threads for SAM processing operations */
 	public static int DEFAULT_THREADS=6;
+	/** Maximum number of files that can be processed simultaneously */
 	public static int MAX_FILES=8;
 	
 	/*--------------------------------------------------------------*/
@@ -180,6 +195,7 @@ public class SamStreamerMF {
 	protected PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static final boolean verbose=false;
+	/** Enable additional verbose output messages */
 	public static final boolean verbose2=false;
 	/** True if an error was encountered */
 	public boolean errorState=false;

@@ -23,19 +23,29 @@ final class SIMD{
 	private static int maxVectorLength=ByteVector.SPECIES_PREFERRED.vectorBitSize();
 	public static final int maxVectorLength() {return maxVectorLength;}
 	
+	/** Vector species for 256-bit float operations with 8 lanes */
 	private static final VectorSpecies<Float> FSPECIES=FloatVector.SPECIES_256;// FloatVector.SPECIES_PREFERRED; //This needs to be final or performance drops.
+	/** Number of float elements per vector (8 for 256-bit) */
 	private static final int FWIDTH=FSPECIES.length();
 
+	/** Vector species for 256-bit integer operations with 8 lanes */
 	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_256;
+	/** Number of integer elements per vector (8 for 256-bit) */
 	private static final int IWIDTH=ISPECIES.length();
 
+	/** Vector species for 256-bit short operations with 16 lanes */
 	private static final VectorSpecies<Short> SSPECIES=ShortVector.SPECIES_256;
+	/** Number of short elements per vector (16 for 256-bit) */
 	private static final int SWIDTH=SSPECIES.length();
 
+	/** Vector species for 256-bit double operations with 4 lanes */
 	private static final VectorSpecies<Double> DSPECIES=DoubleVector.SPECIES_256;
+	/** Number of double elements per vector (4 for 256-bit) */
 	private static final int DWIDTH=DSPECIES.length();
 
+	/** Vector species for 256-bit long operations with 4 lanes */
 	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_256;
+	/** Number of long elements per vector (4 for 256-bit) */
 	private static final int LWIDTH=LSPECIES.length();
 	
 	private static final VectorShuffle<Integer> I_REVERSE_SHUFFLE;
@@ -120,6 +130,15 @@ final class SIMD{
 	}
 
 	// Isla
+	/**
+	 * Calculates sum of absolute differences between scaled long arrays.
+	 * Converts longs to floats, applies scaling factors, then computes |a*inva - b*invb|.
+	 * @param a First long array
+	 * @param b Second long array
+	 * @param inva Scaling factor for array a
+	 * @param invb Scaling factor for array b
+	 * @return Sum of absolute differences between scaled elements
+	 */
 	static final float absDif(long[] a, long[] b, float inva, float invb){
 		assert (a.length==b.length);
 
@@ -160,6 +179,16 @@ final class SIMD{
 
 	// Isla
 	// Unfortunately, this dumps core, is very slow, and gives the wrong answer
+	/**
+	 * Computes GC-normalized absolute differences between long arrays.
+	 * Groups elements by GC content and applies per-group normalization.
+	 * Currently has performance and correctness issues - marked as problematic.
+	 * @param a First long array
+	 * @param b Second long array
+	 * @param k Maximum GC content value
+	 * @param gcmap GC content mapping for each array position
+	 * @return GC-normalized absolute difference sum
+	 */
 	static float absDifComp(long[] a, long[] b, int k, int[] gcmap){
 		final int length=a.length;
 
@@ -536,6 +565,15 @@ final class SIMD{
 	}
 
 	// Isla
+	/**
+	 * Computes cosine similarity between scaled integer arrays using SIMD.
+	 * Calculates dot product and norms vectorized, then returns normalized similarity.
+	 * @param a First integer array
+	 * @param b Second integer array
+	 * @param inva Scaling factor for array a
+	 * @param invb Scaling factor for array b
+	 * @return Cosine similarity between scaled vectors
+	 */
 	static float cosineSimilarity(int[] a, int[] b, float inva, float invb){
 		assert (a.length==b.length);
 

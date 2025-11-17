@@ -19,6 +19,12 @@ import structures.LongList;
  */
 class Splitter {
 	
+	/**
+	 * Splits a single clump by identifying optimal pivot positions for allelic separation.
+	 * Returns the original clump if it's too small to split or no suitable pivot is found.
+	 * @param c The clump to split
+	 * @return List containing either the original clump or its split components
+	 */
 	static ArrayList<Clump> splitOnPivot(Clump c){
 		ArrayList<Clump> list=new ArrayList<Clump>(3);
 		list.add(c);
@@ -29,6 +35,14 @@ class Splitter {
 		return splitOnPivot(list);
 	}
 	
+	/**
+	 * Processes a list of clumps, attempting to split each one by pivot analysis.
+	 * Clumps that cannot be split are added to the output unchanged.
+	 * Uses correlation-based pivot finding for improved accuracy.
+	 *
+	 * @param list Input list of clumps to process
+	 * @return List of split clumps and unsplittable clumps
+	 */
 	static ArrayList<Clump> splitOnPivot(ArrayList<Clump> list){
 		ArrayList<Clump> out=new ArrayList<Clump>();
 		
@@ -95,6 +109,15 @@ class Splitter {
 	}
 	
 	//Returns the c
+	/**
+	 * Counts variants at each position and populates a sorted list by frequency.
+	 * Identifies positions where minority alleles occur with sufficient frequency
+	 * for potential use as splitting pivots.
+	 *
+	 * @param c The clump to analyze
+	 * @param varCounts Output list to receive variant data (count<<32 | position<<2 | allele)
+	 * @return Count of the most frequent variant
+	 */
 	static int countVariants(Clump c, LongList varCounts){
 		varCounts.clear();
 		final int[][] bcounts=c.baseCounts();
@@ -116,6 +139,15 @@ class Splitter {
 		return (int)(varCounts.get(0)>>>32);
 	}
 	
+	/**
+	 * Identifies variants in each read relative to the consensus sequence.
+	 * Builds mapping from variant positions to lists of reads containing those variants.
+	 * Only considers variants that occur multiple times across the clump.
+	 *
+	 * @param c The clump to analyze
+	 * @param makeMap Whether to build and return the variant-to-reads mapping
+	 * @return Map from variant IDs to lists of reads containing them, or null if no variants
+	 */
 	static LinkedHashMap<Integer, ArrayList<Read>> findReadVariants(Clump c, boolean makeMap){
 		if(c.size()<5){return null;} //Not really needed with tiny clumps
 //		assert(c.size()>3); //TODO
@@ -171,6 +203,15 @@ class Splitter {
 		return map==null || map.isEmpty() ? null : map;
 	}
 	
+	/**
+	 * Finds the best pivot using correlation analysis between variants.
+	 * Identifies pairs of variants that co-occur in reads, indicating potential
+	 * linkage that can be used for more accurate clump splitting.
+	 *
+	 * @param c The clump to analyze
+	 * @param pivots Output list to receive the best pivot(s) found
+	 * @return The primary pivot variant, or -1 if none found
+	 */
 	static int findBestPivot_Correlated(Clump c, IntList pivots){
 		assert(pivots.size==0);
 		LinkedHashMap<Integer, ArrayList<Read>> map=findReadVariants(c, true);
@@ -384,6 +425,16 @@ class Splitter {
 		return clumpLocation;
 	}
 	
+	/**
+	 * Identifies the best pivot position(s) for splitting a clump.
+	 * First attempts correlation-based analysis if enabled, then falls back
+	 * to frequency-based analysis using quality scores and allele counts.
+	 *
+	 * @param c The clump to analyze
+	 * @param findCorrelations Whether to attempt correlation analysis first
+	 * @param pivots Output list to receive identified pivot positions
+	 * @return The best pivot variant found, or -1 if none suitable
+	 */
 	static int findBestPivots(Clump c, boolean findCorrelations, IntList pivots){
 		pivots.clear();
 		final int size=c.size();
@@ -456,15 +507,25 @@ class Splitter {
 		return bestVar;
 	}
 
+	/** Minimum clump size required to attempt splitting */
 	static int minSizeSplit=4; //5 is actually better than 4 in allele separation tests...?
+	/** Minimum fraction of clump size required for pivot depth threshold */
 	static float minSizeFractionSplit=0.17f; //0.2 is substantially worse, 0.14 is a tiny bit better than 0.17
+	/** Whether to use conservative splitting parameters */
 	static boolean conservative=false;
 	
+	/** Bit mask for extracting allele bits from packed variant representation */
 	private static final int alleleMask=0x3;
+	/** Bit mask for extracting position bits from packed variant representation */
 	private static final int posMask=~alleleMask;
+	/**
+	 * Bit shift amount for packing position and allele into variant representation
+	 */
 	private static final int shift=2;
 	
+	/** Whether to enable correlation-based pivot finding */
 	static boolean FIND_CORRELATIONS=true;
+	/** Maximum number of variant correlations to analyze before giving up */
 	static int MAX_CORRELATIONS=12;
 	
 //	private static final ThreadLocal<LinkedHashMap<Integer, ArrayList<Read>>> localMap=new ThreadLocal<LinkedHashMap<Integer, ArrayList<Read>>>();

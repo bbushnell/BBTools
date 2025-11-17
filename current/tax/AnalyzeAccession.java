@@ -40,6 +40,8 @@ import template.ThreadWaiter;
  */
 public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThread> {
 	
+	/** Program entry point.
+	 * @param args Command-line arguments for configuring accession analysis */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -54,6 +56,11 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs AnalyzeAccession instance and parses command-line arguments.
+	 * Configures input files, output settings, threading options, and validation flags.
+	 * @param args Command-line arguments including input files and processing options
+	 */
 	public AnalyzeAccession(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -131,6 +138,12 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		}
 	}
 	
+	/**
+	 * Main processing method that analyzes accession patterns in input files.
+	 * Executes either per-file or combined processing based on configuration.
+	 * Writes pattern statistics including counts, combinations, and bit entropy.
+	 * @param t Timer for tracking execution time and performance
+	 */
 	void process(Timer t){
 
 		if(perFile) {
@@ -175,6 +188,11 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		}
 	}
 	
+	/**
+	 * Processes a single input file using multiple threads.
+	 * Creates thread pool and coordinates processing of accession data.
+	 * @param ffin FileFormat for the input file to process
+	 */
 	void process_inner(FileFormat ffin){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -187,6 +205,8 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	}
 	
 	
+	/** Processes all input files simultaneously with separate thread pools.
+	 * Enables parallel processing of multiple files for improved performance. */
 	void process_perFile(){
 		ArrayList<ArrayList<ProcessThread>> perFileList=new ArrayList<ArrayList<ProcessThread>>(ffina.length);
 		for(FileFormat ffin : ffina) {
@@ -206,8 +226,15 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread for processing accession data from input files.
+	 * Reads lines, validates format, extracts patterns, and maintains local counts.
+	 * Thread-safe accumulation of pattern statistics.
+	 */
 	static class ProcessThread extends Thread {
 		
+		/** Constructs ProcessThread with input file reference.
+		 * @param bf_ ByteFile to process for accession patterns */
 		ProcessThread(ByteFile bf_){
 			bf=bf_;
 		}
@@ -239,6 +266,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 			}
 		}
 		
+		/**
+		 * Extracts accession pattern from a line and updates pattern counts.
+		 * Remaps characters to pattern types (digits->D, letters->L, special->symbols).
+		 * Stops parsing at whitespace, tabs, dots, or colons.
+		 *
+		 * @param line Input line containing accession data
+		 * @param buffer Reusable StringBuilder for pattern extraction
+		 */
 		void increment(byte[] line, StringBuilder buffer){
 			buffer.setLength(0);
 			for(int i=0; i<line.length; i++){
@@ -254,10 +289,15 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 			else{countMapT.put(key, new StringNum(key, 1));}
 		}
 		
+		/** Thread-local map for accumulating pattern counts during processing */
 		private HashMap<String, StringNum> countMapT=new HashMap<String, StringNum>();
+		/** ByteFile reference for reading input data in this thread */
 		private final ByteFile bf;
+		/** Thread-local count of lines processed */
 		long linesProcessedT=0;
+		/** Thread-local count of valid lines processed */
 		long linesOutT=0;
+		/** Thread-local count of bytes processed */
 		long bytesProcessedT=0;
 		
 	}
@@ -285,6 +325,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Calculates number of possible combinations for a pattern string.
+	 * Digits (D) contribute 10 possibilities each, letters (L) contribute 26 each.
+	 * Returns Long.MAX_VALUE if the result would overflow.
+	 *
+	 * @param s Pattern string containing D and L characters
+	 * @return Number of possible combinations, or Long.MAX_VALUE if overflow
+	 */
 	public static long combos(String s){
 		double combos=1;
 		for(int i=0; i<s.length(); i++){
@@ -295,6 +343,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return (combos>=Long.MAX_VALUE ? Long.MAX_VALUE : (long)Math.ceil(combos));
 	}
 	
+	/**
+	 * Calculates number of possible combinations for a pattern byte array.
+	 * Digits (D) contribute 10 possibilities each, letters (L) contribute 26 each.
+	 * Returns -1 if the result would overflow.
+	 *
+	 * @param s Pattern byte array containing D and L characters
+	 * @return Number of possible combinations, or -1 if overflow
+	 */
 	public static long combos(byte[] s){
 		double combos=1;
 		for(int i=0; i<s.length; i++){
@@ -307,6 +363,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads pattern-to-code mapping from file for efficient digitization.
+	 * Calculates bit requirements and maximum combinations for each pattern.
+	 * Assigns codes to patterns that fit within bit constraints.
+	 *
+	 * @param fname File containing pattern definitions, one per line
+	 * @return HashMap mapping pattern strings to integer codes
+	 */
 	public static HashMap<String, Integer> loadCodeMap(String fname){
 		assert(codeMap==null);
 		TextFile tf=new TextFile(fname);
@@ -332,6 +396,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return map;
 	}
 	
+	/**
+	 * Converts accession string to compact long integer representation.
+	 * Uses pattern recognition and numeric encoding for space efficiency.
+	 * Returns negative values for invalid or overflow cases.
+	 *
+	 * @param s Accession string to digitize
+	 * @return Long integer encoding of the accession, or negative if invalid
+	 */
 	public static long digitize(String s){
 		String pattern=remap(s);
 		Integer code=codeMap.get(pattern);
@@ -356,6 +428,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return number;
 	}
 	
+	/**
+	 * Converts accession byte array to compact long integer representation.
+	 * Uses pattern recognition and numeric encoding for space efficiency.
+	 * Returns negative values for invalid or overflow cases.
+	 *
+	 * @param s Accession byte array to digitize
+	 * @return Long integer encoding of the accession, or negative if invalid
+	 */
 	public static long digitize(byte[] s){
 		String pattern=remap(s);
 		Integer code=codeMap.get(pattern);
@@ -380,6 +460,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return number;
 	}
 	
+	/**
+	 * Remaps accession string characters to pattern representation.
+	 * Letters become L, digits become D, special characters become symbols.
+	 * Stops at whitespace, tabs, dots, or colons.
+	 *
+	 * @param s Input accession string
+	 * @return Pattern string using L/D/symbol notation
+	 */
 	public static String remap(String s){
 		if(s==null || s.length()<1){return "";}
 		ByteBuilder buffer=new ByteBuilder(s.length());
@@ -391,6 +479,14 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 		return buffer.toString();
 	}
 	
+	/**
+	 * Remaps accession byte array characters to pattern representation.
+	 * Letters become L, digits become D, special characters become symbols.
+	 * Stops at whitespace, tabs, dots, or colons.
+	 *
+	 * @param s Input accession byte array
+	 * @return Pattern string using L/D/symbol notation
+	 */
 	public static String remap(byte[] s){
 		ByteBuilder buffer=new ByteBuilder(s.length);
 		for(int i=0; i<s.length; i++){
@@ -403,33 +499,53 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process for accession analysis */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output file path for pattern statistics results */
 	private String out=null;
+	/** Whether to process files individually or combine processing */
 	private boolean perFile=true;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Global map storing pattern counts across all processed files */
 	private HashMap<String, StringNum> countMap=new HashMap<String, StringNum>();
+	/** Static map from patterns to integer codes for digitization */
 	public static HashMap<String, Integer> codeMap;
+	/** Number of bits required to encode all pattern codes */
 	private static int codeBits=-1;
+	/** Length of the longest pattern found in the code map */
 	private static int longestPattern=-1;
 	
+	/** Total number of lines read from all input files */
 	private long linesProcessed=0;
+	/** Total number of valid lines processed (excluding headers) */
 	private long linesOut=0;
+	/** Total number of bytes read from all input files */
 	private long bytesProcessed=0;
+	/** Total number of bytes written to output (currently unused) */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Array of FileFormat objects for all input files */
 	private final FileFormat[] ffina;
+	/** FileFormat object for the output statistics file */
 	private final FileFormat ffout;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe access to shared data structures */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
+	/** Static lookup table for remapping characters to pattern symbols */
 	private static final byte[] remap=makeRemap();
 	
+	/**
+	 * Creates character remapping table for pattern recognition.
+	 * Maps letters to L, digits to D, underscores/dashes to -, others to ?.
+	 * @return Byte array mapping ASCII characters to pattern symbols
+	 */
 	private static byte[] makeRemap(){
 		byte[] array=new byte[128];
 		Arrays.fill(array, (byte)'?');
@@ -442,10 +558,15 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and error reporting */
 	private PrintStream outstream=System.err;
+	/** Whether to enable verbose logging output */
 	public static boolean verbose=false;
+	/** Whether an error occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

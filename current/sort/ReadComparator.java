@@ -11,6 +11,8 @@ import stream.Read;
  */
 public abstract class ReadComparator implements Comparator<Read> {
 	
+	/** Sets the sort order for this comparator.
+	 * @param asc true for ascending order, false for descending order */
 	public abstract void setAscending(boolean asc);
 	
 }

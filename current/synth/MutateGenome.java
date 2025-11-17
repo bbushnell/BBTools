@@ -34,6 +34,11 @@ import var2.Var;
  */
 public class MutateGenome {
 
+	/**
+	 * Program entry point.
+	 * Parses ploidy and delegates to MutateGenome2 for polyploid genomes.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		if(parsePloidy(args)!=1){
 			MutateGenome2.main(args);
@@ -47,6 +52,12 @@ public class MutateGenome {
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Constructs MutateGenome instance and parses command-line arguments.
+	 * Configures mutation rates, file formats, and validation parameters.
+	 * Sets up input/output streams and validates file accessibility.
+	 * @param args Command-line arguments for configuration
+	 */
 	public MutateGenome(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -199,6 +210,12 @@ public class MutateGenome {
 		}
 	}
 
+	/**
+	 * Parses ploidy value from command-line arguments.
+	 * Used to determine whether to use MutateGenome or MutateGenome2.
+	 * @param args Command-line arguments array
+	 * @return Ploidy value (default 1)
+	 */
 	private static int parsePloidy(String[] args){
 		int ploidy=1;
 		for(int i=0; i<args.length; i++){
@@ -214,6 +231,12 @@ public class MutateGenome {
 		return ploidy;
 	}
 
+	/**
+	 * Main processing pipeline that applies mutations to input sequences.
+	 * Reads sequences, applies configured mutations, and writes output files.
+	 * Generates statistics and performance metrics upon completion.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadInputStream cris;
@@ -336,6 +359,15 @@ public class MutateGenome {
 		t.stop();
 	}
 
+	/**
+	 * Checks if a deletion would create or extend a homopolymer run.
+	 * Used to prevent homopolymer artifacts when banHomopolymers is enabled.
+	 *
+	 * @param bases The sequence bases array
+	 * @param pos Starting position of potential deletion
+	 * @param len Length of potential deletion
+	 * @return true if deletion would create/extend homopolymer
+	 */
 	public boolean isHomopolymerDel(byte[] bases, int pos, int len){
 		final byte b=bases[pos];
 		for(int i=1; i<len; i++){
@@ -346,12 +378,29 @@ public class MutateGenome {
 		return false;
 	}
 
+	/**
+	 * Checks if an insertion would create or extend a homopolymer run.
+	 *
+	 * @param bases The sequence bases array
+	 * @param pos Position for potential insertion
+	 * @param b The base to insert
+	 * @return true if insertion would create/extend homopolymer
+	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, byte b){
 		if(b==bases[pos]){return true;}
 		if(pos>0 && b==bases[pos-1]){return true;}
 		return false;
 	}
 
+	/**
+	 * Checks if a multi-base insertion would create homopolymer artifacts.
+	 * Verifies the insertion sequence is homopolymeric before position check.
+	 *
+	 * @param bases The sequence bases array
+	 * @param pos Position for potential insertion
+	 * @param sb StringBuilder containing insertion sequence
+	 * @return true if insertion would create/extend homopolymer
+	 */
 	public boolean isHomopolymerIns(byte[] bases, int pos, StringBuilder sb){
 		byte b=(byte) sb.charAt(0);
 		for(int i=1; i<sb.length(); i++) {
@@ -672,10 +721,29 @@ public class MutateGenome {
 		return Tools.multiplyBy(prob, 1/sum);
 	}
 
+	/**
+	 * Simplified homopolymer check for insertions.
+	 *
+	 * @param bases Sequence bases array
+	 * @param i Position index
+	 * @param len Insertion length (unused)
+	 * @param prevChar Previous character in sequence
+	 * @return true if insertion would extend homopolymer
+	 */
 	private boolean insHomopolymer(byte[] bases, int i, int len, char prevChar) {
 		return prevChar==bases[i];
 	}
 
+	/**
+	 * Checks if deletion would create homopolymer artifacts.
+	 * Examines bases before, within, and after deletion region.
+	 *
+	 * @param bases Sequence bases array
+	 * @param i Starting position of deletion
+	 * @param len Length of deletion
+	 * @param prevChar Previous character in output sequence
+	 * @return true if deletion would create homopolymer artifacts
+	 */
 	private boolean delHomopolymer(byte[] bases, int i, int len, char prevChar) {
 		byte a1=(byte)prevChar;
 		byte a2=bases[i];
@@ -687,6 +755,15 @@ public class MutateGenome {
 		return false;
 	}
 
+	/**
+	 * Processes amino acid sequences with mutations specific to protein sequences.
+	 * Uses 21-amino acid alphabet and appropriate mutation logic.
+	 *
+	 * @param r The amino acid read to mutate
+	 * @param bb ByteBuilder for sequence construction
+	 * @param vars ArrayList to collect variant information
+	 * @param headers ArrayList to collect VCF headers
+	 */
 	public void processReadAmino(Read r, ByteBuilder bb, ArrayList<SmallVar> vars, ArrayList<String> headers){
 
 		assert(r.aminoacid());
@@ -815,6 +892,12 @@ public class MutateGenome {
 
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Condenses adjacent variants into more complex variants.
+	 * Two-pass algorithm: first fuses indels into substitutions,
+	 * then lengthens consecutive indels of same type.
+	 * @param vars ArrayList of variants to condense
+	 */
 	private void condenseVars(ArrayList<SmallVar> vars){
 		if(vars==null || vars.size()<2){return;}
 
@@ -885,6 +968,12 @@ public class MutateGenome {
 		}
 	}
 
+	/**
+	 * Writes variants to VCF format output file.
+	 * Includes standard VCF headers and variant records.
+	 * @param vars ArrayList of variants to write
+	 * @param headers ArrayList of contig headers
+	 */
 	void writeVars(ArrayList<SmallVar> vars, ArrayList<String> headers){
 		if(ffoutVcf==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffoutVcf);
@@ -929,6 +1018,18 @@ public class MutateGenome {
 
 	private static class SmallVar{
 
+		/**
+		 * Constructs a variant record with position and sequence information.
+		 *
+		 * @param type_ Variant type (SUB, INS, or DEL)
+		 * @param start_ Start position in sequence
+		 * @param stop_ Stop position in sequence
+		 * @param alt_ Alternative allele sequence
+		 * @param ref_ Reference allele sequence
+		 * @param prevChar_ Character preceding variant position
+		 * @param rname_ Reference sequence name
+		 * @param scafNum_ Scaffold numeric identifier
+		 */
 		SmallVar(int type_, int start_, int stop_, String alt_, String ref_, char prevChar_, String rname_, long scafNum_){
 			type=type_;
 			start=start_;
@@ -940,10 +1041,17 @@ public class MutateGenome {
 			scafNum=scafNum_;
 		}
 
+		/** Validates that substitution variants have different ref and alt alleles.
+		 * @return true if variant is valid, false if ref equals alt for substitution */
 		boolean valid(){
 			return type!=SUB || !alt.equals(ref);
 		}
 
+		/**
+		 * Formats variant as VCF record line.
+		 * Handles coordinate adjustments for different variant types.
+		 * @param bb ByteBuilder to append VCF format line
+		 */
 		void toVcf(ByteBuilder bb){
 			bb.append(rname).append('\t');
 			if(type==SUB){
@@ -969,65 +1077,107 @@ public class MutateGenome {
 			bb.append("PASS");
 		}
 
+		/** Variant type (SUB, INS, or DEL) */
 		int type;
+		/** Start position of variant in sequence */
 		int start;
+		/** Stop position of variant in sequence */
 		int stop;
+		/** Reference allele sequence */
 		String ref;
+		/** Alternative allele sequence */
 		String alt;
+		/** Character preceding variant position */
 		final char prevChar;
+		/** Reference sequence name */
 		final String rname;
+		/** Numeric scaffold identifier */
 		final long scafNum;
 
 	}
 
 	/*--------------------------------------------------------------*/
 
+	/** Input file path */
 	private String in1=null;
+	/** Output FASTA file path */
 	private String out1=null;
+	/** Output VCF file path */
 	private String outVcf=null;
 
+	/** Prefix to apply to sequence names */
 	private String prefix=null;
 
+	/** Input file format specification */
 	private final FileFormat ffin1;
+	/** Output FASTA file format specification */
 	private final FileFormat ffout1;
+	/** Output VCF file format specification */
 	private final FileFormat ffoutVcf;
 
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 
+	/** Total length of mutations added to sequences */
 	private long mutationLengthAdded=0;
+	/** Net length change from insertions minus deletions */
 	private long netLengthAdded=0;
+	/** Count of substitution mutations added */
 	private long subsAdded=0;
+	/** Count of reference bases retained without mutation */
 	private long refAdded=0;
+	/** Count of insertion mutations added */
 	private long insAdded=0;
+	/** Count of deletion mutations added */
 	private long delsAdded=0;
+	/** Total length of all insertions added */
 	private long insLenAdded=0;
+	/** Total length of all deletions added */
 	private long delLenAdded=0;
+	/** Count of chimeric junctions from genome fraction sampling */
 	private long junctionsAdded=0;
 
+	/** Number of sine waves for conservation model (0=disabled) */
 	int sinewaves=0;
 	boolean preserveGC=true;
 
+	/** Period for regular mutation pattern (-1 for random) */
 	private int period=-1;
 
+	/** Fraction of genome to retain (1.0 = complete genome) */
 	private float genomeFraction=1;
+	/** Total bases retained in output sequences */
 	private long basesRetained;
 
+	/** Count of input sequences processed */
 	private long readsProcessed=0;
+	/** Total bases processed from input sequences */
 	private long basesProcessed=0;
 
+	/** Count of output sequences written */
 	private long readsOut=0;
+	/** Total bases written to output sequences */
 	private long basesOut=0;
 
+	/** Rate of substitution mutations (0.0-1.0) */
 	private float subRate=0;
+	/** Rate of insertion mutations (0.0-1.0) */
 	private float insRate=0;
+	/** Rate of deletion mutations (0.0-1.0) */
 	private float delRate=0;
+	/** Maximum length for insertion or deletion mutations */
 	private int maxIndel=1;
+	/** Minimum spacing between adjacent indel mutations */
 	private int indelSpacing=3;
+	/** Number of random bases to add at sequence start */
 	private int padLeft=0, padRight=0;
+	/** Whether to prevent mutations that create homopolymer runs */
 	private boolean banHomopolymers=false;
+	/** Total error rate combining all mutation types */
 	private final float errorRate;
+	/** Adjusted error rate accounting for indel length distribution */
 	private final float errorRate2;
 
 	private boolean mod3=false;
@@ -1035,7 +1185,9 @@ public class MutateGenome {
 	private int k=-1;
 	private boolean rcomp=false;
 
+	/** Random number generator for mutation decisions */
 	private final Random randy;
+	/** Random seed for reproducible mutation patterns */
 	private long seed=-1;
 
 	/*--------------------------------------------------------------*/
@@ -1047,9 +1199,12 @@ public class MutateGenome {
 	/** Append to existing output files */
 	private boolean append=false;
 
+	/** Constant for substitution variant type */
 	private static final int SUB=Var.SUB, INS=Var.INS, DEL=Var.DEL;
 
+	/** Output stream for status and error messages */
 	private java.io.PrintStream outstream=System.err;
+	/** Enable verbose logging output */
 	public static boolean verbose=false;
 
 }

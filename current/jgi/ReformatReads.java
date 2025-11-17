@@ -48,6 +48,11 @@ import var2.ScafMap;
  */
 public class ReformatReads {
 
+	/**
+	 * Program entry point that executes the read reformatting pipeline.
+	 * Creates a ReformatReads instance, processes reads, and closes output streams.
+	 * @param args Command-line arguments for configuration
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReformatReads x=new ReformatReads(args);
@@ -57,6 +62,12 @@ public class ReformatReads {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a ReformatReads instance and parses command-line arguments.
+	 * Initializes all processing parameters, validates file paths, sets up input/output
+	 * streams, and configures filtering and transformation options.
+	 * @param args Command-line arguments containing input/output files and processing options
+	 */
 	public ReformatReads(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -462,6 +473,12 @@ public class ReformatReads {
 
 	
 	
+	/**
+	 * Main processing method that executes the complete read reformatting pipeline.
+	 * Handles sampling, streaming I/O, applies all filters and transformations,
+	 * generates statistics, and manages concurrent read processing.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		long readsRemaining=0;
@@ -1316,10 +1333,22 @@ public class ReformatReads {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Pads a read with specified padding symbols on left and right ends.
+	 * @param r Read to pad */
 	private void pad(Read r){
 		pad(r, padLeft, padRight, padSymbol, padQ);
 	}
 	
+	/**
+	 * Pads a read with specified symbols and quality scores on both ends.
+	 * Extends read bases and quality arrays by adding padding symbols.
+	 *
+	 * @param r Read to pad (null safe)
+	 * @param padLeft Number of bases to pad on left end
+	 * @param padRight Number of bases to pad on right end
+	 * @param padSymbol Byte symbol to use for padding bases
+	 * @param padQ Quality score to assign to padded bases
+	 */
 	public static final void pad(Read r, int padLeft, int padRight, byte padSymbol, byte padQ){
 		if(r==null || r.length()==0 || (padLeft<1 && padRight<1)){return;}
 		padLeft=Tools.max(0, padLeft);
@@ -1328,6 +1357,16 @@ public class ReformatReads {
 		r.quality=pad(r.quality, padLeft, padRight, padQ);
 	}
 	
+	/**
+	 * Pads a byte array with specified padding symbols on both ends.
+	 * Creates a new array with padding symbols inserted at beginning and end.
+	 *
+	 * @param old Original byte array to pad
+	 * @param padLeft Number of bytes to pad on left
+	 * @param padRight Number of bytes to pad on right
+	 * @param padSymbol Byte value to use for padding
+	 * @return New padded byte array, or null if input was null
+	 */
 	private static final byte[] pad(byte[] old, int padLeft, int padRight, byte padSymbol){
 		if(old==null){return null;}
 		final int innerLimit=old.length+padLeft;
@@ -1338,11 +1377,30 @@ public class ReformatReads {
 		return array;
 	}
 	
+	/**
+	 * Tests if a read passes both minimum and maximum identity filters.
+	 * Combines minimum and maximum identity filtering for read validation.
+	 *
+	 * @param r Read to test
+	 * @param minId Minimum identity threshold (0-1)
+	 * @param maxId Maximum identity threshold (0-1)
+	 * @param requireMapped Whether unmapped reads should be rejected
+	 * @return true if read passes both identity filters
+	 */
 	public static final boolean passesIDFilter(Read r, float minId, float maxId, boolean requireMapped){
 		if(!passesMinIDFilter(r, minId, requireMapped)){return false;}
 		return passesMaxIDFilter(r, maxId);
 	}
 	
+	/**
+	 * Tests if a read passes minimum identity filtering threshold.
+	 * Uses alignment match string to calculate identity percentage.
+	 *
+	 * @param r Read to test
+	 * @param minId Minimum identity threshold (0-1)
+	 * @param requireMapped Whether unmapped reads should be rejected
+	 * @return true if read identity meets minimum threshold
+	 */
 	public static final boolean passesMinIDFilter(Read r, float minId, boolean requireMapped){
 		if(minId<=0 || r.perfect()){return true;}
 		if(r.match==null && r.samline!=null){
@@ -1352,6 +1410,14 @@ public class ReformatReads {
 		return Read.identityFlat(r.match, true)>=minId;
 	}
 	
+	/**
+	 * Tests if a read passes maximum identity filtering threshold.
+	 * Uses alignment match string to calculate identity percentage.
+	 *
+	 * @param r Read to test
+	 * @param maxId Maximum identity threshold (0-1)
+	 * @return true if read identity is below maximum threshold
+	 */
 	public static final boolean passesMaxIDFilter(Read r, float maxId){
 		if(maxId>=1){return true;}
 		if(r.match==null && r.samline!=null){
@@ -1361,6 +1427,15 @@ public class ReformatReads {
 		return Read.identityFlat(r.match, true)<=maxId;
 	}
 	
+	/**
+	 * Tests if a read passes edit distance filtering based on alignment statistics.
+	 * Analyzes substitutions, insertions, deletions, and clipping events against
+	 * configured thresholds to determine if read should be kept or filtered.
+	 *
+	 * @param r Read to evaluate
+	 * @param requireMapped Whether unmapped reads should be rejected
+	 * @return true if read passes all configured edit distance filters
+	 */
 	public final boolean passesEditFilter(Read r, boolean requireMapped){
 		if(r.perfect()){return true;}
 		if(r.match==null && r.samline!=null){
@@ -1390,6 +1465,15 @@ public class ReformatReads {
 		return !bad;
 	}
 	
+	/**
+	 * Tests if a header string passes tag-based filtering criteria.
+	 * Parses header for specified tag and compares value against configured limits.
+	 *
+	 * @param s Header string to parse
+	 * @param tag Tag name to search for
+	 * @param delimiter Character used to separate tag-value pairs
+	 * @return true if tag value meets filtering criteria
+	 */
 	public boolean passesTagFilter(String s, String tag, char delimiter) {
 		if(requiredValue!=null) {
 			String value=Parse.parseString(s, tag, delimiter);
@@ -1411,12 +1495,26 @@ public class ReformatReads {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Deletes empty output files when no reads were written to them.
+	 * @param readsOut1 Number of reads written to first output file
+	 * @param readsOut2 Number of reads written to second output file
+	 * @param readsOutSingle Number of singleton reads written to output file
+	 */
 	private void deleteEmpty(long readsOut1, long readsOut2, long readsOutSingle){
 		deleteEmpty(readsOut1, ffout1, qfout1);
 		deleteEmpty(readsOut2, ffout2, qfout2);
 		deleteEmpty(readsOutSingle, ffoutsingle, null);
 	}
 	
+	/**
+	 * Deletes an output file if no reads were written to it.
+	 * Removes both the primary file and any associated quality file.
+	 *
+	 * @param count Number of reads written to the file
+	 * @param ff FileFormat of the output file
+	 * @param qf Quality file path (may be null)
+	 */
 	private static void deleteEmpty(long count, FileFormat ff, String qf){
 		try {
 			if(ff!=null && count<1){
@@ -1440,6 +1538,14 @@ public class ReformatReads {
 		}
 	}
 	
+	/**
+	 * Pre-counts total reads and bases in input files for sampling calculations.
+	 * Makes a complete pass through input to determine exact read and base counts
+	 * needed for precise sampling rates.
+	 *
+	 * @param maxReads Maximum number of reads to count
+	 * @return Array containing [read_pairs, total_reads, total_bases]
+	 */
 	private long[] countReads(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
@@ -1476,6 +1582,14 @@ public class ReformatReads {
 		return new long[] {count, count2, bases};
 	}
 	
+	/**
+	 * Creates a length histogram of all reads for priority-based sampling.
+	 * Scans input files to build sorted length distribution for length-prioritized
+	 * read selection during sampling.
+	 *
+	 * @param maxReads Maximum number of reads to process
+	 * @return Sorted list containing read length distribution
+	 */
 	private SuperLongList makeLengthHist(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
@@ -1510,6 +1624,8 @@ public class ReformatReads {
 		return sll;
 	}
 	
+	/** Sets the random seed for sampling operations.
+	 * @param seed Random seed value for reproducible sampling */
 	public void setSampleSeed(long seed){
 		randy=Shared.threadLocalRandom(seed);
 	}
@@ -1517,12 +1633,22 @@ public class ReformatReads {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts the last underscore in a read ID to a space character.
+	 * Used to fix UCSF-style read headers that use underscores instead of spaces.
+	 * @param r Read whose ID should be modified
+	 */
 	public static final void underscoreToSpace(Read r){
 		if(r!=null){
 			r.id=underscoreToSpace(r.id);
 		} 
 	}
 	
+	/**
+	 * Converts the last underscore in a header string to a space character.
+	 * @param header Header string to modify
+	 * @return Modified header with last underscore converted to space
+	 */
 	public static String underscoreToSpace(String header){
 		int x=header.lastIndexOf('_');
 		if(x<0){return header;}
@@ -1531,6 +1657,11 @@ public class ReformatReads {
 		return new String(bytes);
 	}
 	
+	/**
+	 * Fixes problematic characters in read headers to make them filesystem-safe.
+	 * Replaces invalid characters with underscores and updates SAM line if present.
+	 * @param r Read whose header should be fixed
+	 */
 	public static final void fixHeader(Read r){
 		if(r!=null){
 			r.id=fixHeader(r.id);
@@ -1540,6 +1671,12 @@ public class ReformatReads {
 		} 
 	}
 	
+	/**
+	 * Fixes problematic characters in header strings to make them filesystem-safe.
+	 * Converts non-alphanumeric characters to underscores except for allowed symbols.
+	 * @param header Header string to fix
+	 * @return Fixed header with invalid characters replaced
+	 */
 	public static final String fixHeader(String header){
 		if(header==null || header.length()<1){return header;}
 		byte[] array=new byte[header.length()];
@@ -1592,18 +1729,28 @@ public class ReformatReads {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of reads processed by the tool */
 	public long readsProcessed=0;
+	/** Total number of bases processed by the tool */
 	public long basesProcessed=0;
+	/** Total number of k-mers processed for quality analysis */
 	public long kmersProcessed=0;
+	/** Number of k-mers determined to be correct based on quality scores */
 	public double correctKmers=0;
 	
 	//Only used with deleteEmptyFiles flag
+	/** Number of reads written to first output file */
 	public long readsOut1=0;
+	/** Number of reads written to second output file */
 	public long readsOut2=0;
+	/** Number of singleton reads written to unpaired output file */
 	public long readsOutSingle=0;
 	
+	/** Number of bases written to first output file */
 	public long basesOut1=0;
+	/** Number of bases written to second output file */
 	public long basesOut2=0;
+	/** Number of bases written to unpaired output file */
 	public long basesOutSingle=0;
 	
 	/*--------------------------------------------------------------*/
@@ -1611,10 +1758,12 @@ public class ReformatReads {
 	/** For calculating kmer cardinality */
 	private final CardinalityTracker loglog;
 	
+	/** K-mer length for quality analysis and cardinality tracking */
 	private int k=0;
 	
 	/** Tracks names to ensure no duplicate names. */
 	private final HashMap<String,Integer> nameMap1, nameMap2;
+	/** Whether to enforce unique read names by appending counters */
 	private boolean uniqueNames=false;
 
 	private boolean reverseComplementMate=false;
@@ -1769,9 +1918,13 @@ public class ReformatReads {
 	private static final String colon1=" 1:";
 	private static final String colon2=" 2:";
 	
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Global flag enabling verbose output messages */
 	public static boolean verbose=false;
+	/** Whether to suppress all output except errors */
 	public boolean silent=false;
+	/** Tracks whether an error occurred during processing */
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;

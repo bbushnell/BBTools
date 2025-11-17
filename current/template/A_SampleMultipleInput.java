@@ -26,6 +26,8 @@ import structures.ListNum;
  */
 public class A_SampleMultipleInput {
 
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -40,6 +42,11 @@ public class A_SampleMultipleInput {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a new instance and parses command-line arguments.
+	 * Sets up input file list, output file, and processing parameters.
+	 * @param args Command-line arguments containing file paths and options
+	 */
 	public A_SampleMultipleInput(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -82,6 +89,11 @@ public class A_SampleMultipleInput {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, true, false, false);
 	}
 	
+	/**
+	 * Main processing method that concatenates all input files to output.
+	 * Creates output stream, processes each input file sequentially, then closes streams.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadOutputStream ros;
@@ -109,6 +121,12 @@ public class A_SampleMultipleInput {
 				+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
 	}
 	
+	/**
+	 * Processes a single input file and writes reads to the output stream.
+	 * Creates read input stream, fetches read batches, and passes them through.
+	 * @param fname Path to input file to process
+	 * @param ros Output stream for writing processed reads
+	 */
 	void processInner(String fname, ConcurrentReadOutputStream ros) {
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
 		
@@ -158,19 +176,27 @@ public class A_SampleMultipleInput {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input file paths to process */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output file path for concatenated results */
 	private String out1=null;
 	
+	/** File format specification for output file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Total count of bases processed */
+	/** Total count of reads processed */
 	private long readsProcessed=0, basesProcessed=0;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and logging */
 	private java.io.PrintStream outstream=System.err;
+	/** Flag to enable verbose output during processing */
 	public static boolean verbose=false;
 	
 }

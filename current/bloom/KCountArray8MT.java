@@ -67,6 +67,15 @@ public class KCountArray8MT extends KCountArray {
 		
 	}
 		
+	/**
+	 * Constructs a multi-threaded k-mer counting array with prime-sized segments.
+	 * Creates buffer arrays and WriteThread instances for parallel processing.
+	 *
+	 * @param cells_ Total number of cells across all arrays
+	 * @param bits_ Bits per cell (determines maximum count value)
+	 * @param hashes_ Number of hash functions to use
+	 * @param prefilter_ Optional prefilter for two-stage counting
+	 */
 	public KCountArray8MT(long cells_, int bits_, int hashes_, KCountArray prefilter_){
 		super(getPrimeCells(cells_, bits_), bits_, getDesiredArrays(cells_, bits_));
 //		verbose=false;
@@ -83,6 +92,14 @@ public class KCountArray8MT extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
+	/**
+	 * Calculates the number of arrays needed to avoid integer overflow.
+	 * Ensures each array can be represented within integer bounds.
+	 *
+	 * @param desiredCells Total cells needed
+	 * @param bits Bits per cell
+	 * @return Number of arrays required
+	 */
 	private static int getDesiredArrays(long desiredCells, int bits){
 		
 		long words=Tools.max((desiredCells*bits+31)/32, minArrays);
@@ -93,6 +110,14 @@ public class KCountArray8MT extends KCountArray {
 		return arrays;
 	}
 	
+	/**
+	 * Adjusts cell count to use prime-sized arrays for better hash distribution.
+	 * Each array segment uses a prime number of cells to reduce clustering.
+	 *
+	 * @param desiredCells Target number of cells
+	 * @param bits Bits per cell
+	 * @return Adjusted cell count using prime-sized segments
+	 */
 	private static long getPrimeCells(long desiredCells, int bits){
 		
 		int arrays=getDesiredArrays(desiredCells, bits);
@@ -123,6 +148,12 @@ public class KCountArray8MT extends KCountArray {
 		return min;
 	}
 	
+	/**
+	 * Reads count from a specific hashed position in the array matrix.
+	 * Extracts array number, cell index, and bit position from the hashed key.
+	 * @param key Pre-hashed key value
+	 * @return Count value at the specified position
+	 */
 	private int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -366,6 +397,14 @@ public class KCountArray8MT extends KCountArray {
 		return r;
 	}
 	
+	/**
+	 * Fills a mask array with randomized values having exactly 16 bits set
+	 * in each 32-bit half. Uses collision detection to ensure unique hash patterns
+	 * and prevent clustering that would degrade hash distribution quality.
+	 *
+	 * @param r Array to fill with hash mask values
+	 * @param randy Random number generator for mask creation
+	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -478,8 +517,16 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Dedicated thread for processing increments to a specific array segment.
+	 * Receives batches of hashed keys through a blocking queue and updates
+	 * the corresponding array positions. Uses NUMA-aware memory allocation
+	 * for improved cache performance.
+	 */
 	private class WriteThread extends Thread{
 		
+		/** Creates WriteThread for a specific array segment.
+		 * @param tnum Thread number corresponding to array segment index */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
@@ -523,6 +570,11 @@ public class KCountArray8MT extends KCountArray {
 			array=null;
 		}
 		
+		/**
+		 * Adds a batch of keys to this thread's processing queue.
+		 * Blocks until space is available in the queue.
+		 * @param keys Array of hashed keys to process
+		 */
 		void add(long[] keys){
 //			assert(isAlive());
 			assert(!shutdown);
@@ -542,6 +594,14 @@ public class KCountArray8MT extends KCountArray {
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
+		/**
+		 * Increments count for a pre-hashed key within this thread's array segment.
+		 * Extracts cell position, reads current value, increments (capped at maxValue),
+		 * and updates the packed array word. Tracks usage statistics.
+		 *
+		 * @param key Pre-hashed key targeting this array segment
+		 * @return New count value after increment
+		 */
 		private int incrementHashedLocal(long key){
 			assert((key&arrayMask)==num);
 			key=(key>>>arrayBits)%(cellMod);
@@ -557,39 +617,63 @@ public class KCountArray8MT extends KCountArray {
 			return value;
 		}
 		
+		/** Local array segment managed by this thread for NUMA optimization */
 		private int[] array;
+		/** Thread number corresponding to array segment index */
 		private final int num;
+		/** Count of cells used by this thread for statistics aggregation */
 		public long cellsUsedPersonal=0;
 		
+		/** Queue for receiving batches of keys to process */
 		public ArrayBlockingQueue<long[]> writeQueue=new ArrayBlockingQueue<long[]>(16);
+		/** Flag indicating thread should terminate after current batch */
 		public boolean shutdown=false;
 		
 	}
 	
 	
+	/** Returns total count of cells containing non-zero values.
+	 * @return Number of used cells across all arrays */
 	public long cellsUsed(){return cellsUsed;}
 	
+	/** Flag indicating shutdown process has completed */
 	private boolean finished=false;
 	
+	/** Total count of used cells aggregated from all WriteThreads */
 	private long cellsUsed;
+	/** Main storage matrix with one array per WriteThread */
 	final int[][] matrix;
+	/** Array of WriteThread instances, one per matrix segment */
 	private final WriteThread[] writers=new WriteThread[numArrays];
+	/** Number of hash functions used for each k-mer */
 	private final int hashes;
+	/** Number of 32-bit words in each array segment */
 	final int wordsPerArray;
+	/** Number of cells in each array segment */
 	private final long cellsPerArray;
+	/** Modulus value for mapping keys to cell positions within arrays */
 	final long cellMod;
+	/** Precomputed random masks for hash function transformations */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
 	
+	/** Intermediate buffers for batching keys before sending to WriteThreads */
 	private final long[][] buffers=new long[numArrays][500];
+	/** Current length of each buffer for WriteThread batching */
 	private final int[] bufferlen=new int[numArrays];
 	
+	/** Optional prefilter for two-stage counting to improve memory efficiency */
 	public final KCountArray prefilter;
 	
+	/** Number of bits used for hash array indexing */
 	private static final int hashBits=6;
+	/** Length of hash mask arrays (2^hashBits) */
 	private static final int hashArrayLength=1<<hashBits;
+	/** Bit mask for extracting hash array indices */
 	private static final int hashCellMask=hashArrayLength-1;
+	/** Sentinel array used to signal WriteThreads to shutdown */
 	static final long[] poison=new long[0];
 	
+	/** Global counter for generating unique random seeds for hash mask creation */
 	private static long counter=0;
 	
 }

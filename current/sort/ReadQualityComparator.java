@@ -10,6 +10,7 @@ import stream.Read;
  */
 public final class ReadQualityComparator extends ReadComparator {
 	
+	/** Private constructor to enforce singleton pattern */
 	private ReadQualityComparator(){}
 	
 	@Override
@@ -18,6 +19,15 @@ public final class ReadQualityComparator extends ReadComparator {
 		return ascending*x;
 	}
 
+	/**
+	 * Performs the core comparison logic between two reads.
+	 * Compares by expected error rate, total length (read + mate), string ID,
+	 * and numeric ID as successive tiebreakers.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -43,8 +53,10 @@ public final class ReadQualityComparator extends ReadComparator {
 		return 0;
 	}
 	
+	/** Singleton instance of the comparator for reuse */
 	public static final ReadQualityComparator comparator=new ReadQualityComparator();
 	
+	/** Multiplier for sort direction: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
 	@Override

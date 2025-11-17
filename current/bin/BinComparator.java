@@ -2,6 +2,14 @@ package bin;
 
 import java.util.Comparator;
 
+/**
+ * Comparator for Bin objects that prioritizes bins by contamination level, size, and ID.
+ * Establishes sorting order for bin processing and display in downstream analysis.
+ * Lower contamination bins are prioritized first, followed by larger bins, then lower IDs.
+ *
+ * @author Brian Bushnell
+ * @date February 2025
+ */
 class BinComparator implements Comparator<Bin> {
 	
 	@Override

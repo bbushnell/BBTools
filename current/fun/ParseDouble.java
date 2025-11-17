@@ -1,7 +1,16 @@
 package fun;
 
+/**
+ * High-performance double parser optimized for numeric strings without exponents.
+ * Provides custom parsing implementations that outperform Java's built-in parser
+ * for simple decimal numbers by avoiding unnecessary overhead and string allocation.
+ * Falls back to standard Java parsing for complex cases like scientific notation.
+ *
+ * @author Brian Bushnell
+ */
 public class ParseDouble {
     // Lookup table for decimal multipliers
+    /** Lookup table for decimal place multipliers, precomputed powers of 0.1 */
     private static final double[] DECIMAL_INV_MULT = new double[20];
     static {
         for(int i=0; i<DECIMAL_INV_MULT.length; i++) {
@@ -10,6 +19,9 @@ public class ParseDouble {
     }
 
     // For special value checking
+    /**
+     * ASCII lookup table marking numeric characters and special values for fast validation
+     */
     private static final boolean[] NUMERIC_MAP = new boolean[128];
     static {
         for(int i='0'; i<='9'; i++) {
@@ -19,6 +31,11 @@ public class ParseDouble {
         NUMERIC_MAP['.'] = true;
     }
 
+    /**
+     * Benchmarks custom parsers against Java's Double.parseDouble().
+     * Tests performance with warmup cycles and validates results for correctness.
+     * @param args Command-line arguments: [number_string] [iteration_count]
+     */
     public static void main(String[] args) {
         if(args.length<2) {
             System.out.println("Usage: DoubleParseTest <number> <iterations>");
@@ -66,6 +83,12 @@ public class ParseDouble {
         System.out.println("Difference: " + Math.abs(customSum - javaSum));
     }
     
+    /**
+     * Performance test harness for the basic custom parser implementation.
+     * @param valueStr String representation of number to parse
+     * @param iterations Number of parsing iterations to perform
+     * @return Sum of all parsed values for validation
+     */
     private static double testCustomParser(String valueStr, int iterations) {
         byte[] bytes = valueStr.getBytes();
         double sum = 0;
@@ -77,6 +100,12 @@ public class ParseDouble {
         return sum;
     }
     
+    /**
+     * Performance test harness for the enhanced custom parser with special value handling.
+     * @param valueStr String representation of number to parse
+     * @param iterations Number of parsing iterations to perform
+     * @return Sum of all parsed values for validation
+     */
     private static double testCustomParser2(String valueStr, int iterations) {
         byte[] bytes = valueStr.getBytes();
         double sum = 0;
@@ -88,6 +117,12 @@ public class ParseDouble {
         return sum;
     }
     
+    /**
+     * Performance test harness for Java's standard Double.parseDouble() method.
+     * @param valueStr String representation of number to parse
+     * @param iterations Number of parsing iterations to perform
+     * @return Sum of all parsed values for validation
+     */
     private static double testJavaParser(String valueStr, int iterations) {
         double sum = 0;
         

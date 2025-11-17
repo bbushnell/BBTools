@@ -33,6 +33,11 @@ import structures.ListNum;
  */
 public class TagAndMerge {
 
+	/**
+	 * Program entry point for barcode tagging and merging operations.
+	 * Creates a TagAndMerge instance, processes all input files, and handles timing.
+	 * @param args Command-line arguments specifying input files and options
+	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -47,6 +52,12 @@ public class TagAndMerge {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs a TagAndMerge instance and parses command-line arguments.
+	 * Initializes input file list, output settings, trimming options, and barcode processing.
+	 * Supports multiple input files, header shrinking, read trimming, and barcode remapping.
+	 * @param args Command-line arguments including input files, output path, and processing options
+	 */
 	public TagAndMerge(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -99,6 +110,12 @@ public class TagAndMerge {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, false);
 	}
 	
+	/**
+	 * Main processing method that handles all input files sequentially.
+	 * Creates output stream, processes each input file with barcode tagging,
+	 * writes collected barcodes to file if specified, and reports processing statistics.
+	 * @param t Timer for tracking total execution time
+	 */
 	void process(Timer t){
 
 		final ConcurrentReadOutputStream ros;
@@ -132,6 +149,14 @@ public class TagAndMerge {
 		outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
 	}
 	
+	/**
+	 * Processes a single input file by extracting its barcode and tagging all reads.
+	 * Parses barcode from filename, applies any remapping, creates input stream,
+	 * reads all sequences, and tags each read with the barcode before output.
+	 *
+	 * @param fname Input filename containing barcode information
+	 * @param ros Output stream for writing tagged reads
+	 */
 	void processInner(String fname, ConcurrentReadOutputStream ros) {
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
 		String tag=Barcode.parseBarcodeFromFname(fname);
@@ -184,6 +209,14 @@ public class TagAndMerge {
 		ReadWrite.closeStream(cris);
 	}
 	
+	/**
+	 * Processes a read pair by applying barcode tagging to both reads.
+	 * Updates processing statistics, optionally drops R2 reads, and applies
+	 * barcode tagging to both forward and reverse reads if present.
+	 *
+	 * @param r The forward read (R1)
+	 * @param tag Barcode string to append to read headers
+	 */
 	private void processPair(Read r, String tag) {
 		readsProcessed+=r.pairCount();
 		basesProcessed+=r.pairLength();
@@ -194,6 +227,14 @@ public class TagAndMerge {
 		basesOut+=r.pairLength();
 	}
 	
+	/**
+	 * Applies barcode tagging to a single read by modifying its header.
+	 * Optionally trims the read to specified length, then appends the barcode
+	 * to the read identifier using either full or shortened header format.
+	 *
+	 * @param r The read to process (may be null)
+	 * @param tag Barcode string to append to the read header
+	 */
 	private void processRead(Read r, String tag) {
 		if(r==null) {return;}
 		if(trimLen>=0 && trimLen<r.length()) {
@@ -220,14 +261,24 @@ public class TagAndMerge {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** List of input filenames to process for barcode tagging */
 	private ArrayList<String> in=new ArrayList<String>();
+	/** Output filename for merged and tagged reads */
 	private String out1=null;
+	/** Optional output file to write list of discovered barcodes */
 	private String barcodesOutFile=null;
+	/** Set of unique barcodes discovered from input filenames */
 	private LinkedHashSet<String> barcodes=new LinkedHashSet<String>();
 	
+	/** Length to trim reads to (-1 for no trimming) */
 	private int trimLen=-1;
+	/** Whether to discard R2 reads and output only R1 */
 	private boolean dropR2=false;
+	/** Whether to use shortened read headers to save space */
 	private boolean shrinkHeader=false;
+	/**
+	 * Character remapping array for transforming barcodes (pairs of old/new chars)
+	 */
 	private char[] remap=new char[] {'-', '+'};
 	
 	private final FileFormat ffout1;
@@ -241,6 +292,7 @@ public class TagAndMerge {
 	private long readsOut=0, basesOut=0;
 	private final ByteBuilder bb=new ByteBuilder();
 //	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
+	/** Line parser for extracting specific fields from Illumina read headers */
 	private final LineParserS4 lp=new LineParserS4(":::::: ");
 	
 	/*--------------------------------------------------------------*/

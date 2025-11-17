@@ -52,6 +52,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Program entry point for coverage analysis.
+	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		
@@ -73,6 +75,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Constructs CoveragePileupMT and parses command-line arguments.
+	 * Sets up input/output files, filtering parameters, and processing options.
+	 * @param args Command-line arguments array
+	 */
 	public CoveragePileupMT(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -358,6 +365,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		totalScaffolds=0;
 	}
 	
+	/** Initializes scaffolds list, hash table, and coverage tracking structures.
+	 * Sets up physical coverage mode if enabled and resets all counters. */
 	public void createDataStructures(){
 		refBases=0;
 		mappedBases=0;
@@ -398,6 +407,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		}
 	}
 	
+	/**
+	 * Creates a coverage array of specified length using configured array type.
+	 * @param len Length of the coverage array to create
+	 * @return New CoverageArray instance with specified length
+	 */
 	final CoverageArray makeCA(int len) {
 		CoverageArray ca=CoverageArray.makeArray(1, len, caType);
 		assert(ca.length()==len);
@@ -498,6 +512,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 //		return line;
 	}
 	
+	/**
+	 * Parses individual SAM header line and extracts relevant information.
+	 * Handles @SQ lines for scaffolds and @PG lines for program information.
+	 * @param line Header line as byte array
+	 */
 	void processHeaderLine(byte[] line) {
 		if(line==null || line.length<3) {return;}
 		final byte a=line[1], b=line[2];
@@ -549,6 +568,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		}
 	}
 	
+	/** Processes reference FASTA file to extract scaffold information and GC content.
+	 * Validates scaffold lengths against SAM header and calculates base composition. */
 	public void processReference(){
 		if(reference==null){return;}
 
@@ -624,6 +645,14 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	}
 	
 	
+	/**
+	 * Processes ORF FASTA file and writes coverage statistics for each ORF.
+	 * Extracts ORF coordinates from headers and calculates depth metrics.
+	 *
+	 * @param fname_in Input ORF FASTA filename
+	 * @param fname_out Output statistics filename
+	 * @param map Mapping from scaffold names to Scaffold objects
+	 */
 	public void processOrfsFasta(String fname_in, String fname_out, HashMap<String, Scaffold> map){
 		TextFile tf=new TextFile(fname_in, false);
 		assert(!fname_in.equalsIgnoreCase(fname_out));
@@ -712,6 +741,12 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Trims read based on quality scores and border regions.
+	 * Applies quality trimming and/or fixed border trimming to mapped reads.
+	 * @param sl SamLine to trim
+	 * @return Number of bases trimmed from the read
+	 */
 	private int trim(SamLine sl){
 		assert(border>0 || (trimq>=0 && (qtrimLeft || qtrimRight)));
 		Read r=null;
@@ -757,6 +792,12 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Writes all output files including statistics, histograms, and coverage data.
+	 * Handles strand-specific output by generating separate files when needed.
+	 * @param hist0 Coverage histogram for plus strand or combined strands
+	 * @param hist1 Coverage histogram for minus strand (if strand-specific)
+	 */
 	public void printOutput(LongList hist0, LongList hist1){
 		Timer t=new Timer();
 		
@@ -886,6 +927,12 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		if(verboseTime) {t.stopAndStart("Calc StdDev:");}
 	}
 	
+	/**
+	 * Writes per-scaffold coverage statistics to specified file.
+	 * Includes depth, GC content, median coverage, and standard deviation.
+	 * @param fname Output filename for statistics
+	 * @param strand Strand to analyze (0=plus, 1=minus)
+	 */
 	public void writeStats(String fname, int strand){
 //		outstream.println("Writing stats for "+fname+", "+strand);
 		final ByteStreamWriter tsw=(fname==null ? null : new ByteStreamWriter(fname, overwrite, false, true));
@@ -1416,6 +1463,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	
 	class LoadThread extends Thread {
 		
+		/** Constructs worker thread with specified thread ID.
+		 * @param tid_ Thread identifier for this worker */
 		LoadThread(int tid_){
 			tid=tid_;
 		}
@@ -1430,6 +1479,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			}
 		}
 		
+		/**
+		 * Processes SAM/BAM file using SamLineStreamer for efficient parsing.
+		 * Handles header processing and delegates read processing to processSamLine.
+		 * @param fname Input filename to process
+		 */
 		private void processViaStreamer(String fname){
 			final boolean processHeader=false;
 //			assert(false) : processHeader+", "+fname;//Should be 
@@ -1457,10 +1511,18 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			}
 		}
 		
+		/** Processes collection of header lines from SAM file.
+		 * @param lines List of header lines as byte arrays */
 		private void processHeader(ArrayList<byte[]> lines) {
 			for(byte[] line : lines) {processHeaderLine(line);}
 		}
 		
+		/**
+		 * Processes individual SAM alignment record for coverage calculation.
+		 * Applies quality filters, trimming, and delegates to coverage tracking methods.
+		 * @param sl SAM line to process
+		 * @return true if read contributed to coverage, false if filtered out
+		 */
 		public boolean processSamLine(SamLine sl){
 			readsProcessed++;
 			basesProcessed+=sl.length();
@@ -1648,6 +1710,16 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			return true;
 		}
 		
+		/**
+		 * Adds coverage to CoverageArray while skipping deletion positions.
+		 * Parses match string to increment coverage only at aligned bases.
+		 *
+		 * @param start Alignment start position
+		 * @param stop Alignment stop position
+		 * @param match Match string with alignment operations
+		 * @param ca CoverageArray to update
+		 * @return Number of bases that received coverage
+		 */
 		int addCoverageIgnoringDeletions(int start, int stop, byte[] match, CoverageArray ca) {
 			int basehits=0;
 			for(int rpos=start, mpos=0; mpos<match.length && rpos<=stop; mpos++){
@@ -1667,6 +1739,16 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			return basehits;
 		}
 		
+		/**
+		 * Adds coverage to BitSet while skipping deletion positions.
+		 * Parses match string to set bits only at aligned bases.
+		 *
+		 * @param start Alignment start position
+		 * @param stop Alignment stop position
+		 * @param match Match string with alignment operations
+		 * @param bs BitSet to update
+		 * @return Number of bases that received coverage
+		 */
 		int addCoverageIgnoringDeletions(int start, int stop, byte[] match, BitSet bs) {
 			int basehits=0;
 			for(int rpos=start, mpos=0; mpos<match.length && rpos<=stop; mpos++){
@@ -1701,6 +1783,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		
 	}
 	
+	/** Gets next filename from processing queue, blocking until available.
+	 * @return Next filename to process or poison signal */
 	private String getNext() {
 		String next=null;
 		while(next==null) {
@@ -1714,6 +1798,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		return next;
 	}
 	
+	/** Adds filename to processing queue, blocking if queue is full.
+	 * @param s Filename to add to queue */
 	private void addToQueue(String s) {
 		while(s!=null) {
 			try {
@@ -1748,15 +1834,20 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		return false;
 	}
 	
+	/** Blocking queue for distributing work among threads */
 	private final ArrayBlockingQueue<String> queue=new ArrayBlockingQueue(8);
+	/** Poison signal for terminating worker threads */
 	private final String POISON="POISON_NOT_A_FILE";
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to use atomic operations for thread-safe coverage arrays */
 	private boolean atomic=false;
+	/** Whether to pre-allocate coverage data structures */
 	private boolean prealloc=false;
+	/** Type of coverage array to instantiate based on atomic and bits32 settings */
 	private Class<? extends CoverageArray> caType;
 	
 	/** The list of all scaffolds */
@@ -1772,15 +1863,18 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	//Inputs
 	/** Primary input files (typically sam) */
 	public ArrayList<String> inputFiles=new ArrayList<String>();
+	/** Number of processing streams/threads to use */
 	public int streams=-1;
 	
 	/** Optional, for calculating GC */
 	public String reference=null;
+	/** Optional ORF FASTA file for ORF-specific coverage analysis */
 	public String orffasta=null;
 
 	//Outputs
 	/** Coverage statistics, one line per scaffold */
 	public String covstats=null;
+	/** Output file for ORF coverage statistics */
 	public String outorf=null;
 	/** Coverage histogram, one line per depth and one point per base */
 	public String histogram=null;
@@ -1800,21 +1894,33 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/** Typically indicates that a header line was encountered in an unexpected place, e.g. with concatenated sam files. */
 	private boolean error=false;
 	
+	/** Flag indicating warnings have been issued */
 	private boolean warned=false;
 	private final boolean EA=Shared.EA();
 	
 	/** Total length of reference */
 	public long refBases=0;
+	/** Total number of k-mers in reference sequences */
 	public long refKmers=0;
+	/** Total bases from mapped reads including soft-clipped bases */
 	public long mappedBases=0;
+	/** Total bases from mapped reads excluding soft-clipped bases */
 	public long mappedNonClippedBases=0;
+	/** Total reference bases covered by reads including deleted positions */
 	public long mappedBasesWithDels=0;
+	/** Total number of successfully mapped reads */
 	public long mappedReads=0;
+	/** Total number of reads in proper pairs */
 	public long properPairs=0;
+	/** Total number of reads processed from input files */
 	public long readsProcessed=0;
+	/** Total bases processed from all reads */
 	public long basesProcessed=0;
+	/** Total k-mers processed from all reads */
 	public long kmersProcessed=0;
+	/** Total k-mers from successfully mapped reads */
 	public long mappedKmers=0;
+	/** Total k-mers with quality scores indicating correctness */
 	public double correctKmers=0;
 	public long totalCoveredBases1=0;
 	public long totalCoveredBases2=0;
@@ -1822,36 +1928,54 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	public long scaffoldsWithCoverage2=0;
 	public long totalScaffolds=0;
 
+	/** K-mer length for quality assessment */
 	public int k=0;
 	
 	//Don't reset these variables when clearing.
+	/** Maximum number of reads to process (-1 for unlimited) */
 	public long maxReads=-1;
+	/** Initial capacity for scaffold data structures */
 	public int initialScaffolds=4096;
+	/** Size of bins for binned coverage output in base pairs */
 	public int binsize=1000;
+	/** Whether to use 32-bit coverage arrays instead of 16-bit */
 	public boolean bits32=false;
+	/** Minimum mapping quality to include reads */
 	public int minMapq=0;
+	/** Number of threads for SAM line streaming */
 	public int streamerThreads=2;
+	/** Minimum depth required to consider a base as covered */
 	public int minDepthToBeCovered=1;
 	
+	/** Whether to trim low-quality bases from left end of reads */
 	private boolean qtrimLeft=false;
+	/** Whether to trim low-quality bases from right end of reads */
 	private boolean qtrimRight=false;
+	/** Quality score threshold for trimming (Phred scale) */
 	private float trimq=-1;
+	/** Error probability corresponding to trimq quality threshold */
 	private final float trimE;
+	/** Number of bases to trim from scaffold ends */
 	private int border=0;
 	
 	/** Don't print coverage info for scaffolds shorter than this */
 	public int minscaf=0;
 	
+	/** Table for tracking read pairs in physical coverage mode */
 	public HashMap<String, SamLine> pairTable=new HashMap<String, SamLine>();
 	
+	/** Output stream for status messages and statistics */
 	public PrintStream outstream=System.err;
 	
+	/** Overall error state flag */
 	private boolean errorState=false;
 	
+	/** Tab-delimited line parser for header processing */
 	private final LineParser1 lp=new LineParser1('\t');
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/

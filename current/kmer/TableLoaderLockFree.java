@@ -79,10 +79,27 @@ public class TableLoaderLockFree {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Constructs a TableLoaderLockFree with default parameters.
+	 * @param tables_ Array of k-mer tables to load into
+	 * @param k_ K-mer length
+	 */
 	public TableLoaderLockFree(AbstractKmerTable[] tables_, int k_){
 		this(tables_, k_, 0, 0, 0, 0, true, false);
 	}
 	
+	/**
+	 * Main constructor with full parameter set.
+	 *
+	 * @param tables_ Array of k-mer tables to load into
+	 * @param k_ K-mer length for standard processing
+	 * @param mink_ Minimum k-mer length for short k-mer processing
+	 * @param speed_ Speed setting (0-16); fraction of k-mers to skip
+	 * @param hdist_ Maximum Hamming distance for mutations
+	 * @param edist_ Maximum edit distance (including indels) for mutations
+	 * @param rcomp_ Whether to process reverse complements
+	 * @param maskMiddle_ Whether to mask middle base in k-mers as wildcard
+	 */
 	public TableLoaderLockFree(AbstractKmerTable[] tables_, int k_, int mink_, int speed_, int hdist_, int edist_, boolean rcomp_, boolean maskMiddle_){
 		tables=tables_;
 		k=k_;
@@ -110,6 +127,16 @@ public class TableLoaderLockFree {
 //		return AbstractKmerTable.preallocate(WAYS, tableType, schedule, coreMask);
 //	}
 	
+	/**
+	 * Creates an array of k-mer tables with automatic size scheduling.
+	 *
+	 * @param tableType Type of table implementation to create
+	 * @param bytesPerKmer Memory budget per k-mer
+	 * @param coreMask Core affinity mask for memory allocation
+	 * @param prealloc Whether to preallocate table memory
+	 * @param memRatio Memory usage ratio for sizing
+	 * @return Array of initialized k-mer tables
+	 */
 	public static AbstractKmerTable[] makeTables(int tableType, int bytesPerKmer, long coreMask, 
 			boolean prealloc, double memRatio){
 		ScheduleMaker scheduleMaker=new ScheduleMaker(WAYS, bytesPerKmer, prealloc, memRatio);
@@ -118,8 +145,20 @@ public class TableLoaderLockFree {
 	}
 	
 	ScheduleMaker scheduleMaker=new ScheduleMaker(WAYS, 12, false, 0.8);
+	/** Default size schedule for k-mer tables */
 	int[] schedule=scheduleMaker.makeSchedule();
 	
+	/**
+	 * Main entry point for processing reference data and literal sequences.
+	 * Initializes data structures and spawns worker threads to load k-mers.
+	 *
+	 * @param ref Array of reference file paths to process
+	 * @param literal Array of literal sequences to process as references
+	 * @param keepNames Whether to preserve scaffold and reference names
+	 * @param useRefNames Whether to use reference file names for scaffolds
+	 * @param ecc_ Whether to perform error correction via overlap detection
+	 * @return Total number of k-mers successfully loaded into tables
+	 */
 	public long processData(String[] ref, String[] literal, boolean keepNames, boolean useRefNames, boolean ecc_){
 		
 		scaffoldNames=null;
@@ -145,8 +184,16 @@ public class TableLoaderLockFree {
 		return spawnLoadThreads(ref, literal);
 	}
 	
+	/** Sets uniform reference skip value for both min and max.
+	 * @param x Number of k-mers to skip between stored k-mers */
 	public void setRefSkip(int x){setRefSkip(x, x);}
 	
+	/**
+	 * Sets variable reference skip range based on sequence length.
+	 * Longer sequences use higher skip values for memory efficiency.
+	 * @param min Minimum number of k-mers to skip
+	 * @param max Maximum number of k-mers to skip
+	 */
 	public void setRefSkip(int min, int max){
 		max=Tools.max(min, max);
 		if(min==max){
@@ -697,10 +744,20 @@ public class TableLoaderLockFree {
 		return (value&middleMask)|lengthMask;
 	}
 	
+	/**
+	 * Determines if k-mer passes speed filter for storage.
+	 * @param key K-mer value to test
+	 * @return true if k-mer should be stored based on speed setting
+	 */
 	final boolean passesSpeed(long key){
 		return speed<1 || ((key&Long.MAX_VALUE)%17)>=speed;
 	}
 	
+	/**
+	 * Determines if k-mer fails speed filter and should be skipped.
+	 * @param key K-mer value to test
+	 * @return true if k-mer should be skipped based on speed setting
+	 */
 	final boolean failsSpeed(long key){
 		return speed>0 && ((key&Long.MAX_VALUE)%17)<speed;
 	}
@@ -746,16 +803,21 @@ public class TableLoaderLockFree {
 	/** Never skip more than this many consecutive kmers when hashing reference. */
 	private int maxRefSkip=0;
 	
+	/** Whether skip rate varies based on sequence length */
 	private boolean variableRefSkip=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          Statistics          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Total number of reference reads processed */
 	long refReads=0;
+	/** Total number of reference bases processed */
 	long refBases=0;
+	/** Total number of reference k-mers encountered */
 	long refKmers=0;
 	
+	/** Total number of k-mers successfully stored in tables */
 	long storedKmers=0;
 	
 	/*--------------------------------------------------------------*/

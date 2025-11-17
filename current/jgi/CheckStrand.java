@@ -119,6 +119,12 @@ public class CheckStrand {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
+	/**
+	 * Main processing method that executes strandedness analysis.
+	 * Creates canonical and forward sketches from reads, calculates strandedness
+	 * metrics, and optionally compares against reference transcriptome.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		if(verbose){System.err.println("Setting sketch params.");}
 		setSketchStatics();
@@ -153,6 +159,8 @@ public class CheckStrand {
 		assert(!errorState) : "An error was encountered.";
 	}
 	
+	/** Configures static sketch parameters for k-mer analysis.
+	 * Sets k-mer length to 32, disables autosize, and configures sampling. */
 	private void setSketchStatics() {
 		SketchObject.AUTOSIZE=false;
 		SketchObject.k=32;
@@ -493,6 +501,12 @@ public class CheckStrand {
 				strandedness, depth, matches, nonUniqueFraction};
 	}
 	
+	/**
+	 * Calculate strandedness from plus and minus strand counts.
+	 * @param plus Plus strand count
+	 * @param minus Minus strand count
+	 * @return Strandedness value between 0.0 and 1.0
+	 */
 	static float strandedness(long plus, long minus) {
 		long sum=plus+minus;
 		long maxPossibleMinor=sum/2;
@@ -502,6 +516,15 @@ public class CheckStrand {
 		return strandedness(plus, minus, maxPossibleMinor, expectedMinor);
 	}
 	
+	/**
+	 * Calculate strandedness from plus and minus strand counts with pre-computed values.
+	 *
+	 * @param plus Plus strand count
+	 * @param minus Minus strand count
+	 * @param maxPossibleMinor Maximum possible minor allele count
+	 * @param expectedMinor Expected minor allele count
+	 * @return Strandedness value between 0.0 and 1.0
+	 */
 	static float strandedness(long plus, long minus, long maxPossibleMinor, float expectedMinor) {
 		long sum=plus+minus;
 		long min=Math.min(plus, minus);
@@ -887,15 +910,23 @@ public class CheckStrand {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Size of the sketch for k-mer sampling */
 	private int sketchSize=20000;
 	
+	/** Input file path */
 	private String in1=null;
+	/** Output file path */
 	private String out1="stdout.txt";
+	/** Reference fasta file path */
 	String fna=null;
+	/** GFF annotation file path */
 	String gff=null;
+	/** Prokaryotic gene model file path */
 	String pgmFile=null;
 	
+	/** Input file format */
 	private final FileFormat ffin1;
+	/** Output file format */
 	private final FileFormat ffout1;
 	
 	/** Features to pull from gff files */
@@ -903,16 +934,23 @@ public class CheckStrand {
 	
 	/*--------------------------------------------------------------*/
 
+	/** Whether to use normalized strandedness calculation */
 	private boolean normalize=false;
+	/** Maximum number of reads to process */
 	private long maxReads=-1;
+	/** Fraction of reads to sample for analysis */
 	private float samplerate=1;
+	/** Random seed for sampling */
 	private long sampleseed=17;
+	/** Whether an error has occurred during processing */
 	private boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Pre-computed expected minor allele counts for depths up to 10000 */
 	static final double[] expectedMinorAlleleCount=
 			makeExpectedMinorAlleleArray(10000, 100000);
+	/** Pre-computed expected minor allele frequencies derived from counts */
 	static final double[] expectedMinorAlleleFreq=
 			makeExpectedMinorAlleleFreq(expectedMinorAlleleCount);
 	
@@ -920,6 +958,7 @@ public class CheckStrand {
 	
 	/** Output screen messages here */
 	private java.io.PrintStream outstream=System.err;
+	/** Whether to print verbose output messages */
 	public static boolean verbose=false;
 	
 }

@@ -10,15 +10,28 @@ import java.util.List;
 
 import dna.Data;
 
+/**
+ * Feature vector generator for variant quality prediction using Donovan's neural network model.
+ * Implements scikit-learn compatible quantile transformation and 16-feature preprocessing
+ * pipeline for variant calling accuracy estimation.
+ * @author Brian Bushnell
+ */
 public class VectorDonovan {
 	/**
 	 * Java implementation of sklearn's QuantileTransformer with uniform output distribution.
 	 * Replicates the exact transformation used in Python for neural network feature preprocessing.
 	 */
 	public static class QuantileTransformer {
+		/** Precomputed quantile values for transformation */
 		private final double[] quantiles;
+		/** Name of the feature this transformer handles */
 		private final String featureName;
 
+		/**
+		 * Private constructor for creating transformer instances.
+		 * @param quantiles Array of quantile values for transformation
+		 * @param featureName Name of the feature being transformed
+		 */
 		private QuantileTransformer(double[] quantiles, String featureName) {
 			this.quantiles = quantiles.clone();
 			this.featureName = featureName;
@@ -216,6 +229,7 @@ public class VectorDonovan {
 	 * Cached transformer instances for performance
 	 */
 	private static final QuantileTransformer TOTAL_DEPTH_TRANSFORMER = QuantileTransformer.forTotalDepth();
+	/** Cached transformer for End_Distance_Average feature */
 	private static final QuantileTransformer END_DISTANCE_TRANSFORMER = QuantileTransformer.forEndDistanceAverage();
 
 	/**

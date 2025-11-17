@@ -37,6 +37,11 @@ import tracker.ReadStats;
  */
 public class KmerCoverage {
 
+	/**
+	 * Program entry point for k-mer coverage analysis.
+	 * Parses command-line arguments, builds k-mer count arrays, and processes reads.
+	 * @param args Command-line arguments including input files and parameters
+	 */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -393,6 +398,8 @@ public class KmerCoverage {
 	}
 	
 	
+	/** Prints depth topology statistics showing distribution of coverage patterns.
+	 * Reports percentages of spikes, peaks, valleys, slopes, and flat regions. */
 	public static void printTopology(){
 		long total=peaks.get()+spikes.get()+flats.get()+valleys.get()+slopes.get();
 		double mult=100.0/total;
@@ -417,6 +424,22 @@ public class KmerCoverage {
 	}
 
 
+	/**
+	 * Processes paired-end reads and calculates k-mer coverage.
+	 * Creates input/output streams, calculates coverage for each read, and generates output.
+	 *
+	 * @param reads1 Primary input file path
+	 * @param reads2 Secondary input file path (may be null)
+	 * @param kca K-mer count array for lookups
+	 * @param k K-mer length
+	 * @param maxReads Maximum number of reads to process
+	 * @param output Output file path (may be null)
+	 * @param ordered Whether to maintain read order
+	 * @param overwrite Whether to overwrite existing output files
+	 * @param histFile Path for histogram output (may be null)
+	 * @param estUnique Estimated number of unique k-mers
+	 * @return Total number of bases processed
+	 */
 	public static long count(String reads1, String reads2, KCountArray kca, int k, long maxReads,
 			String output, boolean ordered, boolean overwrite, String histFile, long estUnique) {
 		final ConcurrentReadInputStream cris;
@@ -473,6 +496,22 @@ public class KmerCoverage {
 	}
 	
 	
+	/**
+	 * Processes multiple input file lists and calculates k-mer coverage.
+	 * Handles batched file processing with optional paired-end support.
+	 *
+	 * @param list1 Array of primary input file paths
+	 * @param list2 Array of secondary input file paths (may be null)
+	 * @param kca K-mer count array for lookups
+	 * @param k K-mer length
+	 * @param maxReads Maximum number of reads to process per file
+	 * @param output Output file path pattern
+	 * @param ordered Whether to maintain read order
+	 * @param overwrite Whether to overwrite existing output files
+	 * @param histFile Path for histogram output (may be null)
+	 * @param estUnique Estimated number of unique k-mers
+	 * @return Total number of bases processed across all files
+	 */
 	public static long count(String[] list1, String[] list2, KCountArray kca, int k, long maxReads,
 			String output, boolean ordered, boolean overwrite, String histFile, long estUnique) {
 		
@@ -548,6 +587,20 @@ public class KmerCoverage {
 	
 
 	
+	/**
+	 * Calculates k-mer coverage using multiple processing threads.
+	 * Creates worker threads to process reads concurrently and aggregates results.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param kca K-mer count array for lookups
+	 * @param k K-mer length
+	 * @param maxReads Maximum number of reads to process
+	 * @param ros Output stream for writing results (may be null)
+	 * @param histFile Path for histogram output (may be null)
+	 * @param overwrite Whether to overwrite existing histogram file
+	 * @param estUnique Estimated number of unique k-mers
+	 * @return Total number of bases processed
+	 */
 	public static long calcCoverage(ConcurrentReadInputStream cris, KCountArray kca, int k, long maxReads, ConcurrentReadOutputStream ros,
 			String histFile, boolean overwrite, long estUnique) {
 		Timer tdetect=new Timer();
@@ -722,6 +775,15 @@ public class KmerCoverage {
 			}
 		}
 	}
+	/**
+	 * Removes coverage spikes using precise k-mer count verification.
+	 * Re-reads suspicious k-mer counts from the count array to verify actual values.
+	 *
+	 * @param array Coverage array to modify
+	 * @param kmers Array of k-mer values corresponding to coverage positions
+	 * @param kca K-mer count array for precise lookups
+	 * @param k K-mer length
+	 */
 	private static void fixSpikes(int[] array, long[] kmers, KCountArray kca, int k){
 		if(array.length<3){return;}
 		if(array[1]-array[0]>1){
@@ -769,6 +831,12 @@ public class KmerCoverage {
 	}
 	
 	
+	/**
+	 * Analyzes coverage topology and updates global counters.
+	 * Classifies each position as peak, valley, spike, flat, or slope.
+	 * @param array Coverage array to analyze
+	 * @param width Analysis window width (currently unused)
+	 */
 	private static void analyzeSpikes(int[] array, int width){
 		if(array.length<3){return;}
 		int peakcount=0, valleycount=0, spikecount=0, flatcount=0, slopecount=0;
@@ -796,6 +864,15 @@ public class KmerCoverage {
 		if(slopecount>0){slopes.addAndGet(slopecount);}
 	}
 	
+	/**
+	 * Generates k-mer coverage array for a single read.
+	 * Slides k-mer window across read sequence and looks up counts in the count array.
+	 *
+	 * @param r Read to analyze
+	 * @param kca K-mer count array for lookups
+	 * @param k K-mer length
+	 * @return Array of k-mer coverage values, or array with single zero if read too short
+	 */
 	public static int[] generateCoverage(Read r, KCountArray kca, int k) {
 		if(k>31){return generateCoverageLong(r, kca, k);}
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
@@ -861,6 +938,15 @@ public class KmerCoverage {
 		return out;
 	}
 	
+	/**
+	 * Generates k-mer coverage for reads with k > 31 using long arithmetic.
+	 * Uses bit rotation and XOR operations for efficient k-mer computation.
+	 *
+	 * @param r Read to analyze
+	 * @param kca K-mer count array for lookups
+	 * @param k K-mer length (must be > 31)
+	 * @return Array of k-mer coverage values
+	 */
 	public static int[] generateCoverageLong(Read r, KCountArray kca, int k) {
 		if(r==null || r.bases==null || r.length()<k){return new int[] {0};}
 		
@@ -932,6 +1018,14 @@ public class KmerCoverage {
 	
 	private static class ProcessThread extends Thread{
 		
+		/**
+		 * Constructs a processing thread for k-mer coverage calculation.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param kca_ K-mer count array for lookups
+		 * @param k_ K-mer length
+		 * @param ros_ Output stream for writing results (may be null)
+		 */
 		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, int k_, ConcurrentReadOutputStream ros_){
 			cris=cris_;
 			kca=kca_;
@@ -944,6 +1038,8 @@ public class KmerCoverage {
 			countInThread();
 		}
 		
+		/** Processes reads in a worker thread.
+		 * Reads sequence data, calculates coverage, applies filters, and writes output. */
 		void countInThread() {
 			
 			ListNum<Read> ln=cris.nextList();
@@ -1008,6 +1104,12 @@ public class KmerCoverage {
 			if(verbose){System.err.println("Returned list");}
 		}
 		
+		/**
+		 * Calculates coverage for a read and updates the histogram.
+		 * Returns null for reads that are too short to analyze.
+		 * @param r Read to analyze
+		 * @return Coverage array or null if read too short
+		 */
 		private int[] getCoverageAndIncrementHistogram(Read r){
 			if(r.bases==null || r.length()<k){
 				return null;
@@ -1026,6 +1128,12 @@ public class KmerCoverage {
 			}
 		}
 		
+		/**
+		 * Converts a read to FASTA format with coverage annotation.
+		 * Includes coverage values and statistics in header or as separate lines.
+		 * @param r Read to convert
+		 * @return FASTA-formatted string with coverage data
+		 */
 		private String toFastaString(Read r){
 			if(r.bases==null || r.length()<k){
 				if(MIN_MEDIAN>0 || MIN_AVERAGE>0){r.setDiscarded(true);}
@@ -1101,6 +1209,12 @@ public class KmerCoverage {
 			}
 		}
 		
+		/**
+		 * Converts a read to FASTQ format with coverage annotation.
+		 * Appends coverage values and statistics after the quality line.
+		 * @param r Read to convert
+		 * @return ByteBuilder containing FASTQ-formatted data with coverage
+		 */
 		private ByteBuilder toFastqString(Read r){
 			ByteBuilder sb=r.toFastq();
 			if(r.bases==null || r.length()<k){
@@ -1143,49 +1257,84 @@ public class KmerCoverage {
 			}
 		}
 		
+		/** Input stream for reading sequence data */
 		private final ConcurrentReadInputStream cris;
+		/** K-mer count array for coverage lookups */
 		private final KCountArray kca;
+		/** K-mer length for analysis */
 		private final int k;
+		/** Output stream for writing processed reads */
 		private final ConcurrentReadOutputStream ros;
+		/** Histogram array for tracking coverage depth distribution */
 		public final long[] hist=new long[HIST_LEN];//(USE_HISTOGRAM ? new long[HIST_LEN] : null);
 		
+		/** Running count of total bases processed by this thread */
 		private long totalBases=0;
+		/** Running count of total reads processed by this thread */
 		private long totalReads=0;
 		
 	}
 	
+	/** Output stream for progress messages and results */
 	public static PrintStream outstream=System.err;
 
 	
+	/** Length of histogram arrays for coverage tracking */
 	public static int HIST_LEN=1<<14;
+	/** Maximum histogram length to print in output */
 	public static long HIST_LEN_PRINT=HIST_LEN;
+	/** Whether to generate and output histogram data */
 	public static boolean USE_HISTOGRAM=false;
+	/** Whether to include zero-coverage entries in histogram output */
 	public static boolean PRINT_ZERO_COVERAGE=false;
+	/** Global histogram array aggregated from all processing threads */
 	public static long[] histogram_total;
 	
+	/** Number of processing threads to use */
 	private static int THREADS=8;
+	/** Whether to print verbose debugging output */
 	private static boolean verbose=false;
+	/** Whether to include coverage data in sequence headers */
 	private static boolean USE_HEADER=false;
 
+	/** Whether to add '>' character to FASTA headers */
 	private static boolean ADD_CARROT=false;
+	/** Whether to attach coverage data to output sequences */
 	private static boolean OUTPUT_ATTACHMENT=true;
+	/** Minimum median coverage required to retain a read */
 	private static int MIN_MEDIAN=0;
+	/** Minimum average coverage required to retain a read */
 	private static int MIN_AVERAGE=0;
 
+	/** Sampling rate for k-mer analysis (1 = analyze all k-mers) */
 	public static int kmersamplerate=1;
+	/** Sampling rate for read analysis (1 = analyze all reads) */
 	public static int readsamplerate=1;
+	/** Whether to disable sampling for output generation */
 	public static boolean DONT_SAMPLE_OUTPUT=false;
+	/** Whether to use canonical k-mer representation (forward/reverse) */
 	public static boolean CANONICAL=true;
+	/** Whether to keep zero-coverage k-mers in bin 0 of histogram */
 	public static boolean ZERO_BIN=false;
+	/** Whether to apply spike detection and correction to coverage profiles */
 	public static boolean FIX_SPIKES=true;
+	/** Whether to maintain input order in output files */
 	public static boolean ordered=true;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files */
 	public static boolean append=false;
+	/** Whether to use a prefilter bloom filter for k-mer counting */
 	public static boolean prefilter=false;
 
+	/** Thread-safe counter for coverage peaks in topology analysis */
 	public static AtomicLong peaks=new AtomicLong();
+	/** Thread-safe counter for coverage spikes in topology analysis */
 	public static AtomicLong spikes=new AtomicLong();
+	/** Thread-safe counter for flat coverage regions in topology analysis */
 	public static AtomicLong flats=new AtomicLong();
+	/** Thread-safe counter for coverage valleys in topology analysis */
 	public static AtomicLong valleys=new AtomicLong();
+	/** Thread-safe counter for coverage slopes in topology analysis */
 	public static AtomicLong slopes=new AtomicLong();
 }

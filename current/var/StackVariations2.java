@@ -12,8 +12,22 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
+/**
+ * Filters and processes genomic variations by chromosome for quality control.
+ * Merges duplicate variants, applies filtering criteria based on read quality
+ * and strand coverage, and outputs high-confidence variant calls.
+ * Supports multi-threaded processing across chromosome ranges.
+ *
+ * @author Brian Bushnell
+ */
 public class StackVariations2 {
 	
+	/**
+	 * Program entry point for variant filtering and processing.
+	 * Parses command-line arguments, processes variants by chromosome range,
+	 * and outputs filtering statistics including SNPs, indels, and quality metrics.
+	 * @param args Command-line arguments including input/output patterns and parameters
+	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -107,6 +121,17 @@ public class StackVariations2 {
 		System.out.println("Time: \t"+t);
 	}
 	
+	/**
+	 * Executes multi-threaded variant processing across chromosome range.
+	 * Creates worker threads for each chromosome and aggregates results including
+	 * variant counts, quality scores, and filtering statistics.
+	 *
+	 * @param inPattern Input file pattern with # placeholder for chromosome number
+	 * @param outPattern Output file pattern with # placeholder for chromosome number
+	 * @param minChrom Starting chromosome number (inclusive)
+	 * @param maxChrom Ending chromosome number (inclusive)
+	 * @param filter Whether to apply quality filters to variants
+	 */
 	public static final void runThreaded(String inPattern, String outPattern, int minChrom, int maxChrom, boolean filter){
 		ArrayList<SVThread> svts=new ArrayList<SVThread>();
 		for(int i=minChrom; i<=maxChrom; i++){
@@ -143,6 +168,15 @@ public class StackVariations2 {
 	}
 	
 	
+	/**
+	 * Applies strict filtering criteria specifically for SNP variants.
+	 * Uses tiered thresholds based on strand coverage: requires higher quality
+	 * for variants with lower strand support. Evaluates read quality, variant
+	 * quality, error rates, and positional constraints.
+	 *
+	 * @param v The SNP variant to evaluate
+	 * @return true if the variant passes all filtering criteria
+	 */
 	public static boolean passesFilterSNP(Varlet v){
 		
 
@@ -229,6 +263,14 @@ public class StackVariations2 {
 		return true;
 	}
 	
+	/**
+	 * Applies filtering criteria for non-SNP variants (indels, substitutions).
+	 * Uses slightly relaxed quality thresholds compared to SNP filtering
+	 * while maintaining strand coverage and positional distance requirements.
+	 *
+	 * @param v The variant to evaluate (indel, substitution, etc.)
+	 * @return true if the variant passes all filtering criteria
+	 */
 	public static boolean passesFilterOther(Varlet v){
 		
 		
@@ -291,6 +333,15 @@ public class StackVariations2 {
 	}
 	
 	
+	/**
+	 * Merges all equivalent variants from a sorted list into consolidated calls.
+	 * Groups variants by genomic position and variant type, combines read
+	 * evidence, and applies minimum coverage thresholds to retain only
+	 * well-supported variants.
+	 *
+	 * @param vars Sorted list of variants to merge
+	 * @return List of merged high-confidence variants, or null if no variants pass filters
+	 */
 	public static ArrayList<Varlet> mergeAll(ArrayList<Varlet> vars){
 		if(vars==null || vars.size()==0){return null;}
 		ArrayList<Varlet> out=new ArrayList<Varlet>(8+vars.size()/16);
@@ -351,6 +402,15 @@ public class StackVariations2 {
 	}
 	
 	
+	/**
+	 * Combines multiple identical variants into a single high-confidence call.
+	 * Aggregates read counts, quality scores, and strand information while
+	 * tracking unique read positions to prevent double-counting evidence.
+	 * Calculates composite quality metrics from all supporting reads.
+	 *
+	 * @param vars List of identical variants to merge
+	 * @return Single merged variant with combined evidence and calculated quality scores
+	 */
 	public static Varlet mergeEqualVarlets(ArrayList<Varlet> vars){
 		
 //		System.err.println("Merging "+vars.size()+" vars.");
@@ -487,6 +547,11 @@ public class StackVariations2 {
 	}
 	
 	
+	/**
+	 * Worker thread for processing variants from a single chromosome.
+	 * Reads variant blocks, merges duplicates, applies filters, and writes
+	 * output while tracking detailed statistics for later aggregation.
+	 */
 	private static class SVThread implements Runnable {
 		
 		public SVThread(String fname1_, String fname2_, final int chrom_, boolean filter_){
@@ -566,6 +631,15 @@ public class StackVariations2 {
 		
 		
 		
+		/**
+		 * Memory-efficient variant merging that processes and outputs variants
+		 * sequentially to minimize memory usage. Groups identical variants and
+		 * merges them before applying filters and writing to output.
+		 *
+		 * @param vars List of variants to merge and filter
+		 * @param tsw Output stream for writing filtered variants
+		 * @return Number of variants processed and written to output
+		 */
 		private final int mergeAll2(ArrayList<Varlet> vars, TextStreamWriter tsw){
 			if(vars==null || vars.size()==0){return 0;}
 			
@@ -611,6 +685,15 @@ public class StackVariations2 {
 		}
 		
 		
+		/**
+		 * Processes a single merged variant by applying minimum coverage requirements
+		 * and quality filters before writing to output stream.
+		 * Updates thread-local statistics for later aggregation.
+		 *
+		 * @param v The merged variant to process
+		 * @param tsw Output stream for writing the variant
+		 * @return true if the variant was written to output, false if filtered out
+		 */
 		private final boolean processMergedVar(Varlet v, TextStreamWriter tsw){
 			
 			if(v==null){return false;}
@@ -643,6 +726,14 @@ public class StackVariations2 {
 		}
 		
 		
+		/**
+		 * Applies basic quality filters to determine if a variant should be kept.
+		 * Checks variant type, coverage, quality scores, and error rates.
+		 * Updates variant type-specific counters and length statistics.
+		 *
+		 * @param v The variant to filter
+		 * @return true if the variant passes basic filters
+		 */
 		private final boolean filterLight(Varlet v){
 			int dropped=0;
 
@@ -697,6 +788,14 @@ public class StackVariations2 {
 			return passes;
 		}
 		
+		/**
+		 * Applies relaxed filtering criteria used in light filtering mode.
+		 * Uses tiered quality requirements based on strand coverage with
+		 * lower thresholds than strict mode while maintaining core quality standards.
+		 *
+		 * @param v The variant to evaluate
+		 * @return true if the variant passes light filtering criteria
+		 */
 		private static boolean passesFilterLight(Varlet v){
 			if(v.endDist<4){return false;}
 			if(v.tailDist<10){return false;}
@@ -753,32 +852,67 @@ public class StackVariations2 {
 			return true;
 		}
 		
+		/** Thread-local counter for net length change of kept variants */
 		private long deltaLenKept=0;
+		/** Thread-local counter for SNPs that passed filtering */
 		private long snpKept=0;
+		/** Thread-local counter for deletions that passed filtering */
 		private long delKept=0;
+		/** Thread-local counter for insertions that passed filtering */
 		private long insKept=0;
+		/** Thread-local counter for substitutions that passed filtering */
 		private long subKept=0;
+		/** Thread-local counter for total length of deletions that passed filtering */
 		private long delLenKept=0;
+		/** Thread-local counter for total length of insertions that passed filtering */
 		private long insLenKept=0;
+		/**
+		 * Thread-local counter for net length change of substitutions that passed filtering
+		 */
 		private long subLenKept=0;
 		
+		/**
+		 * Thread-local counter for net length change of input variants before filtering
+		 */
 		private long deltaLenIn=0;
+		/** Thread-local counter for total variants processed */
 		private long totalIn=0;
+		/** Thread-local counter for no-reference variants in input */
 		private long totalInNR=0;
 		
+		/** Thread-local counter for total variants that passed filtering */
 		private long totalKept=0;
+		/** Thread-local counter for no-reference variants that passed filtering */
 		private long totalKeptNR=0;
+		/** Thread-local counter for total variants that failed filtering */
 		private long totalDropped=0;
+		/** Thread-local counter for no-reference variants that failed filtering */
 		private long totalDroppedNR=0;
+		/**
+		 * Thread-local accumulator for quality scores of variants that passed filtering
+		 */
 		private long scoreKept=0;
+		/**
+		 * Thread-local accumulator for quality scores of variants that failed filtering
+		 */
 		private long scoreDropped=0;
 		
+		/** Input file pattern for this thread */
 		private final String fname1;
+		/** Output file name for this thread */
 		private final String fname2;
+		/** Whether this thread should apply quality filters */
 		private final boolean filter;
+		/** Chromosome number being processed by this thread */
 		private final int chrom;
 	}
 	
+	/**
+	 * Thread-safe method for managing active thread count.
+	 * Blocks when adding threads if maximum thread limit is reached.
+	 * @param x Number of threads to add (positive) or remove (negative)
+	 * @return Current number of active threads after modification
+	 */
 	private static int addThread(int x){
 		synchronized(THREADLOCK){
 			while(x>0 && activeThreads>=THREADS){
@@ -795,39 +929,77 @@ public class StackVariations2 {
 	}
 
 
+	/**
+	 * Global counter for net length change of kept variants (insertions positive, deletions negative)
+	 */
 	public static long deltaLenKept_global=0;
+	/** Global counter for net length change of input variants before filtering */
 	public static long deltaLenIn_global=0;
 	
+	/** Global counter for SNPs that passed filtering */
 	public static long snpKept_global=0;
+	/** Global counter for deletions that passed filtering */
 	public static long delKept_global=0;
+	/** Global counter for insertions that passed filtering */
 	public static long insKept_global=0;
+	/** Global counter for substitutions (complex indels) that passed filtering */
 	public static long subKept_global=0;
+	/** Global counter for total length of deletions that passed filtering */
 	public static long delLenKept_global=0;
+	/** Global counter for total length of insertions that passed filtering */
 	public static long insLenKept_global=0;
+	/**
+	 * Global counter for net length change of substitutions that passed filtering
+	 */
 	public static long subLenKept_global=0;
 	
+	/** Global counter for total variants processed (includes no-ref calls) */
 	public static long totalIn_global=0;
+	/** Global counter for no-reference variants in input */
 	public static long totalInNR_global=0;
+	/** Global counter for total variants that passed filtering */
 	public static long totalKept_global=0;
+	/** Global counter for total variants that failed filtering */
 	public static long totalDropped_global=0;
+	/** Global counter for no-reference variants that passed filtering */
 	public static long totalKeptNR_global=0;
+	/** Global counter for no-reference variants that failed filtering */
 	public static long totalDroppedNR_global=0;
+	/** Global accumulator for quality scores of variants that passed filtering */
 	public static long scoreKept_global=0;
+	/** Global accumulator for quality scores of variants that failed filtering */
 	public static long scoreDropped_global=0;
 	
+	/** Current number of active processing threads */
 	private static int activeThreads=0;
 	
+	/** Synchronization object for thread count management */
 	private static final String THREADLOCK=new String("THREADLOCK");
+	/** Maximum number of concurrent processing threads */
 	private static int THREADS=7;
+	/** Whether to delete input files after processing */
 	private static boolean DELETE_INPUT=false;
+	/** Minimum number of supporting reads required to keep a variant */
 	public static int MIN_READS_TO_KEEP=1;
+	/** Minimum variant quality required when at the minimum read threshold */
 	public static final int MIN_QUALITY_AT_MIN_READS=14;
+	/** Maximum errors allowed when at the minimum read threshold */
 	public static final int MAX_ERRORS_AT_MIN_READS=2;
+	/** Maximum expected errors allowed when at the minimum read threshold */
 	public static final int MAX_EXPECTED_ERRORS_AT_MIN_READS=4;
+	/** Whether to require paired reads when at the minimum read threshold */
 	public static final boolean REQUIRE_PAIRED_AT_MIN_READS=false;
+	/** Whether to apply strict filtering criteria */
 	public static boolean STRICT=false;
+	/**
+	 * Whether to apply very strict filtering criteria (unused in current implementation)
+	 */
 	public static boolean VSTRICT=false;
+	/**
+	 * Whether to apply ultra-strict filtering criteria (unused in current implementation)
+	 */
 	public static boolean USTRICT=false;
 	
+	/** Whether to print detailed processing information */
 	public static final boolean verbose=false;
 }

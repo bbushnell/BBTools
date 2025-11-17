@@ -20,6 +20,14 @@ public final class HashArrayU1D extends HashArrayU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a hash array with specified schedule and k-mer parameters.
+	 * Allocates the values array based on calculated prime size.
+	 *
+	 * @param schedule_ Size schedule for automatic resizing
+	 * @param k_ Small k-mer length for hash computation
+	 * @param kbig_ Large k-mer length for storage
+	 */
 	public HashArrayU1D(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, false);
 		values=allocInt1D(prime+extra);
@@ -352,6 +360,8 @@ public final class HashArrayU1D extends HashArrayU {
 		return sum;
 	}
 	
+	/** Creates an iterator for traversing all k-mers and their counts.
+	 * @return A new WalkerU1D instance for iteration */
 	public WalkerU1D walk(){
 		return new WalkerU1D();
 	}
@@ -360,8 +370,11 @@ public final class HashArrayU1D extends HashArrayU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing count values parallel to k-mer arrays */
 	private int[] values;
 	
+	/** Provides access to the internal values array.
+	 * @return The int array containing all count values */
 	public int[] values(){return values;}
 	
 	/*--------------------------------------------------------------*/
@@ -377,6 +390,8 @@ public final class HashArrayU1D extends HashArrayU {
 	 */
 	public class WalkerU1D extends WalkerU {
 		
+		/** Creates a walker for the enclosing hash array.
+		 * Initializes k-mer object and captures victim list snapshot. */
 		WalkerU1D(){
 			kmer=new Kmer(kbig);
 			ha=HashArrayU1D.this;
@@ -415,7 +430,11 @@ public final class HashArrayU1D extends HashArrayU {
 			return false;
 		}
 		
+		/** Gets the current k-mer from the iterator.
+		 * @return The current k-mer object */
 		public Kmer kmer(){return kmer;}
+		/** Gets the count value for the current k-mer.
+		 * @return The count value of the current k-mer */
 		public int value(){return value;}
 		
 		/** Hash map over which this is walking */
@@ -423,7 +442,9 @@ public final class HashArrayU1D extends HashArrayU {
 		/** Victim list of the hash map */
 		private ArrayList<KmerNodeU> victims;
 		
+		/** K-mer object for storing current iteration result */
 		private final Kmer kmer;
+		/** Count value of current k-mer during iteration */
 		private int value;
 
 		/** Potential next kmer cell; may point to an empty cell */
@@ -433,5 +454,8 @@ public final class HashArrayU1D extends HashArrayU {
 	}
 	
 	//TODO: Remove after fixing array initialization
+	/**
+	 * Marker value for empty cells during iteration (TODO: remove after fixing array initialization)
+	 */
 	private static final int NOT_XPRESENT=0;
 }

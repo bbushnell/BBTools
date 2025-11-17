@@ -21,6 +21,14 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a hybrid hash array with scheduled resizing.
+	 * Initializes the hash table with a victim cache and flexible count storage.
+	 *
+	 * @param schedule_ Resizing schedule for automatic growth
+	 * @param k_ K-mer length for hashing
+	 * @param kbig_ Maximum k-mer length supported
+	 */
 	public HashArrayUHybrid(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, true);
 		values=allocInt1D(prime+extra);
@@ -424,7 +432,9 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Array storing count values for k-mers in the hash table */
 	private int[] values;
+	/** List of integer arrays for storing multi-value k-mer counts */
 	private IntList2 setList;
 	
 

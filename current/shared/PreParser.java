@@ -144,6 +144,12 @@ public class PreParser {
 		}
 	}
 	
+	/**
+	 * Checks if amino acid mode is enabled in the argument list.
+	 * Searches for "amino=true" parameter in the provided arguments.
+	 * @param args Command line arguments to examine
+	 * @return true if amino acid mode is enabled, false otherwise
+	 */
 	public static boolean isAmino(String[] args){
 		boolean amino=false;
 		for(String arg : args){
@@ -158,6 +164,12 @@ public class PreParser {
 		return amino;
 	}
 
+	/**
+	 * Strips leading hyphens from arguments and returns the total count removed.
+	 * Does not modify Java flags (arguments starting with -D, -X, etc.).
+	 * @param args Command line arguments to process
+	 * @return Total number of hyphens stripped from all arguments
+	 */
 	public static int stripHyphens(String[] args){
 		int stripped=0;
 		for(int i=0; i<args.length; i++){
@@ -188,17 +200,28 @@ public class PreParser {
 		return null; //Unreachable
 	}
 	
+	/** Original unmodified command line arguments */
 	public final String[] original;
+	/** Filtered command line arguments with known parameters removed */
 	public final String[] args;
+	/** Output stream for program messages and version information */
 	public final PrintStream outstream;
+	/** Whether help was requested in the command line */
 	public final boolean help;
+	/** Whether a config file was processed for these arguments */
 	public final boolean config;
+	/** Whether Java flags were detected in the arguments */
 	public final boolean jflag;
+	/** Whether JSON output mode is enabled */
 	public final boolean json;
+	/** Total number of leading hyphens stripped from arguments */
 	public final int hyphens;
+	/** JSON object containing program metadata when JSON mode is enabled */
 	public JsonObject jsonObject; 
 
+	/** Whether to print the executing class name and arguments */
 	public static boolean printExecuting=true;
+	/** Whether to suppress all output including version and execution info */
 	public static boolean silent=false;
 	
 }

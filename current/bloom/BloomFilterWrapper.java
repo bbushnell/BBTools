@@ -459,6 +459,11 @@ public class BloomFilterWrapper {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker thread that processes reads through the Bloom filter.
+	 * Each thread independently reads sequence data, applies the filter,
+	 * and routes reads to appropriate output streams based on matches.
+	 */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
@@ -627,6 +632,7 @@ public class BloomFilterWrapper {
 			}
 		}
 		
+		/** Buffer for storing k-mer matches when consecutive matches are required */
 		private final LongList buffer=minConsecutiveMatches>1 ? new LongList(150) : null;
 		
 		/** Number of reads processed by this thread */
@@ -658,6 +664,7 @@ public class BloomFilterWrapper {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** List of reference sequence files used to build the Bloom filter */
 	private ArrayList<String> ref=new ArrayList<String>();
 	
 	/** Primary input file path */
@@ -665,7 +672,9 @@ public class BloomFilterWrapper {
 	/** Secondary input file path */
 	private String in2=null;
 	
+	/** Quality file for primary input */
 	private String qfin1=null;
+	/** Quality file for secondary input */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -676,7 +685,9 @@ public class BloomFilterWrapper {
 	/** Output for kmer counts */
 	private String outc=null;
 
+	/** Quality file for primary output */
 	private String qfout1=null;
+	/** Quality file for secondary output */
 	private String qfout2=null;
 
 	/** Output file path for matching reads */
@@ -684,7 +695,9 @@ public class BloomFilterWrapper {
 	/** Secondary output file path for matching reads */
 	private String outm2=null;
 
+	/** Quality file for primary matching output */
 	private String qfoutm1=null;
+	/** Quality file for secondary matching output */
 	private String qfoutm2=null;
 	
 	/** Override input file extension */
@@ -692,7 +705,9 @@ public class BloomFilterWrapper {
 	/** Override output file extension */
 	private String extout=null;
 
+	/** Path to serialized Bloom filter input file */
 	private String serialIn=null;
+	/** Path to serialize Bloom filter output file */
 	private String serialOut=null;
 	
 	/*--------------------------------------------------------------*/
@@ -732,22 +747,37 @@ public class BloomFilterWrapper {
 	/** Output for kmers and counts */
 	private final FileFormat ffoutc;
 	
+	/** The underlying Bloom filter used for k-mer matching */
 	final BloomFilter filter;
 	
+	/** K-mer length used by the Bloom filter */
 	final int k;
+	/** Number of hash functions used by the Bloom filter */
 	final int hashes;
+	/** Number of bits per k-mer in the counting structure */
 	final int bits;
+	/** Minimum number of consecutive k-mer matches required */
 	final int minConsecutiveMatches;
+	/** Whether to use reverse complement k-mers for canonical matching */
 	final boolean rcomp;
+	/** Whether both reads in a pair must match the filter */
 	final boolean requireBothToMatch;
+	/** Whether to perform error correction by overlap */
 	final boolean ecco;
+	/** Whether to merge overlapping paired reads */
 	final boolean merge;
+	/** Minimum k-mer count required for a match */
 	final int minCount;
+	/** Fraction of available memory to use for the Bloom filter */
 	float memFraction=1.0f;
 	
+	/** Number of bits used to encode each DNA base */
 	final int bitsPerBase=BloomFilter.bitsPerBase;
+	/** Bit shift value for k-mer encoding */
 	final int shift;
+	/** Secondary bit shift value for reverse complement k-mer encoding */
 	final int shift2;
+	/** Bit mask for k-mer length truncation */
 	final long mask;
 	
 	/*--------------------------------------------------------------*/

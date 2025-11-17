@@ -6,8 +6,22 @@ import java.util.Collections;
 import fileIO.ByteStreamWriter;
 import shared.Tools;
 
+/**
+ * Utility class for generating chart data files from bin statistics.
+ * Creates tab-separated output files suitable for plotting bin size distributions,
+ * contamination vs completeness plots, and contamination histograms.
+ * @author Brian Bushnell
+ */
 public class ChartMaker {
 	
+	/**
+	 * Generates cumulative bin size chart data sorted by contamination.
+	 * Creates a tab-separated file with cumulative size, clean bases, and dirty bases.
+	 * Bins are sorted by contamination level using BinStatsComparator.
+	 *
+	 * @param fname Output filename for the chart data
+	 * @param list List of BinStats to process
+	 */
 	static void makeChartFromBinStats(String fname, ArrayList<BinStats> list) {
 		Collections.sort(list, new BinStatsComparator());
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
@@ -26,6 +40,14 @@ public class ChartMaker {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Generates completeness vs contamination plot data.
+	 * Creates a tab-separated file with bin index, completeness, contamination, and size.
+	 * Bins are sorted by contamination level for consistent ordering.
+	 *
+	 * @param fname Output filename for the plot data
+	 * @param list List of BinStats to process
+	 */
 	static void writeCCPlot(String fname, ArrayList<BinStats> list) {
 		Collections.sort(list, new BinStatsComparator());
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
@@ -39,6 +61,14 @@ public class ChartMaker {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Generates contamination histogram data.
+	 * Creates a tab-separated file with contamination level (0.1% increments),
+	 * bin count, and total size for each contamination level.
+	 *
+	 * @param fname Output filename for the histogram data
+	 * @param list List of BinStats to process
+	 */
 	static void writeContamHist(String fname, ArrayList<BinStats> list) {
 		Collections.sort(list, new BinStatsComparator());
 		int[] count=new int[1001];

@@ -151,7 +151,9 @@ public final class LongList2{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/

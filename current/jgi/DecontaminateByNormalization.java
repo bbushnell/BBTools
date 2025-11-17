@@ -42,6 +42,8 @@ public class DecontaminateByNormalization {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Program entry point that executes the complete decontamination pipeline.
+	 * @param args Command-line arguments for configuring the pipeline */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		DecontaminateByNormalization x=new DecontaminateByNormalization(args);
@@ -51,6 +53,12 @@ public class DecontaminateByNormalization {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs decontamination pipeline and parses command-line arguments.
+	 * Initializes all parameters for mapping, normalization, error correction,
+	 * and filtering steps. Sets up input/output file paths and temporary directories.
+	 * @param args Command-line arguments containing parameters and file paths
+	 */
 	public DecontaminateByNormalization(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -246,6 +254,14 @@ public class DecontaminateByNormalization {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Executes the complete decontamination pipeline in sequence.
+	 * Steps include: optional raw read mapping, read merging/renaming,
+	 * optional Tadpole error correction, k-mer normalization, read demultiplexing,
+	 * post-normalization mapping, and coverage-based filtering.
+	 *
+	 * @param t Timer for tracking total execution time
+	 */
 	void process(Timer t){
 		log("Decontaminate start", false);
 		String mergePath=tempdir+"_merged.fq.gz";
@@ -274,6 +290,12 @@ public class DecontaminateByNormalization {
 		log("Decontaminate finish", true);
 	}
 	
+	/**
+	 * Processes a list that may contain filenames, expanding any files into
+	 * their constituent lines. If an entry is a file path, reads the file
+	 * and adds each line to the list. Otherwise adds the entry directly.
+	 * @param list List to process, modified in place
+	 */
 	public static void parseStringsFromFiles(ArrayList<String> list){
 		String[] x=list.toArray(new String[list.size()]);
 		list.clear();
@@ -295,6 +317,14 @@ public class DecontaminateByNormalization {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Single-threaded version of read merging and renaming.
+	 * Combines multiple input files into a single interleaved output file,
+	 * renaming reads with file-specific prefixes for later demultiplexing.
+	 *
+	 * @param readPaths List of input read files to merge
+	 * @param fnameOut Output filename for merged reads
+	 */
 	private void renameAndMux_ST(ArrayList<String> readPaths, String fnameOut){
 		log("renameAndMux start", true);
 		System.err.println("\nRename/Merge Phase Start");
@@ -382,6 +412,14 @@ public class DecontaminateByNormalization {
 		log("renameAndMux finish", true);
 	}
 	
+	/**
+	 * Multi-threaded version of read merging and renaming using RenameAndMux.
+	 * Combines multiple input files into a single interleaved output file,
+	 * renaming reads with file-specific prefixes for later demultiplexing.
+	 *
+	 * @param readPaths List of input read files to merge
+	 * @param fnameOut Output filename for merged reads
+	 */
 	private void renameAndMux_MT(ArrayList<String> readPaths, String fnameOut){
 		log("renameAndMux start", true);
 		System.err.println("\nRename/Merge Phase Start");
@@ -424,6 +462,14 @@ public class DecontaminateByNormalization {
 		log("renameAndMux finish", true);
 	}
 	
+	/**
+	 * Performs error correction using Tadpole k-mer-based correction.
+	 * Corrects sequencing errors in reads using k-mer frequency analysis
+	 * and configurable aggressive or conservative correction modes.
+	 *
+	 * @param fnameIn Input filename containing reads to correct
+	 * @param fnameOut Output filename for error-corrected reads
+	 */
 	private void eccTadpole(String fnameIn, String fnameOut){
 		log("tadpole start", true);
 		System.err.println("\nTadpole Phase Start");
@@ -469,6 +515,22 @@ public class DecontaminateByNormalization {
 		log("tadpole finish", true);
 	}
 	
+	/**
+	 * Performs k-mer-based read normalization using KmerNormalize.
+	 * Reduces over-represented sequences to target coverage levels while
+	 * preserving diversity. Optionally includes additional error correction.
+	 *
+	 * @param fnameIn Input filename containing reads to normalize
+	 * @param fnameOut Output filename for normalized reads
+	 * @param k K-mer size for normalization
+	 * @param min Minimum depth threshold
+	 * @param target Target coverage depth
+	 * @param hashes Number of hash functions to use
+	 * @param passes Number of normalization passes
+	 * @param ecc Whether to perform error correction
+	 * @param prefilter Whether to use prefiltering
+	 * @param uselowerdepth Whether to normalize by lower depth
+	 */
 	private void normalize(String fnameIn, String fnameOut, int k, int min, int target, int hashes, int passes, boolean ecc, boolean prefilter, boolean uselowerdepth){
 		log("normalization start", true);
 		System.err.println("\nNormalization/Error Correction Phase Start");
@@ -510,6 +572,14 @@ public class DecontaminateByNormalization {
 		log("normalization finish", true);
 	}
 	
+	/**
+	 * Demultiplexes normalized reads back to original file groupings.
+	 * Uses read name prefixes added during merging to separate reads
+	 * back into individual files corresponding to original inputs.
+	 *
+	 * @param fnameIn Input filename containing merged normalized reads
+	 * @param readPaths List of original read paths for naming output files
+	 */
 	private void demux(String fnameIn, ArrayList<String> readPaths){
 		log("demux start", true);
 		System.err.println("\nDemux Phase Start");
@@ -555,6 +625,15 @@ public class DecontaminateByNormalization {
 		log("demux finish", true);
 	}
 	
+	/**
+	 * Maps reads to reference assemblies using BBMap and generates coverage statistics.
+	 * Performs mapping with optimized parameters for decontamination analysis.
+	 * Can be run before normalization (pass 0) or after (pass 1).
+	 *
+	 * @param readPaths List of read files to map
+	 * @param refnames List of corresponding reference assembly files
+	 * @param pass Mapping pass number (0 for raw reads, 1 for normalized reads)
+	 */
 	private void map(ArrayList<String> readPaths, ArrayList<String> refnames, int pass){
 		log("map start", true);
 		System.err.println("\nMapping Phase Start");
@@ -600,6 +679,14 @@ public class DecontaminateByNormalization {
 		log("map finish", true);
 	}
 	
+	/**
+	 * Filters assembly sequences based on coverage statistics from mapping.
+	 * Removes sequences with insufficient coverage, low percent coverage,
+	 * or poor coverage ratios. Outputs clean and dirty sequence files.
+	 *
+	 * @param readPaths List of read files used for coverage calculation
+	 * @param refnames List of assembly files to filter
+	 */
 	private void filter(ArrayList<String> readPaths, ArrayList<String> refnames){
 		//filterbycoverage.sh -Xmx2g in=PUCA.fasta cov=PUCA_stats.txt out=PUCA_clean.fa minc=5 minp=40
 		log("filter start", true);
@@ -678,25 +765,38 @@ public class DecontaminateByNormalization {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** List of input read file paths */
 	private final ArrayList<String> readNames=new ArrayList<String>();
+	/** List of reference assembly file paths corresponding to read files */
 	private final ArrayList<String> refNames=new ArrayList<String>();
 	
+	/** Filename for logging pipeline events */
 	private String logName=null;
+	/** Filename for summary results output */
 	private String resultsName="results.txt";
+	/** Directory path for temporary intermediate files */
 	private String tempdir=(Shared.tmpdir() == null ? "" : Shared.tmpdir());
+	/** Output directory path for final results */
 	private String outdir=null;
 	
 	/*--------------------------------------------------------------*/
 
 
+	/** K-mer size for mapping pre-filtering */
 	private int kfilter=55;
+	/** Mode for handling ambiguous mappings during alignment */
 	private String ambigMode="random";
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 
+	/** Minimum average coverage required to retain sequences */
 	private float minc=3.5f;
+	/** Minimum percent of bases covered required to retain sequences */
 	private float minp=20;
+	/** Minimum number of reads mapped required to retain sequences */
 	private int minr=20;
+	/** Minimum sequence length required to retain sequences */
 	private int minl=500;
 	
 	/** Delete temp files after use */
@@ -704,40 +804,65 @@ public class DecontaminateByNormalization {
 
 	/** Error correct with Tadpole */
 	private boolean ecct=false;
+	/** Whether to use aggressive mode for Tadpole error correction */
 	private boolean tadpoleAggressive=false;
+	/** Whether to use conservative mode for Tadpole error correction */
 	private boolean tadpoleConservative=false;
+	/** Whether to pre-allocate memory for Tadpole processing */
 	private boolean tadpolePrealloc=true;
+	/** K-mer size for Tadpole error correction */
 	private int tadpoleK=42;
+	/** Prefilter setting for Tadpole error correction */
 	private int tadpolePrefilter=1;
 	
 	/** Scaffolds will be discarded if there are at least this many bases in windows below a coverage cutoff. */
 	private int basesUnderMin=-1;
 	
+	/** Percentile of depth distribution to use for coverage calculations */
 	private float depthPercentile=0.75f;
+	/** Minimum probability threshold for normalization decisions */
 	private float minprob=0.5f;
+	/** Minimum depth threshold for normalization */
 	private int minDepth=2;
+	/** K-mer size for normalization */
 	private int normK=31;
+	/** Target coverage depth for normalization */
 	private int normTarget=20;
+	/** Number of hash functions for normalization */
 	private int normHashes=4;
+	/** Number of normalization passes to perform */
 	private int normPasses=1;
+	/** Number of bits per k-mer for bloom filter during normalization */
 	private int filterBits=32;
+	/** Number of bits per k-mer for prefilter bloom filter */
 	private int prefilterBits=2;
+	/** Whether to perform error correction during normalization */
 	private boolean ecc=false;
+	/** Whether to use conservative error correction during normalization */
 	private boolean cecc=false;
+	/** Whether to use aggressive error correction during normalization */
 	private boolean aecc=false;
+	/** Whether to use prefiltering during normalization */
 	private boolean prefilter=true;
+	/** Whether to normalize by lower depth values */
 	private boolean normalizeByLowerDepth=false;
 
+	/** Minimum ratio threshold for coverage-based filtering */
 	private double minRatio=1.2f;
+	/** Whether to map raw reads before normalization for comparison */
 	private boolean mapRawReads=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for progress messages and results */
 	private PrintStream outstream=System.err;
+	/** Global flag controlling verbose output across all components */
 	public static boolean verbose=false;
+	/** Flag indicating whether any errors occurred during processing */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
 	
 }

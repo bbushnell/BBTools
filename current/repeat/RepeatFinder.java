@@ -412,6 +412,11 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Outputs repeat list to file sorted by depth (descending) then length.
+	 * @param ff Output file format
+	 * @param list List of repeats to output
+	 */
 	void printRepeats(FileFormat ff, ArrayList<Repeat> list) {
 		Collections.sort(list);
 		Collections.reverse(list);
@@ -428,6 +433,8 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 		bsw.poisonAndWait();
 	}
 	
+	/** Creates and starts the concurrent read input stream.
+	 * @return Configured input stream */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
 		cris.start(); //Start the stream
@@ -439,6 +446,8 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 		return cris;
 	}
 	
+	/** Creates and starts the concurrent read output stream if sequence output is enabled.
+	 * @return Configured output stream or null if no sequence output */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffouts==null){return null;}
 
@@ -500,6 +509,14 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Computes reverse complement of k-mer.
+	 * For amino acid sequences, returns original k-mer.
+	 *
+	 * @param kmer K-mer to reverse complement
+	 * @param len Length of k-mer
+	 * @return Reverse complement k-mer or original for amino acids
+	 */
 	final long rcomp(long kmer, int len){
 		return amino ? kmer : AminoAcid.reverseComplementBinaryFast(kmer, len);
 	}
@@ -508,10 +525,23 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 //		return maskRepeat(r.contig.bases, r.start, r.stop);
 //	}
 	
+	/**
+	 * Masks bases in the range using configured masking symbol or soft masking.
+	 * @param r Range object containing sequence and coordinates
+	 * @return Number of bases masked
+	 */
 	final int maskRange(CRange r) {
 		return maskRepeat(((Read)r.obj).bases, r.a, r.b);
 	}
 	
+	/**
+	 * Masks bases in specified range of sequence array.
+	 *
+	 * @param bases Sequence array to modify
+	 * @param start Start position (inclusive)
+	 * @param stop Stop position (inclusive)
+	 * @return Number of bases that were changed
+	 */
 	final int maskRepeat(byte[] bases, int start, int stop) {
 		int masked=0;
 		for(int i=start; i<=stop; i++) {
@@ -614,6 +644,11 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			}
 		}
 		
+		/**
+		 * Processes a list of reads for repeat detection and optional masking.
+		 * Applies depth, entropy, and short tandem repeat analysis as configured.
+		 * @param ln List of reads to process
+		 */
 		void processList(ListNum<Read> ln){
 			
 			//Grab the actual read list from the ListNum
@@ -683,18 +718,33 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			repeatSet.retireClosed();
 		}
 		
+		/**
+		 * Masks all repeat regions in the provided ranges.
+		 * @param ranges List of ranges to mask
+		 * @return Total number of bases masked
+		 */
 		long maskRepeats(ArrayList<CRange> ranges) {
 			long x=0;
 			for(CRange r : ranges) {x+=maskRange(r);}
 			return x;
 		}
 		
+		/**
+		 * Counts total bases covered by repeat ranges.
+		 * @param ranges List of ranges to count
+		 * @return Total number of bases in ranges
+		 */
 		long countRepeatBases(ArrayList<CRange> ranges) {
 			long x=0;
 			for(CRange r : ranges) {x+=r.length();}
 			return x;
 		}
 		
+		/**
+		 * Creates sequence previews for hard-masked repeats.
+		 * Required for display when masking with hard symbols.
+		 * @param list List of repeats to create previews for
+		 */
 		void makePreview(ArrayList<Repeat> list) {
 			assert(maskRepeats && !softMask);
 			if(list.isEmpty()){return;}
@@ -801,6 +851,17 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			return sum;
 		}
 		
+		/**
+		 * Identifies short tandem repeats across multiple k-mer sizes.
+		 * Searches for repeated k-mer patterns within specified length constraints.
+		 *
+		 * @param rd Read to analyze
+		 * @param mink Minimum k-mer size for tandem detection
+		 * @param maxk Maximum k-mer size for tandem detection
+		 * @param mincount Minimum repeat count required
+		 * @param minlen Minimum total length of tandem repeat
+		 * @return Number of short tandem repeat bases found
+		 */
 		private int processReadShortTandem(Read rd, int mink, int maxk, int mincount, int minlen){
 			final byte[] bases=rd.bases;
 			final ArrayList<CRange> ranges=new ArrayList<CRange>();//TODO: Make a buffer
@@ -900,6 +961,14 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			return (last<0 ? 0 : last-loc+k+1);
 		}
 		
+		/**
+		 * Extracts initial k-mer key for tandem repeat analysis.
+		 *
+		 * @param bases Sequence array
+		 * @param loc Current position
+		 * @param k K-mer size
+		 * @return Encoded k-mer key or -1 if invalid
+		 */
 		private int getInitialKey(byte[] bases, int loc, int k){
 			assert(k<16);
 			int start=loc-k;
@@ -948,7 +1017,9 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 		/** Thread ID */
 		final int tid;
 		
+		/** Thread-local repeat collection and management system */
 		final RepeatSet repeatSet;
+		/** Thread-local entropy tracker for low-complexity region detection */
 		final EntropyTracker et;
 	}
 	
@@ -982,7 +1053,9 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 	/** Number of bases retained */
 	protected long basesOut=0;
 
+	/** Total number of repeat bases found across all threads */
 	protected long repeatBases=0;
+	/** Total number of bases masked across all threads */
 	protected long basesMasked=0;
 	
 	/** Number of high-depth bases found */
@@ -1000,30 +1073,50 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 	/** Display progress messages such as memory usage */
 	public static boolean DISPLAY_PROGRESS=true;
 
+	/** Whether to reset k-mer tracking when encountering N bases */
 	boolean forbidNs=true;
 
+	/** Whether to output repeat sequences instead of masking */
 	boolean printRepeats;
+	/** Whether to mask repeats in output sequences */
 	boolean maskRepeats=true;
+	/** Whether to use soft masking (lowercase) instead of hard masking */
 	boolean softMask=true;
+	/** Symbol to use for hard masking */
 	byte maskSymbol='N';
+	/** Whether to use weak subsumption rules for overlapping repeats */
 	boolean weakSubsumes=false;
 	
+	/** Minimum length threshold for reporting repeats */
 	int minRepeat=0;
+	/** Maximum gap size allowed within repeats */
 	int maxGap=0;
 
+	/** Whether to perform depth-based repeat detection */
 	boolean processDepth=true;
+	/** Maximum depth to consider for repeat detection */
 	int maxDepth=Shared.MAX_ARRAY_LEN;
+	/** Minimum depth threshold for considering k-mers as repeats */
 	int minDepth=2;
 	
+	/** Whether to perform entropy-based low-complexity region detection */
 	boolean processEntropy=false;
+	/** Window size for entropy analysis */
 	int entropyWindow=80;
+	/** K-mer size for entropy calculations */
 	int entropyK=5;
+	/** Entropy threshold ratio for masking low-complexity regions */
 	float entropyMaskRatio=0.70f;
 
+	/** Whether to perform short tandem repeat detection */
 	boolean processShortTandem=false;
+	/** Minimum k-mer size for short tandem repeat detection */
 	int shortTandemMinK=2;
+	/** Maximum k-mer size for short tandem repeat detection */
 	int shortTandemMaxK=15;
+	/** Minimum repeat count for short tandem repeat detection */
 	int shortTandemMincount=4;
+	/** Minimum total length for short tandem repeat detection */
 	int shortTandemMinlen=32;
 	
 	/*--------------------------------------------------------------*/
@@ -1039,15 +1132,20 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 	/** Sequence output file */
 	private final FileFormat ffouts;
 	
+	/** K-mer size for repeat detection */
 	private final int k;
+	/** K-mer count tables for depth-based repeat detection */
 	private final KmerTableSet tables;
 	
+	/** Master collection of all repeats found across threads */
 	private final ArrayList<Repeat> masterListOfRepeats=new ArrayList<Repeat>();
 	
+	/** Lookup array for converting bases to masked versions */
 	private final byte[] baseMaskArray;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
+	/** Read-write lock for thread-safe operations */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
@@ -1056,21 +1154,33 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 
 	/** True for amino acid data, false for nucleotide data */
 	final boolean amino;
+	/** Whether to use middle-masking for k-mer matching */
 	boolean maskMiddle=false;
+	/** Maximum Hamming distance for inexact k-mer matching */
 	int qHammingDist=0;
 	
 //	final int maxSupportedK;
+	/** Number of bits required to encode each symbol */
 	final int bitsPerBase;
+	/** Maximum valid symbol value for the alphabet */
 	final int maxSymbol;
+	/** Total number of symbols in the alphabet */
 	final int symbols;
+	/** Length of arrays needed to store symbol-specific data */
 	final int symbolArrayLen;
+	/** Size of symbol encoding space */
 	final int symbolSpace;
+	/** Bit mask for extracting single symbol from encoded data */
 	final long symbolMask;
 	
 //	final int minlen;
+	/** Bit shift amount for k-mer operations */
 	final int shift;
+	/** Secondary bit shift amount for reverse complement operations */
 	final int shift2;
+	/** Bit mask for extracting k-mer from encoded sequence */
 	final long mask;
+	/** Bit mask for middle-masking k-mer matching */
 	final long middleMask;
 	
 	/** x&clearMasks[i] will clear base i */

@@ -33,6 +33,11 @@ import tracker.ReadStats;
  */
 public class AddAdapters {
 	
+	/**
+	 * Program entry point that creates AddAdapters instance and executes
+	 * either write or read mode based on configuration.
+	 * @param args Command-line arguments
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		AddAdapters x=new AddAdapters(args);
@@ -46,6 +51,12 @@ public class AddAdapters {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes all
+	 * configuration parameters. Sets up input/output file formats,
+	 * adapter sequences, and processing modes.
+	 * @param args Command-line arguments array
+	 */
 	public AddAdapters(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -224,6 +235,11 @@ public class AddAdapters {
 		}
 	}
 	
+	/**
+	 * Creates the final adapter sequence list by temporarily disabling
+	 * interleaved FASTQ settings and calling makeAdapterList2.
+	 * @return ArrayList of adapter sequences as byte arrays
+	 */
 	private final ArrayList<byte[]> makeAdapterList(){
 		boolean oldTI=FASTQ.TEST_INTERLEAVED;
 		boolean oldFI=FASTQ.FORCE_INTERLEAVED;
@@ -235,6 +251,12 @@ public class AddAdapters {
 		return x;
 	}
 	
+	/**
+	 * Builds adapter sequence list from both file-based and literal sources.
+	 * Reads adapter sequences from FASTA file if specified, adds literal
+	 * sequences from command line, and optionally includes reverse complements.
+	 * @return ArrayList of adapter sequences, or null if no adapters specified
+	 */
 	private final ArrayList<byte[]> makeAdapterList2(){
 		if(ffa==null && literals==null){return null;}
 		ArrayList<byte[]> list=new ArrayList<byte[]>();
@@ -267,6 +289,14 @@ public class AddAdapters {
 		return list.size()>0 ? list : null;
 	}
 	
+	/**
+	 * Main write mode processing method that adds adapters to input reads.
+	 * Creates concurrent input/output streams, processes reads in batches,
+	 * adds adapters at random locations with specified probability,
+	 * and outputs modified reads with updated identifiers.
+	 *
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void write(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -450,6 +480,15 @@ public class AddAdapters {
 		}
 	}
 	
+	/**
+	 * Determines random adapter location and calls addAdapter with location.
+	 * Uses adapter probability to decide whether to add adapter, then
+	 * selects random position within read. Optionally adds adapter to
+	 * mate read at same location if addPaired is true.
+	 *
+	 * @param r The read to potentially modify
+	 * @param addPaired Whether to add adapter at same location in mate read
+	 */
 	private void addAdapter(Read r, boolean addPaired){
 		final byte[] bases=r.bases;
 		final int initial=(bases==null ? 0 : bases.length);
@@ -467,6 +506,14 @@ public class AddAdapters {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main read mode processing method that evaluates adapter removal accuracy.
+	 * Reads input sequences that should have adapters already removed,
+	 * compares against expected results encoded in read headers,
+	 * and generates comprehensive accuracy statistics.
+	 *
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void read(Timer t){
 
 		final ConcurrentReadInputStream cris;
@@ -569,11 +616,24 @@ public class AddAdapters {
 //		grade(r2);
 //	}
 	
+	/**
+	 * Grades both reads in a pair by calling grade method on each.
+	 * @param r1 First read in pair
+	 * @param r2 Second read in pair (may be null)
+	 */
 	private void grade(Read r1, Read r2){
 		grade(r1);
 		grade(r2);
 	}
 	
+	/**
+	 * Evaluates accuracy of adapter removal for a single read.
+	 * Compares actual read length against expected length from read header,
+	 * categorizes result as true positive, false positive, true negative,
+	 * or false negative, and updates comprehensive accuracy statistics.
+	 *
+	 * @param r The read to evaluate
+	 */
 	private void grade(Read r){
 		if(r==null){return;}
 		
@@ -650,21 +710,32 @@ public class AddAdapters {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
+	/** Primary input file path */
 	private String in1=null;
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 
+	/** Primary output file path */
 	private String out1=null;
+	/** Secondary output file path for paired reads */
 	private String out2=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 
+	/** Path to FASTA file containing adapter sequences */
 	private String adapterFile=null;
+	/** Array of literal adapter sequences from command line */
 	private String[] literals=null;
 	
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files */
 	private boolean append=false;
 
 	/** Add /1 and /2 to paired reads */
@@ -681,62 +752,103 @@ public class AddAdapters {
 	/** aka 3' */
 	private boolean right=true;
 	
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Minimum read length to consider valid after adapter addition */
 	private int minlen=1;
 	
+	/** True for write mode (add adapters), false for read mode (grade removal) */
 	private boolean writeMode=true;
+	/** Probability of adding adapter to any given read */
 	private float adapterProb=0.5f;
 	
+	/** Total number of reads processed */
 	private long readsProcessed=0;
+	/** Total number of bases processed */
 	private long basesProcessed=0;
+	/** Number of reads that received adapter sequences */
 	private long adaptersAdded=0;
+	/** Total bases added from adapter sequences */
 	private long adapterBasesAdded=0;
+	/** Total random bases added beyond adapter sequences */
 	private long randomBasesAdded=0;
+	/** Number of reads meeting minimum length requirement */
 	private long validReads=0;
+	/** Total bases in valid reads */
 	private long validBases=0;
 
+	/** Correctly identified adapter-containing reads */
 	private long truePos=0;
+	/** Correctly identified adapter-free reads */
 	private long trueNeg=0;
+	/** Incorrectly identified adapter-containing reads */
 	private long falsePos=0;
+	/** Incorrectly identified adapter-free reads */
 	private long falseNeg=0;
+	/** Number of reads with corrupted structure */
 	private long broken=0;
+	/** Number of improperly paired reads */
 	private long mispaired=0;
 	
+	/** Number of reads trimmed shorter than expected */
 	private long tooShort=0;
+	/** Number of reads longer than expected (adapter remaining) */
 	private long tooLong=0;
+	/** Number of reads with perfect adapter removal */
 	private long correct=0;
+	/** Number of reads completely removed due to short length */
 	private long fullyRemoved=0;
 
+	/** Total bases over-trimmed from reads */
 	private long tooShortBases=0;
+	/** Total adapter bases remaining in reads */
 	private long tooLongBases=0;
+	/** Total bases in reads that were over-trimmed */
 	private long tooShortReadBases=0;
+	/** Total bases in reads with remaining adapters */
 	private long tooLongReadBases=0;
+	/** Total bases in perfectly trimmed reads */
 	private long correctBases=0;
 
+	/** Total valid bases counted in processed reads */
 	private long validBasesCounted=0;
+	/** Total valid bases expected based on original read information */
 	private long validBasesExpected=0;
 	
 //	private long invalidBasesCounted=0;
+	/** Total adapter bases that should have been removed */
 	private long adapterBasesTotal=0;
+	/** Total reads that originally contained adapters */
 	private long adapterReadsTotal=0;
+	/** Reads that still contain adapter sequences after processing */
 	private long adapterReadsRemaining=0;
+	/** Total adapter bases still present in processed reads */
 	private long adapterBasesRemaining=0;
 	
+	/** File format specification for primary input file */
 	private final FileFormat ffin1;
+	/** File format specification for secondary input file */
 	private final FileFormat ffin2;
 
+	/** File format specification for primary output file */
 	private final FileFormat ffout1;
+	/** File format specification for secondary output file */
 	private final FileFormat ffout2;
 	
+	/** File format specification for adapter reference file */
 	private final FileFormat ffa;
 	
+	/** List of adapter sequences as byte arrays */
 	private final ArrayList<byte[]> adapters;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
 	
+	/** Random number generator for adapter placement and error simulation */
 	private java.util.Random randy;
 	
 }

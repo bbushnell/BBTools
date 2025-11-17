@@ -24,6 +24,8 @@ import structures.LongHashSet;
  */
 public class AllToAllVectorMaker extends BinObject {
 
+	/** Program entry point for generating all-to-all comparison vectors.
+	 * @param args Command-line arguments for configuration */
 	public static void main(String[] args){
 		
 		//Start a timer immediately upon code entrance.
@@ -39,6 +41,11 @@ public class AllToAllVectorMaker extends BinObject {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs an AllToAllVectorMaker with command-line arguments.
+	 * Parses configuration parameters and initializes data loader.
+	 * @param args Command-line arguments containing configuration options
+	 */
 	public AllToAllVectorMaker(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -111,6 +118,11 @@ public class AllToAllVectorMaker extends BinObject {
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);
 	}
 	
+	/**
+	 * Main processing method that generates comparison vectors.
+	 * Loads contigs, groups by taxonomy, and outputs training data.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		validation=true;
@@ -153,6 +165,12 @@ public class AllToAllVectorMaker extends BinObject {
 		assert(!errorState) : "An error was encountered.";
 	}
 	
+	/**
+	 * Generates and outputs comparison vectors for machine learning training.
+	 * Creates positive and negative pairs according to specified rate.
+	 * @param contigs List of all contigs to compare
+	 * @param map Contigs grouped by taxonomic ID
+	 */
 	private void outputResults(ArrayList<Contig> contigs, HashMap<Integer, ArrayList<Contig>> map){
 		LongHashSet used=new LongHashSet();
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout1);
@@ -185,6 +203,12 @@ public class AllToAllVectorMaker extends BinObject {
 		}
 	}
 	
+	/**
+	 * Outputs k-mer difference distributions to file.
+	 * Generates percentile distributions for different contig lengths.
+	 * @param fname Output filename (% replaced with sign value)
+	 * @param sign Classification sign (0=different taxa, 1=same taxa)
+	 */
 	private void outputKmerDifs(String fname, int sign) {
 		fname=fname.replaceFirst("%", sign+"");
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, true, false, true);
@@ -210,6 +234,14 @@ public class AllToAllVectorMaker extends BinObject {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Outputs probability fractions indexed by k-mer difference values.
+	 * Creates lookup table for classification probability by k-mer similarity.
+	 *
+	 * @param fname Output filename
+	 * @param incr Increment size for k-mer difference bins
+	 * @param max Maximum k-mer difference value
+	 */
 	private void outputKmerDifFraction(String fname, double incr, double max) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, true, false, true);
 		bsw.println("#ceil(size)\tcount\tprobs");
@@ -246,6 +278,16 @@ public class AllToAllVectorMaker extends BinObject {
 		bsw.poisonAndWait();
 	}
 	
+	/**
+	 * Calculates probability fractions from positive and negative k-mer difference lists.
+	 * Creates smoothed probability curves for classification decisions.
+	 *
+	 * @param plus K-mer differences for same-taxa pairs
+	 * @param minus K-mer differences for different-taxa pairs
+	 * @param incr Bin size for difference values
+	 * @param max Maximum difference to analyze
+	 * @return List of probability fractions indexed by k-mer difference
+	 */
 	private FloatList fractionIndexedByKmerDif(FloatList plus, FloatList minus, double incr, double max) {
 		plus.shrink().sort();
 		minus.shrink().sort();
@@ -309,6 +351,17 @@ public class AllToAllVectorMaker extends BinObject {
 		return vector==null ? null : toLine(vector);
 	}
 	
+	/**
+	 * Creates feature vector by comparing elements from two contig lists.
+	 * Randomly selects individual contigs or clusters for comparison.
+	 *
+	 * @param alist First contig list
+	 * @param blist Second contig list
+	 * @param minSize Minimum element size in bases
+	 * @param maxSize Maximum element size in bases
+	 * @param oracle Feature extraction engine
+	 * @return Feature vector or null if no valid comparison possible
+	 */
 	private FloatList makeVector(ArrayList<Contig> alist, ArrayList<Contig> blist, 
 			int minSize, int maxSize, Oracle oracle) {
 		int numClusters=randy.nextInt(3);
@@ -354,11 +407,22 @@ public class AllToAllVectorMaker extends BinObject {
 		}
 	}
 	
+	/**
+	 * Resets cluster state by clearing contig assignments.
+	 * Allows contigs to be reassigned to different clusters.
+	 * @param clust Cluster to reset
+	 */
 	private void decluster(Cluster clust) {
 		for(Contig c : clust) {c.cluster=null; c.dest=-1;}
 		clust.clear();
 	}
 	
+	/**
+	 * Tracks k-mer difference statistics for same-taxon pairs.
+	 * Accumulates cosine differences for 3-mer, 4-mer, and 5-mer counts.
+	 * @param a First bin for comparison
+	 * @param b Second bin for comparison
+	 */
 	private void trackRatio(Bin a, Bin b) {
 		if(a.labelTaxid!=b.labelTaxid) {return;}
 		double dif3=SimilarityMeasures.cosineDifference(a.trimers, b.trimers);
@@ -377,11 +441,34 @@ public class AllToAllVectorMaker extends BinObject {
 		count5good++;
 	}
 	
+	/**
+	 * Selects either a single contig or cluster from list.
+	 * Wrapper method that delegates to appropriate selection function.
+	 *
+	 * @param list Contig list to select from
+	 * @param maxElements Maximum elements in selection (1=contig, >1=cluster)
+	 * @param minSize Minimum size in bases
+	 * @param maxSize Maximum size in bases
+	 * @param used Set of already-used contig IDs
+	 * @return Selected bin (contig or cluster)
+	 */
 	private Bin selectBin(ArrayList<Contig> list, int maxElements, int minSize, int maxSize, IntHashSet used) {
 		if(maxElements==1) {return selectContig(list, minSize, maxSize, used);}
 		return selectCluster(list, maxElements, minSize, maxSize, used, 1);
 	}
 	
+	/**
+	 * Creates cluster by randomly selecting contigs from list.
+	 * Attempts to meet size constraints through iterative selection.
+	 *
+	 * @param list Contig list to select from
+	 * @param maxElements Maximum contigs in cluster
+	 * @param minSize Minimum total cluster size in bases
+	 * @param maxSize Maximum total cluster size in bases
+	 * @param used Set of contig IDs to avoid
+	 * @param tries Number of retry attempts with larger clusters
+	 * @return Created cluster or null if constraints cannot be met
+	 */
 	private Cluster selectCluster(ArrayList<Contig> list, int maxElements, int minSize, int maxSize, IntHashSet used, int tries) {
 		IntHashSet set=new IntHashSet(7);
 		long size=0;
@@ -412,6 +499,16 @@ public class AllToAllVectorMaker extends BinObject {
 		return clust;
 	}
 	
+	/**
+	 * Randomly selects single contig meeting size constraints.
+	 * Tries multiple attempts to find valid contig.
+	 *
+	 * @param list Contig list to select from
+	 * @param minSize Minimum contig size in bases
+	 * @param maxSize Maximum contig size in bases
+	 * @param used Set of contig IDs to avoid
+	 * @return Selected contig or null if no valid contig found
+	 */
 	private Contig selectContig(ArrayList<Contig> list, int minSize, int maxSize, IntHashSet used) {
 		for(int i=0; i<40; i++) {
 			Contig c=list.get(randy.nextInt(list.size()));
@@ -427,6 +524,12 @@ public class AllToAllVectorMaker extends BinObject {
 		return null;
 	}
 	
+	/**
+	 * Formats feature vector as tab-separated output line.
+	 * Tracks positive and negative line counts.
+	 * @param vector Feature values to format
+	 * @return Formatted line for output
+	 */
 	private ByteBuilder toLine(FloatList vector) {
 		lineBuffer.clear();
 		for(int i=0; i<vector.size(); i++) {
@@ -465,6 +568,14 @@ public class AllToAllVectorMaker extends BinObject {
 //		return null;
 //	}
 	
+	/**
+	 * Determines if bin pair passes quality filters for comparison.
+	 * Checks GC content difference, depth ratio, and k-mer difference.
+	 *
+	 * @param a First bin to compare
+	 * @param b Second bin to compare
+	 * @return true if pair passes all filters, false otherwise
+	 */
 	private boolean passesFilter(Bin a, Bin b) {
 		if(a==null || b==null || a==b) {return false;}
 		final float gcDif=Tools.absdif(a.gc(), b.gc());
@@ -491,6 +602,15 @@ public class AllToAllVectorMaker extends BinObject {
 		return true;
 	}
 	
+	/**
+	 * Generates biased random index favoring smaller values.
+	 * Takes minimum of multiple random rolls to bias selection.
+	 *
+	 * @param randy Random number generator
+	 * @param max Maximum index value (exclusive)
+	 * @param rolls Number of rolls to take minimum from
+	 * @return Biased random index
+	 */
 	private int randomIndex(Random randy, int max, int rolls) {
 		int idx=randy.nextInt(max);
 		for(int i=randy.nextInt(rolls+1); i>0; i--) {
@@ -499,12 +619,28 @@ public class AllToAllVectorMaker extends BinObject {
 		return idx;
 	}
 	
+	/**
+	 * Creates unique key from two contig IDs.
+	 * Ensures consistent key regardless of parameter order.
+	 *
+	 * @param a First contig ID
+	 * @param b Second contig ID
+	 * @return Unique 64-bit key for the pair
+	 */
 	private static long toKey(int a, int b) {
 		return (((long)Math.min(a, b))<<32)|(long)Math.max(a, b);
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Gets k-mer difference list for given size and classification.
+	 * Creates new list if none exists for this size category.
+	 *
+	 * @param size Contig size to quantize into bins
+	 * @param sameGenome Classification (0=different taxa, 1=same taxa)
+	 * @return FloatList for accumulating k-mer differences
+	 */
 	FloatList getDifList(int size, int sameGenome) {
 		int idx=KmerProb.quantizeLength(size);
 		FloatList[] matrix=kmerDifMatrix[sameGenome];
@@ -512,59 +648,93 @@ public class AllToAllVectorMaker extends BinObject {
 		return matrix[idx];
 	}
 	
+	/** Matrix storing k-mer difference distributions by size and classification */
 	FloatList[][] kmerDifMatrix=new FloatList[2][38];
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Primary output filename for training vectors */
 	private String out1=null;
 
+	/** Output filename for k-mer difference distributions */
 	private String outKmerDif=null;
+	/** Output filename for k-mer fraction probability tables */
 	private String outKmerFraction=null;
 	
+	/** File format handler for primary output */
 	private final FileFormat ffout1;
 	
+	/** Data loading component for reading contig data */
 	DataLoader loader=null;
+	/** Random seed for reproducible pair selection */
 	long seed=-1;
+	/** Target number of training lines to generate */
 	long lines=1000000;
+	/** Number of training lines generated so far */
 	long linesOut=0;
 	long posCount=0;
 	long negCount=0;
+	/** Fraction of training pairs that should be positive (same taxon) */
 	float positiveRate=0.5f;
+	/** Fraction of pairs selected from assembly graph edges */
 	float edgeFraction=0.1f;
+	/** Number of random rolls for biased index selection */
 	int baseRolls=2;
+	/** Count of positive training examples generated */
 	long positiveLines=0;
+	/** Count of negative training examples generated */
 	long negativeLines=0;
+	/** Maximum number of contigs allowed in a cluster */
 	int maxClusterContigs=9;
+	/** Random number generator for pair selection */
 	Random randy;
 
+	/** Accumulated 3-mer cosine differences for same-taxon pairs */
 	double dif3good=0;
+	/** Accumulated 4-mer cosine differences for same-taxon pairs */
 	double dif34good=0;
+	/** Count of same-taxon pairs with valid 3/4-mer comparisons */
 	long count3good=0;
 	
+	/** Accumulated 4-mer cosine differences for same-taxon pairs with 5-mers */
 	double dif45good=0;
+	/** Accumulated 5-mer cosine differences for same-taxon pairs */
 	double dif5good=0;
+	/** Count of same-taxon pairs with valid 5-mer comparisons */
 	long count5good=0;
 
+	/** Maximum GC content difference allowed between compared bins */
 	float maxGCDif=1.0f;//0.15
+	/** Maximum depth ratio allowed between compared bins */
 	float maxDepthRatio=1000.0f;//2.4
+	/** Maximum k-mer difference allowed between compared bins */
 	float maxKmerDif=1.0f;//0.02
+	/** Maximum product of k-mer difference and depth ratio */
 	final float maxProduct;
 	
+	/** Minimum contig length in bases for inclusion */
 	int minlen=100;
+	/** Maximum contig length in bases for inclusion */
 	int maxlen=2000000000;
 	
+	/** Complete list of loaded contigs */
 	ArrayList<Contig> allContigs=null;
 	ArrayList<ArrayList<Contig>> allSets=null;
+	/** Reusable buffer for formatting output lines */
 	private final ByteBuilder lineBuffer=new ByteBuilder();
+	/** Reusable buffer for feature vector construction */
 	private final FloatList vecBuffer=new FloatList();
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Flag indicating whether errors occurred during processing */
 	private boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
+	/** Controls verbosity of status output */
 	public static boolean verbose=false;
 	
 }

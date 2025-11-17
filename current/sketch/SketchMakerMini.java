@@ -36,6 +36,12 @@ public class SketchMakerMini extends SketchObject {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Convenience constructor using DisplayParams.
+	 * @param tool_ The parent SketchTool containing configuration
+	 * @param mode_ Processing mode (ONE_SKETCH, PER_FILE, etc.)
+	 * @param params Display parameters containing entropy, probability, and quality thresholds
+	 */
 	public SketchMakerMini(SketchTool tool_, int mode_, DisplayParams params){
 		this(tool_, mode_, params.minEntropy, params.minProb, params.minQual);
 	}
@@ -187,6 +193,14 @@ public class SketchMakerMini extends SketchObject {
 		return sketches;
 	}
 
+	/**
+	 * Processes a read pair, handling merging, taxonomy assignment, and sketching.
+	 * Merges overlapping pairs if configured, extracts taxonomy from headers,
+	 * and delegates to appropriate read processing method.
+	 *
+	 * @param r1 Primary read (required)
+	 * @param r2 Mate read (may be null)
+	 */
 	void processReadPair(Read r1, Read r2){
 		//Track the initial length for statistics
 		final int initialLength1=r1.length();
@@ -451,6 +465,12 @@ public class SketchMakerMini extends SketchObject {
 //		assert(false);
 	}
 	
+	/**
+	 * Heuristically detects PacBio reads based on quality patterns and naming.
+	 * Checks for ZMW identifiers and quality score distributions typical of PacBio.
+	 * @param r Read to analyze
+	 * @return true if read appears to be from PacBio sequencing
+	 */
 	boolean looksLikePacBio(Read r){
 		if(r.length()<302 || r.mate!=null){return false;}
 		if(r.quality==null){
@@ -540,6 +560,12 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Converts accumulated hash data to a final Sketch object.
+	 * Applies minimum count filtering and clears the internal heap.
+	 * @param minCount Minimum occurrence count for hash inclusion
+	 * @return Completed sketch, or null if heap is empty
+	 */
 	public Sketch toSketch(int minCount){
 		Sketch sketch=null;
 		if(heap!=null && heap.size()>0){
@@ -554,6 +580,11 @@ public class SketchMakerMini extends SketchObject {
 		return sketch;
 	}
 	
+	/**
+	 * Merges data from another SketchMakerMini instance.
+	 * Combines heaps and accumulates processing statistics.
+	 * @param smm Source SketchMakerMini to merge from
+	 */
 	public void add(SketchMakerMini smm){
 		heap.add(smm.heap);
 		readsProcessed+=smm.readsProcessed;
@@ -563,15 +594,20 @@ public class SketchMakerMini extends SketchObject {
 		pacBioDetected|=smm.pacBioDetected;
 	}
 
+	/** Checks if the sketch maker contains any data.
+	 * @return true if heap is null or empty */
 	public boolean isEmpty() {
 		return heap==null || heap.size()<1;
 	}
 	
+	/** Gets the minimum entropy threshold.
+	 * @return Current entropy cutoff, or -1 if entropy tracking disabled */
 	public float minEntropy() {
 		// TODO Auto-generated method stub
 		return eTracker==null ? -1 : eTracker.cutoff();
 	}
 	
+	/** Gets the internal SketchHeap for direct access */
 	public SketchHeap heap() {return heap;}
 	
 //	public void clear() {
@@ -587,13 +623,20 @@ public class SketchMakerMini extends SketchObject {
 	/** True only if this thread has completed successfully */
 	boolean success=false;
 
+	/** Hash storage container for sketch data */
 	SketchHeap heap;
 
+	/** Bit shift value for amino acid encoding */
 	final int aminoShift;
+	/** Total bit shift for k-mer encoding */
 	final int shift;
+	/** Shift value for reverse complement rolling hash */
 	final int shift2;
+	/** Bit mask for k-mer hash values */
 	final long mask;
+	/** Entropy tracker for low-complexity filtering, null if disabled */
 	final EntropyTracker eTracker;
+	/** Gene caller for translation and SSU detection, null if not needed */
 	final GeneCaller gCaller;
 	
 	/*--------------------------------------------------------------*/
@@ -607,18 +650,26 @@ public class SketchMakerMini extends SketchObject {
 	/** Number of sketches started */
 	public long sketchesMade=0;
 
+	/** Gets the minimum probability threshold for quality filtering */
 	float minProb() {return minProb;}
+	/** Gets the minimum quality score threshold */
 	byte minQual() {return minQual;}
+	/** Flag indicating PacBio data was detected and processed */
 	public boolean pacBioDetected=false;
+	/** Minimum probability threshold for k-mer acceptance */
 	private float minProb;
+	/** Minimum quality score for base acceptance */
 	private byte minQual;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reference to parent SketchTool containing configuration */
 	private final SketchTool tool;
+	/** Whether to include reverse complement in sketch generation */
 	private final boolean rcomp;
+	/** Processing mode determining sketch creation strategy */
 	final int mode;
 	
 	/*--------------------------------------------------------------*/

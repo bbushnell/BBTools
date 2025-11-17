@@ -9,6 +9,14 @@ import shared.Tools;
 import stream.Read;
 import structures.IntList;
 
+/**
+ * Key for identifying and comparing reads during clumping operations.
+ * Contains k-mer signatures, positional information, and flowcell coordinates
+ * to enable optical duplicate detection and sequence clustering.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 class ReadKey implements Serializable, Comparable<ReadKey> {
 	
 //	public static ReadKey makeKeyIfNeeded(Read r){
@@ -18,6 +26,14 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 //		return (ReadKey)r.obj;
 //	}
 	
+	/**
+	 * Creates a ReadKey from a read with memory safety handling.
+	 * Optionally sets the key as the read's object reference.
+	 *
+	 * @param r The read to create a key for
+	 * @param setObject Whether to store the key in r.obj
+	 * @return New ReadKey for the read
+	 */
 	public static ReadKey makeKey(Read r, boolean setObject){
 		assert(r.obj==null);
 		try {
@@ -30,10 +46,21 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		}
 	}
 	
+	/** Creates a ReadKey from a read with default k-mer parameters.
+	 * @param r The read to create a key for */
 	private ReadKey(Read r){
 		this(r, 0, 0, true);
 	}
 	
+	/**
+	 * Creates a ReadKey with specific k-mer information and flowcell coordinates.
+	 * Extracts lane, tile, x, y coordinates and UMI from read ID if needed.
+	 *
+	 * @param r The read to create a key for
+	 * @param kmer_ K-mer signature value
+	 * @param position_ Position of k-mer in read
+	 * @param plus_ True if k-mer is from forward strand
+	 */
 	private ReadKey(Read r, long kmer_, int position_, boolean plus_){
 		kmer=kmer_;
 		position=position_;
@@ -54,8 +81,15 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 //		expectedErrors=r.expectedErrorsIncludingMate(true);
 	}
 	
+	/** Default constructor for subclasses */
 	protected ReadKey(){}
 	
+	/**
+	 * Updates the k-mer signature and position information.
+	 * @param kmer_ New k-mer value
+	 * @param position_ New position value
+	 * @param minus_ True if k-mer is from minus strand
+	 */
 	public void set(long kmer_, int position_, boolean minus_){
 		setKmer(kmer_);
 		setPosition(position_);
@@ -63,23 +97,44 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		kmerMinusStrand=minus_;
 	}
 	
+	/**
+	 * Sets the k-mer signature value.
+	 * @param kmer_ New k-mer value
+	 * @return The k-mer value that was set
+	 */
 	private long setKmer(long kmer_){
 		return kmer=kmer_;
 	}
 	
+	/**
+	 * Sets the k-mer position in the read.
+	 * @param position_ New position value
+	 * @return The position value that was set
+	 */
 	private int setPosition(int position_){
 		return position=position_;
 	}
 	
+	/**
+	 * Associates this ReadKey with a clump.
+	 * @param clump_ The clump to associate with
+	 * @return The clump that was set
+	 */
 	public Clump setClump(Clump clump_){
 		return clump=clump_;
 	}
 	
+	/**
+	 * Sets the flipped state, ensuring it changes from current state.
+	 * @param flipped_ New flipped state
+	 * @return The flipped state that was set
+	 */
 	private boolean setFlipped(boolean flipped_){
 		assert(flipped!=flipped_);
 		return flipped=flipped_;
 	}
 	
+	/** Resets all key values to default states */
 	public void clear(){
 		setKmer(0);
 		setPosition(0);
@@ -87,6 +142,12 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		kmerMinusStrand=false;
 	}
 	
+	/**
+	 * Flips the read to its reverse complement and updates position accordingly.
+	 * Maintains consistency between read orientation and key state.
+	 * @param r The read to flip
+	 * @param k K-mer length for position adjustment
+	 */
 	public void flip(Read r, int k){
 		assert(r.swapped()==flipped);
 		r.reverseComplement();
@@ -163,6 +224,11 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		}
 		return true;
 	}
+	/**
+	 * Tests strict equality between ReadKeys.
+	 * @param b ReadKey to compare with
+	 * @return True if ReadKeys are strictly equal
+	 */
 	public boolean equals(ReadKey b){
 		return equals(b, false);
 	}
@@ -172,6 +238,12 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return position+","+(kmerMinusStrand ? ",t" : ",f")+","+kmer+"\t"+lane+","+tile+","+x+","+y;
 	}
 	
+	/**
+	 * Calculates physical distance between two ReadKeys on flowcell.
+	 * Handles cross-tile distance calculation with configurable spanning modes.
+	 * @param rkb ReadKey to calculate distance to
+	 * @return Physical distance, or FlowcellCoordinate.big if incompatible
+	 */
 	public float distance(ReadKey rkb){
 		if(lane!=rkb.lane){return FlowcellCoordinate.big;}
 		
@@ -193,10 +265,24 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return (float)Math.sqrt(a*a+b*b);
 	}
 	
+	/**
+	 * Tests if another ReadKey is within specified distance.
+	 * @param rkb ReadKey to test proximity to
+	 * @param dist Maximum distance threshold
+	 * @return True if ReadKeys are within distance threshold
+	 */
 	public boolean near(ReadKey rkb, float dist){
 		return distance(rkb)<dist;
 	}
 	
+	/**
+	 * Tests proximity using minimum of X or Y coordinate differences.
+	 * More permissive than regular distance calculation.
+	 *
+	 * @param rkb ReadKey to test proximity to
+	 * @param dist Maximum distance threshold
+	 * @return True if minimum coordinate difference is within threshold
+	 */
 	public boolean nearXY(ReadKey rkb, float dist){
 		if(lane!=rkb.lane){return false;}
 		
@@ -204,27 +290,46 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		return Tools.min(a,b)<=dist;
 	}
 	
+	/**
+	 * Tests if UMI sequences match within substitution tolerance.
+	 * @param rkb ReadKey to compare UMI with
+	 * @param maxSubs Maximum allowed substitutions
+	 * @return True if UMIs match within substitution threshold
+	 */
 	public boolean umiMatches(ReadKey rkb, int maxSubs) {
 		if(umi==null || rkb.umi==null) {return false;}
 		int hdist=Barcode.hdist(umi, rkb.umi);
 		return hdist<=maxSubs;
 	}
 
+	/** General purpose flag for marking ReadKeys during processing */
 	public int flag;
 	
+	/** K-mer signature value for this read */
 	public long kmer;
 	/** Position of rightmost base of kmer */
 	public int position;
+	/** True if the associated read has been reverse-complemented */
 	public boolean flipped;
+	/** True if the k-mer comes from the minus strand */
 	public boolean kmerMinusStrand;
+	/** Clump that this ReadKey belongs to */
 	public Clump clump;
+	/** List of variant positions for this read */
 	public IntList vars;
 //	public float expectedErrors;
 	
 	public int lane, tile, x, y;
+	/** Unique molecular identifier sequence */
 	public String umi;
 	
+	/** Memory overhead in bytes for a ReadKey instance */
 	public static final int overhead=overhead();
+	/**
+	 * Calculates memory overhead for ReadKey instances.
+	 * Accounts for object header, fields, and flowcell coordinate data.
+	 * @return Memory overhead in bytes
+	 */
 	private static int overhead(){
 		return 16+ //self
 				1*(8)+ //kmer
@@ -234,9 +339,14 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 				4*(4); //flowcell coordinate
 	}
 	
+	/** Tests if optical duplicate detection spans across tiles.
+	 * @return True if spanning tiles in X or Y direction */
 	public static boolean spanTiles(){return spanTilesX || spanTilesY;}
+	/** Whether optical duplicate detection spans tiles in X direction */
 	public static boolean spanTilesX=false;
+	/** Whether optical duplicate detection spans tiles in Y direction */
 	public static boolean spanTilesY=false;
+	/** Whether to limit tile spanning to adjacent tiles only */
 	public static boolean spanAdjacentOnly=false;
 	
 	/**

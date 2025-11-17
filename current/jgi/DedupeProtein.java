@@ -53,6 +53,11 @@ import tracker.ReadStats;
  */
 public final class DedupeProtein {
 	
+	/**
+	 * Program entry point for protein deduplication.
+	 * Sets buffer length, creates DedupeProtein instance, and executes processing.
+	 * @param args Command-line arguments for deduplication parameters
+	 */
 	public static void main(String[] args){
 		int rbl0=Shared.bufferLen();;
 		Shared.setBufferLen(16);
@@ -66,6 +71,12 @@ public final class DedupeProtein {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Constructor that parses command-line arguments and initializes deduplication parameters.
+	 * Configures input/output files, processing modes, overlap thresholds, clustering options,
+	 * and multi-threading settings. Sets up hash maps for exact matching and affix storage.
+	 * @param args Command-line arguments containing input files, output options, and parameters
+	 */
 	public DedupeProtein(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -398,6 +409,11 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Main processing method that executes the deduplication pipeline.
+	 * Saves and restores FASTQ detection settings, calls process2() for actual work,
+	 * and reports timing statistics if showSpeed is enabled.
+	 */
 	public void process(){
 		
 		Timer t=new Timer();
@@ -421,6 +437,11 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Core deduplication processing pipeline.
+	 * Executes exact matching, containment detection, overlap finding, clustering,
+	 * and output generation in sequence. Handles progress reporting and memory monitoring.
+	 */
 	public void process2(){
 		if(dupeWriter!=null){dupeWriter.start();}
 //		assert(false) : out;
@@ -494,6 +515,7 @@ public final class DedupeProtein {
 		
 	}
 	
+	/** Clears and nullifies affix hash maps to free memory */
 	private void killAffixMaps(){
 		if(affixMaps==null){return;}
 		for(int i=0; i<numAffixMaps; i++){
@@ -505,6 +527,12 @@ public final class DedupeProtein {
 		affixMaps=null;
 	}
 	
+	/**
+	 * Creates array of concurrent read input streams from either file list or read collection.
+	 * Handles multiple input files and configures stream parameters for parallel processing.
+	 * @param list Optional read collection to create stream from; if null, uses input files
+	 * @return Array of configured concurrent read input streams
+	 */
 	private ConcurrentReadInputStream[] makeCrisArray(ArrayList<Read> list){
 		final ConcurrentReadInputStream[] array;
 		
@@ -537,6 +565,12 @@ public final class DedupeProtein {
 		return array;
 	}
 	
+	/**
+	 * Finds exact sequence matches using hash-based comparison.
+	 * Creates hash threads to process reads in parallel, accumulates statistics,
+	 * and closes input streams when complete.
+	 * @param t Timer for tracking processing time
+	 */
 	private void processMatches(Timer t){
 		crisa=makeCrisArray(null);
 		
@@ -581,6 +615,12 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Finds sequences contained within other sequences.
+	 * Creates read list from valid units, processes with hash threads to detect
+	 * containments, and removes invalid entries from data structures.
+	 * @param t Timer for tracking processing time
+	 */
 	private void processContainments(Timer t){
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
 		for(ArrayList<Unit> alu : codeMap.values()){
@@ -661,6 +701,12 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Identifies overlaps between sequences for clustering.
+	 * Assigns unit IDs, optionally initializes cluster tracking, processes overlaps
+	 * with hash threads, and creates clusters if configured.
+	 * @param t Timer for tracking processing time
+	 */
 	private void findOverlaps(Timer t){
 		
 		ArrayList<Read> list=new ArrayList<Read>((int)addedToMain);
@@ -747,6 +793,15 @@ public final class DedupeProtein {
 		list.clear();
 	}
 	
+	/**
+	 * Makes overlap relationships transitive (no longer used).
+	 * Previously ensured that if A overlaps B and B overlaps C, then A overlaps C.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param list List of reads with overlap information
+	 * @param rigorous Whether to use strict transitive checking
+	 * @return Number of overlaps added to make relationships transitive
+	 */
 	private long makeTransitive(Timer t, ArrayList<Read> list, boolean rigorous){
 		assert(false) : "No longer needed.";
 		long added=0;
@@ -802,6 +857,15 @@ public final class DedupeProtein {
 		return added;
 	}
 	
+	/**
+	 * Counts units with non-transitive overlap relationships.
+	 * Validates that overlap graphs maintain transitive properties if enabled.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param list List of reads to check for transitivity
+	 * @param rigorous Whether to use perfect or basic transitivity checking
+	 * @return Number of units with intransitive overlaps
+	 */
 	private int countIntransitive(Timer t, ArrayList<Read> list, boolean rigorous){
 		if(!countTransitive){return 0;}
 		int transitive=0, intransitive=0;
@@ -832,6 +896,14 @@ public final class DedupeProtein {
 		return intransitive;
 	}
 	
+	/**
+	 * Counts units with redundant overlap information.
+	 * Identifies units that have overlaps that could be simplified without losing connectivity.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param list List of reads to check for redundancy
+	 * @return Number of units with redundant overlaps
+	 */
 	private int countRedundant(Timer t, ArrayList<Read> list){
 		if(!countRedundant){return 0;}
 		int redundant=0, nonredundant=0;
@@ -861,6 +933,14 @@ public final class DedupeProtein {
 		return redundant;
 	}
 	
+	/**
+	 * Counts total number of overlaps and their combined length.
+	 * Used for statistics reporting and validation of overlap detection.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param list List of reads containing overlap information
+	 * @return Total number of overlaps found
+	 */
 	private long countOverlaps(Timer t, ArrayList<Read> list){
 		
 		long overlaps=0, length=0;
@@ -889,6 +969,14 @@ public final class DedupeProtein {
 		return overlaps;
 	}
 	
+	/**
+	 * Populates cluster size distribution matrix for statistics.
+	 * Counts clusters by size, total reads, and total bases in each size category.
+	 *
+	 * @param clusters List of clusters to analyze
+	 * @param clusterSize 2D matrix to fill with cluster statistics
+	 * @return Maximum cluster size encountered
+	 */
 	private long fillClusterSizeMatrix(ArrayList<ArrayList<Unit>> clusters, long[][] clusterSize){
 		int max=0;
 		for(ArrayList<Unit> cluster : clusters){
@@ -908,6 +996,14 @@ public final class DedupeProtein {
 		return max;
 	}
 	
+	/**
+	 * Groups sequences into clusters based on overlap relationships.
+	 * Creates connected components from overlap graph, queues large clusters
+	 * for processing, and generates cluster size statistics.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param list List of reads with overlap information
+	 */
 	private void makeClusters(Timer t, ArrayList<Read> list){
 		
 		final int clusterlen=70000;
@@ -959,6 +1055,12 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Formats cluster size distribution into readable string.
+	 * Creates formatted table showing cluster count, reads, and bases by size range.
+	 * @param clusterSizeMatrix Matrix containing cluster statistics by size
+	 * @return Formatted string representation of cluster size distribution
+	 */
 	private String toClusterSizeString(long[][] clusterSizeMatrix){
 		
 		long[] clusterSize=clusterSizeMatrix[0];
@@ -1038,6 +1140,11 @@ public final class DedupeProtein {
 		return sb2.toString();
 	}
 	
+	/**
+	 * Renames sequences with cluster and position information (unused).
+	 * Previously renamed reads to include cluster number and position within cluster.
+	 * @param t Timer for tracking processing time
+	 */
 	private void renameClusters(Timer t){
 		assert(false) : "This is now unused; renaming is done at output time.";
 		int cnum=0;
@@ -1068,6 +1175,12 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Converts overlap graphs to maximum spanning trees.
+	 * Reduces complex overlap networks to tree structures while preserving
+	 * strongest connections. Uses multi-threaded MST processing.
+	 * @param t Timer for tracking processing time
+	 */
 	private void processMst(Timer t){
 		
 		if(DISPLAY_PROGRESS){outstream.println("Converting to Maximum Spanning Tree.");}
@@ -1140,6 +1253,14 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Processes clusters to fix graph issues and optionally merge sequences.
+	 * Handles multi-joins, cycles, offset contradictions, and sequence merging
+	 * using multi-threaded cluster processing.
+	 *
+	 * @param t Timer for tracking processing time
+	 * @param mergeClusters Whether to merge overlapping sequences within clusters
+	 */
 	private void processClusters(Timer t, boolean mergeClusters){
 		
 		ArrayList<ClusterThread> alct=new ArrayList<ClusterThread>(THREADS);
@@ -1224,6 +1345,14 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Removes invalid units from data structures and read list.
+	 * Cleans up code maps and affix maps by removing references to invalid units,
+	 * then condenses the read list to remove null entries.
+	 *
+	 * @param list List of reads to clean up
+	 * @return Number of invalid units removed
+	 */
 	private long removeInvalid(ArrayList<Read> list){
 		final LongM keym=new LongM();
 		long removedC=0, removedP=0, removedS=0, invalid=0;
@@ -1337,6 +1466,16 @@ public final class DedupeProtein {
 	}
 	
 	
+	/**
+	 * Converts code map to sorted array list of reads.
+	 * Extracts valid reads from hash map, optionally sorts them, and clears map if requested.
+	 *
+	 * @param codeMap Hash map containing units indexed by sequence codes
+	 * @param sort Whether to sort the resulting read list
+	 * @param clear Whether to clear the code map after extraction
+	 * @param outNum Expected number of output reads for validation
+	 * @return List of reads extracted from code map
+	 */
 	private static ArrayList<Read> addToArray(HashMap<Long, ArrayList<Unit>> codeMap, boolean sort, boolean clear, long outNum){
 		assert(outNum<=Integer.MAX_VALUE);
 		if(verbose){System.err.println("Making list.");}
@@ -1366,6 +1505,14 @@ public final class DedupeProtein {
 		return list;
 	}
 	
+	/**
+	 * Coordinates output writing based on processing results.
+	 * Writes either simple read output or cluster-based output depending on
+	 * whether clustering was performed.
+	 *
+	 * @param clusterStatsFile Optional file for cluster statistics
+	 * @param t Timer for tracking processing time
+	 */
 	private void writeOutput(String clusterStatsFile, Timer t){
 //		verbose=true;
 //		assert(false) : (processedClusters==null)+", "+(processedClusters.isEmpty())+", "+outgraph+", "+out+", "+clusterFilePattern;
@@ -1408,6 +1555,11 @@ public final class DedupeProtein {
 	
 
 	
+	/**
+	 * Writes deduplicated reads to output file.
+	 * Handles unique name generation if required and writes reads in FASTA format.
+	 * @param list List of deduplicated reads to output
+	 */
 	private void writeOutput(ArrayList<Read> list){
 		
 		final ByteStreamWriter tsw=(out==null ? null : new ByteStreamWriter(out, overwrite, append, true));
@@ -1458,6 +1610,14 @@ public final class DedupeProtein {
 	}
 	
 
+	/**
+	 * Writes clustered sequences to output files.
+	 * Sorts clusters by size, writes cluster files if pattern specified,
+	 * generates statistics, and optionally selects best representatives.
+	 *
+	 * @param clusterStatsFile Optional file for writing cluster statistics
+	 * @param clist List of clusters to write
+	 */
 	private void writeOutputClusters(String clusterStatsFile, ArrayList<ArrayList<Unit>> clist){
 
 //		Shared.sort(clist, CLUSTER_LENGTH_COMPARATOR); //Causes a crash: java.lang.System.arraycopy(Native Method)
@@ -1618,6 +1778,12 @@ public final class DedupeProtein {
 	}
 	
 
+	/**
+	 * Writes overlap graph in DOT format for visualization.
+	 * Creates GraphViz-compatible output showing sequence relationships and overlaps.
+	 * @param graphFile Output file for graph representation
+	 * @param clist List of clusters containing overlap information
+	 */
 	private void writeGraph(String graphFile, ArrayList<ArrayList<Unit>> clist){
 //		Shared.sort(clist, CLUSTER_LENGTH_COMPARATOR);
 		clist.sort(CLUSTER_LENGTH_COMPARATOR);
@@ -1681,6 +1847,12 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Converts read to graph node name for DOT output.
+	 * Uses numeric ID or sequence name depending on configuration.
+	 * @param r Read to convert to graph node name
+	 * @return Graph-safe node name string
+	 */
 	private static String toGraphName(Read r){
 		if(NUMBER_GRAPH_NODES || r.id==null){
 			return r.numericID+((ADD_PAIRNUM_TO_NAME || r.mate!=null) ? "."+(r.pairnum()+1) : "");
@@ -1689,6 +1861,15 @@ public final class DedupeProtein {
 		}
 	}
 	
+	/**
+	 * Selects best representative sequence from cluster.
+	 * Uses median length and quality scores to identify highest-quality sequence
+	 * near the median length to avoid bias toward very long sequences.
+	 *
+	 * @param alu List of units in cluster
+	 * @param clearList Whether to clear list and keep only best representative
+	 * @return Best representative unit from the cluster
+	 */
 	private Unit pickBestRepresenative(ArrayList<Unit> alu, boolean clearList){
 		if(alu==null || alu.isEmpty()){return null;}
 		float[] quality=new float[alu.size()];
@@ -1726,6 +1907,12 @@ public final class DedupeProtein {
 		return best;
 	}
 	
+	/**
+	 * Computes rolling hash code for amino acid sequence.
+	 * Uses position-dependent hash codes with left rotation for sequence hashing.
+	 * @param bases Amino acid sequence bytes to hash
+	 * @return Hash code for the sequence
+	 */
 	public static long hash(byte[] bases){
 		long code=bases.length;
 		for(int i=0; i<bases.length; i++){
@@ -1739,6 +1926,12 @@ public final class DedupeProtein {
 	}
 	
 	
+	/**
+	 * Computes rolling hash code for reversed amino acid sequence.
+	 * Processes sequence from right to left using complement hash codes.
+	 * @param bases Amino acid sequence bytes to hash in reverse
+	 * @return Hash code for the reversed sequence
+	 */
 	public static long hashReversed(byte[] bases){
 		long code=bases.length;
 		for(int i=bases.length-1; i>=0; i--){
@@ -1751,6 +1944,15 @@ public final class DedupeProtein {
 		return code;
 	}
 	
+	/**
+	 * Generates random hash codes for sequence hashing.
+	 * Creates matrix of random long values for position-dependent hashing.
+	 *
+	 * @param symbols Number of possible symbols (amino acids)
+	 * @param modes Number of position modes for hashing
+	 * @param seed Random number generator seed
+	 * @return 2D array of hash codes indexed by symbol and mode
+	 */
 	private static synchronized long[][] makeCodes(int symbols, int modes, long seed){
 		Random randy=Shared.threadLocalRandom(seed);
 		long[][] r=new long[symbols][modes];
@@ -1773,6 +1975,11 @@ public final class DedupeProtein {
 		return r;
 	}
 	
+	/**
+	 * Writes duplicate read to duplicate output file if configured.
+	 * Thread-safe method to record duplicates for separate output.
+	 * @param r Read identified as duplicate to write
+	 */
 	private void addDupe(Read r){
 		if(dupeWriter==null){return;}
 		if(r.mate==null || r.pairnum()==0){
@@ -4768,15 +4975,24 @@ public final class DedupeProtein {
 	
 	private ConcurrentReadInputStream crisa[];
 	
+	/** Writer for duplicate sequences output file */
 	private final ByteStreamWriter dupeWriter;
 
+	/** Primary input file paths */
 	private String[] in1=null;
+	/** Secondary input file paths for paired reads */
 	private String[] in2=null;
+	/** Main output file path */
 	private String out=null;
+	/** Pattern for generating cluster-specific output files */
 	private String clusterFilePattern=null;
+	/** Output file for best representative sequences from each cluster */
 	private String outbest=null;
+	/** Output file for duplicate sequences */
 	private String outdupe=null;
+	/** Cluster statistics output file path */
 	private String outcsf=null;
+	/** Graph output file path for DOT format */
 	private String outgraph=null;
 	private int maxNs=-1;
 	private long maxReads=-1;
@@ -4856,7 +5072,9 @@ public final class DedupeProtein {
 	private final int subsetCount;
 	private final boolean subsetMode;
 	
+	/** K-mer length for sequence hashing and comparison */
 	private final int k;
+	/** K-mer length minus one for indexing calculations */
 	private final int k2;
 	private final boolean EA=Shared.EA();
 	
@@ -4885,9 +5103,12 @@ public final class DedupeProtein {
 	private static final long[][] hashcodes=makeCodes2(32, 1);
 	private static final long[][] hashcodesR=makeCodes2(32, 2);
 	
+	/** Lookup table converting amino acid bytes to numeric codes */
 	public static final byte[] acidToNumber=new byte[128];
 	
+	/** Length of n-mers used for cluster statistics */
 	public static final int nmerLength=4;
+	/** Maximum n-mer value for statistics arrays */
 	public static final int maxNmer=((int) Math.pow(20, nmerLength))-1;
 	private static PrintStream outstream=System.err;
 	/** Permission to overwrite existing files */
@@ -4902,6 +5123,7 @@ public final class DedupeProtein {
 	public static boolean printLengthInEdges=false;
 	public static float depthRatio=2;
 	public static int MINSCAF=0;
+	/** Number of processing threads to use */
 	public static int THREADS=Shared.threads();
 	public static int threadMaxReadsToBuffer=4000;
 	public static int threadMaxBasesToBuffer=32000000;
@@ -4913,7 +5135,9 @@ public final class DedupeProtein {
 	public static boolean HASH_NS=false;
 	
 	private static int reverseType(int type){return (type+2)%4;}
+	/** Constant for forward overlap direction */
 	public static final int FORWARD=0;
+	/** Constant for reverse overlap direction */
 	public static final int REVERSE=2;
 	public static final String[] OVERLAP_TYPE_NAMES=new String[] {"FORWARD", "FORWARDRC", "REVERSE", "REVERSERC"};
 	public static final String[] OVERLAP_TYPE_ABBREVIATIONS=new String[] {"F", "FRC", "R", "RRC"};

@@ -8,8 +8,22 @@ import dna.Data;
 import shared.Shared;
 import structures.ListNum;
 
+/**
+ * Concurrent read input stream that reads from in-memory collections of Read objects.
+ * Provides thread-safe access to paired or unpaired read collections through a
+ * depot-based buffering system. Supports sampling and progress tracking.
+ * @author Brian Bushnell
+ */
 public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStream {
 	
+	/**
+	 * Constructs a concurrent collection read input stream.
+	 * Creates a depot-based buffering system for thread-safe access to read collections.
+	 *
+	 * @param source1 Primary read collection (required)
+	 * @param source2 Secondary read collection for paired reads (may be null)
+	 * @param maxReadsToGenerate Maximum number of reads to process, or negative for unlimited
+	 */
 	public ConcurrentCollectionReadInputStream(List<Read> source1, List<Read> source2, long maxReadsToGenerate){
 		super("list");
 		assert(source1!=source2);
@@ -80,6 +94,8 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 //		System.err.println("cris thread terminated. Final depot size: "+depot.full.size()+", "+depot.empty.size());
 	}
 	
+	/** Adds poison pills to the depot to signal completion to consumers.
+	 * Retrieves empty buffers and converts them to poison pills for shutdown coordination. */
 	private final void addPoison(){
 		//System.err.println("Adding poison.");
 		//Add poison pills
@@ -108,6 +124,11 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		//System.err.println("Added poison.");
 	}
 	
+	/**
+	 * Reads individual or paired reads from source collections into depot buffers.
+	 * Handles read pairing, mate assignment, sampling, and progress tracking.
+	 * Respects maximum read limits and buffer size constraints.
+	 */
 	private final void readSingles(){
 
 		for(int i=0; !shutdown && i<producer1.size() && generated<maxReads; i++){
@@ -156,6 +177,7 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		}
 	}
 	
+	/** Flag indicating whether shutdown has been initiated */
 	private boolean shutdown=false;
 	
 	@Override
@@ -256,6 +278,11 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	@Override
 	public boolean verbose(){return verbose;}
 	
+	/**
+	 * Increments the generated read counter and displays progress if enabled.
+	 * Prints progress dots at regular intervals when SHOW_PROGRESS is true.
+	 * @param amt Number of reads to add to generated count
+	 */
 	private void incrementGenerated(long amt){
 		generated+=amt;
 		if(SHOW_PROGRESS && generated>=nextProgress){
@@ -284,28 +311,42 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	/** TODO */
 	private boolean errorState=false;
 	
+	/** Sampling rate for read selection (1.0 = keep all reads) */
 	private float samplerate=1f;
+	/** Random number generator for read sampling */
 	private java.util.Random randy=null;
 	
+	/** Array of threads used by this stream */
 	private Thread[] threads;
 	
 	@Override
 	public Object[] producers(){return new Object[] {producer1, producer2};}
 	
+	/** Primary source collection containing reads */
 	public final List<Read> producer1;
+	/** Secondary source collection for paired reads (may be null) */
 	public final List<Read> producer2;
+	/** Concurrent depot managing read list buffers for thread-safe access */
 	private ConcurrentDepot<Read> depot;
 	
+	/** Total number of bases processed from input collections */
 	private long basesIn=0;
+	/** Total number of reads processed from input collections */
 	private long readsIn=0;
 	
+	/** Maximum number of reads to generate from collections */
 	private long maxReads;
+	/** Number of reads generated so far */
 	private long generated=0;
+	/** Sequential number assigned to each list returned */
 	private long listnum=0;
+	/** Next milestone for displaying progress indicator */
 	private long nextProgress=PROGRESS_INCR;
 	
+	/** Global flag enabling verbose debug output */
 	public static boolean verbose=false;
 	
+	/** Empty list used as poison pill to signal stream completion */
 	private static final ArrayList<Read> poison=new ArrayList<Read>(0);
 	
 }

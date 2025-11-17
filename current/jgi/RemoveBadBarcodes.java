@@ -80,8 +80,11 @@ public class RemoveBadBarcodes extends BBTool_ST {
 		outstream.println("No Barcode:         "+noBarcode);
 	}
 	
+	/** Count of reads with valid barcodes */
 	long good=0;
+	/** Count of reads with invalid barcode characters */
 	long bad=0;
+	/** Count of reads with no barcode found in ID */
 	long noBarcode=0;
 	
 }

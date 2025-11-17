@@ -120,9 +120,13 @@ public final class RingBufferMod {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Internal storage array for buffer values */
 	private final long[] array;
+	/** Fixed capacity of the buffer */
 	private final int size;
 	
+	/** Current insertion position, wraps using modulo arithmetic */
 	private int pos=0;
+	/** Total number of elements added, used for bounds checking */
 	private long count=0;//Optional
 }

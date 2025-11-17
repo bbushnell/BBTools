@@ -11,9 +11,22 @@ import java.io.OutputStream;
 import shared.Tools;
 
 
+/**
+ * Utility for organizing files by chromosome number into subdirectories.
+ * Processes files in a root directory and moves those matching chromosome patterns
+ * (chr1-chr22) into corresponding subdirectories.
+ * @author Brian Bushnell
+ */
 public class MoveFiles {
 	
 	
+	/**
+	 * Main entry point for file organization by chromosome.
+	 * Takes a root directory path as argument, scans for files matching chromosome
+	 * patterns (chr1-chr22), creates subdirectories for each chromosome, and moves
+	 * matching files into appropriate subdirectories.
+	 * @param args Command line arguments where args[0] is the root directory path
+	 */
 	public static void main(String[] args){
 		
 		String root=args[0].replace('\\', '/');

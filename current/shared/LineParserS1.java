@@ -29,6 +29,11 @@ public final class LineParserS1 implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
+	/**
+	 * Test method for parsing files or literal strings with delimiters.
+	 * Accepts filename/literal and delimiter character as command-line arguments.
+	 * @param args Command-line arguments: [filename/literal] [single_delimiter_char]
+	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -53,8 +58,15 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates a line parser with the specified delimiter character.
+	 * @param delimiter_ The character that separates fields in text lines */
 	public LineParserS1(char delimiter_) {delimiter=delimiter_;}
 
+	/**
+	 * Creates a line parser with the specified delimiter from an integer value.
+	 * Converts the integer to a character and uses it as the field delimiter.
+	 * @param delimiter_ Integer value representing the delimiter character (0-65535)
+	 */
 	public LineParserS1(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=Character.MAX_VALUE);
 		delimiter=(char)delimiter_;
@@ -118,6 +130,8 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the number of fields found in the current line.
+	 * @return Count of delimited fields in the line */
 	public int terms() {return bounds.size();}
 	
 	@Override
@@ -296,12 +310,23 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets the internal field boundaries (a and b) for the specified term.
+	 * Calculates start and end positions based on stored delimiter positions.
+	 * @param term Zero-based field index to set boundaries for
+	 * @return Length of the field in characters
+	 */
 	public int setBounds(int term){
 		a=(term==0 ? 0 : bounds.get(term-1)+1);
 		b=bounds.get(term);
 		return b-a;
 	}
 	
+	/**
+	 * Advances through the line to find the next delimiter position.
+	 * Updates internal position counters and identifies field boundaries.
+	 * @return Length of the current field found
+	 */
 	private int advance() {
 		b++;
 		a=b;
@@ -331,12 +356,17 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Stores the end positions of each field for efficient random access */
 	private final IntList bounds=new IntList();
 	
+	/** Start position of the current field being processed */
 	private int a=-1;
+	/** End position of the current field being processed */
 	private int b=-1;
+	/** The current line being parsed into fields */
 	private String line;
 	
+	/** The character used to separate fields in the line */
 	public final char delimiter;
 	
 }

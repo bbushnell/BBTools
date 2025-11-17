@@ -21,8 +21,26 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 	}
 	
 	//This gets overriden
+	/**
+	 * Abstract method for comparing ReadKey objects.
+	 * Implementations define specific comparison strategies for k-mer-based sorting.
+	 *
+	 * @param a First ReadKey to compare
+	 * @param b Second ReadKey to compare
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public abstract int compare(ReadKey a, ReadKey b);
 	
+	/**
+	 * Compares reads by sequence content, including mate sequences.
+	 * First compares primary sequences, then mate sequences if present,
+	 * finally falls back to quality comparison.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @param depth Recursion depth parameter (currently unused)
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public static final int compareSequence(Read a, Read b, int depth){
 		int x=compareSequence(a.bases, b.bases);
 		if(x!=0){return x;}
@@ -48,6 +66,15 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 	}
 	
 	//Not optimal, but fast.  This function is probably not very important.
+	/**
+	 * Compares reads by total quality score sum.
+	 * Higher quality reads are considered "smaller" for sorting purposes.
+	 * Returns 0 if quality scores are null.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @return Negative if a has higher quality, positive if b has higher quality, zero if equal
+	 */
 	public static final int compareQuality(Read a, Read b){
 		if(a.quality==null){return 0;}
 		int qa=Tools.sumInt(a.quality);

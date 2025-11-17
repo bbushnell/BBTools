@@ -10,6 +10,12 @@ import shared.LineParserS1;
  */
 public class Scaffold implements Comparable<Scaffold> {
 	
+	/**
+	 * Creates a scaffold with complete metadata.
+	 * @param name_ Scaffold name/identifier
+	 * @param assembly_ Assembly build information
+	 * @param length_ Total scaffold sequence length
+	 */
 	public Scaffold(String name_, String assembly_, int length_){
 		name=name_;
 		assembly=assembly_;
@@ -85,6 +91,12 @@ public class Scaffold implements Comparable<Scaffold> {
 		assert(name!=null);
 	}
 	
+	/**
+	 * Creates a scaffold with name and length only.
+	 * Assembly information will be null.
+	 * @param name_ Scaffold name/identifier
+	 * @param length_ Total scaffold sequence length
+	 */
 	public Scaffold(String name_, int length_) {
 		name=name_;
 		length=length_;
@@ -105,6 +117,11 @@ public class Scaffold implements Comparable<Scaffold> {
 		return "@SQ\tSN:"+name+"\tLN:"+length+(assembly==null ? "" : "\tAS:"+assembly);
 	}
 	
+	/**
+	 * Extracts scaffold name from SAM header line without creating full Scaffold object.
+	 * @param lp LineParser1 positioned at a @SQ header line
+	 * @return Scaffold name from SN field
+	 */
 	public static String name(LineParser1 lp) {
 		assert(lp.startsWith("@SQ"));
 		for(int i=1; i<lp.terms(); i++){
@@ -118,17 +135,24 @@ public class Scaffold implements Comparable<Scaffold> {
 		return null;
 	}
 	
+	/** Scaffold name/identifier */
 	public String name;
+	/** Assembly build information */
 	public String assembly;
+	/** Total scaffold sequence length in bases */
 	public int length=-1;
+	/** Number of bases that received alignment hits */
 	public long basehits=0;
+	/** Total number of reads aligned to this scaffold */
 	public long readhits=0;
 	/** For calculating FPKM */
 	public long fraghits=0;
+	/** Number of reads aligned to the minus strand of this scaffold */
 	public long readhitsMinus=0;
 	
 	/** {A,C,G,T,N} */
 	public long[] basecount;
+	/** GC content as a fraction (0.0 to 1.0) */
 	public float gc;
 	
 	/** For attaching things */

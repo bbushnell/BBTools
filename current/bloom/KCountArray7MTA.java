@@ -33,6 +33,11 @@ public final class KCountArray7MTA extends KCountArray {
 	 */
 	private static final long serialVersionUID = 568264681638739631L;
 	
+	/**
+	 * Test harness demonstrating basic increment and read operations.
+	 * Creates a KCountArray7MTA instance and performs increment/read cycles on test keys.
+	 * @param args Command line arguments: [cells] [bits] [hashes]
+	 */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -73,6 +78,17 @@ public final class KCountArray7MTA extends KCountArray {
 		
 	}
 	
+	/**
+	 * Constructs a multi-threaded atomic k-mer counting array with specified parameters.
+	 * Calculates optimal prime-sized cell counts and initializes atomic integer arrays.
+	 * Sets up locking mechanism if required based on cell bits and hash count.
+	 *
+	 * @param cells_ Target number of cells (adjusted to prime multiples)
+	 * @param bits_ Bits per cell (determines maximum count value)
+	 * @param hashes_ Number of hash functions to use
+	 * @param prefilter_ Optional prefilter for two-stage counting
+	 * @param prefilterLimit_ Threshold for prefilter bypass
+	 */
 	public KCountArray7MTA(long cells_, int bits_, int hashes_, KCountArray prefilter_, int prefilterLimit_){
 		super(getPrimeCells(cells_, bits_), bits_, getDesiredArrays(cells_, bits_));
 //		verbose=false;
@@ -101,6 +117,14 @@ public final class KCountArray7MTA extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
+	/**
+	 * Calculates optimal number of arrays to avoid integer overflow in array sizing.
+	 * Ensures each array stays within Integer.MAX_VALUE word limit.
+	 *
+	 * @param desiredCells Target total number of cells
+	 * @param bits Bits per cell
+	 * @return Number of arrays needed to stay within size limits
+	 */
 	private static int getDesiredArrays(long desiredCells, int bits){
 		
 		long words=Tools.max((desiredCells*bits+31)/32, minArrays);
@@ -113,6 +137,14 @@ public final class KCountArray7MTA extends KCountArray {
 //		return Tools.max(arrays, Data.LOGICAL_PROCESSORS*4);
 	}
 	
+	/**
+	 * Adjusts cell count to use prime numbers for better hash distribution.
+	 * Calculates prime number at or below optimal cells per array, then multiplies by array count.
+	 *
+	 * @param desiredCells Target number of cells
+	 * @param bits Bits per cell
+	 * @return Prime-adjusted total cell count
+	 */
 	private static long getPrimeCells(long desiredCells, int bits){
 		
 		int arrays=getDesiredArrays(desiredCells, bits);
@@ -227,6 +259,12 @@ public final class KCountArray7MTA extends KCountArray {
 		return rvec;
 	}
 	
+	/**
+	 * Reads count from a pre-hashed key using bit operations to locate cell.
+	 * Extracts array number, cell index, and bit shift from the hashed key.
+	 * @param key Pre-hashed key
+	 * @return Count value stored at the key's location
+	 */
 	private final int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -449,6 +487,12 @@ public final class KCountArray7MTA extends KCountArray {
 		return cellsUsedMT(mindepth);
 	}
 	
+	/**
+	 * Multi-threaded implementation for counting used cells.
+	 * Creates one counting thread per array for parallel processing.
+	 * @param mindepth Minimum count threshold
+	 * @return Number of cells with counts ≥ mindepth
+	 */
 	public long cellsUsedMT(int mindepth){
 //		assert(false) : matrix.length;
 		ArrayList<CountUsedThread> list=new ArrayList<CountUsedThread>(matrix.length);
@@ -472,7 +516,14 @@ public final class KCountArray7MTA extends KCountArray {
 		return x;
 	}
 	
+	/** Worker thread for counting cells with counts above threshold.
+	 * Processes a single AtomicIntegerArray to count cells meeting criteria. */
 	private class CountUsedThread extends Thread{
+		/**
+		 * Constructs counting thread for specified array and threshold.
+		 * @param a_ AtomicIntegerArray to process
+		 * @param mindepth_ Minimum count threshold
+		 */
 		public CountUsedThread(AtomicIntegerArray a_, int mindepth_){
 			array=a_;
 			mindepth=mindepth_;
@@ -506,8 +557,11 @@ public final class KCountArray7MTA extends KCountArray {
 			}
 			count=temp;
 		}
+		/** Array to process for cell counting */
 		private final AtomicIntegerArray array;
+		/** Minimum count threshold for inclusion */
 		private final int mindepth;
+		/** Result count of cells meeting threshold criteria */
 		public long count;
 	}
 	
@@ -567,6 +621,12 @@ public final class KCountArray7MTA extends KCountArray {
 		return r;
 	}
 	
+	/**
+	 * Fills hash mask array with random values having specific bit count properties.
+	 * Ensures exactly 16 bits set in each 32-bit half and avoids hash collisions.
+	 * @param r Array to fill with hash masks
+	 * @param randy Random number generator
+	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -638,11 +698,25 @@ public final class KCountArray7MTA extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Selects appropriate lock for a given key to prevent concurrent modification.
+	 * Maps key to one of NUM_LOCKS available locks using key hash.
+	 * @param rawKey Key to determine lock for
+	 * @return Lock instance for the key
+	 */
 	private final Lock getLock(long rawKey){
 		final Lock lock=locks[(int)((rawKey&Long.MAX_VALUE)%(NUM_LOCKS))];
 		return lock;
 	}
 	
+	/**
+	 * Atomically increments count at hashed location using compare-and-swap.
+	 * Handles bit packing/unpacking and ensures atomic updates without overflow.
+	 *
+	 * @param key Pre-hashed key location
+	 * @param amt Amount to increment by
+	 * @return New count value after increment
+	 */
 	private int incrementHashedLocal(long key, int amt){
 		final int num=(int)(key&arrayMask);
 		final AtomicIntegerArray array=matrix[num];
@@ -701,6 +775,14 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
+	/**
+	 * Atomically increments count and returns the original value before increment.
+	 * Uses compare-and-swap to ensure thread-safe operation with overflow protection.
+	 *
+	 * @param key Pre-hashed key location
+	 * @param incr Amount to increment by
+	 * @return Original count value before incrementing
+	 */
 	private int incrementHashedLocalAndReturnUnincremented(long key, int incr){
 		assert(incr>=0);
 		final int num=(int)(key&arrayMask);
@@ -740,6 +822,14 @@ public final class KCountArray7MTA extends KCountArray {
 //		return value;
 //	}
 	
+	/**
+	 * Atomically sets count to at least the specified minimum and returns original value.
+	 * Only modifies value if current count is below target minimum.
+	 *
+	 * @param key Pre-hashed key location
+	 * @param newMin Target minimum count
+	 * @return Original count before any modification
+	 */
 	private int incrementHashedLocalAndReturnUnincremented_toAtLeast(long key, int newMin){
 		assert(newMin>0 && newMin<=maxValue) : newMin;
 		final int num=(int)(key&arrayMask);
@@ -760,6 +850,14 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
+	/**
+	 * Atomically decrements count at hashed location with underflow protection.
+	 * Uses compare-and-swap to ensure count never goes below zero.
+	 *
+	 * @param key Pre-hashed key location
+	 * @param amt Amount to decrement by
+	 * @return New count value after decrement (minimum 0)
+	 */
 	private int decrementHashedLocal(long key, int amt){
 		final int num=(int)(key&arrayMask);
 		final AtomicIntegerArray array=matrix[num];
@@ -778,6 +876,11 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
+	/**
+	 * Returns cached count of used cells, computing if not yet calculated.
+	 * Thread-safe lazy initialization of cell usage statistics.
+	 * @return Number of cells with count ≥ 1
+	 */
 	public long cellsUsed(){
 		if(cellsUsed<0){
 			synchronized(this){
@@ -799,6 +902,11 @@ public final class KCountArray7MTA extends KCountArray {
 		prefilter=null;
 	}
 	
+	/**
+	 * Sets random seed for hash mask generation.
+	 * Uses provided seed or generates random seed if negative value passed.
+	 * @param seed Random seed (negative values trigger random seed generation)
+	 */
 	public static synchronized void setSeed(long seed){
 		if(seed>=0){SEEDMASK=seed;}
 		else{
@@ -807,28 +915,46 @@ public final class KCountArray7MTA extends KCountArray {
 		}
 	}
 	
+	/** Flag indicating whether shutdown has been completed */
 	private boolean finished=false;
 	
+	/** Cached count of cells with non-zero values (-1 if not calculated) */
 	private long cellsUsed=-1;
+	/** Array of atomic integer arrays storing the actual count data */
 	private final AtomicIntegerArray[] matrix;
+	/** Number of hash functions used for k-mer placement */
 	private final int hashes;
+	/** Number of 32-bit words in each array segment */
 	private final int wordsPerArray;
+	/** Number of cells stored in each array segment */
 	private final long cellsPerArray;
+	/** Modulus for cell indexing within arrays */
 	private final long cellMod;
+	/** Pre-computed random masks for hash function operations */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
+	/** Threshold for prefilter bypass (0 if no prefilter) */
 	private final int prefilterLimit;
 	
+	/** Bits used for hash cell indexing (value: 6) */
 	private static final int hashBits=6;
+	/** Length of hash arrays (2^hashBits = 64) */
 	private static final int hashArrayLength=1<<hashBits;
+	/** Mask for hash cell selection (hashArrayLength - 1) */
 	private static final int hashCellMask=hashArrayLength-1;
 	
+	/** Optional prefilter array for two-stage counting efficiency */
 	private KCountArray prefilter;
 	
+	/** Whether to use locks for higher precision increments */
 	private final transient boolean useLocks;
+	/** Array of locks for thread-safe increment operations */
 	private final transient Lock[] locks;
+	/** Number of locks available for concurrent access control (value: 1999) */
 	private static final transient int NUM_LOCKS=1999;
 
+	/** Thread-safe counter for hash mask seed generation */
 	private static long counter=0;
+	/** Seed mask for randomizing hash mask generation */
 	private static long SEEDMASK=0;
 	
 }

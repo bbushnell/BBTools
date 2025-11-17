@@ -2,9 +2,19 @@ package structures;
 
 import shared.Tools;
 
+/**
+ * Represents a sequence position with associated count, GC content, and score metadata.
+ * Immutable data structure used for sequence analysis and comparison operations.
+ * Provides efficient comparison and hashing for sequence positioning applications.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class SeqPos implements Cloneable, Comparable<SeqPos>{
 
 //	public SeqPos(byte[] seq_, int pos_) {this(seq_, pos_, 1);}
+	/** Copy constructor that creates a new SeqPos from an existing instance.
+	 * @param sp The SeqPos instance to copy */
 	public SeqPos(SeqPos sp) {this(sp.seq, sp.pos, sp.count, sp.hashcode, sp.gc, sp.score);}
 //	public SeqPos(byte[] seq_, int pos_, int count_) {
 ////		synchronized(this) {
@@ -16,6 +26,16 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 //			assert(count>=0);
 ////		}
 //	}
+	/**
+	 * Package-private constructor that creates a SeqPos with all parameters.
+	 *
+	 * @param seq_ The sequence bytes
+	 * @param pos_ The position within the sequence
+	 * @param count_ The occurrence count (must be non-negative)
+	 * @param code_ The precomputed hash code
+	 * @param gc_ The GC content fraction
+	 * @param score_ The quality or alignment score
+	 */
 	SeqPos(byte[] seq_, int pos_, int count_, int code_, float gc_, float score_) {
 //		synchronized(this) {
 			seq=seq_;
@@ -45,6 +65,12 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 		return equals((SeqPos)o);
 	}
 	
+	/**
+	 * Compares this SeqPos with another for equality.
+	 * Uses position, hash code, and sequence content for comparison.
+	 * @param o The SeqPos to compare against
+	 * @return true if positions, hash codes, and sequences are equal
+	 */
 	public boolean equals(SeqPos o) {
 		if(pos!=o.pos || hashcode!=o.hashcode) {return false;}
 		return Tools.equals(seq, o.seq);
@@ -76,14 +102,22 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 		return 0;
 	}
 	
+	/** Returns the sequence byte array */
 	public final byte[] seq() {return seq;}
+	/** Returns the position within the sequence */
 	public final int pos() {return pos;}
 	
+	/** The sequence data as byte array */
 	public final byte[] seq;
+	/** The position within the sequence */
 	public final int pos;
+	/** Precomputed hash code for efficient hashing operations */
 	public final int hashcode;
+	/** Occurrence count or frequency of this sequence position */
 	public final int count;
+	/** GC content fraction of the sequence (0.0 to 1.0) */
 	public final float gc;
+	/** Quality or alignment score associated with this sequence position */
 	public final float score;
 	
 }

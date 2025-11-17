@@ -13,6 +13,11 @@ import stream.SiteScore;
 public final class MultiStateAligner9PacBio extends MSA{
 	
 	
+	/**
+	 * Test method demonstrating the aligner with two input sequences.
+	 * Fills alignment matrix, performs traceback, and calculates scores.
+	 * @param args Command-line arguments: [0] read sequence, [1] reference sequence
+	 */
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
@@ -43,6 +48,12 @@ public final class MultiStateAligner9PacBio extends MSA{
 	}
 	
 	
+	/**
+	 * Constructs a new PacBio-optimized multi-state aligner.
+	 * Initializes scoring matrices and limit arrays for alignment bounds checking.
+	 * @param maxRows_ Maximum number of rows (read length) the aligner can handle
+	 * @param maxColumns_ Maximum number of columns (reference length) the aligner can handle
+	 */
 	public MultiStateAligner9PacBio(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
@@ -1525,6 +1536,14 @@ public final class MultiStateAligner9PacBio extends MSA{
 //		throw new RuntimeException("Out of bounds.");
 //	}
 	
+	/**
+	 * Converts gapped reference coordinate to original reference coordinate.
+	 * Accounts for compressed gaps when translating positions.
+	 *
+	 * @param point Position in gapped reference
+	 * @param gref Gapped reference sequence
+	 * @return Corresponding position in original reference
+	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
@@ -1550,6 +1569,14 @@ public final class MultiStateAligner9PacBio extends MSA{
 		throw new RuntimeException("Out of bounds.");
 	}
 	
+	/**
+	 * Converts original reference coordinate to gapped reference coordinate.
+	 * Translates positions accounting for gap compressions.
+	 *
+	 * @param point Position in original reference
+	 * @param gref Gapped reference sequence
+	 * @return Corresponding position in gapped reference
+	 */
 	private final int translateToGappedCoordinate(int point, byte[] gref){
 		if(verbose){System.err.println("translateToGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=grefRefOrigin){return point-grefRefOrigin;}
@@ -2233,6 +2260,12 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates deletion score with bit-shifted offset encoding.
+	 * Internal scoring method using pre-shifted score values.
+	 * @param len Deletion length
+	 * @return Offset-encoded deletion penalty
+	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -2274,6 +2307,12 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return score;
 	}
 	
+	/**
+	 * Calculates insertion score with offset encoding.
+	 * Internal method using bit-shifted score representation.
+	 * @param len Insertion length
+	 * @return Offset-encoded insertion penalty
+	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -2292,10 +2331,15 @@ public final class MultiStateAligner9PacBio extends MSA{
 	}
 	
 
+	/** Three-dimensional scoring matrix for match/insertion/deletion states */
 	private final int[][][] packed;
+	/** Buffer for storing gapped reference sequences */
 	private final byte[] grefbuffer;
+	/** Current limit of valid data in gapped reference buffer */
 	private int greflimit=-1;
+	/** Secondary limit for gapped reference buffer with cushion */
 	private int greflimit2=-1;
+	/** Original reference coordinate corresponding to gapped reference start */
 	private int grefRefOrigin=-1;
 	
 	
@@ -2305,7 +2349,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return grefbuffer;
 	}
 
+	/** Vertical score limits for bandwidth constraints */
 	public final int[] vertLimit;
+	/** Horizontal score limits for bandwidth constraints */
 	public final int[] horizLimit;
 
 	@Override
@@ -2322,6 +2368,12 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return sb;
 	}
 	
+	/**
+	 * Converts minimum identity percentage to minimum score ratio.
+	 * Statistical calculation for alignment quality thresholds.
+	 * @param minid Minimum identity (0-1 or 0-100 if >1)
+	 * @return Minimum score ratio for alignment acceptance
+	 */
 	public static float minIdToMinRatio(double minid){
 		if(minid>1){minid=minid/100;}
 		assert(minid>0 && minid<=1) : "Min identity should be between 0 and 1.  Values above 1 will be assumed to be percent and divided by 100.";
@@ -2338,52 +2390,89 @@ public final class MultiStateAligner9PacBio extends MSA{
 		return (float)minratio;
 	}
 
+	/** Number of bits allocated for time information in packed scores */
 	public static final int TIMEBITS=9;
+	/** Number of bits allocated for score information in packed values */
 	public static final int SCOREBITS=32-TIMEBITS;
+	/** Maximum time value that can be stored in packed format */
 	public static final int MAX_TIME=((1<<TIMEBITS)-1);
+	/** Maximum score value that can be stored without overflow */
 	public static final int MAX_SCORE=((1<<(SCOREBITS-1))-1)-2000;
+	/** Minimum valid score value, one point above BAD */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 	
+	/** Bit offset for score values in packed representation */
 	public static final int SCOREOFFSET=TIMEBITS;
 	
+	/** Bit mask for extracting time information from packed values */
 	public static final int TIMEMASK=~((-1)<<TIMEBITS);
+	/** Bit mask for extracting score information from packed values */
 	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
 	
+	/** Score for alignment to missing reference bases */
 	public static final int POINTS_NOREF=0;
+	/** Score for ambiguous/uncalled bases in query */
 	public static final int POINTS_NOCALL=0;
+	/** Score for isolated matching base pairs */
 	public static final int POINTS_MATCH=90;
+	/** Enhanced score for consecutive matching base pairs */
 	public static final int POINTS_MATCH2=100; //Note:  Changing to 90 substantially reduces false positives
+	/** Score for compatible but imperfect base pairs */
 	public static final int POINTS_COMPATIBLE=50;
+	/** Penalty for single base substitutions */
 	public static final int POINTS_SUB=-137;
+	/** Increased substitution penalty after short match streaks */
 	public static final int POINTS_SUBR=-157; //increased penalty if prior match streak was at most 1
+	/** Reduced penalty for consecutive substitutions */
 	public static final int POINTS_SUB2=-49;
+	/** Further reduced penalty for long substitution runs */
 	public static final int POINTS_SUB3=-25;
+	/** Score modifier for match-substitution transitions */
 	public static final int POINTS_MATCHSUB=-10;
+	/** Penalty for opening an insertion */
 	public static final int POINTS_INS=-205;
+	/** Reduced penalty for extending insertions */
 	public static final int POINTS_INS2=-42;
+	/** Further reduced penalty for longer insertions */
 	public static final int POINTS_INS3=-23;
+	/** Minimal penalty for very long insertions */
 	public static final int POINTS_INS4=-8;
+	/** Penalty for opening a deletion */
 	public static final int POINTS_DEL=-292;
+	/** Reduced penalty for extending deletions */
 	public static final int POINTS_DEL2=-37;
+	/** Further reduced penalty for medium deletions */
 	public static final int POINTS_DEL3=-17;
+	/** Minimal penalty for long deletions */
 	public static final int POINTS_DEL4=-2;
+	/** Minimal penalty for very long deletions */
 	public static final int POINTS_DEL5=-1;
+	/** Penalty reduction for deletions at ambiguous reference bases */
 	public static final int POINTS_DEL_REF_N=-10;
+	/** Score for compressed gap regions */
 	public static final int POINTS_GAP=0-GAPCOST;
 
+	/** Time increment granularity for very long indels */
 	public static final int TIMESLIP=4;
+	/** Bit mask for time slipping calculations */
 	public static final int MASK5=TIMESLIP-1;
 	static{assert(Integer.bitCount(TIMESLIP)==1);}
 	
 	//TODO:  Consider removing these barriers entirely for PacBio reads.  Would make code faster, too.
+	/** Barrier position for insertion state restrictions */
 	private static final int BARRIER_I1=1;
+	/** Barrier position for deletion state restrictions */
 	private static final int BARRIER_D1=1;
 	
 
+	/** Length threshold for tier 3 indel penalty */
 	public static final int LIMIT_FOR_COST_3=5;
+	/** Length threshold for tier 4 indel penalty */
 	public static final int LIMIT_FOR_COST_4=20;
+	/** Length threshold for tier 5 indel penalty */
 	public static final int LIMIT_FOR_COST_5=80;
 	
+	/** Invalid score marker, one less than minimum valid score */
 	public static final int BAD=MIN_SCORE-1;
 	
 	
@@ -2414,14 +2503,22 @@ public final class MultiStateAligner9PacBio extends MSA{
 	
 	/** TODO: possibly enclose all uses of affine arrays in a branch controlled by this */
 	public static final boolean AFFINE_ARRAYS=false;
+	/** Precomputed insertion penalty array for different lengths */
 	public static final int[] POINTS_INS_ARRAY;
+	/** Offset-encoded insertion penalty array */
 	public static final int[] POINTSoff_INS_ARRAY;
+	/** Cumulative insertion penalty array */
 	public static final int[] POINTS_INS_ARRAY_C;
+	/** Offset-encoded cumulative insertion penalty array */
 	public static final int[] POINTSoff_INS_ARRAY_C;
 
+	/** Precomputed substitution penalty array for different lengths */
 	public static final int[] POINTS_SUB_ARRAY;
+	/** Offset-encoded substitution penalty array */
 	public static final int[] POINTSoff_SUB_ARRAY;
+	/** Cumulative substitution penalty array */
 	public static final int[] POINTS_SUB_ARRAY_C;
+	/** Offset-encoded cumulative substitution penalty array */
 	public static final int[] POINTSoff_SUB_ARRAY_C;
 	
 	static{
@@ -2542,7 +2639,9 @@ public final class MultiStateAligner9PacBio extends MSA{
 	public final int BAD(){return BAD;}
 	
 	
+	/** Current number of rows in alignment matrix (read length) */
 	private int rows;
+	/** Current number of columns in alignment matrix (reference length) */
 	private int columns;
 	
 }

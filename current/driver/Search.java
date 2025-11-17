@@ -7,6 +7,12 @@ import dna.Gene;
 import structures.Range;
 
 
+/**
+ * Utility class for searching genes within genomic ranges using various algorithms.
+ * Provides linear and binary search implementations for efficient gene lookups by position.
+ * Supports both exact overlaps and nearby gene searches with distance thresholds.
+ * @author Brian Bushnell
+ */
 public class Search {
 	
 	/** Find genes in the array that overlap point "p" */
@@ -88,6 +94,14 @@ public class Search {
 		return list;
 	}
 
+	/**
+	 * Finds the index of the range containing the specified point using linear search.
+	 * Returns the first range that includes the point or the first range starting after p.
+	 *
+	 * @param p The genomic position to locate
+	 * @param array Array of genomic ranges to search
+	 * @return Index of the range containing p, or last index if p is beyond all ranges
+	 */
 	public static int findPointLinear(int p, Range[] array){
 		for(int i=0; i<array.length; i++){
 			Range r=array[i];
@@ -97,6 +111,14 @@ public class Search {
 		return array.length-1;
 	}
 	
+	/**
+	 * Finds the index of the range containing the specified point using binary search.
+	 * More efficient than linear search for large range arrays.
+	 *
+	 * @param p The genomic position to locate
+	 * @param array Array of genomic ranges to search
+	 * @return Index of the range containing p or the appropriate boundary index
+	 */
 	public static int findPointBinary(int p, Range[] array){
 		assert(array!=null);
 		if(array.length==0){return 0;}
@@ -107,6 +129,15 @@ public class Search {
 		return result;
 	}
 	
+	/**
+	 * Determines if any range contains the specified point within a threshold distance.
+	 * Uses binary search to locate the appropriate range and checks threshold boundaries.
+	 *
+	 * @param p The genomic position to check
+	 * @param array Array of genomic ranges to search
+	 * @param thresh Distance threshold for proximity matching
+	 * @return true if point is within threshold distance of any range, false otherwise
+	 */
 	public static boolean containsPointBinary(int p, Range[] array, int thresh){
 		assert(array!=null);
 		if(array.length==0){return false;}
@@ -126,6 +157,17 @@ public class Search {
 		return (p2>=r.a && p1<=r.b);
 	}
 	
+	/**
+	 * Recursive binary search implementation for finding point within range array.
+	 * Returns the left (lower) index when point falls between ranges.
+	 * Handles boundary conditions for points outside all ranges.
+	 *
+	 * @param p The genomic position to locate
+	 * @param a Lower bound index for search
+	 * @param b Upper bound index for search
+	 * @param array Array of genomic ranges to search
+	 * @return Index of range containing p or appropriate boundary index
+	 */
 	public static int findPointBinary(int p, int a, int b, Range[] array){
 		if(a>=b){
 			
@@ -155,12 +197,24 @@ public class Search {
 	}
 	
 	
+	/**
+	 * Checks if a genomic position overlaps with a gene's transcription boundaries.
+	 * Tests if position falls within the gene's txStart and txStop coordinates.
+	 *
+	 * @param a The genomic position to test
+	 * @param g The gene to check for overlap
+	 * @return true if position overlaps gene transcription region, false otherwise
+	 */
 	public static boolean overlaps(int a, Gene g){
 		return a>=g.txStart && a<=g.txStop;
 	}
+	/** Returns the smaller of two integer values */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns the larger of two integer values */
 	private static final int max(int x, int y){return x>y ? x : y;}
+	/** Returns the smaller of two long values */
 	private static final long min(long x, long y){return x<y ? x : y;}
+	/** Returns the larger of two long values */
 	private static final long max(long x, long y){return x>y ? x : y;}
 	
 	

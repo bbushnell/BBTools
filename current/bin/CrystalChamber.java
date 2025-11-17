@@ -15,6 +15,11 @@ import java.util.Random;
  */
 class CrystalChamber extends AbstractRefiner {
     
+    /**
+     * Creates a CrystalChamber refiner with default random seed.
+     * Uses seed 12345 for backward compatibility.
+     * @param oracle_ Oracle instance for contig similarity evaluation during clustering
+     */
     public CrystalChamber(Oracle oracle_) {
         this(oracle_, 12345); // Default seed for backward compatibility
     }
@@ -224,10 +229,19 @@ class CrystalChamber extends AbstractRefiner {
      * Inner class representing a cluster centroid.
      */
     private static class Centroid {
+        /** Representative contig for this centroid */
         final Contig representative;
         
+        /** Creates centroid with specified representative contig.
+         * @param rep Contig to use as centroid representative */
         Centroid(Contig rep) {representative=rep;}
         
+        /**
+         * Calculates similarity between this centroid and given contig using Oracle.
+         * @param contig Contig to compare against this centroid
+         * @param oracle Oracle instance for similarity calculation
+         * @return Similarity score between centroid representative and contig
+         */
         float similarityTo(Contig contig, Oracle oracle) {
             return oracle.similarity(representative, contig, 1.0f);
         }
@@ -253,9 +267,18 @@ class CrystalChamber extends AbstractRefiner {
     }
     
     // Configuration parameters
+    /** Oracle instance for contig similarity evaluation during clustering */
     private final Oracle oracle;
+    /** Maximum number of clustering iterations before convergence timeout */
     private final int maxIterations;
+    /**
+     * Threshold for centroid movement below which clustering is considered converged
+     */
     private final float convergenceThreshold;
+    /** Minimum improvement required to justify splitting a cluster */
     private final float minSplitImprovement;
+    /**
+     * Random number generator with deterministic seed for reproducible centroid initialization
+     */
     private final Random random;
 }

@@ -1134,11 +1134,32 @@ public final class BBMergeOverlapper {
 		return min;
 	}
 	
+	/**
+	 * Calculates minimum overlap length based on sequence entropy.
+	 * Combines head and tail entropy calculations to determine complexity.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param k K-mer size for entropy calculation
+	 * @param counts Array for k-mer frequency counting
+	 * @param minscore Minimum entropy score threshold
+	 * @return Maximum of head and tail entropy-based minimum overlap lengths
+	 */
 	protected static int calcMinOverlapByEntropy(byte[] bases, int k, short[] counts, int minscore){
 		return Tools.max(calcMinOverlapByEntropyTail(bases, k, counts, minscore), calcMinOverlapByEntropyHead(bases, k, counts, minscore));
 //		return calcMinOverlapByEntropyTail(bases, k, counts, minscore);
 	}
 	
+	/**
+	 * Calculates minimum overlap from sequence tail based on k-mer entropy.
+	 * Processes sequence from end to beginning, counting unique and duplicate k-mers
+	 * until sufficient complexity is reached.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param k K-mer size for entropy calculation
+	 * @param counts Array for k-mer frequency counting
+	 * @param minscore Minimum entropy score threshold
+	 * @return Position from tail where entropy threshold is met
+	 */
 	protected static int calcMinOverlapByEntropyTail(byte[] bases, int k, short[] counts, int minscore){
 		final int bits=2*k;
 		final int mask=~((-1)<<(bits));
@@ -1177,6 +1198,17 @@ public final class BBMergeOverlapper {
 		return bases.length+1;
 	}
 	
+	/**
+	 * Calculates minimum overlap from sequence head based on k-mer entropy.
+	 * Processes sequence from beginning to end, counting unique and duplicate k-mers
+	 * until sufficient complexity is reached.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param k K-mer size for entropy calculation
+	 * @param counts Array for k-mer frequency counting
+	 * @param minscore Minimum entropy score threshold
+	 * @return Position from head where entropy threshold is met
+	 */
 	protected static int calcMinOverlapByEntropyHead(byte[] bases, int k, short[] counts, int minscore){
 		final int bits=2*k;
 		final int mask=~((-1)<<(bits));
@@ -1215,19 +1247,30 @@ public final class BBMergeOverlapper {
 		return bases.length+1;
 	}
 	
+	/** Thread-local storage for k-mer count arrays used in entropy calculations */
 	private static ThreadLocal<short[]> localKmerCounts=new ThreadLocal<short[]>();
 	
+	/** Multiplier for bad (mismatch) scoring in overlap evaluation */
 	private static final int BAD_MULT=6;
+	/** Primary multiplier for good (match) scoring in overlap evaluation */
 	private static final int GOOD_MULT_1=8;
+	/** Secondary multiplier for good (match) scoring in overlap evaluation */
 	private static final int GOOD_MULT_2=400;
 
+	/** Flag indicating whether custom tagging mode is enabled for training */
 	private static boolean TAG_CUSTOM=BBMerge.TAG_CUSTOM;
+	/** Flag indicating whether to generate feature vectors for machine learning */
 	static boolean MAKE_VECTOR=BBMerge.MAKE_VECTOR;
 
+	/** Additional bad score limit for early termination in overlap search */
 	private static int extraBadlimit=20;//(TAG_CUSTOM ? 40 : 20);//0 is fine when not using nets
 	
+	/** Debug flag for verbose output during overlap detection */
 	protected static final boolean verbose=false;
 	
+	/**
+	 * Lookup table converting quality scores to correctness probabilities (version 3)
+	 */
 	private static final float[] probCorrect3=
 		{0.000f, 0.251f, 0.369f, 0.499f, 0.602f, 0.684f, 0.749f, 0.800f, 0.842f, 0.874f,
 		 0.900f, 0.921f, 0.937f, 0.950f, 0.960f, 0.968f, 0.975f, 0.980f, 0.984f, 0.987f,
@@ -1237,6 +1280,9 @@ public final class BBMergeOverlapper {
 		 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 		 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 	
+	/**
+	 * Lookup table converting quality scores to correctness probabilities (version 4)
+	 */
 	private static final float[] probCorrect4=
 		{0.0000f, 0.2501f, 0.3690f, 0.4988f, 0.6019f, 0.6838f, 0.7488f, 0.8005f, 0.8415f, 0.8741f,
 		 0.9000f, 0.9206f, 0.9369f, 0.9499f, 0.9602f, 0.9684f, 0.9749f, 0.9800f, 0.9842f, 0.9874f,
@@ -1245,6 +1291,9 @@ public final class BBMergeOverlapper {
 		 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f,
 		 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f, 0.9999f};
 	
+	/**
+	 * Lookup table converting quality scores to correctness probabilities (version 5)
+	 */
 	private static final float[] probCorrect5=
 		{0.20000f, 0.20567f, 0.36904f, 0.49881f, 0.60189f, 0.68377f, 0.74881f, 0.80047f, 0.84151f, 0.87411f,
 		 0.90000f, 0.92057f, 0.93690f, 0.94988f, 0.96019f, 0.96838f, 0.97488f, 0.98005f, 0.98415f, 0.98741f,

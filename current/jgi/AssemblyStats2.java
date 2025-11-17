@@ -34,6 +34,11 @@ public final class AssemblyStats2 {
 	
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Main entry point for assembly statistics analysis.
+	 * Creates AssemblyStats2 instance, processes input, and closes output streams.
+	 * @param args Command line arguments for configuration
+	 */
 	public static void main(String[] args){
 		AssemblyStats2 x=new AssemblyStats2(args);
 		x.process();
@@ -42,6 +47,13 @@ public final class AssemblyStats2 {
 		Shared.closeStream(outstream);
 	}
 	
+	/**
+	 * Constructs AssemblyStats2 with command line argument parsing.
+	 * Configures all analysis parameters including input/output files, format options,
+	 * GC analysis settings, cutoff values, and statistical calculation parameters.
+	 * Initializes data structures for contig/scaffold tracking and GC histograms.
+	 * @param args Command line arguments containing configuration parameters
+	 */
 	public AssemblyStats2(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -233,6 +245,12 @@ public final class AssemblyStats2 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing method that analyzes input sequences and generates statistics.
+	 * Determines input format (FASTA/FASTQ), processes sequences through appropriate
+	 * counting method, sorts results, and generates formatted output reports.
+	 * Handles both benchmark mode and full statistical analysis modes.
+	 */
 	public void process(){
 		Timer t=new Timer();
 		
@@ -828,6 +846,12 @@ public final class AssemblyStats2 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes GC content histogram to specified output file.
+	 * Generates formatted table with GC percentage bins, scaffold counts,
+	 * fraction of total scaffolds, total length, and length fractions.
+	 * @param gchistFile Output file path for GC histogram
+	 */
 	private void printGCHist(String gchistFile){
 		if(!Tools.canWrite(gchistFile, overwrite)){
 			outstream.println("Can't write gc histogram because file exists and overwrite="+overwrite);
@@ -854,6 +878,14 @@ public final class AssemblyStats2 {
 	}
 	
 	
+	/**
+	 * Prints benchmark timing results for file processing performance.
+	 * Calculates and displays raw speed and uncompressed speed in MB/s.
+	 * @param t Timer instance with elapsed processing time
+	 * @param counts Base count array (unused in benchmark output)
+	 * @param sum Total bytes processed
+	 * @param in Input file name
+	 */
 	public static void printBenchResults(Timer t, long[] counts, long sum, String in){
 		outstream.println("Time: \t"+t);
 		long bytes=new File(in).length();
@@ -864,22 +896,69 @@ public final class AssemblyStats2 {
 		outstream.println(Tools.format("Uncompressed Speed:\t%.2f MBytes/s",mbps2));
 	}
 	
+	/**
+	 * Calculates logarithmic sum for contig length analysis.
+	 * Combines log sum from both binned counts and individual length lists.
+	 * @param clist Binned contig counts by length
+	 * @param llist Individual contig lengths above cutoff
+	 * @param cutoff Minimum length threshold
+	 * @param base Logarithm base for calculations
+	 * @return Combined logarithmic sum value
+	 */
 	public static double calcLogSumContigs(LongList clist, LongList llist, int cutoff, double base){
 		return calcLogSumCounts(clist, cutoff, base)+calcLogSumLengths(llist, cutoff, base);
 	}
 	
+	/**
+	 * Calculates logarithmic sum for scaffold length analysis.
+	 * Combines log sum from both binned counts and individual scaffold records.
+	 * @param slist Binned scaffold counts by length
+	 * @param tlist Individual scaffold records above cutoff
+	 * @param cutoff Minimum length threshold
+	 * @param base Logarithm base for calculations
+	 * @return Combined logarithmic sum value
+	 */
 	public static double calcLogSumScaffolds(LongList slist, ArrayList<Triple> tlist, int cutoff, double base){
 		return calcLogSumCounts(slist, cutoff, base)+calcLogSumTriples(tlist, cutoff, base);
 	}
 	
+	/**
+	 * Calculates power sum for contig length analysis.
+	 * Uses specified power function for length-weighted statistical calculations.
+	 * @param clist Binned contig counts by length
+	 * @param llist Individual contig lengths above cutoff
+	 * @param cutoff Minimum length threshold
+	 * @param power Power exponent for calculations
+	 * @return Combined power sum value
+	 */
 	public static double calcPowerSumContigs(LongList clist, LongList llist, int cutoff, double power){
 		return calcPowerSumCounts(clist, cutoff, power)+calcPowerSumLengths(llist, cutoff, power);
 	}
 	
+	/**
+	 * Calculates power sum for scaffold length analysis.
+	 * Uses specified power function for length-weighted statistical calculations.
+	 * @param slist Binned scaffold counts by length
+	 * @param tlist Individual scaffold records above cutoff
+	 * @param cutoff Minimum length threshold
+	 * @param power Power exponent for calculations
+	 * @return Combined power sum value
+	 */
 	public static double calcPowerSumScaffolds(LongList slist, ArrayList<Triple> tlist, int cutoff, double power){
 		return calcPowerSumCounts(slist, cutoff, power)+calcPowerSumTriples(tlist, cutoff, power);
 	}
 	
+	/**
+	 * Calculates assembly quality score based on length distribution and alignment.
+	 * Combines length-weighted scoring with aligned fraction bonus to produce
+	 * overall assembly quality metric.
+	 * @param slist Binned scaffold counts by length
+	 * @param tlist Individual scaffold records above cutoff
+	 * @param min Minimum length for scoring
+	 * @param max Maximum length cap for scoring
+	 * @param aligned Fraction of aligned/mapped bases
+	 * @return Assembly quality score
+	 */
 	public static double calcAssemblyScore(LongList slist, ArrayList<Triple> tlist, long min, long max, double aligned){
 		long lengthSum=0;
 		double scoreSum=0;
@@ -905,6 +984,14 @@ public final class AssemblyStats2 {
 		return scoreSum+aligned*50;
 	}
 	
+	/**
+	 * Calculates logarithmic sum from binned count data.
+	 * Applies logarithmic transformation with optional squaring or power modification.
+	 * @param counts Binned counts by length
+	 * @param cutoff Minimum length threshold
+	 * @param base Logarithm base for calculations
+	 * @return Logarithmic sum value
+	 */
 	public static double calcLogSumCounts(LongList counts, int cutoff, double base){
 		final double mult=1/Math.log(base);
 		
@@ -922,6 +1009,12 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Calculates logarithmic contribution for single length value.
+	 * Applies offset threshold and optional log transformation modifications.
+	 * @param len Sequence length
+	 * @return Logarithmic contribution value
+	 */
 	private static double logsum(long len){
 		if(len<logSumOffset){return 0;}
 		final double mult=1/Math.log(logSumBase);
@@ -932,6 +1025,14 @@ public final class AssemblyStats2 {
 		return incr/logSumOffset;
 	}
 	
+	/**
+	 * Calculates logarithmic sum from individual length values.
+	 * Processes list of individual lengths above cutoff threshold.
+	 * @param lengths List of individual sequence lengths
+	 * @param cutoff Minimum length threshold
+	 * @param base Logarithm base for calculations
+	 * @return Logarithmic sum value
+	 */
 	public static double calcLogSumLengths(LongList lengths, int cutoff, double base){
 		final double mult=1/Math.log(base);
 		
@@ -949,6 +1050,14 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Calculates logarithmic sum from Triple scaffold records.
+	 * Processes scaffold length data from Triple objects above cutoff threshold.
+	 * @param triples List of scaffold Triple records
+	 * @param cutoff Minimum length threshold
+	 * @param base Logarithm base for calculations
+	 * @return Logarithmic sum value
+	 */
 	public static double calcLogSumTriples(ArrayList<Triple> triples, int cutoff, double base){
 		final double mult=1/Math.log(base);
 		
@@ -966,6 +1075,14 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Calculates power sum from binned count data.
+	 * Uses power function transformation for length-weighted calculations.
+	 * @param counts Binned counts by length
+	 * @param cutoff Minimum length threshold
+	 * @param power Power exponent for calculations
+	 * @return Power sum value
+	 */
 	public static double calcPowerSumCounts(LongList counts, int cutoff, double power){
 		final double mult=1/Math.pow(1000, power);
 		
@@ -981,6 +1098,12 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Calculates power contribution for single length value.
+	 * Applies offset threshold and power transformation.
+	 * @param len Sequence length
+	 * @return Power contribution value
+	 */
 	private static double powersum(long len){
 		if(len<logSumOffset){return 0;}
 		final double mult=1/Math.pow(1000, powSumPower);
@@ -989,6 +1112,14 @@ public final class AssemblyStats2 {
 		return incr/logSumOffset;
 	}
 	
+	/**
+	 * Calculates power sum from individual length values.
+	 * Processes list of individual lengths above cutoff threshold.
+	 * @param lengths List of individual sequence lengths
+	 * @param cutoff Minimum length threshold
+	 * @param power Power exponent for calculations
+	 * @return Power sum value
+	 */
 	public static double calcPowerSumLengths(LongList lengths, int cutoff, double power){
 		final double mult=1/Math.pow(1000, power);
 		
@@ -1004,6 +1135,14 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Calculates power sum from Triple scaffold records.
+	 * Processes scaffold length data from Triple objects above cutoff threshold.
+	 * @param triples List of scaffold Triple records
+	 * @param cutoff Minimum length threshold
+	 * @param power Power exponent for calculations
+	 * @return Power sum value
+	 */
 	public static double calcPowerSumTriples(ArrayList<Triple> triples, int cutoff, double power){
 		final double mult=1/Math.pow(1000, power);
 		
@@ -1019,6 +1158,25 @@ public final class AssemblyStats2 {
 		return sum;
 	}
 	
+	/**
+	 * Generates comprehensive assembly statistics report in various output formats.
+	 * Calculates N50/L50, N90/L90 values, maximum lengths, GC statistics, and
+	 * generates formatted tables with scaffold/contig distributions.
+	 * Supports multiple output formats including standard, tabular, and JSON.
+	 * @param t Timer for performance reporting
+	 * @param counts Base composition counts
+	 * @param sum Total bases processed (unused)
+	 * @param minScaffold Minimum scaffold length threshold
+	 * @param gc_std GC content standard deviation
+	 * @param in Input file name
+	 * @param clist Binned contig counts
+	 * @param slist Binned scaffold counts
+	 * @param sclist1 Scaffold-contig count relationships
+	 * @param sclist2 Scaffold-contig length relationships
+	 * @param llist Individual contig lengths above cutoff
+	 * @param tlist Individual scaffold records above cutoff
+	 * @param out Output file path
+	 */
 	public static void printResults(Timer t, long[] counts, long sum, long minScaffold, double gc_std, String in, LongList clist, LongList slist, LongList sclist1, LongList sclist2,
 			LongList llist, ArrayList<Triple> tlist, String out){
 		
@@ -1749,6 +1907,16 @@ public final class AssemblyStats2 {
 		MetadataWriter.write(null, scaffolds, scaflen, 0, 0, false);
 	}
 	
+	/**
+	 * Estimates memory requirements for BBMap indexing of assembly.
+	 * Calculates memory needed for k-mer indexing based on sequence composition,
+	 * number of scaffolds, header lengths, and k-mer size.
+	 * @param acgtn Base counts array [A,C,G,T,N]
+	 * @param scaffolds Number of scaffolds
+	 * @param headerlen Total header length in bytes
+	 * @param k K-mer size for indexing
+	 * @return Estimated memory requirement in bytes
+	 */
 	private static long bbmapMemoryBytes(long[] acgtn, long scaffolds,
 			long headerlen, int k) {
 
@@ -1777,6 +1945,16 @@ public final class AssemblyStats2 {
 		return mem;
 	}
 	
+	/**
+	 * Generates formatted BBMap memory recommendation string.
+	 * Provides JVM heap size recommendations with physical RAM estimates
+	 * based on calculated memory requirements.
+	 * @param acgtn Base counts array [A,C,G,T,N]
+	 * @param scaffolds Number of scaffolds
+	 * @param headerlen Total header length in bytes
+	 * @param k K-mer size for indexing
+	 * @return Formatted memory recommendation string
+	 */
 	private static CharSequence estimateBBMapMemory(long[] acgtn, long scaffolds,
 			long headerlen, int k) {
 		long mem=180+bbmapMemoryBytes(acgtn, scaffolds, headerlen, k)/1000000; //in megabytes
@@ -1790,6 +1968,13 @@ public final class AssemblyStats2 {
 	}
 
 
+	/**
+	 * Benchmarks input stream reading performance.
+	 * Reads entire stream without processing to measure raw I/O speed.
+	 * @param is Input stream to benchmark
+	 * @return Total bytes read
+	 * @throws IOException If stream reading fails
+	 */
 	public static long bench(InputStream is) throws IOException{
 		final byte[] buf=new byte[32768];
 		long sum=0;
@@ -1799,6 +1984,15 @@ public final class AssemblyStats2 {
 	
 	
 	
+	/**
+	 * Writes scaffold length histogram to output file.
+	 * Generates cumulative histogram data with scaffold counts and lengths
+	 * in either ascending or descending order.
+	 * @param fname Output file name
+	 * @param slist Binned scaffold counts
+	 * @param tlist Individual scaffold records above cutoff
+	 * @param ascending Whether to sort in ascending order
+	 */
 	private static void writeHistFile(String fname, LongList slist, ArrayList<Triple> tlist, boolean ascending){
 		if(fname==null){return;}
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, false, false);
@@ -1870,6 +2064,14 @@ public final class AssemblyStats2 {
 		tsw.poisonAndWait();
 	}
 	
+	/**
+	 * Formats base composition data for GC content output.
+	 * Generates formatted string with base counts, fractions, and GC percentage
+	 * according to specified GCFORMAT setting.
+	 * @param sb StringBuilder for output formatting
+	 * @param counts Base composition counts
+	 * @return Formatted base composition string
+	 */
 	private static String toString2(StringBuilder sb, long[] counts){
 		final long a=counts[0], c=counts[1], g=counts[2], t=counts[3], iupac=counts[4], n=counts[5], other=counts[6], control=counts[7];
 		long sumDef=a+c+g+t;
@@ -1896,6 +2098,14 @@ public final class AssemblyStats2 {
 		}
 	}
 	
+	/**
+	 * Formats base composition data with GC standard deviation for summary output.
+	 * Generates formatted string including GC standard deviation for final reports.
+	 * @param sb StringBuilder for output formatting
+	 * @param counts Base composition counts
+	 * @param gc_std GC content standard deviation
+	 * @return Formatted base composition summary string
+	 */
 	private static String toString3(StringBuilder sb, long[] counts, double gc_std){
 		final long a=counts[0], c=counts[1], g=counts[2], t=counts[3], iupac=counts[4], n=counts[5], other=counts[6], control=counts[7];
 		long sumDef=a+c+g+t;
@@ -1924,6 +2134,16 @@ public final class AssemblyStats2 {
 	}
 	
 	
+	/**
+	 * Formats table row for scaffold/contig statistics display.
+	 * Creates formatted string with alignment for tabular output.
+	 * @param next Minimum length threshold
+	 * @param ssum Scaffold count
+	 * @param csum Contig count
+	 * @param slen Total scaffold length
+	 * @param clen Total contig length
+	 * @return Formatted table row string
+	 */
 	private static final String formatX(int next, long ssum, long csum, long slen, long clen){
 		float cov=clen*100f/slen;
 		
@@ -1941,6 +2161,14 @@ public final class AssemblyStats2 {
 		return s;
 	}
 	
+	/**
+	 * Formats length values with appropriate units (bp, Kbp, Mbp).
+	 * Converts raw base counts to human-readable format with unit suffixes.
+	 * @param x Length value in base pairs
+	 * @param precision Decimal places for formatting
+	 * @param width Minimum field width
+	 * @return Formatted length string with units
+	 */
 	private static final String formatKB(long x, int precision, int width){
 		String s;
 		if(FORMAT>=2 || x<1000){
@@ -1958,6 +2186,14 @@ public final class AssemblyStats2 {
 		return s;
 	}
 	
+	/**
+	 * Formats length values with "All" label for zero values.
+	 * Similar to formatKB but displays "All" for zero threshold values.
+	 * @param x Length value in base pairs
+	 * @param precision Decimal places for formatting
+	 * @param width Minimum field width
+	 * @return Formatted length string with units or "All"
+	 */
 	private static final String formatKB_all(long x, int precision, int width){
 		String s;
 			
@@ -1978,6 +2214,13 @@ public final class AssemblyStats2 {
 		return s;
 	}
 	
+	/**
+	 * Formats large numbers with comma separators for readability.
+	 * Adds thousand separators according to FORMAT setting.
+	 * @param x Number to format
+	 * @param width Minimum field width
+	 * @return StringBuilder with formatted number
+	 */
 	private static final StringBuilder formatComma(long x, int width){
 		StringBuilder sb=new StringBuilder(width);
 		if(FORMAT<=1){
@@ -2001,12 +2244,19 @@ public final class AssemblyStats2 {
 		return sb;
 	}
 	
+	/**
+	 * Formats percentage values with consistent width and precision.
+	 * @param x Percentage value to format
+	 * @return Formatted percentage string
+	 */
 	private static final String formatPercent(float x){
 		String s=Tools.format("%.2f%%", x);
 		while(s.length()<8){s=" "+s;}
 		return s;
 	}
 	
+	/** Resets internal data structures for reuse of AssemblyStats2 instance.
+	 * Clears all lists, arrays, and statistical accumulators. */
 	protected void reset(){
 //		clist=null;
 //		slist=null;
@@ -2063,43 +2313,72 @@ public final class AssemblyStats2 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Character to numeric base code mapping array */
 	private static final byte[] charToNum=makeCharToNum();
+	/** GC output format selector (0-5) */
 	public static int GCFORMAT=1;
+	/** Whether to output GC content as fraction vs counts */
 	public static boolean GC_FRACTION=true;
+	/** Output format selector (0-8) */
 	public static int FORMAT=1;
+	/** Length cutoff for switching to list-based storage */
 	private static long cutoff=1000000;
 	
+	/** Total bytes read from input stream */
 	private static long LIMSUM=0;
+	/** Total header length across all sequences */
 	private static long HEADERLENSUM=0;
 	
+	/** K-mer size for BBMap memory estimation (0=disabled) */
 	private static int bbmapkmer=0;//13;
+	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
+	/** Whether to append to existing output files */
 	public static boolean append=false;
+	/** Whether to include column headers in tabular output */
 	public static boolean useheader=true;
+	/** Whether to add filename column to output */
 	public static boolean addfilename=false;
+	/** Whether to include N90/L90 statistics in output */
 	public static boolean printL90=true;
+	/** Whether to include extended statistics (logsum, powersum) */
 	public static boolean printExtended=false;
+	/** Minimum length threshold for logsum calculations */
 	public static int logSumOffset=1000;
+	/** Power exponent for powersum calculations */
 	public static double powSumPower=0.25;
+	/** Logarithm base for logsum calculations */
 	public static double logSumBase=2;
+	/** Whether to square logarithm values in logsum */
 	public static boolean squareLog=false;
+	/** Power exponent applied to log values */
 	public static double logPower=1.0;
+	/** Whether to display processing speed statistics */
 	public static boolean showspeed=false;//true;
+	/** Whether to display total header size in output */
 	public static boolean printheadersize=false;
+	/** Whether to skip duplicate table rows in length distributions */
 	public static boolean skipDuplicateLines=true;
+	/** Whether to prefix column names with 'n_' in tabular output */
 	public static boolean N_UNDERSCORE=true;
 
+	/** Minimum sequence length for assembly score calculations */
 	public static long assemblyScoreMinLen=2000;
+	/** Maximum length cap for assembly score calculations */
 	public static long assemblyScoreMaxLen=50000;
+	/** Fraction of sequences that are aligned/mapped */
 	public static double alignedFraction=0;
+	/** Whether to calculate and display assembly quality score */
 	public static boolean printAssemblyScore=false;
 
 	private static final byte slashr='\r', slashn='\n', carrot='>', at='@', noref='N', noref2='n';
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Whether to run in benchmark mode (timing only) */
 	private boolean benchmark=false;
 	private String in=null, out=null, gc=null, gchistFile=null, scaffoldHistFile=null;
+	/** Maximum consecutive N characters before breaking contigs */
 	private int maxNs=-1;
 	
 	/** Number of decimal places for GC histogram */
@@ -2150,19 +2429,34 @@ public final class AssemblyStats2 {
 	/** gc standard deviation, using base counts rather than scaffold counts */
 	private double gc_bb_std;
 
+	/** Most recent logarithmic sum calculation result */
 	public static double lastLogSum;
+	/** Most recent N90 calculation result */
 	public static long lastL90;
+	/** Most recent N50 calculation result */
 	public static long lastL50;
+	/** Most recent total assembly size calculation */
 	public static long lastSize;
+	/** Most recent total contig count */
 	public static long lastContigs;
+	/** Most recent maximum contig length */
 	public static long lastMaxContig;
 	
+	/** Output stream for results and messages */
 	public static PrintStream outstream=System.out;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Container for scaffold statistics: length, contig count, and total contig length.
+	 * Supports sorting by scaffold length for N50/L50 calculations. */
 	private static class Triple implements Comparable<Triple>{
 		
+		/**
+		 * Creates Triple with scaffold statistics.
+		 * @param len_ Scaffold length
+		 * @param contigs_ Number of contigs in scaffold
+		 * @param contiglen_ Total length of contigs in scaffold
+		 */
 		Triple(long len_, long contigs_, long contiglen_){
 			length=len_;
 			contigs=contigs_;
@@ -2179,6 +2473,11 @@ public final class AssemblyStats2 {
 		@Override
 		public boolean equals(Object o){return equals((Triple)o);}
 		
+		/**
+		 * Tests equality between Triple objects.
+		 * @param o Triple to compare against
+		 * @return True if lengths match
+		 */
 		public boolean equals(Triple o){
 			return length==o.length && contiglen==o.contiglen;
 		}
@@ -2192,8 +2491,11 @@ public final class AssemblyStats2 {
 		@Override
 		public String toString(){return length+","+contigs+","+contiglen;}
 
+		/** Scaffold length in base pairs */
 		public final long length;
+		/** Number of contigs in this scaffold */
 		public final long contigs;
+		/** Total length of contigs in this scaffold */
 		public final long contiglen;
 		
 	}

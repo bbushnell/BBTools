@@ -6,6 +6,14 @@ import shared.Shared;
 import shared.Tools;
 import structures.SuperLongList;
 
+/**
+ * Creates k-mer frequency histograms from hash tables with multi-threaded and
+ * single-threaded processing strategies. Generates frequency distribution of
+ * k-mer occurrences across multiple hash tables for genomic analysis.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public final class HistogramMaker {
 
 	
@@ -64,6 +72,11 @@ public final class HistogramMaker {
 		return ca;
 	}
 	
+	/**
+	 * Worker thread for parallel histogram generation.
+	 * Processes assigned k-mer tables and accumulates histogram data
+	 * in a thread-local SuperLongList for later aggregation.
+	 */
 	private static class FillThread extends Thread{
 		
 		FillThread(final AbstractKmerTable[] tables_, int histMax_, AtomicInteger next_){
@@ -79,8 +92,11 @@ public final class HistogramMaker {
 			}
 		}
 		
+		/** Shared array of k-mer tables to process */
 		final AbstractKmerTable[] tables;
+		/** Atomic counter for thread-safe work distribution */
 		final AtomicInteger next;
+		/** Thread-local histogram accumulator for collecting frequency data */
 		SuperLongList sll;
 		
 	}

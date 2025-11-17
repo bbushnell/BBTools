@@ -36,6 +36,8 @@ import structures.LongPair;
  */
 public class FindHiCJunctions {
 	
+	/** Program entry point for HiC junction analysis.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -50,6 +52,14 @@ public class FindHiCJunctions {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/**
+	 * Constructs FindHiCJunctions with command-line argument parsing.
+	 * Initializes parameters, file formats, and k-mer counting arrays.
+	 * Sets up counts arrays for k-mer sizes 4, 6, 8, 10 and junction
+	 * position analysis arrays for left/right flanking regions.
+	 *
+	 * @param args Command-line arguments for configuration
+	 */
 	public FindHiCJunctions(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -154,6 +164,14 @@ public class FindHiCJunctions {
 		rightCounts[2]=new long[16];
 	}
 	
+	/**
+	 * Main processing pipeline for HiC junction detection.
+	 * Processes mapped reads to identify junction sites, extracts k-mers
+	 * around junctions, and optionally trims reads at junction positions.
+	 * Outputs junction k-mer statistics and processed reads.
+	 *
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -243,6 +261,15 @@ public class FindHiCJunctions {
 		}
 	}
 	
+	/**
+	 * Outputs k-mer counts to junction file in FASTA or TSV format.
+	 * Filters k-mers by count threshold and frequency, then writes
+	 * sorted results with sequence and abundance information.
+	 *
+	 * @param k K-mer length
+	 * @param array Count array for this k-mer size
+	 * @param direction Direction suffix for filename (L/R or empty)
+	 */
 	private void printKmers(int k, long[] array, String direction){
 		boolean tsv=junctionFile.endsWith(".tsv") || junctionFile.endsWith(".tsv.gz");
 		final String fname=junctionFile.replaceFirst("%", k+direction);
@@ -289,6 +316,15 @@ public class FindHiCJunctions {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes individual read for junction detection and k-mer extraction.
+	 * Identifies junction position from clipping patterns, extracts k-mers
+	 * around the junction site, and optionally trims the read.
+	 *
+	 * @param r The read to process
+	 * @param sl SAM line information for the read
+	 * @return true if read should be kept in output, false otherwise
+	 */
 	private boolean process(Read r, SamLine sl){
 		
 		if(sl==null || !sl.mapped() || !sl.primary() || sl.supplementary()|| r.match==null || !r.containsNonNM()){
@@ -364,6 +400,16 @@ public class FindHiCJunctions {
 		return true;
 	}
 	
+	/**
+	 * Converts alignment match string to soft-clipped version based on scoring.
+	 * Uses dynamic programming approach to find optimal alignment region
+	 * and converts flanking low-scoring regions to soft clips.
+	 *
+	 * @param match Original match string from alignment
+	 * @param minClipLength Minimum bases required for clipping
+	 * @param allowMutation Whether to modify the input array directly
+	 * @return Modified match string with soft clips applied
+	 */
 	public static byte[] softClipMatch(byte[] match, int minClipLength, boolean allowMutation){
 
 		final int matchScore=100;
@@ -481,42 +527,66 @@ public class FindHiCJunctions {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file path for reads to process */
 	private String in1=null;
 
+	/** Output file path for processed reads */
 	private String out1=null;
 	
+	/** Input file extension override */
 	private String extin=null;
+	/** Output file extension override */
 	private String extout=null;
 	
+	/**
+	 * Output file pattern for junction k-mer counts (% replaced with k-mer size)
+	 */
 	private String junctionFile="junctions_k%.txt";
 	
 	/*--------------------------------------------------------------*/
 
+	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Minimum clip length required to consider a junction */
 	private int minClipLength=8;
+	/** Minimum read length to retain after trimming */
 	private int minTrimLength=25;
+	/** Minimum count threshold for k-mer output */
 	private int minCount=2;
+	/** Minimum fraction of total k-mers for output threshold */
 	private float minFraction=0.0005f;
 
+	/** Whether to output k-mer statistics to junction files */
 	boolean printKmers=true;
+	/** Whether to trim reads at junction positions */
 	boolean trim=true;
+	/** K-mer count arrays for different k-mer lengths (4, 6, 8, 10) */
 	private long[][] counts;
+	/** Count arrays for left flanking k-mers at junction sites */
 	private long[][] leftCounts;
+	/** Count arrays for right flanking k-mers at junction sites */
 	private long[][] rightCounts;
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Input file format specification */
 	private final FileFormat ffin1;
 
+	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
+	/** Enable verbose output for debugging and status information */
 	public static boolean verbose=false;
+	/** Tracks whether processing encountered errors */
 	public boolean errorState=false;
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

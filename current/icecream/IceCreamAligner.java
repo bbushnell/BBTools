@@ -3,8 +3,26 @@ package icecream;
 import aligner.AlignmentResult;
 import shared.Shared;
 
+/**
+ * Abstract base class for sequence alignment algorithms with configurable
+ * implementations. Provides factory method to select alignment strategy (JNI or
+ * Java) and defines abstract alignment methods for forward alignments with score
+ * and ratio thresholds.
+ *
+ * @author Brian Bushnell
+ */
 public abstract class IceCreamAligner {
 
+	/**
+	 * Factory method that creates an appropriate aligner implementation based on
+	 * configuration. Returns JNI implementation if USE_JNI is enabled, otherwise
+	 * returns Java implementation for 32-bit alignment.
+	 *
+	 * @param bits Bit configuration for alignment (currently only 32-bit supported
+	 * for Java implementation)
+	 * @return IceCreamAlignerJNI if JNI enabled, IceCreamAlignerJava for 32-bit,
+	 * throws RuntimeException for unsupported bit configurations
+	 */
 	public static IceCreamAligner makeAligner(int bits){
 		if(Shared.USE_JNI){
 			return new IceCreamAlignerJNI();
@@ -47,7 +65,17 @@ public abstract class IceCreamAligner {
 //	public static final int pointsDel = -2;
 //	public static final int pointsIns = -2;
 
+	/**
+	 * Returns the number of iterations performed by the standard alignment algorithm.
+	 * Used for performance monitoring and optimization analysis.
+	 * @return Number of alignment iterations executed
+	 */
 	abstract long iters();
+	/**
+	 * Returns the number of iterations performed by the short alignment algorithm.
+	 * Used for performance monitoring and optimization analysis.
+	 * @return Number of short alignment iterations executed
+	 */
 	abstract long itersShort();
 
 }

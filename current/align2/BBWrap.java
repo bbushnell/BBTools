@@ -17,6 +17,8 @@ import stream.Read;
  */
 public class BBWrap {
 	
+	/** Program entry point that creates a wrapper instance and executes batch processing.
+	 * @param args Command-line arguments containing file paths and mapper options */
 	public static void main(String[] args){
 		BBWrap wrapper=new BBWrap();
 		ArrayList<String> list=wrapper.parse(args);
@@ -26,6 +28,14 @@ public class BBWrap {
 		Shared.closeStream(outstream);
 	}
 
+	/**
+	 * Parses command-line arguments and populates file lists for batch processing.
+	 * Extracts file paths, mapper selection, and other parameters while preserving
+	 * unrecognized arguments for passing to the underlying mapper.
+	 *
+	 * @param args Command-line arguments to parse
+	 * @return ArrayList of unprocessed arguments to pass to the mapper
+	 */
 	private final ArrayList<String> parse(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -133,6 +143,12 @@ public class BBWrap {
 		
 	}
 	
+	/**
+	 * Adds comma-separated file paths to the specified list.
+	 * Handles null and "null" strings by ignoring them.
+	 * @param s Comma-separated string of file paths
+	 * @param list Target list to populate with individual paths
+	 */
 	private static void add(String s, ArrayList<String> list){
 		if(s!=null && !"null".equals(s.toLowerCase())){
 			String[] sa=s.split(",");
@@ -142,6 +158,12 @@ public class BBWrap {
 		}
 	}
 	
+	/**
+	 * Reads file contents line-by-line and adds each line to the specified list.
+	 * Used for processing file lists where each line contains a file path.
+	 * @param s Path to file containing list of file paths
+	 * @param list Target list to populate with file paths from the file
+	 */
 	private static void addFileContents(String s, ArrayList<String> list){
 		if(s!=null && !"null".equals(s.toLowerCase())){
 			String[] sa=TextFile.toStringLines(s);
@@ -151,6 +173,12 @@ public class BBWrap {
 		}
 	}
 	
+	/**
+	 * Executes the selected mapper for each input file in the batch.
+	 * Coordinates sequential processing of file lists, ensuring reference indexing
+	 * optimization by loading the index once and reusing it for subsequent runs.
+	 * @param base Base arguments to pass to each mapper execution
+	 */
 	private void execute(ArrayList<String> base){
 		for(int i=0; i<in1List.size(); i++){
 			ArrayList<String> list=(ArrayList<String>) base.clone();
@@ -190,6 +218,15 @@ public class BBWrap {
 		}
 	}
 	
+	/**
+	 * Adds a key-value argument to the argument list based on batch index.
+	 * Handles both indexed file lists and append mode for single-file reuse.
+	 *
+	 * @param list Target argument list
+	 * @param source Source file list containing paths
+	 * @param key Parameter name for the argument
+	 * @param i Current batch index
+	 */
 	private void addToList(ArrayList<String> list, ArrayList<String> source, String key, int i){
 		if(source.size()>i){
 			list.add(key+"="+source.get(i));
@@ -198,28 +235,46 @@ public class BBWrap {
 		}
 	}
 
+	/** Reference genome file path for mapping */
 	private String ref;
+	/** Selected mapper variant (bbmap, bbmappacbio, etc.) */
 	private String mapper="bbmap";
 
+	/** List of BAM script output file paths */
 	private ArrayList<String> bsList=new ArrayList<String>();
+	/** List of quality histogram output file paths */
 	private ArrayList<String> qhistList=new ArrayList<String>();
+	/** List of match histogram output file paths */
 	private ArrayList<String> mhistList=new ArrayList<String>();
+	/** List of insert size histogram output file paths */
 	private ArrayList<String> ihistList=new ArrayList<String>();
 	
+	/** List of primary input file paths (mate 1 or single-end reads) */
 	private ArrayList<String> in1List=new ArrayList<String>();
+	/** List of primary output file paths (mate 1 or single-end reads) */
 	private ArrayList<String> out1List=new ArrayList<String>();
+	/** List of unmapped primary read output file paths */
 	private ArrayList<String> outu1List=new ArrayList<String>();
+	/** List of mapped primary read output file paths */
 	private ArrayList<String> outm1List=new ArrayList<String>();
+	/** List of blacklist primary read output file paths */
 	private ArrayList<String> outb1List=new ArrayList<String>();
 
+	/** List of secondary input file paths (mate 2 reads) */
 	private ArrayList<String> in2List=new ArrayList<String>();
+	/** List of secondary output file paths (mate 2 reads) */
 	private ArrayList<String> out2List=new ArrayList<String>();
+	/** List of unmapped secondary read output file paths */
 	private ArrayList<String> outu2List=new ArrayList<String>();
+	/** List of mapped secondary read output file paths */
 	private ArrayList<String> outm2List=new ArrayList<String>();
+	/** List of blacklist secondary read output file paths */
 	private ArrayList<String> outb2List=new ArrayList<String>();
 	
+	/** Whether to reuse single output files for multiple input files */
 	private boolean append=false;
 	
+	/** Output stream for status messages and logging */
 	static PrintStream outstream=System.err;
 	
 }

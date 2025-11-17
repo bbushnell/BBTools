@@ -24,14 +24,39 @@ public class TextStreamWriter extends Thread {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a TextStreamWriter with default format (TEXT).
+	 *
+	 * @param fname_ Output file name
+	 * @param overwrite_ Whether to overwrite existing files
+	 * @param append_ Whether to append to existing files
+	 * @param allowSubprocess_ Whether to allow subprocess execution
+	 */
 	public TextStreamWriter(String fname_, boolean overwrite_, boolean append_, boolean allowSubprocess_){
 		this(fname_, overwrite_, append_, allowSubprocess_, 0);
 	}
 	
+	/**
+	 * Creates a TextStreamWriter with specified format.
+	 *
+	 * @param fname_ Output file name
+	 * @param overwrite_ Whether to overwrite existing files
+	 * @param append_ Whether to append to existing files
+	 * @param allowSubprocess_ Whether to allow subprocess execution
+	 * @param format Output format type
+	 */
 	public TextStreamWriter(String fname_, boolean overwrite_, boolean append_, boolean allowSubprocess_, int format){
 		this(FileFormat.testOutput(fname_, FileFormat.TEXT, format, 0, allowSubprocess_, overwrite_, append_, false));
 	}
 	
+	/**
+	 * Creates a TextStreamWriter from a FileFormat configuration.
+	 * Initializes all format flags, output streams, and buffer settings based on
+	 * the provided FileFormat. Handles BAM files through samtools subprocess if
+	 * available, otherwise uses standard output streams.
+	 *
+	 * @param ff FileFormat containing output configuration and format settings
+	 */
 	public TextStreamWriter(FileFormat ff){
 		FASTQ=ff.fastq() || ff.text();
 		FASTA=ff.fasta();
@@ -146,6 +171,12 @@ public class TextStreamWriter extends Thread {
 	}
 
 	
+	/**
+	 * Signals the writer thread to terminate gracefully.
+	 * Waits for thread to start if not already running, adds any remaining
+	 * buffer contents to the queue, and sends a poison job to terminate
+	 * the writing loop. Sets the writer to closed state.
+	 */
 	public synchronized void poison(){
 		//Don't allow thread to shut down before it has started
 		while(!started || this.getState()==Thread.State.NEW){
@@ -171,6 +202,11 @@ public class TextStreamWriter extends Thread {
 		addJob(POISON2);
 	}
 	
+	/**
+	 * Blocks until the writer thread has completely terminated.
+	 * Repeatedly attempts to join the thread with 1-second timeouts
+	 * until the thread state becomes TERMINATED.
+	 */
 	public void waitForFinish(){
 		if(verbose){System.err.println("waiting for finish.");}
 		while(this.getState()!=Thread.State.TERMINATED){
@@ -194,6 +230,12 @@ public class TextStreamWriter extends Thread {
 	}
 	
 	//TODO Why is this synchronized?
+	/**
+	 * Adds a writing job to the queue for processing by the writer thread.
+	 * Blocks until the job is successfully added to the ArrayBlockingQueue.
+	 * Requires the thread to be started before accepting jobs.
+	 * @param j ArrayList of CharSequences to write
+	 */
 	public synchronized void addJob(ArrayList<CharSequence> j){
 		if(verbose){System.err.println("Got job "+(j==null ? "null" : j.size()));}
 		
@@ -227,6 +269,12 @@ public class TextStreamWriter extends Thread {
 	/*--------------------------------------------------------------*/
 	
 
+	/**
+	 * Buffers a CharSequence for writing to the output stream.
+	 * Adds the sequence to the current buffer and flushes the buffer
+	 * if it reaches the maximum size or length threshold.
+	 * @param cs CharSequence to write (null converted to "null")
+	 */
 	public void print(CharSequence cs){
 		if(cs==null){cs="null";}
 //		System.err.println("Added line '"+cs+"'");
@@ -256,10 +304,18 @@ public class TextStreamWriter extends Thread {
 		}
 	}
 	
+	/** Prints a long number by converting to string.
+	 * @param number The number to print */
 	public void print(long number){
 		print(Long.toString(number));
 	}
 	
+	/**
+	 * Prints a Read object in the appropriate format.
+	 * Converts the Read to the configured output format (FASTQ, FASTA, SAM, etc.)
+	 * and buffers it for writing. Cannot be used with OTHER format type.
+	 * @param r The Read object to print
+	 */
 	public void print(Read r){
 		assert(!OTHER);
 		ByteBuilder sb=(FASTQ ? r.toFastq() : FASTA ? r.toFasta(FASTA_WRAP) : SAM ? r.toSam() :
@@ -267,6 +323,15 @@ public class TextStreamWriter extends Thread {
 		print(sb);
 	}
 	
+	/**
+	 * Writes CharSequences in order based on key values.
+	 * Stores sequences in a HashMap until all preceding keys are available,
+	 * then writes them in sequential order. Ensures ordered output even
+	 * when sequences arrive out of order.
+	 *
+	 * @param cs CharSequence to write
+	 * @param key Ordering key (must be >= nextKey)
+	 */
 	public synchronized void writeOrdered(CharSequence cs, long key){
 		assert(cs!=null) : key;
 		assert(key>=nextKey) : key+", "+nextKey;
@@ -286,10 +351,13 @@ public class TextStreamWriter extends Thread {
 	/*----------------           Println            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Prints a newline character */
 	public void println(){
 		print("\n");
 	}
 	
+	/** Prints a CharSequence followed by a newline.
+	 * @param cs CharSequence to print */
 	public void println(CharSequence cs){
 		print(cs);
 		print("\n");
@@ -300,6 +368,11 @@ public class TextStreamWriter extends Thread {
 		print("\n");
 	}
 	
+	/**
+	 * Prints a Read object followed by a newline.
+	 * Converts the Read to the appropriate format and appends a newline.
+	 * @param r The Read object to print
+	 */
 	public void println(Read r){
 		assert(!OTHER);
 		ByteBuilder sb=(FASTQ ? r.toFastq() : FASTA ? r.toFasta(FASTA_WRAP) : SAM ? r.toSam() :
@@ -314,12 +387,18 @@ public class TextStreamWriter extends Thread {
 	
 	private ArrayList<CharSequence> buffer;
 	
+	/** Number of CharSequences to buffer before flushing (default 100) */
 	public int buffersize=100;
+	/** Maximum total character length before flushing buffer (default 60000) */
 	public int maxBufferLen=60000;
 	private int bufferLen=0;
+	/** Whether this writer will overwrite existing files */
 	public final boolean overwrite;
+	/** Whether this writer will append to existing files */
 	public final boolean append;
+	/** Whether this writer allows subprocess execution for compression */
 	public final boolean allowSubprocess;
+	/** Output file name */
 	public final String fname;
 	private final OutputStream myOutstream;
 	private final PrintWriter myWriter;
@@ -351,6 +430,7 @@ public class TextStreamWriter extends Thread {
 	private static final String POISON=new String("POISON_TextStreamWriter");
 	private static final ArrayList<CharSequence> POISON2=new ArrayList<CharSequence>(1);
 	
+	/** Global verbose output flag for debugging */
 	public static boolean verbose=false;
 	
 }

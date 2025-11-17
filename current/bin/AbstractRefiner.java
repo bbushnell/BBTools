@@ -22,6 +22,14 @@ abstract class AbstractRefiner extends BinObject {
 	 */
 	abstract ArrayList<Bin> refine(Bin input);
 	
+	/**
+	 * Refines a bin and returns the result as integer hash sets containing contig IDs.
+	 * Similar to refine() but returns results in a more compact representation using
+	 * contig ID sets instead of full Bin objects.
+	 *
+	 * @param input Bin to analyze and potentially split
+	 * @return ArrayList of IntHashSet objects representing refined contig groupings
+	 */
 	abstract ArrayList<IntHashSet> refineToIntSets(Bin input);
 
 	/**
@@ -96,6 +104,14 @@ abstract class AbstractRefiner extends BinObject {
 		throw new RuntimeException("Unknown refiner type: "+type);
 	}
 	
+	/**
+	 * Finds the algorithm type constant corresponding to a string name.
+	 * Searches the types array for a matching string and returns the index.
+	 *
+	 * @param s Algorithm type name (e.g., "CRYSTAL", "GRAPH", "EVIDENCE", "ENSEMBLE")
+	 * @return The corresponding type constant (0-3)
+	 * @throws AssertionError if the type string is not found
+	 */
 	public static int findType(String s) {
 		int idx=Tools.find(s, types);
 		assert(idx>=0) : "Can't find type "+s;
