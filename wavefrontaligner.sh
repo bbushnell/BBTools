@@ -30,42 +30,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+	usage
+	exit
+fi
 
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-calcXmx () {
-    # Source the new scripts
-    source "$DIR""/memdetect.sh"
-    source "$DIR""/javasetup.sh"
-    
-    # Parse Java arguments with tool-specific defaults
-    # Use auto mode with 84% of available RAM, minimum 4000MB
-    parseJavaArgs "--mem=2000m" "--percent=42" "--mode=auto" "$@"
-    
-    # Set environment paths
-    setEnvironment
-    
-    # Set the Java memory parameters
-    z="-Xmx${RAM}m"
-    z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-align() {
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.WaveFrontAligner $@"
-	#echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=2000m" "--xms=2000m" "--percent=42" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.WaveFrontAligner $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-align "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

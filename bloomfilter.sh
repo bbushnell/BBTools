@@ -32,7 +32,7 @@ overwrite=t     (ow) Set to false to force the program to abort rather than
 
 Hashing parameters:
 k=31            Kmer length.
-hashes=2        Number of hashes per kmer.  Higher generally reduces 
+hashes=2        Number of hashes per kmer.  Higher generally reduces
                 false positives at the expense of speed.
 sw=t            (symmetricwrite) Increases accuracy when bits>1 and hashes>1.
 minprob=0.5     Ignore reference kmers with probability of being correct
@@ -49,7 +49,7 @@ bits=           Bits per cell; it is set automatically from mincount.
 Reference-matching parameters:
 minhits=3       Consecutive kmer hits for a read to be considered matched.
                 Higher reduces false positives at the expense of sensitivity.
-mincount=1      Minimum number of times a read kmer must occur in the 
+mincount=1      Minimum number of times a read kmer must occur in the
                 reference to be considered a match (or printed to outc).
 requireboth=f   Require both reads in a pair to match the ref in order to go
                 to outm.  By default, pairs go to outm if either matches.
@@ -67,46 +67,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx4g"
-z2="-Xms4g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 4000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-bloomfilter() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP bloom.BloomFilterWrapper $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4000m" "--xms=4000m" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bloom.BloomFilterWrapper $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-bloomfilter "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

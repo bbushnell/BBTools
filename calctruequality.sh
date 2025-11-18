@@ -6,19 +6,19 @@ Written by Brian Bushnell
 Last modified October 8, 2024
 
 Description:  Calculates observed quality scores from mapped sam/bam files.
-Generates matrices for use in recalibrating quality scores.  By default, 
+Generates matrices for use in recalibrating quality scores.  By default,
 the matrices are written to /ref/qual/ in the current directory.
 
 If you have multiple sam/bam files demultiplexed from a single sequencing run,
 it is recommended to use all of them as input for increased statistical power.
 Once the matrices are generated, recalibration can be done on mapped or
-unmapped reads; you may get better results by recalibrating the fastq and 
+unmapped reads; you may get better results by recalibrating the fastq and
 remapping the calibrated reads.
 
 Note!  Diploid organisms with a high heterozygousity rate will induce
 inaccurate recalibration at the high end of the quality scale unless SNP
-locations are masked or variations are called.  For example, recalibrating 
-human reads mapped to an unmasked human reference would generate an 
+locations are masked or variations are called.  For example, recalibrating
+human reads mapped to an unmasked human reference would generate an
 expected maximal Q-score of roughly 30 due to the human 1/1000 SNP rate.
 Variations can be ignored by using the callvars flag or providing
 a file of variations.
@@ -54,7 +54,7 @@ passes=2            Recalibration passes, 1 or 2.  2 is slower but gives more
 recalqmax=42        Adjust max quality scores tracked.  The actual highest
                     quality score allowed is recalqmax-1.
 trackall=f          Track all available quality metrics and produce all
-                    matrices, including the ones that are not selected for 
+                    matrices, including the ones that are not selected for
                     quality adjustment.  Reduces speed, but allows testing the
                     effects of different recalibration matrices.
 indels=t            Include indels in quality calculations.
@@ -109,46 +109,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx2g"
-z2="-Xms2g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 3200m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-calctruequality() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.CalcTrueQuality $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=3200m" "--xms=3200m" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.CalcTrueQuality $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-calctruequality "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"
