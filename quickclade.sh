@@ -93,43 +93,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-    # Source the new scripts
-    source "$DIR""/memdetect.sh"
-    source "$DIR""/javasetup.sh"
-    
-    # Parse Java arguments with quickclade-specific defaults
-    # For quickclade: fixed 4g memory, never autodetect
-    parseJavaArgs "--mem=4g" "--mode=fixed" "$@"
-    
-    # Set environment paths
-    setEnvironment
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-quickclade() {
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.CladeSearcher $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4g" "--xms=4g" "--mode=fixed" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.CladeSearcher $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-quickclade "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

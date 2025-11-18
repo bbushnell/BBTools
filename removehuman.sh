@@ -34,42 +34,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-JNI="-Djava.library.path=""$DIR""jni/"
-JNI=""
-
-z="-Xmx15000m"
-z2="-Xms15000m"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-function removehuman() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 $JNI -cp $CP align2.BBMap minratio=0.9 maxindel=3 bwr=0.16 bw=12 quickmatch fast minhits=2 path=/global/cfs/cdirs/bbtools/hg19 pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 kfilter=25 maxsites=1 k=14 bloomfilter $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=15000m" "--xms=15000m" "--mode=fixed" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.BBMap minratio=0.9 maxindel=3 bwr=0.16 bw=12 quickmatch fast minhits=2 path=/global/cfs/cdirs/bbtools/hg19 pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 kfilter=25 maxsites=1 k=14 bloomfilter $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-removehuman "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

@@ -54,21 +54,21 @@ prefilter=f     Use a Bloom filter to exclude variants seen fewer than
                 memory usage.  The results are identical.
 coverage=t      (cc) Calculate coverage, to better call variants.
 ploidy=1        Set the organism's ploidy.
-rarity=1.0      Penalize the quality of variants with allele fraction 
+rarity=1.0      Penalize the quality of variants with allele fraction
                 lower than this.  For example, if you are interested in
                 4% frequency variants, you could set both rarity and
-                minallelefraction to 0.04.  This is affected by ploidy - 
+                minallelefraction to 0.04.  This is affected by ploidy -
                 a variant with frequency indicating at least one copy
                 is never penalized.
-covpenalty=0.8  (lowcoveragepenalty) A lower penalty will increase the 
-                scores of low-coverage variants, and is useful for 
+covpenalty=0.8  (lowcoveragepenalty) A lower penalty will increase the
+                scores of low-coverage variants, and is useful for
                 low-coverage datasets.
 useidentity=t   Include average read identity in score calculation.
 usepairing=t    Include pairing rate in score calculation.
 usebias=t       Include strand bias in score calculation.
 useedist=t      Include read-end distance in score calculation.
 homopolymer=t   Penalize scores of substitutions matching adjacent bases.
-nscan=t         Consider the distance of a variant from contig ends when 
+nscan=t         Consider the distance of a variant from contig ends when
                 calculating strand bias.
 callsub=t       Call substitutions.
 calldel=t       Call deletions.
@@ -102,7 +102,7 @@ repadding=70    Pad alignment by this much on each end.  Typically,
                 reduces speed.
 rerows=602      Use this many rows maximum for realignment.  Reads longer
                 than this cannot be realigned.
-recols=2000     Reads may not be aligned to reference seqments longer 
+recols=2000     Reads may not be aligned to reference seqments longer
                 than this.  Needs to be at least read length plus
                 max deletion length plus twice padding.
 msa=            Select the aligner.  Options:
@@ -114,7 +114,7 @@ Sam-filtering Parameters:
 minpos=         Ignore alignments not overlapping this range.
 maxpos=         Ignore alignments not overlapping this range.
 minreadmapq=4   Ignore alignments with lower mapq.
-contigs=        Comma-delimited list of contig names to include. These 
+contigs=        Comma-delimited list of contig names to include. These
                 should have no spaces, or underscores instead of spaces.
 secondary=f     Include secondary alignments.
 supplementary=f Include supplementary alignments.
@@ -164,46 +164,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx4g"
-z2="-Xms4g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 4000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-callvariants() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.CallVariants $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4000m" "--xms=4000m" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP var2.CallVariants $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-callvariants "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

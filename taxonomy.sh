@@ -22,7 +22,7 @@ taxonomy.sh tree=tree.taxtree.gz gi=gitable.int1.d.gz in=refseq.fasta
 Processing parameters:
 in=<file>       A file containing named sequences, or just the names.
 out=<file>      Output file.  If blank, use stdout.
-tree=<file>     Specify a TaxTree file like tree.taxtree.gz.  
+tree=<file>     Specify a TaxTree file like tree.taxtree.gz.
                 On Genepool, use 'auto'.
 gi=<file>       Specify a gitable file like gitable.int1d.gz. Only needed
                 if gi numbers will be used.  On Genepool, use 'auto'.
@@ -42,7 +42,7 @@ Tree and table files are in /global/projectb/sandbox/gaag/bbtools/tax
 For non-Genepool users, or to make new ones, use taxtree.sh and gitable.sh
 
 Java Parameters:
--Xmx            This will set Java's memory usage, 
+-Xmx            This will set Java's memory usage,
                 overriding autodetection.
                 -Xmx20g will specify 20 gigs of RAM, and -Xmx200m will specify
                 200 megs.  The max is typically 85% of physical memory.
@@ -55,46 +55,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx8g"
-z2="-Xms8g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 2000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-taxonomy() {
-	local CMD="java $EA $SIMD $EOOM $z -cp $CP tax.PrintTaxonomy $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=2g" "--xms=2g" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP tax.PrintTaxonomy $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-taxonomy "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

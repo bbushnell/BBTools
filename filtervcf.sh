@@ -25,7 +25,7 @@ canonize=t      Trim variations down to a canonical representation.
 Position-filtering parameters:
 minpos=         Ignore variants not overlapping this range.
 maxpos=         Ignore variants not overlapping this range.
-contigs=        Comma-delimited list of contig names to include. These 
+contigs=        Comma-delimited list of contig names to include. These
                 should have no spaces, or underscores instead of spaces.
 invert=f        Invert position filters.
 
@@ -67,46 +67,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx4g"
-z2="-Xms4g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 4000m 42
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-filtervcf() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP var2.FilterVCF $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4g" "--xms=4g" "--percent=42" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP var2.FilterVCF $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-filtervcf "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

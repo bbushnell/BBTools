@@ -4,16 +4,15 @@
 #This exists for people who type bbsketch.sh instead of sketch.sh
 #I haven't decided which one will be the canonical version.
 
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+}
 
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-
-"$DIR"sketch.sh $@
+resolveSymlinks
+"$DIR/sketch.sh" "$@"

@@ -7,7 +7,7 @@ Last modified Jan 7, 2020
 
 Description:  Creates tree.taxtree from names.dmp and nodes.dmp.
 These are in taxdmp.zip available at ftp://ftp.ncbi.nih.gov/pub/taxonomy/
-The taxtree file is needed for programs that can deal with taxonomy, 
+The taxtree file is needed for programs that can deal with taxonomy,
 like Seal and SortByTaxa.
 
 Usage:  taxtree.sh names.dmp nodes.dmp merged.dmp tree.taxtree.gz
@@ -24,49 +24,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-JNI="-Djava.library.path=""$DIR""jni/"
-JNI=""
-
-z="-Xmx2g"
-z2="-Xms2g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 2000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
 
-taxtree() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.TaxTree $@"
-	echo $CMD >&2
+	parseJavaArgs "--xmx=2g" "--xms=2g" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP tax.TaxTree $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-taxtree "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

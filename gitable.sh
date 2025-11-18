@@ -7,7 +7,7 @@ Last modified July 29, 2019
 
 Description:  Creates gitable.int1d from accession files:
 ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/*.accession2taxid.gz
-This is for use of gi numbers, which are deprecated by NCBI, and are neither 
+This is for use of gi numbers, which are deprecated by NCBI, and are neither
 necessary nor recommended if accession numbers are present.
 See TaxonomyGuide and fetchTaxonomy.sh for more information.
 
@@ -25,49 +25,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-JNI="-Djava.library.path=""$DIR""jni/"
-JNI=""
-
-z="-Xmx24g"
-z2="-Xms24g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 24000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
 
-gitable() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP tax.GiToTaxid $@"
-	echo $CMD >&2
+	parseJavaArgs "--xmx=24g" "--xms=24g" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP tax.GiToTaxid $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-gitable "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

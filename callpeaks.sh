@@ -15,19 +15,19 @@ out=<file>          Write the peaks to this file.  Default is stdout.
 minHeight=2         (h) Ignore peaks shorter than this.
 minVolume=5         (v) Ignore peaks with less area than this.
 minWidth=3          (w) Ignore peaks narrower than this.
-minPeak=2           (minp) Ignore peaks with an X-value below this. 
+minPeak=2           (minp) Ignore peaks with an X-value below this.
                     Useful when low-count kmers are filtered).
 maxPeak=BIG         (maxp) Ignore peaks with an X-value above this.
 maxPeakCount=10     (maxpc) Print up to this many peaks (prioritizing height).
-countColumn=1       (col) For multi-column input, this column, zero-based, 
+countColumn=1       (col) For multi-column input, this column, zero-based,
                     contains the counts.
 ploidy=-1           Specify ploidy; otherwise it will be autodetected.
 logscale=f          Transform to log-scale prior to peak-calling.  Useful
                     for kmer-frequency histograms.
 
 Smoothing parameters:
-smoothradius=0      Integer radius of triangle filter.  Set above zero to 
-                    smooth data prior to peak-calling.  Higher values are 
+smoothradius=0      Integer radius of triangle filter.  Set above zero to
+                    smooth data prior to peak-calling.  Higher values are
                     smoother.
 smoothprogressive=f Set to true to widen the filter as the x-coordinate
                     increases.  Useful for kmer-frequency histograms.
@@ -39,39 +39,35 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx200m"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-stats() {
-	local CMD="java $EA $SIMD $EOOM -Xmx120m -cp $CP jgi.CallPeaks $@"
-#	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=120m" "--xms=120m" "--mode=fixed" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.CallPeaks $@"
 	eval $CMD
 }
 
-stats "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

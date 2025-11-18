@@ -22,7 +22,7 @@ renameref.sh in=data.sam out=renamed.sam mapping=refs.tsv strict=true
 
 Parameters:
 in=<file>       Input file to process
-out=<file>      Output file with converted reference names  
+out=<file>      Output file with converted reference names
 map=<file>      Tab-delimited file with old_name<tab>new_name mappings
 invert=<bool>   Reverse the order of names in the map file.
 strict=<bool>   Crash on unknown references (default: false)
@@ -39,36 +39,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+	usage
+	exit
+fi
 
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-calcXmx () {
-    # Source the new scripts
-    source "$DIR""/memdetect.sh"
-    source "$DIR""/javasetup.sh"
-    
-    parseJavaArgs "--mem=1g" "--mode=fixed" "$@"
-    
-    # Set environment paths
-    setEnvironment
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-renameref() {
-	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.RefRenamer $@"
-	#echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=1g" "--xms=1g" "--mode=fixed" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.RefRenamer $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-renameref "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"

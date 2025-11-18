@@ -5,8 +5,8 @@ echo "
 Written by Brian Bushnell
 Last modified January 26, 2021
 
-Description:  Given a reference, generates a kmer spectrum including a 
-specified number of substitutions, insertions, and deletions.  The output is 
+Description:  Given a reference, generates a kmer spectrum including a
+specified number of substitutions, insertions, and deletions.  The output is
 useful for analyzing barcodes or other short oligos, and filtering using
 BBDuk or Seal. Input may be fasta or fastq, compressed or raw.
 See also kcompress, kmercountexact, and bbkmerset.
@@ -24,9 +24,9 @@ and deletions that sum to 0, 1, or 2.
         kmutate.sh in=x.fa out=y.fa k=31 idist=1 ddist=3
 This will generate all 31-mers in x.fa, along with all 31-mer mutants allowing
 up to 1 insertion and 3 deletions, but no substitutions.  For example,
-1 insertion and 3 deletions is possible (edit distance 4), but 1 deletion and 
+1 insertion and 3 deletions is possible (edit distance 4), but 1 deletion and
 1 substitution is not directly possible (though some equivalent mutants would
-still be generated because a deletion and subsequent insertion is equivalent 
+still be generated because a deletion and subsequent insertion is equivalent
 to a substitution).
 
 Note that deletion events have limitations; e.g., they cannot occur on input
@@ -75,46 +75,36 @@ For documentation and the latest version, visit: https://bbmap.org
 "
 }
 
-#This block allows symlinked shellscripts to correctly set classpath.
-pushd . > /dev/null
-DIR="${BASH_SOURCE[0]}"
-while [ -h "$DIR" ]; do
-  cd "$(dirname "$DIR")"
-  DIR="$(readlink "$(basename "$DIR")")"
-done
-cd "$(dirname "$DIR")"
-DIR="$(pwd)/"
-popd > /dev/null
-
-#DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
-CP="$DIR""current/"
-
-z="-Xmx4g"
-z2="-Xms4g"
-set=0
-
-if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
-	setEnvironment
-	parseXmx "$@"
-	if [[ $set == 1 ]]; then
-		return
-	fi
-	freeRam 4000m 84
-	z="-Xmx${RAM}m"
-	z2="-Xms${RAM}m"
+resolveSymlinks(){
+	SCRIPT="$0"
+	while [ -h "$SCRIPT" ]; do
+		DIR="$(dirname "$SCRIPT")"
+		SCRIPT="$(readlink "$SCRIPT")"
+		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
+	done
+	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
+	CP="$DIR/current/"
 }
-calcXmx "$@"
 
-kmutate() {
-	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP jgi.KExpand $@"
-	echo $CMD >&2
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4g" "--xms=4g" "--percent=84" "--mode=auto" "$@"
+	setEnvironment
+}
+
+launch() {
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.KExpand $@"
+	echo "$CMD" >&2
 	eval $CMD
 }
 
-kmutate "$@"
+resolveSymlinks
+setEnv "$@"
+launch "$@"
