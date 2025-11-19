@@ -61,7 +61,7 @@ public class JobQueue<K extends HasID>{
 		final long id=job.id();
 		final long ticket=id-capacity;
 		boolean warn=verbose2;
-		if(verbose2){System.err.println("Worker: got ticket "+ticket+" for job "+id);}
+		if(verbose2){System.err.println(name+" Worker: got ticket "+ticket+" for job "+id);}
 		synchronized(heap){
 			//Old version:
 			// Block if bounded, at capacity, and this isn't the job the consumer is waiting for
@@ -75,7 +75,7 @@ public class JobQueue<K extends HasID>{
 				while(ticket>nextID && heap.size()>quarter && !poisoned){
 					if(verbose2 && warn) {
 						warn=false;
-						System.err.println("Worker can't add "+id+": ticket "+ticket+">"+nextID);
+						System.err.println(name+" Worker can't add "+id+": ticket "+ticket+">"+nextID);
 					}
 					try {
 						heap.wait();
@@ -85,7 +85,7 @@ public class JobQueue<K extends HasID>{
 				}
 			}else {
 				while(heap.size()>=capacity && !poisoned){
-					if(verbose2) {System.err.println("Worker can't add "+id+": size "+heap.size()+">="+capacity);}
+					if(verbose2) {System.err.println(name+" Worker can't add "+id+": size "+heap.size()+">="+capacity);}
 					try {
 						heap.wait();
 					} catch (InterruptedException e){
@@ -96,12 +96,12 @@ public class JobQueue<K extends HasID>{
 			heap.add(job);
 			maxSeen=Math.max(maxSeen, job.id());
 			if(verbose2){
-				System.err.println("Worker: added job " + toString(job) +
+				System.err.println(name+" Worker: added job " + toString(job) +
 					" to heap (heap size now " + heap.size() + ")");
 			}
 			// Lazy notify: only wake consumer if this is the job they need or heap was empty
 			if(id==nextID || (!ordered && heap.size()==1)){
-				if(verbose2) {System.err.println("Worker notify.");}
+				if(verbose2) {System.err.println(name+" Worker notify.");}
 				heap.notifyAll();
 			}
 		}
@@ -126,13 +126,13 @@ public class JobQueue<K extends HasID>{
 	 */
 	public K take(){
 		K job=null;
-		if(verbose2){System.err.println("Consumer waiting for "+nextID);}
+		if(verbose2){System.err.println(name+" Consumer waiting for "+nextID);}
 		synchronized(heap){
-			while(job==null && !lastSeen){
+			while(job==null && !lastSeen && !poisoned){
 				// Wait if heap is empty or (in ordered mode) next job isn't ready yet
-				while(!heapReady()){
+				while(!heapReady() && !lastSeen && !poisoned){
 					if(verbose2){
-						System.err.println("Consumer waiting for ("+nextID+"); heap.size()="+heap.size()+
+						System.err.println(name+" Consumer waiting for ("+nextID+"); heap.size()="+heap.size()+
 							(heap.isEmpty() ? "" : ": "+toString(heap.peek())));
 					}
 					try {
@@ -142,17 +142,17 @@ public class JobQueue<K extends HasID>{
 						// Don't return null here - wait for explicit last signal
 					}
 				}
-				if(lastSeen) {return null;}
+				if(lastSeen || poisoned) {return null;}
 				job=heap.poll();
-				if(verbose2){System.err.println("Consumer fetched "+toString(job));}
+				if(verbose2){System.err.println(name+" Consumer fetched "+toString(job));}
 				assert(job.id()<=nextID || !ordered); // Defensive check for ordering
 				nextID++; // Advance to next expected ID
 				lastSeen=lastSeen || job.last(); // Check for shutdown signal
 				if(job.last()) {
-					if(verbose) {System.err.println("Consumer fetched last and added poison.");}
+					if(verbose) {System.err.println(name+" Consumer fetched last and added poison.");}
 					heap.add((K)job.makePoison(job.id()+1));
 				}else if(job.poison()) {
-					if(verbose) {System.err.println("Consumer fetched and reinserted poison.");}
+					if(verbose) {System.err.println(name+" Consumer fetched and reinserted poison.");}
 					heap.add(job);
 				}
 				final int size=heap.size();
@@ -160,17 +160,50 @@ public class JobQueue<K extends HasID>{
 				// Skip notification when heap is mostly full (more jobs coming soon anyway)
 				if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
 					heap.notifyAll();
-					if(verbose2) {System.err.println("Consumer notify.");}
+					if(verbose2) {System.err.println(name+" Consumer notify.");}
 				}
 			}
 		}
-		return job;
+		return job==null || job.poison() ? null : job;
+	}
+	
+	/**
+	 * Retrieves the next job if it is ready (in order). 
+	 * Returns null immediately if the queue is empty or the next ordered ID is missing.
+	 * Non-blocking version of take().
+	 */
+	public K poll(){
+		K job=null;
+		synchronized(heap){
+			if(!heapReady()){return null;} // Return immediately if not ready
+			
+			job=heap.poll();
+			if(verbose2){System.err.println(name+" Consumer polled "+toString(job));}
+			assert(job.id()<=nextID || !ordered); 
+			nextID++; 
+			lastSeen=lastSeen || job.last();
+			if(job.last()) {
+				if(verbose) {System.err.println(name+" Consumer polled last and added poison.");}
+				heap.add((K)job.makePoison(job.id()+1));
+			}else if(job.poison()) {
+				if(verbose) {System.err.println(name+" Consumer polled and reinserted poison.");}
+				heap.add(job);
+			}
+			final int size=heap.size();
+
+			if(size==half || size==0 || (ordered && heap.peek().id()!=nextID) || job.poison() || job.last()){
+				heap.notifyAll();
+				if(verbose2) {System.err.println(name+" Consumer notify.");}
+			}
+		}
+		return job==null || job.poison() ? null : job;
 	}
 	
 	private boolean heapReady() {
 		synchronized(heap) {
 			if(heap.isEmpty()) {return lastSeen;}
 			K k=heap.peek();
+			if(verbose2) {System.err.println("heapReady found "+k.id()+"; nextID="+nextID);}
 			if(k.id()<=nextID) {return true;}//Poison may be lower than expected
 			return !ordered && !k.last() && !k.poison();//TODO: Add a normal() function.
 		}
@@ -188,9 +221,12 @@ public class JobQueue<K extends HasID>{
 		synchronized(heap){return maxSeen;}
 	}
 	
-	public void poison() {
+	public void poison(K poison, boolean force) {
+		assert(poison!=null && poison.poison()) : poison;
 		synchronized(heap){
-			poisoned=true;
+			if(verbose2) {System.err.println(name+" poison().");}
+			poisoned=poisoned||force;
+			heap.add(poison);
 			heap.notifyAll();
 		}
 	}
@@ -206,6 +242,8 @@ public class JobQueue<K extends HasID>{
 		public int compare(K a, K b){return Long.compare(a.id(), b.id());}
 
 	}
+	
+	public String name="";
 
 	/** Next expected job ID in ordered mode */
 	private long nextID;

@@ -301,7 +301,7 @@ public class FastqWriter implements Writer {
 			
 			// Close output stream and signal completion
 			ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
-			oqs.setFinished();
+			oqs.setFinished(true);
 		}
 		
 		/** Worker thread - converts reads to formatted bytes. */
@@ -309,8 +309,7 @@ public class FastqWriter implements Writer {
 			final ByteBuilder bb=new ByteBuilder();
 			
 			FastqWriterInputJob job=oqs.getInput();
-			assert(job!=null);
-			while(!job.poison()){
+			while(job!=null && !job.poison()){
 				assert(job.reads!=null) : job.last()+", "+job.poison();
 				ArrayList<Read> reads=job.reads.list;
 				
@@ -334,7 +333,7 @@ public class FastqWriter implements Writer {
 			}
 			
 			// Re-inject poison for other workers
-			oqs.addInput(job);
+			if(job!=null) {oqs.addInput(job);}
 		}
 		
 		private void writeFastq(ArrayList<Read> reads, ByteBuilder bb) {

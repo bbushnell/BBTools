@@ -268,7 +268,7 @@ public class SamWriter implements Writer {
 		public long id(){return id;}
 
 		@Override
-		public boolean poison(){return false;}
+		public boolean poison(){return type==ListNum.POISON;}
 
 		@Override
 		public boolean last(){return type==ListNum.LAST;}
@@ -344,7 +344,7 @@ public class SamWriter implements Writer {
 			if(verbose) {System.err.println("Consumer finished accumulating.");}
 			ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
 			if(verbose) {System.err.println("Consumer finished writing.");}
-			oqs.setFinished();
+			oqs.setFinished(false);
 			if(verbose) {System.err.println("Consumer set oqs finished.");}
 		}
 
@@ -353,7 +353,7 @@ public class SamWriter implements Writer {
 			final ByteBuilder bb=new ByteBuilder();
 
 			SamWriterInputJob job=oqs.getInput();
-			while(!job.poison()){
+			while(job!=null && !job.poison()){
 				//Convert to SamLines if needed
 				ArrayList<SamLine> lines;
 				if(job.lines!=null){
@@ -380,7 +380,7 @@ public class SamWriter implements Writer {
 			}
 
 			//Re-inject poison for other workers
-			oqs.addInput(job);
+			if(job!=null) {oqs.addInput(job);}
 		}
 
 		/** Number of reads processed by this thread. */

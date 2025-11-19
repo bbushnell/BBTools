@@ -136,7 +136,7 @@ public class BamStreamer implements Streamer {
 		}
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
-				oqs.setFinished();
+				oqs.setFinished(true);
 			}
 			return null;
 		}
@@ -331,7 +331,7 @@ public class BamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			final ByteBuilder cigar=new ByteBuilder(1024);
 			ListNum<byte[]> list=oqs.getInput();
-			while(!list.poison()){
+			while(list!=null && !list.poison()){
 				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
 				
 				// Apply subsampling if needed
@@ -372,7 +372,7 @@ public class BamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" done making reads.");}
 			
 			//Re-inject poison for other workers
-			oqs.addInput(list);
+			if(list!=null) {oqs.addInput(list);}
 		}
 
 		/** Number of reads processed by this thread */

@@ -134,11 +134,11 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete from the consumer side. */
-	public synchronized void setFinished(){
+	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS2: setFinished()");}
 		finished=true;
-		inq.poison();  // Tell input queue to stop blocking any waiting producers
-		outq.poison(); // Tell output queue to stop blocking any waiting workers
+		inq.poison((I)inputPrototype.makePoison(maxSeenId+1), force);  // Tell input queue to stop blocking any waiting producers
+		outq.poison((O)outputPrototype.makePoison(maxSeenId+1), force); // Tell output queue to stop blocking any waiting workers
 		this.notifyAll();
 	}
 	

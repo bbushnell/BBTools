@@ -208,7 +208,7 @@ public final class ByteFile3 extends ByteFile {
 
 			if(currentList==null || currentList.last()){
 				if(currentList!=null && currentList.last()){
-					oqs.setFinished();
+					oqs.setFinished(true);
 				}
 				return null;
 			}
@@ -222,7 +222,7 @@ public final class ByteFile3 extends ByteFile {
 	public final ListNum<byte[]> nextList(){
 		ListNum<byte[]> ln=oqs.getOutput();
 		if(ln==null || ln.last()){
-			oqs.setFinished();
+			oqs.setFinished(true);
 			return null;
 		}
 

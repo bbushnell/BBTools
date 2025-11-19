@@ -469,7 +469,7 @@ public class BgzfInputStreamMT3 extends InputStream {
 				BgzfInputJob nextJob=oqs.getOutput();
 				if(nextJob==null){
 					eofReached=true;
-					oqs.setFinished();
+					oqs.setFinished(true);
 					return totalRead==0 ? -1 : totalRead;
 				}
 
@@ -493,7 +493,7 @@ public class BgzfInputStreamMT3 extends InputStream {
 							" marked LAST, returning EOF");
 					}
 					eofReached=true;
-					oqs.setFinished();
+					oqs.setFinished(true);
 					return totalRead==0 ? -1 : totalRead;
 				}
 
@@ -549,7 +549,7 @@ public class BgzfInputStreamMT3 extends InputStream {
 		try{closePlainStream();}catch(IOException ignore){}
 		try{in.close();}catch(IOException ignore){}
 		if(verbose) {System.err.println("Calling setFinished.");}
-		oqs.setFinished();
+		oqs.setFinished(true);
 		if(verbose) {System.err.println("Wiating for workers.");}
 		ThreadWaiter.waitForThreadsToFinish(workers);//Not strictly needed for daemons
 		if(verbose) {System.err.println("Close finished.");}

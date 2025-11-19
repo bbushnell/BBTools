@@ -317,6 +317,13 @@ public class StreamerWrapper{
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		st.close();//Prevents a BF4 hang with limited reads
+//		try{
+//			Thread.sleep(100);
+//		}catch(InterruptedException e){
+//			// TODO Auto-generated catch block
+//			e.printStackTrace();
+//		}
+//		Shared.listThreads2();
 	}
 	
 	/**

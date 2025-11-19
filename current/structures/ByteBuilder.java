@@ -950,7 +950,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 //			array[length]=x[i];
 //			length++;
 //		}
-		System.arraycopy(x, 0, array, start, len);
+		System.arraycopy(x, start, array, length, len);
 		length+=len;
 		return this;
 	}

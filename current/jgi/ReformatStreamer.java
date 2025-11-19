@@ -3,7 +3,7 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random; // Added
+import java.util.Random;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -17,7 +17,6 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream; // Added
 import stream.FASTQ;
 import stream.Read;
 import stream.ReadStreamByteWriter;
@@ -27,8 +26,8 @@ import stream.StreamerFactory;
 import stream.Writer;
 import stream.WriterFactory;
 import structures.ListNum;
-import structures.LongList; // Added
-import structures.SuperLongList; // Added
+import structures.LongList;
+import structures.SuperLongList;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.ReadStats;
@@ -78,7 +77,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		//Force single-threading if necessary
 		if(processor.uniqueNames || sampleReadsExact || sampleBasesExact){workers=1;}
-		ordered=(workers>1);
+		ordered=/*ordered && */(workers>1);
 
 		validateParams();
 		doPoundReplacement();
@@ -697,15 +696,12 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
 		}
 
-		final ConcurrentReadInputStream cris;
-		{
-			//Use ConcurrentReadInputStream because it's available and thread-safe
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
-			if(verbose){outstream.println("Counting Reads");}
-			cris.start();
-		}
+		final Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, true, maxReads,
+			false, true, threadsIn);
+		if(verbose){outstream.println("Counting Reads");}
+		st.start();
 
-		ListNum<Read> ln=cris.nextList();
+		ListNum<Read> ln=st.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		long count=0, count2=0, bases=0;
@@ -720,12 +716,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					count2++;
 				}
 			}
-			cris.returnList(ln);
-			ln=cris.nextList();
+			ln=st.nextList();
 			reads=(ln!=null ? ln.list : null);
 		}
-		cris.returnList(ln);
-		errorState|=ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(st);
 		return new long[]{count, count2, bases};
 	}
 
@@ -735,14 +729,12 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
 		}
 
-		final ConcurrentReadInputStream cris;
-		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
-			if(verbose){outstream.println("Counting Reads");}
-			cris.start();
-		}
+		final Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, true, maxReads,
+			false, true, threadsIn);
+		if(verbose){outstream.println("Counting Reads");}
+		st.start();
 
-		ListNum<Read> ln=cris.nextList();
+		ListNum<Read> ln=st.nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		SuperLongList sll=new SuperLongList(200000);
@@ -754,12 +746,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 					sll.add(r.mateLength());
 				}
 			}
-			cris.returnList(ln);
-			ln=cris.nextList();
+			ln=st.nextList();
 			reads=(ln!=null ? ln.list : null);
 		}
-		cris.returnList(ln);
-		errorState|=ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(st);
 		sll.sort();
 		return sll;
 	}

@@ -128,10 +128,10 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete. */
-	public synchronized void setFinished(){
+	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS: setFinished()");}
 		finished=true;
-		outq.poison();
+		outq.poison((O)outputPrototype.makePoison(maxSeenId+1), force);
 		this.notifyAll();
 	}
 	
