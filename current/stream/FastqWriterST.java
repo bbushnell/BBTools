@@ -70,6 +70,7 @@ public class FastqWriterST implements Writer {
 		return basesWritten;
 	}
 	
+	@Override
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 	
 	@Override

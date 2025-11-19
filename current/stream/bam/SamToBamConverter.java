@@ -305,7 +305,8 @@ public class SamToBamConverter implements Cloneable {
 		if(tagStr.length()<5){
 			throw new RuntimeException("Invalid tag format: "+tagStr);
 		}
-
+		bb.ensureExtra(20+4*tagStr.length());
+		
 		//Write tag (2 bytes)
 		bb.appendU8(tagStr.charAt(0));
 		bb.appendU8(tagStr.charAt(1));

@@ -191,7 +191,7 @@ public final class ByteFile4 extends ByteFile{
 			is=null;
 		}
 		
-		oqs.setFinished();
+		oqs.setFinished(true);
 
 		lineNum=-1;
 		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name());}
@@ -207,7 +207,7 @@ public final class ByteFile4 extends ByteFile{
 
 			if(currentList==null || currentList.last()){
 				if(currentList!=null && currentList.last()){
-					oqs.setFinished();
+					oqs.setFinished(true);
 				}
 				return null;
 			}
@@ -222,7 +222,7 @@ public final class ByteFile4 extends ByteFile{
 		ListNum<byte[]> list=oqs.getOutput();
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
-				oqs.setFinished();
+				oqs.setFinished(true);
 			}
 			return null;
 		}

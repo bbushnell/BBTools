@@ -92,7 +92,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 
 		//Force single-threading if necessary
 		if(processor.uniqueNames || sampleReadsExact || sampleBasesExact){workers=1;}
-		ordered=(workers>1);
+		ordered=ordered && (workers>1);
 
 		validateParams();
 		doPoundReplacement(); //Replace # with 1 and 2
@@ -922,7 +922,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 	/** Append to existing output files */
 	private boolean append=false;
 	/** Reads are output in input order */
-	private boolean ordered=false;
+	private boolean ordered=true;
 	private boolean testsize=false;
 	private boolean deleteInput=false;
 

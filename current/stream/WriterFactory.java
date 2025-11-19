@@ -151,20 +151,23 @@ public class WriterFactory {
 		if(ffout==null){
 			return null;
 		}else if(ffout.fastq() || ffout.fasta()){
-			if(ffout.ordered() || (Shared.threads()>=4 && FastqWriter.DEFAULT_THREADS>0)) {
-				return new FastqWriter(ffout, -1, writeR1, writeR2);
+			int threads=FastqWriter.DEFAULT_THREADS;
+			boolean fa=ffout.fasta();
+			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
+				return new FastqWriter(ffout, threads, writeR1, writeR2);
 			}else {
-				return new FastqWriterST(ffout, writeR1, writeR2);
+				return new FastqWriterST2(ffout, writeR1, writeR2, threads>0 && Shared.threads()>=4, fa ? 3 : 5);
 			}
 		}else if(ffout.header()){
-			return new FastqWriterST(ffout, writeR1, writeR2);
+			return new FastqWriterST2(ffout, writeR1, writeR2);
 		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
 			return new BamWriter(ffout, -1, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			if(ffout.ordered() || (Shared.threads()>=4 && SamWriter.DEFAULT_THREADS>0)) {
-				return new SamWriter(ffout, -1, header, useSharedHeader);
+			int threads=SamWriter.DEFAULT_THREADS;
+			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
+				return new SamWriter(ffout, threads, header, useSharedHeader);
 			}else {
-				return new SamWriterST(ffout, header, useSharedHeader);
+				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5);
 			}
 		}
 
@@ -188,22 +191,23 @@ public class WriterFactory {
 		if(ffout==null){
 			return null;
 		}else if(ffout.fastq() || ffout.fasta()){
-			if(ffout.ordered() || 
-					(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqWriter.DEFAULT_THREADS>0))) {
-				return new FastqWriter(ffout, -1, writeR1, writeR2);
+			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
+			boolean fa=ffout.fasta();
+			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
+				return new FastqWriter(ffout, threads, writeR1, writeR2);
 			}else {
-				return new FastqWriterST(ffout, writeR1, writeR2);
+				return new FastqWriterST2(ffout, writeR1, writeR2, threads>0 && Shared.threads()>=4, fa ? 3 : 5);
 			}
 		}else if(ffout.header()){
-			return new FastqWriterST(ffout, writeR1, writeR2);
+			return new FastqWriterST2(ffout, writeR1, writeR2);
 		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
 			return new BamWriter(ffout, threads, header, useSharedHeader);
 		}else if(ffout.samOrBam()){
-			if(ffout.ordered() || (
-					Shared.threads()>=4 && threads!=0 && (threads>1 || SamWriter.DEFAULT_THREADS>0))) {
+			threads=(threads<0 ? SamWriter.DEFAULT_THREADS : threads);
+			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
 				return new SamWriter(ffout, threads, header, useSharedHeader);
 			}else {
-				return new SamWriterST(ffout, header, useSharedHeader);
+				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5);
 			}
 		}
 

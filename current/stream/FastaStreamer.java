@@ -130,7 +130,7 @@ public class FastaStreamer implements Streamer {
 		}
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
-				oqs.setFinished();
+				oqs.setFinished(true);
 			}
 			return null;
 		}
