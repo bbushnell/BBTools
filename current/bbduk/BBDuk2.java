@@ -13,7 +13,6 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import aligner.SideChannel3;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
-import dna.Data;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -393,69 +392,6 @@ public class BBDuk2 {
 			pTracker=null;
 		}
 	}
-	
-	/**
-	 * Processes array of reference paths and adds modified paths to list.
-	 * @param array Array of reference file paths
-	 * @param list Output list to store processed paths
-	 * @return Modified array of reference paths
-	 */
-	String[] modifyRefPath(String[] array, ArrayList<String> list){
-		if(array==null){return array;}
-		for(String s : array){
-			String s2=modifyRefPath(s);
-			list.add(s2);
-		}
-		return list.toArray(new String[0]);
-	}
-	
-	/**
-	 * Resolves reference path shortcuts to actual file paths.
-	 * Handles special keywords like "phix", "adapters", "truseq", etc.
-	 * to their corresponding resource files.
-	 *
-	 * @param s Reference path or keyword
-	 * @return Resolved file path
-	 */
-	public static String modifyRefPath(String s){
-		if(s==null || Tools.isReadableFile(s)){
-			//do nothing
-		}else{
-			if("phix".equalsIgnoreCase(s)){
-				s=Data.findPath("?phix2.fa.gz");
-			}else if("polya".equalsIgnoreCase(s) || "polyt".equalsIgnoreCase(s)){
-				s=Data.findPath("?polyA.fa.gz");
-			}else if("lambda".equalsIgnoreCase(s)){
-				s=Data.findPath("?lambda.fa.gz");
-			}else if("kapa".equalsIgnoreCase(s)){
-				s=Data.findPath("?kapatags.L40.fa");
-			}else if("pjet".equalsIgnoreCase(s)){
-				s=Data.findPath("?pJET1.2.fa");
-			}else if("mtst".equalsIgnoreCase(s)){
-				s=Data.findPath("?mtst.fa");
-			}else if("adapters".equalsIgnoreCase(s)){
-				s=Data.findPath("?adapters.fa");
-			}else if("phixadapters".equalsIgnoreCase(s)){
-				s=Data.findPath("?phix_adapters.fa");
-			}else if("pacbioadapter".equalsIgnoreCase(s) || "pacbioadapters".equalsIgnoreCase(s)){
-				s=Data.findPath("?PacBioAdapter.fa");
-			}else if("truseq".equalsIgnoreCase(s)){
-				s=Data.findPath("?truseq.fa.gz");
-			}else if("nextera".equalsIgnoreCase(s)){
-				s=Data.findPath("?nextera.fa.gz");
-			}else if("artifacts".equalsIgnoreCase(s)){
-				s=Data.findPath("?sequencing_artifacts.fa.gz");
-			}else if("crisprs".equalsIgnoreCase(s)){
-				s=Data.findPath("?crisprs.fa.gz");
-			}else if(s.startsWith("poly") && s.length()==5 && AminoAcid.baseToNumber[s.charAt(4)]>=0) {
-				s=Data.findPath("?"+s.toLowerCase()+".fa");
-			}else {
-				assert(false) : "Can't find reference file "+s;
-			}
-		}
-		return s;
-	}
-
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
