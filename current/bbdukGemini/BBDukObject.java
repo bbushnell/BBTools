@@ -1,4 +1,4 @@
-package bbduk;
+package bbdukGemini;
 
 import shared.Parser;
 import shared.Shared;
