@@ -1,4 +1,4 @@
-package bbduk;
+package bbdukGemini;
 
 import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;

@@ -1,4 +1,4 @@
-package bbduk;
+package bbdukGemini;
 
 import dna.AminoAcid;
 import shared.Tools;

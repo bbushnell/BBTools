@@ -1,4 +1,4 @@
-package bbduk;
+package bbdukGemini;
 
 import java.io.PrintStream;
 import java.util.ArrayList;

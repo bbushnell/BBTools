@@ -1,4 +1,4 @@
-package bbduk;
+package bbdukGemini;
 
 import java.util.ArrayList;
 import kmer.AbstractKmerTable;
