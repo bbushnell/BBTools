@@ -503,7 +503,7 @@ public class ReadWrite {
 	 */
 	public static OutputStream getOutputStream(String fname, boolean append, boolean buffered, boolean allowSubprocess){
 		
-		if(verbose || true){
+		if(verbose){
 			System.err.println("getOutputStream("+fname+", "+append+", "+buffered+", "+allowSubprocess+")");
 			new Exception().printStackTrace(System.err);
 		}

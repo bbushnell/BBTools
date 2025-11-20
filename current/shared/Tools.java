@@ -5238,7 +5238,44 @@ public final class Tools {
 		key=key&(0x7FFFFFFF);
 		return (int)(key*hashMult);
 	}
-	
+
+	public static long murmur64(long key){
+		key^=key>>>33;
+		key*=0xff51afd7ed558ccdL;
+		key^=key>>>33;
+		key*=0xc4ceb9fe1a85ec53L;
+		key^=key>>>33;
+		return key;
+	}
+
+	public static int murmur32(int key){
+		key^=key>>>16;
+		key*=0x85ebca6b;
+		key^=key>>>13;
+		key*=0xc2b2ae35;
+		key^=key>>>16;
+		return key;
+	}
+
+	public static int murmur64plus(long key){
+		key^=key>>>33;
+		key*=0xff51afd7ed558ccdL;
+		key^=key>>>33;
+		key*=0xc4ceb9fe1a85ec53L;
+		key^=key>>>33;
+		int ikey=(int)(key&0x7FFFFFFF);
+		return ikey<0x7FFFF800 ? ikey : (ikey-0x7FFFF800)*64;
+	}
+
+	public static int murmur32plus(int key){
+		key^=key>>>16;
+		key*=0x85ebca6b;
+		key^=key>>>13;
+		key*=0xc2b2ae35;
+		key^=key>>>16;
+		return key<0x7FFFF800 ? key : (key-0x7FFFF800)*64;
+	}
+
 	/**
 	 * Generates exponentially distributed random values.
 	 * @param randy Random number generator
