@@ -1469,8 +1469,6 @@ class BBDukParser {
 	/** Ends for some operations like entropytrim; could be migrated over to other operations */ 
 	static final int RIGHT=1, LEFT=2, RIGHTLEFT=3;
 	
-	/** Number of reads output in the last run */
-	public static long lastReadsOut;
 	/** Print messages to this stream */
 	public static PrintStream outstream=System.err;
 	/** Permission to overwrite existing files */
@@ -1487,5 +1485,7 @@ class BBDukParser {
 	public static int STATS_COLUMNS=3;
 	/** Make unambiguous copies of ref sequences with ambiguous bases */
 	public static boolean REPLICATE_AMBIGUOUS=false;
+	/** Release memory used by kmer storage after processing reads */
+	public static boolean RELEASE_TABLES=true;
 	
 }
