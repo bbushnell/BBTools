@@ -156,7 +156,14 @@ public class BBDuk {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(Parser.parseZip(arg, a, b)){
+			if(a.equals("threads") || a.equals("t")){
+				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
+				Shared.setThreads(x);
+				THREADS=x;
+			}else if(a.equals("workers") || a.equals("wt") || a.equals("workerthreads")){
+				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
+				THREADS=x;
+			}else if(Parser.parseZip(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseHist(arg, a, b)){
 				//do nothing
@@ -636,7 +643,6 @@ public class BBDuk {
 			loglogIn=(parser.loglog ? CardinalityTracker.makeTracker(parser) : null);
 			loglogOut=(parser.loglogOut ? CardinalityTracker.makeTracker(parser) : null);
 			
-			THREADS=Shared.threads();
 			silent=Parser.silent;
 			if(silent){
 				DISPLAY_PROGRESS=false;

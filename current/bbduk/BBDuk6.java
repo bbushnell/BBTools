@@ -314,7 +314,7 @@ public class BBDuk6 {
 			}
 		}
 		
-		BBDukProcessor processor=new BBDukProcessor(p, index, cris, ross, ross, ross);
+		BBDukProcessor processor=new BBDukProcessor(p, index, cris, ros, rosb, ross);
 		
 		/* Create ProcessThreads */
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(THREADS);
