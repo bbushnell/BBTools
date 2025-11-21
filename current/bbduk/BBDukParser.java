@@ -233,7 +233,7 @@ class BBDukParser {
 				midMaskLen=0;
 			}
 		}
-		mink=Tools.min((mink<1 ? 6 : mink), k);
+		mink=Tools.min(mink, k);
 		
 		{//set some constants
 			bitsPerBase=(amino ? 5 : 2);
@@ -289,7 +289,7 @@ class BBDukParser {
 		kfilter=(ref!=null || literal!=null) && !(ktrimRight || ktrimLeft || ktrimN || ksplit);
 		assert(findBestMatch==false || kfilter==false || kbig<=k) : "K must be less than 32 in 'findBestMatch' mode";
 		
-		assert(!useShortKmers || ktrimRight || ktrimLeft || ktrimN || ksplit) : "\nSetting mink or useShortKmers also requires setting a ktrim mode, such as 'r', 'l', or 'n'\n";
+		assert(!useShortKmers || ktrimRight || ktrimLeft || ktrimN || ksplit) : "\nSetting mink ("+mink+") or useShortKmers also requires setting a ktrim mode, such as 'r', 'l', or 'n'\n";
 		
 		if(maskMiddle){
 			assert(k>midMaskLen+1);
@@ -444,28 +444,13 @@ class BBDukParser {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(Parser.parseZip(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseHist(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseCommonStatic(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseQualityAdjust(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseQuality(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseFasta(arg, a, b)){
-				//do nothing
-			}else if(Parser.parseSam(arg, a, b)){
-				//do nothing
-			}else if(parser.parseInterleaved(arg, a, b)){
-				//do nothing
-			}else if(parser.parseTrim(arg, a, b)){
-				//do nothing
-			}else if(parser.parseCommon(arg, a, b)){
-				//do nothing
-			}else if(parser.parseCardinality(arg, a, b)){
-				//do nothing
+			if(a.equals("threads") || a.equals("t")){
+				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
+				Shared.setThreads(x);
+				THREADS=x;
+			}else if(a.equals("workers") || a.equals("wt") || a.equals("workerthreads")){
+				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
+				THREADS=x;
 			}else if(a.equals("in") || a.equals("in1")){
 				in1=b;
 			}else if(a.equals("in2")){
@@ -851,7 +836,33 @@ class BBDukParser {
 				setOut=true;
 			}else if(i==2 && ref==null && arg.indexOf('=')<0 && arg.lastIndexOf('.')>0){
 				ref=(new File(args[i]).exists() ? new String[] {args[i]} : args[i].split(","));
-			}else{
+			}
+			
+			else if(Parser.parseZip(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseHist(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseCommonStatic(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseQualityAdjust(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseQuality(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseFasta(arg, a, b)){
+				//do nothing
+			}else if(Parser.parseSam(arg, a, b)){
+				//do nothing
+			}else if(parser.parseInterleaved(arg, a, b)){
+				//do nothing
+			}else if(parser.parseTrim(arg, a, b)){
+				//do nothing
+			}else if(parser.parseCommon(arg, a, b)){
+				//do nothing
+			}else if(parser.parseCardinality(arg, a, b)){
+				//do nothing
+			} 
+			
+			else{
 				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
