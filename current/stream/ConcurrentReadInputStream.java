@@ -174,6 +174,11 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			HeaderInputStream ris2=(ff2==null ? null : new HeaderInputStream(ff2));
 			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
 			
+		}else if(ff1.gfa()){
+			
+			GfaReadInputStream ris1=new GfaReadInputStream(ff1);
+			cris=new ConcurrentGenericReadInputStream(ris1, null, maxReads);
+			
 		}else if(ff1.sequential()){
 			
 			SequentialReadInputStream ris=new SequentialReadInputStream(maxReads, 200, 50, 0, false);
