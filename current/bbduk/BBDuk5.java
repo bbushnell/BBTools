@@ -50,7 +50,7 @@ import var2.VarMap;
  * @date Aug 30, 2013
  *
  */
-public class BBDuk4 {
+public class BBDuk5 {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -62,7 +62,7 @@ public class BBDuk4 {
 	 */
 	public static void main(String[] args){
 		//Create a new BBDuk instance
-		BBDuk4 x=new BBDuk4(args);
+		BBDuk5 x=new BBDuk5(args);
 		
 		//And run it
 		x.process();
@@ -76,7 +76,7 @@ public class BBDuk4 {
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
-	public BBDuk4(String[] args){
+	public BBDuk5(String[] args){
 		
 		/* Parse arguments */
 		
@@ -106,7 +106,6 @@ public class BBDuk4 {
 		outrpkm=p.outrpkm;
 		outrefstats=p.outrefstats;
 		polymerStatsFile=p.polymerStatsFile;
-		outduk=p.outduk;
 		tossJunk=p.tossJunk;
 		dump=p.dump;
 		maxBasesOutm=p.maxBasesOutm;
@@ -264,15 +263,12 @@ public class BBDuk4 {
 
 //		WAYS=p.WAYS;
 //		initialSizeDefault=p.initialSizeDefault;
-//		HITCOUNT_LEN=p.HITCOUNT_LEN;
 		
 		loglogIn=(p.loglog ? CardinalityTracker.makeTracker(p.parser) : null);
 		loglogOut=(p.loglogOut ? CardinalityTracker.makeTracker(p.parser) : null);
 		
-		hitCounts=(outduk==null ? null : new long[HITCOUNT_LEN+1]);
-		
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, qfout1, qfout2, outb1, outb2, outsingle, outstats, 
-				outrpkm, outduk, outrqc, outrefstats, polymerStatsFile, khistIn, khistOut, p.alignOut)){
+				outrpkm, outrqc, outrefstats, polymerStatsFile, khistIn, khistOut, p.alignOut)){
 			throw new RuntimeException("\nCan't write to some output files; overwrite="+overwrite+"\n");
 		}
 		if(!Tools.testInputFiles(false, true, in1, in2, qfin1, qfin2)){
@@ -282,7 +278,7 @@ public class BBDuk4 {
 			throw new RuntimeException("\nCan't read to some reference files.\n");
 		}
 		if(!Tools.testForDuplicateFiles(true, in1, in2, qfin1, qfin2, qfout1, qfout2,
-				out1, out2, outb1, outb2, outsingle, outstats, outrpkm, outduk, outrqc, outrefstats, polymerStatsFile, khistIn, khistOut, p.alignOut)){
+				out1, out2, outb1, outb2, outsingle, outstats, outrpkm, outrqc, outrefstats, polymerStatsFile, khistIn, khistOut, p.alignOut)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 		
@@ -367,7 +363,7 @@ public class BBDuk4 {
 		}
 		
 		/* Check for output file collisions */
-		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outb1, outb2, outstats, outrpkm, outduk, outrqc, outrefstats)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, outb1, outb2, outstats, outrpkm, outrqc, outrefstats)){
 			throw new RuntimeException("One or more output files were duplicate or could not be written to.  Check the names or set the 'overwrite=true' flag.");
 		}
 		
@@ -419,9 +415,6 @@ public class BBDuk4 {
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
-		/* Write legacy duk statistics (which requires tables) */
-		writeDuk(System.nanoTime()-startTime);
-		
 		/* Write statistics to files */
 		writeStats();
 		writeRPKM();
@@ -434,7 +427,6 @@ public class BBDuk4 {
 		/* Unload kmers and sequence data to save memory */
 		if(RELEASE_TABLES){
 			index.cleanup();
-			hitCounts=null;
 		}
 		
 		if(silent){return;}
@@ -731,18 +723,6 @@ public class BBDuk4 {
 	}
 	
 	/**
-	 * Write processing statistics in DUK's format.
-	 * @param time Elapsed time, nanoseconds
-	 */
-	private void writeDuk(long time){
-		if(outduk==null){return;}
-		final TextStreamWriter tsw=new TextStreamWriter(outduk, overwrite, false, false);
-		tsw.start();
-		tsw.println(dukString(time));
-		tsw.poisonAndWait();
-	}
-	
-	/**
 	 * Write RQCFilter stats.
 	 * @param time Elapsed time, nanoseconds
 	 */
@@ -812,66 +792,6 @@ public class BBDuk4 {
 		Long old=RQC_MAP.get(key);
 		if(evict || old==null){RQC_MAP.put(key, value);}
 		else if(add){RQC_MAP.put(key, value+old);}
-	}
-	
-	/**
-	 * Helper method; formats statistics to be duk-compatible
-	 * @param time Elapsed time, nanoseconds
-	 * @return duk output string
-	 */
-	private String dukString(long time){
-		StringBuilder sb=new StringBuilder();
-		sb.append("##INPUT PARAMETERS##\n");
-		sb.append("#Reference file:	"+(ref==null || ref.length<1 ? null : ref.length==1 ? ref[0] : Arrays.toString(ref))+"\n");
-		sb.append("#Query file:	"+in1+(in2==null ? "" : ","+in2)+"\n");
-		sb.append("#Not matched reads file:	"+out1+(out2==null ? "" : ","+out2)+"\n");
-		sb.append("#Matched reads file:	"+outb1+(outb2==null ? "" : ","+outb2)+"\n");
-		sb.append("#Output file (duk):	"+outduk+"\n");
-		sb.append("#Output file (stats):	"+outstats+"\n");
-		sb.append("#Mer size:	"+k+"\n");
-		long size=0;
-//		for(AbstractKmerTable x : keySets){size+=x.size();}//Deprecated
-		sb.append("#Avg step size:	"+Tools.format("%.1f", refKmers/(double)(Tools.max(1, size)))+"\n");
-		sb.append("#Cut off:	"+maxBadKmers0+"\n");
-		sb.append("#Mask middle:	"+midMaskLen+"\n");
-		sb.append("#Quality trim:	"+((qtrimLeft || qtrimRight) ? trimq : "false")+"\n");
-		sb.append("\n");
-		
-		sb.append("##REFERENCE STAT##\n");
-		sb.append("#Total Reads:	"+refReads+"\n");
-		sb.append("#Total Bases:	"+refBases+"\n");
-		sb.append("#Total kmers:	"+refKmers+"\n");
-		sb.append("#Total stored kmers:	"+size+"\n");
-		sb.append("\n");
-
-		sb.append("## ELAPSED TIME##\n");
-		sb.append("# Time:	"+Tools.format("%.2f", time/1000000000.0)+" seconds\n");
-		sb.append("\n");
-
-		sb.append("##QUERY FILE STAT##\n");
-		sb.append("# Total number of reads:	"+readsIn+"\n");
-		sb.append("# Total number of matched reads:	"+readsKFiltered+"\n");
-		sb.append("# Match ratio:	"+Tools.format("%.6f", readsKFiltered*1.0/readsIn)+"\n");
-		sb.append("\n");
-
-		sb.append("##P-VALUE##\n");
-		sb.append("#Avg number of Kmer for each read:	"+((basesIn/(Tools.max(readsIn, 1)))-k)+"\n");
-//		sb.append("# P value for the given threshold 1 is 4.05231e-14\n"); //duk prints a P value; not sure what it means
-		sb.append("\n");
-
-		sb.append("## Histogram of kmer occurance for reads with at least one occurance ##\n");
-		sb.append("#NumOcc\tNumReads\tPercentage\n");
-		
-		long sum=shared.Vector.sum(hitCounts);
-		double mult=100.0/(sum<1 ? 1 : sum);
-		for(int i=0; i<hitCounts.length; i++){
-			long x=hitCounts[i];
-			if(x>0){
-				sb.append(i).append('\t').append(x).append('\t').append(Tools.format("%.4f",(x*mult))).append('\n');
-			}
-		}
-		
-		return sb.toString();
 	}
 	
 	/** Calculates ratio of two specified polymer bases.
@@ -1013,11 +933,6 @@ public class BBDuk4 {
 			if(pTracker!=null){
 				pTracker.add(pt.pTrackerT);
 			}
-			
-			if(hitCounts!=null){
-				for(int i=0; i<hitCounts.length; i++){hitCounts[i]+=pt.hitCountsT[i];}
-				pt.hitCountsT=null;
-			}
 			if(pt.scaffoldReadCountsT!=null && scaffoldReadCounts!=null){
 				for(int i=0; i<pt.scaffoldReadCountsT.length; i++){scaffoldReadCounts.addAndGet(i, pt.scaffoldReadCountsT[i]);}
 				pt.scaffoldReadCountsT=null;
@@ -1081,8 +996,6 @@ public class BBDuk4 {
 			}
 			
 			overlapVector=(trimByOverlap ? new int[5] : null);
-			
-			hitCountsT=(hitCounts==null ? null : new long[hitCounts.length]);
 			
 			if(localArrays && alen>0 && alen<10000 && scaffoldReadCounts!=null && scaffoldBaseCounts!=null){
 				scaffoldReadCountsT=new long[alen];
@@ -1932,16 +1845,13 @@ public class BBDuk4 {
 								scaffoldReadCounts.addAndGet(id, 1);
 								scaffoldBaseCounts.addAndGet(id, bases.length);
 							}
-							if(hitCounts==null){
-								return (found=found+1);
-							}//Early exit, but prevents generation of histogram that goes over maxBadKmers+1.
+							return (found=found+1);
+							//Early exit, but prevents generation of histogram that goes over maxBadKmers+1.
 						}
 						found++;
 					}
 				}
 			}
-			
-			if(hitCountsT!=null){hitCountsT[Tools.min(found, HITCOUNT_LEN)]++;}
 			return found;
 		}
 		
@@ -1995,15 +1905,11 @@ public class BBDuk4 {
 									scaffoldBaseCounts.addAndGet(id, bases.length);
 								}
 							}
-							if(hitCounts==null){
-								return found;
-							}
+							return found;
 						}
 					}
 				}
 			}
-			
-			if(hitCountsT!=null){hitCountsT[Tools.min(found, HITCOUNT_LEN)]++;}
 			return found;
 		}
 		
@@ -2072,8 +1978,6 @@ public class BBDuk4 {
 					scaffoldBaseCounts.addAndGet(id, bases.length);
 				}
 			}
-			
-			if(hitCountsT!=null){hitCountsT[Tools.min(found, HITCOUNT_LEN)]++;}
 			return id;
 		}
 		
@@ -2132,9 +2036,8 @@ public class BBDuk4 {
 										scaffoldReadCounts.addAndGet(lastId, 1);
 										scaffoldBaseCounts.addAndGet(lastId, bases.length);
 									}
-									if(hitCounts==null){
-										return found;
-									}//Early exit, but prevents generation of histogram that goes over maxBadKmers+1.
+									return found;
+									//Early exit, but prevents generation of histogram that goes over maxBadKmers+1.
 								}
 							}
 						}
@@ -2160,8 +2063,6 @@ public class BBDuk4 {
 					}
 				}
 			}
-			
-			if(hitCountsT!=null){hitCountsT[Tools.min(found, HITCOUNT_LEN)]++;}
 			return found;
 		}
 		
@@ -3036,7 +2937,6 @@ public class BBDuk4 {
 		private final IntList countList;
 		
 		//These "*T" fields are used to store counts on a per-thread basis.
-		long[] hitCountsT;
 		long[] scaffoldReadCountsT;
 		long[] scaffoldBaseCountsT;
 		
@@ -3369,8 +3269,6 @@ public class BBDuk4 {
 	private AtomicLongArray scaffoldBaseCounts;
 	/** scaffoldLengths[id] stores the length of that scaffold */
 	private IntList scaffoldLengths;
-	/** hitCounts[x] stores the number of reads with exactly x kmer matches */
-	private long[] hitCounts;
 	/** Set to false to force threads to share atomic counter arrays. */
 	private boolean ALLOW_LOCAL_ARRAYS;
 	
@@ -3423,9 +3321,6 @@ public class BBDuk4 {
 	private final String outsingle;
 	/** Statistics output files */
 	private final String outstats, outrqc, outrpkm, outrefstats, polymerStatsFile;
-	@Deprecated
-	/** duk-style statistics */
-	private final String outduk;
 	
 	final boolean tossJunk;
 	
@@ -3807,8 +3702,6 @@ public class BBDuk4 {
 	public static int STATS_COLUMNS=3;
 	/** Release memory used by kmer storage after processing reads */
 	public static boolean RELEASE_TABLES=true;
-	/** Max value of hitCount array */
-	public static final int HITCOUNT_LEN=1000;
 	/** Make unambiguous copies of ref sequences with ambiguous bases */
 	public static boolean REPLICATE_AMBIGUOUS=false;
 	

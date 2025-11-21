@@ -140,6 +140,9 @@ public class StreamerFactory {
 				return new SamStreamerST(ff, saveHeader, maxReads, makeReads);
 			}
 			
+		}else if(ff.gfa()){
+			return new GfaStreamerST(ff, pairnum, maxReads);
+			
 		}
 		
 		throw new RuntimeException("Unsupported file format: "+ff);
