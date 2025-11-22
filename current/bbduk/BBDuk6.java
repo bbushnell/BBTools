@@ -59,7 +59,7 @@ public class BBDuk6 {
 		
 		/* Parse arguments */
 		
-		BBDukParser p=new BBDukParser(args);
+		BBDukParser p=new BBDukParser(args, getClass());
 		parser=p;
 		
 		silent=p.silent;
@@ -214,7 +214,7 @@ public class BBDuk6 {
 		Read.VALIDATE_IN_CONSTRUCTOR=THREADS<4;
 		
 		/* Do kmer matching of input reads */
-		BBDukProcessor proc=spawnProcessThreads(parser, t1);
+		BBDukProcessor2 proc=spawnProcessThreads(parser, t1);
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
@@ -241,7 +241,7 @@ public class BBDuk6 {
 	 * Match reads against reference kmers, using multiple ProcessThread.
 	 * @param t
 	 */
-	private BBDukProcessor spawnProcessThreads(BBDukParser p, Timer t){
+	private BBDukProcessor2 spawnProcessThreads(BBDukParser p, Timer t){
 		t.start();
 		
 		/* Create read input stream */
@@ -314,7 +314,7 @@ public class BBDuk6 {
 			}
 		}
 		
-		BBDukProcessor processor=new BBDukProcessor(p, index, cris, ros, rosb, ross);
+		BBDukProcessor2 processor=new BBDukProcessor2(p, index, cris, ros, rosb, ross);
 		
 		/* Create ProcessThreads */
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(THREADS);
@@ -365,7 +365,7 @@ public class BBDuk6 {
 	private class ProcessThread extends Thread{
 		
 		/** Constructor */
-		public ProcessThread(BBDukProcessor processor_){
+		public ProcessThread(BBDukProcessor2 processor_){
 			processor=processor_.clone();
 		}
 		
@@ -374,7 +374,7 @@ public class BBDuk6 {
 			processor.process();
 		}
 		
-		final BBDukProcessor processor;
+		final BBDukProcessor2 processor;
 	}
 	
 	/*--------------------------------------------------------------*/

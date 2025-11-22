@@ -13,6 +13,19 @@ import shared.Shared;
  * @date October 31, 2025
  */
 public class StreamerFactory {
+	
+	/*--------------------------------------------------------------*/
+	/*----------------           Legacy             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public static Streamer getReadInputStream(long maxReads, boolean keepSamHeader,
+			FileFormat ff1, FileFormat ff2, String qf1, String qf2, int threads){
+		return makeStreamer(ff1, ff2, qf1, qf2, true, maxReads, keepSamHeader, true, threads);
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Twin Files           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Creates a Streamer for one or two input files with default settings.
@@ -53,6 +66,13 @@ public class StreamerFactory {
 		boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
 		Streamer s1=makeStreamer(ff1, 0, ordered || ff2!=null, maxReads, saveHeader, makeReads, threads);
 		Streamer s2=makeStreamer(ff2, 1, true, maxReads, saveHeader, makeReads, threads);
+		return s2==null ? s1 : new PairStreamer(s1, s2);
+	}
+	
+	public static Streamer makeStreamer(FileFormat ff1, FileFormat ff2, String qf1, String qf2,
+		boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
+		Streamer s1=makeStreamer(ff1, qf1, 0, ordered || ff2!=null, maxReads, saveHeader, makeReads, threads);
+		Streamer s2=makeStreamer(ff2, qf2, 1, true, maxReads, saveHeader, makeReads, threads);
 		return s2==null ? s1 : new PairStreamer(s1, s2);
 	}
 
@@ -102,6 +122,25 @@ public class StreamerFactory {
 	 */
 	public static Streamer makeStreamer(FileFormat ff, int pairnum, 
 			boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
+		return makeStreamer(ff, null, pairnum, ordered, maxReads, saveHeader, makeReads, threads);
+	}
+	
+	/**
+	 * Creates a Streamer for a single input file with full configuration.
+	 * 
+	 * @param ff Input file format
+	 * @param qf Qual file, for legacy support
+	 * @param pairnum 0 for R1 or unpaired, 1 for R2
+	 * @param ordered True to maintain input order in output
+	 * @param maxReads Maximum reads to process, or -1 for unlimited
+	 * @param saveHeader True to preserve SAM/BAM header information
+	 * @param makeReads True to convert SamLines to Read objects (SAM/BAM only)
+	 * @param threads Worker threads; -1 for auto, 0 for singlethreaded (zero workers)
+	 * @return Appropriate Streamer implementation, or null if ff is null
+	 * @throws RuntimeException if file format is unsupported
+	 */
+	public static Streamer makeStreamer(FileFormat ff, String qf, int pairnum, 
+			boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
 		if(ff==null){
 			return null;
 			
@@ -112,7 +151,7 @@ public class StreamerFactory {
 				return new FastqStreamerST(ff, pairnum, maxReads);
 			}
 			
-		}else if(ff.fasta()){
+		}else if(ff.fasta() && qf==null){
 			if(threads==0 || (threads<0 && FastaStreamer.DEFAULT_THREADS<1) || 
 					Shared.threads()<4 || Shared.LOW_MEMORY) {
 				if(FASTA_STREAMER_2 && Shared.SIMD && !ff.interleaved()) {
@@ -142,6 +181,13 @@ public class StreamerFactory {
 			
 		}else if(ff.gfa()){
 			return new GfaStreamerST(ff, pairnum, maxReads);
+			
+		}else if(ff.scarf()){
+			return new ScarfStreamer(ff, pairnum, maxReads);
+			
+		}else if(ff.fasta() && qf!=null) {
+			threads=(threads<0 ? FastqStreamer.DEFAULT_THREADS : threads);
+			return new FastaQualStreamer(ff, qf, pairnum, maxReads);
 			
 		}
 		

@@ -2275,6 +2275,10 @@ public class ReadWrite {
 
 
 	public static final boolean closeStream(Streamer st){return closeStreams(st, (Writer[])null);}
+	/** Closes multiple concurrent read output streams and reports error state */
+	public static final boolean closeOutputStreams(Writer...ross){return closeStreams(null, ross);}
+
+	
 	/** Closes single concurrent read stream and reports error state */
 	public static final boolean closeStream(ConcurrentReadStreamInterface cris){return closeStreams(cris, (ConcurrentReadOutputStream[])null);}
 	/** Closes single concurrent read output stream and reports error state */
@@ -2347,20 +2351,13 @@ public class ReadWrite {
 			if(verbose){System.err.println("Closing cris; error="+errorState+"; c.error="+st.errorState());}
 			st.close();
 			errorState|=st.errorState();
-//			Object[] prods=cris.producers();
-//			for(Object o : prods){
-//				if(o!=null && o.getClass()==ReadInputStream.class){
-//					ReadInputStream ris=(ReadInputStream)o;
-//					ris.
-//				}
-//			}
 			if(verbose){System.err.println("Closed cris; error="+errorState);}
 		}
 		if(writers!=null){
 			for(Writer w : writers){
 				if(w!=null){
 					if(verbose){System.err.println("Closing ros "+w+"; error="+errorState);}
-					w.close();
+					w.poisonAndWait();
 					errorState|=(w.errorState() || !w.finishedSuccessfully());
 					if(verbose){System.err.println("Closed ros; error="+errorState);}
 				}

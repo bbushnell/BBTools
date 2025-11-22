@@ -93,11 +93,6 @@ public class BamWriter implements Writer {
 	}
 
 	@Override
-	public void close(){
-		//TODO: Interrupt and terminate
-	}
-
-	@Override
 	public long readsWritten(){return readsWritten;}
 
 	@Override
@@ -364,7 +359,8 @@ public class BamWriter implements Writer {
 			
 			if(verbose) {System.err.println("Consumer finished accumulating.");}
 			//Close output stream and signal completion
-			ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+			boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+			errorState|=b;
 			if(verbose) {System.err.println("Consumer finished writing.");}
 			oqs.setFinished(false);
 			if(verbose) {System.err.println("Consumer set oqs finished.");}

@@ -80,7 +80,7 @@ public class BBDuk5 {
 		
 		/* Parse arguments */
 		
-		BBDukParser p=new BBDukParser(args);
+		BBDukParser p=new BBDukParser(args, getClass());
 		
 		silent=p.silent;
 		json=p.json;

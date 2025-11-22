@@ -17,6 +17,7 @@ import shared.LineParser1;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
+import stream.FASTQ;
 import ukmer.Kmer;
 
 /**
@@ -758,17 +759,21 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
+	public ByteBuilder appendQuality(byte[] x){
+		return appendQuality(x, FASTQ.ASCII_OFFSET_OUT);
+	}
+	
 	/**
 	 * Appends quality scores as ASCII by adding 33 to each byte.
 	 * Converts Phred quality scores to FASTQ ASCII representation.
 	 * @param x Quality score array (null is ignored)
 	 * @return This ByteBuilder for chaining
 	 */
-	public ByteBuilder appendQuality(byte[] x){
+	public ByteBuilder appendQuality(byte[] x, int offset){
 		if(x==null){return this;}
 		expand(x.length);
 		for(int i=0; i<x.length; i++){
-			array[length]=(byte)(x[i]+33);
+			array[length]=(byte)(x[i]+offset);
 			length++;
 		}
 		return this;

@@ -16,8 +16,9 @@ public interface Writer {
 	/** Initialize and start background formatting/writing threads */
 	public void start();
 	
-	/** Emergency shutdown - prefer poisonAndWait() for clean termination */
-	public void close();
+//	/** Emergency shutdown - prefer poisonAndWait() for clean termination */
+//	@Deprecated
+//	public void close();
 	
 	/** Number of reads written */
 	public long readsWritten();

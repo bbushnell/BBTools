@@ -68,7 +68,6 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	}
 
 	public Read(byte[] bases_, byte[] quals_, String name_, long id_, boolean validate){
-		flags=~VALIDATEDMASK;
 		bases=bases_;
 		quality=quals_;
 		id=name_;
@@ -954,6 +953,16 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 	public ByteBuilder toFasta(int wrap){
 		return toFasta(wrap, (ByteBuilder)null);
+	}
+	
+	public ByteBuilder toScarf(ByteBuilder bb) {
+		bb.append(id).colon();
+		bb.append(bases).colon();
+		if(quality!=null) {bb.appendQuality(quality, 64);}
+		else {
+			for(int i=0; i<length(); i++) {bb.append((byte)(Shared.FAKE_QUAL+64));}
+		}
+		return bb;
 	}
 
 	/**

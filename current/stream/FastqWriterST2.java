@@ -91,32 +91,6 @@ public class FastqWriterST2 implements Writer{
 	}
 	
 	@Override
-	public synchronized void close(){
-		if(verbose){
-			outstream2.println("FastqWriterST close() 1");
-			new Exception().printStackTrace();
-		}
-		if(finished) {return;}
-		poison(); 
-		// poison() handles draining the queue if unthreaded.
-		if(verbose){outstream2.println("FastqWriterST close() 2");}
-		
-		// If threaded, wait for the worker to process the poison pill and exit.
-		if(threaded && writerThread != null){
-			try{
-				writerThread.join();
-			} catch (InterruptedException e){
-				Thread.currentThread().interrupt();
-			}
-		}
-		if(verbose){outstream2.println("FastqWriterST close() 3");}
-		
-		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
-		if(verbose){outstream2.println("FastqWriterST close() 4");}
-		finished=true;
-	}
-	
-	@Override
 	public synchronized void poison(){
 		if(verbose){outstream2.println("Called poison "+getClass().getName());}
 		// Ensure only one thread executes the shutdown sequence
@@ -152,9 +126,8 @@ public class FastqWriterST2 implements Writer{
 	}
 	
 	@Override
-	public boolean poisonAndWait(){
+	public synchronized boolean poisonAndWait(){
 		poison();
-		close(); // Close handles the thread join/final stream closure
 		return waitForFinish();
 	}
 	
@@ -213,7 +186,32 @@ public class FastqWriterST2 implements Writer{
 	public long basesWritten(){return basesWritten;}
 	
 	@Override
-	public boolean waitForFinish(){return errorState;}
+	public synchronized boolean waitForFinish(){
+
+		if(verbose){
+			outstream2.println("FastqWriterST close() 1");
+			new Exception().printStackTrace();
+		}
+		if(finished) {return errorState;}
+		poison(); 
+		// poison() handles draining the queue if unthreaded.
+		if(verbose){outstream2.println("FastqWriterST close() 2");}
+
+		// If threaded, wait for the worker to process the poison pill and exit.
+		if(threaded && writerThread != null){
+			try{
+				writerThread.join();
+			} catch (InterruptedException e){
+				Thread.currentThread().interrupt();
+			}
+		}
+		if(verbose){outstream2.println("FastqWriterST close() 3");}
+
+		boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+		if(verbose){outstream2.println("FastqWriterST close() 4");}
+		finished=true;
+		return errorState|=b;
+	}
 	
 	@Override
 	public boolean errorState(){return errorState;}

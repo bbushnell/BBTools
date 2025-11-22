@@ -988,6 +988,7 @@ public class Parser {
 			else{x=(byte)Integer.parseInt(b);}
 			qin=x;
 			FASTQ.SET_QIN=x>-1;
+			FASTQ.DETECT_QUALITY=!FASTQ.SET_QIN;
 		}else if(a.equals("asciiout") || a.equals("qualityout") || a.equals("qualout") || a.equals("qout")){
 			byte x;
 			if(b.equalsIgnoreCase("sanger")){x=33;}

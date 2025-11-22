@@ -462,8 +462,7 @@ public class CheckStrand3 implements Accumulator<CheckStrand3.ProcessThread> {
 
 		final FileFormat ffout=FileFormat.testOutput(
 				fname, ffin1.format(), null, true, overwrite, false, ordered);
-		final Writer ros=WriterFactory.getStream(
-			ffout, null, buff, null, true);
+		final Writer ros=WriterFactory.getStream(ffout, null, buff, null, true, -1);
 		ros.start(); //Start the stream
 		return ros;
 	}

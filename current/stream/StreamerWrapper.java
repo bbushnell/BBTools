@@ -90,6 +90,11 @@ public class StreamerWrapper{
 			in2=parser.in2;
 			out1=parser.out1;
 			out2=parser.out2;
+			
+			qfin1=parser.qfin1;
+			qfin2=parser.qfin2;
+			qfout1=parser.qfout1;
+			qfout2=parser.qfout2;
 		}
 
 		doPoundReplacement();
@@ -270,10 +275,10 @@ public class StreamerWrapper{
 		final boolean outputSam=(ffout1!=null && ffout1.samOrBam());
 		final boolean saveHeader=inputSam && outputSam;
 		
-		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads,
+		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, qfin1, qfin2, ordered, maxReads,
 			saveHeader, outputReads, threadsIn);
 		st.setSampleRate(samplerate, sampleseed);
-		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
+		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, qfout1, qfout2, threadsOut, null, saveHeader);
 		
 		process(st, fw, t, inputReads || outputReads);
 	}
@@ -309,8 +314,8 @@ public class StreamerWrapper{
 		}
 		if(fw!=null) {
 			fw.poisonAndWait();
-			assert(!readMode || readsIn==fw.readsWritten());
-			assert(!readMode || basesIn==fw.basesWritten());
+			assert(!readMode || readsIn==fw.readsWritten()) : readsIn+", "+fw.readsWritten()+", "+fw.getClass();
+			assert(!readMode || basesIn==fw.basesWritten()) : basesIn+", "+fw.basesWritten()+", "+fw.getClass();
 			readsOut=fw.readsWritten();
 			basesOut=fw.basesWritten();
 		}
@@ -365,6 +370,15 @@ public class StreamerWrapper{
 	private String out1=null;
 	/** Secondary output file path */
 	private String out2=null;
+
+	/** Qual1 input file path */
+	private String qfin1=null;
+	/** Qual2 input file path */
+	private String qfin2=null;
+	/** Qual1 output file path */
+	private String qfout1=null;
+	/** Qual2 output file path */
+	private String qfout2=null;
 	
 	/** Primary input file format */
 	private FileFormat ffin1;

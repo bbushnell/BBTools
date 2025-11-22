@@ -100,25 +100,22 @@ public class SamWriterST implements Writer {
 	}
 
 	/** Signal end of input (no-op for single-threaded). */
-	public final void poison(){
-		finished=true;
+	public final synchronized void poison(){
+		poisoned=true;
 	}
 
 	/** Wait for all writes to complete (no-op for single-threaded). */
-	public final boolean waitForFinish(){
-		return errorState();
+	public final synchronized boolean waitForFinish(){
+		if(closed) {return errorState;}
+		boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+		closed=true;
+		return (errorState|=b);
 	}
 
 	/** Convenience method - poison and wait. */
-	public final boolean poisonAndWait(){
+	public final synchronized boolean poisonAndWait(){
 		poison();
 		return waitForFinish();
-	}
-
-	@Override
-	public void close(){
-		if(!finished){poison();}
-		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
 	}
 
 	@Override
@@ -227,7 +224,7 @@ public class SamWriterST implements Writer {
 	public boolean errorState() {return errorState;}
 	
 	@Override
-	public boolean finishedSuccessfully() {return !errorState && finished;}
+	public boolean finishedSuccessfully() {return !errorState && poisoned;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -259,7 +256,9 @@ public class SamWriterST implements Writer {
 	/** True after start() called */
 	private boolean started=false;
 	/** True after poison() called */
-	private boolean finished=false;
+	private boolean poisoned=false;
+	/** True after waitForFinish() returns */
+	private boolean closed=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
