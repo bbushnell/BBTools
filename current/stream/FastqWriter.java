@@ -102,7 +102,7 @@ public class FastqWriter implements Writer {
 		writeR1=writeR1_;
 		writeR2=writeR2_;
 		format=(ffout.format()==UNKNOWN ? FASTQ : ffout.format());
-		assert(format==FASTQ || format==FASTA || format==HEADER) : ffout;
+		assert(format==FASTQ || format==FASTA || format==HEADER || format==SCARF) : ffout;
 		
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
@@ -124,11 +124,6 @@ public class FastqWriter implements Writer {
 	@Override
 	public void start(){
 		spawnThreads();
-	}
-	
-	@Override
-	public void close(){
-		// TODO: Unimplemented
 	}
 	
 	@Override
@@ -300,7 +295,8 @@ public class FastqWriter implements Writer {
 			}
 			
 			// Close output stream and signal completion
-			ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+			boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+			errorState|=b;
 			oqs.setFinished(true);
 		}
 		
@@ -320,6 +316,8 @@ public class FastqWriter implements Writer {
 					writeFasta(reads, bb);
 				}else if(format==HEADER) {
 					writeHeader(reads, bb);
+				}else if(format==SCARF) {
+					writeScarf(reads, bb);
 				}else {
 					throw new RuntimeException("Bad format: "+format);
 				}
@@ -392,6 +390,24 @@ public class FastqWriter implements Writer {
 			}
 		}
 		
+		private void writeScarf(ArrayList<Read> reads, ByteBuilder bb) {
+			for(Read r : reads){
+				if(r==null) {continue;}
+				final Read r1=(r.pairnum()==0 ? r : null);
+				final Read r2=(r.pairnum()==1 ? r : r.mate);
+				if(writeR1 && r1!=null){
+					r1.toScarf(bb).nl();
+					readsWrittenT++;
+					basesWrittenT+=r1.length();
+				}
+				if(writeR2 && r2!=null){
+					r1.toScarf(bb).nl();
+					readsWrittenT++;
+					basesWrittenT+=r2.length();
+				}
+			}
+		}
+		
 		/** Number of reads processed by this thread. */
 		protected long readsWrittenT=0;
 		/** Number of bases processed by this thread. */
@@ -438,6 +454,7 @@ public class FastqWriter implements Writer {
 	private static final int FASTQ=FileFormat.FASTQ;
 	private static final int FASTA=FileFormat.FASTA;
 	private static final int HEADER=FileFormat.HEADER;
+	private static final int SCARF=FileFormat.SCARF;
 	private static final int UNKNOWN=FileFormat.UNKNOWN;
 	
 	public static int DEFAULT_THREADS=3;

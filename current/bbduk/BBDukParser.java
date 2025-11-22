@@ -41,8 +41,8 @@ class BBDukParser {
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
-	BBDukParser(String[] args){
-		args=preParse(args);
+	BBDukParser(String[] args, Class<?> c){
+		args=preParse(args, c);
 		runParseLoop(args);
 		
 		{//Process parser fields
@@ -403,10 +403,10 @@ class BBDukParser {
 		return true;
 	}
 	
-	private String[] preParse(String[] args) {
+	private String[] preParse(String[] args, Class<?> c) {
 
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, getClass(), true);
+			PreParser pp=new PreParser(args, c, true);
 			args=pp.args;
 			outstream=pp.outstream;
 			jsonStats=pp.jsonObject;
@@ -448,9 +448,13 @@ class BBDukParser {
 				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
 				Shared.setThreads(x);
 				THREADS=x;
-			}else if(a.equals("workers") || a.equals("wt") || a.equals("workerthreads")){
+			}else if(a.equals("workers") || a.equals("wt") || a.equals("w") || a.equals("workerthreads")){
 				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
 				THREADS=x;
+			}else if(a.equals("threadsin") || a.equals("tin")){
+				threadsIn=Integer.parseInt(b);
+			}else if(a.equals("threadsout") || a.equals("tout")){
+				threadsOut=Integer.parseInt(b);
 			}else if(a.equals("in") || a.equals("in1")){
 				in1=b;
 			}else if(a.equals("in2")){
@@ -1036,6 +1040,9 @@ class BBDukParser {
 	
 	boolean setOut=false;
 	boolean setOutb=false;
+	
+	int threadsIn=-1;
+	int threadsOut=-1;
 	
 	/** Input reads */
 	String in1=null, in2=null;

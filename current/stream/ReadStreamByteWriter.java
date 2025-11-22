@@ -145,7 +145,8 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 					os.write(bb.array, 0, bb.length);
 					bb.setLength(0);
 				}
-				ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
+				boolean b=ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
+				errorState|=b;
 			}
 			
 			job=null;
@@ -164,13 +165,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	 * @throws IOException
 	 * 
 	 */
-	private void finishWriting(final ByteBuilder bb, final ByteBuilder bbq) throws IOException {
+	private synchronized void finishWriting(final ByteBuilder bb, final ByteBuilder bbq) throws IOException {
 		if(myOutstream!=null){
 			if(bb.length>0){
 				myOutstream.write(bb.array, 0, bb.length);
 				bb.setLength(0);
 			}
-			ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
+			boolean b=ReadWrite.finishWriting(null, myOutstream, fname, allowSubprocess);
+			errorState|=b;
 		}
 		if(myQOutstream!=null){
 			if(bbq.length>0){

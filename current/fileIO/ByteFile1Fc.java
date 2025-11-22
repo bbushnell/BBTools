@@ -154,6 +154,63 @@ public final class ByteFile1Fc extends ByteFile {
 		return new ListNum<byte[]>(list, nextID++);
 	}
 
+//	/** Fill buffer and find all FASTA boundaries */
+//	private int fillBuffer(){
+//		// Shift remaining data to start
+//		if(bstart>0 && bstart<bstop){
+//			int extra=bstop-bstart;
+//			System.arraycopy(buffer, bstart, buffer, 0, extra);
+//			bstop=extra;
+//			bstart=0;
+//		}else if(bstart>=bstop){
+//			bstart=0;
+//			bstop=0;
+//		}
+//
+//		// Clear position list
+//		listPos=0;
+//		positions.clear();
+//
+//		// Read data
+//		int lastRecordLoc=-1;
+//		while(lastRecordLoc<0){
+//			if(bstop==buffer.length){
+//				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
+//			}
+//			
+//			int r=0;
+//			try{
+//				r=is.read(buffer, bstop, buffer.length-bstop);
+//			}catch(IOException e){
+//				if(!Shared.anomaly){e.printStackTrace();}
+//			}catch(NullPointerException e){
+//				if(!Shared.anomaly){e.printStackTrace();}
+//			}
+//			
+////			final int from=Math.max(0, bstop-1);//Not safe because buffer can come in with residual newlines
+//			bstop+=r;
+//			
+//			if(firstRecord){
+//			    assert(bstop<1 || buffer[0]==carrot) : "File does not start with '>' - "+ff.name()+" is not a valid FASTA file";
+//			    firstRecord=false;
+//			}
+//
+//			// Find all \n> boundaries in the buffer
+//			positions.clear();
+//			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
+//			for(int i=positions.size-1; i>=0 && lastRecordLoc<0; i--) {
+//				int loc=positions.array[i];
+//				if(loc+1<bstop && buffer[loc+1]==carrot) {lastRecordLoc=loc;}
+//			}
+//			
+//			if(r<=0){// EOF
+//				if(bstop>0 && buffer[bstop-1]!='\n') {positions.add(bstop);}
+//				break;
+//			}
+//		}
+//		return lastRecordLoc;
+//	}
+	
 	/** Fill buffer and find all FASTA boundaries */
 	private int fillBuffer(){
 		// Shift remaining data to start
@@ -173,6 +230,8 @@ public final class ByteFile1Fc extends ByteFile {
 
 		// Read data
 		int lastRecordLoc=-1;
+		int scanStart=0; // <--- NEW: Track where we left off scanning
+		
 		while(lastRecordLoc<0){
 			if(bstop==buffer.length){
 				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
@@ -196,7 +255,10 @@ public final class ByteFile1Fc extends ByteFile {
 			}
 
 			// Find all \n> boundaries in the buffer
-			Vector.findSymbols(buffer, 0, bstop, slashn, positions);
+			// MODIFIED: Scan only from scanStart to bstop
+			Vector.findSymbols(buffer, scanStart, bstop, slashn, positions);
+			scanStart = bstop; // Update scanStart for next iteration
+			
 			for(int i=positions.size-1; i>=0 && lastRecordLoc<0; i--) {
 				int loc=positions.array[i];
 				if(loc+1<bstop && buffer[loc+1]==carrot) {lastRecordLoc=loc;}
@@ -224,6 +286,8 @@ public final class ByteFile1Fc extends ByteFile {
 		for(int i=0; i<newlines1.size && prev<lastByte; i++) {
 			int loc=newlines1.get(i);
 			int len=loc-prev-1;
+			assert(len>=0) : "len="+len+", loc="+loc+", i="+i+", prev="+prev+
+				", bb.length="+bb.length+", newlines1.size="+newlines1.size;
 			System.arraycopy(buffer, prev+1, bb.array, bb.length, len);//Copy excluding newline
 			if(verbose) {System.err.println("Added "+len+" bytes.");}
 			bb.length+=len;

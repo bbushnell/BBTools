@@ -22,8 +22,14 @@ public class WriterFactory {
 	
 	/** For drop-in ConcurrentReadOutputStream support */
 	public static Writer getStream(FileFormat ffout1, FileFormat ffout2, 
-			int buffersUnused, ArrayList<byte[]> header, boolean useSharedHeader) {
-		return makeWriter(ffout1, ffout2, header, useSharedHeader);
+			int buffersUnused, ArrayList<byte[]> header, boolean useSharedHeader, int threads) {
+		return makeWriter(ffout1, ffout2, threads, header, useSharedHeader);
+	}
+	
+	/** For drop-in ConcurrentReadOutputStream support */
+	public static Writer getStream(FileFormat ffout1, FileFormat ffout2, String qf1, String qf2,
+			int buffersUnused, ArrayList<byte[]> header, boolean useSharedHeader, int threads) {
+		return makeWriter(ffout1, ffout2, qf1, qf2, threads, header, useSharedHeader);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -95,15 +101,33 @@ public class WriterFactory {
 	 */
 	public static Writer makeWriter(FileFormat ffout1, FileFormat ffout2, int threads,
 			ArrayList<byte[]> header, boolean useSharedHeader){
+		return makeWriter(ffout1, ffout2, null, null, threads, header, useSharedHeader);
+	}
+	
+	/**
+	 * Creates a Writer for one or two output files with full configuration.
+	 * If ffout2 is null, returns a single-file writer (interleaved or unpaired).
+	 * If ffout2 is non-null, returns a PairedWriter for separate R1/R2 files.
+	 * Both files must be ordered when paired to ensure mate synchronization.
+	 * 
+	 * @param ffout1 Primary output file (R1 for paired data, or interleaved/unpaired)
+	 * @param ffout2 Secondary output file (R2 for paired data), or null
+	 * @param threads Number of compression/formatting threads per file
+	 * @param header SAM/BAM header lines, or null
+	 * @param useSharedHeader True to share header reference across threads (SAM/BAM only)
+	 * @return Appropriate Writer implementation
+	 */
+	public static Writer makeWriter(FileFormat ffout1, FileFormat ffout2, String qf1, String qf2,
+			int threads, ArrayList<byte[]> header, boolean useSharedHeader){
 		if(ffout2==null){
 			// Single file - interleaved or unpaired
-			return makeWriter(ffout1, true, true, threads, header, useSharedHeader);
+			return makeWriter(ffout1, qf1, true, true, threads, header, useSharedHeader);
 		}else{
 			// Paired files
 			assert(ffout1.ordered());
 			assert(ffout2.ordered());
-			Writer w1=makeWriter(ffout1, true, false, threads, header, false);  // R1 only
-			Writer w2=makeWriter(ffout2, false, true, threads, header, false);  // R2 only
+			Writer w1=makeWriter(ffout1, qf1, true, false, threads, header, false);  // R1 only
+			Writer w2=makeWriter(ffout2, qf2, false, true, threads, header, false);  // R2 only
 			return new PairedWriter(w1, w2);
 		}
 	}
@@ -148,30 +172,7 @@ public class WriterFactory {
 	 */
 	public static Writer makeWriter(FileFormat ffout, boolean writeR1, boolean writeR2, 
 			ArrayList<byte[]> header, boolean useSharedHeader){
-		if(ffout==null){
-			return null;
-		}else if(ffout.fastq() || ffout.fasta()){
-			int threads=FastqWriter.DEFAULT_THREADS;
-			boolean fa=ffout.fasta();
-			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
-				return new FastqWriter(ffout, threads, writeR1, writeR2);
-			}else {
-				return new FastqWriterST2(ffout, writeR1, writeR2, threads>0 && Shared.threads()>=4, fa ? 3 : 5);
-			}
-		}else if(ffout.header()){
-			return new FastqWriterST2(ffout, writeR1, writeR2);
-		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
-			return new BamWriter(ffout, -1, header, useSharedHeader);
-		}else if(ffout.samOrBam()){
-			int threads=SamWriter.DEFAULT_THREADS;
-			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
-				return new SamWriter(ffout, threads, header, useSharedHeader);
-			}else {
-				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5);
-			}
-		}
-
-		throw new RuntimeException("Unsupported file format: "+ffout);
+		return makeWriter(ffout, writeR1, writeR2, -1, header, useSharedHeader);
 	}
 
 	/**
@@ -186,11 +187,29 @@ public class WriterFactory {
 	 * @return Appropriate Writer implementation, or null if ffout is null
 	 * @throws RuntimeException if file format is unsupported
 	 */
-	public static Writer makeWriter(FileFormat ffout, boolean writeR1, boolean writeR2, int threads,
-			ArrayList<byte[]> header, boolean useSharedHeader){
+	public static Writer makeWriter(FileFormat ffout, boolean writeR1, 
+			boolean writeR2, int threads, ArrayList<byte[]> header, boolean useSharedHeader){
+		return makeWriter(ffout, null, writeR1, writeR2, threads, header, useSharedHeader);
+	}
+
+	/**
+	 * Creates a Writer for a single output file with full configuration.
+	 * 
+	 * @param ffout Output file format
+	 * @param writeR1 True to write R1 reads (pairnum 0)
+	 * @param writeR2 True to write R2 reads (pairnum 1)
+	 * @param threads Number of compression/formatting threads
+	 * @param header SAM/BAM header lines, or null
+	 * @param useSharedHeader True to share header reference across threads (SAM/BAM only)
+	 * @return Appropriate Writer implementation, or null if ffout is null
+	 * @throws RuntimeException if file format is unsupported
+	 */
+	public static Writer makeWriter(FileFormat ffout, String qf, boolean writeR1, 
+		boolean writeR2, int threads, ArrayList<byte[]> header, boolean useSharedHeader){
+//		System.err.println("makeWriter "+ffout+", "+qf);
 		if(ffout==null){
 			return null;
-		}else if(ffout.fastq() || ffout.fasta()){
+		}else if(ffout.fastq() || (ffout.fasta() && qf==null)){
 			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
 			boolean fa=ffout.fasta();
 			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
@@ -209,6 +228,12 @@ public class WriterFactory {
 			}else {
 				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5);
 			}
+		}else if(ffout.scarf()){
+			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
+			return new FastqWriter(ffout, Math.max(1, threads), writeR1, writeR2);
+		}else if(ffout.fasta() && qf!=null){
+			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
+			return new FastaQualWriter(ffout, qf, writeR1, writeR2);
 		}
 
 		throw new RuntimeException("Unsupported file format: "+ffout);

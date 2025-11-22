@@ -42,12 +42,6 @@ public class PairedWriter implements Writer {
 	}
 	
 	@Override
-	public void close(){
-		w1.close();
-		w2.close();
-	}
-	
-	@Override
 	public long readsWritten(){
 		return w1.readsWritten()+w2.readsWritten();
 	}

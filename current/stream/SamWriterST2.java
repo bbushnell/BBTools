@@ -87,24 +87,6 @@ public class SamWriterST2 implements Writer {
 			}
 		}
 	}
-	
-	@Override
-	public synchronized void close(){
-		if(finished) {return;}
-		poison(); 
-		
-		// If threaded, wait for the worker to process the poison pill and exit.
-		if(threaded && writerThread != null){
-			try{
-				writerThread.join();
-			} catch (InterruptedException e){
-				Thread.currentThread().interrupt();
-			}
-		}
-		
-		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
-		finished=true;
-	}
 
 	@Override
 	public synchronized void poison(){
@@ -140,10 +122,26 @@ public class SamWriterST2 implements Writer {
 	}
 
 	@Override
-	public boolean poisonAndWait(){
+	public synchronized boolean poisonAndWait(){
 		poison();
-		close();
 		return waitForFinish();
+	}
+	
+	@Override
+	public final synchronized boolean waitForFinish(){
+		if(closed) {return errorState;}
+		// If threaded, wait for the worker to process the poison pill and exit.
+		if(threaded && writerThread != null){
+			try{
+				writerThread.join();
+			} catch (InterruptedException e){
+				Thread.currentThread().interrupt();
+			}
+		}
+		
+		boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+		closed=true;
+		return errorState|=b;
 	}
 	
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
@@ -219,11 +217,6 @@ public class SamWriterST2 implements Writer {
 	}
 	
 	@Override
-	public final boolean waitForFinish(){
-		return errorState();
-	}
-	
-	@Override
 	public long readsWritten(){return readsWritten;}
 
 	@Override
@@ -233,7 +226,7 @@ public class SamWriterST2 implements Writer {
 	public boolean errorState() {return errorState;}
 	
 	@Override
-	public boolean finishedSuccessfully() {return !errorState && finished;}
+	public boolean finishedSuccessfully() {return !errorState && closed;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Writer Thread         ----------------*/
@@ -355,7 +348,7 @@ public class SamWriterST2 implements Writer {
 	private long basesWritten=0;
 	private boolean errorState=false;
 	private boolean started=false;
-	private boolean finished=false;
+	private boolean closed=false;
 	private boolean poisoned=false;
 
 	//Expected next list number, for ordered mode assertions

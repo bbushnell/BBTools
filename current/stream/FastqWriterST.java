@@ -55,12 +55,6 @@ public class FastqWriterST implements Writer {
 	}
 	
 	@Override
-	public synchronized void close(){
-		if(!finished){poison();}
-		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
-	}
-	
-	@Override
 	public long readsWritten(){
 		return readsWritten;
 	}
@@ -120,17 +114,21 @@ public class FastqWriterST implements Writer {
 	}
 	
 	@Override
-	public void poison(){
-		finished=true;
+	public synchronized void poison(){
+		poisoned=true;
 	}
 	
 	@Override
-	public boolean waitForFinish(){
-		return errorState;
+	public synchronized boolean waitForFinish(){
+		if(closed) {return errorState;}
+		boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+		closed=true;
+		return errorState|=b;
 	}
 	
 	@Override
-	public boolean poisonAndWait(){
+	public synchronized boolean poisonAndWait(){
+		if(poisoned)
 		poison();
 		return waitForFinish();
 	}
@@ -139,7 +137,7 @@ public class FastqWriterST implements Writer {
 	public boolean errorState(){return errorState;}
 	
 	@Override
-	public boolean finishedSuccessfully() {return !errorState && finished;}
+	public boolean finishedSuccessfully() {return !errorState && poisoned;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Helper Methods       ----------------*/
@@ -226,7 +224,9 @@ public class FastqWriterST implements Writer {
 	/** True after start() called */
 	private boolean started=false;
 	/** True after poison() called */
-	private boolean finished=false;
+	private boolean poisoned=false;
+	/** True after waitForFinish() returns */
+	private boolean closed=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

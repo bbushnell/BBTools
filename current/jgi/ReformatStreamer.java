@@ -274,7 +274,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 
 		//Create Streamer and Writers
-		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, ordered, maxReads,
+		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, qfin1, qfin2, ordered, maxReads,
 			saveHeader, true, threadsIn);
 
 		//Set samplerate only if NOT doing exact sampling
@@ -286,7 +286,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			outstream.println("Input is being processed as "+(st.paired() ? "paired" : "unpaired"));
 		}
 
-		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, threadsOut, null, saveHeader);
+		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, qfout1, qfout2, threadsOut, null, saveHeader);
 		Writer fwb=WriterFactory.makeWriter(ffoutsingle, null, threadsOut, null, saveHeader);
 //		System.err.println("fw class: "+(fw==null ? "null" : fw.getClass()));
 		
@@ -294,7 +294,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		st.start();
 		if(fw!=null){fw.start();}
 		if(fwb!=null){fwb.start();}
-
+		
 		//Process data
 		if(workers>1){
 			spawnThreads(st, fw, fwb, inputReads || outputReads);
@@ -358,6 +358,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	private void processSingleThreaded(Streamer st, Writer fw, Writer fwb, boolean readMode){
 		if(readMode){
 			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+				if(verbose) {System.err.println("Processing list "+ln.id);}
 				processReadList(ln, processor, fw, fwb);
 			}
 		}else{
@@ -478,11 +479,12 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		for(int idx=0; idx<reads.size(); idx++){
 			final Read r1=reads.get(idx);
 			final Read r2=r1.mate;
-
+			
 			if(!r1.validated()){r1.validate(true);}
 			if(r2!=null && !r2.validated()){r2.validate(true);}
 
 			final int keep=proc.processReadPair(r1, r2);
+//			if(verbose) {System.err.println(r1.id+" keep="+keep+", discarded="+r1.discarded());}
 
 			if(keep==3 || (keep==1 && r2==null)){//Common case
 				//Keep pair
