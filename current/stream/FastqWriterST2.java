@@ -219,6 +219,9 @@ public class FastqWriterST2 implements Writer{
 	@Override
 	public boolean finishedSuccessfully(){return !errorState && finished;}
 	
+	@Override
+	public final String fname() {return fname;}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Logic          ----------------*/
 	/*--------------------------------------------------------------*/

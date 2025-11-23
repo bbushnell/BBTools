@@ -124,7 +124,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("verbose")){
-				verbose=Parse.parseBoolean(b);
+				verbose=ReadWrite.verbose=Parse.parseBoolean(b);
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("outsingle") || a.equals("outs")){
@@ -273,6 +273,9 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			handleSamplingPrepass();
 		}
 
+		boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
+		Read.VALIDATE_IN_CONSTRUCTOR=(workers<2 && threadsIn<2 && qfin1==null);
+		
 		//Create Streamer and Writers
 		Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, qfin1, qfin2, ordered, maxReads,
 			saveHeader, true, threadsIn);
@@ -287,13 +290,16 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		}
 
 		Writer fw=WriterFactory.makeWriter(ffout1, ffout2, qfout1, qfout2, threadsOut, null, saveHeader);
-		Writer fwb=WriterFactory.makeWriter(ffoutsingle, null, threadsOut, null, saveHeader);
+		Writer fwb=WriterFactory.makeWriter(ffoutsingle, null, qfoutsingle, null, threadsOut, null, saveHeader);
 //		System.err.println("fw class: "+(fw==null ? "null" : fw.getClass()));
 		
 		//Start streams
 		st.start();
+		setError(st.errorState());
 		if(fw!=null){fw.start();}
 		if(fwb!=null){fwb.start();}
+		
+		if(fw!=null){setError(fw.errorState());}
 		
 		//Process data
 		if(workers>1){
@@ -305,9 +311,10 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		basesProcessed=processor.basesProcessedT;
 
 		//Close writers
-		if(fw!=null){fw.poisonAndWait();}
-		if(fwb!=null){fwb.poisonAndWait();}
+		if(fw!=null){setError(fw.poisonAndWait());}
+		if(fwb!=null){setError(fwb.poisonAndWait());}
 		if(verbose){System.err.println("Finished poisonAndWait().");}
+		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 
 		//Get output counts
 		if(sampleReadsExact || sampleBasesExact) {
@@ -329,9 +336,9 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 				basesOut += fwb.basesWritten();
 			}
 		}
-
-		errorState|=ReadStats.writeAll();
-		errorState|=ReadWrite.closeStreams(st, fw, fwb);
+		
+		setError(ReadStats.writeAll());
+		setError(ReadWrite.closeStreams(st, fw, fwb));
 
 		//Delete input files if requested
 		if(deleteInput && !errorState && out1!=null && in1!=null){
@@ -381,13 +388,13 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		if(verbose){System.err.println("Finished waiting for threads.");}
-		errorState&=!success;
+		setError(!success);
 	}
 
 	@Override
 	public final void accumulate(ProcessThread pt){
 		synchronized(pt){
-			errorState|=(!pt.success);
+			setError(!pt.success);
 			processor.add(pt.processorT);
 		}
 	}
@@ -721,7 +728,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			ln=st.nextList();
 			reads=(ln!=null ? ln.list : null);
 		}
-		errorState|=ReadWrite.closeStream(st);
+		setError(ReadWrite.closeStream(st));
 		return new long[]{count, count2, bases};
 	}
 
@@ -751,7 +758,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 			ln=st.nextList();
 			reads=(ln!=null ? ln.list : null);
 		}
-		errorState|=ReadWrite.closeStream(st);
+		setError(ReadWrite.closeStream(st));
 		sll.sort();
 		return sll;
 	}
@@ -802,6 +809,14 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 		if(processor.verifypairing){outstream.println("Names appear to be correctly paired.");}
 	}
 
+	private boolean setError(boolean b) {
+		if(b && !errorState) {
+			new RuntimeException("Triggered error state:").printStackTrace(outstream);
+		}
+		errorState|=b;
+		return errorState;
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/

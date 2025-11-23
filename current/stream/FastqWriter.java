@@ -176,6 +176,9 @@ public class FastqWriter implements Writer {
 	@Override
 	public boolean finishedSuccessfully() {return !errorState && oqs.finished();}
 	
+	@Override
+	public final String fname() {return fname;}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/

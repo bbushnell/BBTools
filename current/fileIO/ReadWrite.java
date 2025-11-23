@@ -2348,18 +2348,22 @@ public class ReadWrite {
 		}
 		boolean errorState=false;
 		if(st!=null){
-			if(verbose){System.err.println("Closing cris; error="+errorState+"; c.error="+st.errorState());}
+			if(verbose){System.err.println("Closing streamer "+st.fname()+
+				"; error="+errorState+"; c.error="+st.errorState());}
 			st.close();
 			errorState|=st.errorState();
-			if(verbose){System.err.println("Closed cris; error="+errorState);}
+			if(verbose){System.err.println("Closed streamer"+st.fname()+
+				"; error="+errorState);}
 		}
 		if(writers!=null){
 			for(Writer w : writers){
 				if(w!=null){
-					if(verbose){System.err.println("Closing ros "+w+"; error="+errorState);}
+					if(verbose){System.err.println("Closing writer "+w.fname()+"; error="+errorState);}
 					w.poisonAndWait();
-					errorState|=(w.errorState() || !w.finishedSuccessfully());
-					if(verbose){System.err.println("Closed ros; error="+errorState);}
+					boolean a=w.errorState(), b=w.finishedSuccessfully();
+					errorState|=(a || !b);
+					if(verbose){System.err.println("Closed writer "+w.fname()+"; error="+errorState
+						+", a="+a+", b="+b+", "+w);}
 				}
 			}
 		}

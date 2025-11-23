@@ -90,6 +90,9 @@ public class PairedWriter implements Writer {
 	@Override
 	public boolean finishedSuccessfully() {return w1.finishedSuccessfully() && w2.finishedSuccessfully();}
 	
+	@Override
+	public final String fname() {return "("+w1.fname()+","+w2.fname()+")";}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/

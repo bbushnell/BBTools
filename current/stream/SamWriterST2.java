@@ -227,6 +227,9 @@ public class SamWriterST2 implements Writer {
 	
 	@Override
 	public boolean finishedSuccessfully() {return !errorState && closed;}
+	
+	@Override
+	public final String fname() {return fname;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Writer Thread         ----------------*/

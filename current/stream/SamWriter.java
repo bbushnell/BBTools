@@ -402,6 +402,9 @@ public class SamWriter implements Writer {
 	
 	@Override
 	public boolean finishedSuccessfully() {return !errorState && oqs.finished();}
+	
+	@Override
+	public final String fname() {return fname;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

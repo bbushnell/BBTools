@@ -232,8 +232,7 @@ public class WriterFactory {
 			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
 			return new FastqWriter(ffout, Math.max(1, threads), writeR1, writeR2);
 		}else if(ffout.fasta() && qf!=null){
-			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);
-			return new FastaQualWriter(ffout, qf, writeR1, writeR2);
+			return new FastaQualWriterST(ffout, qf, writeR1, writeR2);
 		}
 
 		throw new RuntimeException("Unsupported file format: "+ffout);
