@@ -139,6 +139,9 @@ public class FastqWriterST implements Writer {
 	@Override
 	public boolean finishedSuccessfully() {return !errorState && poisoned;}
 	
+	@Override
+	public final String fname() {return fname;}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Helper Methods       ----------------*/
 	/*--------------------------------------------------------------*/

@@ -55,6 +55,8 @@ public interface Writer {
 	 * @return errorState */
 	public boolean poisonAndWait();
 	
+	public String fname();
+	
 //	//Can never be unset
 //	public void setErrorState(boolean b);
 	

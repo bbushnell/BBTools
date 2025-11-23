@@ -187,7 +187,8 @@ public class StreamerFactory {
 			
 		}else if(ff.fasta() && qf!=null) {
 			threads=(threads<0 ? FastqStreamer.DEFAULT_THREADS : threads);
-			return new FastaQualStreamer(ff, qf, pairnum, maxReads);
+//			return new FastaQualStreamer(ff, qf, pairnum, maxReads);
+			return new FastaQualStreamerZT(ff, qf, pairnum, maxReads);
 			
 		}
 		
