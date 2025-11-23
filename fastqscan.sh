@@ -5,12 +5,15 @@ echo "
 Written by Brian Bushnell
 Last modified November 22, 2025
 
-Description:  Parses sequence files.
-Reports bases and records.
+Description:  Fast lightweight scanner that parses sequence files.
+Reports base and record counts.  Performs basic integrity checks;
+reports corruption and exits with code 1 when detected.
+Does not perform rigorous validation of all fields.
 
 Usage:  fastqscan.sh <file>
 
 Input may be fastq, fasta, or sam, compressed or uncompressed.
+To input stdin use e.g. stdin.fq as the argument (with proper extension).
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org
@@ -33,7 +36,7 @@ resolveSymlinks(){
 	CP="$DIR/current/"
 }
 
-EA="-da"
+EA="-ea"
 SIMD="--add-modules jdk.incubator.vector"
 XMX="-Xmx256m"
 XMS="-Xms256m"
@@ -42,7 +45,7 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	parseJavaArgs "--xmx=1g" "--xms=256m" "--mode=fixed" "$@"
+	parseJavaArgs "--xmx=1g" "--xms=128m" "--mode=fixed" "$@"
 	setEnvironment
 }
 

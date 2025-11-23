@@ -9,6 +9,7 @@ import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Timer;
 import shared.Vector;
+import structures.ByteBuilder;
 import structures.IntList;
 
 /**
@@ -21,14 +22,27 @@ public class FastqScan{
 
 	public static void main(String[] args) {
 		Timer t=new Timer();
+		if(args.length!=1) {
+			System.err.println("Usage: fastqscan.sh filename");
+		}
 		String fname=args[0];
+		while(fname.startsWith("-")) {fname=fname.substring(1);}
+		if(fname.startsWith("in=")) {fname=fname.substring(3);}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
 		FastqScan fqs=new FastqScan(ff);
 		try{fqs.read();}
 		catch(IOException e){throw new RuntimeException(e);}
-		t.stop("Time:");
+		t.stop("Time:   \t");
 		System.err.println("Records:\t"+fqs.totalRecords);
 		System.err.println("Bases:  \t"+fqs.totalBases);
+		ByteBuilder bb=fqs.corruption();
+		if(fqs.slashrLines>0) {
+			System.err.println("Contained Windows-style \r\n");
+		}
+		if(bb!=null) {
+			System.err.print(bb);
+			System.exit(1);
+		}
 	}
 
 	public static long[] countReadsAndBases(String fname, boolean halveInterleaved) {
@@ -56,6 +70,23 @@ public class FastqScan{
 	}
 
 	FastqScan(FileFormat ff_) {ff=ff_;}
+	
+	public ByteBuilder corruption() {
+		if(partialRecords<1 && !qualMismatch && !missingTerminalNewline && !missingPlus && !missingAt) {
+			return null;
+		}
+		ByteBuilder bb=new ByteBuilder();
+		if(partialRecords>0 || missingAt || missingPlus || qualMismatch) {
+			bb.appendln("At least "+Math.max(partialRecords, 1)+" corrupt records.");
+		}
+		if(partialRecords>0) {bb.appendln("At least "+partialRecords+" incomplete records.");}
+		if(qualMismatch) {bb.appendln("At least "+1+" base/quality mismatches.");}
+		if(missingAt) {bb.appendln("At least "+1+" missing @ symbols.");}
+		if(missingPlus) {bb.appendln("At least "+1+" missing + symbols.");}
+		if(missingTerminalNewline) {bb.appendln("Missing terminal newline.");}
+		assert(bb.length()>0);
+		return bb;
+	}
 
 	void read() throws IOException {
 		if(ff.fasta()) {readFasta();}
@@ -66,25 +97,39 @@ public class FastqScan{
 	void readFastq() throws IOException {
 		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
 		IntList newlines=new IntList(8192);
-		int bstop=0, residue=0, bstart=0;
-		for(int r=is.read(buffer); r>0; r=is.read(buffer, residue, buffer.length-residue)) {
-			assert(bstop==residue);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
+			r=Math.max(r, 0);
 			bstop+=r;
-			//			if(r<1 && buffer[bstop-1]!='\n') {buffer[bstop-1]='\n'; bstop++;}//Files without ending newline
-			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines);
-			int records=newlines.size/4;
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
+			final int records=newlines.size/4;
 			totalRecords+=records;
+			int recordStart=0;
 			for(int i=0, j=0; i<records; i++, j+=4) {
-				int headerEnd=newlines.get(j);
-				int basesEnd=newlines.get(j+1);
-				int recordEnd=newlines.get(j+3);
-				int bases=basesEnd-headerEnd-1-(buffer[basesEnd-1]=='\r' ? 1 : 0);
+				final int headerEnd=newlines.get(j);
+				final int basesEnd=newlines.get(j+1);
+				final int plusEnd=newlines.get(j+2);
+				final int recordEnd=newlines.get(j+3);
+				int slashr1=(buffer[basesEnd-1]=='\r') ? 1 : 0;
+				int slashr2=(buffer[recordEnd-1]=='\r') ? 1 : 0;
+				slashrLines+=slashr1+slashr2;
+				final int bases=basesEnd-headerEnd-1-slashr1;
+				final int quals=recordEnd-plusEnd-1-slashr2;
 				totalBases+=bases;
 				bstart=recordEnd+1;
+				qualMismatch|=(quals!=bases);
+				missingAt|=(buffer[recordStart]!='@');
+				missingPlus|=(buffer[basesEnd+1]!='+');
+				recordStart=recordEnd+1;
 			}
 
-			residue=bstop-bstart;
+			final int residue=bstop-bstart;
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
@@ -94,54 +139,45 @@ public class FastqScan{
 			}
 			bstart=0;
 			bstop=residue;
-			newlines.clear();
-		}
-
-		if(residue>0) {//For files missing terminal newlines
-			newlines.clear();
-			// Scan the residue for internal newlines
-			Vector.findSymbols(buffer, 0, residue, (byte)'\n', newlines);
-
-			// A valid FASTQ record without a trailing newline will have exactly 3 newlines
-			// (Header\nSeq\n+\nQual[EOF])
-			if(newlines.size==3) {
-				int headerEnd=newlines.get(0);
-				int basesEnd=newlines.get(1);
-
-				// Calculate bases length
-				int bases=basesEnd-headerEnd-1;
-				if(bases>0 && buffer[basesEnd-1]=='\r') {bases--;}
-
-				totalBases += bases;
-				totalRecords++;
+			if(r<1) {
+				if(residue>0) {partialRecords++;}
+				break;
 			}
 		}
-		is.close();
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
 	}
 
 	void readFasta() throws IOException {
 		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
 		IntList newlines=new IntList(8192);
-		int bstop=0, residue=0, bstart=0;
-		for(int r=is.read(buffer); r>0; r=is.read(buffer, residue, buffer.length-residue)) {
-			assert(bstop==residue);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
+			r=Math.max(r, 0);
 			bstop+=r;
-			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines);
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			if(totalRecords==0 && buffer[0]!='>') {partialRecords++;}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
 			int lines=newlines.size;
 			for(int i=0; i<lines; i++) {
 				int lineEnd=newlines.array[i];
 				boolean header=(buffer[bstart]=='>');
+				int slashr=(lineEnd>0 && buffer[lineEnd-1]=='\r') ? 1 : 0;
+				slashrLines+=slashr;
 				if(header) {
 					totalRecords++;
 				}else {
-					int bases=lineEnd-bstart-(buffer[lineEnd-1]=='\r' ? 1 : 0);
+					int bases=lineEnd-bstart-slashr;
 					totalBases+=bases;
 				}
 				bstart=lineEnd+1;
 			}
 
-			residue=bstop-bstart;
+			final int residue=bstop-bstart;
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
@@ -151,32 +187,26 @@ public class FastqScan{
 			}
 			bstart=0;
 			bstop=residue;
-			newlines.clear();
+			if(r<1) {break;}
 		}
-		if(residue>0) {//For files missing terminal newlines
-			// Verify it's not just a trailing newline that became residue
-			if(buffer[0]=='>') {
-				totalRecords++;
-			} else {
-				int bases=residue;
-				// Handle Windows \r at EOF
-				if(bases>0 && buffer[bases-1]=='\r') {bases--;}
-				totalBases += bases;
-			}
-		}
-		is.close();
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
 	}
 
 	void readSam() throws IOException {
 		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
 		IntList newlines=new IntList(8192);
 		IntList tabs=new IntList(128);
-		int bstop=0, residue=0, bstart=0;
-		for(int r=is.read(buffer); r>0; r=is.read(buffer, residue, buffer.length-residue)) {
-			assert(bstop==residue);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
+			r=Math.max(r, 0);
 			bstop+=r;
-			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines);
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
 			int lines=newlines.size;
 			for(int i=0; i<lines; i++) {
 				int lineEnd=newlines.array[i];
@@ -186,15 +216,24 @@ public class FastqScan{
 				}else {
 					totalRecords++;
 					Vector.findSymbols(buffer, bstart, lineEnd, (byte)'\t', tabs.clear());
-					int basesStart=tabs.get(8);
-					int basesStop=tabs.get(9);
-					int bases=basesStop-basesStart-1-(buffer[lineEnd-1]=='\r' ? 1 : 0);
-					totalBases+=bases;
+					if(tabs.size>=10) {
+						int basesStartTab=tabs.get(8);
+						int basesStopTab=tabs.get(9);
+						int qualsStopSymbol=(tabs.size>10 ? tabs.get(10) : lineEnd);
+						int slashr=(tabs.size==10 && buffer[qualsStopSymbol-1]=='\r') ? 1 : 0;
+						slashrLines+=slashr;
+						int bases=(buffer[basesStartTab+1]=='*' ? 0 : basesStopTab-basesStartTab-1);
+						int quals=(buffer[basesStopTab+1]=='*' ? 0 : qualsStopSymbol-basesStopTab-1-slashr);
+						qualMismatch|=(quals>0 && quals!=bases);
+						totalBases+=bases;
+					}else {
+						partialRecords++;
+					}
 				}
 				bstart=lineEnd+1;
 			}
 
-			residue=bstop-bstart;
+			final int residue=bstop-bstart;
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
@@ -204,34 +243,9 @@ public class FastqScan{
 			}
 			bstart=0;
 			bstop=residue;
-			newlines.clear();
+			if(r<1) {break;}
 		}
-
-		if(residue>0) {//For files missing terminal newlines
-			if(buffer[0]=='@') {
-				totalHeaders++;
-			} else {
-				totalRecords++;
-				// We must find the tabs in the residue to get the sequence length
-				tabs.clear();
-				Vector.findSymbols(buffer, 0, residue, (byte)'\t', tabs);
-
-				// SAM format: Sequence is the 10th column (index 9)
-				// It is located between the 9th tab (index 8) and 10th tab (index 9)
-				if(tabs.size>=9) {
-					int basesStart=tabs.get(8)+1;
-					// If there is no 10th tab (EOF in sequence), use residue length
-					int basesStop=(tabs.size>9) ? tabs.get(9) : residue;
-
-					int bases=basesStop-basesStart;
-					// Handle Windows \r at EOF
-					if(basesStop==residue && bases>0 && buffer[bases-1]=='\r') {bases--;}
-
-					totalBases += Math.max(0, bases);
-				}
-			}
-		}
-		is.close();
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
 	}
 
 	private void expand() {
@@ -245,4 +259,11 @@ public class FastqScan{
 	long totalHeaders;
 	long totalRecords;
 	long totalBases;
+	
+	long partialRecords;
+	long slashrLines;
+	boolean qualMismatch;
+	boolean missingTerminalNewline;
+	boolean missingPlus;
+	boolean missingAt;
 }
