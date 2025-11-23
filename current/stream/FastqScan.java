@@ -75,11 +75,11 @@ public class FastqScan{
 			int lines=newlines.size;
 			for(int i=0; i<lines; i++) {
 				int lineEnd=newlines.array[i];
-				boolean header=(bstart>0 && buffer[bstart-1]=='>');
+				boolean header=(buffer[bstart]=='>');
 				if(header) {
 					totalRecords++;
 				}else {
-					int bases=lineEnd-bstart+1;
+					int bases=lineEnd-bstart;
 					totalBases+=bases;
 				}
 				bstart=lineEnd+1;
