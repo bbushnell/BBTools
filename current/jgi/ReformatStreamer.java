@@ -18,6 +18,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.FASTQ;
+import stream.FastqScan;
 import stream.Read;
 import stream.ReadStreamByteWriter;
 import stream.SamLine;
@@ -703,6 +704,9 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	private long[] countReads(long maxReads){
 		if(ffin1.stdio()){
 			throw new RuntimeException("Can't precount reads from standard in, only from a file.");
+		}
+		if(ffin2==null && (ffin1.fastq() || ffin1.fasta() || ffin1.sam())){
+			return FastqScan.countReadsAndBases(ffin1, true);
 		}
 
 		final Streamer st=StreamerFactory.makeStreamer(ffin1, ffin2, true, maxReads,
