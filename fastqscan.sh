@@ -5,12 +5,12 @@ echo "
 Written by Brian Bushnell
 Last modified November 22, 2025
 
-Description:  Parses fastq files.
+Description:  Parses sequence files.
 Reports bases and records.
 
 Usage:  fastqscan.sh <file>
 
-Input may be fastq or fasta, compressed or uncompressed.
+Input may be fastq, fasta, or sam, compressed or uncompressed.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org
