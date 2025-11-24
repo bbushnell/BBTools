@@ -12,6 +12,7 @@ import shared.Tools;
 import shared.Vector;
 import structures.ByteBuilder;
 import structures.IntList;
+import structures.ListNum;
 
 /**
  * Counts reads and bases in a sequence file, with low overhead.
@@ -96,6 +97,9 @@ public class FastqScan{
 		else if(ff.sam()) {readSam();}
 		else if(ff.scarf()) {readScarf();}
 		else if(ff.gfa()) {readGfa();}
+		else if(ff.fastg()) {readFastg();}
+		else if(ff.bam()) {readBam();}
+		else if(ff.isSequence()) {readOther();}
 		else {readFastq();}
 	}
 
@@ -414,6 +418,35 @@ public class FastqScan{
 			if(r<1) {break;}
 		}
 		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
+	}
+	
+	void readBam() throws IOException {
+		Streamer st=StreamerFactory.makeStreamer(ff, 0, false, -1, false, false, -1);
+		st.start();
+		for(ListNum<SamLine> ln=st.nextLines(); ln!=null && !ln.poison(); ln=st.nextLines()) {
+			for(SamLine sl : ln) {
+				int bases=sl.seq==null ? 0 : sl.seq.length;
+				int quals=sl.qual==null ? 0 : sl.qual.length;
+				totalRecords++;
+				totalBases+=bases;
+				qualMismatch|=(quals>0 && quals!=bases);
+			}
+		}
+		st.close();
+	}
+	
+	void readOther() throws IOException {
+		Streamer st=StreamerFactory.makeStreamer(ff, 0, false, -1, false, true, -1);
+		st.start();
+		for(ListNum<Read> ln=st.nextList(); ln!=null && !ln.poison(); ln=st.nextList()) {
+			for(Read r : ln) {
+				int bases=r.length();
+				int quals=r.quality==null ? 0 : r.quality.length;
+				totalRecords++;
+				totalBases+=bases;
+				qualMismatch|=(quals>0 && quals!=bases);
+			}
+		}
 	}
 
 	private void expand() {
