@@ -8,6 +8,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Timer;
+import shared.Tools;
 import shared.Vector;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -35,6 +36,7 @@ public class FastqScan{
 		t.stop("Time:   \t");
 		System.err.println("Records:\t"+fqs.totalRecords);
 		System.err.println("Bases:  \t"+fqs.totalBases);
+		if(ff.samOrBam()) {System.err.println("Headers:\t"+fqs.totalHeaders);}
 		ByteBuilder bb=fqs.corruption();
 		if(fqs.slashrLines>0) {
 			System.err.println("Contained Windows-style \r\n");
@@ -89,8 +91,11 @@ public class FastqScan{
 	}
 
 	void read() throws IOException {
-		if(ff.fasta()) {readFasta();}
+		if(ff.fastq()) {readFastq();}
+		else if(ff.fasta()) {readFasta();}
 		else if(ff.sam()) {readSam();}
+		else if(ff.scarf()) {readScarf();}
+		else if(ff.gfa()) {readGfa();}
 		else {readFastq();}
 	}
 
@@ -195,7 +200,7 @@ public class FastqScan{
 	void readSam() throws IOException {
 		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
 		IntList newlines=new IntList(8192);
-		IntList tabs=new IntList(128);
+		IntList symbols=new IntList(128);
 		int bstop=0, bstart=0;
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
@@ -215,16 +220,179 @@ public class FastqScan{
 					totalHeaders++;
 				}else {
 					totalRecords++;
-					Vector.findSymbols(buffer, bstart, lineEnd, (byte)'\t', tabs.clear());
-					if(tabs.size>=10) {
-						int basesStartTab=tabs.get(8);
-						int basesStopTab=tabs.get(9);
-						int qualsStopSymbol=(tabs.size>10 ? tabs.get(10) : lineEnd);
-						int slashr=(tabs.size==10 && buffer[qualsStopSymbol-1]=='\r') ? 1 : 0;
+					Vector.findSymbols(buffer, bstart, lineEnd, (byte)'\t', symbols.clear());
+					if(symbols.size>=10) {
+						int basesStartTab=symbols.get(8);
+						int basesStopTab=symbols.get(9);
+						int qualsStopSymbol=(symbols.size>10 ? symbols.get(10) : lineEnd);
+						int slashr=(symbols.size==10 && buffer[qualsStopSymbol-1]=='\r') ? 1 : 0;
 						slashrLines+=slashr;
 						int bases=(buffer[basesStartTab+1]=='*' ? 0 : basesStopTab-basesStartTab-1);
 						int quals=(buffer[basesStopTab+1]=='*' ? 0 : qualsStopSymbol-basesStopTab-1-slashr);
 						qualMismatch|=(quals>0 && quals!=bases);
+						totalBases+=bases;
+					}else {
+						partialRecords++;
+					}
+				}
+				bstart=lineEnd+1;
+			}
+
+			final int residue=bstop-bstart;
+			if(residue>0) {
+				if(bstart>0) {
+					System.arraycopy(buffer, bstart, buffer, 0, residue);
+				}else if(r>0){
+					expand();
+				}
+			}
+			bstart=0;
+			bstop=residue;
+			if(r<1) {break;}
+		}
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
+	}
+
+	void readScarf() throws IOException {
+		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
+		IntList newlines=new IntList(8192);
+		IntList symbols=new IntList(128);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
+			assert(bstart==0);
+			r=Math.max(r, 0);
+			bstop+=r;
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
+			int lines=newlines.size;
+			for(int i=0; i<lines; i++) {
+				int lineEnd=newlines.array[i];
+				totalRecords++;
+				Vector.findSymbols(buffer, bstart, lineEnd, (byte)':', symbols.clear());
+				final int colonCount=symbols.size;
+				if(colonCount>=2) {
+					int basesStartSym=symbols.get(colonCount-2);
+					int basesStopSym=symbols.get(colonCount-1);
+					int qualsStopSym=lineEnd;
+					int slashr=(buffer[qualsStopSym-1]=='\r') ? 1 : 0;
+					slashrLines+=slashr;
+					int bases=basesStopSym-basesStartSym-1;
+					int quals=qualsStopSym-basesStopSym-1-slashr;
+					qualMismatch|=(quals<bases || 
+						(quals>bases && !Tools.isDigit(buffer[basesStopSym+1]))); //Quals can be decimal
+					totalBases+=bases;
+				}else {
+					partialRecords++;
+				}
+				bstart=lineEnd+1;
+			}
+
+			final int residue=bstop-bstart;
+			if(residue>0) {
+				if(bstart>0) {
+					System.arraycopy(buffer, bstart, buffer, 0, residue);
+				}else if(r>0){
+					expand();
+				}
+			}
+			bstart=0;
+			bstop=residue;
+			if(r<1) {break;}
+		}
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
+	}
+	
+	void readGfa() throws IOException {
+		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
+		IntList newlines=new IntList(8192);
+		IntList symbols=new IntList(128);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
+			assert(bstart==0);
+			r=Math.max(r, 0);
+			bstop+=r;
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
+			int lines=newlines.size;
+			for(int i=0; i<lines; i++) {
+				int lineEnd=newlines.array[i];
+				boolean header=(buffer[bstart]!='S');
+				if(header) {
+					totalHeaders++;
+				}else {
+					totalRecords++;
+					Vector.findSymbols(buffer, bstart, lineEnd, (byte)'\t', symbols.clear());
+					final int size=symbols.size;
+					if(size>=2) {
+						int basesStartSym=symbols.get(1);
+						int basesStopSym=(size>2 ? symbols.get(2) : lineEnd);
+						int slashr=(size==2 && buffer[basesStopSym-1]=='\r') ? 1 : 0;
+						slashrLines+=slashr;
+						int bases=basesStopSym-basesStartSym-1-slashr;
+						totalBases+=bases;
+					}else {
+						partialRecords++;
+					}
+				}
+				bstart=lineEnd+1;
+			}
+
+			final int residue=bstop-bstart;
+			if(residue>0) {
+				if(bstart>0) {
+					System.arraycopy(buffer, bstart, buffer, 0, residue);
+				}else if(r>0){
+					expand();
+				}
+			}
+			bstart=0;
+			bstop=residue;
+			if(r<1) {break;}
+		}
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
+	}
+	
+//	>NODE_1:NODE_2\'; ATGCGTACGTTAG
+//	>NODE_1\'; CTAACGTACGCAT
+	void readFastg() throws IOException {
+		InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
+		IntList newlines=new IntList(8192);
+		IntList symbols=new IntList(128);
+		int bstop=0, bstart=0;
+		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
+			assert(bstart==0);
+			r=Math.max(r, 0);
+			bstop+=r;
+			if(r==0 && buffer[bstop-1]!='\n') {
+				if(bstop>=buffer.length) {expand();}
+				buffer[bstop++]='\n';
+				missingTerminalNewline=true;
+			}
+			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
+			int lines=newlines.size;
+			for(int i=0; i<lines; i++) {
+				int lineEnd=newlines.array[i];
+				boolean header=(buffer[bstart]!='>');
+				if(header) {
+					totalHeaders++;
+				}else {
+					totalRecords++;
+					Vector.findSymbols(buffer, bstart, lineEnd, (byte)';', symbols.clear());
+					final int size=symbols.size;
+					if(size>=1) {
+						int basesStartSym=symbols.get(size-1)+1;
+						int basesStopSym=lineEnd;
+						int slashr=(buffer[basesStopSym-1]=='\r') ? 1 : 0;
+						slashrLines+=slashr;
+						int bases=basesStopSym-basesStartSym-1-slashr;
 						totalBases+=bases;
 					}else {
 						partialRecords++;
@@ -254,8 +422,10 @@ public class FastqScan{
 		buffer=Arrays.copyOf(buffer, (int)newlen);
 	}
 
-	private byte[] buffer=new byte[262144];
 	private final FileFormat ff;
+	
+	private int bufferLen=262144;
+	private byte[] buffer=new byte[bufferLen];
 	long totalHeaders;
 	long totalRecords;
 	long totalBases;
