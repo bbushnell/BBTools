@@ -472,6 +472,7 @@ public final class FileFormat {
 		else if(ext.equals("bai")){r[0]=BAI;}
 		else if(ext.equals("sai")){r[0]=SAI;}
 		else if(ext.equals("gfa")){r[0]=GFA;}
+		else if(ext.equals("fastg")){r[0]=FASTG;}
 		
 		if(comp!=null){
 			r[1]=Tools.find(comp, COMPRESSION_ARRAY);
@@ -831,7 +832,7 @@ public final class FileFormat {
 	public static boolean isSequence(int code){
 		return code==FASTA || code==FASTQ || code==FASTR || code==BREAD || code==SAM || code==BAM
 			|| code==CSFASTA || code==SCARF || code==HEADER || code==ONELINE || code==GBK || code==EMBL
-			|| code==GFA;
+			|| code==GFA || code==FASTG;
 	}
 	
 	public static boolean isPgmFile(String fname){
@@ -1052,6 +1053,7 @@ public final class FileFormat {
 		else if(ext.equals("bai")){return BAI;}
 		else if(ext.equals("sai")){return SAI;}
 		else if(ext.equals("gfa")){return GFA;}
+		else if(ext.equals("fastg")){return FASTG;}
 		else if(ext.equals("txt") || ext.equals("text") || ext.equals("tsv") || ext.equals("csv")){return TXT;}
 		return UNKNOWN;
 	}
@@ -1134,6 +1136,7 @@ public final class FileFormat {
 	public final boolean png(){return format==PNG;}
 	public final boolean bai(){return format==BAI;}
 	public final boolean gfa(){return format==GFA;}
+	public final boolean fastg(){return format==FASTG;}
 	
 	public final boolean preferShreds(){return preferShreds;}
 
@@ -1315,6 +1318,7 @@ public final class FileFormat {
 	public static final int BAI=35;
 	public static final int SAI=36;
 	public static final int GFA=37;
+	public static final int FASTG=38;
 	
 	/** Array mapping format constants to string names */
 	public static final String[] FORMAT_ARRAY=new String[] {
@@ -1324,7 +1328,7 @@ public final class FileFormat {
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
 		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png",
-		"bai", "sai", "gfa"
+		"bai", "sai", "gfa", "fastg"
 	};
 	
 	/** List of recognized file extensions */
@@ -1337,7 +1341,7 @@ public final class FileFormat {
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
 		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",
-		"bai", "sai", "gfa"
+		"bai", "sai", "gfa", "fastg"
 	};
 	
 	/* Compression */
