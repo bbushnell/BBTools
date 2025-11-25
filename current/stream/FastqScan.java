@@ -1,5 +1,6 @@
 package stream;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
@@ -20,7 +21,7 @@ import structures.ListNum;
  * @contributor Collei
  * @date November 22, 2025
  */
-public class FastqScan{
+public final class FastqScan{
 
 	public static void main(String[] args) {
 		Timer t=new Timer();
@@ -31,6 +32,14 @@ public class FastqScan{
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
 		if(fname.startsWith("in=")) {fname=fname.substring(3);}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
+		if(ff.stdin()) {
+			//Do nothing
+		}else{
+			File f=new File(fname);
+			if(!f.isFile() || !f.canRead()) {
+				throw new RuntimeException("Can't read "+fname);
+			}
+		}
 		FastqScan fqs=new FastqScan(ff);
 		try{fqs.read();}
 		catch(IOException e){throw new RuntimeException(e);}
