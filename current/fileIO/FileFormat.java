@@ -1337,7 +1337,7 @@ public final class FileFormat {
 		"ffn", "frn", "seq", "fsa", "faa",
 		"bread", "sam", "csfasta", "qual", "bam",
 		"scarf", "phylip", "txt",
-		"gz", "gzip", "bz2", "zip", "xz", "dsrc", "header", "headers",
+		"gz", "gzip", "bgzip", "bz2", "zip", "xz", "dsrc", "header", "headers",
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
 		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",

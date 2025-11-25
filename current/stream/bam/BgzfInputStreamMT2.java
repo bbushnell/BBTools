@@ -10,6 +10,8 @@ import java.util.zip.DataFormatException;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.Inflater;
 
+import dna.Data;
+import fileIO.ReadWrite;
 import stream.JobQueue;
 import structures.BinaryByteWrapperLE;
 
@@ -78,7 +80,8 @@ public class BgzfInputStreamMT2 extends InputStream {
 	public BgzfInputStreamMT2(InputStream in, int threads){
 		assert(in!=null) : "Null input stream";
 		assert(threads>0 && threads<=32) : "Invalid thread count: "+threads;
-
+		assert(ReadWrite.ALLOW_NATIVE_BGZF);
+		assert(ReadWrite.PREFER_NATIVE_BGZF_IN || !Data.BGZIP()) : Data.BGZIP()+", "+Data.BGZIP_THREADED();
 		this.in=in;
 		this.workerThreads=threads;
 
@@ -86,7 +89,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 		final int queueSize=3+(3*workerThreads)/2;
 		this.inputQueue=new ArrayBlockingQueue<>(queueSize);
 		this.jobQueue=new JobQueue<BgzfInputJob>(queueSize, true, true, 0);
-
+		
 		startThreads();
 
 		assert(repOK()) : "Constructor postcondition failed";
