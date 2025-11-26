@@ -324,6 +324,16 @@ public final class AssemblyStats2 {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes FASTA format input stream to count bases and analyze sequences.
+	 * Tracks scaffold/contig lengths, base composition, and GC content histograms.
+	 * Handles N-character breaks between contigs and maintains statistics for
+	 * both individual sequences and overall assembly metrics.
+	 * @param is Input stream containing FASTA data
+	 * @param gcout Output file for GC content analysis (may be null)
+	 * @return Array of base counts [A, C, G, T, N, IUPAC, other, control]
+	 * @throws IOException If stream reading fails
+	 */
 	public long[] countFasta(final InputStream is, String gcout) throws IOException{
 		
 		long limsum=0;
@@ -616,6 +626,16 @@ public final class AssemblyStats2 {
 		return overall;
 	}
 	
+	/**
+	 * Processes FASTQ format input stream to analyze sequence statistics.
+	 * Similar to countFasta but handles 4-line FASTQ format with quality scores.
+	 * Processes sequence headers, bases, separator lines, and quality scores
+	 * while maintaining assembly statistics and GC content analysis.
+	 * @param is Input stream containing FASTQ data
+	 * @param gcout Output file for GC content analysis (may be null)
+	 * @return Array of base counts [A, C, G, T, N, IUPAC, other, control]
+	 * @throws IOException If stream reading fails
+	 */
 	public long[] countFastq(final InputStream is, String gcout) throws IOException{
 		
 		long limsum=0;

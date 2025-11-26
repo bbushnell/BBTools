@@ -706,6 +706,15 @@ public final class IceCreamFinder {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for worker thread.
+		 * @param zstream_ ZMW read streamer
+		 * @param ros_ Good reads output stream
+		 * @param rosa_ Ambiguous reads output stream
+		 * @param rosb_ Bad reads output stream
+		 * @param rosj_ Junction reads output stream
+		 * @param tid_ Thread ID
+		 */
 		ProcessThread(final ZMWStreamer zstream_, 
 				final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosa_, 
 				final ConcurrentReadOutputStream rosb_, final ConcurrentReadOutputStream rosj_, final int tid_){
@@ -751,6 +760,14 @@ public final class IceCreamFinder {
 			}
 		}
 		
+		/**
+		 * Flags reads with low entropy as low-complexity sequences.
+		 * @param reads ZMW containing reads to check
+		 * @param minEnt Minimum entropy threshold
+		 * @param minLen0 Minimum absolute length for low-entropy block
+		 * @param minFract Minimum fraction of read length for low-entropy block
+		 * @return Number of reads flagged
+		 */
 		int flagLowEntropyReads(final ZMW reads, final float minEnt, 
 				final int minLen0, final float minFract){
 			int found=0;
@@ -769,6 +786,12 @@ public final class IceCreamFinder {
 			return found;
 		}
 		
+		/**
+		 * Flags reads that are unusually long compared to median length.
+		 * @param reads ZMW containing reads to check
+		 * @param median Median read length
+		 * @return Number of reads flagged
+		 */
 		int flagLongReads(final ZMW reads, int median){
 			int found=0;
 			for(Read r : reads){
@@ -1059,6 +1082,12 @@ public final class IceCreamFinder {
 			return trimmed;
 		}
 		
+		/**
+		 * Calculates number of bases to trim from left end.
+		 * @param bases Sequence bases
+		 * @param lookahead Number of defined bases required
+		 * @return Number of bases to trim
+		 */
 		final int calcLeftTrim(final byte[] bases, int lookahead){
 			final int len=bases.length;
 			int lastUndef=-1;
@@ -1073,6 +1102,12 @@ public final class IceCreamFinder {
 			return lastUndef+1;
 		}
 		
+		/**
+		 * Calculates number of bases to trim from right end.
+		 * @param bases Sequence bases
+		 * @param lookahead Number of defined bases required
+		 * @return Number of bases to trim
+		 */
 		final int calcRightTrim(final byte[] bases, int lookahead){
 			final int len=bases.length;
 			int lastUndef=len;
@@ -1565,6 +1600,12 @@ public final class IceCreamFinder {
 			return found;
 		}
 		
+		/**
+		 * Pads array with 'N' bases on both ends.
+		 * @param array Original sequence array
+		 * @param pad Number of padding bases per end
+		 * @return Padded array, or original if pad <= 0
+		 */
 		private byte[] npad(final byte[] array, final int pad){
 			if(pad<=0){return array;}
 			final int len=array.length+2*pad;

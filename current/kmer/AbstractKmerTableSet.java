@@ -162,6 +162,15 @@ public abstract class AbstractKmerTableSet {
 	}
 	
 	
+	/**
+	 * Creates a count-min sketch prefilter for memory-efficient k-mer processing.
+	 * Uses multiple passes to estimate k-mer frequencies before main table allocation.
+	 * Automatically adjusts cell bits and hash count based on available memory and target accuracy.
+	 *
+	 * @param filter Array to store the created prefilter (modified in place)
+	 * @param ht Timer for tracking prefilter creation time (may be null)
+	 * @return The created KCountArray prefilter, or null if prefiltering is disabled
+	 */
 	public final KCountArray makePrefilter(final KCountArray[] filter, Timer ht){
 //		assert(false) : lastFilter+", "+prefilter+", "+filterMax()+", "+currentPass+", "+filterMemory(currentPass);
 		if(!prefilter){return null;}

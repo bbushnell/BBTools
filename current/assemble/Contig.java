@@ -580,6 +580,12 @@ public class Contig {
 		rightEdges=removeEdgesTo(rightEdges, destNode);
 	}
 	
+	/**
+	 * Removes all edges pointing to a specific destination from an edge list.
+	 * @param edges Edge list to modify
+	 * @param destNode Destination node ID to remove
+	 * @return Modified edge list (null if empty)
+	 */
 	private static ArrayList<Edge> removeEdgesTo(ArrayList<Edge> edges, final int destNode) {
 		if(edges==null || edges.isEmpty()){return null;}
 		int cnt=0;
@@ -595,6 +601,11 @@ public class Contig {
 		return edges;
 	}
 
+	/**
+	 * Updates this contig's ID and all references in associated edges.
+	 * @param newID New ID to assign to this contig
+	 * @param inbound List of edges that point to this contig
+	 */
 	final void renumber(final int newID, ArrayList<Edge> inbound){
 		if(id==newID){return;}
 		if(leftEdges!=null){

@@ -149,6 +149,15 @@ public class Subset {
 		assert(npos==negative.length);
 	}
 	
+	/**
+	 * Sorts sample array up to the specified limit using pivot values.
+	 * Uses either multithreaded or single-threaded sorting based on parameter.
+	 *
+	 * @param samples Array of samples to sort
+	 * @param pivots FloatList for pivot storage (unused in this method)
+	 * @param lim Upper limit for sorting range
+	 * @param mt Whether to use multithreaded sorting
+	 */
 	private static final void sort(final Sample[] samples, final FloatList pivots, 
 			final int lim, final boolean mt) {
 		if(mt) {
@@ -159,6 +168,17 @@ public class Subset {
 		assert(samples.length<2 || samples[0].pivot>=samples[1].pivot) : samples[0].pivot+", "+samples[1].pivot;
 	}
 	
+	/**
+	 * Performs pivot-based partial sorting by moving high-pivot samples to front.
+	 * Calculates cutoff threshold and swaps samples above cutoff to beginning
+	 * of array without fully sorting, improving performance for large arrays.
+	 *
+	 * @param samples Array of samples to sort
+	 * @param pivots Reusable FloatList for collecting and sorting pivot values
+	 * @param sortLim Number of samples to consider for pivot calculation
+	 * @param swapLim Maximum number of high-pivot samples to move to front
+	 * @param mt Whether to use multithreaded sorting for pivot array
+	 */
 	private static final void pivotSort(final Sample[] samples, final FloatList pivots, 
 			int sortLim, final int swapLim, final boolean mt) {
 		assert(sortLim>0 && sortLim<=samples.length);

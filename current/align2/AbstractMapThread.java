@@ -285,6 +285,17 @@ public abstract class AbstractMapThread extends Thread {
 		return removed;
 	}
 	
+	/**
+	 * Ensures the primary alignment site has a match string generated.
+	 * Critical for reads that need CIGAR strings or edit distance calculations.
+	 * Will attempt multiple sites until a valid match string is found.
+	 *
+	 * @param r The read to process
+	 * @param basesM Reverse complement bases for the read
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 * @return Number of sites removed due to match string generation failure
+	 */
 	final int ensureMatchStringOnPrimary(final Read r, final byte[] basesM, final int maxImperfectSwScore, final int maxSwScore){
 		if(!r.mapped() || r.numSites()<1){return 0;}
 		if(r.match!=null){
@@ -1105,6 +1116,21 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Generates a match string for a specific alignment site using dynamic programming.
+	 * Handles both perfect matches and complex alignments requiring gap-aware alignment.
+	 * Applies padding and realignment as needed for optimal accuracy.
+	 *
+	 * @param id Numeric read identifier for debugging
+	 * @param ss The site score to generate match string for
+	 * @param basesP Forward strand bases
+	 * @param basesM Reverse complement bases
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 * @param maxSwScore Maximum possible alignment score
+	 * @param mate Mate read for paired-end context
+	 * @param secondary Whether this is a secondary alignment
+	 * @return Final slow alignment score for this site
+	 */
 	protected final int genMatchStringForSite(final long id, final SiteScore ss, final byte[] basesP, final byte[] basesM,
 			final int maxImperfectSwScore, final int maxSwScore, final Read mate, final boolean secondary){
 		final byte[] bases=ss.plus() ? basesP : basesM;
@@ -1244,6 +1270,18 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 
+	/**
+	 * Attempts to find tip deletions for a specific alignment site.
+	 * Extends alignment boundaries to capture deletions at read ends.
+	 * Uses configurable search distance and tip length parameters.
+	 *
+	 * @param ss The site score to analyze
+	 * @param bases Read bases on the appropriate strand
+	 * @param maxImperfectScore Minimum acceptable alignment score
+	 * @param lookRight Whether to search for right-tip deletions
+	 * @param lookLeft Whether to search for left-tip deletions
+	 * @return true if the site boundaries were modified, false otherwise
+	 */
 	final boolean findTipDeletions(SiteScore ss, final byte[] bases, final int maxImperfectScore, boolean lookRight, boolean lookLeft){
 		if(ss.slowScore>=maxImperfectScore /*&& ss.stop()-ss.start()<=basesP.length-1*/){return false;}
 		assert(lookRight || lookLeft);
@@ -1394,6 +1432,18 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Performs detailed dynamic programming alignment for a rescued read site.
+	 * Uses slow alignment with gap detection and optional tip deletion finding.
+	 * Updates the site score with final alignment results and match string.
+	 *
+	 * @param bases Read bases on the appropriate strand
+	 * @param ss Site score for the rescued alignment
+	 * @param maxScore Maximum possible alignment score
+	 * @param maxImperfectScore Minimum acceptable alignment score
+	 * @param findTipDeletionsRight Whether to search for right-tip deletions
+	 * @param findTipDeletionsLeft Whether to search for left-tip deletions
+	 */
 	final void slowRescue(final byte[] bases, SiteScore ss, final int maxScore, final int maxImperfectScore,
 			boolean findTipDeletionsRight, boolean findTipDeletionsLeft){
 		
@@ -1629,6 +1679,17 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Performs slow dynamic programming alignment scoring for a list of sites.
+	 * Implementation-specific algorithm for detailed alignment with gap detection.
+	 * Updates site scores with slow alignment results.
+	 *
+	 * @param list List of sites to score
+	 * @param basesP Forward strand bases
+	 * @param basesM Reverse complement bases
+	 * @param maxSwScore Maximum possible alignment score
+	 * @param maxImperfectSwScore Maximum score for imperfect alignments
+	 */
 	public abstract void scoreSlow(final ArrayList<SiteScore> list, final byte[] basesP, final byte[] basesM,
 			final int maxSwScore, final int maxImperfectSwScore);
 	
@@ -1699,6 +1760,15 @@ public abstract class AbstractMapThread extends Thread {
 		return tr.trimmed();
 	}
 	
+	/**
+	 * Calculates mapping statistics for read 1 in paired-end sequencing.
+	 * Tracks correctness, mapping quality, error types, and pairing statistics.
+	 * Updates thread-local counters for final statistics reporting.
+	 *
+	 * @param r The first read in the pair
+	 * @param maxSwScore Maximum possible slow alignment score
+	 * @param maxPossibleQuickScore Maximum possible quick alignment score
+	 */
 	public void calcStatistics1(final Read r, final int maxSwScore, final int maxPossibleQuickScore){
 		final Read r2=r.mate;
 		final int len1=r.length();
@@ -1870,6 +1940,15 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Calculates mapping statistics for read 2 in paired-end sequencing.
+	 * Tracks correctness, mapping quality, error types, and alignment statistics.
+	 * Updates thread-local counters for final statistics reporting.
+	 *
+	 * @param r The second read in the pair
+	 * @param maxSwScore Maximum possible slow alignment score
+	 * @param maxPossibleQuickScore Maximum possible quick alignment score
+	 */
 	public void calcStatistics2(final Read r, final int maxSwScore, final int maxPossibleQuickScore){
 		final int len=r.length();
 		
@@ -1998,6 +2077,12 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Processes a single unpaired read through the complete mapping pipeline.
+	 * Implementation-specific method that handles the full alignment workflow.
+	 * @param r The read to process
+	 * @param basesM Reverse complement bases for the read
+	 */
 	public abstract void processRead(Read r, final byte[] basesM);
 	
 	/**
@@ -2723,6 +2808,14 @@ public abstract class AbstractMapThread extends Thread {
 	}
 	
 	
+	/**
+	 * Processes a paired-end read through the complete mapping pipeline.
+	 * Implementation-specific method for handling paired-end alignment workflow.
+	 *
+	 * @param r The first read in the pair (contains mate reference)
+	 * @param basesM1 Reverse complement bases for first read
+	 * @param basesM2 Reverse complement bases for second read
+	 */
 	public abstract void processReadPair(final Read r, final byte[] basesM1, final byte[] basesM2);
 	
 	/** TODO: Iterate through loop backwards when removing sites.

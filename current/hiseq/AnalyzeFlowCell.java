@@ -1174,6 +1174,15 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Processes read pair with quality trimming fallback.
+	 * First attempts filtering without trimming, then retries with
+	 * quality trimming if initial filtering fails.
+	 *
+	 * @param r1 First read in pair
+	 * @param r2 Second read in pair (may be null)
+	 * @return true if reads should be kept, false if discarded
+	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		boolean passes=processReadPair_inner(r1, r2);
 		if(passes){return true;}

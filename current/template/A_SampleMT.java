@@ -378,6 +378,12 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker.
+		 * @param cris_ Input stream for reading data
+		 * @param ros_ Output stream for writing results (may be null)
+		 * @param tid_ Thread ID for identification
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;

@@ -232,6 +232,14 @@ public class ChromosomeArray implements Serializable {
 		set(loc, bb.array, bb.length());
 	}
 	
+	/**
+	 * Sets a byte array sequence with specified length at the given location.
+	 * Handles base conversion and array resizing as needed.
+	 *
+	 * @param loc Starting genomic coordinate
+	 * @param s Byte array containing sequence data
+	 * @param slen Number of bytes to use from the array
+	 */
 	public void set(int loc, byte[] s, final int slen){
 		assert(slen<=s.length && slen>=0);
 		int loc2=loc+slen;
@@ -498,6 +506,12 @@ public class ChromosomeArray implements Serializable {
 		return r;
 	}
 	
+	/**
+	 * Identifies contiguous sequence ranges separated by N-blocks.
+	 * Creates Range objects for regions between gaps of N or X bases.
+	 * @param nBlockSize Minimum number of consecutive N's to define a gap
+	 * @return List of Range objects representing contiguous sequence regions
+	 */
 	public ArrayList<Range> toContigRanges(final int nBlockSize){
 		assert(nBlockSize>0);
 		ArrayList<Range> list=new ArrayList<Range>();

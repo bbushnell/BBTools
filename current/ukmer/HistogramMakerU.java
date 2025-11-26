@@ -16,6 +16,18 @@ import structures.SuperLongList;
  */
 public final class HistogramMakerU {
 	
+	/**
+	 * Creates a frequency histogram from k-mer tables using optimal threading strategy.
+	 * Automatically chooses multi-threaded or single-threaded processing based on
+	 * available threads.
+	 * Uses multi-threading when more than 2 threads are available, otherwise uses
+	 * single-threaded approach.
+	 *
+	 * @param tables Array of k-mer tables to process for histogram generation
+	 * @param histMax Maximum histogram bucket size, determines array length
+	 * @return Frequency histogram as long array where index represents count and
+	 * value represents frequency
+	 */
 	public static long[] fillHistogram(final AbstractKmerTableU[] tables, final int histMax) {
 		if(Shared.threads()>2){
 			return fillHistogram_MT(tables, histMax);
@@ -24,6 +36,14 @@ public final class HistogramMakerU {
 		}
 	}
 	
+	/**
+	 * Single-threaded histogram generation from k-mer tables.
+	 * Sequentially processes each table and accumulates counts into histogram array.
+	 *
+	 * @param tables Array of k-mer tables to process
+	 * @param histMax Maximum histogram size
+	 * @return Accumulated histogram array
+	 */
 	private static long[] fillHistogram_ST(final AbstractKmerTableU[] tables, final int histMax) {
 		long[] ca=new long[histMax+1];
 		for(AbstractKmerTableU set : tables){
@@ -32,6 +52,17 @@ public final class HistogramMakerU {
 		return ca;
 	}
 	
+	/**
+	 * Multi-threaded histogram generation with dynamic thread allocation and load balancing.
+	 * Calculates optimal thread count based on system threads, table count, and
+	 * performance limits.
+	 * Uses AtomicInteger for thread-safe work distribution and SuperLongList for
+	 * per-thread accumulation.
+	 *
+	 * @param tables Array of k-mer tables to process in parallel
+	 * @param histMax Maximum histogram bucket size
+	 * @return Merged histogram array from all worker threads
+	 */
 	private static long[] fillHistogram_MT(final AbstractKmerTableU[] tables, final int histMax) {
 		boolean errorState=false;
 		int threads=Shared.threads();
@@ -78,6 +109,14 @@ public final class HistogramMakerU {
 	 */
 	private static class FillThread extends Thread{
 		
+		/**
+		 * Constructs a worker thread for histogram generation.
+		 * Initializes thread-local SuperLongList with size optimization for efficient accumulation.
+		 *
+		 * @param tables_ Array of k-mer tables to process
+		 * @param histMax_ Maximum histogram size for SuperLongList sizing
+		 * @param next_ Atomic counter for thread-safe work distribution
+		 */
 		FillThread(final AbstractKmerTableU[] tables_, int histMax_, AtomicInteger next_){
 			tables=tables_;
 			next=next_;

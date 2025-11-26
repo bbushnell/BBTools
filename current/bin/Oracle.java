@@ -313,6 +313,25 @@ public class Oracle extends BinObject implements Cloneable {
 		return 0;
 	}
 	
+	/**
+	 * Runs neural network to assess bin similarity using computed features.
+	 * Selects appropriate network based on bin size and applies feature vector.
+	 *
+	 * @param a First bin for comparison
+	 * @param b Second bin for comparison
+	 * @param minEdges Minimum edge count between bins
+	 * @param transEdges Transitional edge count
+	 * @param gcDif GC content difference
+	 * @param depthRatio Depth ratio between bins
+	 * @param covariance Depth covariance
+	 * @param trimerDif 3-mer cosine difference
+	 * @param tetramerDif 4-mer cosine difference
+	 * @param pentamerDif 5-mer cosine difference
+	 * @param kmerProb K-mer occurrence probability
+	 * @param similarity Basic similarity score
+	 * @param includeAnswer Whether to include answer in vector
+	 * @return Network output score
+	 */
 	final float runNetwork(Bin a, Bin b, final long minEdges, final long transEdges, final float gcDif, 
 			final float depthRatio, final float covariance, final float trimerDif, final float tetramerDif,
 			final float pentamerDif, final float kmerProb, final float similarity, boolean includeAnswer) {
@@ -398,6 +417,26 @@ public class Oracle extends BinObject implements Cloneable {
 				trimerDif, tetramerDif, pentamerDif, kmerProb, similarity, list, includeAnswer);
 	}
 	
+	/**
+	 * Converts pre-computed bin comparison metrics into comprehensive feature vector.
+	 * Creates standardized vector with size proxies, k-mer differences, depth metrics, and optional network outputs.
+	 *
+	 * @param a First bin (automatically reordered to smaller size first)
+	 * @param b Second bin
+	 * @param minEdges Minimum edge count between bins
+	 * @param transEdges Transitional edge count
+	 * @param gcDif GC content difference
+	 * @param depthRatio Depth ratio between bins
+	 * @param covariance Depth covariance
+	 * @param trimerDif 3-mer cosine difference
+	 * @param tetramerDif 4-mer cosine difference
+	 * @param pentamerDif 5-mer cosine difference
+	 * @param kmerProb K-mer occurrence probability
+	 * @param similarity Basic similarity score
+	 * @param list FloatList to populate (created if null)
+	 * @param includeAnswer Whether to include taxonomic ground truth
+	 * @return Comprehensive feature vector for machine learning
+	 */
 	FloatList toVector(Bin a, Bin b, final long minEdges, final long transEdges, final float gcDif, final float depthRatio,
 			final float covariance, float trimerDif, float tetramerDif, float pentamerDif, float kmerProb, 
 			final float similarity, FloatList list, boolean includeAnswer) {

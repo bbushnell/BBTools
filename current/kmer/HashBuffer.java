@@ -48,6 +48,12 @@ public class HashBuffer extends AbstractKmerTable {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Determines which underlying table to use for a given kmer.
+	 * Uses masked hash of kmer modulo number of ways for distribution.
+	 * @param kmer The kmer to find a table for
+	 * @return Index of the table that should handle this kmer
+	 */
 	public final int kmerToWay(final long kmer){
 		final int way=(int)((kmer&cmMask)%ways);
 		return way;
@@ -160,6 +166,15 @@ public class HashBuffer extends AbstractKmerTable {
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Dumps a specific buffer to its underlying table.
+	 * Attempts to acquire lock on table before dumping, with optional forcing.
+	 * Sorts buffer contents if configured to do so.
+	 *
+	 * @param way Index of the buffer/table to dump
+	 * @param force Whether to force lock acquisition or skip if busy
+	 * @return Number of new kmers created during the dump
+	 */
 	private int dumpBuffer(final int way, boolean force){
 		final KmerBuffer buffer=buffers[way];
 		final AbstractKmerTable table=tables[way];
@@ -178,6 +193,14 @@ public class HashBuffer extends AbstractKmerTable {
 		return x;
 	}
 	
+	/**
+	 * Inner implementation of buffer dumping after lock is acquired.
+	 * Processes all kmers in buffer, handling sorting and duplicate consolidation.
+	 * Supports both increment mode and set mode operations.
+	 *
+	 * @param way Index of the buffer/table to dump
+	 * @return Number of new kmers created during the dump
+	 */
 	private int dumpBuffer_inner(final int way){
 		if(verbose){System.err.println("Dumping buffer for way "+way+" of "+ways);}
 		final KmerBuffer buffer=buffers[way];

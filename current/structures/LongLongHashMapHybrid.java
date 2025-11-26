@@ -506,6 +506,12 @@ public final class LongLongHashMapHybrid{
 		}
 	}
 	
+	/**
+	 * Attempts to move a key-value pair to its correct hash position.
+	 * Used during rehashing to optimize table layout.
+	 * @param cell The cell index to rehash
+	 * @return true if the entry was moved, false if already in correct position
+	 */
 	private boolean rehashCell(final int cell){
 		final long key=keys[cell];
 		final long value=values[cell];
@@ -537,6 +543,11 @@ public final class LongLongHashMapHybrid{
 		}
 	}
 	
+	/**
+	 * Locates the cell containing the specified key using linear probing.
+	 * @param key The key to search for
+	 * @return Cell index if found, -1 if not present
+	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -554,6 +565,14 @@ public final class LongLongHashMapHybrid{
 		return -1;
 	}
 	
+	/**
+	 * Locates the cell for the key or the first empty cell for insertion.
+	 * Uses linear probing from the hash position.
+	 *
+	 * @param key The key to search for
+	 * @return Cell index for existing key or first empty cell
+	 * @throws RuntimeException if no empty cells are available
+	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -576,6 +595,11 @@ public final class LongLongHashMapHybrid{
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to accommodate at least the specified size.
+	 * Finds the next prime number for the modulus and rehashes all entries.
+	 * @param size2 Minimum required capacity
+	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;

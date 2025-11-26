@@ -74,6 +74,12 @@ public class ClumpTools {
 		table=null;
 	}
 	
+	/**
+	 * Cached secondary input file name (paired mate), if provided for the table.
+	 */
+	/**
+	 * Cached primary input file name used when building the current k-mer table.
+	 */
 	private static String fname1=null, fname2=null;
 	/** Cached k-mer count array table for reuse across method calls */
 	private static KCountArray table=null;

@@ -103,9 +103,40 @@ public final class Info {
 		return info(s.getBytes(), 0, s.length());
 	}
 	
+	/**
+	 * Calculates information content in bits using bit position of highest set bit.
+	 *
+	 * @param array The sequence byte array
+	 * @param from Starting position in array
+	 * @param len Length of sequence to analyze
+	 * @return Information content in bits (integer approximation)
+	 */
 	public static int infoInBits(final byte[] array, final int from, final int len){return 63-Long.numberOfLeadingZeros(info(array, from, len));}
+	/**
+	 * Calculates information content in bits using logarithm for precise floating-point result.
+	 *
+	 * @param array The sequence byte array
+	 * @param from Starting position in array
+	 * @param len Length of sequence to analyze
+	 * @return Information content in bits (floating-point)
+	 */
 	public static double infoInBitsDouble(final byte[] array, final int from, final int len){return Math.log(info(array, from, len))*invlog2;}
+	/**
+	 * Calculates information content for entire byte array.
+	 * @param array The sequence byte array
+	 * @return Information content as combinatorial value
+	 */
 	public static long info(final byte[] array){return info(array, 0, array.length);}
+	/**
+	 * Calculates information content using combinatorial formula based on base frequencies.
+	 * Uses multinomial coefficient: n! / (c1! * c2! * c3! * c4!) where n is sequence length
+	 * and c1-c4 are counts of each base type. Includes overflow protection.
+	 *
+	 * @param array The sequence byte array
+	 * @param from Starting position in array
+	 * @param len Length of sequence to analyze
+	 * @return Information content as combinatorial value, MAX if overflow occurs
+	 */
 	public static long info(final byte[] array, final int from, final int len){
 		short[] counts=new short[4];
 		long r=1;
@@ -137,10 +168,41 @@ public final class Info {
 		return r;
 	}
 
+	/**
+	 * Finds shortest prefix length that contains at least the specified bits of information.
+	 * @param array The sequence byte array
+	 * @param bits Target information content in bits
+	 * @return Prefix length needed, or -1 if sequence has insufficient information
+	 */
 	public static int prefixForInfoBits(final byte[] array, final int bits){assert(bits>=0 && bits<63);return prefixForInfo(array, 1L<<bits, 0);}
+	/**
+	 * Finds shortest prefix length starting from specified position that contains
+	 * at least the specified bits of information.
+	 *
+	 * @param array The sequence byte array
+	 * @param bits Target information content in bits
+	 * @param from Starting position in array
+	 * @return Prefix length needed, or -1 if sequence has insufficient information
+	 */
 	public static int prefixForInfoBits(final byte[] array, final int bits, final int from){assert(bits>=0 && bits<63);return prefixForInfo(array, 1L<<bits, from);}
+	/**
+	 * Finds shortest prefix length that contains at least the specified raw information value.
+	 * @param array The sequence byte array
+	 * @param info Target information content as combinatorial value
+	 * @return Prefix length needed, or -1 if sequence has insufficient information
+	 */
 	public static int prefixForInfo(final byte[] array, final long info){return prefixForInfo(array, info, 0);}
 	
+	/**
+	 * Finds shortest prefix length starting from specified position that contains
+	 * at least the specified raw information value. Incrementally calculates information
+	 * content using the same combinatorial approach as info() method.
+	 *
+	 * @param array The sequence byte array
+	 * @param info Target information content as combinatorial value
+	 * @param from Starting position in array
+	 * @return Prefix length needed, or -1 if sequence has insufficient information
+	 */
 	public static int prefixForInfo(final byte[] array, final long info, final int from){
 		assert(info>=0);
 		short[] counts=new short[4];

@@ -339,6 +339,15 @@ public class AllToAllVectorMaker extends BinObject {
 //		return toLine(vecBuffer);
 //	}
 	
+	/**
+	 * Creates a single training line by comparing contigs or clusters.
+	 * Randomly selects comparison type and generates feature vector.
+	 *
+	 * @param clusters Contig clusters grouped by taxonomy
+	 * @param oracle Feature extraction engine
+	 * @param positive Whether to create positive (same taxa) or negative pair
+	 * @return Formatted training line or null if no valid pair found
+	 */
 	private ByteBuilder makeLine(ArrayList<ArrayList<Contig>> clusters, Oracle oracle, final boolean positive) {
 		ArrayList<Contig> alist=clusters.get(randy.nextInt(clusters.size()));
 		ArrayList<Contig> blist=alist;

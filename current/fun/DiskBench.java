@@ -190,6 +190,16 @@ public class DiskBench {
 		
 	}
 	
+	/**
+	 * Generates and writes random ASCII data to file using ByteStreamWriter.
+	 * Creates pseudo-random text with characters in range 33-96 (printable ASCII).
+	 * Uses efficient bit-shifting to generate multiple characters per random int.
+	 * @param fname Output filename
+	 * @param size Target number of bytes to write
+	 * @param t Timer for operation measurement (may be null)
+	 * @param overwrite Whether to overwrite existing files
+	 * @return Actual file size written to disk
+	 */
 	public static long writeRandomData(final String fname, final long size, final Timer t, final boolean overwrite){
 		if(t!=null){t.start();}
 		long written=0;

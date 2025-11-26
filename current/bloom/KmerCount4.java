@@ -285,6 +285,17 @@ public class KmerCount4 extends KmerCountAbstract {
 		return count;
 	}
 	
+	/**
+	 * Processes a single read and increments k-mer counts in the count array.
+	 * Slides a k-mer window across the read, handling quality filtering and ambiguous bases.
+	 * Optionally processes reverse complement for canonical k-mer counting.
+	 *
+	 * @param r The read to process
+	 * @param count K-mer count array to update
+	 * @param k K-mer length
+	 * @param mask Bit mask for k-mer encoding
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addRead(final Read r, final KCountArray2 count, final int k, final long mask, boolean rcomp){
 		int len=0;
 		long kmer=0;
@@ -317,6 +328,20 @@ public class KmerCount4 extends KmerCountAbstract {
 		}
 	}
 	
+	/**
+	 * Processes a read using split k-mer counting with two separated k-mer components.
+	 * Extracts k-mers at positions i and i+k1+gap to create composite keys.
+	 * Handles quality filtering for both k-mer components simultaneously.
+	 *
+	 * @param r The read to process
+	 * @param count K-mer count array to update
+	 * @param k1 Length of first k-mer component
+	 * @param k2 Length of second k-mer component
+	 * @param mask1 Bit mask for first k-mer component
+	 * @param mask2 Bit mask for second k-mer component
+	 * @param gap Number of bases between k-mer components
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addReadSplit(final Read r, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;
@@ -361,6 +386,20 @@ public class KmerCount4 extends KmerCountAbstract {
 		}
 	}
 	
+	/**
+	 * Processes raw sequence bytes using split k-mer counting.
+	 * Overloaded version that works directly with byte arrays instead of Read objects.
+	 * Includes debug output for k-mer key construction (prints hex values).
+	 *
+	 * @param bases Raw sequence bytes to process
+	 * @param count K-mer count array to update
+	 * @param k1 Length of first k-mer component
+	 * @param k2 Length of second k-mer component
+	 * @param mask1 Bit mask for first k-mer component
+	 * @param mask2 Bit mask for second k-mer component
+	 * @param gap Number of bases between k-mer components
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addReadSplit(final byte[] bases, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;

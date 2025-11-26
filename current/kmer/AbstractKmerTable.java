@@ -152,6 +152,17 @@ public abstract class AbstractKmerTable {
 	 * @return true if dump completed successfully
 	 */
 	public abstract boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining);
+	/**
+	 * Dumps k-mers as bytes using multi-threading support.
+	 *
+	 * @param bsw Byte stream writer for output
+	 * @param bb Byte builder for temporary storage
+	 * @param k K-mer length for sequence reconstruction
+	 * @param mincount Minimum count threshold
+	 * @param maxcount Maximum count threshold
+	 * @param remaining Atomic counter for remaining k-mers to process
+	 * @return true if dump completed successfully
+	 */
 	public abstract boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining);
 
 	/**

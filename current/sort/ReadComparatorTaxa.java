@@ -106,6 +106,14 @@ public final class ReadComparatorTaxa extends ReadComparator {
 		return compareSimple(a, b);
 	}
 	
+	/**
+	 * Simple comparison of two taxonomic nodes.
+	 * Compares first by taxonomic level, then by node ID as tiebreaker.
+	 *
+	 * @param a First taxonomic node
+	 * @param b Second taxonomic node
+	 * @return Comparison result: level difference or ID difference
+	 */
 	private static int compareSimple(final TaxNode a, final TaxNode b){
 		if(a.levelExtended!=b.levelExtended){return a.levelExtended-b.levelExtended;}
 		return a.id-b.id;

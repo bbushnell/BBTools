@@ -57,6 +57,14 @@ public class Palindrome implements Comparable<Palindrome>, Cloneable {
 		return "("+a+"-"+b+",matches="+matches+",mismatches="+mismatches+")";
 	}
 	
+	/**
+	 * Returns detailed string representation including tail length calculations.
+	 * Shows position range, matches, mismatches, loop size, and tail statistics.
+	 *
+	 * @param a0 Reference start position for tail calculation
+	 * @param b0 Reference stop position for tail calculation
+	 * @return Detailed string representation with tail analysis
+	 */
 	public String toString(final int a0, final int b0) {
 		int tail1=a-a0, tail2=b0-b;
 		return "("+a+"-"+b+",matches="+matches+",mismatches="+mismatches+
@@ -78,6 +86,15 @@ public class Palindrome implements Comparable<Palindrome>, Cloneable {
 //		return bb.append(')');
 //	}
 	
+	/**
+	 * Appends palindrome information to a ByteBuilder in compact format.
+	 * Includes position, palindrome length, matches, loop size, and tail info.
+	 *
+	 * @param bb ByteBuilder to append to
+	 * @param a0 Reference start position for tail calculation
+	 * @param b0 Reference stop position for tail calculation
+	 * @return The ByteBuilder with appended palindrome data
+	 */
 	public ByteBuilder appendTo(ByteBuilder bb, final int a0, final int b0) {
 		int tail1=a-a0, tail2=b0-b;
 		int tmin=Tools.min(tail1, tail2), tmax=Tools.max(tail1, tail2);

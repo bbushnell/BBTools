@@ -288,6 +288,14 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		throw new RuntimeException("TODO");
 	}
 		
+	/**
+	 * Sends read list to specific slave process rank.
+	 * Skips sending if target rank matches current rank.
+	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
+	 *
+	 * @param ln ListNum containing reads to send
+	 * @param toRank Target MPI rank to receive the reads
+	 */
 	protected void unicast(ListNum<Read> ln, final int toRank){
 		if(toRank==rank){return;}
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Unicasting reads to "+toRank+".");}

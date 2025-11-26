@@ -505,6 +505,12 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker class.
+		 * Initializes thread-local priority queues for alignment accumulation.
+		 * @param cris_ Input stream for reading sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;
@@ -614,6 +620,11 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 			processRead(r2);
 		}
 		
+		/**
+		 * Aligns read in both orientations and selects best alignment.
+		 * Adds qualifying alignments to thread-local priority queues.
+		 * @param r Read to align against reference sequence
+		 */
 		void processRead(final Read r){
 			Alignment plus=new Alignment(r);
 			plus.align(ref);

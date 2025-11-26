@@ -365,6 +365,12 @@ public class IntHashSet{
 		}
 	}
 	
+	/**
+	 * Rehashes a single cell by moving its value to the correct position.
+	 * Used during removal operations to fill gaps left by deleted elements.
+	 * @param cell Array index of the cell to rehash
+	 * @return true if the cell was moved, false if already in correct position
+	 */
 	private boolean rehashCell(final int cell){
 		final int value=array[cell];
 		assert(value!=invalid);
@@ -393,6 +399,12 @@ public class IntHashSet{
 		}
 	}
 	
+	/**
+	 * Locates the array position of the specified value using linear probing.
+	 * Uses wrap-around search from initial hash position to end, then start to initial.
+	 * @param value The value to locate
+	 * @return Array index of the value, or -1 if not found
+	 */
 	private int findCell(final int value){
 		if(value==invalid){return -1;}
 		
@@ -410,6 +422,14 @@ public class IntHashSet{
 		return -1;
 	}
 	
+	/**
+	 * Locates either the value or the first empty cell suitable for insertion.
+	 * Uses linear probing with wrap-around search pattern.
+	 *
+	 * @param value The value to locate or insert
+	 * @return Array index containing the value or first available empty slot
+	 * @throws RuntimeException If no empty cells are found
+	 */
 	private int findCellOrEmpty(final int value){
 		assert(value!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -431,6 +451,11 @@ public class IntHashSet{
 		resize(array.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to at least the specified size.
+	 * Finds the next prime number for optimal hash distribution and rehashes all elements.
+	 * @param size2 Minimum required size for the new hash table
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);

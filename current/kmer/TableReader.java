@@ -527,6 +527,11 @@ public class TableReader {
 		return max;
 	}
 	
+	/**
+	 * Maps a k-mer to a hash table partition using modular arithmetic.
+	 * @param kmer K-mer to map
+	 * @return Hash table index (0 to WAYS-1)
+	 */
 	public final int kmerToWay(final long kmer){
 //		final int way=(int)((kmer&coreMask)%WAYS);
 //		return way;

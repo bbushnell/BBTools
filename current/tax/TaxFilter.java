@@ -387,10 +387,21 @@ public class TaxFilter {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if a sequence read passes the taxonomic filter.
+	 * @param r Sequence read with taxonomic header information
+	 * @return true if the read passes the filter criteria
+	 */
 	public boolean passesFilter(final Read r){
 		return passesFilter(r.id);
 	}
 	
+	/**
+	 * Tests if a sequence name passes regex and substring filters only.
+	 * Does not perform taxonomic ID lookups.
+	 * @param name Sequence name to test
+	 * @return true if the name matches regex/substring criteria
+	 */
 	public boolean passesFilterByNameOnly(final String name){
 		if(regexPattern!=null){
 			boolean b=matchesRegex(name);
@@ -403,6 +414,12 @@ public class TaxFilter {
 		return true;
 	}
 	
+	/**
+	 * Tests if a sequence name passes all filter criteria.
+	 * Combines name-based filtering with taxonomic ID matching.
+	 * @param name Sequence name with taxonomic information
+	 * @return true if the sequence passes all filter criteria
+	 */
 	public boolean passesFilter(final String name){
 		if(!passesFilterByNameOnly(name)){return false;}
 		if(taxSet.isEmpty() && reqLevels==0){return !include;}
@@ -419,6 +436,11 @@ public class TaxFilter {
 		return passesFilter(tn);
 	}
 	
+	/**
+	 * Tests if a taxonomy ID passes the filter criteria.
+	 * @param id NCBI taxonomy ID to test
+	 * @return true if the ID passes the filter criteria
+	 */
 	public boolean passesFilter(final int id){
 //		if((taxSet==null || taxSet.isEmpty()) && reqLevels==0){return !include;}
 		if((taxSet==null || taxSet.isEmpty()) && reqLevels==0){return true;}
@@ -437,6 +459,14 @@ public class TaxFilter {
 		return passesFilter(tn);
 	}
 	
+	/**
+	 * Core filtering logic for taxonomy nodes.
+	 * Checks taxonomic set membership and required ancestor levels.
+	 * Supports promotion up the taxonomic tree.
+	 *
+	 * @param tn0 Taxonomy node to test
+	 * @return true if the node passes filter criteria
+	 */
 	boolean passesFilter(final TaxNode tn0){
 		TaxNode tn=tn0;
 		if(taxSet.isEmpty() && reqLevels==0){return !include;}
@@ -457,6 +487,12 @@ public class TaxFilter {
 		return include==found && (levels&reqLevels)==reqLevels;
 	}
 	
+	/**
+	 * Fast filtering method that skips required level checking.
+	 * Optimized for performance when ancestor level requirements are not needed.
+	 * @param id NCBI taxonomy ID to test
+	 * @return true if the ID passes the filter criteria
+	 */
 	public boolean passesFilterFast(final int id){
 		assert(reqLevels==0);
 		if(taxSet==null || taxSet.isEmpty()){return true;}
@@ -474,6 +510,12 @@ public class TaxFilter {
 		return passesFilterFast(tn);
 	}
 	
+	/**
+	 * Fast filtering logic that uses maximum child level optimization.
+	 * Stops early when nodes cannot contain target taxa.
+	 * @param tn0 Taxonomy node to test
+	 * @return true if the node passes filter criteria
+	 */
 	boolean passesFilterFast(final TaxNode tn0){
 		TaxNode tn=tn0;
 		if(taxSet==null || taxSet.isEmpty()){return true;}
@@ -544,6 +586,12 @@ public class TaxFilter {
 //		include=b;
 //	}
 	
+	/**
+	 * Changes the taxonomic filtering level.
+	 * Level can only be increased when the taxonomy set is non-empty.
+	 * @param newLevel New taxonomy level for filtering
+	 * @param promote Whether to promote existing nodes to the new level
+	 */
 	public void setLevel(final int newLevel, boolean promote){
 		final int newLevelE=TaxTree.levelToExtended(newLevel);
 		assert(newLevelE>=taxLevelE || newLevelE<1 || taxSet==null && taxSet.isEmpty()) : "taxLevel may only be increased when the set is non-empty.";

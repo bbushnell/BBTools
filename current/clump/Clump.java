@@ -255,6 +255,23 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return removedTotal;
 	}
 	
+	/**
+	 * Core duplicate removal algorithm comparing reads pairwise.
+	 * Compares each read against subsequent reads using sequence similarity and distance.
+	 * Handles optical duplicate detection using flowcell coordinates when enabled.
+	 *
+	 * @param maxSubs Maximum substitutions allowed for duplicate classification
+	 * @param subRate Maximum substitution rate (fraction of read length)
+	 * @param scanLimit Maximum reads to scan after each potential duplicate
+	 * @param maxDiscarded Maximum discarded reads to skip before stopping scan
+	 * @param optical Whether to use optical distance filtering
+	 * @param xySorted Whether reads are sorted by X/Y coordinates
+	 * @param mark Whether to mark duplicates instead of removing them
+	 * @param markAll Whether to mark all duplicates in a group
+	 * @param rename Whether to rename reads with copy counts
+	 * @param dist Maximum optical distance for duplicate classification
+	 * @return Number of duplicate reads processed
+	 */
 	private int removeDuplicates_inner(final int maxSubs, final float subRate, final int scanLimit, final int maxDiscarded,
 			final boolean optical, final boolean xySorted, final boolean mark, final boolean markAll, final boolean rename, final float dist){
 		final int size=size();
@@ -474,6 +491,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return dupeReads;
 	}
 	
+	/**
+	 * Extracts copy count from read ID if present.
+	 * Looks for "copies=" suffix in read ID to determine additional copies.
+	 * @param a The read to examine
+	 * @return Number of extra copies (total copies - 1), or 0 if none found
+	 */
 	public int parseExtraCopies(final Read a){
 		final String id=a.id;
 		final int space=id.lastIndexOf(' ');
@@ -485,6 +508,11 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		return extraCopies;
 	}
 	
+	/**
+	 * Renames read to include total copy count in ID.
+	 * Updates both read and mate if present to maintain consistency.
+	 * @param a The read to rename with copy count
+	 */
 	private void renameFromCount(final Read a){
 		final int newExtraCopies=a.copies-1;
 		assert(newExtraCopies>0) : newExtraCopies;
@@ -497,6 +525,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		}
 	}
 	
+	/**
+	 * Sets read ID to include specified total copy count.
+	 * Replaces existing "copies=" suffix or adds new one.
+	 * @param a The read to rename
+	 * @param total Total number of copies to include in name
+	 */
 	private static void renameToTotal(final Read a, final int total){
 		final String id=a.id;
 		final int space=id.lastIndexOf(' ');

@@ -108,6 +108,14 @@ public final class SketchTool extends SketchObject {
 		return stTargetSketchSize>0 ? new Sketch(heap, false, trackCounts, null) : toSketch(list);//TODO:  Could add counts here
 	}
 	
+	/**
+	 * Multithreaded sketch generation from k-mer tables.
+	 * Distributes tables across worker threads for parallel processing.
+	 *
+	 * @param tables K-mer table set to process
+	 * @param threads Number of worker threads to use
+	 * @return Combined sketch from all threads
+	 */
 	private Sketch toSketch_MT(KmerTableSet tables, final int threads){
 		ArrayList<SketchThread> alst=new ArrayList<SketchThread>(threads);
 		AtomicInteger ai=new AtomicInteger(0);
@@ -436,12 +444,40 @@ public final class SketchTool extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Loads sketches from a single file using DisplayParams configuration.
+	 *
+	 * @param fname0 Filename to process
+	 * @param smm Optional pre-configured SketchMakerMini instance
+	 * @param maxThreads Maximum threads for multithreaded sequence processing
+	 * @param reads Maximum number of reads to process
+	 * @param mode Processing mode
+	 * @param params Display parameters for configuration
+	 * @param allowZeroSizeSketch Whether to allow empty sketch creation
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketchesFromFile(final String fname0, SketchMakerMini smm, 
 			int maxThreads, long reads, int mode, DisplayParams params, boolean allowZeroSizeSketch){
 		return loadSketchesFromFile(fname0, smm, maxThreads, reads, mode,
 				params.samplerate, params.minEntropy, params.minProb, params.minQual, allowZeroSizeSketch);
 	}
 	
+	/**
+	 * Main file loading method that handles both sequence and sketch files.
+	 * Automatically detects file type and routes to appropriate parser.
+	 *
+	 * @param fname0 Filename to process
+	 * @param smm Optional pre-configured SketchMakerMini instance
+	 * @param maxThreads Maximum threads for multithreaded sequence processing
+	 * @param reads Maximum number of reads to process
+	 * @param mode Processing mode (per file, per sequence, etc.)
+	 * @param samplerate Fraction of reads to sample
+	 * @param minEntropy Minimum sequence entropy threshold
+	 * @param minProb Minimum base call probability
+	 * @param minQual Minimum quality score threshold
+	 * @param allowZeroSizeSketch Whether to allow empty sketch creation
+	 * @return List of loaded sketches
+	 */
 	public ArrayList<Sketch> loadSketchesFromFile(final String fname0, SketchMakerMini smm, 
 			int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch){
 		assert(fname0!=null);//123
@@ -454,6 +490,22 @@ public final class SketchTool extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Loads sketches from sequence files (FASTA, FASTQ, SAM).
+	 * Uses multithreaded processing for large FASTQ files when beneficial.
+	 *
+	 * @param ff File format descriptor for the sequence file
+	 * @param smm Optional pre-configured SketchMakerMini instance
+	 * @param maxThreads Maximum threads for processing
+	 * @param reads Maximum number of reads to process
+	 * @param mode Processing mode
+	 * @param samplerate Fraction of reads to sample
+	 * @param minEntropy Minimum sequence entropy threshold
+	 * @param minProb Minimum base call probability
+	 * @param minQual Minimum quality score threshold
+	 * @param allowZeroSizeSketch Whether to allow empty sketch creation
+	 * @return List of loaded sketches
+	 */
 	private ArrayList<Sketch> loadSketchesFromSequenceFile(final FileFormat ff, SketchMakerMini smm, 
 			int maxThreads, long reads, int mode, float samplerate, float minEntropy, float minProb, byte minQual, boolean allowZeroSizeSketch){
 		maxThreads=(maxThreads<1 ? Shared.threads() : Tools.min(maxThreads, Shared.threads()));
@@ -486,6 +538,14 @@ public final class SketchTool extends SketchObject {
 		return sketches;
 	}
 	
+	/**
+	 * Loads sketches from text sketch files using line-by-line parsing.
+	 * Supports multiple encoding formats (A48, HEX, RAW) and metadata.
+	 *
+	 * @param ff File format descriptor for the sketch file
+	 * @param allowZeroSizeSketch Whether to allow empty sketch creation
+	 * @return List of loaded sketches from the file
+	 */
 	private ArrayList<Sketch> loadSketchesFromSketchFile(final FileFormat ff, boolean allowZeroSizeSketch){
 		
 		boolean A48=(Sketch.CODING==Sketch.A48), HEX=(Sketch.CODING==Sketch.HEX), NUC=false, delta=true, counts=false, unsorted=false;

@@ -61,6 +61,12 @@ public abstract class KCountArray implements Serializable {
 		return kca;
 	}
 		
+	/**
+	 * Constructor with default 64 arrays configuration.
+	 * Sets up bit manipulation constants and validates parameters.
+	 * @param cells_ Number of storage cells (must be power of 2)
+	 * @param cbits_ Bits per cell (must be power of 2, ≤32)
+	 */
 	protected KCountArray(final long cells_, int cbits_){
 		assert(cbits_<=32);
 		assert(Integer.bitCount(cbits_)==1);
@@ -90,6 +96,14 @@ public abstract class KCountArray implements Serializable {
 		}
 	}
 
+	/**
+	 * Constructor with configurable array count.
+	 * Validates parameters and computes bit manipulation constants for efficient indexing.
+	 *
+	 * @param cells_ Number of storage cells (must be power of 2)
+	 * @param cbits_ Bits per cell (must be power of 2, ≤32)
+	 * @param arrays_ Number of parallel arrays (must be power of 2)
+	 */
 	protected KCountArray(final long cells_, int cbits_, int arrays_){
 		assert(cbits_<=32);
 		assert(Integer.bitCount(cbits_)==1);
@@ -520,6 +534,14 @@ public abstract class KCountArray implements Serializable {
 		return Tools.format("%.2f", x/div)+ext;
 	}
 	
+	/**
+	 * Allocates matrix of AtomicIntegerArrays using multiple threads.
+	 * Parallelizes memory allocation to reduce initialization time for large arrays.
+	 *
+	 * @param numArrays Number of parallel arrays to create
+	 * @param wordsPerArray Size of each array in integers
+	 * @return Matrix of initialized AtomicIntegerArrays
+	 */
 	static final AtomicIntegerArray[] allocMatrix(final int numArrays, final int wordsPerArray){
 		final AtomicIntegerArray[] matrix=new AtomicIntegerArray[numArrays];
 		final AllocThread[] array=new AllocThread[Tools.min(Tools.max(Shared.threads()/2, 1), numArrays)];
@@ -685,6 +707,14 @@ public abstract class KCountArray implements Serializable {
 	}
 	
 	
+	/**
+	 * Converts k-mer to canonical form with canonicality test.
+	 * Returns input if already canonical, otherwise returns reverse complement.
+	 *
+	 * @param key K-mer encoded as long integer
+	 * @param k K-mer length in bases (4 < k ≤ 32)
+	 * @return Canonical form of the k-mer
+	 */
 	public static final long makeCanonical2(final long key, final int k){
 		assert(k>3 && k<=32);
 		if(isCanonical(key, k)){return key;}

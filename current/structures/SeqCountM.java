@@ -56,12 +56,19 @@ public class SeqCountM extends SeqCount {
 	/*--------------------------------------------------------------*/
 	
 //	@Override
+	/**
+	 * Adds the count from another SeqCount to this SeqCountM.
+	 * Accumulates occurrence counts for the same sequence.
+	 * @param s SeqCount whose count should be added to this one
+	 */
 	public void add(SeqCount s) {
 //		assert(equals(s));
 		count+=s.count();
 	}
 
 //	@Override
+	/** Increments the count by the specified amount.
+	 * @param x Amount to add to the current count */
 	public void increment(int x) {
 		count+=x;
 	}

@@ -759,6 +759,15 @@ public class TrainerThread extends Thread {
 		return jobs;
 	}
 	
+	/**
+	 * Collects results from completed worker jobs.
+	 * Delegates to ordered or disordered gathering based on configuration.
+	 *
+	 * @param net0 Network to accumulate results into (if accumulate is true)
+	 * @param mq Queue containing job results
+	 * @param accumulate Whether to accumulate network changes from jobs
+	 * @param numJobs Expected number of job results to collect
+	 */
 	private void gatherResults(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		if(orderedJobs) {
@@ -768,6 +777,16 @@ public class TrainerThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Gathers job results in arrival order without preserving job sequence.
+	 * Processes each result immediately as it becomes available.
+	 * Slightly faster but introduces minor non-determinism in training.
+	 *
+	 * @param net0 Network to accumulate results into (if accumulate is true)
+	 * @param mq Queue containing job results
+	 * @param accumulate Whether to accumulate network changes from jobs
+	 * @param numJobs Expected number of job results to collect
+	 */
 	private void gatherResultsDisordered(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		//System.err.println("M waiting for threads.");
@@ -784,6 +803,16 @@ public class TrainerThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Gathers job results in original job submission order.
+	 * Buffers results until consecutive sequence can be processed.
+	 * Ensures deterministic training by preserving job processing order.
+	 *
+	 * @param net0 Network to accumulate results into (if accumulate is true)
+	 * @param mq Queue containing job results
+	 * @param accumulate Whether to accumulate network changes from jobs
+	 * @param numJobs Expected number of job results to collect
+	 */
 	private void gatherResultsOrdered(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		JobResults[] results=new JobResults[numJobs];

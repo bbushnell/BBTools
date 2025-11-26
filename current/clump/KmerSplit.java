@@ -338,6 +338,15 @@ public class KmerSplit {
 		if(verbose){outstream.println("Done!");}
 	}
 	
+	/**
+	 * Splits reads into multiple output groups using parallel hash threads.
+	 * Creates HashThread instances for each available CPU thread and distributes
+	 * reads based on k-mer hash values computed by the KmerComparator.
+	 *
+	 * @param cris Concurrent read input stream
+	 * @param ros Array of concurrent read output streams
+	 * @param kc K-mer comparator for hashing reads
+	 */
 	public void splitReads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream[] ros, final KmerComparator kc){
 		Timer t=new Timer();
 		if(verbose){t.start("Making hash threads.");}

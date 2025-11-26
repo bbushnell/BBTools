@@ -141,6 +141,14 @@ public class Primes {
 		return (int)primeAtMost((long)x);
 	}
 	
+	/**
+	 * Finds the largest prime number less than or equal to x.
+	 * Uses binary search on the preloaded primes array for efficiency.
+	 * For values beyond the array bounds, approximates using prime factorization.
+	 *
+	 * @param x The maximum value to search for
+	 * @return The largest prime <= x
+	 */
 	public static long primeAtMost(final long x){
 		final int loc0=Arrays.binarySearch(primes, x);
 		int loc=loc0;

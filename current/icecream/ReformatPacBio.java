@@ -668,6 +668,16 @@ public final class ReformatPacBio {
 		return avgId;
 	}
 	
+	/**
+	 * Divides a read into overlapping fragments of specified length.
+	 * Ensures even coverage with specified overlap between adjacent shreds.
+	 * Maintains original read names with coordinate suffixes.
+	 *
+	 * @param r Read to shred into fragments
+	 * @param shredLength Target length for each fragment
+	 * @param overlap Number of bases overlap between adjacent fragments
+	 * @return List of Read objects representing the fragments
+	 */
 	private static ArrayList<Read> shred(final Read r, final int shredLength, final int overlap){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
@@ -757,6 +767,15 @@ public final class ReformatPacBio {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for processing thread.
+		 * Initializes streams, thread ID, and entropy tracker if needed.
+		 *
+		 * @param zstream_ ZMW input stream
+		 * @param ros_ Good reads output stream
+		 * @param rosb_ Bad reads output stream
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ZMWStreamer zstream_, 
 				final ConcurrentReadOutputStream ros_,  
 				final ConcurrentReadOutputStream rosb_, final int tid_){
@@ -818,6 +837,17 @@ public final class ReformatPacBio {
 			return median;
 		}
 		
+		/**
+		 * Identifies and flags reads with low sequence complexity.
+		 * Uses entropy tracking to find long homopolymer or low-complexity regions.
+		 * Marks reads as discarded if they contain excessive low-entropy sequence.
+		 *
+		 * @param reads ZMW containing reads to evaluate
+		 * @param minEnt Minimum entropy threshold (unused in current implementation)
+		 * @param minLen0 Minimum absolute length of low-entropy block
+		 * @param minFract Minimum fraction of read that must be low-entropy
+		 * @return Number of reads flagged as low entropy
+		 */
 		int flagLowEntropyReads(final ZMW reads, final float minEnt, 
 				final int minLen0, final float minFract){
 			int found=0;
@@ -836,6 +866,14 @@ public final class ReformatPacBio {
 			return found;
 		}
 		
+		/**
+		 * Flags reads that are unusually long compared to median length.
+		 * Long reads often indicate adapter contamination or chimeric sequences.
+		 *
+		 * @param reads ZMW containing reads to evaluate
+		 * @param median Median length for comparison
+		 * @return Number of reads flagged as too long
+		 */
 		int flagLongReads(final ZMW reads, int median){
 			int found=0;
 			for(Read r : reads){
@@ -1235,6 +1273,14 @@ public final class ReformatPacBio {
 			return trimmed;
 		}
 		
+		/**
+		 * Calculates number of bases to trim from left end.
+		 * Finds the last undefined base within the lookahead window.
+		 *
+		 * @param bases Sequence bases to analyze
+		 * @param lookahead Number of consecutive defined bases required
+		 * @return Number of bases to trim from left end
+		 */
 		final int calcLeftTrim(final byte[] bases, int lookahead){
 			final int len=bases.length;
 			int lastUndef=-1;
@@ -1249,6 +1295,14 @@ public final class ReformatPacBio {
 			return lastUndef+1;
 		}
 		
+		/**
+		 * Calculates number of bases to trim from right end.
+		 * Finds the last undefined base within the lookahead window from right end.
+		 *
+		 * @param bases Sequence bases to analyze
+		 * @param lookahead Number of consecutive defined bases required
+		 * @return Number of bases to trim from right end
+		 */
 		final int calcRightTrim(final byte[] bases, int lookahead){
 			final int len=bases.length;
 			int lastUndef=len;

@@ -1395,6 +1395,14 @@ public class BBMerge {
 		return x;
 	}
 	
+	/**
+	 * Attempts to merge two reads using strict parameters.
+	 * Returns merged read if successful overlap is found.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @return Merged read if successful, null otherwise
+	 */
 	public static final Read tryToMerge(final Read r1, final Read r2) {
 		if(r2==null) {return null;}
 		int insert=findOverlapStrict(r1, r2, false);

@@ -466,6 +466,16 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		return set;
 	}
 	
+	/**
+	 * Recursively adds a k-mer and its mutations to the homopolymer set.
+	 * Generates all possible single-base mutations within specified hamming distance.
+	 *
+	 * @param kmer K-mer to add and mutate
+	 * @param k K-mer length
+	 * @param midMask Bit mask for middle-masking
+	 * @param hdist Remaining hamming distance for mutations
+	 * @param set Hash set to add k-mers to
+	 */
 	public static void addToSet(final long kmer, final long k, final long midMask, final int hdist,
 			final LongHashSet set){
 		set.add(kmer&midMask);
@@ -709,6 +719,15 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 
 	//This version does not look for a peak, just a maximal distance above 0.
 	//It is not bidirectionally symmetric though, until the second loop.
+	/**
+	 * Calculates longest homopolymer length allowing specified error rate.
+	 * Scans bidirectionally to find maximal regions above score threshold.
+	 *
+	 * @param bases Sequence to examine
+	 * @param mer Homopolymer base to count
+	 * @param nonFraction Maximum allowed fraction of non-matching bases
+	 * @return Length of longest homopolymer region
+	 */
 	public static int polymerLen(final byte[] bases, final byte mer, final float nonFraction) {
 		if(nonFraction<=0) {return polymerLen(bases, mer);}
 		
@@ -790,6 +809,14 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread with I/O streams and thread ID.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for retained reads
+		 * @param rosb_ Output stream for discarded reads
+		 * @param tid_ Thread ID for this worker
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
 			cris=cris_;
 			ros=ros_;

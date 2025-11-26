@@ -11,6 +11,11 @@ import javax.swing.JOptionPane;
  */
 public class TaxApp {
 	
+	/**
+	 * Program entry point that creates and displays the GUI.
+	 * Initializes a JFrame window with a button that prompts for user input.
+	 * @param args Command-line arguments (not used)
+	 */
 	public static void main(final String[] args) {
         final JFrame parent = new JFrame();
         JButton button = new JButton();

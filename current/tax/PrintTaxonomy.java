@@ -319,6 +319,14 @@ public class PrintTaxonomy {
 		return sb.toString();
 	}
 	
+	/**
+	 * Prints complete taxonomic hierarchy for a given sequence name or identifier.
+	 * Strips header prefixes and resolves taxonomy through node lookup.
+	 * Handles multiple matches by printing all found taxonomies.
+	 *
+	 * @param name Sequence name or identifier to resolve
+	 * @param tsw Output writer for taxonomy results
+	 */
 	void printTaxonomy(String name, final TextStreamWriter tsw){
 		while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
 		tsw.print("\n");
@@ -343,6 +351,12 @@ public class PrintTaxonomy {
 		return;
 	}
 	
+	/**
+	 * Prints taxonomy information at a specific taxonomic level for a sequence name.
+	 * Resolves taxonomy and prints only the requested level information.
+	 * @param name Sequence name or identifier to resolve
+	 * @param tsw Output writer for taxonomy results
+	 */
 	void printTaxLevel(String name, final TextStreamWriter tsw){
 		while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
 		tsw.print("\n");
@@ -374,6 +388,15 @@ public class PrintTaxonomy {
 //		tn.incrementRaw(1);
 //	}
 	
+	/**
+	 * Prints complete taxonomic hierarchy for a resolved TaxNode.
+	 * Traverses up the taxonomy tree from the node to root level.
+	 * Filters nodes based on level constraints and canonical status.
+	 * Increments raw counts for nodes at or below the target tax level.
+	 *
+	 * @param tn Taxonomy node to print hierarchy for
+	 * @param tsw Output writer for taxonomy results
+	 */
 	void printTaxonomy(TaxNode tn, final TextStreamWriter tsw){
 //		assert(false) : tn.levelExtended+", "+taxLevelExtended+", "+minLevelExtended+", "+maxLevelExtended;
 		assert(tn!=null);
@@ -458,6 +481,17 @@ public class PrintTaxonomy {
 //		}while(tn!=null && tn.id!=tn.pid && tn.levelExtended<=maxLevelE);
 //	}
 	
+	/**
+	 * Prints taxonomy hierarchy to a ByteBuilder with level and ID information.
+	 * Static utility method for appending formatted taxonomy data.
+	 * Filters cellular organisms and non-canonical names when requested.
+	 *
+	 * @param tn Starting taxonomy node
+	 * @param sb ByteBuilder to append taxonomy information to
+	 * @param tree Taxonomy tree for node traversal
+	 * @param maxLevel Maximum taxonomy level to include
+	 * @param skipNonCanonical Whether to skip non-canonical taxonomy names
+	 */
 	public static void printTaxonomy(TaxNode tn, final ByteBuilder sb, final TaxTree tree, final int maxLevel, boolean skipNonCanonical){
 		final int maxLevelE=maxLevel<0 ? maxLevel : TaxTree.levelToExtended(maxLevel);
 		assert(tn!=null);
@@ -482,6 +516,14 @@ public class PrintTaxonomy {
 //		}while(tn!=null && tn.id!=tn.pid && tn.levelExtended<=maxLevelE);
 //	}
 	
+	/**
+	 * Prints taxonomy information at a specific level for a resolved TaxNode.
+	 * Traverses up the tree to find the node at the target taxonomy level.
+	 * Increments raw count for the target level node.
+	 *
+	 * @param tn Taxonomy node to resolve level for
+	 * @param tsw Output writer for taxonomy results
+	 */
 	void printTaxLevel(TaxNode tn, final TextStreamWriter tsw){
 		if(tn==null){tn=unknown;}
 		while(tn.id!=tn.pid && tn.levelExtended<taxLevelExtended){tn=tree.getNode(tn.pid);}

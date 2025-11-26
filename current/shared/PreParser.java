@@ -186,6 +186,12 @@ public class PreParser {
 		return stripped;
 	}
 	
+	/**
+	 * Parses outstream parameter and returns appropriate PrintStream.
+	 * Handles special values: null, stdout, stderr, or file paths.
+	 * @param b The outstream parameter value
+	 * @return PrintStream for the specified output destination
+	 */
 	private static PrintStream parseOutstream(final String b) {
 		
 		try {

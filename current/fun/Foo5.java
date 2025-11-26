@@ -284,6 +284,11 @@ public class Foo5 {
 			size++;
 		}
 		
+		/**
+		 * Expands internal array capacity to accommodate more elements.
+		 * Includes overflow protection to prevent array size exceeding JVM limits.
+		 * @param size2 New target capacity
+		 */
 		private final void resize(final long size2){
 			assert(size2>size) : size+", "+size2;
 			final int size3=(int)min(MAX_ARRAY_LEN, size2);

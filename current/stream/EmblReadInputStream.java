@@ -104,6 +104,17 @@ public class EmblReadInputStream extends ReadInputStream {
 	
 
 	
+	/**
+	 * Parses EMBL format file and converts to Read objects.
+	 * Extracts sequence identifiers from ID lines and sequence data from SQ sections.
+	 * Filters out non-letter characters and converts bases to uppercase.
+	 *
+	 * @param bf ByteFile object for reading the EMBL file
+	 * @param maxReadsToReturn Maximum number of reads to parse in this batch
+	 * @param numericID Starting numeric ID for read numbering
+	 * @param flag Bit flags for read properties (e.g., amino acid detection)
+	 * @return ArrayList of Read objects parsed from the EMBL file
+	 */
 	public static ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn, long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
 		

@@ -205,6 +205,8 @@ public class TableLoaderLockFree {
 		variableRefSkip=(minRefSkip!=maxRefSkip);
 	}
 	
+	/** Sets the storage mode for k-mer insertion into tables.
+	 * @param x Storage mode: SET_IF_NOT_PRESENT, SET_ALWAYS, or INCREMENT */
 	public void storeMode(final int x){
 		assert(x==SET_IF_NOT_PRESENT || x==SET_ALWAYS || x==INCREMENT);
 		storeMode=x;
@@ -417,6 +419,8 @@ public class TableLoaderLockFree {
 	 */
 	private class LoadThread extends Thread{
 		
+		/** Constructs a LoadThread for a specific thread number.
+		 * @param tnum_ Thread number determining which k-mers this thread processes */
 		public LoadThread(final int tnum_){
 			tnum=tnum_;
 			map=tables[tnum];

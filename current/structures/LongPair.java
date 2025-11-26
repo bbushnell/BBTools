@@ -39,6 +39,8 @@ public class LongPair implements Comparable<LongPair>{
 		return b>other.b ? 1 : b<other.b ? -1 : 0;
 	}
 	
+	/** Second long value stored in this pair. */
+	/** First long value stored in this pair. */
 	public long a, b;
 	
 }

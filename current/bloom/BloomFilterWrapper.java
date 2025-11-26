@@ -467,6 +467,15 @@ public class BloomFilterWrapper {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param rosu_ Output stream for non-matching reads
+		 * @param rosm_ Output stream for matching reads
+		 * @param rosc_ Output stream for k-mer counts
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, 
 				final ConcurrentReadOutputStream rosu_, final ConcurrentReadOutputStream rosm_, 
 				final ConcurrentReadOutputStream rosc_, final int tid_){

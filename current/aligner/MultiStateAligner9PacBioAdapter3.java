@@ -990,6 +990,16 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return scoreNoIndels(read, cha.array, ss.start, ss);
 	}
 
+	/**
+	 * Scores alignment without allowing insertions or deletions.
+	 * Computes match/mismatch score for direct sequence comparison
+	 * at the specified chromosome and reference position.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param chrom Chromosome identifier
+	 * @param refStart Starting position in reference sequence
+	 * @return Alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart, null);
@@ -1010,11 +1020,33 @@ public final class MultiStateAligner9PacBioAdapter3 {
 		return scoreNoIndels(read, cha.array, baseScores, ss.start, ss);
 	}
 
+	/**
+	 * Scores alignment without allowing insertions or deletions using quality scores.
+	 * Incorporates base quality information to weight match/mismatch penalties
+	 * at the specified chromosome and reference position.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param chrom Chromosome identifier
+	 * @param refStart Starting position in reference sequence
+	 * @param baseScores Quality scores for each base in the read
+	 * @return Quality-weighted alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, baseScores, refStart, null);
 	}
 
+	/**
+	 * Scores alignment without allowing insertions or deletions.
+	 * Computes match/mismatch score for direct sequence comparison
+	 * and updates semiperfect status in the provided site score.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param refStart Starting position in reference sequence
+	 * @param ss Site score object to update with semiperfect status (may be null)
+	 * @return Alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
 		
 		int score=0;
@@ -1080,6 +1112,18 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	}
 	
 
+	/**
+	 * Scores alignment without allowing insertions or deletions using quality scores.
+	 * Incorporates base quality information and updates semiperfect alignment status.
+	 * Most comprehensive no-indel scoring method with quality weighting.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param baseScores Quality scores for each base in the read
+	 * @param refStart Starting position in reference sequence
+	 * @param ss Site score object to update with semiperfect status (may be null)
+	 * @return Quality-weighted alignment score without indel penalties
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
 		
 		int score=0;
@@ -1147,6 +1191,18 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	}
 	
 	
+	/**
+	 * Scores alignment without indels and generates match string representation.
+	 * Creates detailed alignment visualization showing matches, mismatches, and no-calls
+	 * while incorporating quality score weighting in the final score.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param baseScores Quality scores for each base in the read
+	 * @param refStart Starting position in reference sequence
+	 * @param matchReturn Single-element array to receive generated match string
+	 * @return Quality-weighted alignment score without indel penalties
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;
@@ -1222,6 +1278,17 @@ public final class MultiStateAligner9PacBioAdapter3 {
 	}
 	
 	
+	/**
+	 * Scores alignment without indels and generates match string representation.
+	 * Creates detailed alignment visualization without quality score weighting
+	 * for simpler alignment analysis and debugging.
+	 *
+	 * @param read Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param refStart Starting position in reference sequence
+	 * @param matchReturn Single-element array to receive generated match string
+	 * @return Alignment score without indel penalties
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;

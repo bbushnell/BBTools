@@ -1177,6 +1177,14 @@ public final class MSAViz implements Aligner, IDAligner {
 		return scoreNoIndels(read, cha.array, ss.start, ss);
 	}
 
+	/**
+	 * Scores alignment without indels using chromosome and position.
+	 *
+	 * @param read Query sequence
+	 * @param chrom Chromosome identifier
+	 * @param refStart Reference start position
+	 * @return Alignment score
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart, null);
@@ -1195,6 +1203,15 @@ public final class MSAViz implements Aligner, IDAligner {
 		return scoreNoIndels(read, cha.array, baseScores, ss.start, ss);
 	}
 
+	/**
+	 * Scores alignment without indels using coordinates and quality scores.
+	 *
+	 * @param read Query sequence
+	 * @param chrom Chromosome identifier
+	 * @param refStart Reference start position
+	 * @param baseScores Quality scores
+	 * @return Alignment score with quality bonuses
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, baseScores, refStart, null);
@@ -1202,6 +1219,16 @@ public final class MSAViz implements Aligner, IDAligner {
 	
 
 
+	/**
+	 * Core indel-free scoring with streak-aware penalties.
+	 * Implements consecutive match bonuses and substitution clustering penalties.
+	 *
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStart Reference start position
+	 * @param ss Site score for semiperfect detection
+	 * @return Alignment score
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
 		
 		int score=0;
@@ -1267,6 +1294,17 @@ public final class MSAViz implements Aligner, IDAligner {
 	}
 	
 
+	/**
+	 * Indel-free scoring with base quality integration.
+	 * Combines alignment scoring with Phred quality scores for enhanced accuracy.
+	 *
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param baseScores Quality scores for each base
+	 * @param refStart Reference start position
+	 * @param ss Site score object
+	 * @return Quality-weighted alignment score
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
 		
 		int score=0;
@@ -1334,6 +1372,17 @@ public final class MSAViz implements Aligner, IDAligner {
 	}
 	
 	
+	/**
+	 * Scores alignment and generates detailed match string.
+	 * Creates alignment visualization with match/substitution/N annotations.
+	 *
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param baseScores Quality scores
+	 * @param refStart Reference start position
+	 * @param matchReturn Output array for match string
+	 * @return Alignment score
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;
@@ -1409,6 +1458,15 @@ public final class MSAViz implements Aligner, IDAligner {
 	}
 	
 	
+	/**
+	 * Scores alignment and creates match string without quality scores.
+	 *
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStart Reference start position
+	 * @param matchReturn Output array for match string
+	 * @return Alignment score
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;

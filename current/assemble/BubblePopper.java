@@ -503,6 +503,15 @@ public class BubblePopper {
 		return true;
 	}
 	
+	/**
+	 * Redirects incoming edges from one contig to another.
+	 * Updates the destination mapping to point edges from the source
+	 * contig to the target contig for the specified orientation.
+	 *
+	 * @param from Source contig ID
+	 * @param to Target contig ID
+	 * @param destRight Whether to redirect edges to the right side
+	 */
 	private void redirectEdges(final int from, final int to, final boolean destRight){
 		if(from==to){return;}
 		ArrayList<Edge> inboundFrom=destMap.get(from);

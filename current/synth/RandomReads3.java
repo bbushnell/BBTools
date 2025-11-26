@@ -690,6 +690,14 @@ public final class RandomReads3 {
 		addErrorsFromQuality(r, randy, 0, r.length());
 	}
 	
+	/**
+	 * Adds sequencing errors to a specific region of a read based on quality scores.
+	 *
+	 * @param r Read to modify
+	 * @param rand Random number generator for error placement
+	 * @param from Start position for error introduction
+	 * @param to End position for error introduction
+	 */
 	private final static void addErrorsFromQuality(Read r, Random rand, final int from, final int to){
 		final byte[] quals=r.quality, bases=r.bases;
 		for(int i=from; i<to; i++){
@@ -701,6 +709,15 @@ public final class RandomReads3 {
 		}
 	}
 	
+	/**
+	 * Adds fragment adapter sequences to a read at the specified location.
+	 * Simulates adapter contamination common in short-insert libraries.
+	 *
+	 * @param r Read to modify
+	 * @param loc Position where adapter sequence begins
+	 * @param adapters Array of possible adapter sequences
+	 * @param rand Random number generator for adapter selection
+	 */
 	public static void addFragAdapter(Read r, final int loc, final byte[][] adapters, final Random rand){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
@@ -2122,6 +2139,14 @@ public final class RandomReads3 {
 		return r;
 	}
 	
+	/**
+	 * Adds PacBio-style sequencing errors with variable error rates.
+	 * Introduces insertions, deletions, and substitutions with realistic distributions.
+	 *
+	 * @param r Read to modify
+	 * @param errorRate Base error rate
+	 * @param deviation Error rate variation
+	 */
 	public void addPacBioErrors(final Read r, final float errorRate, final float deviation){
 		
 		byte[] bases=r.bases;

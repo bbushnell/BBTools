@@ -328,6 +328,15 @@ public class Shred {
 //		}
 //	}
 	
+	/**
+	 * Shreds sequence into fragments with evenly distributed positions.
+	 * Calculates chunk positions to ensure even coverage across the sequence.
+	 * Fragment lengths may vary slightly to maintain even spacing.
+	 *
+	 * @param r1 Input sequence to shred
+	 * @param list Output list to append generated shreds
+	 * @param tid Taxonomic ID to include in shred names
+	 */
 	void processEvenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -356,6 +365,15 @@ public class Shred {
 		}
 	}
 	
+	/**
+	 * Shreds sequence into fixed-length overlapping fragments.
+	 * Advances by fixed increment creating consistent overlap between fragments.
+	 * All shreds have identical length except possibly the last one.
+	 *
+	 * @param r1 Input sequence to shred
+	 * @param list Output list to append generated shreds
+	 * @param tid Taxonomic ID to include in shred names
+	 */
 	void processUnevenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -379,6 +397,15 @@ public class Shred {
 		}
 	}
 	
+	/**
+	 * Shreds sequence into random-length non-overlapping fragments.
+	 * Uses configurable probability distribution (linear, log, or exponential).
+	 * Fragment lengths vary according to specified min/max bounds and distribution.
+	 *
+	 * @param r1 Input sequence to shred
+	 * @param list Output list to append generated shreds
+	 * @param tid Taxonomic ID to include in shred names
+	 */
 	void processRandomly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -419,6 +446,12 @@ public class Shred {
 		return (name==null ? "" : name+"_")+start+"-"+stop+(tid>0 ? "_tid_"+tid : "");
 	}
 	
+	/**
+	 * Generates random fragment length according to configured distribution mode.
+	 * Dispatches to appropriate distribution function based on current mode setting.
+	 * @param remainder Maximum possible length (bases remaining in sequence)
+	 * @return Random length between minLength and min(maxLength, remainder)
+	 */
 	final int randomLength(final int remainder) {
 		if(mode==LINEAR) {return randomLengthLinear(remainder);}
 		else if(mode==LOG) {return logUniformLength(remainder);}
@@ -428,10 +461,23 @@ public class Shred {
 		}
 	}
 	
+	/**
+	 * Generates uniformly distributed random length within specified range.
+	 * @param remainder Maximum possible length
+	 * @return Uniformly random length between minLength and maxLength
+	 */
 	final int randomLengthLinear(final int remainder) {
 		return Tools.min(minLength+randy.nextInt(range), remainder);
 	}
 	
+	/**
+	 * Generates exponentially distributed random length.
+	 * Uses inverse lambda based on geometric mean of min and max lengths.
+	 * Retries up to 20 times if generated value falls outside valid range.
+	 *
+	 * @param remainder Maximum possible length
+	 * @return Exponentially distributed length, or remainder if sampling fails
+	 */
 	final int randomLengthExp(final int remainder) {
 		if(remainder<=minLength) {return remainder;}
 		long max=Tools.min(maxLength, remainder);

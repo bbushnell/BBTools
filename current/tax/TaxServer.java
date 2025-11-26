@@ -1257,6 +1257,15 @@ public class TaxServer {
 		return j.toString();
 	}
 	
+	/**
+	 * Retrieves child nodes for given taxonomic ID.
+	 *
+	 * @param id Taxonomic ID to get children for
+	 * @param originalLevel Whether to use original taxonomy level names
+	 * @param printRange Whether to include taxonomic range information
+	 * @param mononomial Whether to use mononomial naming
+	 * @return JSON object containing child nodes, or null if none found
+	 */
 	JsonObject getChildren(final int id, boolean originalLevel, boolean printRange, boolean mononomial){
 		TaxNode x=tree.getNode(id);
 		if(x==null || x.numChildren==0){return null;}
@@ -1356,6 +1365,12 @@ public class TaxServer {
 		return sb.toString();
 	}
 	
+	/**
+	 * Converts identifier to TaxNode based on query type.
+	 * @param type Query type determining how to interpret the name
+	 * @param name Identifier string to convert
+	 * @return TaxNode if found, null otherwise
+	 */
 	private TaxNode toNode(final int type, final String name){
 		int type2=type&15;
 		final TaxNode tn;

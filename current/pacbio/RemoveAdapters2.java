@@ -593,6 +593,14 @@ public class RemoveAdapters2 {
 			
 		}
 		
+		/**
+		 * Creates a padded copy of a sequence array with 'N' bases at both ends.
+		 * Uses thread-local buffer for memory efficiency and NUMA locality.
+		 *
+		 * @param array Original sequence array to pad
+		 * @param pad Number of 'N' bases to add at each end
+		 * @return New array with padding applied
+		 */
 		private byte[] npad(final byte[] array, final int pad){
 			final int len=array.length+2*pad;
 			if(padbuffer==null || padbuffer.length!=len){padbuffer=new byte[len];}

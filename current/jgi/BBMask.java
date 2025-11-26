@@ -415,6 +415,11 @@ public class BBMask{
 		return numSet;
 	}
 	
+	/**
+	 * Converts marked positions in BitSets to masked bases in sequence data.
+	 * @param lowercase If true, mask with lowercase letters; if false, use 'N'
+	 * @return Total number of bases masked across all sequences
+	 */
 	private long maskFromBitsets(final boolean lowercase){
 		System.err.println("\nConverting masked bases to "+(lowercase ? "lower case" : "N")); //123
 		long sum=0;
@@ -425,6 +430,14 @@ public class BBMask{
 		return sum;
 	}
 	
+	/**
+	 * Masks specified positions in a single read based on BitSet markers.
+	 *
+	 * @param r Read containing sequence bases to mask
+	 * @param bs BitSet indicating which positions to mask
+	 * @param lowercase If true, convert to lowercase; if false, use 'N'
+	 * @return Number of bases actually masked (excluding already masked positions)
+	 */
 	public static int maskRead(final Read r, final BitSet bs, final boolean lowercase){
 		final byte[] bases=r.bases;
 		int sum=0;
@@ -986,6 +999,16 @@ public class BBMask{
 	}
 	
 	
+	/**
+	 * Core low-complexity masking algorithm using sliding window k-mer diversity.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param bs BitSet to mark positions for masking
+	 * @param k K-mer size for analysis
+	 * @param window Size of sliding window
+	 * @param mincount Minimum unique k-mer count required
+	 * @param counts Array for tracking k-mer frequencies
+	 */
 	private static void maskLowComplexity(final byte[] bases, final BitSet bs, final int k, final int window, final int mincount, final short[] counts){
 		assert(k>0) : "k must be greater than 0";
 		
@@ -1155,6 +1178,12 @@ public class BBMask{
 	}
 	
 	
+	/**
+	 * Core entropy masking algorithm using sliding window entropy calculation.
+	 * @param bases Sequence bases to analyze
+	 * @param bs BitSet to mark positions for masking
+	 * @param et EntropyTracker configured for specific k and window
+	 */
 	private static void maskLowEntropy(final byte[] bases, final BitSet bs, final EntropyTracker et){
 		final int window=et.windowBases();
 		if(bases.length<window){return;}
@@ -1277,6 +1306,14 @@ public class BBMask{
 	}
 	
 	
+	/**
+	 * Core repeat detection algorithm using k-mer pattern matching.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param bs BitSet to mark positions for masking
+	 * @param k K-mer size for repeat detection
+	 * @param minlen Minimum length of repeats to mask
+	 */
 	private static void maskRepeats(final byte[] bases, final BitSet bs, final int k, final int minlen){
 		final int lim=bases.length-k;
 		final int mask=(k>15 ? -1 : ~((-1)<<(2*k)));
@@ -1296,6 +1333,15 @@ public class BBMask{
 	}
 	
 	
+	/**
+	 * Calculates the length of a repeat starting at specified location.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param k K-mer size for pattern matching
+	 * @param mask Bit mask for k-mer extraction
+	 * @param loc Starting location to check for repeats
+	 * @return Length of repeat found, or 0 if no repeat
+	 */
 	private static int repeatLength(final byte[] bases, final int k, final int mask, final int loc){
 		
 		final int lim=bases.length;

@@ -1164,6 +1164,14 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 		return scoreNoIndels(read, cha.array, ss.start, ss);
 	}
 
+	/**
+	 * Calculates alignment score without allowing insertions or deletions.
+	 *
+	 * @param read Query sequence bytes
+	 * @param chrom Chromosome number for reference lookup
+	 * @param refStart Starting position in reference
+	 * @return Alignment score for direct base-to-base comparison
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart, null);
@@ -1183,6 +1191,15 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 		return scoreNoIndels(read, cha.array, baseScores, ss.start, ss);
 	}
 
+	/**
+	 * Calculates alignment score without indels, incorporating base quality scores.
+	 *
+	 * @param read Query sequence bytes
+	 * @param chrom Chromosome number for reference lookup
+	 * @param refStart Starting position in reference
+	 * @param baseScores Quality scores for each base in the read
+	 * @return Alignment score including quality bonuses
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, baseScores, refStart, null);
@@ -1190,6 +1207,16 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 	
 
 
+	/**
+	 * Calculates alignment score without allowing insertions or deletions.
+	 * Performs direct base-to-base comparison and tracks semiperfect alignments.
+	 *
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStart Starting position in reference
+	 * @param ss SiteScore object to update with semiperfect status (may be null)
+	 * @return Alignment score for direct base-to-base comparison
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
 		
 		int score=0;
@@ -1255,6 +1282,17 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 	}
 	
 
+	/**
+	 * Calculates alignment score without indels, incorporating base quality scores.
+	 * Adds quality bonuses to matching bases and tracks semiperfect alignments.
+	 *
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param baseScores Quality scores for each base in the read
+	 * @param refStart Starting position in reference
+	 * @param ss SiteScore object to update with semiperfect status (may be null)
+	 * @return Alignment score including quality bonuses
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
 		
 		int score=0;
@@ -1322,6 +1360,17 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 	}
 	
 	
+	/**
+	 * Scores alignment without indels and generates match string with quality bonuses.
+	 * Creates alignment representation showing matches, substitutions, and no-calls.
+	 *
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param baseScores Quality scores for each base in the read
+	 * @param refStart Starting position in reference
+	 * @param matchReturn Output array to store match string encoding
+	 * @return Alignment score including quality bonuses
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;
@@ -1397,6 +1446,16 @@ public final class MultiStateAligner9PacBioAdapter2 implements Aligner {
 	}
 	
 	
+	/**
+	 * Scores alignment without indels and generates match string.
+	 * Creates alignment representation showing matches, substitutions, and no-calls.
+	 *
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStart Starting position in reference
+	 * @param matchReturn Output array to store match string encoding
+	 * @return Alignment score for direct base-to-base comparison
+	 */
 	public final static int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;

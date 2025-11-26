@@ -828,6 +828,15 @@ public class DemuxByName2 {
 	}
 	
 	//Easy mode for single barcodes or shared hdist
+	/**
+	 * Simplified mutant generation for single barcodes or shared Hamming distance.
+	 * Iteratively adds mutations up to the maximum distance without complex
+	 * collision handling.
+	 *
+	 * @param input Input barcode map to mutate
+	 * @param maxHDist Maximum Hamming distance for mutations
+	 * @param outstream Stream for progress reporting
+	 */
 	private static void mutateUnified(final HashMap<String, String> input, final int maxHDist, PrintStream outstream) {
 		if(maxHDist<1) {return;}
 		for(int hdist=1; hdist<=maxHDist; hdist++) {
@@ -837,6 +846,17 @@ public class DemuxByName2 {
 	
 	//TODO: Seems to map mutants to themselves instead of to their targets
 	//Oh...  this is just wrong.  The key pairs need to stay associated.  Only one pair can be mutated at a time.
+	/**
+	 * Generates mutations for dual barcode systems with separate left/right indices.
+	 * Splits compound barcodes at delimiter, mutates each component separately,
+	 * and returns separate maps for memory efficiency with large barcode sets.
+	 *
+	 * @param input Input map of compound barcodes
+	 * @param maxHDist Maximum Hamming distance for mutations
+	 * @param delimiter Character separating left and right barcodes
+	 * @param outstream Stream for progress reporting
+	 * @return Array containing separate left and right barcode maps, or null for cross-product
+	 */
 	@SuppressWarnings("unchecked")
 	private static HashMap<String, String>[] mutateDual(final HashMap<String, String> input, final int maxHDist, final int delimiter, PrintStream outstream) {
 		assert(maxHDist>0);
@@ -893,6 +913,12 @@ public class DemuxByName2 {
 		return null;
 	}
 	
+	/**
+	 * Adds single-step mutations to all barcodes in the input map.
+	 * Creates temporary output map to avoid concurrent modification,
+	 * then merges non-colliding mutants back into input map.
+	 * @param input Barcode map to receive new mutants
+	 */
 	private static void addMutants(final HashMap<String, String> input) {
 		final HashMap<String, String> output=new HashMap<String, String>();
 		for(Entry<String, String> e : input.entrySet()) {
@@ -909,6 +935,16 @@ public class DemuxByName2 {
 		}
 	}
 	
+	/**
+	 * Generates all single-base mutations of a barcode sequence.
+	 * Mutates each ACGTN position to all other valid bases, tracking
+	 * additions, removals, and collisions in the mutation map.
+	 *
+	 * @param k0 Original barcode sequence to mutate
+	 * @param v0 Value this barcode should map to
+	 * @param map Output map to populate with mutants
+	 * @return Number of mutants successfully added
+	 */
 	private static int addMutants2(final String k0, final String v0, final HashMap<String, String> map) {
 		byte[] bases=k0.getBytes();
 		int added=0, removed=0, collisions=0;

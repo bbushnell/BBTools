@@ -147,6 +147,14 @@ public class LogLog_old {
 //		return Long.rotateLeft(code, (int)(value0&31));
 //	}
 	
+	/**
+	 * Hashes a value using multi-step XOR with lookup tables.
+	 * Processes value in bit chunks and XORs with table values.
+	 *
+	 * @param value0 Value to hash
+	 * @param table Hash lookup table
+	 * @return Hashed value
+	 */
 	public long hash(final long value0, final long[][] table){
 		long value=value0, code=0;
 		long mask=(bits>63 ? -1L : ~((-1L)<<bits));
@@ -306,6 +314,12 @@ public class LogLog_old {
 		}
 	}
 	
+	/**
+	 * Core hash function that updates LogLog buckets with leading zero counts.
+	 * Skips values not divisible by SKIPMOD, hashes the number, counts leading zeros,
+	 * and updates the appropriate bucket with the maximum leading zero count seen.
+	 * @param number Number to hash and add to sketch
+	 */
 	public void hash(final long number){
 		if(number%SKIPMOD!=0){return;}
 		long key=number;

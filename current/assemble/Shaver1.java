@@ -704,6 +704,15 @@ public class Shaver1 extends Shaver {
 //		}
 		
 		//new
+		/**
+		 * Processes a high-coverage k-mer to find dead-end neighbors.
+		 * Uses optimized bit manipulation when core masking is enabled,
+		 * otherwise falls back to safe processing. Examines both orientations
+		 * of the k-mer to find potential low-coverage dead ends.
+		 *
+		 * @param key0 High-coverage k-mer to examine for dead-end neighbors
+		 * @return Number of dead ends found adjacent to this k-mer
+		 */
 		private int processKmer_high(final long key0){
 			if(!tables.MASK_CORE){return processKmer_high_safe(key0);}
 			final long kmer0=key0;
@@ -714,6 +723,15 @@ public class Shaver1 extends Shaver {
 			return sum;
 		}
 		
+		/**
+		 * Examines left neighbors of a high-coverage k-mer for dead ends.
+		 * Uses optimized table lookup to check multiple potential neighbors
+		 * simultaneously when core masking allows it.
+		 *
+		 * @param kmer0 Forward orientation of the high-coverage k-mer
+		 * @param rkmer0 Reverse complement of the high-coverage k-mer
+		 * @return Number of dead ends found among left neighbors
+		 */
 		private int processKmer_high_leftLoop(final long kmer0, final long rkmer0){
 			int sum=0;
 			final long rkmer1=(rkmer0<<2)&mask;
@@ -795,6 +813,14 @@ public class Shaver1 extends Shaver {
 //		}
 		
 		//new
+		/**
+		 * Safe version of high-coverage k-mer processing without core masking optimization.
+		 * Falls back to individual table lookups for each potential neighbor
+		 * when optimized batch processing cannot be used.
+		 *
+		 * @param key0 High-coverage k-mer to examine for dead-end neighbors
+		 * @return Number of dead ends found adjacent to this k-mer
+		 */
 		private int processKmer_high_safe(final long key0){
 			int sum=0;
 			final long kmer0=key0;
@@ -804,6 +830,15 @@ public class Shaver1 extends Shaver {
 			return sum;
 		}
 		
+		/**
+		 * Safe version of left neighbor examination for high-coverage k-mers.
+		 * Performs individual table lookups for each potential neighbor
+		 * without core masking optimizations.
+		 *
+		 * @param kmer0 Forward orientation of the high-coverage k-mer
+		 * @param rkmer0 Reverse complement of the high-coverage k-mer
+		 * @return Number of dead ends found among left neighbors
+		 */
 		private int processKmer_high_safe_leftLoop(final long kmer0, final long rkmer0){
 			int sum=0;
 			final long kmer1=(kmer0<<2)&mask;

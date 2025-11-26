@@ -459,6 +459,12 @@ public class FilterBySequence {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker that filters input reads.
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for filtered results
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;
@@ -554,6 +560,14 @@ public class FilterBySequence {
 			return contained==include;
 		}
 		
+		/**
+		 * Checks if both reads in a pair match reference sequences.
+		 * For single-end data, only checks the first read.
+		 *
+		 * @param r1 First read to check
+		 * @param r2 Second read to check (may be null)
+		 * @return True if both reads match references
+		 */
 		boolean containsBoth(final Read r1, final Read r2){
 			boolean match1=contains(r1);
 			if(r2==null || !match1) {return match1;}
@@ -561,6 +575,12 @@ public class FilterBySequence {
 			return match1 && match2;
 		}
 		
+		/**
+		 * Checks if a single read sequence matches any reference sequence.
+		 * Uses exact matching first, then approximate matching if configured.
+		 * @param r Read to check against reference sequences
+		 * @return True if read matches any reference
+		 */
 		boolean contains(final Read r){
 //			System.err.println(new String(r.bases)+": Query");
 			if(r==null || r.bases==null || r.bases.length<1) {return true;}//Empty string is always contained
@@ -666,6 +686,11 @@ public class FilterBySequence {
 	private class LoadThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for LoadThread that loads reference sequences.
+		 * @param cris_ Input stream containing reference sequences
+		 * @param tid_ Thread identifier
+		 */
 		LoadThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;

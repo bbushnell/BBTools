@@ -352,6 +352,16 @@ public final class KeyRing {
 		return desired;
 	}
 	
+	/**
+	 * Main offset generation method using density-based calculation.
+	 * Combines density requirements with key count optimization.
+	 *
+	 * @param readlen Length of the sequence
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target k-mer density per base
+	 * @param minKeysDesired Minimum number of keys required
+	 * @return Array of offset positions, or null if readlen < blocksize
+	 */
 	public static final int[] makeOffsets(final int readlen, int blocksize, float density, int minKeysDesired){
 		assert(blocksize>0);
 		assert(blocksize<=readlen) : readlen+", "+blocksize+", "+density+", "+minKeysDesired;
@@ -424,6 +434,19 @@ public final class KeyRing {
 //		return makeOffsets2(keyErrorProb, readlenOriginal, blocksize, density, 2*density, minKeysDesired);
 //	}
 	
+	/**
+	 * Advanced offset generation using per-position error probabilities.
+	 * Filters out high-error positions while maintaining desired density.
+	 * Uses dual density limits for flexible quality control.
+	 *
+	 * @param keyErrorProb Error probability for each potential k-mer position
+	 * @param readlenOriginal Original sequence length before quality trimming
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target k-mer density per base
+	 * @param maxDensity Maximum allowed density for quality-trimmed regions
+	 * @param minKeysDesired Minimum number of keys required
+	 * @return Array of offset positions filtered for quality
+	 */
 	public static final int[] makeOffsets2(float[] keyErrorProb,
 			final int readlenOriginal, int blocksize, float density, float maxDensity, int minKeysDesired){
 		int readlen=readlenOriginal;
@@ -474,6 +497,20 @@ public final class KeyRing {
 		return offsets;
 	}
 	
+	/**
+	 * Most sophisticated offset generation with dual error thresholds.
+	 * Uses strict filtering for boundary positions and relaxed filtering for internal positions.
+	 * Adaptively selects high-quality positions within desired intervals.
+	 *
+	 * @param keyErrorProb Error probability for each potential k-mer position
+	 * @param readlenOriginal Original sequence length before quality filtering
+	 * @param blocksize Size of each k-mer block
+	 * @param density Target k-mer density per base
+	 * @param maxDensity Maximum allowed density for quality-filtered regions
+	 * @param minKeysDesired Minimum number of keys required
+	 * @param semiperfectmode Whether to use stricter quality thresholds
+	 * @return Array of high-quality offset positions with adaptive spacing
+	 */
 	public static final int[] makeOffsets3(float[] keyErrorProb,
 			final int readlenOriginal, int blocksize, float density, float maxDensity, int minKeysDesired, boolean semiperfectmode){
 		int readlen=readlenOriginal;

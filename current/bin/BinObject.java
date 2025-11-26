@@ -189,6 +189,15 @@ public class BinObject {
 		return gcmap;
 	}
 	
+	/**
+	 * Counts k-mer frequencies in a sequence and updates the counts array.
+	 * Uses canonical k-mer mapping to avoid counting reverse complements separately.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param counts Array to store k-mer frequencies (indexed by canonical k-mer)
+	 * @param k K-mer length
+	 * @return Number of valid k-mers processed
+	 */
 	public static int countKmers(final byte[] bases, final int[] counts, int k){
 		if(quant>1) {return countKmers_quantized(bases, counts, k);}
 		if(bases==null || bases.length<k){return 0;}
@@ -219,6 +228,14 @@ public class BinObject {
 		return valid;
 	}
 	
+	/**
+	 * Counts k-mers of multiple lengths simultaneously in a single pass.
+	 * More efficient than multiple separate counting operations.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param counts 2D array where counts[k] stores frequencies for k-mers of length k
+	 * @param kmax Maximum k-mer length to count
+	 */
 	public static void countKmersMulti(final byte[] bases, final long[][] counts, int kmax){
 		if(bases==null || bases.length<1){return;}
 		
@@ -240,6 +257,15 @@ public class BinObject {
 		}
 	}
 	
+	/**
+	 * Counts k-mer frequencies with quantization to reduce memory usage.
+	 * Only counts k-mers that are divisible by the quantization factor.
+	 *
+	 * @param bases Sequence bases to analyze
+	 * @param counts Array to store k-mer frequencies (indexed by canonical k-mer)
+	 * @param k K-mer length
+	 * @return Number of valid k-mers processed
+	 */
 	public static int countKmers_quantized(final byte[] bases, final int[] counts, int k){
 		if(bases==null || bases.length<k){return 0;}
 //		counts=(counts!=null ? counts : new int[canonicalKmers]);

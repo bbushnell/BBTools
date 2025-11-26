@@ -501,6 +501,17 @@ public class ErrorCorrect extends Thread{
 		return bs;
 	}
 	
+	/**
+	 * Detects errors focusing on k-mer endpoints.
+	 * For each trusted k-mer, marks both the start and end positions.
+	 * Provides different coverage pattern than bulk detection.
+	 *
+	 * @param r Read to analyze
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param thresh Minimum k-mer count threshold
+	 * @return BitSet marking start and end of trusted k-mers
+	 */
 	public static BitSet detectErrorsTips(final Read r, final KCountArray kca, final int k, final int thresh){
 		
 		final int kbits=2*k;

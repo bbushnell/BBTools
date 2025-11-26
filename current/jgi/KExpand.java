@@ -621,6 +621,22 @@ public class KExpand {
 	
 	//*** Note!  This is functionally identical to mutateE, 
 	//*** only the default params are different
+	/**
+	 * Recursively generates mutations with separate substitution, deletion, and insertion limits.
+	 * Creates all possible mutations within the specified distance constraints.
+	 *
+	 * @param kmer Forward kmer to mutate
+	 * @param rkmer Reverse complement kmer
+	 * @param len Kmer length
+	 * @param maxEdits Maximum total edits remaining
+	 * @param subDist Substitutions allowed
+	 * @param delDist Deletions allowed
+	 * @param insDist Insertions allowed
+	 * @param extraBase Base for deletion extension
+	 * @param extraBase2 Second base for deletion extension
+	 * @param extraBase3 Third base for deletion extension
+	 * @return Number of mutant kmers generated and stored
+	 */
 	@Deprecated
 	/**
 	 * Mutate and store this kmer through 'dist' recursions.

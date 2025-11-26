@@ -339,12 +339,22 @@ public class ReadStats {
 		if(COLLECT_BARCODE_STATS){addToBarcodeStats(r);}
 	}
 	
+	/**
+	 * Adds quality score data from a read to quality histograms.
+	 * Processes both the read and its mate if present.
+	 * @param r The read to process for quality statistics
+	 */
 	public void addToQualityHistogram(final Read r){
 		if(r==null){return;}
 		addToQualityHistogram2(r);
 		if(r.mate!=null){addToQualityHistogram2(r.mate);}
 	}
 	
+	/**
+	 * Internal method to add quality data from a single read.
+	 * Updates quality length, sum, and base quality histograms.
+	 * @param r The read to process
+	 */
 	private void addToQualityHistogram2(final Read r){
 		final int pairnum=r.samline==null ? r.pairnum() : r.samline.pairnum();
 		if(r==null || r.quality==null || r.quality.length<1){return;}
@@ -416,12 +426,23 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds read alignment data to quality accuracy tracking.
+	 * Processes both read and mate for accuracy assessment.
+	 * @param r The aligned read to analyze for accuracy
+	 */
 	public void addToQualityAccuracy(final Read r){
 		if(r==null){return;}
 		addToQualityAccuracy(r, 0);
 		if(r.mate!=null){addToQualityAccuracy(r.mate, 1);}
 	}
 	
+	/**
+	 * Analyzes alignment match string to assess quality score accuracy.
+	 * Counts matches, substitutions, insertions, and deletions by quality score.
+	 * @param r The aligned read to analyze
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	public void addToQualityAccuracy(final Read r, int pairnum){
 		if(r==null || r.quality==null || r.quality.length<1 || !r.mapped() || r.match==null/* || r.discarded()*/){return;}
 		final byte[] bases=r.bases;
@@ -479,12 +500,23 @@ public class ReadStats {
 		
 	}
 	
+	/**
+	 * Adds substitution error counts to error histogram.
+	 * Processes both read and mate if present.
+	 * @param r The aligned read to count errors from
+	 */
 	public void addToErrorHistogram(final Read r){
 		if(r==null){return;}
 		addToErrorHistogram(r, 0);
 		if(r.mate!=null){addToErrorHistogram(r.mate, 1);}
 	}
 	
+	/**
+	 * Counts substitution errors in an aligned read and adds to histogram.
+	 * Requires the read to have alignment match string data.
+	 * @param r The aligned read
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToErrorHistogram(final Read r, int pairnum){
 		if(r==null || r.bases==null || r.length()<1 || !r.mapped() || r.match==null/* || r.discarded()*/){return;}
 		r.toLongMatchString(false);
@@ -492,18 +524,33 @@ public class ReadStats {
 		errorHist.increment(x, 1);
 	}
 	
+	/**
+	 * Adds read length data to length histogram.
+	 * Processes both read and mate if present.
+	 * @param r The read to measure length
+	 */
 	public void addToLengthHistogram(final Read r){
 		if(r==null){return;}
 		addToLengthHistogram(r, 0);
 		if(r.mate!=null){addToLengthHistogram(r.mate, 1);}
 	}
 	
+	/**
+	 * Adds single read length to length histogram.
+	 * @param r The read to measure
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToLengthHistogram(final Read r, int pairnum){
 		if(r==null || r.bases==null){return;}
 		int x=r.length();//Tools.min(r.length(), MAXLENGTHLEN); Old style before SLL
 		lengthHist.increment(x, 1);
 	}
 	
+	/**
+	 * Calculates GC content and adds to GC histogram.
+	 * Can process as individual reads or combined pair GC content.
+	 * @param r1 The read (and optional mate) to analyze for GC content
+	 */
 	public void addToGCHistogram(final Read r1){
 		if(r1==null){return;}
 		final Read r2=r1.mate;
@@ -525,12 +572,22 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds GC content value to histogram.
+	 * @param gc GC content as fraction (0.0 to 1.0)
+	 * @param len Length of sequence analyzed
+	 */
 	private void addToGCHistogram(final float gc, final int len){
 		if(gc<0 || len<1){return;}
 		gcHist[Tools.min(GC_BINS, (int)(gc*(GC_BINS+1)))]++;
 		gcMaxReadLen=Tools.max(len, gcMaxReadLen);
 	}
 	
+	/**
+	 * Calculates sequence entropy and adds to entropy histogram.
+	 * Measures sequence complexity for quality assessment.
+	 * @param r1 The read (and optional mate) to analyze for entropy
+	 */
 	public void addToEntropyHistogram(final Read r1){
 		if(r1==null){return;}
 		final Read r2=r1.mate;
@@ -552,17 +609,32 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Adds entropy value to histogram.
+	 * @param entropy Sequence entropy value
+	 * @param len Length of sequence analyzed
+	 */
 	private void addToEntropyHistogram(final float entropy, final int len){
 		if(entropy<0 || len<1){return;}
 		entropyHist[Tools.min(ENTROPY_BINS, (int)(entropy*(ENTROPY_BINS+1)))]++;
 	}
 	
+	/**
+	 * Calculates alignment identity and adds to identity histogram.
+	 * Measures percentage of matching bases in aligned reads.
+	 * @param r The aligned read to analyze for identity
+	 */
 	public void addToIdentityHistogram(final Read r){
 		if(r==null){return;}
 		addToIdentityHistogram(r, 0);
 		if(r.mate!=null){addToIdentityHistogram(r.mate, 1);}
 	}
 		
+	/**
+	 * Adds alignment identity data for a single read to histogram.
+	 * @param r The aligned read
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToIdentityHistogram(final Read r, int pairnum){
 		if(r==null || r.bases==null || r.length()<1 || !r.mapped() || r.match==null/* || r.discarded()*/){return;}
 		float id=r.identity();
@@ -571,11 +643,21 @@ public class ReadStats {
 		idMaxReadLen=Tools.max(r.length(), idMaxReadLen);
 	}
 	
+	/**
+	 * Adds timestamp data from read to time histogram.
+	 * Used for tracking read processing timing.
+	 * @param r The read containing timestamp data in obj field
+	 */
 	public void addToTimeHistogram(final Read r){
 		if(r==null){return;}
 		addToTimeHistogram(r, 0);//Time for pairs is the same.
 	}
 	
+	/**
+	 * Adds time value to time histogram.
+	 * @param r The read containing Long timestamp in obj field
+	 * @param pairnum Read pair number (0 or 1)
+	 */
 	private void addToTimeHistogram(final Read r, int pairnum){
 		if(r==null){return;}
 		assert(r.obj!=null && r.obj.getClass()==Long.class);
@@ -583,6 +665,12 @@ public class ReadStats {
 		timeHist.increment(x, 1);
 	}
 	
+	/**
+	 * Analyzes indel patterns from alignment and adds to indel histograms.
+	 * Processes both read and mate if present.
+	 * @param r The aligned read to analyze for indels
+	 * @return true if indel data was successfully extracted
+	 */
 	public boolean addToIndelHistogram(final Read r){
 		if(r==null){return false;}
 		boolean success=addToIndelHistogram(r, 0);
@@ -689,12 +777,22 @@ public class ReadStats {
 		return true;
 	}
 	
+	/**
+	 * Analyzes alignment match patterns and adds to match histograms.
+	 * Processes both read and mate if present.
+	 * @param r The aligned read to analyze for match patterns
+	 */
 	public void addToMatchHistogram(final Read r){
 		if(r==null){return;}
 		addToMatchHistogram2(r);
 		if(r.mate!=null){addToMatchHistogram2(r.mate);}
 	}
 	
+	/**
+	 * Analyzes match string to count matches, substitutions, indels by position.
+	 * Updates position-specific alignment statistics arrays.
+	 * @param r The aligned read to analyze
+	 */
 	private void addToMatchHistogram2(final Read r){
 		if(r==null || r.bases==null || r.length()<1 || !r.mapped() || r.match==null/* || r.discarded()*/){return;}
 		final int pairnum=r.samline==null ? r.pairnum() : r.samline.pairnum();
@@ -756,6 +854,12 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Calculates insert size from read pair and adds to insert histogram.
+	 * Requires both reads to be mapped and properly paired.
+	 * @param r The first read of a pair
+	 * @param ignoreMappingStrand Whether to ignore strand information in size calculation
+	 */
 	public void addToInsertHistogram(final Read r, boolean ignoreMappingStrand){
 		if(verbose){
 			System.err.print(r.numericID);
@@ -780,6 +884,8 @@ public class ReadStats {
 //		System.out.println("Incrementing "+x);
 	}
 	
+	/** Adds insert size from SAM template length field to histogram.
+	 * @param r1 The SAM line containing template length (tlen) */
 	public void addToInsertHistogram(final SamLine r1){
 		int x=r1.tlen;
 		if(x<0) {x=-x;}
@@ -792,6 +898,11 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Calculates insert size from two SAM lines and adds to histogram.
+	 * @param r1 First read SAM line
+	 * @param r2 Second read SAM line (may be null)
+	 */
 	public void addToInsertHistogram(final SamLine r1, final SamLine r2){
 		if(r1==null){return;}
 		int x=insertSizeMapped(r1, r2, REQUIRE_PROPER_PAIR);
@@ -846,11 +957,18 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Analyzes base composition and adds to base histograms.
+	 * Processes both read and mate if present.
+	 * @param r The read to analyze for base content
+	 */
 	public void addToBaseHistogram(final Read r){
 		addToBaseHistogram2(r);
 		if(r.mate!=null){addToBaseHistogram2(r.mate);}
 	}
 	
+	/** Counts bases by position and adds to position-specific base histograms.
+	 * @param r The read to analyze */
 	public void addToBaseHistogram2(final Read r){
 		if(r==null || r.bases==null){return;}
 		final int pairnum=r.samline==null ? r.pairnum() : r.samline.pairnum();
@@ -864,6 +982,11 @@ public class ReadStats {
 		}
 	}
 	
+	/**
+	 * Extracts barcode information from read and updates barcode statistics.
+	 * Tracks frequency of each barcode sequence encountered.
+	 * @param r The read containing barcode information
+	 */
 	public void addToBarcodeStats(final Read r){
 		String key=r.barcode(false);
 		if(key==null) {key="NONE";}

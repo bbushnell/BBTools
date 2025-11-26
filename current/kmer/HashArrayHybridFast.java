@@ -170,6 +170,12 @@ public final class HashArrayHybridFast extends HashArray {
 		}
 	}
 	
+	/**
+	 * Inserts a value into the multi-value list at the specified location.
+	 * @param v The value to insert
+	 * @param loc The list location index
+	 * @return Result of the insertion operation
+	 */
 	private final int insertIntoList(final int v, final int loc){
 		return setList.insertIntoList(v, loc);
 	}

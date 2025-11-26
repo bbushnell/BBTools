@@ -501,6 +501,16 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs ProcessThread for parallel read processing.
+		 * Initializes streams, thread ID, and creates HashBuffer for buffered
+		 * hashtable operations with 1000-entry buffer and 32-byte values.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for non-duplicate reads
+		 * @param rosd_ Output stream for duplicate reads
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, 
 				final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosd_, final int tid_){
 			cris=cris_;
@@ -619,17 +629,42 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 			return keep;
 		}
 		
+		/**
+		 * Computes hash code from read pair base sequences.
+		 * Hashes r1 bases with seed 0, optionally XORs with right-rotated hash
+		 * of r2 bases using seed 1, and clears sign bit.
+		 *
+		 * @param r1 Primary read
+		 * @param r2 Mate read (may be null)
+		 * @return Positive hash code representing base sequences
+		 */
 		long hashBases(final Read r1, final Read r2){
 			long code=hash(r1.bases, 0);
 			if(r2!=null){code=code^Long.rotateRight(hash(r2.bases, 1), 3);}
 			return code&Long.MAX_VALUE;
 		}
 		
+		/**
+		 * Computes hash code from read identifier string.
+		 * Only hashes r1 identifier regardless of r2 presence.
+		 *
+		 * @param r1 Primary read
+		 * @param r2 Mate read (ignored)
+		 * @return Positive hash code representing read identifier
+		 */
 		long hashNames(final Read r1, final Read r2){
 			long code=hash(r1.id.getBytes(), 0);
 			return code&Long.MAX_VALUE;
 		}
 		
+		/**
+		 * Computes hash code from read pair quality scores.
+		 * Similar to hashBases but operates on quality arrays instead of bases.
+		 *
+		 * @param r1 Primary read
+		 * @param r2 Mate read (may be null)
+		 * @return Positive hash code representing quality scores
+		 */
 		long hashQualities(final Read r1, final Read r2){
 			long code=hash(r1.quality, 0);
 			if(r2!=null){code=code^Long.rotateRight(hash(r2.quality, 1), 3);}

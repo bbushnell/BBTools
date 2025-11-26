@@ -287,6 +287,15 @@ public abstract class CoverageArray implements Serializable {
 		return map;
 	}
 	
+	/**
+	 * Counts bases in regions where sliding window average is below threshold.
+	 * Uses a sliding window of specified size to calculate average coverage
+	 * and counts bases in regions falling below the threshold.
+	 *
+	 * @param avg Minimum average coverage threshold
+	 * @param window Size of sliding window for averaging
+	 * @return Number of bases in under-covered regions
+	 */
 	public final int basesUnderAverageCoverage(final double avg, final int window){
 		if(underWindowAverage>-1) {return underWindowAverage;}
 		

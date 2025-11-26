@@ -19,6 +19,12 @@ import shared.Tools;
  */
 public class IndexCounter extends KmerCountAbstract {
 	
+	/**
+	 * Constructs an IndexCounter with specified k-mer parameters.
+	 * Initializes bit manipulation constants for efficient k-mer encoding.
+	 * @param k_ K-mer length (must be 1-32)
+	 * @param rcomp_ True to use canonical k-mers (max of forward/reverse)
+	 */
 	public IndexCounter(final int k_, final boolean rcomp_){
 		k=k_;
 		rcomp=rcomp_;
@@ -88,6 +94,11 @@ public class IndexCounter extends KmerCountAbstract {
 	 */
 	private class CountThread extends Thread{
 		
+		/**
+		 * Constructs a CountThread with shared counting array and chromosome coordinator.
+		 * @param counts_ Shared KCountArray for k-mer counting
+		 * @param nextChrom_ Atomic counter for thread-safe chromosome assignment
+		 */
 		CountThread(final KCountArray counts_, AtomicInteger nextChrom_){
 			counts=counts_;
 			nextChrom=nextChrom_;

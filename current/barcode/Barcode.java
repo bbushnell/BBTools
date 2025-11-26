@@ -195,13 +195,60 @@ public class Barcode implements Comparable<Barcode> {
 		return !Tools.isLetter(a) && !Tools.isLetter(b);
 	}
 	
+	/**
+	 * Calculates Hamming distance to another barcode.
+	 * @param b Target barcode for comparison
+	 * @return Number of mismatched positions
+	 */
 	public int hdist(final Barcode b){return hdist(name, b.name);}
+	/**
+	 * Calculates Hamming distance to a string sequence.
+	 * @param b Target sequence for comparison
+	 * @return Number of mismatched positions
+	 */
 	public int hdist(final String b){return hdist(name, b);}
+	/**
+	 * Calculates Hamming distance to a byte array sequence.
+	 * @param b Target sequence for comparison
+	 * @return Number of mismatched positions
+	 */
 	public int hdist(final byte[] b){return hdist(name, b);}
+	/**
+	 * Calculates left-side Hamming distance to another barcode.
+	 * Compares only the letter portion from the left.
+	 * @param b Target barcode for comparison
+	 * @return Number of mismatched positions on left side
+	 */
 	public int hdistL(final Barcode b){return hdistL(name, b.name);}
+	/**
+	 * Calculates left-side Hamming distance to a string.
+	 * Compares only the letter portion from the left.
+	 * @param b Target sequence for comparison
+	 * @return Number of mismatched positions on left side
+	 */
 	public int hdistL(final String b){return hdistL(name, b);}
+	/**
+	 * Calculates right-side Hamming distance to another barcode.
+	 * Compares only the letter portion from the right.
+	 * @param b Target barcode for comparison
+	 * @return Number of mismatched positions on right side
+	 */
 	public int hdistR(final Barcode b){return hdistR(name, b.name);}
+	/**
+	 * Calculates right-side Hamming distance to a string.
+	 * Compares only the letter portion from the right.
+	 * @param b Target sequence for comparison
+	 * @return Number of mismatched positions on right side
+	 */
 	public int hdistR(final String b){return hdistR(name, b);}
+	/**
+	 * Calculates Hamming distance between two byte arrays.
+	 * Arrays must be same length.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Number of mismatched positions
+	 */
 	public static int hdist(final byte[] a, final byte[] b){
 		assert(a.length==b.length) : "'"+new String(a)+"', '"+new String(b)+"'";
 		final int min=Tools.min(a.length, b.length);
@@ -212,6 +259,14 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;
 	}
+	/**
+	 * Calculates Hamming distance between two strings.
+	 * Handles cases where one ends with letter and other with non-letter.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Number of mismatched positions
+	 */
 	public static int hdist(final String a, final String b){
 		//The second clause is to allow tile numbers to be present
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
@@ -226,6 +281,14 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;
 	}
+	/**
+	 * Calculates Hamming distance between string and byte array.
+	 * Handles different ending patterns (letter vs non-letter).
+	 *
+	 * @param a String sequence
+	 * @param b Byte array sequence
+	 * @return Number of mismatched positions
+	 */
 	public static int hdist(final String a, final byte[] b){
 		assert(a.length()==b.length || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 				&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
@@ -239,6 +302,15 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;//+Tools.absdif(length(), b.length());
 	}
+	/**
+	 * Calculates left-side Hamming distance for specified length.
+	 * Compares first len1 positions only.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param len1 Number of positions to compare from left
+	 * @return Number of mismatched positions in specified region
+	 */
 	public static int hdistL(final String a, final String b, int len1){
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 				&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
@@ -250,6 +322,15 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;
 	}
+	/**
+	 * Calculates right-side Hamming distance for specified length.
+	 * Compares last len2 positions only.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param len2 Number of positions to compare from right
+	 * @return Number of mismatched positions in specified region
+	 */
 	public static int hdistR(final String a, final String b, int len2){
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 				&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
@@ -262,6 +343,14 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;
 	}
+	/**
+	 * Calculates left-side Hamming distance until non-letter encountered.
+	 * Stops comparison when first non-letter character is found.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Number of mismatched positions in letter region
+	 */
 	public static int hdistL(final String a, final String b){
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 				&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
@@ -274,6 +363,14 @@ public class Barcode implements Comparable<Barcode> {
 		}
 		return subs;
 	}
+	/**
+	 * Calculates right-side Hamming distance until non-letter encountered.
+	 * Compares from right end until non-letter character is found.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Number of mismatched positions in right letter region
+	 */
 	public static int hdistR(final String a, final String b){
 		assert(a.length()==b.length() || (Tools.endsWithLetter(a)!=Tools.endsWithLetter(b) 
 			&& Tools.startsWithLetter(a) && Tools.startsWithLetter(b)))
@@ -292,7 +389,23 @@ public class Barcode implements Comparable<Barcode> {
 		return subs;
 	}
 
+	/**
+	 * Calculates edit distance to another barcode using alignment.
+	 * Uses Hamming distance first, falls back to banded alignment if >1 mismatch.
+	 *
+	 * @param b Target barcode for comparison
+	 * @param bandy BandedAligner for computing edit distance
+	 * @return Edit distance between sequences
+	 */
 	public int edist(final Barcode b, BandedAligner bandy){return edist(b.name, bandy);}
+	/**
+	 * Calculates edit distance to a string using alignment.
+	 * Uses Hamming distance first, falls back to banded alignment if >1 mismatch.
+	 *
+	 * @param b Target sequence for comparison
+	 * @param bandy BandedAligner for computing edit distance
+	 * @return Edit distance between sequences
+	 */
 	public int edist(final String b, BandedAligner bandy){
 		int dist=hdist(name, b);
 		if(dist>1){dist=bandy.alignForward(getBytes(), b.getBytes(), 0, 0, length(), true);}

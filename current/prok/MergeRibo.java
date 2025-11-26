@@ -435,6 +435,12 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Creates a processing thread for sequence analysis or best sequence selection.
+		 * @param cris_ Input stream for sequence data, or null for selection phase
+		 * @param tid_ Thread identifier
+		 * @param alt_ true if processing alternate data
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_, boolean alt_){
 			cris=cris_;
 			threadID=tid_;

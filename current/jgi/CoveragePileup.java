@@ -907,6 +907,23 @@ public class CoveragePileup {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds coverage data for a mapped read to the specified scaffold.
+	 * Wrapper method that looks up scaffold by name and delegates to main coverage method.
+	 *
+	 * @param scafName Name of reference scaffold
+	 * @param seq Read sequence bases
+	 * @param match CIGAR match string for deletion handling
+	 * @param start0 Zero-based start position on reference
+	 * @param stop0 Zero-based stop position on reference
+	 * @param readlen Total read length including clipped bases
+	 * @param nonClippedBases Count of non-clipped aligned bases
+	 * @param strand Strand orientation (0=plus, 1=minus)
+	 * @param incrementFrags Fragment count increment (1 or 2)
+	 * @param properPair Whether read is in proper pair
+	 * @param sl Optional SamLine object for additional data
+	 * @return true if coverage was successfully added
+	 */
 	public boolean addCoverage(final String scafName, final byte[] seq, byte[] match, final int start0, final int stop0, final int readlen, 
 			final int nonClippedBases, final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
 		Scaffold scaf=table.get(scafName);
@@ -935,6 +952,24 @@ public class CoveragePileup {
 		return addCoverage(scaf, seq, match, start0, stop0, readlen, nonClippedBases, strand, incrementFrags, properPair, sl);
 	}
 	
+	/**
+	 * Core method for adding coverage data to a scaffold's coverage structures.
+	 * Updates coverage arrays or bitsets and increments read/base statistics.
+	 * Handles strand-specific coverage and deletion exclusion when configured.
+	 *
+	 * @param scaf Target scaffold object
+	 * @param seq Read sequence bases for GC counting
+	 * @param match CIGAR match string for precise coverage calculation
+	 * @param start0 Zero-based start position on reference
+	 * @param stop0 Zero-based stop position on reference
+	 * @param readlen Total read length including clipped bases
+	 * @param nonClippedBases Count of non-clipped aligned bases
+	 * @param strand Strand orientation (0=plus, 1=minus)
+	 * @param incrementFrags Fragment count increment
+	 * @param properPair Whether read is in proper pair
+	 * @param sl Optional SamLine object
+	 * @return true if coverage was successfully added
+	 */
 	public boolean addCoverage(final Scaffold scaf, final byte[] seq, byte match[], final int start0, final int stop0, final int readlen, final int nonClippedBases, 
 			final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
 		if(scaf==null){
@@ -1022,6 +1057,21 @@ public class CoveragePileup {
 		return true;
 	}
 	
+	/**
+	 * Adds coverage while excluding deleted positions from read alignment.
+	 * Uses CIGAR match string to skip deletion positions and only count
+	 * matches, substitutions, and soft-clips for coverage calculation.
+	 *
+	 * @param scaf Target scaffold object
+	 * @param seq Read sequence bases
+	 * @param match CIGAR match string specifying alignment operations
+	 * @param start Start position on reference (clipped to scaffold bounds)
+	 * @param stop Stop position on reference (clipped to scaffold bounds)
+	 * @param readlen Total read length
+	 * @param strand Strand orientation
+	 * @param incrementFrags Fragment count increment
+	 * @return true if coverage was successfully added
+	 */
 	private boolean addCoverageIgnoringDeletions(final Scaffold scaf, final byte[] seq, byte match[], final int start, final int stop, final int readlen, final int strand, int incrementFrags){
 		assert(!INCLUDE_DELETIONS && !START_ONLY && !STOP_ONLY);
 		assert(match!=null) : "Coverage excluding deletions cannot be calculated without a match string.";
@@ -1423,6 +1473,15 @@ public class CoveragePileup {
 		}
 	}
 	
+	/**
+	 * Counts bases in low-coverage windows using sliding window approach.
+	 * Identifies contiguous regions where average coverage falls below threshold.
+	 *
+	 * @param array Coverage array for scaffold
+	 * @param avg Average coverage threshold
+	 * @param window Window size for averaging
+	 * @return Number of bases in low-coverage regions
+	 */
 	public int basesUnderAverageCoverage(final int[] array, final double avg, final int window){
 		if(array.length<window){return 0;}
 		final long limit=(long)Math.ceil(window*avg);
@@ -1460,6 +1519,15 @@ public class CoveragePileup {
 		return baseCount;
 	}
 	
+	/**
+	 * Counts bases in low-coverage windows using char array (16-bit coverage).
+	 * Overloaded version for 16-bit coverage arrays with same sliding window logic.
+	 *
+	 * @param array Coverage array for scaffold (16-bit values)
+	 * @param avg Average coverage threshold
+	 * @param window Window size for averaging
+	 * @return Number of bases in low-coverage regions
+	 */
 	public int basesUnderAverageCoverage(final char[] array, final double avg, final int window){
 		if(array.length<window){return 0;}
 		final long limit=(long)Math.ceil(window*avg);

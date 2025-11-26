@@ -435,6 +435,17 @@ public class DemuxServer {
 		return true;
 	}
 	
+	/**
+	 * Writes barcode assignment pairs to output stream in specified encoding format.
+	 * Supports both raw and compressed A48 encoding with buffering for large datasets.
+	 *
+	 * @param map List of barcode pairs to write
+	 * @param os Output stream to write to
+	 * @param encoding Encoding format (Sketch.RAW or Sketch.A48)
+	 * @param len1 Length of first barcode segment for A48 encoding
+	 * @param len2 Length of second barcode segment for A48 encoding
+	 * @return true if write was successful
+	 */
 	public static boolean writeToStream(ArrayList<Pair> map, OutputStream os, final int encoding, int len1, int len2) {
 		final byte[] buffer=new byte[64];
 		ByteBuilder bb=new ByteBuilder();

@@ -203,6 +203,16 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts quality scores to string representation in a ByteBuilder.
+	 * Supports both numeric and ASCII quality score formats with optional wrapping.
+	 *
+	 * @param quals Quality score array (may be null)
+	 * @param len Length of sequence
+	 * @param wrap Line wrap length for formatting
+	 * @param bb ByteBuilder to append quality string
+	 * @return The ByteBuilder with quality scores appended
+	 */
 	protected static final ByteBuilder toQualityB(final byte[] quals, final int len, 
 			final int wrap, final ByteBuilder bb){
 		if(quals==null){return fakeQualityB(30, len, wrap, bb);}

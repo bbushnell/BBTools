@@ -399,10 +399,30 @@ public final class Vector {
 		return matches;
 	}
 
+	/**
+	 * Counts mismatches between two sequence regions.
+	 *
+	 * @param s1 First sequence
+	 * @param s2 Second sequence
+	 * @param a1 Start position in first sequence
+	 * @param b1 End position in first sequence
+	 * @param a2 Start position in second sequence
+	 * @param b2 End position in second sequence
+	 * @return Number of mismatching bases
+	 */
 	public static final int countMismatches(final byte[] s1, final byte[] s2, int a1, int b1, int a2, int b2){
 		return (b1-a1+1)-countMatches(s1, s2, a1, b1, a2, b2);
 	}
 
+	/**
+	 * Finds first occurrence of a symbol in array range.
+	 *
+	 * @param a Array to search
+	 * @param symbol Symbol to find
+	 * @param from Start position (inclusive)
+	 * @param to End position (exclusive)
+	 * @return Index of first occurrence, or 'to' if not found
+	 */
 	public static final int find(final byte[] a, final byte symbol, final int from, final int to){
 		//		if(Shared.SIMD && to-from>=MINLEN8) {return SIMDByte.find(a, symbol, from, to);}
 		int len=from;

@@ -513,6 +513,15 @@ public class BlacklistMaker extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Recursive method for creating multi-pass prefilters with adaptive parameters.
+	 * Estimates unique k-mers, adjusts memory allocation, and decides on additional passes.
+	 *
+	 * @param filter Array containing the current filter (modified in-place)
+	 * @param currentPass Current pass number (0-indexed)
+	 * @param overallFilterMax Maximum count value across all passes
+	 * @return Final KCountArray for prefiltering, or null if insufficient memory
+	 */
 	public final KCountArray makePrefilter_inner(final KCountArray[] filter, int currentPass, int overallFilterMax){
 //		assert(false) : lastFilter+", "+prefilter+", "+filterMax()+", "+currentPass+", "+filterMemory(currentPass);
 		if(!prefilter){return null;}
@@ -622,6 +631,12 @@ public class BlacklistMaker extends SketchObject {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread with input stream and thread ID.
+		 * Initializes entropy tracker if minimum entropy filtering is enabled.
+		 * @param cris_ Input stream for reading sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;

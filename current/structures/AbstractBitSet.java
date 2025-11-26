@@ -126,7 +126,17 @@ public abstract class AbstractBitSet {
 		}
 	}
 
+	/**
+	 * Adds a masked value to a specific cell in the underlying storage array.
+	 * @param cell Cell index in the storage array
+	 * @param mask Masked value to add to the cell
+	 */
 	public abstract void addToCell(final int cell, final int mask);
+	/**
+	 * Sets a cell to the maximum of its current value and the masked input value.
+	 * @param cell Cell index in the storage array
+	 * @param mask Masked value to compare against current cell value
+	 */
 	public abstract void setToMax(final int cell, final int mask);
 	
 	/** Clears all values in the BitSet, resetting all positions to zero */

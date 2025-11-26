@@ -570,6 +570,15 @@ public class Shaver2 extends Shaver {
 		}
 		
 		//new
+		/**
+		 * Processes high-coverage k-mers by exploring their neighbors.
+		 * Uses left-side extension in both orientations to find removal candidates.
+		 *
+		 * @param original High-coverage k-mer to analyze
+		 * @param kmer Working k-mer for neighbor exploration
+		 * @param count0 Original k-mer count for reference
+		 * @return Total number of dead ends found through neighbor analysis
+		 */
 		private int processKmer_high(final Kmer original, Kmer kmer, final int count0){
 			int sum=0;
 			
@@ -599,6 +608,15 @@ public class Shaver2 extends Shaver {
 			return sum;
 		}
 		
+		/**
+		 * Explores left-side neighbors of high-coverage k-mers for removal candidates.
+		 * Implements optional shaveVFast acceleration through branch pre-filtering.
+		 *
+		 * @param original High-coverage k-mer to analyze neighbors of
+		 * @param kmer Working k-mer for neighbor exploration
+		 * @param count0 Original k-mer count for comparison
+		 * @return Number of removal candidates found among neighbors
+		 */
 		private int processKmer_high_leftLoop(final Kmer original, Kmer kmer, final int count0){
 			if(shaveVFast){//Optional accelerator; only examines kmers that actually branch
 				int inf=Integer.MAX_VALUE;
@@ -709,10 +727,32 @@ public class Shaver2 extends Shaver {
 	/*----------------        Recall Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Claims ownership of all k-mers in a sequence path.
+	 * Delegates to array-based claiming with sequence length.
+	 *
+	 * @param bb Sequence builder containing path to claim
+	 * @param id Thread identifier for ownership assignment
+	 * @param exitEarly Whether to stop on first ownership conflict
+	 * @param kmer Working k-mer object for operations
+	 * @return true if all k-mers successfully claimed, false otherwise
+	 */
 	public boolean claim(final ByteBuilder bb, final int id, final boolean exitEarly, Kmer kmer){
 		return claim(bb.array, bb.length(), id, exitEarly, kmer);
 	}
 	
+	/**
+	 * Claims ownership of all k-mers in a sequence array.
+	 * Iterates through sequence maintaining rolling k-mer state and
+	 * attempts ownership claiming for each valid k-mer position.
+	 *
+	 * @param bases Sequence array containing k-mers to claim
+	 * @param blen Length of valid sequence data in array
+	 * @param id Thread identifier for ownership assignment
+	 * @param exitEarly Whether to stop on first ownership conflict
+	 * @param kmer Working k-mer object for rolling state maintenance
+	 * @return true if all k-mers successfully claimed, false on any conflict
+	 */
 	public boolean claim(final byte[] bases, final int blen, final int id, boolean exitEarly, final Kmer kmer){
 		if(blen<kbig){return false;}
 		if(verbose){outstream.println("Thread "+id+" claim start.");}

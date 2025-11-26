@@ -178,6 +178,17 @@ public class PalindromeFinder {
 		return longestPalindrome(s, 0, s.length-1);
 	}
 	
+	/**
+	 * Finds the longest palindrome within a specified region of the sequence.
+	 * Searches for both odd-length and even-length palindromes at each position,
+	 * applying all configured constraints including loop size, tail requirements,
+	 * and mismatch tolerance.
+	 *
+	 * @param s The sequence to search for palindromes
+	 * @param minPos Minimum position to consider (inclusive)
+	 * @param maxPos Maximum position to consider (inclusive)
+	 * @return The longest palindrome found in the region, or null if none meets criteria
+	 */
 	public Palindrome longestPalindrome(byte[] s, final int minPos, final int maxPos){
 		Palindrome best=tempB.clear(), p;
 //		System.err.println("longestPalindrome()");
@@ -211,27 +222,79 @@ public class PalindromeFinder {
 	/*--------------------------------------------------------------*/
 	
 	//Ignores palindromes in the loop which may violate minLoop
+	/**
+	 * Finds longest odd-length palindrome centered at specified position.
+	 * Ignores palindromes in the loop region that may violate minimum loop constraints.
+	 *
+	 * @param s The sequence to search
+	 * @param middle Center position for odd-length palindrome
+	 * @param minPos Minimum position boundary
+	 * @param maxPos Maximum position boundary
+	 * @return Longest odd palindrome found, or null if none
+	 */
 	private Palindrome longestPalindromeOddIgnoringLoop(byte[] s, int middle, final int minPos, final int maxPos){
 		return (maxMismatches<1 ? longestPerfectPalindrome(s, middle-halfMinLoopOdd, middle+halfMinLoopOdd, minPos, maxPos)
 				: longestImperfectPalindrome(s, middle-halfMinLoopOdd, middle+halfMinLoopOdd, minPos, maxPos));
 	}
 
 	//Ignores palindromes in the loop which may violate minLoop
+	/**
+	 * Finds longest even-length palindrome centered at specified position.
+	 * Ignores palindromes in the loop region that may violate minimum loop constraints.
+	 *
+	 * @param s The sequence to search
+	 * @param middle Center position for even-length palindrome
+	 * @param minPos Minimum position boundary
+	 * @param maxPos Maximum position boundary
+	 * @return Longest even palindrome found, or null if none
+	 */
 	private Palindrome longestPalindromeEvenIgnoringLoop(byte[] s, int middle, final int minPos, final int maxPos){
 		return (maxMismatches<1 ? longestPerfectPalindrome(s, middle-halfMinLoopEven, middle+halfMinLoopEven+1, minPos, maxPos)
 				: longestImperfectPalindrome(s, middle-halfMinLoopEven, middle+halfMinLoopEven+1, minPos, maxPos));
 	}
 	
+	/**
+	 * Finds longest odd-length palindrome centered at specified position.
+	 * Uses perfect matching for zero mismatches, imperfect matching otherwise.
+	 *
+	 * @param s The sequence to search
+	 * @param middle Center position for odd-length palindrome
+	 * @param minPos Minimum position boundary
+	 * @param maxPos Maximum position boundary
+	 * @return Longest odd palindrome found, or null if none meets criteria
+	 */
 	private Palindrome longestPalindromeOdd(byte[] s, int middle, final int minPos, final int maxPos){
 		return (maxMismatches<1 ? longestPerfectPalindrome(s, middle-1, middle+1, minPos, maxPos)
 				: longestImperfectPalindrome(s, middle-1, middle+1, minPos, maxPos));
 	}
 
+	/**
+	 * Finds longest even-length palindrome centered at specified position.
+	 * Uses perfect matching for zero mismatches, imperfect matching otherwise.
+	 *
+	 * @param s The sequence to search
+	 * @param middle Center position for even-length palindrome
+	 * @param minPos Minimum position boundary
+	 * @param maxPos Maximum position boundary
+	 * @return Longest even palindrome found, or null if none meets criteria
+	 */
 	private Palindrome longestPalindromeEven(byte[] s, int middle, final int minPos, final int maxPos){
 		return (maxMismatches<1 ? longestPerfectPalindrome(s, middle-1, middle+2, minPos, maxPos)
 				: longestImperfectPalindrome(s, middle-1, middle+2, minPos, maxPos));
 	}
 	
+	/**
+	 * Finds longest perfect palindrome (no mismatches) extending from initial positions.
+	 * Expands outward from starting positions, validating all constraints including
+	 * tail lengths, loop size, and minimum match requirements.
+	 *
+	 * @param s The sequence to search
+	 * @param a0 Initial left position
+	 * @param b0 Initial right position
+	 * @param minPos Minimum allowed position
+	 * @param maxPos Maximum allowed position
+	 * @return Longest perfect palindrome found, or null if none meets criteria
+	 */
 	private Palindrome longestPerfectPalindrome(final byte[] s, final int a0, final int b0, final int minPos, final int maxPos){
 //		System.err.println("longestPerfectPalindrome("+a0+", "+b0+")");
 		assert(b0>a0) : a0+", "+b0;

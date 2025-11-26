@@ -36,6 +36,19 @@ public class LegacyFileWriter {
 //	7,TCGAATGATC,GGGGGGGGGG,2794420,0.015501,0.000729
 //	7,CTTACCTGCT,GGGGGGGGGG,2709266,0.015028,0.000707
 //	(1000 lines)
+	/**
+	 * Writes Top_Unknown_Barcodes.csv file containing most frequent unexpected barcodes.
+	 * Reports barcodes not in the expected set, sorted by frequency.
+	 *
+	 * @param expectedSet Set of expected barcode sequences
+	 * @param assignmentMap Map of barcode assignments
+	 * @param delimiter Delimiter character separating dual indices
+	 * @param fname Output filename for the CSV file
+	 * @param lane Sequencing lane number
+	 * @param lines Maximum number of lines to write
+	 * @param overwrite Whether to overwrite existing files
+	 * @return Total count of unexpected reads
+	 */
 	long writeTopUnknownBarcodes(final Set<String> expectedSet, 
 			HashMap<String, String> assignmentMap, final byte delimiter, 
 			final String fname, final int lane, final int lines, 
@@ -98,6 +111,18 @@ public class LegacyFileWriter {
 ////	(all valid then all invalid pairs)
 	
 	
+	/**
+	 * Writes Index_Hopping_Counts.csv file showing index hopping statistics.
+	 * First lists all expected barcode pairs, then all invalid combinations indicating index hopping.
+	 * Only processes dual-indexed samples (requires delimiter > 0).
+	 *
+	 * @param expectedSet Set of expected dual-indexed barcode pairs
+	 * @param sampleMap Map from barcodes to sample IDs
+	 * @param delimiter Delimiter separating dual indices
+	 * @param fname Output CSV filename
+	 * @param lane Sequencing lane number
+	 * @param overwrite Whether to overwrite existing files
+	 */
 	void writeIndexHoppingCounts(final Set<String> expectedSet, 
 			LinkedHashMap<String,String> sampleMap, final byte delimiter, final String fname, 
 			final int lane, boolean overwrite) {
@@ -221,6 +246,19 @@ public class LegacyFileWriter {
 //	...
 //	7,Undetermined,,,1,27221786230,23126098298,1001525318468,36.79,0.85
 //	7,Undetermined,,,2,27221786230,22727595251,990581252636,36.39,0.83
+	/**
+	 * Writes Quality_Metrics.csv file containing per-sample quality statistics.
+	 * Reports yield, Q30 metrics, and mean quality scores for each read pair.
+	 * Includes both determined samples and undetermined reads.
+	 *
+	 * @param expectedSet Set of expected barcode sequences
+	 * @param sampleMap Map from barcodes to sample IDs
+	 * @param delimiter Delimiter character for dual indices
+	 * @param fname Output CSV filename
+	 * @param lane Sequencing lane number
+	 * @param overwrite Whether to overwrite existing files
+	 * @return Number of lines written to the file
+	 */
 	int writeQualityMetrics(final Set<String> expectedSet, LinkedHashMap<String,String> sampleMap, 
 			final byte delimiter, final String fname, final int lane, boolean overwrite) {
 		if(fname==null) {return 0;}

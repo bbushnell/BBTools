@@ -41,6 +41,15 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 		return x;
 	}
 	
+	/**
+	 * Lexicographically compares two byte arrays representing sequences.
+	 * Used as tertiary comparison criterion when length and coverage are equal.
+	 * Handles null arrays by treating null as greater than non-null.
+	 *
+	 * @param a First byte array to compare (may be null)
+	 * @param b Second byte array to compare (may be null)
+	 * @return Negative, zero, or positive for lexicographic ordering
+	 */
 	private static int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}

@@ -4693,6 +4693,12 @@ public class BBDuk {
 		return speed>0 && ((key&Long.MAX_VALUE)%17)<speed;
 	}
 
+	/**
+	 * Trims poly-A/poly-T tails from read sequences.
+	 * @param r Input read
+	 * @param minPoly Minimum homopolymer length to trim
+	 * @return Number of bases trimmed
+	 */
 	public static int trimPolyA(final Read r, final int minPoly){
 		assert(minPoly>0);
 		if(r==null || r.length()<minPoly){return 0;}
@@ -4709,6 +4715,16 @@ public class BBDuk {
 		return trimmed;
 	}
 
+	/**
+	 * Trims homopolymer sequences from read ends.
+	 *
+	 * @param r Input read
+	 * @param minPolyLeft Minimum left homopolymer length
+	 * @param minPolyRight Minimum right homopolymer length
+	 * @param maxNonPoly Maximum allowed non-matching bases within homopolymer
+	 * @param c Target base character for homopolymer
+	 * @return Number of bases trimmed
+	 */
 	public static int trimPoly(final Read r, final int minPolyLeft, final int minPolyRight, 
 			int maxNonPoly, final byte c){
 		assert(minPolyLeft>0 || minPolyRight>0);
@@ -4724,6 +4740,15 @@ public class BBDuk {
 		return trimmed;
 	}
 
+	/**
+	 * Detects homopolymer sequence at left end of read.
+	 *
+	 * @param r Input read
+	 * @param minPoly Minimum homopolymer length
+	 * @param maxNonPoly Maximum allowed mismatches
+	 * @param c Target homopolymer base
+	 * @return Length of homopolymer sequence to trim
+	 */
 	public static int detectPolyLeft(final Read r, final int minPoly, final int maxNonPoly, final byte c){
 		assert(minPoly>0);
 		final byte[] bases=r.bases;
@@ -4746,6 +4771,15 @@ public class BBDuk {
 		return trimTo+1;
 	}
 
+	/**
+	 * Detects homopolymer sequence at right end of read.
+	 *
+	 * @param r Input read
+	 * @param minPoly Minimum homopolymer length
+	 * @param maxNonPoly Maximum allowed mismatches
+	 * @param c Target homopolymer base
+	 * @return Length of homopolymer sequence to trim
+	 */
 	public static int detectPolyRight(final Read r, final int minPoly, final int maxNonPoly, final byte c){
 		assert(minPoly>0);
 		final byte[] bases=r.bases;

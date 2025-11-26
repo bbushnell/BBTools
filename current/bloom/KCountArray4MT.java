@@ -162,6 +162,12 @@ public class KCountArray4MT extends KCountArray {
 		for(int i=0; i<amt; i++){increment0(rawKey, 1);}
 	}
 
+	/**
+	 * Core increment operation using buffered writes to parallel threads.
+	 * Hashes the key multiple times and queues writes to appropriate buffers.
+	 * @param rawKey The raw k-mer key to increment
+	 * @param amt Amount to increment by (typically 1)
+	 */
 	public void increment0(final long rawKey, int amt){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 		
@@ -192,6 +198,11 @@ public class KCountArray4MT extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Increments using a partially pre-hashed key.
+	 * Used for optimized increment operations where first hash is done externally.
+	 * @param pKey Partially hashed key for the first hash function
+	 */
 	private void incrementPartiallyHashed(final long pKey){
 		if(verbose){System.err.println("\n*** Incrementing key "+pKey+" ***");}
 		

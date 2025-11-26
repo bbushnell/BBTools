@@ -307,6 +307,11 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread with input file format and thread ID.
+		 * @param ffin_ FileFormat for input file processing
+		 * @param tid_ Thread identifier for this worker
+		 */
 		ProcessThread(final FileFormat ffin_, final int tid_){
 			ffin=ffin_;
 			tid=tid_;

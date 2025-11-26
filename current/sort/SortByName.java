@@ -600,6 +600,15 @@ public class SortByName {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Recursively merges file lists when the number exceeds maximum merge capacity.
+	 * Splits large file lists into groups, merges each group, and repeats until
+	 * the result fits within merge limits.
+	 *
+	 * @param inList List of input file names to merge
+	 * @param allowSubprocess Whether to allow subprocess execution for merging
+	 * @return Reduced list of merged temporary files
+	 */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList, boolean allowSubprocess){
 		assert(maxFiles>1);
 		
@@ -692,6 +701,21 @@ public class SortByName {
 		return mergeAndDump(fnames, /*dumpCount,*/ ffout1, ffout2, delete, useHeader, allowSubprocess, outstream, maxSizeObserved);
 	}
 	
+	/**
+	 * Static method for merging multiple sorted files into final output.
+	 * Creates priority queue of file containers, performs k-way merge using
+	 * comparators, and manages concurrent output streams and file cleanup.
+	 *
+	 * @param fnames List of input file names to merge
+	 * @param ffout1 Primary output file format
+	 * @param ffout2 Secondary output file format
+	 * @param deleteAfterMerge Whether to delete input files after successful merge
+	 * @param useHeader Whether to preserve SAM/BAM headers in output
+	 * @param allowSubprocess Whether subprocess execution is permitted
+	 * @param outstream Print stream for status messages
+	 * @param maxSizeObserved Maximum read size for memory calculations
+	 * @return true if errors occurred during merge operation
+	 */
 	public static boolean mergeAndDump(ArrayList<String> fnames, FileFormat ffout1, FileFormat ffout2, 
 			boolean deleteAfterMerge, boolean useHeader, boolean allowSubprocess, PrintStream outstream, final long maxSizeObserved) {
 		
@@ -754,6 +778,15 @@ public class SortByName {
 		return errorState;
 	}
 	
+	/**
+	 * Core k-way merge algorithm using priority queue of read containers.
+	 * Continuously polls lowest reads from queue, sorts batches, and outputs
+	 * results while maintaining sort order across file boundaries.
+	 *
+	 * @param q Priority queue of CrisContainer objects for k-way merge
+	 * @param ros Concurrent read output stream for writing results
+	 * @param outstream Print stream for debug and status messages
+	 */
 	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream) {
 		
 //		for(CrisContainer cc : q){
@@ -848,6 +881,15 @@ public class SortByName {
 //	if(verbose2){outstream.println("Buffer contains "+buffer.size()+" reads.");}
 //}
 	
+	/**
+	 * Finds the index of the first read that sorts after the pivot read.
+	 * Used to determine batch boundaries during merge operations to maintain
+	 * sort order when outputting partial results.
+	 *
+	 * @param list Sorted list of reads to search
+	 * @param pivot Reference read for comparison
+	 * @return Index of first read greater than pivot
+	 */
 	private static final int indexOfLowestAbovePivot(final ArrayList<Read> list, final Read pivot){
 		final int size=list.size();
 		final int maxIndex=binarySearch(list, pivot);
@@ -900,6 +942,18 @@ public class SortByName {
 		return a;
 	}
 	
+	/**
+	 * Creates a background thread to sort reads and write them to temporary files.
+	 * Manages temporary file creation and launches WriteThread for asynchronous
+	 * sorting and output operations.
+	 *
+	 * @param storage List of reads to sort and output
+	 * @param currentMem Current memory usage in bytes
+	 * @param outstandingMem Atomic counter for tracking memory usage
+	 * @param fname1 Primary output file name (null for temp file)
+	 * @param fname2 Secondary output file name (null for temp file)
+	 * @param useHeader Whether to preserve SAM/BAM headers
+	 */
 	private void sortAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname1, String fname2, boolean useHeader) {
 		String temp1=fname1;
 		String temp2=fname2;
@@ -928,6 +982,18 @@ public class SortByName {
 	 */
 	private static class WriteThread extends Thread{
 		
+		/**
+		 * Constructor for WriteThread with all required parameters.
+		 * Initializes thread state for background sorting and file output operations.
+		 *
+		 * @param storage_ List of reads to be sorted and written
+		 * @param currentMem_ Current memory usage in bytes
+		 * @param outstandingMem_ Atomic counter for memory tracking
+		 * @param fname1_ Primary output file name
+		 * @param fname2_ Secondary output file name
+		 * @param useHeader_ Whether to preserve SAM/BAM headers
+		 * @param outstream_ Print stream for status messages
+		 */
 		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, 
 				String fname1_, String fname2_, boolean useHeader_, PrintStream outstream_){
 			storage=storage_;

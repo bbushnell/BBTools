@@ -14,6 +14,26 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class JobData {
 	
+	/**
+	 * Constructs a JobData instance with complete training configuration parameters.
+	 * Initializes job settings including network references, queue connections, and
+	 * processing parameters.
+	 *
+	 * @param net_ The immutable neural network to use for this job
+	 * @param jrq_ Queue for submitting job results after processing
+	 * @param epoch_ Current training epoch number
+	 * @param maxSamples_ Maximum number of samples to process in this job
+	 * @param alpha_ Learning rate for gradient updates
+	 * @param backprop_ Whether to perform backpropagation during training
+	 * @param weightMult_ Weight multiplication factor for regularization
+	 * @param sort_ Whether to sort samples before processing
+	 * @param doCopy_ Whether to copy the network for thread safety
+	 * @param list_ List of samples specific to this job
+	 * @param set_ Complete set of all available samples
+	 * @param setLock_ Thread synchronization lock for the sample set
+	 * @param jid_ Unique job identifier (-1 for non-tracked jobs)
+	 * @param jpe_ Number of jobs per epoch for coordination
+	 */
 	JobData(final CellNet net_, final ArrayBlockingQueue<JobResults> jrq_, 
 			final int epoch_, final int maxSamples_, final double alpha_,
 			boolean backprop_, final float weightMult_, final boolean sort_, final boolean doCopy_,

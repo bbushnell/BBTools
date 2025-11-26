@@ -488,6 +488,14 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs ProcessThread with I/O streams and thread ID.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for passed sequences
+		 * @param rosu_ Output stream for failed sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, 
 				final ConcurrentReadOutputStream rosu_, final int tid_){
 			cris=cris_;

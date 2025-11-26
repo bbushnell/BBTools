@@ -1500,6 +1500,15 @@ public class Tadpole1 extends Tadpole {
 		return isJunk(r, counts);
 	}
 	
+	/**
+	 * Analyzes read k-mer coverage to identify low-quality sequences unsuitable
+	 * for assembly. Evaluates terminal k-mer connectivity and maximum internal
+	 * k-mer depth with paired-read aware thresholds for quality determination.
+	 *
+	 * @param r Read to evaluate for assembly quality
+	 * @param counts Working array for nucleotide frequency analysis
+	 * @return true if read has insufficient k-mer support, false otherwise
+	 */
 	public boolean isJunk(Read r, final int[] counts){
 		final int blen=r.length();
 		if(blen<k){return true;}
@@ -1676,6 +1685,24 @@ public class Tadpole1 extends Tadpole {
 		return count<mcc || isError(max+1, min-1);
 	}
 	
+	/**
+	 * Comprehensive error correction implementation using multiple algorithms with
+	 * rollback protection. Applies pincer correction, tail extension analysis,
+	 * and reassembly validation with quality-based rollback when corrections
+	 * appear harmful to sequence integrity.
+	 *
+	 * @param r Read to correct with direct sequence modifications
+	 * @param leftCounts Array for left-side nucleotide analysis
+	 * @param rightCounts Array for right-side nucleotide analysis
+	 * @param kmers K-mer list extracted from read sequence
+	 * @param counts K-mer frequency counts for validation
+	 * @param counts2 Secondary count array for analysis
+	 * @param bb Primary sequence builder for corrections
+	 * @param bb2 Secondary sequence builder for validation
+	 * @param tracker Error statistics and rollback decision tracking
+	 * @param bs BitSet for marking problematic positions
+	 * @return Number of errors successfully corrected after validation
+	 */
 	public int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, LongList kmers, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs){
 		
@@ -1997,6 +2024,18 @@ public class Tadpole1 extends Tadpole {
 		return reassemble_inner(bb, quals, rightCounts, counts, errorExtension);
 	}
 	
+	/**
+	 * Executes local sequence reassembly for complex error patterns by analyzing
+	 * k-mer frequency transitions and applying nucleotide frequency analysis to
+	 * identify and correct substitution errors with quality score consideration.
+	 *
+	 * @param bb Sequence builder containing region to reassemble
+	 * @param quals Quality scores for error probability assessment
+	 * @param rightCounts Working array for nucleotide frequency analysis
+	 * @param counts K-mer frequency counts for error detection
+	 * @param errorExtension Distance for error context analysis
+	 * @return Number of positions successfully corrected through reassembly
+	 */
 	public int reassemble_inner(final ByteBuilder bb, final byte[] quals, final int[] rightCounts, final IntList counts,
 			final int errorExtension){
 		final int length=bb.length();

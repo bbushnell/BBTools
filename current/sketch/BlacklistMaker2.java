@@ -407,6 +407,11 @@ public class BlacklistMaker2 extends SketchObject {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a worker thread for processing k-mer indices.
+		 * @param tid_ Thread ID for work partitioning
+		 * @param threads_ Total number of threads for parallel processing
+		 */
 		ProcessThread(final int tid_, final int threads_){
 			threadID=tid_;
 			threads=threads_;
@@ -440,6 +445,14 @@ public class BlacklistMaker2 extends SketchObject {
 			}
 		}
 		
+		/**
+		 * Processes a single k-mer key to determine its blacklist inclusion.
+		 * Retrieves sketch IDs containing this k-mer, applies taxonomic promotion
+		 * if needed, and adds qualifying k-mers to the frequency maps.
+		 *
+		 * @param key0 K-mer hash value to process
+		 * @param table Hash table containing sketch ID mappings
+		 */
 		void processKey(final long key0, HashArrayHybridFast table){
 			keysProcessedT++;
 			final int[] sketchIds=table.getValues(key0, singleton); //searcher.index.getSketchIdsMap(key, singleton);

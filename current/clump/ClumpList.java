@@ -255,6 +255,14 @@ public class ClumpList extends ArrayList<Clump> {
 //		for(int i=0; i<list.size(); i++){assert(list.get(i).doscarded()) : i;}
 	}
 	
+	/**
+	 * Multi-threaded processing of clumps for consensus, correction, or deduplication.
+	 * Distributes clumps among worker threads and collects results.
+	 * @param threads Number of processing threads to use
+	 * @param mode Processing mode (CONDENSE, CORRECT, or DEDUPE)
+	 * @param rvector Output array for correction/duplicate counts
+	 * @return Processed reads from all clumps
+	 */
 	public ArrayList<Read> process(final int threads, final int mode, final long[] rvector){
 		final ArrayList<ProcessThread> alct=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){alct.add(new ProcessThread(mode));}

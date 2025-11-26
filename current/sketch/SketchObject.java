@@ -946,6 +946,12 @@ public class SketchObject {
 		return list;
 	}
 	
+	/**
+	 * Converts Average Nucleotide Identity to weighted k-mer identity.
+	 * Uses configured k and k2 values for dual-length transformation.
+	 * @param ani Average nucleotide identity (0.0-1.0)
+	 * @return Weighted k-mer identity
+	 */
 	public static final float aniToWkid(final double ani){
 		final float wkid;
 		if(ani<=0){
@@ -958,6 +964,16 @@ public class SketchObject {
 		return wkid;
 	}
 	
+	/**
+	 * Precisely converts weighted k-mer identity back to ANI using iteration.
+	 * Uses binary search to find ANI that produces the target wkid within tolerance.
+	 *
+	 * @param wkid Weighted k-mer identity to convert
+	 * @param A Larger k-mer length
+	 * @param B Smaller k-mer length
+	 * @param maxDeviation Maximum allowed error tolerance
+	 * @return Estimated ANI value
+	 */
 	public static final float wkidToAniExact(final double wkid, final int A, final int B, final double maxDeviation){
 		assert(A>B);
 		assert(maxDeviation>0);
@@ -1026,10 +1042,24 @@ public class SketchObject {
 		return Math.pow(ani, A);
 	}
 	
+	/**
+	 * Exact single k-mer wkid to ANI conversion.
+	 * Uses logarithmic transformation for precise results.
+	 *
+	 * @param wkid Weighted k-mer identity
+	 * @param k K-mer length
+	 * @return Exact ANI value
+	 */
 	public static final float wkidToAniExact(final double wkid, final int k){
 		return (float)Math.exp(Math.log(wkid)/(k));
 	}
 	
+	/**
+	 * Converts wkid to ANI using current k/k2 configuration.
+	 * Chooses between exact and approximation algorithms based on settings.
+	 * @param wkid Weighted k-mer identity
+	 * @return Estimated ANI value
+	 */
 	public static final float wkidToAni(final double wkid){
 		final float ani;
 		if(wkid<=0){

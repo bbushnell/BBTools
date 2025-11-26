@@ -15,6 +15,7 @@ public class MSig extends Function {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Private constructor for singleton pattern. */
 	private MSig() {}
 
 	@Override
@@ -41,6 +42,7 @@ public class MSig extends Function {
 	
 	/** String identifier for the mirrored sigmoid activation function. */
 	static final String name="MSIG";
+	/** Numeric type identifier derived from the function name. */
 	static final int type=Function.toType(name, true);
 	/** Singleton instance of the mirrored sigmoid activation function. */
 	static final MSig instance=new MSig();

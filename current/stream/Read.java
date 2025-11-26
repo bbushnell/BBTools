@@ -103,6 +103,14 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	/*----------------          Validation          ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Validates read data and applies quality control measures.
+	 * Checks sequence characters, quality score validity, and applies
+	 * case conversion, junk filtering, and quality capping as configured.
+	 *
+	 * @param processAssertions Whether to process assertion failures or return false
+	 * @return true if validation passes, false otherwise
+	 */
 	public boolean validate(final boolean processAssertions){
 		assert(!validated());
 //		assert(false);

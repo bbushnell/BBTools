@@ -365,12 +365,26 @@ public class KmerReduce {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts a packed long kmer to its byte array representation.
+	 * Creates a new byte array and fills it with the kmer sequence.
+	 * @param kmer Packed kmer as a long value
+	 * @return Byte array containing the kmer sequence
+	 */
 	public byte[] toBytes(final long kmer){
 		byte[] dest=KillSwitch.allocByte1D(k);
 		fill(kmer, dest, 0);
 		return dest;
 	}
 	
+	/**
+	 * Fills a byte array with the sequence representation of a packed kmer.
+	 * Extracts 2-bit bases from the long value and converts to nucleotide bytes.
+	 *
+	 * @param kmer Packed kmer as a long value
+	 * @param dest Destination byte array to fill
+	 * @param pos Starting position in destination array
+	 */
 	public void fill(final long kmer, final byte[] dest, int pos){
 		for(int i=k-1; i>=0; i--, pos++){
 			int x=(int)((kmer>>(2*i))&3);

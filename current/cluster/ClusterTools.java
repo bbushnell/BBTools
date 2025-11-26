@@ -28,6 +28,16 @@ public class ClusterTools {
 		return null;
 	}
 
+	/**
+	 * Converts DNA sequence to sorted array of canonical k-mers.
+	 * Uses rolling hash to generate forward and reverse complement k-mers,
+	 * selecting the lexicographically smaller canonical form for each position.
+	 *
+	 * @param bases DNA sequence as byte array
+	 * @param array_ Optional pre-allocated array to reuse
+	 * @param k K-mer length
+	 * @return Sorted array of canonical k-mers, or null if sequence too short
+	 */
 	public static int[] toKmers(final byte[] bases, int[] array_, final int k){
 		if(bases==null || bases.length<k){return null;}
 		final int alen=bases.length-k+1;
@@ -59,6 +69,17 @@ public class ClusterTools {
 		return array;
 	}
 	
+	/**
+	 * Converts DNA sequence to k-mer frequency counts array.
+	 * Generates canonical k-mers and increments counts in the provided array,
+	 * then sorts the array by frequency values.
+	 *
+	 * @param bases DNA sequence as byte array
+	 * @param array_ Optional pre-allocated count array to reuse
+	 * @param k K-mer length
+	 * @param alen Length of count array
+	 * @return Sorted k-mer count array
+	 */
 	public static int[] toKmerCounts(final byte[] bases, int[] array_, final int k, final int alen){
 		if(bases==null || bases.length<k){return null;}
 		final int[] array=(array_!=null && array_.length==alen ? array_ : new int[alen]);

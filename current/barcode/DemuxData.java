@@ -173,6 +173,17 @@ public class DemuxData {
 		return chunks;
 	}
 	
+	/**
+	 * Appends a single barcode entry to the output buffer using configured encoding.
+	 * Applies delta compression if enabled and conditions are met.
+	 *
+	 * @param bc Barcode to append
+	 * @param bb ByteBuilder to append to
+	 * @param prevCount Previous barcode count for delta compression
+	 * @param prevName Previous barcode name for comparison
+	 * @param buffer Temporary buffer for encoding operations
+	 * @return The updated ByteBuilder
+	 */
 	private ByteBuilder appendBarcode(Barcode bc, ByteBuilder bb, long prevCount, 
 			String prevName, final byte[] buffer) {
 		final long count=bc.count();
@@ -235,6 +246,14 @@ public class DemuxData {
 		return code;
 	}
 	
+	/**
+	 * Decodes a long value back into DNA sequence using base-5 decoding.
+	 * Reconstructs the original sequence by reversing the encoding process.
+	 *
+	 * @param code0 Encoded sequence value
+	 * @param bb ByteBuilder to append decoded sequence to
+	 * @param len Expected length of decoded sequence
+	 */
 	public static final void decodeACGTN(final long code0, final ByteBuilder bb, final int len) {
 		final byte[] table=numberToBaseACGNT;
 		long code=code0;

@@ -573,6 +573,15 @@ public class EntropyTracker {
 		return e;
 	}
 	
+	/**
+	 * Counts k-mers in a sequence and populates the counts array.
+	 * Handles ambiguous bases by resetting k-mer construction on encounment.
+	 *
+	 * @param bases Sequence to analyze
+	 * @param counts Output array to store k-mer counts (will be cleared first)
+	 * @param k K-mer length
+	 * @return Number of valid k-mers counted
+	 */
 	public static int countKmers(final byte[] bases, final int[] counts, int k){
 		Arrays.fill(counts, 0);
 		if(bases==null || bases.length<k){return 0;}

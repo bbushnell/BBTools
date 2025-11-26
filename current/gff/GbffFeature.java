@@ -18,6 +18,15 @@ import structures.ByteBuilder;
  */
 public class GbffFeature {
 
+	/**
+	 * Constructs a GenBank feature from raw annotation lines.
+	 * Parses coordinate information, feature type, and qualifiers from GenBank
+	 * feature format lines. Performs validation and error checking during parsing.
+	 *
+	 * @param lines0 Raw GenBank feature annotation lines
+	 * @param typeString Feature type identifier (e.g., "gene", "CDS", "rRNA")
+	 * @param accessionString Accession number for the sequence containing this feature
+	 */
 	public GbffFeature(final ArrayList<byte[]> lines0, final String typeString, final String accessionString){
 		accession=accessionString;
 		setType(typeString);
@@ -28,6 +37,12 @@ public class GbffFeature {
 		if(stop<start){error=true;}
 	}
 	
+	/**
+	 * Main parsing method that processes GenBank feature lines.
+	 * Fixes line formatting, extracts coordinates, and parses qualifiers
+	 * like product names and locus tags. Sets rRNA subtypes when applicable.
+	 * @param lines0 Raw GenBank feature annotation lines to parse
+	 */
 	private void parseSlow(final ArrayList<byte[]> lines0){
 		ArrayList<byte[]> lines=fixLines(lines0);
 		parseStartStop(lines.get(0));
@@ -115,6 +130,14 @@ public class GbffFeature {
 		type=x;
 	}
 	
+	/**
+	 * Parses coordinate information from GenBank location strings.
+	 * Handles complex location formats including complement notation for
+	 * reverse strand features and join operations for split features.
+	 * Extracts start and stop positions with proper error handling.
+	 *
+	 * @param line0 GenBank location line containing coordinate information
+	 */
 	void parseStartStop(final byte[] line0){
 		byte[] line=line0;
 		

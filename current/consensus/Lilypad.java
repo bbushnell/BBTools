@@ -677,6 +677,13 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 	}
 	
+	/**
+	 * Builds complete scaffold by traversing rightward from starting contig.
+	 * Adds gap sequences between contigs based on insert size statistics.
+	 * @param source0 Starting contig for rightward expansion
+	 * @param bb ByteBuilder for constructing scaffold sequence
+	 * @return Read object containing complete scaffold sequence
+	 */
 	Read expandRight(final Contig source0, ByteBuilder bb){
 		if(verbose){System.err.println("expandRight("+source0.name+")");}
 		bb.clear();

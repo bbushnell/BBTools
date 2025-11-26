@@ -453,6 +453,11 @@ public final class LongHashMap{
 		}
 	}
 	
+	/**
+	 * Rehashes a single cell to its proper position.
+	 * @param cell Cell index to rehash
+	 * @return True if cell was moved to a different position
+	 */
 	private boolean rehashCell(final int cell){
 		final long key=keys[cell];
 		final int value=values[cell];
@@ -484,6 +489,11 @@ public final class LongHashMap{
 		}
 	}
 	
+	/**
+	 * Finds the cell containing the specified key using linear probing.
+	 * @param key Key to search for
+	 * @return Cell index if found, -1 if not found
+	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -501,6 +511,12 @@ public final class LongHashMap{
 		return -1;
 	}
 	
+	/**
+	 * Finds the cell containing the key or the first empty cell encountered.
+	 * Used for insertion operations.
+	 * @param key Key to search for
+	 * @return Cell index containing key or first available empty cell
+	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -522,6 +538,12 @@ public final class LongHashMap{
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes hash table to accommodate at least the specified size.
+	 * Finds next prime number >= size2 for the new modulus.
+	 * Rehashes all existing entries into the new table.
+	 * @param size2 Minimum required capacity
+	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;

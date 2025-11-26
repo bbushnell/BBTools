@@ -228,16 +228,34 @@ public class Kmer implements Cloneable {
 		return true;
 	}
 	
+	/**
+	 * Adds a base to the right end of the k-mer in a rolling fashion.
+	 * Shifts existing bases left and drops the leftmost base.
+	 * @param b The base to add (A, C, G, T)
+	 * @return The base that was dropped from the left end
+	 */
 	public byte addRight(final byte b){
 		long x=AminoAcid.baseToNumber[b];
 		return AminoAcid.numberToBase[(int)addRightNumeric(x)];
 	}
 	
+	/**
+	 * Adds a base to the right end of the k-mer in a rolling fashion.
+	 * Character version of addRight for convenience.
+	 * @param b The base character to add (A, C, G, T)
+	 * @return The base that was dropped from the left end
+	 */
 	public byte addRight(final char b){
 		long x=AminoAcid.baseToNumber[b];
 		return AminoAcid.numberToBase[(int)addRightNumeric(x)];
 	}
 	
+	/**
+	 * Adds a base to the left end of the k-mer in a rolling fashion.
+	 * Shifts existing bases right and drops the rightmost base.
+	 * @param b The base to add (A, C, G, T)
+	 * @return The base that was dropped from the right end
+	 */
 	public byte addLeft(final byte b){
 		long x=AminoAcid.baseToNumber[b];
 		return AminoAcid.numberToBase[(int)addLeftNumeric(x)];

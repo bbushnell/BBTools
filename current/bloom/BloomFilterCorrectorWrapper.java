@@ -632,6 +632,14 @@ public class BloomFilterCorrectorWrapper {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs worker thread with I/O streams and thread identifier.
+		 *
+		 * @param cris_ Input stream for reading sequence data
+		 * @param ros_ Primary output stream for processed reads
+		 * @param rosb_ Secondary output stream for filtered reads
+		 * @param tid_ Thread identifier for debugging and coordination
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
 			cris=cris_;
 			ros=ros_;

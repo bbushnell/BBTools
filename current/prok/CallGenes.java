@@ -831,6 +831,20 @@ public class CallGenes extends ProkObject {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs ProcessThread with shared I/O streams and gene model.
+		 * Initializes GeneCaller with configured scoring parameters and creates
+		 * thread-local gene length histogram if enabled.
+		 *
+		 * @param cris_ Shared input stream for sequences
+		 * @param bsw_ Shared output writer for GFF annotations
+		 * @param rosAmino_ Output stream for amino acid sequences
+		 * @param ros16S_ Output stream for 16S rRNA sequences
+		 * @param ros18S_ Output stream for 18S rRNA sequences
+		 * @param pgm_ Gene model for predictions
+		 * @param minLen Minimum gene length threshold
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
 				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, 
 				GeneModel pgm_, final int minLen, final int tid_){
@@ -1074,6 +1088,15 @@ public class CallGenes extends ProkObject {
 		final int tid;
 	}
 	
+	/**
+	 * Extracts sequences of specified gene type from ORF list.
+	 * Processes both strands of the read, reverse complementing as needed.
+	 *
+	 * @param r Source read containing sequence data
+	 * @param list List of ORFs to search
+	 * @param type Gene type constant (r16S, r18S, tRNA, etc.)
+	 * @return List of Read objects containing extracted sequences of specified type
+	 */
 	public static ArrayList<Read> fetchType(final Read r, final ArrayList<Orf> list, int type){
 		if(list==null || list.isEmpty()){return null;}
 		ArrayList<Read> ret=new ArrayList<Read>(list.size());
@@ -1089,6 +1112,14 @@ public class CallGenes extends ProkObject {
 		return (ret.size()>0 ? ret : null);
 	}
 	
+	/**
+	 * Translates coding sequences (CDS) from ORF list to amino acids.
+	 * Processes both strands and creates Read objects with amino acid sequences.
+	 *
+	 * @param r Source read containing nucleotide sequence
+	 * @param list List of ORFs to translate
+	 * @return List of Read objects containing amino acid translations
+	 */
 	public static ArrayList<Read> translate(final Read r, final ArrayList<Orf> list){
 		if(list==null || list.isEmpty()){return null;}
 		ArrayList<Read> prots=new ArrayList<Read>(list.size());
@@ -1104,6 +1135,14 @@ public class CallGenes extends ProkObject {
 		return prots.isEmpty() ? null : prots;
 	}
 	
+	/**
+	 * Recodes CDS regions in sequence using canonical codons.
+	 * Replaces existing codons with canonical versions while preserving amino acids.
+	 *
+	 * @param r Read to recode in-place
+	 * @param list List of ORFs defining coding regions
+	 * @return Original read with recoded CDS regions
+	 */
 	public static Read recode(final Read r, final ArrayList<Orf> list){
 		if(list==null || list.isEmpty()){return r;}
 		for(int strand=0; strand<2; strand++){
@@ -1117,6 +1156,12 @@ public class CallGenes extends ProkObject {
 		return r;
 	}
 	
+	/**
+	 * Converts amino acid sequences back to nucleotide sequences using canonical codons.
+	 * Each amino acid is replaced with its corresponding canonical codon triplet.
+	 * @param prots List of protein (amino acid) sequences
+	 * @return List of nucleotide sequences using canonical codons
+	 */
 	public static ArrayList<Read> detranslate(final ArrayList<Read> prots){
 		if(prots==null || prots.isEmpty()){return null;}
 		ArrayList<Read> nucs=new ArrayList<Read>(prots.size());
@@ -1148,6 +1193,14 @@ public class CallGenes extends ProkObject {
 		return r;
 	}
 	
+	/**
+	 * Extracts nucleotide sequences for all CDS ORFs from both strands.
+	 * Creates Read objects containing the raw nucleotide sequences of coding regions.
+	 *
+	 * @param r Source read containing sequence data
+	 * @param list List of ORFs to extract
+	 * @return List of Read objects containing CDS nucleotide sequences
+	 */
 	public static ArrayList<Read> fetch(final Read r, final ArrayList<Orf> list){
 		if(list==null || list.isEmpty()){return null;}
 		ArrayList<Read> genes=new ArrayList<Read>(list.size());

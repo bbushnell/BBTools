@@ -295,6 +295,14 @@ public class MergeSorted {
 		}
 	}
 	
+	/**
+	 * Recursively merges input files when the number exceeds maxFiles limit.
+	 * Groups input files into batches, creates temporary sorted files, and repeats
+	 * until the number of files is manageable for final merge.
+	 *
+	 * @param inList List of input file paths to merge
+	 * @return List of temporary files containing merged data
+	 */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList){
 		assert(maxFiles>1);
 		ArrayList<String> currentList=inList;

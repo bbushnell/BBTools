@@ -107,6 +107,17 @@ public class GbkReadInputStream extends ReadInputStream {
 	
 
 	
+	/**
+	 * Parses GenBank format file and converts to Read objects.
+	 * Looks for ORIGIN sections and extracts sequence data, filtering out
+	 * non-letter characters and converting to uppercase.
+	 *
+	 * @param bf ByteFile to read from
+	 * @param maxReadsToReturn Maximum number of reads to return
+	 * @param numericID Starting numeric ID for reads
+	 * @param flag Read flags (e.g., amino acid mask)
+	 * @return ArrayList of Read objects parsed from GenBank format
+	 */
 	public static ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn, long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
 		

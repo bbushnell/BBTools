@@ -3351,6 +3351,12 @@ public final class Dedupe {
 			return inSet;
 		}
 		
+		/**
+		 * Searches for sequences contained within the given sequence.
+		 * Uses k-mer scanning and affix maps to identify potential containments.
+		 * @param u Sequence unit to search within
+		 * @return Number of k-mer hits found during search
+		 */
 		private int findContainments(final Unit u){
 			if(minLengthPercent<=0 && maxSubs<=0 && minIdentity>=100 && !u.valid()){return 0;}
 			final byte[] bases=u.bases();
@@ -3427,6 +3433,12 @@ public final class Dedupe {
 			return hits;
 		}
 		
+		/**
+		 * Finds overlapping sequences and builds overlap relationships.
+		 * Creates Overlap objects for sequences with sufficient similarity.
+		 * @param u Sequence unit to find overlaps for
+		 * @return Number of k-mer hits found during search
+		 */
 		private int findOverlaps(final Unit u){
 //			if(minLengthPercent<=0 && maxSubs<=0 && minIdentity>=100 && !u.valid()){return 0;}
 //			if(u.overlapList!=null){u.overlapList.clear();}
@@ -5763,6 +5775,12 @@ public final class Dedupe {
 		
 	}
 	
+	/**
+	 * Creates index mapping n-mers to canonical representatives.
+	 * Maps both sequence and reverse complement to same index value.
+	 * @param n Length of n-mers to index
+	 * @return Array mapping n-mer values to canonical indices
+	 */
 	public static final int[] makeNmerIndex(final int n){
 		final int max=(1<<(2*n))-1;
 		int[] array=new int[max+1];

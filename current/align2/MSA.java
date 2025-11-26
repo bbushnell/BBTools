@@ -244,6 +244,15 @@ public abstract class MSA {
 		return scoreNoIndels(read, cha.array, ss.start);
 	}
 
+	/**
+	 * Chromosome-based ungapped alignment scoring.
+	 * Retrieves reference sequence from chromosome and performs ungapped scoring.
+	 *
+	 * @param read Query sequence to score
+	 * @param chrom Chromosome number for reference lookup
+	 * @param refStart Starting position on reference sequence
+	 * @return Alignment score for ungapped alignment
+	 */
 	public final int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart);
@@ -263,6 +272,16 @@ public abstract class MSA {
 		return scoreNoIndels(read, cha.array, baseScores, ss.start);
 	}
 
+	/**
+	 * Chromosome-based quality-aware ungapped scoring.
+	 * Combines chromosome lookup with quality-weighted ungapped alignment.
+	 *
+	 * @param read Query sequence to score
+	 * @param chrom Chromosome number for reference lookup
+	 * @param refStart Starting position on reference sequence
+	 * @param baseScores Quality scores for read bases
+	 * @return Quality-weighted alignment score for ungapped alignment
+	 */
 	public final int scoreNoIndels(byte[] read, final int chrom, final int refStart, byte[] baseScores){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, baseScores, refStart);
@@ -276,20 +295,91 @@ public abstract class MSA {
 	/** Calculates score based on an array from Index using a kfilter.  Slightly slower. */
 	public abstract int calcAffineScore(int[] locArray, byte[] baseScores, byte[] bases, int minContig);
 
+	/**
+	 * Abstract method for ungapped alignment scoring.
+	 * Implementation-specific ungapped alignment between read and reference.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param refStart Starting position in reference sequence
+	 * @return Ungapped alignment score
+	 */
 	public abstract int scoreNoIndels(byte[] read, byte[] ref, final int refStart);
+	/**
+	 * SiteScore-enhanced ungapped alignment scoring.
+	 * Default implementation throws RuntimeException, requiring subclass implementation.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param refStart Starting position in reference sequence
+	 * @param ss SiteScore object for enhanced scoring context
+	 * @return Ungapped alignment score
+	 * @throws RuntimeException If method not implemented in subclass
+	 */
 	public int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
 		throw new RuntimeException("Unimplemented method in class "+this.getClass());
 	}
 
+	/**
+	 * Generates match string for ungapped alignment.
+	 * Creates alignment representation without insertion or deletion operations.
+	 *
+	 * @param read Query sequence for alignment
+	 * @param ref Reference sequence for alignment
+	 * @param refStart Starting position in reference sequence
+	 * @return Match string representing ungapped alignment operations
+	 */
 	public abstract byte[] genMatchNoIndels(byte[] read, byte[] ref, final int refStart);
 
+	/**
+	 * Quality-aware abstract ungapped alignment scoring.
+	 * Implementation-specific quality-weighted ungapped alignment.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param baseScores Quality scores for read bases
+	 * @param refStart Starting position in reference sequence
+	 * @return Quality-weighted ungapped alignment score
+	 */
 	public abstract int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart);
+	/**
+	 * Quality-aware alignment with fillQ integration.
+	 * Deprecated method that performed quality-score-based alignment.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param refStartLoc Starting position in reference sequence
+	 * @param refEndLoc Ending position in reference sequence
+	 * @param baseScores Quality scores for read bases
+	 * @return Always returns null in current implementation
+	 */
 	public int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
 		throw new RuntimeException("Unimplemented method in class "+this.getClass());
 	}
 	
+	/**
+	 * Quality-aware ungapped scoring with simultaneous match string generation.
+	 * Combines scoring and match string creation for efficiency in quality-aware mode.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param baseScores Quality scores for read bases
+	 * @param refStart Starting position in reference sequence
+	 * @param matchReturn Array for returning generated match string
+	 * @return Quality-weighted ungapped alignment score
+	 */
 	public abstract int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn);
 	
+	/**
+	 * Ungapped scoring with simultaneous match string generation.
+	 * Efficient combined scoring and match string creation without quality information.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence for alignment
+	 * @param refStart Starting position in reference sequence
+	 * @param matchReturn Array for returning generated match string
+	 * @return Ungapped alignment score
+	 */
 	public abstract int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn);
 	
 	/** Assumes match string is in long format */

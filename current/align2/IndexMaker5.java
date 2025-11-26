@@ -23,6 +23,26 @@ import shared.Tools;
 public class IndexMaker5 {
 	
 	
+	/**
+	 * Creates k-mer indices for specified chromosome range using parallel processing.
+	 * Each chromosome range is processed by separate BlockMaker threads to generate
+	 * hash-based lookup structures for sequence alignment.
+	 *
+	 * @param genome Genome build identifier for data loading
+	 * @param minChrom Starting chromosome number (inclusive)
+	 * @param maxChrom Ending chromosome number (inclusive)
+	 * @param k K-mer length for indexing
+	 * @param CHROMBITS Number of bits allocated for chromosome encoding
+	 * @param MAX_ALLOWED_CHROM_INDEX Maximum allowed chromosome index value
+	 * @param CHROM_MASK_LOW Low bits mask for chromosome encoding
+	 * @param CHROM_MASK_HIGH High bits mask for chromosome encoding
+	 * @param SITE_MASK Mask for site position encoding
+	 * @param SHIFT_LENGTH Bit shift length for position encoding
+	 * @param WRITE Whether to write index to disk
+	 * @param DISK_INVALID Whether disk index is invalid and needs regeneration
+	 * @param index Existing index array to populate (created if null)
+	 * @return Array of Block objects containing the generated indices
+	 */
 	public static Block[] makeIndex(final int genome, int minChrom, int maxChrom, int k, int CHROMBITS,
 			int MAX_ALLOWED_CHROM_INDEX, int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH, boolean WRITE, boolean DISK_INVALID, Block[] index){
 		Timer t=new Timer();
@@ -365,6 +385,12 @@ public class IndexMaker5 {
 				//Data.sysout.println("Thread "+id+" finished.");
 			}
 
+			/**
+			 * Counts k-mers for a specific chromosome to determine array sizes.
+			 * Scans chromosome sequence data and increments size counters for valid
+			 * k-mers that match this thread's assigned base and pass filtering criteria.
+			 * @param chrom Chromosome number to process
+			 */
 			private void countSizes(final int chrom){
 
 				//			System.err.println("Thread "+id+" using chr"+chrom+" for countSizes");
@@ -405,6 +431,12 @@ public class IndexMaker5 {
 
 			}
 
+			/**
+			 * Fills index arrays with genomic positions for a specific chromosome.
+			 * Scans chromosome sequence and stores encoded (position, chromosome) pairs
+			 * in the appropriate k-mer index locations based on sequence content.
+			 * @param chrom Chromosome number to process
+			 */
 			private void fillArrays(final int chrom){
 
 				//			System.err.println("Thread "+id+" using chr"+chrom+" for fillArrays");

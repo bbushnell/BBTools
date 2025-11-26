@@ -369,6 +369,11 @@ public class KmerCountMulti {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread for k-mer counting.
+		 * @param cris_ Input stream for reading sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;

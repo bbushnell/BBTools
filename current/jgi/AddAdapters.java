@@ -401,6 +401,15 @@ public class AddAdapters {
 		}
 	}
 	
+	/**
+	 * Adds adapter sequence at specified location within a read.
+	 * Replaces read bases with adapter sequence, optionally adds sequencing
+	 * errors based on quality scores, and fills remaining positions with
+	 * random bases. Updates read identifier with original and remaining lengths.
+	 *
+	 * @param r The read to modify
+	 * @param loc Position in read where adapter begins (-1 for no adapter)
+	 */
 	private void addAdapter(Read r, final int loc){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;

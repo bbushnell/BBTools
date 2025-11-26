@@ -134,6 +134,17 @@ public class ParseDouble {
     }
     
     // Custom parseDouble implementation
+    /**
+     * Custom double parser optimized for simple decimal numbers without special values.
+     * Parses numeric strings directly from byte arrays avoiding string allocation.
+     * Handles negative numbers and decimal places but delegates to Java parser for
+     * scientific notation. Uses precomputed lookup table for decimal place conversion.
+     *
+     * @param array Byte array containing numeric string
+     * @param a0 Starting index in array
+     * @param b Ending index in array (exclusive)
+     * @return Parsed double value
+     */
     public static double parseDouble(final byte[] array, final int a0, final int b) {
         // Don't check for special values
         
@@ -175,6 +186,17 @@ public class ParseDouble {
     }
     
     // Custom parseDouble implementation
+    /**
+     * Enhanced double parser with special value recognition (NaN, Infinity).
+     * Similar to parseDouble() but includes fast detection of non-numeric special
+     * values using ASCII lookup table. Provides complete IEEE 754 compliance
+     * while maintaining performance advantages for normal numeric inputs.
+     *
+     * @param array Byte array containing numeric string
+     * @param a0 Starting index in array
+     * @param b Ending index in array (exclusive)
+     * @return Parsed double value including special values
+     */
     public static double parseDouble2(final byte[] array, final int a0, final int b) {
         // Check for special values
         if(b-a0>1 && b-a0<5) {

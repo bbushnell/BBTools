@@ -735,6 +735,11 @@ public class CountBarcodes2 {
 		return new long[] {processed, numAssignedToBarcode, numAssignedToValid, correct, incorrect};
 	}
 	
+	/**
+	 * Reads all sequences from a concurrent input stream and processes them
+	 * in batches. Handles read list management and stream coordination.
+	 * @param cris Concurrent read input stream to process
+	 */
 	void readFile(final ConcurrentReadInputStream cris) {
 		{
 			//Grab the first ListNum of reads

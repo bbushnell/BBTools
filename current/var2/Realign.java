@@ -342,6 +342,12 @@ public class Realign {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread.
+		 * @param cris_ Input stream for reading
+		 * @param ros_ Output stream for writing
+		 * @param tid_ Thread ID
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;

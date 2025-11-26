@@ -10,6 +10,22 @@ package ml;
  */
 public class JobResults implements Comparable<JobResults>{
 	
+	/**
+	 * Constructs a JobResults instance with comprehensive training metrics and validation.
+	 * Validates that error sums are non-negative unless epoch is -1 (poison instance).
+	 *
+	 * @param net_ Neural network reference for this job
+	 * @param epoch_ Training epoch number
+	 * @param numProcessed_ Number of samples processed in this job
+	 * @param tid_ Thread ID that executed this job
+	 * @param jid_ Job ID for ordering and identification
+	 * @param errorSum_ Sum of raw error values across all samples
+	 * @param weightedErrorSum_ Sum of weighted error values across all samples
+	 * @param tpSum_ True positive count from classification
+	 * @param tnSum_ True negative count from classification
+	 * @param fpSum_ False positive count from classification
+	 * @param fnSum_ False negative count from classification
+	 */
 	JobResults(final CellNet net_, final int epoch_, final int numProcessed_, int tid_, int jid_,
 			final double errorSum_, final double weightedErrorSum_,
 			final int tpSum_, final int tnSum_, final int fpSum_, final int fnSum_){
@@ -63,6 +79,10 @@ public class JobResults implements Comparable<JobResults>{
 	final double errorSum;
 	/** Sum of weighted error values across all samples processed in this job */
 	final double weightedErrorSum;
+	/** Total false negatives counted during this job. */
+	/** Total false positives counted during this job. */
+	/** Total true negatives counted during this job. */
+	/** Total true positives counted during this job. */
 	final int tpSum, tnSum, fpSum, fnSum;
 	
 	/** Sentinel instance used for thread termination in producer-consumer queues */

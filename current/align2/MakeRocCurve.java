@@ -212,6 +212,14 @@ public class MakeRocCurve {
 		}
 	}
 	
+	/**
+	 * Calculates alignment statistics for a single read and updates
+	 * the appropriate counters based on mapping quality and correctness.
+	 * Handles unmapped, ambiguous, and discarded reads appropriately.
+	 *
+	 * @param r The read to analyze
+	 * @param sl Corresponding SAM line with alignment details
+	 */
 	public static void calcStatistics1(final Read r, SamLine sl){
 
 		int q=r.mapScore;

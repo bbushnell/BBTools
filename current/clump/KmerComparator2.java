@@ -49,6 +49,15 @@ public abstract class KmerComparator2 implements Comparator<Read>{
 		return compareQuality(a, b);
 	}
 	
+	/**
+	 * Compares two byte arrays representing DNA sequences.
+	 * Handles null arrays and compares by length first, then byte-by-byte.
+	 * Longer sequences are considered "smaller" for sorting purposes.
+	 *
+	 * @param a First sequence array
+	 * @param b Second sequence array
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public static final int compareSequence(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}

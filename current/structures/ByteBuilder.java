@@ -498,6 +498,12 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
+	/**
+	 * Appends double with specified decimal places using fast formatting.
+	 * @param x0 Double value to append
+	 * @param decimals0 Number of decimal places
+	 * @return This ByteBuilder for chaining
+	 */
 	public ByteBuilder append(final double x0, final int decimals0){
 		return append(x0, decimals0, false);
 	}

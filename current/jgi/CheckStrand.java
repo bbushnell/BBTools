@@ -642,6 +642,11 @@ public class CheckStrand {
 		return 0.5-(dif*mult);
 	}
 	
+	/**
+	 * Returns the expected minor allele count for a given depth.
+	 * @param depth Number of observations
+	 * @return Expected count of minor allele observations
+	 */
 	public static final double expectedMinorAlleleCount(final long depth) {
 		if(depth<expectedMinorAlleleCount.length) {return depth>1 ? expectedMinorAlleleCount[(int)depth] : 0;}
 		return depth*expectedMinorAlleleFrequency(depth);

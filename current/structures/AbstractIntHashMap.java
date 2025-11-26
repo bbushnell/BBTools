@@ -401,6 +401,12 @@ public abstract class AbstractIntHashMap{
 		return numValues==numFound && numValues==size;
 	}
 	
+	/**
+	 * Finds the array index where the specified key is stored.
+	 * Implementation-specific method for locating keys in the underlying storage.
+	 * @param key The key to locate
+	 * @return Array index of the key, or negative value if not found
+	 */
 	abstract int findCell(final int key);
 	
 	/*--------------------------------------------------------------*/

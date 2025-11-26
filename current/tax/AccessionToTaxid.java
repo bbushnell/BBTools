@@ -464,6 +464,14 @@ public class AccessionToTaxid {
 		return number;
 	}
 	
+	/**
+	 * Computes hash value for accession bytes using base-37 encoding.
+	 * Optimized version that works directly on byte arrays.
+	 *
+	 * @param line Byte array containing accession
+	 * @param limit Maximum number of bytes to process
+	 * @return Hash value for the accession
+	 */
 	static long hash(final byte[] line, final int limit){
 		long number=0;
 		for(int i=0; i<limit; i++){
@@ -481,6 +489,14 @@ public class AccessionToTaxid {
 		return number;
 	}
 	
+	/**
+	 * Parses 3-column line format to extract taxonomic ID.
+	 * Expected format: accession[tab]accession[tab]taxid
+	 *
+	 * @param line Byte array containing the line to parse
+	 * @param delimiter Field separator character
+	 * @return Taxonomic ID from the third column
+	 */
 	public static int parseLineToTaxid(final byte[] line, final byte delimiter){
 		int a=0, b=0;
 		
@@ -507,6 +523,14 @@ public class AccessionToTaxid {
 		return ncbi;
 	}
 	
+	/**
+	 * Parses 2-column line format to extract taxonomic ID.
+	 * Expected format: accession[tab]taxid
+	 *
+	 * @param line Byte array containing the line to parse
+	 * @param delimiter Field separator character
+	 * @return Taxonomic ID from the second column
+	 */
 	public static int parseLineToTaxid_2col(final byte[] line, final byte delimiter){
 		int a=0, b=0;
 		
@@ -667,6 +691,15 @@ public class AccessionToTaxid {
 //		}
 		
 		//This code is no longer used and can be safely deleted.
+		/**
+		 * Parses accession mapping line and stores the mapping.
+		 * Deprecated version that creates string objects during parsing.
+		 *
+		 * @param line Byte array containing the line to parse
+		 * @param delimiter Field separator character
+		 * @return true if line was successfully parsed and stored
+		 * @deprecated Use parseLine2 for better performance
+		 */
 		@Deprecated
 		public boolean parseLine(final byte[] line, final byte delimiter){
 			int a=0, b=0;
@@ -744,6 +777,14 @@ public class AccessionToTaxid {
 			return true;
 		}
 		
+		/**
+		 * Parses accession mapping line and stores the mapping efficiently.
+		 * Optimized version that minimizes string creation and memory allocation.
+		 *
+		 * @param line Byte array containing the line to parse
+		 * @param delimiter Field separator character
+		 * @return true if line was successfully parsed and stored
+		 */
 		public boolean parseLine2(final byte[] line, final byte delimiter){
 			int a=0, b=0;
 			

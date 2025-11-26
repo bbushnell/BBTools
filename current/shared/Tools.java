@@ -479,6 +479,12 @@ public final class Tools {
 		}
 	}
 
+	/**
+	 * Checks if integer array is sorted in ascending order.
+	 * Returns true for null or single-element arrays.
+	 * @param array Integer array to check
+	 * @return true if array is sorted ascending, false otherwise
+	 */
 	public static boolean isSorted(final int[] array) {
 		if(array==null || array.length<2){return true;}
 		for(int i=1; i<array.length; i++){
@@ -1119,6 +1125,15 @@ public final class Tools {
 		return list;
 	}
 
+	/**
+	 * Breaks long reads into smaller fragments within size constraints.
+	 * Removes reads below minimum length and fragments reads above maximum length.
+	 *
+	 * @param list ArrayList of reads to process (modified in-place)
+	 * @param max Maximum read length (unlimited if <1)
+	 * @param min Minimum read length to retain
+	 * @param outstream Optional debug output stream for fragment coordinates
+	 */
 	public static void breakReads(ArrayList<Read> list, final int max, int min, final PrintStream outstream){
 		if(!containsReadsOutsideSizeRange(list, min, max)){return;}
 		assert(max>0 || min>0) : "min or max read length must be positive.";
@@ -1202,12 +1217,24 @@ public final class Tools {
 		return false;
 	}
 	
+	/**
+	 * Shifts array elements right by specified amount, losing rightmost elements.
+	 * Moves elements from left positions to right positions.
+	 * @param array Byte array to shift (modified in-place)
+	 * @param amt Number of positions to shift right
+	 */
 	public static void shiftRight(final byte[] array, final int amt){
 		for(int i=array.length-1-amt, j=array.length-1; i>=0; i--, j--){
 			array[j]=array[i];
 		}
 	}
 	
+	/**
+	 * Shifts array elements left by specified amount, losing leftmost elements.
+	 * Moves elements from right positions to left positions.
+	 * @param array Byte array to shift (modified in-place)
+	 * @param amt Number of positions to shift left
+	 */
 	public static void shiftLeft(final byte[] array, final int amt){
 		for(int i=amt, j=0; i<array.length; i++, j++){
 			array[j]=array[i];
@@ -1913,6 +1940,12 @@ public final class Tools {
 		return array;
 	}
 	
+	/**
+	 * Converts adapter specification to array of byte arrays.
+	 * @param name Adapter name, sequence, or filename
+	 * @param maxLength Maximum adapter length
+	 * @return Array of adapter sequences, or null if none found
+	 */
 	public static byte[][] toAdapters(String name, final int maxLength){
 		ArrayList<byte[]> list=toAdapterList(name, maxLength);
 		return list==null ? null : list.toArray(new byte[list.size()][]);
@@ -3526,6 +3559,8 @@ public final class Tools {
 		return x;
 	}
 	
+	/** Reverses byte array elements in-place.
+	 * @param array Byte array to reverse */
 	static void reverseInPlace(final byte[] array){
 		if(array==null){return;}
 		final int max=array.length/2, last=array.length-1;
@@ -3536,6 +3571,8 @@ public final class Tools {
 		}
 	}
 	
+	/** Reverses char array elements in-place.
+	 * @param array Char array to reverse */
 	public static void reverseInPlace(final char[] array){
 		if(array==null){return;}
 		final int max=array.length/2, last=array.length-1;
@@ -3546,31 +3583,47 @@ public final class Tools {
 		}
 	}
 	
+	/** Reverses int array elements in-place.
+	 * @param array Int array to reverse */
 	public static void reverseInPlace(final int[] array){
 		if(array==null){return;}
 		reverseInPlace(array, 0, array.length);
 	}
 	
+	/** Reverses long array elements in-place.
+	 * @param array Long array to reverse */
 	public static void reverseInPlace(final long[] array){
 		if(array==null){return;}
 		reverseInPlace(array, 0, array.length);
 	}
 	
+	/** Reverses float array elements in-place.
+	 * @param array Float array to reverse */
 	public static void reverseInPlace(final float[] array){
 		if(array==null){return;}
 		reverseInPlace(array, 0, array.length);
 	}
 	
+	/** Reverses atomic integer array elements in-place thread-safely.
+	 * @param array Atomic integer array to reverse */
 	public static void reverseInPlace(final AtomicIntegerArray array){
 		if(array==null){return;}
 		reverseInPlace(array, 0, array.length());
 	}
 	
+	/** Reverses generic array elements in-place.
+	 * @param array Generic array to reverse */
 	public static <X> void reverseInPlace(final X[] array){
 		if(array==null){return;}
 		reverseInPlace(array, 0, array.length);
 	}
 	
+	/**
+	 * Reverses subrange of generic array in-place.
+	 * @param array Generic array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static <X> void reverseInPlace(final X[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3580,6 +3633,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of byte array in-place.
+	 * @param array Byte array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final byte[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3589,6 +3648,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of int array in-place.
+	 * @param array Int array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final int[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3598,6 +3663,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of long array in-place.
+	 * @param array Long array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final long[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3607,6 +3678,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of float array in-place.
+	 * @param array Float array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final float[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3616,6 +3693,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of double array in-place.
+	 * @param array Double array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final double[] array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3625,6 +3708,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Reverses subrange of atomic integer array in-place thread-safely.
+	 * @param array Atomic integer array to modify
+	 * @param from Starting index (inclusive)
+	 * @param to Ending index (exclusive)
+	 */
 	public static void reverseInPlace(final AtomicIntegerArray array, final int from, final int to){
 		if(array==null){return;}
 		for(int i=from, j=to-1; i<j; i++, j--){
@@ -3634,6 +3723,11 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Creates reversed copy of byte array.
+	 * @param array Source byte array
+	 * @return New reversed byte array
+	 */
 	public static byte[] reverseAndCopy(final byte[] array){
 //		if(array==null){return null;}
 //		byte[] copy=Arrays.copyOf(array, array.length);
@@ -3642,10 +3736,20 @@ public final class Tools {
 		return reverseAndCopy(array, null);
 	}
 	
+	/**
+	 * Creates reversed copy of char array.
+	 * @param array Source char array
+	 * @return New reversed char array
+	 */
 	public static char[] reverseAndCopy(final char[] array){
 		return reverseAndCopy(array, null);
 	}
 	
+	/**
+	 * Creates reversed copy of int array.
+	 * @param array Source int array
+	 * @return New reversed int array
+	 */
 	public static int[] reverseAndCopy(final int[] array){
 //		if(array==null){return null;}
 //		int[] copy=Arrays.copyOf(array, array.length);
@@ -3665,6 +3769,12 @@ public final class Tools {
 		}
 	}
 	
+	/**
+	 * Creates reversed copy of byte array using provided output buffer.
+	 * @param array Source byte array
+	 * @param out Output buffer, created if null
+	 * @return Reversed byte array (same as out parameter)
+	 */
 	public static byte[] reverseAndCopy(final byte[] array, byte[] out){
 		if(array==null){
 			assert(out==null);
@@ -3676,6 +3786,12 @@ public final class Tools {
 		return out;
 	}
 	
+	/**
+	 * Creates reversed copy of char array using provided output buffer.
+	 * @param array Source char array
+	 * @param out Output buffer, created if null
+	 * @return Reversed char array (same as out parameter)
+	 */
 	public static char[] reverseAndCopy(final char[] array, char[] out){
 		if(array==null){
 			assert(out==null);
@@ -3687,6 +3803,12 @@ public final class Tools {
 		return out;
 	}
 	
+	/**
+	 * Creates reversed copy of int array using provided output buffer.
+	 * @param array Source int array
+	 * @param out Output buffer, created if null
+	 * @return Reversed int array (same as out parameter)
+	 */
 	public static int[] reverseAndCopy(final int[] array, int[] out){
 		if(array==null){
 			assert(out==null);
@@ -3769,6 +3891,14 @@ public final class Tools {
 		return maxLengthToKeep2;
 	}
 	
+	/**
+	 * Removes arrays with clustered values from 2D dataset.
+	 * Identifies clumpy patterns based on adjacent element distances.
+	 * @param data 2D int array to filter
+	 * @param maxDist Maximum distance between adjacent elements to consider clumped
+	 * @param minLength Minimum array length to consider for culling
+	 * @param fraction Minimum fraction of adjacent pairs within maxDist to cull
+	 */
 	public static void cullClumpyEntries(final int[][] data, final int maxDist, final int minLength, final float fraction){
 		
 		long total=0;
@@ -3795,6 +3925,15 @@ public final class Tools {
 		
 	}
 	
+	/**
+	 * Identifies indices of arrays with clustered values without modifying data.
+	 * Returns set of indices that would be culled by cullClumpyEntries.
+	 * @param data 2D int array to analyze
+	 * @param maxDist Maximum distance between adjacent elements to consider clumped
+	 * @param minLength Minimum array length to consider for banning
+	 * @param fraction Minimum fraction of adjacent pairs within maxDist to ban
+	 * @return Set of indices identifying clumpy entries
+	 */
 	public static HashSet<Integer> banClumpyEntries(final int[][] data, final int maxDist, final int minLength, final float fraction){
 		
 		HashSet<Integer> set=new HashSet<Integer>(128);
@@ -3826,6 +3965,13 @@ public final class Tools {
 		
 	}
 	
+	/**
+	 * Tests if sorted array has clustered values based on distance threshold.
+	 * @param array Sorted int array to test
+	 * @param maxDist Maximum distance between adjacent elements
+	 * @param fraction Minimum fraction of adjacent pairs within maxDist
+	 * @return True if array meets clumping criteria
+	 */
 	public static final boolean isClumpy(final int[] array, final int maxDist, final float fraction){
 		if(array==null){return false;}
 		int count=0;
@@ -4251,6 +4397,14 @@ public final class Tools {
 		return indexOfNth(array, (byte)b, n, 0);
 	}
 	
+	/**
+	 * Finds the first occurrence of a character in a string starting from a position.
+	 *
+	 * @param array String to search
+	 * @param b Character to find
+	 * @param start Starting index for search
+	 * @return Index of character, or -1 if not found
+	 */
 	public static final int indexOf(final String array, final char b, final int start){
 		int i=start;
 //		System.err.println("looking for '"+b+"' ("+(int)b+") in '"+array+"'");
@@ -4266,17 +4420,40 @@ public final class Tools {
 		return (i==array.length() ? -1 : i);
 	}
 
+	/**
+	 * Finds the first occurrence of a character in a byte array starting from a position
+	 */
 	public static final int indexOf(final byte[] array, final char b, final int start){return indexOf(array, (byte)b, start);}
+	/**
+	 * Finds the first occurrence of a byte in a byte array starting from a position.
+	 *
+	 * @param array Byte array to search
+	 * @param b Byte to find
+	 * @param start Starting index for search
+	 * @return Index of byte, or -1 if not found
+	 */
 	public static final int indexOf(final byte[] array, final byte b, final int start){
 		int i=start;
 		while(i<array.length && array[i]!=b){i++;}
 		return (i==array.length ? -1 : i);
 	}
 	
+	/**
+	 * Finds the nth occurrence of a character in a byte array starting from a position
+	 */
 	public static final int indexOfNth(final byte[] array, final char b, final int n, final int start){
 		return indexOfNth(array, (byte)b, n, start);
 	}
 	
+	/**
+	 * Finds the nth occurrence of a byte in a byte array starting from a position.
+	 *
+	 * @param array Byte array to search
+	 * @param b Byte to find
+	 * @param n Which occurrence to find (1-based)
+	 * @param start Starting index for search
+	 * @return Index of the nth occurrence, or -1 if not found
+	 */
 	public static final int indexOfNth(final byte[] array, final byte b, final int n, final int start){
 		int i=start, seen=0;
 		while(i<array.length && seen<n){
@@ -4286,6 +4463,14 @@ public final class Tools {
 		return (i==array.length ? -1 : i-1);
 	}
 	
+	/**
+	 * Finds the first occurrence of a string within a byte array.
+	 *
+	 * @param ref Byte array to search
+	 * @param query String to find
+	 * @param start Starting index for search
+	 * @return Index of string match, or -1 if not found
+	 */
 	public static final int indexOf(final byte[] ref, final String query, final int start){
 		int i=start;
 		final int lim=ref.length-query.length();
@@ -4296,6 +4481,16 @@ public final class Tools {
 		return -1;
 	}
 	
+	/**
+	 * Finds a string in a byte array that is preceded by a delimiter.
+	 * Checks for match at start position, then searches for delimiter+query.
+	 *
+	 * @param ref Byte array to search
+	 * @param query String to find
+	 * @param start Starting index for search
+	 * @param delimiter Delimiter that must precede the query
+	 * @return Index of string match (after delimiter), or -1 if not found
+	 */
 	public static final int indexOfDelimited(final byte[] ref, final String query, final int start, final byte delimiter){
 //		assert(false) : query+", "+start+", "+new String(ref);
 		final int lim=ref.length-query.length();

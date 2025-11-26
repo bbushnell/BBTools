@@ -454,6 +454,17 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Retrieves hit positions for k-mer keys in the specified chromosome.
+	 * Populates start and stop arrays with index boundaries for each key's hit list.
+	 *
+	 * @param keys Array of k-mer keys to search
+	 * @param chrom Chromosome number to search
+	 * @param maxLen Maximum allowed list length
+	 * @param starts Output array for start positions of hit lists
+	 * @param stops Output array for stop positions of hit lists
+	 * @return Number of keys with valid hits found
+	 */
 	private final int getHits(final int[] keys, final int chrom, final int maxLen, final int[] starts, final int[] stops){
 		int numHits=0;
 		final Block b=index[chrom];
@@ -477,6 +488,15 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Counts valid hits for k-mer keys within length constraints.
+	 * Optionally clears keys that exceed maximum length or have no hits.
+	 *
+	 * @param keys Array of k-mer keys to evaluate
+	 * @param maxLen Maximum allowed hit list length
+	 * @param clearBadKeys Whether to set invalid keys to -1
+	 * @return Number of keys with valid hits
+	 */
 	private final int countHits(final int[] keys, final int maxLen, boolean clearBadKeys){
 		int numHits=0;
 		for(int i=0; i<keys.length; i++){
@@ -1822,6 +1842,23 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Finds maximum quick score across all alignment sites in a chromosome block.
+	 * Used during pre-scanning to estimate alignment quality without full extension.
+	 * Can terminate early when perfect scores are found for efficiency.
+	 *
+	 * @param starts Start positions of k-mer hit lists
+	 * @param stops Stop positions of k-mer hit lists
+	 * @param offsets K-mer positions in read
+	 * @param keyScores K-mer alignment scores
+	 * @param baseChrom_ Base chromosome number
+	 * @param triples Working array for coordinate tracking
+	 * @param values Working array for site values
+	 * @param prevMaxHits Previous maximum hits found
+	 * @param earlyExit Whether to exit early on perfect scores
+	 * @param perfectOnly Whether to only consider perfect alignments
+	 * @return Array containing [maxScore, maxHits] found
+	 */
 	private final int[] findMaxQscore2(final int[] starts, final int[] stops, final int[] offsets, final int[] keyScores,
 			final int baseChrom_, final Quad[] triples, final int[] values, final int prevMaxHits,
 			boolean earlyExit, boolean perfectOnly){
@@ -2027,6 +2064,17 @@ public final class BBIndexAcc extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Calculates the maximum possible alignment score for a read.
+	 * Score depends on read length, base qualities, and scoring mode (affine or extended).
+	 *
+	 * @param offsets K-mer positions in the read
+	 * @param baseScores Base quality scores
+	 * @param keyScores K-mer alignment scores
+	 * @param readlen Length of the read
+	 * @param useQuality Whether to incorporate base quality into scoring
+	 * @return Maximum theoretical alignment score
+	 */
 	private final int quickScore(final int[] locs, final int[] keyScores, final int centerIndex, final int offsets[],
 			int[] sizes, final boolean penalizeIndels, final int numApproxHits, final int numHits){
 		
@@ -2095,6 +2143,22 @@ public final class BBIndexAcc extends AbstractIndex {
 	
 	
 	
+	/**
+	 * Performs detailed base-by-base alignment scoring with indel handling.
+	 * Extends alignment in both directions from center k-mer, handling mismatches
+	 * and indels to compute accurate alignment scores.
+	 *
+	 * @param bases Read sequence bases
+	 * @param baseScores Base quality scores
+	 * @param offsets K-mer positions in read
+	 * @param values Genomic locations of k-mer hits
+	 * @param chrom Chromosome number being aligned to
+	 * @param centerIndex Index of central k-mer for extension
+	 * @param locArray Working array for tracking alignment positions
+	 * @param numHits Total number of k-mer hits
+	 * @param numApproxHits Number of approximate hits in alignment region
+	 * @return Extended alignment score with base-level accuracy
+	 */
 	private final int extendScore(final byte[] bases, final byte[] baseScores, final int[] offsets, final int[] values,
 			final int chrom, final int centerIndex, final int[] locArray, final int numHits, final int numApproxHits){
 		callsToExtendScore++;

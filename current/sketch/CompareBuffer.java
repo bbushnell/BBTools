@@ -23,6 +23,27 @@ public class CompareBuffer extends SketchObject{
 		}
 	}
 	
+	/**
+	 * Sets all comparison metrics in a single operation.
+	 * @param hits_ Total k-mer hits between query and reference
+	 * @param multiHits_ Number of k-mers with multiple hits
+	 * @param unique2_ Number of unique k-mers with depth 2
+	 * @param unique3_ Number of unique k-mers with depth 3
+	 * @param noHits_ Number of query k-mers with no reference hits
+	 * @param contamHits_ Number of contamination hits detected
+	 * @param contam2Hits_ Number of contamination hits with depth 2
+	 * @param multiContamHits_ Number of multi-occurrence contamination hits
+	 * @param queryDivisor_ Total number of valid k-mers in query
+	 * @param refDivisor_ Total number of valid k-mers in reference
+	 * @param querySize_ Size of query sketch
+	 * @param refSize_ Size of reference sketch
+	 * @param depthSum_ Sum of hit depths for coverage calculation
+	 * @param depthSum2_ Sum of squared hit depths
+	 * @param refHitSum_ Sum of reference hits for average calculation
+	 * @param k1hits_ Number of hits for first k-mer size
+	 * @param k1seenQ_ Number of k-mers seen in query for first k-size
+	 * @param k1seenR_ Number of k-mers seen in reference for first k-size
+	 */
 	void set(final int hits_, final int multiHits_, final int unique2_, final int unique3_, final int noHits_,
 			final int contamHits_, final int contam2Hits_, final int multiContamHits_,
 			final int queryDivisor_, final int refDivisor_, final int querySize_, final int refSize_, 

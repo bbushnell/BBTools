@@ -72,6 +72,12 @@ public final class TranslateColorspaceRead {
 		return sb.toString();
 	}
 	
+	/**
+	 * Realigns a colorspace read using the reference sequence reversal approach.
+	 * @param r Read to realign
+	 * @param padding Padding bases to add around alignment region
+	 * @param recur Whether to recursively realign if alignment quality is poor
+	 */
 	public void realignByReversingRef(final Read r, final int padding, final boolean recur){
 		realignByReversingRef(r, msaBS, padding, recur);
 	}
@@ -789,6 +795,16 @@ public final class TranslateColorspaceRead {
 		return fixed;
 	}
 	
+	/**
+	 * Fixes deletion artifacts at specified position in colorspace alignment.
+	 * Reconstructs reference sequences by removing deleted bases and updating
+	 * colorspace coordinates accordingly.
+	 *
+	 * @param crbmq Alignment data arrays
+	 * @param loc Position of deletion to fix
+	 * @param r Read being processed
+	 * @return true if deletion was successfully fixed, false otherwise
+	 */
 	private static boolean fixDeletion(final byte[][] crbmq, int loc, Read r){
 		
 		byte[] colors=crbmq[0];
@@ -855,6 +871,15 @@ public final class TranslateColorspaceRead {
 		return true;
 	}
 	
+	/**
+	 * Fixes insertion artifacts at specified position in colorspace alignment.
+	 * Reconstructs basespace coordinates by adding inserted bases and maintaining
+	 * proper colorspace-to-basespace conversion relationships.
+	 *
+	 * @param crbmq Alignment data arrays
+	 * @param loc Position of insertion to fix
+	 * @return true if insertion was successfully fixed, false otherwise
+	 */
 	private static boolean fixInsertion(final byte[][] crbmq, int loc){
 		
 		byte[] colors=crbmq[0];
@@ -1001,6 +1026,15 @@ public final class TranslateColorspaceRead {
 //	}
 	
 	
+	/**
+	 * Fixes no-call bases inline within the alignment using match string information.
+	 * Handles both read and reference no-calls by propagating valid bases from
+	 * corresponding positions.
+	 *
+	 * @param crbmq Alignment data arrays
+	 * @param read Read being processed
+	 * @return Number of no-calls fixed, or -1 if correction failed
+	 */
 	private static int fixNocallsInline(final byte[][] crbmq, Read read){
 		byte[] colors=crbmq[0];
 		byte[] colorRef=crbmq[1];
@@ -1136,6 +1170,12 @@ public final class TranslateColorspaceRead {
 	}
 	
 	
+	/**
+	 * Fixes no-call bases in alignment data before indel processing.
+	 * Uses forward propagation to fill in missing colorspace and reference bases.
+	 * @param crbmq Alignment data arrays
+	 * @return Number of no-calls fixed
+	 */
 	private static int fixNocalls(final byte[][] crbmq){
 		byte[] colors=crbmq[0];
 		byte[] colorRef=crbmq[1];
@@ -1206,6 +1246,12 @@ public final class TranslateColorspaceRead {
 	}
 	
 	
+	/**
+	 * Fixes no-call bases using backward propagation from 3' end.
+	 * Complements forward no-call fixing by processing alignment from the end.
+	 * @param crbmq Alignment data arrays
+	 * @return Number of no-calls fixed
+	 */
 	private static int fixNocallsBackward(final byte[][] crbmq){
 		byte[] colors=crbmq[0];
 		byte[] colorRef=crbmq[1];
@@ -1281,6 +1327,11 @@ public final class TranslateColorspaceRead {
 		return fixedRef+fixedCall;
 	}
 	
+	/**
+	 * Determines if match string represents a perfect alignment.
+	 * @param match Match string to evaluate
+	 * @return true if all positions are exact matches ('m'), false otherwise
+	 */
 	public static boolean perfectMatch(final byte[] match){
 		if(match==null){return false;}
 		for(int i=0; i<match.length; i++){
@@ -1290,6 +1341,11 @@ public final class TranslateColorspaceRead {
 		return true;
 	}
 
+	/**
+	 * Checks if match string contains any insertion or deletion operations.
+	 * @param match Match string to examine
+	 * @return true if indels ('I', 'D', 'X', 'Y') are present, false otherwise
+	 */
 	private static boolean containsIndels(final byte[] match){
 		for(int i=0; i<match.length; i++){
 			byte b=match[i];
@@ -1298,6 +1354,11 @@ public final class TranslateColorspaceRead {
 		return false;
 	}
 	
+	/**
+	 * Checks if match string contains no-call or ambiguous positions.
+	 * @param match Match string to examine
+	 * @return true if no-calls ('N', 'X', 'Y') are present, false otherwise
+	 */
 	private static boolean containsNocalls(final byte[] match){
 		for(int i=0; i<match.length; i++){
 			byte b=match[i];
@@ -1306,6 +1367,11 @@ public final class TranslateColorspaceRead {
 		return false;
 	}
 	
+	/**
+	 * Checks if match string contains XY alignment artifacts.
+	 * @param match Match string to examine
+	 * @return true if XY artifacts are present, false otherwise
+	 */
 	private static boolean containsXY(final byte[] match){
 		for(int i=0; i<match.length; i++){
 			byte b=match[i];
@@ -1507,6 +1573,14 @@ public final class TranslateColorspaceRead {
 //	}
 	
 	
+	/**
+	 * Corrects substitution mismatches in colorspace alignment by propagating
+	 * base information from high-quality adjacent positions.
+	 *
+	 * @param crbmq Alignment data arrays
+	 * @return 1 if substitutions were fixed, 0 if no substitutions found,
+	 * -1 if correction was not possible
+	 */
 	private static int fixSubs(final byte[][] crbmq){
 		
 		byte[] colors=crbmq[0];

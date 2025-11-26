@@ -1696,6 +1696,8 @@ public class Seal {
 	 */
 	private class LoadThread extends Thread{
 		
+		/** Constructor for LoadThread.
+		 * @param tnum_ Thread number for determining which kmers to process */
 		public LoadThread(final int tnum_){
 			tnum=tnum_;
 			map=keySets[tnum];

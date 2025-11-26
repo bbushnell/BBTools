@@ -178,6 +178,15 @@ public class RenameIMG {
 		}
 	}
 	
+	/**
+	 * Processes individual FASTA file and renames sequence headers with taxonomy information.
+	 * Reads each line from input file, identifies sequence headers (starting with '>'),
+	 * and prepends "tid|{taxid}|img|{imgid}" prefix to create taxonomically annotated headers.
+	 *
+	 * @param ffin Input file format specification
+	 * @param bsw Output stream writer for processed sequences
+	 * @param img IMG identifier for the current genome
+	 */
 	void process_inner(final FileFormat ffin, final ByteStreamWriter bsw, final long img){
 		
 		filesProcessed++;

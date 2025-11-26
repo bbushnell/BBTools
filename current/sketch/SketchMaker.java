@@ -913,6 +913,11 @@ public class SketchMaker extends SketchObject {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread.
+		 * @param cris_ Concurrent read input stream
+		 * @param tid_ Thread ID for identification
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			threadID=tid_;
@@ -1170,6 +1175,15 @@ public class SketchMaker extends SketchObject {
 			writeHeap(smm.heap);
 		}
 		
+		/**
+		 * Manages sketch heaps for per-taxa or per-IMG modes.
+		 * Handles heap storage, sizing, and completion detection based on
+		 * expected genome sizes and taxonomic information.
+		 *
+		 * @param taxID Taxonomic ID for the current sequence
+		 * @param imgID IMG ID for the current sequence
+		 * @param unitSizeBases Expected total bases for this taxonomic unit
+		 */
 		private void manageHeap_perTaxa(final int taxID, final long imgID, final long unitSizeBases){
 			//assert(!localMap.containsKey((long)taxID) || localMap.get((long)taxID)==smm.heap) : taxID; //123
 			assert(mode==PER_TAXA || mode==PER_IMG);

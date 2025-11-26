@@ -64,6 +64,8 @@ public class Rollback {
 	final String id0;
 	/** Saved read flags */
 	final int flags0;
+	/** Saved quality scores cloned from the original read (may be null). */
+	/** Saved sequence bases cloned from the original read. */
 	final byte[] bases0, quals0;
 	/** Saved count data (may be null) */
 	public final IntList counts0;
