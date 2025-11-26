@@ -18,6 +18,15 @@ public class PalindromeTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds a palindrome to the tracking statistics.
+	 * Records palindrome length, loop size, tail lengths, matches, mismatches,
+	 * and region length for histogram generation.
+	 *
+	 * @param p The palindrome to add to statistics
+	 * @param a0 Start position of the region of interest
+	 * @param b0 End position of the region of interest
+	 */
 	public void add(final Palindrome p, final int a0, final int b0) {
 		int tail1=p.a-a0, tail2=b0-p.a;
 		if(tail1>tail2) {

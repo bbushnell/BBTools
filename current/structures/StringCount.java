@@ -66,5 +66,8 @@ public class StringCount implements Comparable<StringCount>{
 	public final String name;
 	/** Length of the reference sequence in bases */
 	public int length;
+	/** Number of ambiguous reads that map to multiple locations. */
+	/** Number of bases aligned to this scaffold. */
+	/** Number of reads aligned to this scaffold. */
 	public long reads, bases, ambigReads;
 }

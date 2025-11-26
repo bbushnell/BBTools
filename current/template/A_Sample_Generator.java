@@ -386,6 +386,14 @@ public class A_Sample_Generator {
 	private static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread with required parameters.
+		 *
+		 * @param ros_ Output stream for generated reads
+		 * @param tid_ Thread ID for identification
+		 * @param maxReads_ Maximum number of reads to generate across all threads
+		 * @param nextReadID_ Atomic counter for assigning sequential read IDs
+		 */
 		ProcessThread(final ConcurrentReadOutputStream ros_, final int tid_, 
 				final long maxReads_, final AtomicLong nextReadID_){
 			ros=ros_;

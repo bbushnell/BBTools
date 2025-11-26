@@ -272,6 +272,15 @@ public class FindAncestor {
 		}
 	}
 	
+	/**
+	 * Extracts GI numbers from input line after the sequence name field.
+	 * Parses comma-delimited GI numbers, handling optional "gi|" prefixes.
+	 *
+	 * @param line Input line bytes containing sequence name and GI numbers
+	 * @param list IntList to populate with extracted GI numbers
+	 * @param delimiter Character separating GI numbers (typically comma)
+	 * @return Number of GI numbers successfully extracted
+	 */
 	private int getGiNumbers(final byte[] line, final IntList list, final char delimiter){
 		int i=0;
 		
@@ -297,6 +306,14 @@ public class FindAncestor {
 		return list.size;
 	}
 	
+	/**
+	 * Converts GI numbers to NCBI taxonomy IDs using loaded GI table.
+	 * Filters out invalid GI numbers that cannot be mapped to taxonomy IDs.
+	 *
+	 * @param giList List of GI numbers to convert
+	 * @param ncbiList List to populate with valid NCBI taxonomy IDs
+	 * @return Number of valid taxonomy IDs obtained
+	 */
 	private static int getTaxidNumbers(final IntList giList, final IntList ncbiList){
 		final int size=giList.size;
 		for(int i=0; i<size; i++){

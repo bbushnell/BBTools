@@ -345,6 +345,11 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread for handling sequence alignment and filtering.
+		 * @param cris_ Input stream to read sequences from
+		 * @param tid_ Thread identifier for this worker
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;

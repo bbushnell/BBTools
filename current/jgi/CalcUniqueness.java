@@ -234,6 +234,12 @@ public class CalcUniqueness {
 			perfectProb+=p;
 		}
 		
+		/**
+		 * Tracks k-mer occurrence in the appropriate hash table.
+		 * Increments hit count if k-mer exists, miss count if new.
+		 * Uses bit masking to identify which counter categories have seen this k-mer.
+		 * @param kmer The k-mer value to track (negative values are ignored)
+		 */
 		void increment(final long kmer){
 			if(kmer<0){return;}
 			AbstractKmerTable table=keySets[(int)(kmer%WAYS)];

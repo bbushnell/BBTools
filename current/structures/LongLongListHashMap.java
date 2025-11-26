@@ -384,6 +384,11 @@ public final class LongLongListHashMap{
 		}
 	}
 	
+	/**
+	 * Moves a key-value pair from source cell to its proper position.
+	 * @param sourceCell Cell containing the entry to rehash
+	 * @return true if the entry was moved, false if already in correct position
+	 */
 	private boolean rehashCell(final int sourceCell){
 		final long key=keys[sourceCell];
 		final LongList value=values[sourceCell];
@@ -414,6 +419,12 @@ public final class LongLongListHashMap{
 		}
 	}
 	
+	/**
+	 * Finds the cell containing the specified key.
+	 * Uses linear probing starting from the hash position.
+	 * @param key Key to search for
+	 * @return Cell index if found, -1 if not present
+	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -431,6 +442,12 @@ public final class LongLongListHashMap{
 		return -1;
 	}
 	
+	/**
+	 * Finds the cell for the key, or the first empty cell if key not present.
+	 * Used for insertion operations.
+	 * @param key Key to search for
+	 * @return Cell index containing the key or first available empty cell
+	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -452,6 +469,11 @@ public final class LongLongListHashMap{
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to accommodate the specified size.
+	 * Chooses a prime number for the modulus to improve distribution.
+	 * @param size2 Target size for the new hash table
+	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;

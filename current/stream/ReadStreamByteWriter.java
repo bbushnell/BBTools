@@ -98,6 +98,15 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 		}
 	}
 
+	/**
+	 * Processes writing jobs from the queue until a poison job is received.
+	 * Routes jobs to appropriate format-specific writers based on output flags.
+	 * Handles both regular and closing jobs with proper stream management.
+	 *
+	 * @param bb ByteBuilder for sequence data
+	 * @param bbq ByteBuilder for quality data (may be null)
+	 * @throws IOException if job processing fails
+	 */
 	private void processJobs(final ByteBuilder bb, final ByteBuilder bbq) throws IOException{
 		
 		Job job=null;
@@ -188,6 +197,15 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes quality scores in FASTA-like format to the quality output stream.
+	 * Handles both read1/read2 selection and interleaved output modes.
+	 * Uses 32KB buffer chunks for efficient writing.
+	 *
+	 * @param job Job containing reads to process
+	 * @param bbq ByteBuilder for quality data output
+	 * @throws IOException if quality writing fails
+	 */
 	private void writeQuality(final Job job, final ByteBuilder bbq) throws IOException{
 		bbq.setLength(0);
 		if(read1){

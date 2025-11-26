@@ -318,6 +318,14 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a worker thread for alignment processing.
+		 *
+		 * @param reads_ List of sequences to align
+		 * @param results_ Shared matrix for storing alignment results
+		 * @param atom_ Atomic counter for claiming work units
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ArrayList<Read> reads_, float[][] results_, final AtomicInteger atom_, final int tid_){
 			reads=reads_;
 			results=results_;
@@ -348,6 +356,14 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 			
 		}
 		
+		/**
+		 * Processes a single query sequence against all preceding sequences.
+		 * Uses SketchObject.align() to compute pairwise sequence identity and
+		 * stores results in the shared matrix. Only aligns against earlier
+		 * sequences to avoid redundant computation.
+		 *
+		 * @param qnum Index of the query sequence to process
+		 */
 		void processQuery(final int qnum){
 			final Read query=reads.get(qnum);
 			final float[] scores=new float[reads.size()];

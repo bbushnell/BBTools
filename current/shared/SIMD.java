@@ -386,6 +386,14 @@ final class SIMD{
 		}
 	}
 
+	/**
+	 * Sparse vectorized scaled addition using indirect indexing.
+	 * Performs "a[i] += b[bSet[i]] * mult" with SIMD operations.
+	 * @param a Destination array to be modified
+	 * @param b Source array accessed via indices
+	 * @param bSet Index array mapping to b elements
+	 * @param mult Scalar multiplier for indexed b elements
+	 */
 	static final void addProductSparse(final float[] a, final float[] b, final int[] bSet,
 		final float mult){
 		// final int width=SPECIES.length();
@@ -406,6 +414,12 @@ final class SIMD{
 	}
 
 	// a is dest
+	/**
+	 * Vectorized array copy operation from source to destination.
+	 * Copies min(a.length, b.length) elements using SIMD instructions.
+	 * @param a Destination array
+	 * @param b Source array to copy from
+	 */
 	static final void copy(final float[] a, final float[] b){
 		final int length=Tools.min(a.length, b.length);
 		// final int width=SPECIES.length();

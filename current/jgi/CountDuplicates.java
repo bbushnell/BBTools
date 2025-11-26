@@ -494,6 +494,14 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 	class ProcessThread extends Thread {
 
 		//Constructor
+		/**
+		 * Constructs ProcessThread for parallel duplicate detection.
+		 *
+		 * @param cris_ Shared input stream for reading sequence data
+		 * @param ros_ Output stream for non-duplicate sequences
+		 * @param rosd_ Output stream for duplicate sequences
+		 * @param tid_ Thread identifier for this worker
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, 
 				final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosd_, final int tid_){
 			cris=cris_;
@@ -634,6 +642,15 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			}
 		}
 		
+		/**
+		 * Computes composite hash for a read pair based on enabled hash components.
+		 * Combines base sequence, name, and quality hashes using XOR operations.
+		 * Applies sampling filter if sample rate is less than 1.0.
+		 *
+		 * @param r1 Primary read in the pair
+		 * @param r2 Mate read, or null for single-end
+		 * @return Combined hash value, or negative constant if filtered
+		 */
 		long hashRead(final Read r1, final Read r2){
 			long code=(hashBases ? hashBases(r1, r2) : 0);
 			code^=(hashNames ? hashNames(r1, r2) : 0);
@@ -642,17 +659,41 @@ public class CountDuplicates implements Accumulator<CountDuplicates.ProcessThrea
 			return code&Long.MAX_VALUE;
 		}
 		
+		/**
+		 * Computes hash based on DNA base sequences of read pair.
+		 * Uses XOR with rotation to combine forward and reverse read hashes.
+		 *
+		 * @param r1 Primary read containing base sequence
+		 * @param r2 Mate read, or null for single-end
+		 * @return Hash value derived from base sequences
+		 */
 		private long hashBases(final Read r1, final Read r2){
 			long code=hash(r1.bases, 0);
 			if(r2!=null){code=code^Long.rotateRight(hash(r2.bases, 1), 3);}
 			return code;
 		}
 		
+		/**
+		 * Computes hash based on read identifier/name.
+		 * Uses only the primary read's ID for the hash calculation.
+		 *
+		 * @param r1 Primary read containing identifier
+		 * @param r2 Mate read (not used in name hashing)
+		 * @return Hash value derived from read name
+		 */
 		private long hashNames(final Read r1, final Read r2){
 			long code=hash(r1.id.getBytes(), 7);
 			return code;
 		}
 		
+		/**
+		 * Computes hash based on quality scores of read pair.
+		 * Uses XOR with rotation to combine forward and reverse quality hashes.
+		 *
+		 * @param r1 Primary read containing quality scores
+		 * @param r2 Mate read, or null for single-end
+		 * @return Hash value derived from quality scores
+		 */
 		private long hashQualities(final Read r1, final Read r2){
 			long code=hash(r1.quality, 0);
 			if(r2!=null){code=code^Long.rotateRight(hash(r2.quality, 1), 3);}

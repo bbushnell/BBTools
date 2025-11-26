@@ -49,6 +49,8 @@ class KeyValue implements Comparable<KeyValue> {
 		return key-o.key;
 	}
 	
+	/** Value component used for primary descending sorting. */
+	/** Key component used for secondary ascending sorting. */
 	int key, value;
 	
 }

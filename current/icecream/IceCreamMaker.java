@@ -628,6 +628,13 @@ public class IceCreamMaker {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker.
+		 * @param ros_ Output stream for generated reads
+		 * @param tid_ Thread ID
+		 * @param nextZmwID_ Atomic counter for ZMW IDs
+		 * @param seed Random seed for this thread
+		 */
 		ProcessThread(final ConcurrentReadOutputStream ros_, final int tid_, 
 				final AtomicLong nextZmwID_, final long seed){
 			ros=ros_;
@@ -793,6 +800,14 @@ public class IceCreamMaker {
 			return reads;
 		}
 		
+		/**
+		 * Simulate base calling for all passes through a DNA fragment, alternating
+		 * strand direction for each pass.
+		 * @param movieLength Total sequencing movie time
+		 * @param errorRate Error rate for this ZMW
+		 * @param zmw ZMW identifier
+		 * @return List of ReadBuilder objects for each pass
+		 */
 		private ArrayList<ReadBuilder> baseCallAllPasses(final int movieLength, final float errorRate, long zmw){
 			byte[] frag=null;
 			

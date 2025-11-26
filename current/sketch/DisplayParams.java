@@ -1307,6 +1307,12 @@ public class DisplayParams implements Cloneable {
 		return bb;
 	}
 	
+	/**
+	 * Maps a taxonomic ID to a color-determining ancestor ID.
+	 * Walks up taxonomy tree to find appropriate level for coloring.
+	 * @param taxID Input taxonomic ID
+	 * @return Ancestor taxonomic ID for color determination, or 0 if no color
+	 */
 	int toColorTid(final int taxID){
 		if(!printColors || SketchObject.taxtree==null || taxID<=0 || taxID>=SketchObject.minFakeID){return 0;}
 		TaxNode tn=SketchObject.taxtree.getNode(taxID);
@@ -1317,6 +1323,12 @@ public class DisplayParams implements Cloneable {
 		return tn==null || tn.levelExtended>=TaxTree.LIFE_E || (tn.levelExtended>colorLevel && tn.levelExtended>TaxTree.PHYLUM_E) ? 0 : tn.id;
 	}
 	
+	/**
+	 * Converts taxonomic ID to ANSI color code for terminal display.
+	 * Uses taxonomic hierarchy to assign consistent colors by family/phylum.
+	 * @param taxID Taxonomic identifier
+	 * @return ANSI color code string, or null if coloring disabled
+	 */
 	String toColor(final int taxID){
 		if(!printColors || SketchObject.taxtree==null || taxID<=0 || taxID>=SketchObject.minFakeID){return null;}
 		TaxNode tn=SketchObject.taxtree.getNode(taxID);

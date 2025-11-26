@@ -325,6 +325,12 @@ public class CalcTrueQuality {
 		}
 	}
 	
+	/**
+	 * Processes all input files for a specific calibration pass.
+	 * Initializes matrices from previous pass if needed, processes each input file
+	 * with multi-threading, and writes resulting matrices to disk.
+	 * @param pass Zero-based pass number (0 or 1)
+	 */
 	public void process(final int pass){
 		if(pass>0){
 			initializeMatrices(pass-1);
@@ -839,6 +845,16 @@ public class CalcTrueQuality {
 //		assert(false);
 	}
 	
+	/**
+	 * Recalibrates quality scores for sequence bases.
+	 *
+	 * @param bases DNA sequence bases
+	 * @param quals Original quality scores
+	 * @param pairnum Read pair number (1 or 2)
+	 * @param tile Flowcell tile number
+	 * @param pass Calibration pass number
+	 * @return Recalibrated quality scores
+	 */
 	public static final byte[] recalibrate(final byte[] bases, final byte[] quals, final int pairnum, 
 			int tile, int pass){
 		return cmatrices[pass].recalibrate(bases, quals, pairnum, tile);
@@ -881,6 +897,16 @@ public class CalcTrueQuality {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Modifies error probability using pseudocounts for smoothing.
+	 * Adds expected error counts based on Phred score to prevent overfitting.
+	 *
+	 * @param sum Total observation count
+	 * @param bad Error observation count
+	 * @param phred Original Phred quality score
+	 * @param cutoff Pseudocount for smoothing
+	 * @return Modified error probability
+	 */
 	private static double modify(final double sum, final double bad, final int phred, final long cutoff){
 		double expected=QualityTools.PROB_ERROR[phred];
 
@@ -897,6 +923,14 @@ public class CalcTrueQuality {
 //		return modified;
 	}
 	
+	/**
+	 * Converts 5D count matrices to error probability matrices.
+	 *
+	 * @param sumMatrix Matrix of total observation counts
+	 * @param badMatrix Matrix of error counts
+	 * @param cutoff Observation cutoff for smoothing
+	 * @return 5D array of error probabilities
+	 */
 	public static final float[][][][][] toProbs(long[][][][][] sumMatrix, long[][][][][] badMatrix, final long cutoff){
 		final int d0=sumMatrix.length, d1=sumMatrix[0].length, d2=sumMatrix[0][0].length, d3=sumMatrix[0][0][0].length, d4=sumMatrix[0][0][0][0].length;
 		float[][][][][] probs=new float[d0][d1][d2][d3][d4];
@@ -917,6 +951,14 @@ public class CalcTrueQuality {
 		return probs;
 	}
 	
+	/**
+	 * Converts 4D count matrices to error probability matrices.
+	 *
+	 * @param sumMatrix Matrix of total observation counts
+	 * @param badMatrix Matrix of error counts
+	 * @param cutoff Observation cutoff for smoothing
+	 * @return 4D array of error probabilities
+	 */
 	public static final float[][][][] toProbs(long[][][][] sumMatrix, long[][][][] badMatrix, final long cutoff){
 		final int d0=sumMatrix.length, d1=sumMatrix[0].length, d2=sumMatrix[0][0].length, d3=sumMatrix[0][0][0].length;
 		float[][][][] probs=new float[d0][d1][d2][d3];
@@ -935,6 +977,14 @@ public class CalcTrueQuality {
 		return probs;
 	}
 	
+	/**
+	 * Converts 3D count matrices to error probability matrices.
+	 *
+	 * @param sumMatrix Matrix of total observation counts
+	 * @param badMatrix Matrix of error counts
+	 * @param cutoff Observation cutoff for smoothing
+	 * @return 3D array of error probabilities
+	 */
 	public static final float[][][] toProbs(long[][][] sumMatrix, long[][][] badMatrix, final long cutoff){
 		final int d0=sumMatrix.length, d1=sumMatrix[0].length, d2=sumMatrix[0][0].length;
 		assert(d0==badMatrix.length) : d0+", "+d1+", "+d2+", "+badMatrix.length;
@@ -954,6 +1004,14 @@ public class CalcTrueQuality {
 		return probs;
 	}
 	
+	/**
+	 * Converts 2D count matrices to error probability matrices.
+	 *
+	 * @param sumMatrix Matrix of total observation counts
+	 * @param badMatrix Matrix of error counts
+	 * @param cutoff Observation cutoff for smoothing
+	 * @return 2D array of error probabilities
+	 */
 	public static final float[][] toProbs(long[][] sumMatrix, long[][] badMatrix, final long cutoff){
 		final int d0=sumMatrix.length, d1=sumMatrix[0].length;
 		float[][] probs=new float[d0][d1];
@@ -2195,6 +2253,20 @@ public class CalcTrueQuality {
 			return (float)Math.pow(product, 1.0/x);
 		}
 		
+		/**
+		 * Estimates error probability using weighted average of raw count matrices.
+		 * Sums all observation counts and error counts across matrices before
+		 * calculating error rate with pseudocount smoothing.
+		 *
+		 * @param quals Quality score array
+		 * @param bases Base sequence array
+		 * @param pos Position in sequence
+		 * @param pairnum Read pair number
+		 * @param tile Flowcell tile number
+		 * @param obs_cutoff Observation cutoff for pseudocounts
+		 * @param aq Average quality of read
+		 * @return Estimated error probability
+		 */
 		public final float estimateErrorProbWeighted(byte[] quals, byte[] bases, int pos, int pairnum, int tile,
 				float obs_cutoff, final int aq){
 			
@@ -2301,6 +2373,20 @@ public class CalcTrueQuality {
 			return (float)((bad+fakeBad)/(sum+fakeSum));
 		}
 		
+		/**
+		 * Estimates error probability using Square Mean Root method.
+		 * Applies square root transformation to counts before averaging,
+		 * then squares the result. Reduces influence of high-count observations.
+		 *
+		 * @param quals Quality score array
+		 * @param bases Base sequence array
+		 * @param pos Position in sequence
+		 * @param pairnum Read pair number
+		 * @param tile Flowcell tile number
+		 * @param obs_cutoff Observation cutoff for pseudocounts
+		 * @param aq Average quality of read
+		 * @return Estimated error probability
+		 */
 		public final float estimateErrorProbSMR(byte[] quals, byte[] bases, int pos, 
 				int pairnum, int tile, float obs_cutoff, final int aq){
 			

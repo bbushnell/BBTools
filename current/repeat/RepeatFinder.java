@@ -593,6 +593,12 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs worker thread with I/O streams and thread ID.
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for writing sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;
@@ -825,6 +831,12 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			return sum;
 		}
 		
+		/**
+		 * Identifies low-entropy regions in a read using sliding window analysis.
+		 * Uses entropy tracker to find regions with insufficient sequence complexity.
+		 * @param rd Read to analyze for low-entropy regions
+		 * @return Number of low-entropy bases found
+		 */
 		private int processReadEntropy(final Read rd){
 			final int window=et.windowBases();
 			if(rd==null || rd.length()<window){return 0;}
@@ -914,6 +926,15 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 //		
 
 
+		/**
+		 * Locates short tandem repeats of specific k-mer size in sequence.
+		 *
+		 * @param bases Sequence to search
+		 * @param ranges List to store found tandem repeat ranges
+		 * @param k K-mer size to search for
+		 * @param minlen Minimum length threshold
+		 * @param rid Read identifier for range objects
+		 */
 		private void findShortTandem(final byte[] bases, final ArrayList<CRange> ranges, final int k, final int minlen, final long rid){
 			final int lim=bases.length-k;
 			final int mask=(k>15 ? -1 : ~((-1)<<(2*k)));
@@ -936,6 +957,15 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			}
 		}
 
+		/**
+		 * Calculates length of tandem repeat starting at specified location.
+		 *
+		 * @param bases Sequence array
+		 * @param k K-mer size being tested
+		 * @param mask Bit mask for k-mer extraction
+		 * @param loc Starting position
+		 * @return Length of tandem repeat or 0 if none found
+		 */
 		private int shortTandemLength(final byte[] bases, final int k, final int mask, final int loc){
 
 			final int lim=bases.length;

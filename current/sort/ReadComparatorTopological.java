@@ -71,6 +71,15 @@ public class ReadComparatorTopological extends ReadComparator{
 		return 0;
 	}
 	
+	/**
+	 * Compares two byte arrays with special handling for 'N' characters.
+	 * 'N' characters are treated as greater than non-'N' characters.
+	 * Otherwise performs lexicographic comparison like compareVectors.
+	 *
+	 * @param a First byte array to compare
+	 * @param b Second byte array to compare
+	 * @return Negative if a < b, zero if equal up to minimum length, positive if a > b
+	 */
 	public int compareVectorsN(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}

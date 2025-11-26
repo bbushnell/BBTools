@@ -412,6 +412,15 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		return setOwner(kmer, newOwner, cell);
 	}
 	
+	/**
+	 * Sets thread ownership for k-mer at known cell position.
+	 * Uses compare-and-swap to atomically update ownership when new owner has higher ID.
+	 *
+	 * @param kmer K-mer to claim ownership of
+	 * @param newOwner Thread ID claiming ownership
+	 * @param cell Known cell position containing the k-mer
+	 * @return Current owner ID after operation
+	 */
 	public final int setOwner(final Kmer kmer, final int newOwner, final int cell){
 //		kmer.verify(true);
 		assert(matches(kmer.key(), cell)) : "cell="+cell+", key="+Arrays.toString(kmer.key())+", row="+Arrays.toString(cellToArray(cell))+"\n" +
@@ -435,6 +444,14 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		return clearOwner(kmer, owner, cell);
 	}
 	
+	/**
+	 * Clears thread ownership for k-mer at known cell position.
+	 *
+	 * @param kmer K-mer to release ownership of
+	 * @param owner Thread ID that should own the k-mer
+	 * @param cell Known cell position containing the k-mer
+	 * @return true if ownership was successfully cleared, false otherwise
+	 */
 	public final boolean clearOwner(final Kmer kmer, final int owner, final int cell){
 		assert(matches(kmer.key(), cell));
 		boolean success=owners.compareAndSet(cell, owner, NO_OWNER);
@@ -449,6 +466,11 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		return getCellOwner(cell);
 	}
 	
+	/**
+	 * Gets thread owner of specified hash table cell.
+	 * @param cell Cell index to check ownership of
+	 * @return Thread ID of current owner
+	 */
 	public final int getCellOwner(final int cell){
 		return owners.get(cell);
 	}
@@ -457,8 +479,24 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Inserts single value for k-mer at specified cell.
+	 * Abstract method implemented by concrete subclasses for value storage.
+	 *
+	 * @param kmer K-mer key array
+	 * @param v Value to insert
+	 * @param cell Cell position for insertion
+	 */
 	protected abstract void insertValue(final long[] kmer, final int v, final int cell);
 	
+	/**
+	 * Inserts value array for k-mer at specified cell.
+	 * Abstract method implemented by concrete subclasses for multi-value storage.
+	 *
+	 * @param kmer K-mer key array
+	 * @param vals Values to insert
+	 * @param cell Cell position for insertion
+	 */
 	protected abstract void insertValue(final long[] kmer, final int[] vals, final int cell);
 
 	/**
@@ -522,6 +560,15 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 //		return HASH_COLLISION;
 //	}
 
+	/**
+	 * Finds k-mer using raw key starting from specified cell.
+	 * Performs linear probing with early termination on empty cells.
+	 * Optimized with local reference to first array for performance.
+	 *
+	 * @param key Multi-dimensional k-mer key to search for
+	 * @param startCell Starting cell for linear probe search
+	 * @return Cell index if found, NOT_PRESENT if not found, HASH_COLLISION if overflowed
+	 */
 	final int findKmer(final long[] key, final int startCell){
 		int cell=startCell;
 		

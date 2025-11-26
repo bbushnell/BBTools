@@ -403,6 +403,12 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Creates a processing thread with access to shared input/output streams.
+		 * @param cris_ Shared input stream for reading sequences
+		 * @param rosa_ Array of output streams for each sequence type
+		 * @param tid_ Thread ID for identification
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream[] rosa_, final int tid_){
 			cris=cris_;
 			rosa=rosa_;

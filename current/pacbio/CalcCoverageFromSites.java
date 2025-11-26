@@ -62,6 +62,17 @@ public class CalcCoverageFromSites {
 	}
 	
 	
+	/**
+	 * Processes site data and writes CoverageArray objects while computing statistics.
+	 * Creates per-chromosome coverage arrays and tracks total and correct coverage.
+	 * Applies MIN_END_DIST offset to avoid counting alignment end artifacts in coverage calculations.
+	 * Generates detailed accuracy metrics for defined bases vs. N bases separately.
+	 *
+	 * @param fname Input file containing tab-separated SiteScoreR data
+	 * @param genome Genome build ID for Data.setGenome()
+	 * @param mincoverage Minimum coverage threshold for position-level statistics
+	 * @param outpattern Output file pattern with # placeholder for chromosome number
+	 */
 	public static void processAndWrite(final String fname, final int genome, final int mincoverage, final String outpattern){
 		Data.setGenome(genome);
 		
@@ -293,6 +304,16 @@ public class CalcCoverageFromSites {
 	}
 	
 	
+	/**
+	 * Memory-efficient processing that computes statistics without CoverageArray files.
+	 * Uses byte arrays instead of CoverageArray objects to minimize memory usage for large genomes.
+	 * Does not apply MIN_END_DIST offset, counting full site spans for coverage calculations.
+	 * Generates identical statistical output to processAndWrite() but with different memory profile.
+	 *
+	 * @param fname Input file containing tab-separated SiteScoreR data
+	 * @param genome Genome build ID for Data.setGenome()
+	 * @param mincoverage Minimum coverage threshold for position-level statistics
+	 */
 	public static void process(final String fname, final int genome, final int mincoverage){
 		Data.setGenome(genome);
 		

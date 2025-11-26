@@ -198,6 +198,12 @@ public class KCountArray7MT extends KCountArray {
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/**
+	 * Increments count for a single key across all hash functions.
+	 * Applies each hash function and queues the increment operations to appropriate write threads.
+	 * Each hash function result is buffered and sent to the corresponding array's write thread.
+	 * @param rawKey The raw key to increment
+	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 		
@@ -228,6 +234,12 @@ public class KCountArray7MT extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Increments count for a key that has been pre-hashed once.
+	 * Optimized version that skips the first hash computation since it was done externally.
+	 * Applies remaining hash functions and queues operations to write threads.
+	 * @param pKey Pre-hashed key from first hash function
+	 */
 	private void incrementPartiallyHashed(final long pKey){
 		if(verbose){System.err.println("\n*** Incrementing key "+pKey+" ***");}
 		

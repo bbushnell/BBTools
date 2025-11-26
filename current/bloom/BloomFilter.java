@@ -336,11 +336,26 @@ public class BloomFilter implements Serializable {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Determines if both reads pass the filter threshold.
+	 * Both reads must individually pass for the pair to pass.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param thresh Minimum k-mer count threshold
+	 * @return true if both reads pass, false otherwise
+	 */
 	public boolean passes(Read r1, Read r2, final int thresh) {
 		boolean pass=passes(r1, thresh);
 		return pass && passes(r2, thresh);
 	}
 	
+	/**
+	 * Calculates average k-mer count across a sequence.
+	 * Uses smoothing to reduce impact of hash collision spikes.
+	 * @param bases Sequence bases to analyze
+	 * @return Average k-mer count, or 0 if sequence too short
+	 */
 	public float averageCount(final byte[] bases) {
 		if(bases==null || bases.length<k-1){return 0;}
 
@@ -410,6 +425,15 @@ public class BloomFilter implements Serializable {
 		return counted>0 ? min : -1;
 	}
 	
+	/**
+	 * Tests if a read has sufficient high-count k-mers.
+	 * Determines if at least the specified fraction of k-mers exceed threshold.
+	 *
+	 * @param r Read to evaluate
+	 * @param thresh Count threshold for "high" k-mers
+	 * @param fraction Minimum fraction of k-mers that must be high
+	 * @return true if read meets high-count fraction requirement
+	 */
 	public boolean hasHighCountFraction(Read r, final int thresh, final float fraction) {
 		if(r==null || r.length()<k-1){return false;}
 		final byte[] bases=r.bases;
@@ -443,6 +467,15 @@ public class BloomFilter implements Serializable {
 		return true;
 	}
 	
+	/**
+	 * Returns fraction of k-mers with count below threshold.
+	 * Complement of highCountFraction.
+	 *
+	 * @param r Read to examine
+	 * @param thresh Count threshold
+	 * @param smooth Apply count smoothing
+	 * @return Fraction of low-count k-mers
+	 */
 	public float lowCountFraction(final Read r, final int thresh, final boolean smooth) {
 		return 1-highCountFraction(r, thresh, smooth);
 	}
@@ -595,6 +628,14 @@ public class BloomFilter implements Serializable {
 		return counted>0 ? min : -1;
 	}
 	
+	/**
+	 * Determines if a read passes the consecutive k-mer match filter.
+	 * Rejects reads with too many consecutive high-count k-mers.
+	 *
+	 * @param r Read to evaluate
+	 * @param thresh Count threshold for k-mer matches
+	 * @return true if read passes (not contaminated), false if rejected
+	 */
 	public boolean passes(Read r, final int thresh) {
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		final byte[] bases=r.bases;
@@ -622,20 +663,58 @@ public class BloomFilter implements Serializable {
 		return true;
 	}
 	
+	/**
+	 * Tests if a read matches filter criteria using precomputed keys.
+	 * Inverse of passes() method.
+	 *
+	 * @param r Read to test
+	 * @param keys Precomputed k-mer keys
+	 * @param thresh Count threshold
+	 * @return true if read matches (should be filtered)
+	 */
 	public boolean matches(Read r, LongList keys, final int thresh) {
 		return !passes(r, keys, thresh);
 	}
 	
+	/**
+	 * Tests if either read in a pair matches filter criteria.
+	 * Returns true if at least one read matches.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param keys Precomputed k-mer keys
+	 * @param thresh Count threshold
+	 * @return true if either read matches filter
+	 */
 	public boolean matchesEither(Read r1, Read r2, LongList keys, final int thresh) {
 		boolean match=!passes(r1, keys, thresh);
 		return match || !passes(r2, keys, thresh);
 	}
 	
+	/**
+	 * Tests if both reads in a pair pass filter using precomputed keys.
+	 * Both reads must pass for the pair to pass.
+	 *
+	 * @param r1 First read
+	 * @param r2 Second read
+	 * @param keys Precomputed k-mer keys
+	 * @param thresh Count threshold
+	 * @return true if both reads pass filter
+	 */
 	public boolean passes(Read r1, Read r2, LongList keys, final int thresh) {
 		boolean pass=passes(r1, keys, thresh);
 		return pass && passes(r2, keys, thresh);
 	}
 	
+	/**
+	 * Tests if a read passes filter using precomputed k-mer keys.
+	 * More efficient than recomputing k-mers for repeated testing.
+	 *
+	 * @param r Read to test
+	 * @param keys List to store/reuse k-mer keys
+	 * @param thresh Count threshold
+	 * @return true if read passes consecutive match filter
+	 */
 	public boolean passes(Read r, LongList keys, final int thresh) {
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		if(minConsecutiveMatches<2){return passes(r, thresh);}
@@ -664,6 +743,14 @@ public class BloomFilter implements Serializable {
 		return passes(keys, thresh);
 	}
 	
+	/**
+	 * Tests if precomputed k-mer keys pass consecutive match filter.
+	 * Core filtering logic using key array for efficiency.
+	 *
+	 * @param keys List of k-mer keys to evaluate
+	 * @param thresh Count threshold for matches
+	 * @return true if keys pass consecutive match criteria
+	 */
 	public boolean passes(final LongList keys, final int thresh) {
 		assert(minConsecutiveMatches>1);
 		final long[] array=keys.array;
@@ -735,16 +822,39 @@ public class BloomFilter implements Serializable {
 		return valid;
 	}
 	
+	/**
+	 * Gets count for a k-mer/reverse-complement pair.
+	 * Uses canonical k-mer representation if reverse complement enabled.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Count value from filter
+	 */
 	public int getCount(final long kmer, final long rkmer){
 		final long key=toKey(kmer, rkmer);
 		return filter.read(key);
 	}
 	
+	/**
+	 * Gets count for a canonical k-mer key.
+	 * Direct lookup in the count array.
+	 * @param key Canonical k-mer key
+	 * @return Count value from filter
+	 */
 	public int getCount(final long key){
 //		assert(key==toKey(key, AminoAcid.reverseComplementBinaryFast(key, k))); //slow
 		return filter.read(key);
 	}
 	
+	/**
+	 * Tests if k-mer pair has count meeting threshold.
+	 * Convenience method combining getCount with threshold test.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param thresh Count threshold
+	 * @return true if k-mer count >= threshold
+	 */
 	public boolean contains(final long kmer, final long rkmer, final int thresh){
 		final long key=toKey(kmer, rkmer);
 		return filter.read(key)>=thresh;
@@ -785,6 +895,14 @@ public class BloomFilter implements Serializable {
 //		assert(false) : counts;
 	}
 	
+	/**
+	 * Converts small k-mer counts to big k-mer count.
+	 * Takes minimum count across constituent small k-mers.
+	 *
+	 * @param counts Array of small k-mer counts
+	 * @param start Starting position in counts array
+	 * @return Big k-mer count (minimum of small k-mer counts)
+	 */
 	private int smallToBig(IntList counts, final int start){
 		assert(smallPerBig>1) : smallPerBig;
 		final int[] array=counts.array;
@@ -795,6 +913,14 @@ public class BloomFilter implements Serializable {
 		return min;
 	}
 	
+	/**
+	 * Gets big k-mer count for k-mer/reverse-complement pair.
+	 * Delegates to single-parameter version.
+	 *
+	 * @param kmer Forward k-mer (unused)
+	 * @param rkmer Reverse complement k-mer (unused)
+	 * @return Big k-mer count
+	 */
 	@SuppressWarnings("unused")
 	public int getCountBig(final long kmer, final long rkmer){
 		return getCountBig(kmer);
@@ -818,6 +944,15 @@ public class BloomFilter implements Serializable {
 		return min;
 	}
 	
+	/**
+	 * Tests if big k-mer meets count threshold.
+	 * Uses same logic as regular contains but for big k-mers.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @param thresh Count threshold
+	 * @return true if big k-mer count >= threshold
+	 */
 	public boolean containsBig(final long kmer, final long rkmer, final int thresh){
 		final long key=toKey(kmer, rkmer);
 		return filter.read(key)>=thresh;
@@ -825,14 +960,39 @@ public class BloomFilter implements Serializable {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts k-mer to canonical key representation.
+	 * Uses reverse complement if enabled to get canonical form.
+	 * @param kmer K-mer to convert
+	 * @return Canonical key for hash table lookup
+	 */
 	public long toKey(final long kmer){
 		return (rcomp ? toKey(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k)) : kmer);
 	}
 	
+	/**
+	 * Converts k-mer pair to canonical key.
+	 * Uses maximum of forward/reverse if reverse complement enabled.
+	 *
+	 * @param kmer Forward k-mer
+	 * @param rkmer Reverse complement k-mer
+	 * @return Canonical key (max of kmer/rkmer if rcomp, else kmer)
+	 */
 	public long toKey(final long kmer, final long rkmer){
 		return (rcomp ? Tools.max(kmer, rkmer) : kmer);
 	}
 	
+	/**
+	 * Extracts k-mers from a read with quality filtering.
+	 * Only includes k-mers meeting quality and probability thresholds.
+	 *
+	 * @param r Read to process
+	 * @param list List to fill with k-mer keys
+	 * @param k K-mer length
+	 * @param minQuality Minimum base quality required
+	 * @param minProb Minimum k-mer probability required
+	 * @param rcomp Use reverse complement canonical form
+	 */
 	public static final void toKmers(Read r, final LongList list, int k, final int minQuality, final float minProb, final boolean rcomp){
 		assert(k<=32);
 		assert(list!=null);

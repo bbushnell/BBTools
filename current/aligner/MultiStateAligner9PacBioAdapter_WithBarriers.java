@@ -1799,6 +1799,14 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 		return scoreNoIndels(read, cha.array, ss.start, ss);
 	}
 
+	/**
+	 * Rapid scoring without indels using chromosome coordinates.
+	 *
+	 * @param read Query sequence to score
+	 * @param chrom Chromosome identifier
+	 * @param refStart Starting position on chromosome
+	 * @return Alignment score using only matches and substitutions
+	 */
 	public final static int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart, null);
@@ -2039,6 +2047,17 @@ public final class MultiStateAligner9PacBioAdapter_WithBarriers {
 	}
 	
 
+	/**
+	 * Core no-indels scoring implementation with state tracking.
+	 * Maintains alignment mode and time information for accurate PacBio scoring.
+	 * Sets semiperfect flag on SiteScore when applicable.
+	 *
+	 * @param read Query sequence to score
+	 * @param ref Reference sequence array
+	 * @param refStart Starting position in reference
+	 * @param ss SiteScore object to update with semiperfect status, or null
+	 * @return Alignment score using only matches and substitutions
+	 */
 	public final static int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
 		
 		int score=0;

@@ -210,6 +210,25 @@ public class KmerCount5 extends KmerCountAbstract {
 
 
 
+	/**
+	 * Advanced k-mer counting with error correction using trusted k-mer sets.
+	 * Processes reads with optional error correction based on k-mer frequency patterns.
+	 * Uses BitSet to mark trusted positions and replaces untrusted bases with 'N'.
+	 * Supports both conservative and aggressive error correction strategies.
+	 *
+	 * @param reads1 Path to first reads file
+	 * @param reads2 Path to second reads file (may be null for single-end)
+	 * @param k K-mer length for counting
+	 * @param cbits Number of bits per count cell
+	 * @param rcomp Whether to include reverse complement k-mers
+	 * @param counts Existing count array to use (null to create new)
+	 * @param trusted Reference k-mer set for error correction (null to disable)
+	 * @param maxReads Maximum number of reads to process
+	 * @param thresh Threshold for trusted k-mer identification
+	 * @param detectStepsize Step size for error detection scanning
+	 * @param conservative Whether to use conservative error correction strategy
+	 * @return KCountArray containing k-mer counts
+	 */
 	public static KCountArray count(final String reads1, final String reads2, final int k, final int cbits, final boolean rcomp,
 			KCountArray counts, final KCountArray trusted, final long maxReads, final int thresh, final int detectStepsize, final boolean conservative){
 
@@ -386,6 +405,18 @@ public class KmerCount5 extends KmerCountAbstract {
 		return counts;
 	}
 
+	/**
+	 * Adds all k-mers from a single read to the count array.
+	 * Processes read bases sequentially, building k-mers with rolling hash.
+	 * Skips k-mers containing ambiguous bases or low-quality positions.
+	 * Optionally processes reverse complement for strand-independent counting.
+	 *
+	 * @param r The read to process
+	 * @param count K-mer count array to increment
+	 * @param k K-mer length
+	 * @param mask Bit mask for k-mer encoding
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addRead(final Read r, final KCountArray count, final int k, final long mask, boolean rcomp){
 		int len=0;
 		long kmer=0;
@@ -418,6 +449,21 @@ public class KmerCount5 extends KmerCountAbstract {
 		}
 	}
 
+	/**
+	 * Adds split k-mers from a read to the count array.
+	 * Creates composite k-mers from two segments separated by a gap.
+	 * Both segments must pass quality filters for the k-mer to be counted.
+	 * Combines segments using bit shifting to create unique composite keys.
+	 *
+	 * @param r The read to process
+	 * @param count K-mer count array to increment
+	 * @param k1 Length of first k-mer segment
+	 * @param k2 Length of second k-mer segment
+	 * @param mask1 Bit mask for first k-mer segment
+	 * @param mask2 Bit mask for second k-mer segment
+	 * @param gap Number of bases between segments
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addReadSplit(final Read r, final KCountArray count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;
@@ -462,6 +508,21 @@ public class KmerCount5 extends KmerCountAbstract {
 		}
 	}
 
+	/**
+	 * Adds split k-mers from raw sequence bases to the count array.
+	 * Creates composite k-mers from two segments separated by a gap.
+	 * Includes debugging output for k-mer composition analysis.
+	 * Both segments must be valid bases for the k-mer to be counted.
+	 *
+	 * @param bases Raw sequence bases to process
+	 * @param count K-mer count array to increment
+	 * @param k1 Length of first k-mer segment
+	 * @param k2 Length of second k-mer segment
+	 * @param mask1 Bit mask for first k-mer segment
+	 * @param mask2 Bit mask for second k-mer segment
+	 * @param gap Number of bases between segments
+	 * @param rcomp Whether to also process reverse complement
+	 */
 	public static void addReadSplit(final byte[] bases, final KCountArray count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;

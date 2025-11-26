@@ -408,6 +408,18 @@ public class KmerCountExact {
 	}
 	
 	//qualities asdkjasdkasdladeudns,u384Gnah&dhhsd
+	/**
+	 * Creates intersection matrix between two k-mer tables using array iteration.
+	 * Compares k-mer counts from reads vs reference for contamination analysis.
+	 * This is the first implementation approach using direct array access.
+	 *
+	 * @param tables Primary k-mer table set (typically from reads)
+	 * @param tables2 Reference k-mer table set
+	 * @param xMax Maximum count value for primary table dimension
+	 * @param yMax Maximum count value for reference table dimension
+	 * @param bidirectional Whether to count k-mers unique to reference
+	 * @return 2D matrix of count intersections [primary_count][reference_count]
+	 */
 	public static long[][] intersectionST_first(final AbstractKmerTableSet tables, 
 			final AbstractKmerTableSet tables2, final int xMax, final int yMax, final boolean bidirectional){
 
@@ -532,6 +544,18 @@ public class KmerCountExact {
 		return counts;
 	}
 	
+	/**
+	 * Creates intersection matrix between two k-mer tables using walker iteration.
+	 * Alternative implementation using table walkers for more efficient traversal.
+	 * This is the second implementation approach using iterator pattern.
+	 *
+	 * @param tables Primary k-mer table set (typically from reads)
+	 * @param tables2 Reference k-mer table set
+	 * @param xMax Maximum count value for primary table dimension
+	 * @param yMax Maximum count value for reference table dimension
+	 * @param bidirectional Whether to count k-mers unique to reference
+	 * @return 2D matrix of count intersections [primary_count][reference_count]
+	 */
 	public static long[][] intersectionST_second(final AbstractKmerTableSet tables, 
 			final AbstractKmerTableSet tables2, final int xMax, final int yMax, final boolean bidirectional){
 
@@ -605,6 +629,18 @@ public class KmerCountExact {
 		return counts;
 	}
 	
+	/**
+	 * Creates intersection matrix between two k-mer tables using optimized walker approach.
+	 * This is the current implementation that provides the best performance
+	 * by using table-level walkers instead of individual table iteration.
+	 *
+	 * @param tables Primary k-mer table set (typically from reads)
+	 * @param tables2 Reference k-mer table set
+	 * @param xMax Maximum count value for primary table dimension
+	 * @param yMax Maximum count value for reference table dimension
+	 * @param bidirectional Whether to count k-mers unique to reference
+	 * @return 2D matrix of count intersections [primary_count][reference_count]
+	 */
 	public static long[][] intersectionST(final AbstractKmerTableSet tables, 
 			final AbstractKmerTableSet tables2, final int xMax, final int yMax, final boolean bidirectional){
 

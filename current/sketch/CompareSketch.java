@@ -496,6 +496,12 @@ public class CompareSketch extends SketchObject {
 	 * Each thread processes a subset of input sketches against the reference set. */
 	private class CompareThread extends Thread {
 		
+		/**
+		 * Creates a comparison thread.
+		 * @param tid_ Thread ID for this worker
+		 * @param nextSketch_ Shared counter for sketch assignment
+		 * @param tsw_ Writer for output results
+		 */
 		CompareThread(final int tid_, final AtomicInteger nextSketch_, ByteStreamWriter tsw_){
 			tid=tid_;
 			nextSketch=nextSketch_;

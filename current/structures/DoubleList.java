@@ -251,11 +251,18 @@ public final class DoubleList{
 		return false;
 	}
 	
+	/** Sets the logical size of the list, resizing array if needed.
+	 * @param size2 New size for the list */
 	public final void setSize(final int size2) {
 		if(size2<array.length){resize(size2);}
 		size=size2;
 	}
 	
+	/**
+	 * Expands internal array to accommodate specified size.
+	 * New size is capped at maximum array length.
+	 * @param size2 Required minimum capacity
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		final int size3=(int)Tools.min(Shared.MAX_ARRAY_LEN, size2);

@@ -899,6 +899,28 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Core algorithm to find CRISPR repeat ranges within a read.
+	 * Uses k-mer indexing to identify tandem repeats, then extends and validates them.
+	 *
+	 * @param r Input read containing sequence data
+	 * @param k K-mer length for indexing
+	 * @param hdist Hamming distance tolerance for k-mer matching
+	 * @param midMask Bitmask for middle-masking k-mers
+	 * @param minSpacer Minimum spacer length between repeats
+	 * @param maxSpacer Maximum spacer length between repeats
+	 * @param minRepeat Minimum repeat unit length
+	 * @param maxRepeat Maximum repeat unit length
+	 * @param maxMismatches Maximum mismatches allowed in repeats
+	 * @param grow Whether to extend through mismatches
+	 * @param lookahead Bases to check when extending through mismatches
+	 * @param minRGC Minimum GC content for repeats
+	 * @param maxRGC Maximum GC content for repeats
+	 * @param kmerPositionMap Map of k-mers to their positions
+	 * @param allKmers List of all k-mers found
+	 * @param acgtn Array for nucleotide counting
+	 * @return List of CRISPR repeat pairs found
+	 */
 	public static final ArrayList<Crispr> findRanges(final Read r, final int k, final int hdist, 
 			final long midMask, final int minSpacer, final int maxSpacer, final int minRepeat,
 			final int maxRepeat, final int maxMismatches, final boolean grow, final int lookahead,
@@ -1331,6 +1353,15 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 		return left.b-b0;
 	}
 	
+	/**
+	 * Counts matching bases extending leftward from given positions.
+	 *
+	 * @param bases Sequence bases
+	 * @param a First position
+	 * @param b Second position
+	 * @param limit Maximum bases to check
+	 * @return Number of consecutive matches found
+	 */
 	private static int checkLeft(final byte[] bases, int a, int b, final int limit) {
 		int matches=0;
 		for(; matches<limit && a>=0; matches++, a--, b--) {
@@ -1340,6 +1371,15 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 		return matches;
 	}
 	
+	/**
+	 * Counts matching bases extending rightward from given positions.
+	 *
+	 * @param bases Sequence bases
+	 * @param a First position
+	 * @param b Second position
+	 * @param limit Maximum bases to check
+	 * @return Number of consecutive matches found
+	 */
 	private static int checkRight(final byte[] bases, int a, int b, final int limit) {
 		int matches=0;
 		for(; matches<limit && b<bases.length; matches++, a++, b++) {
@@ -1369,6 +1409,16 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 		return null;
 	}
 	
+	/**
+	 * Counts matching bases between two sequence regions.
+	 *
+	 * @param s Sequence array
+	 * @param a1 Start of first region
+	 * @param b1 End of first region
+	 * @param a2 Start of second region
+	 * @param b2 End of second region
+	 * @return Number of matching positions
+	 */
 	public static final int countMatches(final byte[] s, int a1, final int b1, int a2, final int b2) {
 //		return Vector.countMatches(s, s, a1, b1, a2, b2);
 		int matches=0;
@@ -1378,6 +1428,17 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 		return matches;
 	}
 	
+	/**
+	 * Builds k-mer position map from a read sequence.
+	 * Creates forward k-mer index with middle masking support.
+	 *
+	 * @param r Input read
+	 * @param k K-mer length
+	 * @param midMask Middle masking pattern
+	 * @param kmerPositionMap Map to populate with k-mer positions
+	 * @param allKmers List to store all k-mers found
+	 * @return Number of repeated k-mers found
+	 */
 	public static final int fillMap(final Read r, int k, long midMask,
 			LongLongListHashMap kmerPositionMap, LongList allKmers){
 		if(r==null || r.length()<k){return 0;}
@@ -1690,6 +1751,15 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs worker thread with input/output streams.
+		 *
+		 * @param cris_ Shared input stream
+		 * @param ros_ Main output stream
+		 * @param rosu_ Unmatched reads output stream
+		 * @param rosCrispr_ CRISPR sequences output stream
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_,  
 				final ConcurrentReadOutputStream rosu_,
 				final ConcurrentReadOutputStream rosCrispr_, final int tid_){

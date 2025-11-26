@@ -443,6 +443,14 @@ public abstract class KmerNodeU extends AbstractKmerTableU {
 	public final void clearOwnership(){initializeOwnership();}
 	
 	
+	/**
+	 * Sets the owner for a k-mer node using thread-safe operations.
+	 * Only updates owner if new owner ID is higher than current.
+	 *
+	 * @param kmer The k-mer to set ownership for
+	 * @param newOwner The new owner ID
+	 * @return The actual owner ID after the operation
+	 */
 	public final int setOwner(final long[] kmer, final int newOwner){
 		KmerNodeU n=get(kmer);
 		assert(n!=null);
@@ -457,6 +465,14 @@ public abstract class KmerNodeU extends AbstractKmerTableU {
 	}
 	
 	
+	/**
+	 * Clears ownership for a k-mer node if currently owned by specified owner.
+	 * Thread-safe operation that only clears if owner matches.
+	 *
+	 * @param kmer The k-mer to clear ownership for
+	 * @param owner The expected current owner ID
+	 * @return true if ownership was cleared, false if owner didn't match
+	 */
 	public final boolean clearOwner(final long[] kmer, final int owner){
 		KmerNodeU n=get(kmer);
 		assert(n!=null);
@@ -470,6 +486,11 @@ public abstract class KmerNodeU extends AbstractKmerTableU {
 	}
 	
 	
+	/**
+	 * Gets the current owner ID for a k-mer node.
+	 * @param kmer The k-mer to get ownership for
+	 * @return The owner ID, or -1 if unowned
+	 */
 	public final int getOwner(final long[] kmer){
 		KmerNodeU n=get(kmer);
 		assert(n!=null);

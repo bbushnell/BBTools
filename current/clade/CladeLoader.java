@@ -407,6 +407,15 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		addClade(set, map, lp);//Possible last entry if not terminated with a '#'.
 	}
 	
+	/**
+	 * Adds a single clade record to the map, handling duplicates appropriately.
+	 * Merges or replaces existing clades based on configuration and data quality.
+	 *
+	 * @param set Lines of data representing one clade record
+	 * @param map Map to store the clade in
+	 * @param lp LineParser for processing tabular data
+	 * @return true if a new clade was added, false if merged or rejected
+	 */
 	private static boolean addClade(final ArrayList<byte[]> set, 
 			ConcurrentHashMap<Integer, Clade> map, LineParser1 lp) {
 		if(set.size()<=5) {return false;}
@@ -627,6 +636,12 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Creates a new ProcessThread for sequence analysis.
+		 * @param cris_ Input stream for reading sequences
+		 * @param cladeMap_ Map for storing processed clade data
+		 * @param tid_ Thread identifier for debugging
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, 
 				ConcurrentHashMap<Integer, Clade> cladeMap_, final int tid_){
 			cris=cris_;

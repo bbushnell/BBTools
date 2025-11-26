@@ -649,6 +649,11 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		}
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread for sequence file input processing.
+		 * @param cris_ ConcurrentReadInputStream for reading sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			ss=null;
 			cris=cris_;

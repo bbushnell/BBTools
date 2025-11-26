@@ -680,6 +680,12 @@ public class GenerateVarlets2 {
 		return k;
 	}
 	
+	/**
+	 * Generates all block keys for a given chromosome.
+	 * Creates keys for all blocks needed to cover the chromosome length.
+	 * @param chrom Chromosome number
+	 * @return Array of all block keys for the chromosome
+	 */
 	protected static final long[] keys(final int chrom){
 		int lim=(Data.chromLengths[chrom]+1000)/BLOCKSIZE;
 		long[] keys=new long[lim+1];

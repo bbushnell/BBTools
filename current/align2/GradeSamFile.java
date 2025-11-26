@@ -205,6 +205,14 @@ public class GradeSamFile {
 	}
 	
 	
+	/**
+	 * Calculates mapping statistics for a single read alignment.
+	 * Categorizes reads as mapped, unmapped, discarded, or ambiguous based on quality.
+	 * Performs correctness evaluation when custom parsing is enabled.
+	 *
+	 * @param r The read object containing alignment information
+	 * @param sl The SAM line corresponding to the read
+	 */
 	public static void calcStatistics1(final Read r, SamLine sl){
 		
 		primary++;

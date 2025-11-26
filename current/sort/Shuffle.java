@@ -472,6 +472,8 @@ public class Shuffle {
 	/** Current number of active shuffle threads */
 	private static int currentShuffleThreads=0;
 	
+	/** Sets the maximum number of concurrent shuffle threads allowed.
+	 * @param x Maximum thread count (must be greater than 0) */
 	public static void setMaxThreads(final int x){
 		assert(x>0);
 		synchronized(SHUFFLE_LOCK){
@@ -479,6 +481,12 @@ public class Shuffle {
 		}
 	}
 	
+	/**
+	 * Manages thread pool by adding or removing threads with blocking when at capacity.
+	 * Waits if adding threads would exceed the maximum, decrements when removing threads.
+	 * @param x Number of threads to add (positive) or remove (negative)
+	 * @return Current number of active threads after the operation
+	 */
 	public static int addThread(final int x){
 		synchronized(SHUFFLE_LOCK){
 			while(x>0 && currentShuffleThreads>=maxShuffleThreads){

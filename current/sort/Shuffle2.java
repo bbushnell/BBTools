@@ -424,6 +424,14 @@ public class Shuffle2 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Recursively merges temporary files when file count exceeds maximum.
+	 * Groups files into batches and creates intermediate merge files to
+	 * reduce the number of open files in final merge operation.
+	 *
+	 * @param inList List of temporary file paths to merge
+	 * @return Reduced list of temporary files after recursive merging
+	 */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList){
 		assert(maxFiles>1);
 		ArrayList<String> currentList=inList;
@@ -582,6 +590,15 @@ public class Shuffle2 {
 		return errorState;
 	}
 	
+	/**
+	 * Core merge logic that randomly selects from input containers.
+	 * Maintains shuffled order by randomly choosing which file to read from
+	 * and shuffling accumulated buffers before output.
+	 *
+	 * @param q List of concurrent read input containers
+	 * @param ros Output stream for merged reads (may be null)
+	 * @param outstream Stream for progress messages
+	 */
 	private static void mergeAndDump(final ArrayList<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream) {
 		
 //		for(CrisContainer cc : q){
@@ -618,6 +635,16 @@ public class Shuffle2 {
 		assert(buffer.isEmpty());
 	}
 	
+	/**
+	 * Shuffles reads and writes them to file in background thread.
+	 * Creates temporary file if needed and launches WriteThread for async I/O.
+	 *
+	 * @param storage List of reads to shuffle and write
+	 * @param currentMem Memory usage of the read storage
+	 * @param outstandingMem Atomic counter for tracking background thread memory
+	 * @param fname Output file path (null for temporary file)
+	 * @param useHeader Whether to preserve SAM/BAM headers
+	 */
 	private void shuffleAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname, boolean useHeader) {
 		String temp=fname;
 		if(temp==null){
@@ -645,6 +672,16 @@ public class Shuffle2 {
 	 */
 	private static class WriteThread extends Thread{
 		
+		/**
+		 * Creates WriteThread for background file writing.
+		 *
+		 * @param storage_ List of reads to write
+		 * @param currentMem_ Memory usage of read storage
+		 * @param outstandingMem_ Atomic counter for memory tracking
+		 * @param fname_ Output file path
+		 * @param useHeader_ Whether to preserve SAM/BAM headers
+		 * @param outstream_ Stream for progress messages
+		 */
 		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, String fname_, boolean useHeader_, PrintStream outstream_){
 			storage=storage_;
 			currentMem=currentMem_;

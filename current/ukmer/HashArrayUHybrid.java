@@ -164,6 +164,15 @@ public final class HashArrayUHybrid extends HashArrayU {
 		}
 	}
 	
+	/**
+	 * Inserts a value into a multi-value array at the specified location.
+	 * Creates new arrays as needed and expands existing arrays when full.
+	 * Prevents duplicate values from being inserted.
+	 *
+	 * @param v The value to insert
+	 * @param loc The location index in setList
+	 * @return 1 if value was newly inserted, 0 if it already existed
+	 */
 	private final int insertIntoList(final int v, final int loc){
 		
 		if(loc>=setList.size){

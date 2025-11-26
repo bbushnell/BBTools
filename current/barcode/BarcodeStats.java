@@ -432,6 +432,12 @@ public class BarcodeStats {
 		b.increment(amt);
 	}
 	
+	/**
+	 * Records base-level mismatches between observed and closest expected barcode.
+	 * @param s Observed barcode sequence
+	 * @param count Number of occurrences
+	 * @param transitions List to store transition data
+	 */
 	public void incrementMismatches(final String s, final long count, LongList transitions) {
 		final Barcode b=findClosest(s, 6, 1);
 		if(b==null) {return;}

@@ -68,6 +68,17 @@ class Splitter {
 		return out;
 	}
 	
+	/**
+	 * Splits a clump into major and minor subgroups based on variant presence.
+	 * Reads containing either var1 or var2 are assigned to the minor group,
+	 * while reads without these variants form the major group.
+	 *
+	 * @param c The clump to split
+	 * @param var1 First variant position and allele (packed as position<<2 | allele)
+	 * @param var2 Second variant position and allele, or -1 if unused
+	 * @param list Output list to receive the split clumps
+	 * @return Number of non-empty clumps added (1 or 2)
+	 */
 	static int splitAndAdd(Clump c, final int var1, final int var2, ArrayList<Clump> list) {
 		final int maxLeft=c.maxLeft();
 		
@@ -311,6 +322,15 @@ class Splitter {
 		return -1;
 	}
 	
+	/**
+	 * Tests whether a read contains a specific variant at the expected position.
+	 * Accounts for read positioning within the clump alignment.
+	 *
+	 * @param var The variant to test (position<<2 | allele)
+	 * @param r The read to examine
+	 * @param maxLeft Maximum left offset in the clump alignment
+	 * @return true if the read contains the variant, false otherwise
+	 */
 	static boolean containsVar(final int var, final Read r, final int maxLeft){
 		final int varPos=var>>2;
 		final int varAllele=var&alleleMask;
@@ -323,6 +343,14 @@ class Splitter {
 		return readAllele==varAllele;
 	}
 	
+	/**
+	 * Tests whether a read has a different allele than the specified variant.
+	 * Used to identify reads that should be separated from variant carriers.
+	 *
+	 * @param var The reference variant (position<<2 | allele)
+	 * @param r The read to examine
+	 * @return true if the read has a different allele at this position
+	 */
 	static boolean hasDifferentAllele(final int var, final Read r/*, final Clump c*/){
 		final int varPos=var>>2;
 		final int varAllele=var&alleleMask;
@@ -342,6 +370,14 @@ class Splitter {
 		return readAllele!=varAllele;
 	}
 	
+	/**
+	 * Counts reads in a list that have different alleles than the specified variant.
+	 * Used in correlation analysis to measure variant co-occurrence patterns.
+	 *
+	 * @param var The reference variant
+	 * @param list List of reads to examine
+	 * @return Number of reads with different alleles at the variant position
+	 */
 	static int countDifferentAlleles(final int var, ArrayList<Read> list){
 		if(list==null){return 0;}
 		int sum=0;
@@ -351,6 +387,18 @@ class Splitter {
 		return sum;
 	}
 	
+	/**
+	 * Analyzes variant co-occurrence patterns to find the best correlated variant.
+	 * Examines all other variants present in reads carrying the specified variant
+	 * to identify the strongest correlation for splitting purposes.
+	 *
+	 * @param var The primary variant to analyze
+	 * @param list Reads containing the primary variant
+	 * @param collection Temporary storage for collecting co-occurring variants
+	 * @param rvector Output array [var, varCount, bestVar2, sharedCount, bestDifferent]
+	 * @param map Global variant-to-reads mapping for cross-validation
+	 * @return The best correlated variant, or -1 if none found
+	 */
 	static int examineVar(final int var, final ArrayList<Read> list, final IntList collection, final int[] rvector, LinkedHashMap<Integer, ArrayList<Read>> map){
 		collection.clear();
 		
@@ -414,11 +462,27 @@ class Splitter {
 		return bestVar2;
 	}
 	
+	/**
+	 * Converts a clump alignment position to a read-relative position.
+	 *
+	 * @param clumpLocation Position in the clump coordinate system
+	 * @param maxLeft Maximum left offset in clump alignment
+	 * @param readPos Starting position of the read in clump coordinates
+	 * @return Position within the read sequence
+	 */
 	static final int toReadLocation(final int clumpLocation, final int maxLeft, final int readPos){
 		final int readLocation=clumpLocation+readPos-maxLeft;
 		return readLocation;
 	}
 	
+	/**
+	 * Converts a read-relative position to a clump alignment position.
+	 *
+	 * @param readLocation Position within the read sequence
+	 * @param maxLeft Maximum left offset in clump alignment
+	 * @param readPos Starting position of the read in clump coordinates
+	 * @return Position in the clump coordinate system
+	 */
 	static final int toClumpLocation(final int readLocation, final int maxLeft, final int readPos){
 		final int clumpLocation=readLocation-readPos+maxLeft;
 		assert(readLocation==toReadLocation(clumpLocation, maxLeft, readPos));

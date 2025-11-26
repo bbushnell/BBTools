@@ -17,6 +17,19 @@ import structures.ByteBuilder;
  */
 public class DumpThreadU extends Thread{
 	
+	/**
+	 * Initiates parallel dumping of k-mers from multiple tables using worker threads.
+	 * Creates and manages a pool of DumpThreadU instances that coordinate via atomic counter
+	 * to process all tables without duplication.
+	 *
+	 * @param k K-mer length for output formatting
+	 * @param mincount Minimum count threshold for k-mer inclusion
+	 * @param maxcount Maximum count threshold for k-mer inclusion
+	 * @param tables Array of AbstractKmerTableU instances to dump
+	 * @param bsw ByteStreamWriter for output coordination
+	 * @param remaining AtomicLong counter tracking remaining k-mers to dump
+	 * @return true if all threads completed successfully, false otherwise
+	 */
 	public static boolean dump(final int k, final int mincount, final int maxcount, final AbstractKmerTableU[] tables, final ByteStreamWriter bsw, AtomicLong remaining){
 		final int threads=DumpThread.NUM_THREADS>0 ? DumpThread.NUM_THREADS : Tools.min(tables.length, (Tools.mid(1, Shared.threads()-1, 6)));
 		final AtomicInteger lock=new AtomicInteger(0);
@@ -40,6 +53,19 @@ public class DumpThreadU extends Thread{
 		return success;
 	}
 	
+	/**
+	 * Constructs a DumpThreadU worker thread with dumping parameters.
+	 * Thread will coordinate with others via the shared nextTable counter to
+	 * claim and process tables from the array.
+	 *
+	 * @param k_ K-mer length for output formatting
+	 * @param mincount_ Minimum count threshold for k-mer inclusion
+	 * @param maxcount_ Maximum count threshold for k-mer inclusion
+	 * @param nextTable_ Atomic counter for coordinating table assignment among threads
+	 * @param tables_ Array of AbstractKmerTableU instances to dump
+	 * @param bsw_ ByteStreamWriter for thread-safe output coordination
+	 * @param remaining_ AtomicLong counter tracking remaining k-mers to dump
+	 */
 	public DumpThreadU(final int k_, final int mincount_, final int maxcount_, final AtomicInteger nextTable_, final AbstractKmerTableU[] tables_, final ByteStreamWriter bsw_, AtomicLong remaining_){
 		k=k_;
 		mincount=mincount_;

@@ -732,6 +732,20 @@ public final class TrimRead implements Serializable {
 
 	//TODO: This is slow
 	//TODO: Note, returns a negative number if the whole read is supposed to be trimmed
+	/**
+	 * Complex trimming for reads with detailed match strings containing indels and other variations.
+	 * Parses match strings character by character to maintain alignment accuracy.
+	 * Updates CIGAR strings and SAM line coordinates appropriately.
+	 *
+	 * @param r Read to trim
+	 * @param sl SAM line with alignment information
+	 * @param leftTrimAmount Bases to trim from left
+	 * @param rightTrimAmount Bases to trim from right
+	 * @param minFinalLength Minimum resulting length
+	 * @param scafLen Scaffold length for CIGAR generation
+	 * @param trimClip Whether to trim clipped regions
+	 * @return Number of bases trimmed, negative if entire read would be trimmed
+	 */
 	public static int trimReadWithMatch(final Read r, final SamLine sl, 
 			int leftTrimAmount, int rightTrimAmount, int minFinalLength, long scafLen, boolean trimClip){
 		if(r.bases==null || (leftTrimAmount<1 && rightTrimAmount<1 && !trimClip)){return 0;}

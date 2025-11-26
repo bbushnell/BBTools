@@ -36,6 +36,16 @@ public class Solver {
 	}
 	
 	
+	/**
+	 * Finds the worst-scoring list using greedy selection algorithm.
+	 * Uses uniform weighting for all lists in the evaluation.
+	 *
+	 * @param offsets Array of offset positions for each list
+	 * @param lengths Array of lengths for each list
+	 * @param chunk Size of alignment chunk
+	 * @param lists Array of list indices to evaluate
+	 * @param r Output array: [0]=worst index, [1]=worst score
+	 */
 	public static final void findWorstGreedy(final int[] offsets, final int[] lengths,
 			final int chunk, final int[] lists, int[] r){
 		assert(r!=null && r.length==2);
@@ -60,6 +70,17 @@ public class Solver {
 	}
 	
 	
+	/**
+	 * Finds the worst-scoring list using greedy selection with weighted evaluation.
+	 * Applies individual weights to each list during scoring calculations.
+	 *
+	 * @param offsets Array of offset positions for each list
+	 * @param lengths Array of lengths for each list
+	 * @param weights Weight factors for each list
+	 * @param chunk Size of alignment chunk
+	 * @param lists Array of list indices to evaluate
+	 * @param r Output array: [0]=worst index, [1]=worst score
+	 */
 	public static final void findWorstGreedy(final int[] offsets, final int[] lengths,
 			final float[] weights, final int chunk, final int[] lists, int[] r){
 		assert(r!=null && r.length==2);
@@ -86,6 +107,18 @@ public class Solver {
 	}
 	
 	
+	/**
+	 * Calculates the value of removing a specific list element from the current selection.
+	 * Considers list bonuses, spacing penalties, coverage benefits, and positional factors.
+	 *
+	 * @param offsets Array of offset positions for each list
+	 * @param lengths Array of lengths for each list
+	 * @param keyWeight Weight factor for this specific element
+	 * @param chunk Size of alignment chunk
+	 * @param lists Current list selection
+	 * @param index Index of element to evaluate
+	 * @return Calculated value score for the element
+	 */
 	public static long valueOfElement(final int[] offsets, final int[] lengths, float keyWeight,
 			final int chunk, final int[] lists, int index){
 		
@@ -167,6 +200,11 @@ public class Solver {
 		return ((long)(valuep*keyWeight))+valuem;
 	}
 	
+	/**
+	 * Converts a 32-bit integer to an array of set bit positions.
+	 * @param key 32-bit integer with set bits representing selected lists
+	 * @return Array of indices where bits are set
+	 */
 	public static int[] toBitList(final int key){
 		final int numlists=Integer.bitCount(key);
 		final int[] lists=new int[numlists];
@@ -179,6 +217,11 @@ public class Solver {
 		return lists;
 	}
 	
+	/**
+	 * Converts a 64-bit long to an array of set bit positions.
+	 * @param key 64-bit long with set bits representing selected lists
+	 * @return Array of indices where bits are set
+	 */
 	public static int[] toBitList(final long key){
 		final int numlists=Long.bitCount(key);
 		assert(numlists>0);
@@ -192,6 +235,17 @@ public class Solver {
 		return lists;
 	}
 	
+	/**
+	 * Evaluates the total score for a given list selection.
+	 * Calculates composite score including list bonuses, spacing penalties,
+	 * coverage rewards, and end-position bonuses.
+	 *
+	 * @param offsets Array of offset positions for each list
+	 * @param lengths Array of lengths for each list
+	 * @param chunk Size of alignment chunk
+	 * @param key Bit pattern representing selected lists
+	 * @return Total score for the list selection
+	 */
 	public static long evaluate(int[] offsets, int[] lengths, final int chunk, final long key){
 		
 		long score=0;

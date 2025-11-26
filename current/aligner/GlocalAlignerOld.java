@@ -51,6 +51,14 @@ public final class GlocalAlignerOld implements IDAligner {
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {throw new RuntimeException();}
     
+	/**
+	 * Performs bidirectional alignment between query and reference sequences.
+	 * Aligns query-to-ref and ref-to-query, returning the maximum identity score.
+	 *
+	 * @param query Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @return Maximum identity score from both alignment directions
+	 */
 	public static final float alignForward(final byte[] query, final byte[] ref){
 		float a=alignForwardInner(query, ref);
 		float b=alignForwardInner(ref, query);

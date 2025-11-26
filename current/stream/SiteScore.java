@@ -896,6 +896,13 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return true;
 	}
 	
+	/**
+	 * Clips excessive indels from right tip of alignment.
+	 * @param bases Read sequence bases
+	 * @param tiplen Length of tip region to examine
+	 * @param maxIndel Maximum indel threshold for clipping
+	 * @return True if clipping was performed
+	 */
 	public boolean clipRightTipIndel(final byte[] bases, final int tiplen, final int maxIndel){
 		if(match==null || match.length<maxIndel){return false;}
 		final int lastIndex=match.length-1;
@@ -957,6 +964,12 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		return true;
 	}
 	
+	/**
+	 * Converts clipped regions ('C') back to match/mismatch symbols.
+	 * Compares read bases against reference to determine actual alignment.
+	 * @param bases Read sequence bases
+	 * @return True if any unclipping was performed
+	 */
 	public boolean unclip(final byte[] bases){
 		if(match==null || match.length<1){return false;}
 		if(verbose){System.err.println("Calling unclip on "+new String(match));}

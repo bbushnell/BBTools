@@ -1569,6 +1569,23 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			return false;
 		}
 		
+		/**
+		 * Adds coverage from read alignment to specified scaffold by name.
+		 * Looks up scaffold and delegates to scaffold-based coverage method.
+		 *
+		 * @param scafName Name of target scaffold
+		 * @param seq Read sequence bases
+		 * @param match Match string for handling insertions/deletions
+		 * @param start0 Alignment start position (0-based)
+		 * @param stop0 Alignment stop position (0-based)
+		 * @param readlen Original read length
+		 * @param nonClippedBases Number of non-soft-clipped bases
+		 * @param strand Read alignment strand (0=plus, 1=minus)
+		 * @param incrementFrags Fragment count increment (1 or 2)
+		 * @param properPair Whether read is in proper pair
+		 * @param sl Original SamLine (optional, for error reporting)
+		 * @return true if coverage was successfully added
+		 */
 		public boolean addCoverage(final String scafName, final byte[] seq, byte[] match, final int start0, final int stop0, final int readlen, 
 				final int nonClippedBases, final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
 			Scaffold scaf=table.get(scafName);
@@ -1585,6 +1602,23 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			return addCoverage(scaf, seq, match, start0, stop0, readlen, nonClippedBases, strand, incrementFrags, properPair, sl);
 		}
 		
+		/**
+		 * Adds coverage from read alignment to specified scaffold object.
+		 * Updates scaffold statistics and coverage arrays/bitsets based on configuration.
+		 *
+		 * @param scaf Target scaffold object
+		 * @param seq Read sequence bases
+		 * @param match Match string for handling insertions/deletions
+		 * @param start0 Alignment start position (0-based)
+		 * @param stop0 Alignment stop position (0-based)
+		 * @param readlen Original read length
+		 * @param nonClippedBases Number of non-soft-clipped bases
+		 * @param strand Read alignment strand (0=plus, 1=minus)
+		 * @param incrementFrags Fragment count increment (1 or 2)
+		 * @param properPair Whether read is in proper pair
+		 * @param sl Original SamLine (optional, for error reporting)
+		 * @return true if coverage was successfully added
+		 */
 		public boolean addCoverage(final Scaffold scaf, final byte[] seq, byte match[], final int start0, final int stop0, final int readlen, final int nonClippedBases, 
 				final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
 			if(scaf==null){
@@ -1666,6 +1700,20 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			return true;
 		}
 		
+		/**
+		 * Adds coverage while excluding deleted positions from coverage calculation.
+		 * Uses match string to skip positions marked as deletions.
+		 *
+		 * @param scaf Target scaffold object
+		 * @param seq Read sequence bases
+		 * @param match Match string indicating alignment operations
+		 * @param start Alignment start position
+		 * @param stop Alignment stop position
+		 * @param readlen Original read length
+		 * @param strand Read alignment strand
+		 * @param incrementFrags Fragment count increment
+		 * @return true if coverage was successfully added
+		 */
 		private boolean addCoverageIgnoringDeletions(final Scaffold scaf, final byte[] seq, byte match[], final int start, final int stop, final int readlen, final int strand, int incrementFrags){
 			assert(!INCLUDE_DELETIONS && !START_ONLY && !STOP_ONLY);
 			assert(match!=null) : "Coverage excluding deletions cannot be calculated without a match string.";

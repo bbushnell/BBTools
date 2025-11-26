@@ -459,6 +459,22 @@ public class SketchSearcher extends SketchObject {
 //	}
 	
 	//TODO:  Interestingly, the heap never seems to be created by anything...  not sure what it's for.
+	/**
+	 * Performs detailed comparison between two sketches with filtering.
+	 * Counts k-mer matches, calculates similarity metrics (WKID/ANI), and creates
+	 * a Comparison object if all thresholds are met. Optionally manages heap for top results.
+	 *
+	 * @param a Query sketch
+	 * @param b Reference sketch
+	 * @param buffer Reusable buffer for calculations
+	 * @param abs AbstractBitSet for efficient k-mer operations
+	 * @param minHits Minimum number of k-mer matches required
+	 * @param minWKID Minimum weighted k-mer identity threshold
+	 * @param minANI Minimum average nucleotide identity threshold
+	 * @param requireSSU Whether SSU genes must be shared between sketches
+	 * @param heap Optional heap for maintaining top N results
+	 * @return Comparison object if thresholds met, null otherwise
+	 */
 	private static Comparison compareOneToOne(final Sketch a, final Sketch b, CompareBuffer buffer, AbstractBitSet abs,
 			int minHits, float minWKID, float minANI, boolean requireSSU, Heap<Comparison> heap){
 //		assert(heap!=null); //Optional, for testing.

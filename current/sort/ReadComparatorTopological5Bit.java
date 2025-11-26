@@ -61,6 +61,15 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 		return r1.id.compareTo(r2.id);
 	}
 	
+	/**
+	 * Compares two byte arrays element by element starting from specified position.
+	 * Handles null arrays with null sorting before non-null.
+	 *
+	 * @param a First byte array to compare
+	 * @param b Second byte array to compare
+	 * @param start Starting position for comparison
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public int compareVectors(final byte[] a, final byte[] b, final int start){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -75,6 +84,16 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 		return 0;
 	}
 	
+	/**
+	 * Compares byte arrays with special handling for 'N' bases.
+	 * 'N' bases sort after all other bases in the comparison.
+	 * Otherwise performs element-by-element comparison starting from specified position.
+	 *
+	 * @param a First byte array to compare
+	 * @param b Second byte array to compare
+	 * @param start Starting position for comparison
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public int compareVectorsN(final byte[] a, final byte[] b, final int start){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}

@@ -274,6 +274,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		throw new RuntimeException("Unknown strand: "+s);
 	}
 	
+	/**
+	 * Converts chromosome string to numeric chromosome ID.
+	 * Strips "chr" prefix if present and parses as integer.
+	 * @param s chromosome string (e.g. "chr1", "1", "chrX")
+	 * @return chromosome number
+	 */
 	public static int toChromosome(final String s){
 ////		assert(false) : s;
 //		String s2=s;
@@ -306,6 +312,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 		return loc;
 	}
 	
+	/**
+	 * Converts genome build string to numeric build number.
+	 * Handles formats like "build36", "b36", "hg18", etc.
+	 * @param s build string
+	 * @return build number as integer
+	 */
 	public static int toBuild(final String s){
 		String s2=s.toLowerCase();
 		if(s2.startsWith("build")){s2=s2.substring(5);}

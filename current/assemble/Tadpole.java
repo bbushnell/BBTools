@@ -1681,6 +1681,15 @@ public abstract class Tadpole extends ShaveObject{
 			}
 		}
 		
+		/**
+		 * Processes paired reads through merging, extension, and error correction.
+		 * Handles read overlap detection, merging validation, error correction,
+		 * and post-processing unmerging when required. Updates statistics for
+		 * all operations performed.
+		 *
+		 * @param r10 First read in pair
+		 * @param r20 Second read in pair (may be null for single-end)
+		 */
 		private void processReadPair(final Read r10, final Read r20){
 			Read r1=r10, r2=r20;
 			if(verbose){outstream.println("Considering read "+r1.id+" "+new String(r1.bases));}
@@ -1942,6 +1951,15 @@ public abstract class Tadpole extends ShaveObject{
 	/** Test a read to see if it could possibly assemble. */
 	public abstract boolean isJunk(Read r);
 	
+	/**
+	 * Tests read to determine if it could possibly assemble using provided data structures.
+	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
+	 *
+	 * @param r Read to evaluate
+	 * @param localLeftCounts Array for base frequency analysis
+	 * @param kmer Kmer object for k-mer operations
+	 * @return true if read appears unassemblable (junk), false if potentially assemblable
+	 */
 	public abstract boolean isJunk(Read r, final int[] localLeftCounts, Kmer kmer);
 	
 	/** True if at least fraction of the reads kmers are at or below count. */
@@ -1989,12 +2007,62 @@ public abstract class Tadpole extends ShaveObject{
 	 */
 	public abstract int errorCorrect(Read r);
 	
+	/**
+	 * Performs comprehensive error correction using multiple algorithms and data structures.
+	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
+	 *
+	 * @param r Read to correct
+	 * @param leftCounts Array for left-side base frequency analysis
+	 * @param rightCounts Array for right-side base frequency analysis
+	 * @param kmers List for k-mer storage
+	 * @param counts Primary k-mer count list
+	 * @param counts2 Secondary k-mer count list
+	 * @param bb Primary sequence builder
+	 * @param bb2 Secondary sequence builder
+	 * @param tracker Error tracking statistics
+	 * @param bs BitSet for position marking
+	 * @param kmer Primary k-mer object
+	 * @param kmer2 Secondary k-mer object
+	 * @return Number of errors corrected
+	 */
 	public abstract int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, LongList kmers, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs, Kmer kmer, Kmer kmer2);
 	
+	/**
+	 * Performs inner reassembly algorithm for error correction.
+	 * Implementation varies between Tadpole1 and Tadpole2 for different k-mer sizes.
+	 *
+	 * @param bb Sequence builder containing sequence to reassemble
+	 * @param quals Quality scores for bases
+	 * @param rightCounts Array for right-side base counting
+	 * @param counts K-mer count list
+	 * @param extension Extension length for reassembly
+	 * @param kmer Primary k-mer object
+	 * @param kmer2 Secondary k-mer object
+	 * @return Number of corrections applied
+	 */
 	public abstract int reassemble_inner(ByteBuilder bb, byte[] quals, final int[] rightCounts, IntList counts,
 			final int extension, final Kmer kmer, final Kmer kmer2);
 	
+	/**
+	 * Performs multi-pass reassembly error correction with bidirectional validation.
+	 * Constructs candidate sequences from both directions, applies quality filtering,
+	 * and performs consensus calling with rollback protection for over-correction.
+	 *
+	 * @param bases Sequence to reassemble
+	 * @param quals Quality scores for bases
+	 * @param rightCounts Array for base frequency analysis
+	 * @param counts Primary k-mer count list
+	 * @param counts2 Secondary k-mer count list
+	 * @param tracker Error tracking statistics
+	 * @param errorExtension Extension length for reassembly operations
+	 * @param bb Primary sequence builder
+	 * @param bb2 Secondary sequence builder
+	 * @param kmer Primary k-mer object
+	 * @param regenKmer K-mer object for regeneration
+	 * @param bs BitSet for position marking
+	 * @return Total number of corrections applied across all passes
+	 */
 	public final int reassemble(final byte[] bases, final byte[] quals, final int[] rightCounts, final IntList counts, final IntList counts2,
 			final ErrorTracker tracker, final int errorExtension, final ByteBuilder bb, final ByteBuilder bb2, final Kmer kmer, final Kmer regenKmer, BitSet bs){
 		if(bases.length<kbig+1+deadZone){return 0;}
@@ -2021,6 +2089,25 @@ public abstract class Tadpole extends ShaveObject{
 		return corrected;
 	}
 	
+	/**
+	 * Performs single pass of reassembly error correction algorithm.
+	 * Builds sequences from both directions, compares results for consensus,
+	 * applies sliding window quality filtering, and regenerates k-mer counts.
+	 *
+	 * @param bases Original sequence being corrected
+	 * @param quals Quality scores for bases
+	 * @param fromLeft Sequence builder for left-to-right assembly
+	 * @param fromRight Sequence builder for right-to-left assembly
+	 * @param rightCounts Array for base frequency analysis
+	 * @param counts Primary k-mer count list
+	 * @param counts2 Secondary k-mer count list
+	 * @param tracker Error tracking statistics
+	 * @param errorExtension Extension length for reassembly
+	 * @param kmer Primary k-mer object
+	 * @param kmer2 Secondary k-mer object
+	 * @param bs BitSet for position marking
+	 * @return Number of corrections applied in this pass
+	 */
 	public final int reassemble_pass(final byte[] bases, final byte[] quals, final ByteBuilder fromLeft, final ByteBuilder fromRight,
 			final int[] rightCounts, final IntList counts, final IntList counts2, final ErrorTracker tracker, final int errorExtension,
 			final Kmer kmer, final Kmer kmer2, final BitSet bs){
@@ -2147,6 +2234,18 @@ public abstract class Tadpole extends ShaveObject{
 		return corrected;
 	}
 	
+	/**
+	 * Applies sliding window quality filtering to clear low-quality corrections.
+	 * Removes corrections when window contains too many changes or low-quality bases
+	 * to prevent over-correction in problematic regions.
+	 *
+	 * @param bb ByteBuilder containing correction candidates
+	 * @param quals Quality scores for bases
+	 * @param window Window size for quality assessment
+	 * @param limit Maximum corrections allowed in window
+	 * @param qsumLimit Maximum quality sum allowed in window
+	 * @return Number of corrections cleared
+	 */
 	private static int clearWindow2(final ByteBuilder bb, final byte[] quals, final int window,
 			final int limit, final int qsumLimit/*, final int limitHQ, final byte hqThresh*/){
 		final int len=bb.length;
@@ -2245,6 +2344,17 @@ public abstract class Tadpole extends ShaveObject{
 		return marked;
 	}
 	
+	/**
+	 * Tests if k-mer count is similar to counts in specified range.
+	 * Uses coverage similarity thresholds to determine if counts represent
+	 * the same underlying coverage level within measurement variance.
+	 *
+	 * @param a Reference k-mer count for comparison
+	 * @param loc1 Start position in count list
+	 * @param loc2 End position in count list
+	 * @param counts K-mer count list
+	 * @return true if all counts in range are similar to reference count
+	 */
 	protected final boolean isSimilar(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
 		loc2=Tools.min(loc2, counts.size-1);
@@ -2254,6 +2364,14 @@ public abstract class Tadpole extends ShaveObject{
 		return true;
 	}
 	
+	/**
+	 * Tests if two k-mer counts are similar within configured thresholds.
+	 * Uses both constant and proportional similarity criteria for robust comparison.
+	 *
+	 * @param a First k-mer count
+	 * @param b Second k-mer count
+	 * @return true if counts are similar within configured tolerance
+	 */
 	protected final boolean isSimilar(final int a, final int b){
 		int min=Tools.min(a, b);
 		int max=Tools.max(a, b);
@@ -2262,6 +2380,17 @@ public abstract class Tadpole extends ShaveObject{
 		return (dif<pathSimilarityConstant || dif<max*pathSimilarityFraction);
 	}
 	
+	/**
+	 * Tests if reference count indicates error compared to counts in specified range.
+	 * Uses error detection thresholds to identify likely sequencing errors
+	 * based on dramatic coverage differences.
+	 *
+	 * @param a Reference k-mer count
+	 * @param loc1 Start position in count list
+	 * @param loc2 End position in count list
+	 * @param counts K-mer count list
+	 * @return true if all counts in range indicate error relative to reference
+	 */
 	protected final boolean isError(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
 		loc2=Tools.min(loc2, counts.size-1);
@@ -2271,10 +2400,30 @@ public abstract class Tadpole extends ShaveObject{
 		return true;
 	}
 	
+	/**
+	 * Tests for bidirectional error pattern using quality score integration.
+	 * Compares k-mer counts in both directions with quality-weighted error thresholds
+	 * to identify likely sequencing errors.
+	 *
+	 * @param a First k-mer count
+	 * @param b Second k-mer count
+	 * @param qa Quality score for first position
+	 * @param qb Quality score for second position
+	 * @return true if bidirectional error pattern detected
+	 */
 	protected final boolean isErrorBidirectional(final int a, final int b, final byte qa, final byte qb){
 		return (a>=b ? isError(a, b, qb) : isError(b, a, qa));
 	}
 	
+	/**
+	 * Tests if coverage ratio indicates sequencing error.
+	 * Uses configurable error multipliers and lower bounds to identify
+	 * dramatic coverage differences characteristic of errors.
+	 *
+	 * @param high Higher k-mer count
+	 * @param low Lower k-mer count
+	 * @return true if coverage ratio indicates likely error
+	 */
 	protected final boolean isError(final int high, final int low){
 		float em1;
 		if(errorPath==1){
@@ -2289,6 +2438,16 @@ public abstract class Tadpole extends ShaveObject{
 		return (low*em1<high || (low<=errorLowerConst && high>=Tools.max(minCountCorrect, low*errorMult2)));
 	}
 	
+	/**
+	 * Tests if coverage ratio indicates sequencing error with quality integration.
+	 * Adjusts error thresholds based on base quality score to improve
+	 * error detection accuracy.
+	 *
+	 * @param high Higher k-mer count
+	 * @param low Lower k-mer count
+	 * @param q Quality score for position being evaluated
+	 * @return true if coverage ratio indicates likely error
+	 */
 	protected final boolean isError(final int high, final int low, final byte q){
 		float em1;
 		if(errorPath==1){

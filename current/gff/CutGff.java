@@ -736,6 +736,12 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a processing thread with shared coordination objects.
+		 * @param atom_ Atomic counter for file assignment
+		 * @param ros_ Concurrent output stream
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final AtomicInteger atom_, ConcurrentReadOutputStream ros_, final int tid_){
 			atom=atom_;
 			ros=ros_;

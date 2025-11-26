@@ -16,6 +16,19 @@ import structures.ByteBuilder;
  */
 public class DumpThread extends Thread{
 	
+	/**
+	 * Launches multiple threads to dump k-mers from k-mer tables to a stream writer.
+	 * Creates optimal number of threads based on table count and system resources.
+	 * Each thread processes different tables using atomic work distribution.
+	 *
+	 * @param k K-mer length for output formatting
+	 * @param mincount Minimum k-mer count to include in output
+	 * @param maxcount Maximum k-mer count to include in output
+	 * @param tables Array of k-mer tables to process
+	 * @param bsw ByteStreamWriter for output serialization
+	 * @param remaining AtomicLong counter tracking remaining k-mers to dump
+	 * @return true if all threads completed successfully, false otherwise
+	 */
 	public static boolean dump(final int k, final int mincount, final int maxcount, final AbstractKmerTable[] tables, final ByteStreamWriter bsw, AtomicLong remaining){
 		final int threads=NUM_THREADS>0 ? NUM_THREADS : Tools.min(tables.length, (Tools.mid(1, Shared.threads()-1, 6)));
 		final AtomicInteger lock=new AtomicInteger(0);
@@ -39,6 +52,17 @@ public class DumpThread extends Thread{
 		return success;
 	}
 	
+	/**
+	 * Creates a new DumpThread with parameters for k-mer extraction.
+	 *
+	 * @param k_ K-mer length for output formatting
+	 * @param mincount_ Minimum k-mer count threshold
+	 * @param maxcount_ Maximum k-mer count threshold
+	 * @param nextTable_ Atomic counter for work distribution among threads
+	 * @param tables_ Array of k-mer tables to process
+	 * @param bsw_ ByteStreamWriter for serialized output
+	 * @param toDump_ AtomicLong tracking remaining k-mers to process
+	 */
 	public DumpThread(final int k_, final int mincount_, final int maxcount_, final AtomicInteger nextTable_, final AbstractKmerTable[] tables_, final ByteStreamWriter bsw_, final AtomicLong toDump_){
 		k=k_;
 		mincount=mincount_;

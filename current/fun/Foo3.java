@@ -369,6 +369,11 @@ public class Foo3 {
 			size++;
 		}
 		
+		/**
+		 * Resizes the internal array to accommodate more elements.
+		 * Doubles capacity while respecting maximum array size limits.
+		 * @param size2 Requested new size
+		 */
 		private final void resize(final long size2){
 			assert(size2>size) : size+", "+size2;
 			final int size3=(int)min(MAX_ARRAY_LEN, size2);

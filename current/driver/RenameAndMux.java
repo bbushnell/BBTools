@@ -340,6 +340,12 @@ public class RenameAndMux {
 		errorState|=ReadWrite.closeStream(ros);
 	}
 	
+	/**
+	 * Processes a single input file by renaming reads and writing to output stream.
+	 * Handles paired/unpaired data and formats read IDs with core filename prefix.
+	 * @param path Input file path to process
+	 * @param ros Output stream for writing processed reads
+	 */
 	void renameAndMergeOneFile(final String path, final ConcurrentReadOutputStream ros){
 
 		long readsProcessed=0;

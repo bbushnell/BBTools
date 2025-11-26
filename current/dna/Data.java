@@ -392,6 +392,15 @@ public class Data {
 		return ROOT_GENOME+genome+"/chr#"+chromExtension();
 	}
 	
+	/**
+	 * Creates merged ranges from overlapping gene coordinates.
+	 * Groups genes into continuous genomic regions based on transcription
+	 * or coding boundaries. Stores associated genes in range objects.
+	 *
+	 * @param genes Array of genes to process
+	 * @param mode Range type (TX_RANGE for transcription, CODE_RANGE for coding)
+	 * @return Array of merged ranges containing grouped genes
+	 */
 	public static Range[] findGeneRanges(Gene[] genes, final int mode){
 		
 		ArrayList<Range> list=new ArrayList<Range>(8192);
@@ -1661,6 +1670,14 @@ public class Data {
 		return forceIntern(s);
 	}
 	
+	/**
+	 * Forces string interning using internal concurrent hash map.
+	 * Clears map when size exceeds limit to prevent memory leaks.
+	 * Thread-safe with overflow protection.
+	 *
+	 * @param s0 String to intern
+	 * @return Interned string reference
+	 */
 	public static String forceIntern(final String s0){
 		assert(s0!=null);
 		calls++;

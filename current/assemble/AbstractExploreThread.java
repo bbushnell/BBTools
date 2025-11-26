@@ -53,6 +53,14 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 	 * @return true if processing should continue, false if complete
 	 */
 	boolean processNextTable(){return processNextTable(myKmer, myKmer2);}
+	/**
+	 * Processes the next k-mer table section for dead end detection.
+	 * Abstract method that must be implemented by concrete subclasses.
+	 *
+	 * @param kmer Primary k-mer object for graph traversal
+	 * @param temp Temporary k-mer object for computations
+	 * @return true if more table processing is needed, false if complete
+	 */
 	abstract boolean processNextTable(final Kmer kmer, Kmer temp);
 
 	/**
@@ -61,6 +69,14 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 	 * @return true if processing should continue, false if complete
 	 */
 	boolean processNextVictims(){return processNextVictims(myKmer, myKmer);}
+	/**
+	 * Processes the next batch of victim k-mers identified for removal.
+	 * Abstract method that must be implemented by concrete subclasses.
+	 *
+	 * @param kmer Primary k-mer object for graph traversal
+	 * @param temp Temporary k-mer object for computations
+	 * @return true if more victim processing is needed, false if complete
+	 */
 	abstract boolean processNextVictims(final Kmer kmer, Kmer temp);
 
 	/*--------------------------------------------------------------*/
@@ -85,6 +101,8 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 	
 	/** Unique identifier for this thread within the exploration pool */
 	final int id;
+	/** Secondary thread-local k-mer used for temporary computations. */
+	/** Primary thread-local k-mer used for traversal and analysis. */
 	final Kmer myKmer, myKmer2;
 
 	/** Array for counting left-extending bases during k-mer exploration */

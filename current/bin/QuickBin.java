@@ -935,6 +935,12 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	static class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread for parallel read processing.
+		 * @param cris_ Input stream for reading data
+		 * @param ros_ Output stream for writing results
+		 * @param tid_ Unique thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;

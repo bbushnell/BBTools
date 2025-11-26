@@ -445,6 +445,7 @@ public class ProcessStackedSitesNormalized {
 			return true;
 		}
 		
+		/** Lowest alignment score among all sites in array */
 		public boolean advanceToInterval(final int a, final int b, final int c){
 			
 			while(chrom<c || (chrom==c && max<a)){

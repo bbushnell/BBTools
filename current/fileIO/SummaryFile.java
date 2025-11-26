@@ -72,6 +72,14 @@ public class SummaryFile {
 		}
 	}
 	
+	/**
+	 * Validates summary file metadata against a reference FASTA file.
+	 * Checks source path, file size, and last modified timestamp for exact matches.
+	 * Returns false for stdin inputs or when any validation check fails.
+	 *
+	 * @param refName Path to reference FASTA file to validate against
+	 * @return true if summary matches reference file exactly, false otherwise
+	 */
 	public boolean compare(final String refName){
 		try {
 			File ref=new File(refName);
@@ -109,6 +117,14 @@ public class SummaryFile {
 		return true;
 	}
 	
+	/**
+	 * Static comparison method that creates a SummaryFile instance and validates
+	 * it against a reference file. Returns false if summary file doesn't exist.
+	 *
+	 * @param summaryName Path to summary file to load and validate
+	 * @param refName Path to reference FASTA file for validation
+	 * @return true if summary matches reference file, false otherwise
+	 */
 	public static boolean compare(final String summaryName, final String refName){
 		assert(refName!=null) : "Null reference file name.";
 		if(!new File(summaryName).exists()){

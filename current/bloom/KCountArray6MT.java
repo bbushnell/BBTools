@@ -155,6 +155,12 @@ public class KCountArray6MT extends KCountArray {
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/**
+	 * Increments the count for a k-mer by 1 using buffered writes.
+	 * Adds the key to a buffer for the appropriate writer thread to process.
+	 * Creates new buffer and queues work when buffer becomes full.
+	 * @param rawKey The k-mer key to increment
+	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 

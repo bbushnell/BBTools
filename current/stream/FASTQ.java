@@ -132,6 +132,14 @@ public class FASTQ {
 		return testQuality(oct);
 	}
 	
+	/**
+	 * Determines if a FASTQ file contains interleaved paired reads.
+	 * Analyzes read headers to detect paired-end sequencing data.
+	 *
+	 * @param fname Path to the FASTQ file
+	 * @param allowIdentical Whether identical read names indicate pairing
+	 * @return true if the file appears to contain interleaved pairs
+	 */
 	public static boolean isInterleaved(final String fname, final boolean allowIdentical){
 		if(!DETECT_QUALITY && !TEST_INTERLEAVED){return FORCE_INTERLEAVED;}
 		final ArrayList<String> oct=fileIO.FileFormat.getFirstOctet(fname);
@@ -756,6 +764,17 @@ public class FASTQ {
 		return list;
 	}
 	
+	/**
+	 * Parses FASTQ data from ByteFile into Read objects.
+	 * Optimized version using byte arrays for better performance.
+	 *
+	 * @param bf ByteFile containing FASTQ data
+	 * @param maxReadsToReturn Maximum number of reads to parse
+	 * @param numericID Starting numeric ID for reads
+	 * @param interleaved Whether to treat input as interleaved paired reads
+	 * @param flag Additional processing flags
+	 * @return List of parsed Read objects
+	 */
 	public static ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn, long numericID, final boolean interleaved, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
 		final byte[][] quad=new byte[4][];
@@ -833,6 +852,14 @@ public class FASTQ {
 		return list;
 	}
 	
+	/**
+	 * Converts SCARF format line to standard 4-element FASTQ quad.
+	 * SCARF format contains sequence data separated by colons.
+	 *
+	 * @param scarf SCARF-formatted line as byte array
+	 * @param quad Existing quad array to populate (created if null)
+	 * @return 4-element array with header, sequence, separator, quality
+	 */
 	public static byte[][] scarfToQuad(final byte[] scarf, byte[][] quad){
 		
 		int a=-1, b=-1;
@@ -993,6 +1020,18 @@ public class FASTQ {
 		return r;
 	}
 	
+	/**
+	 * Converts 4-element FASTQ quad to Read object with comprehensive processing.
+	 * Handles quality score conversion, custom header parsing, and error checking.
+	 * More thorough but slower than the fast version.
+	 *
+	 * @param quad 4-element array containing FASTQ components
+	 * @param scarf Whether input is in SCARF format
+	 * @param bf Source file for error reporting
+	 * @param numericID Numeric ID for the read
+	 * @param flag Additional processing flags
+	 * @return Parsed Read object
+	 */
 	public static Read quadToRead_slow(final byte[][] quad, boolean scarf, ByteFile bf, long numericID, final int flag){
 		
 		if(verbose){

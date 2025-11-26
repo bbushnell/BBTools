@@ -807,6 +807,14 @@ public class KmerNormalize {
 		return tempOutPrefix;
 	}
 	
+	/**
+	 * Constructs full temporary output filename from prefix.
+	 * Uses temp directory or output directory based on configuration.
+	 *
+	 * @param outFname Original output filename
+	 * @param tempOutPrefix Temporary file prefix
+	 * @return Complete temporary output filename
+	 */
 	private static String getTempOut(String outFname, final String tempOutPrefix){
 		assert(tempOutPrefix!=null);
 		String tempOut=null;
@@ -2259,6 +2267,15 @@ public class KmerNormalize {
 		}
 	}
 	
+	/**
+	 * Advanced spike fixing using k-mer context for validation.
+	 * Verifies spike correction against k-mer count table before applying.
+	 *
+	 * @param cov Coverage array to fix
+	 * @param kmers K-mer array for validation
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 */
 	private static void fixSpikes(int[] cov, long[] kmers, KCountArray kca, final int k){
 		assert(k<32) : "this function not tested with k>31";
 		if(cov.length<3){return;}
@@ -2806,6 +2823,16 @@ public class KmerNormalize {
 		return false;
 	}
 	
+	/**
+	 * Tests k-mer extension to the right for error correction.
+	 * Evaluates potential base substitutions at rightmost position.
+	 *
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param kmer0 Base k-mer value
+	 * @param suffix Suffix bytes for extension
+	 * @return Count for best extension base
+	 */
 	private static int testRightSuffix(final KCountArray kca, final int k, final long kmer0, final byte[] suffix){
 		assert(k<=31);
 		final int kbits=2*k;
@@ -2840,6 +2867,16 @@ public class KmerNormalize {
 		return min;
 	}
 	
+	/**
+	 * Tests k-mer extension to the left for error correction.
+	 * Evaluates potential base substitutions at leftmost position.
+	 *
+	 * @param kca K-mer count array
+	 * @param k K-mer length
+	 * @param kmer0 Base k-mer value
+	 * @param suffix Suffix bytes for extension
+	 * @return Count for best extension base
+	 */
 	private static int testLeftSuffix(final KCountArray kca, final int k, final long kmer0, final byte[] suffix){
 		assert(k<=31);
 		final int kbits=2*k;

@@ -381,6 +381,15 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		return out;
 	}
 	
+	/**
+	 * Parses a set of lines into a Clade and adds it to the collection.
+	 * Requires minimum 5 lines to create a valid clade.
+	 *
+	 * @param set Lines representing a single clade record
+	 * @param clades Collection to add the parsed clade to
+	 * @param lp LineParser for processing tab-separated data
+	 * @return True if clade was successfully parsed and added
+	 */
 	private static boolean addClade(final ArrayList<byte[]> set, 
 			ArrayList<Clade> clades, LineParser1 lp) {
 		if(set.size()<=5) {return false;}

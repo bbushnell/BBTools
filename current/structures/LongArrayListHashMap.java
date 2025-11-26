@@ -424,6 +424,12 @@ public class LongArrayListHashMap <X> {
 		}
 	}
 	
+	/**
+	 * Attempts to move an entry from source cell to its proper position.
+	 * Returns true if the entry was moved, false if already in correct position.
+	 * @param sourceCell Index of cell to rehash
+	 * @return true if entry was moved, false if no move needed
+	 */
 	private boolean rehashCell(final int sourceCell){
 		final long key=keys[sourceCell];
 		final ArrayList<X> value=values[sourceCell];
@@ -458,6 +464,12 @@ public class LongArrayListHashMap <X> {
 		}
 	}
 	
+	/**
+	 * Locates the cell containing the specified key using linear probing.
+	 * Returns -1 if the key is not found.
+	 * @param key The key to locate
+	 * @return Index of cell containing the key, or -1 if not found
+	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -475,6 +487,14 @@ public class LongArrayListHashMap <X> {
 		return -1;
 	}
 	
+	/**
+	 * Locates the cell containing the key or the first empty cell for insertion.
+	 * Used for put operations to find insertion point.
+	 * Throws RuntimeException if no empty cell is found.
+	 *
+	 * @param key The key to locate or place
+	 * @return Index of cell containing key or empty cell for insertion
+	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		

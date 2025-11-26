@@ -22,6 +22,25 @@ import shared.Tools;
  */
 public class IndexMaker4 {
 	
+	/**
+	 * Creates k-mer indices for a range of chromosomes with multi-threaded processing.
+	 * Initializes BlockMaker threads for each chromosome range and coordinates their execution.
+	 *
+	 * @param genome Genome build number for reference selection
+	 * @param minChrom Minimum chromosome number to index
+	 * @param maxChrom Maximum chromosome number to index
+	 * @param k K-mer length for indexing
+	 * @param CHROMBITS Number of bits allocated for chromosome encoding
+	 * @param MAX_ALLOWED_CHROM_INDEX Maximum allowed chromosome index size
+	 * @param CHROM_MASK_LOW Bitmask for low chromosome bits
+	 * @param CHROM_MASK_HIGH Bitmask for high chromosome bits
+	 * @param SITE_MASK Bitmask for genomic site extraction
+	 * @param SHIFT_LENGTH Bit shift amount for encoding
+	 * @param WRITE Whether to write indices to disk
+	 * @param DISK_INVALID Whether to ignore existing disk indices
+	 * @param index Pre-allocated index array or null
+	 * @return Array of Block objects containing k-mer indices
+	 */
 	public static Block[] makeIndex(final int genome, int minChrom, int maxChrom, int k, int CHROMBITS,
 			int MAX_ALLOWED_CHROM_INDEX, int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH,
 			boolean WRITE, boolean DISK_INVALID, Block[] index){
@@ -367,6 +386,12 @@ public class IndexMaker4 {
 				//Data.sysout.println("Thread "+id+" finished.");
 			}
 
+			/**
+			 * First phase: counts occurrences of each k-mer in the specified chromosome.
+			 * Scans chromosome sequence and increments counters for valid k-mers.
+			 * Applies filtering for homopolymers and modulo constraints.
+			 * @param chrom Chromosome number to process
+			 */
 			private void countSizes(final int chrom){
 
 				//			System.err.println("Thread "+id+" using chr"+chrom+" for countSizes");
@@ -412,6 +437,11 @@ public class IndexMaker4 {
 
 			}
 
+			/**
+			 * Second phase: populates index arrays with genomic locations for each k-mer.
+			 * Scans chromosome sequence and stores encoded (site, chromosome) pairs.
+			 * @param chrom Chromosome number to process
+			 */
 			private void fillArrays(final int chrom){
 
 				//			System.err.println("Thread "+id+" using chr"+chrom+" for fillArrays");

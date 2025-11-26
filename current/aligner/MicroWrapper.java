@@ -464,6 +464,15 @@ public class MicroWrapper implements Accumulator<MicroWrapper.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for worker thread.
+		 * Initializes alignment mappers and statistics tracking for this thread.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for processed sequences
+		 * @param rosu_ Output stream for unmapped sequences
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, 
 				final ConcurrentReadOutputStream rosu_, final int tid_){
 			cris=cris_;

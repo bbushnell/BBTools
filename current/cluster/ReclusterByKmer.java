@@ -442,6 +442,12 @@ public class ReclusterByKmer {
 		}
 		
 		
+		/**
+		 * Processes a single read (and its mate if paired) for clustering.
+		 * Creates ReadTag objects with metadata and delegates to appropriate
+		 * clustering method based on the thread's operation mode.
+		 * @param r1 The read to process (may have a mate in r1.mate)
+		 */
 		private void processRead(final Read r1){
 			final Read r2=r1.mate;
 

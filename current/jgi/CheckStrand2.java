@@ -1050,6 +1050,15 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Creates a ProcessThread for parallel read processing.
+		 * Initializes sketch makers and gene caller for strand analysis.
+		 *
+		 * @param cris_ Input stream for reading sequences
+		 * @param crosP_ Output stream for plus-strand reads (may be null)
+		 * @param crosM_ Output stream for minus-strand reads (may be null)
+		 * @param tid_ Thread identifier for debugging
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, 
 				ConcurrentReadOutputStream crosP_, ConcurrentReadOutputStream crosM_, final int tid_){
 			cris=cris_;

@@ -150,6 +150,12 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		}
 	}
 	
+	/**
+	 * Attempts to rehash a single cell to its optimal position.
+	 * Moves the key-value pair if a better position is found.
+	 * @param cell The cell index to rehash
+	 * @return true if the cell was moved, false if already optimal
+	 */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final int value=values[cell];
@@ -200,6 +206,14 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		return -1;
 	}
 	
+	/**
+	 * Locates the cell containing the specified key or first empty cell.
+	 * Uses linear probing with wraparound for collision resolution.
+	 *
+	 * @param key The key to search for
+	 * @return Cell index containing key or first empty cell suitable for insertion
+	 * @throws RuntimeException if no empty cells are found
+	 */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -223,6 +237,11 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		resize(Tools.max(2, modulus+1)*2L);
 	}
 	
+	/**
+	 * Resizes the hash table to the specified power-of-2 size.
+	 * Rehashes all existing entries into the new larger table.
+	 * @param size2 New table size, must be power of 2
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		assert(Long.bitCount(size2)==1) : size+", "+size2;

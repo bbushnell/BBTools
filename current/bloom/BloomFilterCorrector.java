@@ -53,6 +53,23 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 	
+	/**
+	 * Wrapper method that delegates to the main error correction implementation.
+	 *
+	 * @param r The read to correct
+	 * @param leftCounts Buffer for left extension counts
+	 * @param rightCounts Buffer for right extension counts
+	 * @param kmers List of k-mers from the read
+	 * @param counts K-mer count values
+	 * @param counts2 Secondary count buffer
+	 * @param bb Primary byte buffer
+	 * @param bb2 Secondary byte buffer
+	 * @param tracker Error tracking statistics
+	 * @param bs BitSet for marking changed positions
+	 * @param kmer Kmer object for operations
+	 * @param kmer2 Secondary Kmer object
+	 * @return Number of errors corrected
+	 */
 	public int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, LongList kmers, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs, Kmer kmer, Kmer kmer2){
 		return errorCorrect(r, leftCounts, rightCounts, kmers, counts, counts2, bb, bb2, tracker, bs);
@@ -91,6 +108,23 @@ public class BloomFilterCorrector {
 		return count<mcc || isError(max+1, min-1);
 	}
 	
+	/**
+	 * Main error correction method implementing multiple correction strategies.
+	 * Applies pincer correction, tail correction, and reassembly approaches
+	 * with rollback capability for quality control.
+	 *
+	 * @param r The read to correct
+	 * @param leftCounts Buffer for left extension counts
+	 * @param rightCounts Buffer for right extension counts
+	 * @param kmers List of k-mers from the read
+	 * @param counts K-mer count values
+	 * @param counts2 Secondary count buffer
+	 * @param bb Primary byte buffer
+	 * @param bb2 Secondary byte buffer
+	 * @param tracker Error tracking statistics
+	 * @param bs BitSet for marking changed positions
+	 * @return Number of errors corrected
+	 */
 	public int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, LongList kmers, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs){
 		
@@ -349,6 +383,25 @@ public class BloomFilterCorrector {
 //		array[size-1]=Tools.min(array[size-1], array[size-2]);
 	}
 	
+	/**
+	 * Reassembly-based error correction using bidirectional extension.
+	 * Extends sequences from both ends to identify and correct errors
+	 * through consensus agreement between forward and reverse extensions.
+	 *
+	 * @param bases Sequence bases to correct
+	 * @param quals Quality scores
+	 * @param rightCounts Buffer for right extension counts
+	 * @param counts K-mer count values
+	 * @param counts2 Secondary count buffer
+	 * @param tracker Error tracking statistics
+	 * @param errorExtension Extension distance for error detection
+	 * @param bb Primary byte buffer
+	 * @param bb2 Secondary byte buffer
+	 * @param kmer Kmer object for operations
+	 * @param regenKmer Secondary Kmer object
+	 * @param bs BitSet for marking changed positions
+	 * @return Number of errors corrected
+	 */
 	public final int reassemble(final byte[] bases, final byte[] quals, final int[] rightCounts, final IntList counts, final IntList counts2,
 			final ErrorTracker tracker, final int errorExtension, final ByteBuilder bb, final ByteBuilder bb2, final Kmer kmer, final Kmer regenKmer, BitSet bs){
 		if(bases.length<k+1+deadZone){return 0;}
@@ -375,6 +428,25 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 	
+	/**
+	 * Single pass of the reassembly algorithm.
+	 * Performs bidirectional extension and compares results to identify corrections.
+	 * Uses windowing to prevent over-correction in high-error regions.
+	 *
+	 * @param bases Original sequence bases
+	 * @param quals Quality scores
+	 * @param fromLeft Extension from left end
+	 * @param fromRight Extension from right end
+	 * @param rightCounts Buffer for extension counts
+	 * @param counts K-mer count values
+	 * @param counts2 Secondary count buffer
+	 * @param tracker Error tracking statistics
+	 * @param errorExtension Extension distance
+	 * @param kmer Primary Kmer object
+	 * @param kmer2 Secondary Kmer object
+	 * @param bs BitSet for marking changes
+	 * @return Number of errors corrected
+	 */
 	public final int reassemble_pass(final byte[] bases, final byte[] quals, final ByteBuilder fromLeft, final ByteBuilder fromRight,
 			final int[] rightCounts, final IntList counts, final IntList counts2, final ErrorTracker tracker, final int errorExtension,
 			final Kmer kmer, final Kmer kmer2, final BitSet bs){
@@ -498,6 +570,16 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 	
+	/**
+	 * Regenerates k-mer counts for positions that were changed during correction.
+	 * Updates count array after bases have been modified to reflect new k-mer frequencies.
+	 *
+	 * @param bases Modified sequence bases
+	 * @param counts Count array to update
+	 * @param dummy Unused Kmer parameter
+	 * @param changed BitSet indicating which positions were modified
+	 * @return Number of valid k-mers processed
+	 */
 	public int regenerateCounts(byte[] bases, IntList counts, final Kmer dummy, BitSet changed){
 		assert(!changed.isEmpty());
 		final int firstBase=changed.nextSetBit(0), lastBase=changed.length()-1;
@@ -553,6 +635,18 @@ public class BloomFilterCorrector {
 		return valid;
 	}
 	
+	/**
+	 * Clears correction candidates in windows with too many changes.
+	 * Prevents over-correction by removing proposed changes when too many
+	 * corrections are concentrated in a small region.
+	 *
+	 * @param bb ByteBuilder containing proposed changes
+	 * @param quals Quality scores
+	 * @param window Window size for analysis
+	 * @param limit Maximum changes allowed in window
+	 * @param qsumLimit Maximum quality sum allowed in window
+	 * @return Number of positions cleared
+	 */
 	private static int clearWindow2(final ByteBuilder bb, final byte[] quals, final int window,
 			final int limit, final int qsumLimit/*, final int limitHQ, final byte hqThresh*/){
 		final int len=bb.length;
@@ -590,11 +684,35 @@ public class BloomFilterCorrector {
 		return cleared;
 	}
 	
+	/**
+	 * Wrapper for reassemble_inner with Kmer parameters.
+	 *
+	 * @param bb ByteBuilder containing sequence
+	 * @param quals Quality scores
+	 * @param rightCounts Buffer for right extension counts
+	 * @param counts K-mer count values
+	 * @param errorExtension Extension distance for error detection
+	 * @param kmer Primary Kmer object
+	 * @param regenKmer Secondary Kmer object
+	 * @return Number of errors corrected
+	 */
 	public int reassemble_inner(final ByteBuilder bb, final byte[] quals, final int[] rightCounts, final IntList counts,
 			final int errorExtension, final Kmer kmer, final Kmer regenKmer){
 		return reassemble_inner(bb, quals, rightCounts, counts, errorExtension);
 	}
 	
+	/**
+	 * Inner reassembly algorithm for single-direction extension.
+	 * Extends sequence rightward looking for error patterns and corrections.
+	 * Identifies substitution errors by analyzing k-mer count transitions.
+	 *
+	 * @param bb ByteBuilder containing sequence to extend
+	 * @param quals Quality scores
+	 * @param rightCounts Buffer for extension counts
+	 * @param counts K-mer count values
+	 * @param errorExtension Maximum extension distance
+	 * @return Number of errors corrected
+	 */
 	public int reassemble_inner(final ByteBuilder bb, final byte[] quals, final int[] rightCounts, final IntList counts,
 			final int errorExtension){
 		final int length=bb.length();
@@ -757,6 +875,22 @@ public class BloomFilterCorrector {
 		return possibleErrors;
 	}
 	
+	/**
+	 * Pincer-based error correction using flanking k-mer analysis.
+	 * Identifies errors by comparing count patterns of adjacent k-mers
+	 * and corrects single-base substitutions when flanking k-mers agree.
+	 *
+	 * @param bases Sequence bases to correct
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extension analysis
+	 * @param rightBuffer Buffer for right extension analysis
+	 * @param kmers K-mer list from sequence
+	 * @param counts K-mer count values
+	 * @param bb ByteBuilder for operations
+	 * @param tracker Error tracking statistics
+	 * @param errorExtension Extension distance for verification
+	 * @return Number of errors corrected
+	 */
 	public int errorCorrectPincer(final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final LongList kmers, final IntList counts, final ByteBuilder bb, final ErrorTracker tracker, final int errorExtension){
 		
@@ -809,6 +943,23 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 
+	/**
+	 * Tail-based error correction for sequence ends.
+	 * Corrects errors near sequence ends where pincer correction is not possible.
+	 * Uses unidirectional extension to verify and correct substitutions.
+	 *
+	 * @param bases Sequence bases to correct
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extension analysis
+	 * @param rightBuffer Buffer for right extension analysis
+	 * @param kmers K-mer list from sequence
+	 * @param counts K-mer count values
+	 * @param bb ByteBuilder for operations
+	 * @param tracker Error tracking statistics
+	 * @param startPos Starting position for correction
+	 * @param errorExtension Extension distance for verification
+	 * @return Number of errors corrected
+	 */
 	public int errorCorrectTail(final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final LongList kmers, final IntList counts, final ByteBuilder bb, final ErrorTracker tracker, final int startPos, final int errorExtension){
 		if(bases.length<k+2+errorExtension+deadZone){return 0;}
@@ -857,6 +1008,22 @@ public class BloomFilterCorrector {
 		return corrected;
 	}
 	
+	/**
+	 * Corrects a single base using pincer analysis with bidirectional verification.
+	 * Extends from both flanking k-mers to confirm the correct base at the error position.
+	 *
+	 * @param a Left k-mer index
+	 * @param d Right k-mer index
+	 * @param bases Sequence bases
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extension
+	 * @param rightBuffer Buffer for right extension
+	 * @param kmers K-mer list
+	 * @param counts K-mer count values
+	 * @param bb ByteBuilder for extension
+	 * @param errorExtension Extension distance required
+	 * @return 1 if corrected, 0 if not corrected
+	 */
 	private int correctSingleBasePincer(final int a, final int d, final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final LongList kmers, final IntList counts, final ByteBuilder bb, final int errorExtension){
 		final byte leftReplacement, rightReplacement;
@@ -898,6 +1065,21 @@ public class BloomFilterCorrector {
 		return 1;
 	}
 	
+	/**
+	 * Corrects a single base using rightward extension only.
+	 * Used for tail correction where only one direction is available for verification.
+	 *
+	 * @param a K-mer index for extension start
+	 * @param bases Sequence bases
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extension (unused)
+	 * @param rightBuffer Buffer for right extension
+	 * @param kmers K-mer list
+	 * @param counts K-mer count values
+	 * @param bb ByteBuilder for extension
+	 * @param errorExtension0 Extension distance required
+	 * @return 1 if corrected, 0 if not corrected
+	 */
 	private int correctSingleBaseRight(final int a, final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final LongList kmers, final IntList counts, final ByteBuilder bb, final int errorExtension0){
 		final byte leftReplacement;
@@ -950,6 +1132,15 @@ public class BloomFilterCorrector {
 		return similar;
 	}
 	
+	/**
+	 * Tests if all counts in a range are similar to a reference count.
+	 *
+	 * @param a Reference count value
+	 * @param loc1 Start of range (inclusive)
+	 * @param loc2 End of range (inclusive)
+	 * @param counts Count array
+	 * @return true if all counts in range are similar to reference
+	 */
 	protected final boolean isSimilar(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
 		loc2=Tools.min(loc2, counts.size-1);
@@ -959,6 +1150,14 @@ public class BloomFilterCorrector {
 		return true;
 	}
 	
+	/**
+	 * Tests if two count values are similar within tolerance.
+	 * Uses both absolute and relative thresholds for similarity testing.
+	 *
+	 * @param a First count value
+	 * @param b Second count value
+	 * @return true if counts are considered similar
+	 */
 	protected final boolean isSimilar(final int a, final int b){
 		int min=Tools.min(a, b);
 		int max=Tools.max(a, b);
@@ -967,6 +1166,15 @@ public class BloomFilterCorrector {
 		return (dif<pathSimilarityConstant || dif<max*pathSimilarityFraction);
 	}
 	
+	/**
+	 * Tests if all positions in a range represent errors relative to reference count.
+	 *
+	 * @param a Reference count value
+	 * @param loc1 Start of range (inclusive)
+	 * @param loc2 End of range (inclusive)
+	 * @param counts Count array
+	 * @return true if all positions in range are errors
+	 */
 	protected final boolean isError(final int a, int loc1, int loc2, final IntList counts){
 		loc1=Tools.max(loc1, 0);
 		loc2=Tools.min(loc2, counts.size-1);
@@ -976,10 +1184,27 @@ public class BloomFilterCorrector {
 		return true;
 	}
 	
+	/**
+	 * Bidirectional error test considering both count values and quality scores.
+	 *
+	 * @param a First count value
+	 * @param b Second count value
+	 * @param qa Quality score for first position
+	 * @param qb Quality score for second position
+	 * @return true if counts represent an error transition
+	 */
 	protected final boolean isErrorBidirectional(final int a, final int b, final byte qa, final byte qb){
 		return (a>=b ? isError(a, b, qb) : isError(b, a, qa));
 	}
 	
+	/**
+	 * Tests if count transition represents a sequencing error.
+	 * Uses configurable thresholds and multipliers to identify error patterns.
+	 *
+	 * @param high Higher count value
+	 * @param low Lower count value
+	 * @return true if transition indicates an error
+	 */
 	protected final boolean isError(final int high, final int low){
 		float em1;
 		if(errorPath==1){
@@ -994,6 +1219,15 @@ public class BloomFilterCorrector {
 		return (low*em1<high || (low<=errorLowerConst && high>=Tools.max(minCountCorrect, low*errorMult2)));
 	}
 	
+	/**
+	 * Tests if count transition represents an error, incorporating quality score.
+	 * Quality scores modify error detection thresholds for more accurate identification.
+	 *
+	 * @param high Higher count value
+	 * @param low Lower count value
+	 * @param q Quality score at the position
+	 * @return true if transition indicates an error
+	 */
 	protected final boolean isError(final int high, final int low, final byte q){
 		float em1;
 		if(errorPath==1){
@@ -1008,6 +1242,17 @@ public class BloomFilterCorrector {
 		return (low*em1<high || (low<=errorLowerConst && high>=Tools.max(minCountCorrect, low*errorMult2)));
 	}
 	
+	/**
+	 * Extends sequence rightward by generating k-mer from existing sequence.
+	 * Wrapper method that computes the rightmost k-mer and calls main extension.
+	 *
+	 * @param bb ByteBuilder containing initial sequence
+	 * @param leftCounts Buffer for left neighbor analysis (may be null)
+	 * @param rightCounts Buffer for right neighbor counts
+	 * @param distance Maximum extension distance
+	 * @param includeJunctionBase Whether to include base at junction positions
+	 * @return Number of bases added to sequence
+	 */
 	public int extendToRight2(final ByteBuilder bb, final int[] leftCounts, final int[] rightCounts, final int distance, boolean includeJunctionBase){
 		if(verbose || verbose2){outstream.println("Entering extendToRight2 (no kmers).");}
 		final int initialLength=bb.length();
@@ -1175,6 +1420,15 @@ public class BloomFilterCorrector {
 		return bb.length()-initialLength;
 	}
 	
+	/**
+	 * Regenerates k-mers and counts after sequence modification.
+	 * Updates k-mer list and count array for positions affected by base changes.
+	 *
+	 * @param bases Modified sequence bases
+	 * @param kmers K-mer list to update
+	 * @param counts Count array to update
+	 * @param a Starting index for regeneration
+	 */
 	public void regenerateKmers(byte[] bases, LongList kmers, IntList counts, final int a){
 		final int loc=a+k;
 		final int lim=Tools.min(counts.size, a+k+1);
@@ -1478,6 +1732,15 @@ public class BloomFilterCorrector {
 		return true;
 	}
 	
+	/**
+	 * Regenerates k-mer counts for a specific region after base changes.
+	 * Updates count array for positions affected by sequence modifications.
+	 *
+	 * @param bases Modified sequence bases
+	 * @param counts Count array to update
+	 * @param ca Starting count array index
+	 * @return Number of valid k-mers processed
+	 */
 	public int regenerateCounts(byte[] bases, IntList counts, final int ca){
 		final int b=ca+k-1;
 		final int lim=Tools.min(bases.length, b+k+1);

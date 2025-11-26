@@ -165,6 +165,14 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return a.id.compareTo(b.id);
 	}
 	
+	/**
+	 * Compares two byte arrays element-wise for lexicographic ordering.
+	 * Used for comparing quality score arrays between reads.
+	 *
+	 * @param a First byte array (may be null)
+	 * @param b Second byte array (may be null)
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -179,6 +187,16 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
+	/**
+	 * Compares match strings using alignment-aware ordering.
+	 * Prioritizes certain alignment operations: insertions/substitutions (I,X,Y)
+	 * are considered worse than matches, and deletions (D) are worse than
+	 * insertions for sorting purposes.
+	 *
+	 * @param a First match string (may be null)
+	 * @param b Second match string (may be null)
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	public int compareMatchStrings(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}

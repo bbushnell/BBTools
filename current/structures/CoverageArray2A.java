@@ -66,6 +66,15 @@ public class CoverageArray2A extends CoverageArray {
 		}
 	}
 	
+	/**
+	 * Atomically increments the lower 16-bit value at the specified integer index.
+	 * Uses compare-and-exchange loop to ensure atomic updates.
+	 * Preserves the upper 16-bit value while updating the lower value.
+	 *
+	 * @param intIdx Integer array index
+	 * @param amt Amount to increment by
+	 * @return true if overflow occurred (value reached 0xFFFF), false otherwise
+	 */
 	private boolean incrementLower(final int intIdx, final int amt) {
 		boolean overflow=false;
 		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
@@ -162,6 +171,15 @@ public class CoverageArray2A extends CoverageArray {
 		}
 	}
 	
+	/**
+	 * Atomically sets the lower 16-bit value at the specified integer index.
+	 * Uses compare-and-exchange loop to ensure atomic updates.
+	 * Preserves the upper 16-bit value while setting the lower value.
+	 *
+	 * @param intIdx Integer array index
+	 * @param amt Value to set in the lower 16 bits
+	 * @return Always returns false (no overflow possible with set operations)
+	 */
 	private boolean setLower(final int intIdx, final int amt) {
 		for(int oldVal=0, actual=amt; oldVal!=actual; ) {
 			oldVal=array.get(intIdx);

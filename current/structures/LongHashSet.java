@@ -321,6 +321,12 @@ public final class LongHashSet{
 		}
 	}
 	
+	/**
+	 * Rehashes a single cell to its correct position.
+	 * Used during removal operations to fill gaps in the probe sequence.
+	 * @param cell The cell index to rehash
+	 * @return true if the cell was moved to a different position
+	 */
 	private boolean rehashCell(final int cell){
 		final long value=array[cell];
 		assert(value!=invalid);
@@ -346,6 +352,11 @@ public final class LongHashSet{
 		}
 	}
 	
+	/**
+	 * Locates the cell containing the specified value using linear probing.
+	 * @param value The value to locate
+	 * @return Cell index if found, -1 if not found
+	 */
 	private int findCell(final long value){
 		if(value==invalid){return -1;}
 		
@@ -363,6 +374,14 @@ public final class LongHashSet{
 		return -1;
 	}
 	
+	/**
+	 * Finds the cell containing the value or the first empty cell for insertion.
+	 * Uses linear probing starting from the hash position.
+	 *
+	 * @param value The value to locate or position for insertion
+	 * @return Cell index containing the value or first empty cell
+	 * @throws RuntimeException if no empty cells are found
+	 */
 	private int findCellOrEmpty(final long value){
 		assert(value!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -384,6 +403,11 @@ public final class LongHashSet{
 		resize(array.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to accommodate the specified minimum size.
+	 * Uses prime numbers for optimal hash distribution and rehashes all existing values.
+	 * @param size2 Minimum required size for the new hash table
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);

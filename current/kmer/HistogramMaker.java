@@ -17,6 +17,15 @@ import structures.SuperLongList;
 public final class HistogramMaker {
 
 	
+	/**
+	 * Fills a histogram array with k-mer frequency counts from the provided tables.
+	 * Automatically chooses between single-threaded and multi-threaded processing
+	 * based on available CPU cores.
+	 *
+	 * @param tables Array of k-mer tables to process
+	 * @param histMax Maximum histogram bin value
+	 * @return Array containing frequency counts for each histogram bin
+	 */
 	public static long[] fillHistogram(final AbstractKmerTable[] tables, final int histMax) {
 		if(Shared.threads()>2){
 			return fillHistogram_MT(tables, histMax);
@@ -25,6 +34,14 @@ public final class HistogramMaker {
 		}
 	}
 	
+	/**
+	 * Single-threaded histogram filling implementation.
+	 * Processes tables sequentially to generate frequency distribution.
+	 *
+	 * @param tables Array of k-mer tables to process
+	 * @param histMax Maximum histogram bin value
+	 * @return Array containing frequency counts for each histogram bin
+	 */
 	private static long[] fillHistogram_ST(final AbstractKmerTable[] tables, final int histMax) {
 		long[] ca=new long[histMax+1];
 		for(AbstractKmerTable set : tables){
@@ -33,6 +50,15 @@ public final class HistogramMaker {
 		return ca;
 	}
 	
+	/**
+	 * Multi-threaded histogram filling implementation.
+	 * Distributes table processing across worker threads and accumulates results.
+	 * Automatically adjusts thread count based on available cores and table count.
+	 *
+	 * @param tables Array of k-mer tables to process
+	 * @param histMax Maximum histogram bin value
+	 * @return Array containing accumulated frequency counts from all threads
+	 */
 	private static long[] fillHistogram_MT(final AbstractKmerTable[] tables, final int histMax) {
 		boolean errorState=false;
 		int threads=Shared.threads();
@@ -79,6 +105,12 @@ public final class HistogramMaker {
 	 */
 	private static class FillThread extends Thread{
 		
+		/**
+		 * Constructs a FillThread with shared resources.
+		 * @param tables_ Shared array of k-mer tables to process
+		 * @param histMax_ Maximum histogram bin value
+		 * @param next_ Atomic counter for work distribution among threads
+		 */
 		FillThread(final AbstractKmerTable[] tables_, int histMax_, AtomicInteger next_){
 			tables=tables_;
 			next=next_;

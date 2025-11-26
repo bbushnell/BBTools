@@ -234,6 +234,12 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		}
 	}
 	
+	/**
+	 * Attempts to move a key-value pair to its optimal position in the hash table.
+	 * Used during deletion cleanup to maintain efficient probe sequences.
+	 * @param cell Index of the cell to rehash
+	 * @return true if the cell was moved to a different position, false otherwise
+	 */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final int value=values[cell];
@@ -285,6 +291,11 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes the hash table to accommodate more entries.
+	 * Finds the next suitable prime number and rehashes all existing entries.
+	 * @param size2 Target minimum capacity for the new hash table
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);

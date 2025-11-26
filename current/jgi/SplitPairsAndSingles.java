@@ -405,6 +405,15 @@ public final class SplitPairsAndSingles {
 //		basesOut+=singleBasesOut+pairBasesOut;
 //	}
 	
+	/**
+	 * Standard processing mode that splits paired and single reads.
+	 * Processes each read pair, applies trimming and length filters,
+	 * then routes to paired or single output streams accordingly.
+	 *
+	 * @param cris Concurrent read input stream
+	 * @param ros Output stream for paired reads (may be null)
+	 * @param rosb Output stream for single reads (may be null)
+	 */
 	private void process3(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 
 		ListNum<Read> ln=cris.nextList();
@@ -442,6 +451,15 @@ public final class SplitPairsAndSingles {
 		basesOut+=singleBasesOut+pairBasesOut;
 	}
 	
+	/**
+	 * Interleaving repair mode that fixes improperly interleaved files.
+	 * Reads sequential reads and tests pair names to determine proper pairing,
+	 * handling cases where reads may not be properly alternated in the input.
+	 *
+	 * @param cris Concurrent read input stream containing improperly interleaved reads
+	 * @param ros Output stream for properly paired reads (may be null)
+	 * @param rosb Output stream for orphaned single reads (may be null)
+	 */
 	private void process3_fixInterleaving(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 
 		ListNum<Read> ln=cris.nextList();
@@ -513,6 +531,15 @@ public final class SplitPairsAndSingles {
 		basesOut+=singleBasesOut+pairBasesOut;
 	}
 	
+	/**
+	 * Repair mode for dual input streams that matches reads by name prefix.
+	 * Uses a HashMap to store unpaired reads temporarily and matches them
+	 * when their mate is encountered, outputting remaining singletons at the end.
+	 *
+	 * @param cris Dual concurrent read input stream
+	 * @param ros Output stream for repaired paired reads (may be null)
+	 * @param rosb Output stream for singleton reads (may be null)
+	 */
 	private void process3_repair(final DualCris cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 
 		ListNum<Read> ln=cris.nextList();
@@ -574,6 +601,15 @@ public final class SplitPairsAndSingles {
 		basesOut+=singleBasesOut+pairBasesOut;
 	}
 	
+	/**
+	 * Repair mode for single input stream that matches reads by name prefix.
+	 * Uses a HashMap to store unpaired reads temporarily and matches them
+	 * when their mate is encountered, outputting remaining singletons at the end.
+	 *
+	 * @param cris Concurrent read input stream
+	 * @param ros Output stream for repaired paired reads (may be null)
+	 * @param rosb Output stream for singleton reads (may be null)
+	 */
 	private void process3_repair(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
 
 		ListNum<Read> ln=cris.nextList();

@@ -175,6 +175,11 @@ public final class LongList{
 		for(int i=0; i<size2; i++){add(array2[i]);}
 	}
 	
+	/**
+	 * Resizes the internal array to accommodate more elements.
+	 * Ensures the new size is larger than current size and within array limits.
+	 * @param size2 Target size for the array
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		final int size3=(int)Tools.min(Shared.MAX_ARRAY_LEN, size2);
@@ -211,6 +216,11 @@ public final class LongList{
 		return Math.sqrt(sumdev2/size);
 	}
 	
+	/**
+	 * Calculates the average absolute difference between a target value and all list values.
+	 * @param x Target value to compare against
+	 * @return Average absolute difference
+	 */
 	public final double avgDif(final double x){
 		double sum=0;
 		for(int i=0; i<size; i++){
@@ -219,6 +229,11 @@ public final class LongList{
 		return sum/(Tools.max(1, size));
 	}
 	
+	/**
+	 * Calculates the root mean square difference between a target value and all list values.
+	 * @param x Target value to compare against
+	 * @return Root mean square difference
+	 */
 	public final double rmsDif(final double x){
 		double sum=0;
 		for(int i=0; i<size; i++){
@@ -612,6 +627,12 @@ public final class LongList{
 		return size;
 	}
 	
+	/**
+	 * Caps the histogram by consolidating all values beyond the specified index.
+	 * Sums all values from index max to the end and places the sum at index max.
+	 * Useful for limiting histogram size while preserving total counts.
+	 * @param max Maximum index to retain; values beyond this are summed into this position
+	 */
 	public void capHist(final int max) {
 		if(size<=max+1) {return;}
 		//size=2, max=0 are the lowest values to enter

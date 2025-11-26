@@ -366,6 +366,14 @@ public class CellNetParser {
 		return Parse.parseLong(line, idx+1, line.length);
 	}
 	
+	/**
+	 * Parses a delimited line into an array of integers.
+	 *
+	 * @param line Line containing delimited integer values
+	 * @param delimiter Character separating values
+	 * @param parseTitle If true, skips the first field as a title
+	 * @return Array of parsed integer values
+	 */
 	public static int[] parseIntArray(final byte[] line, final byte delimiter, boolean parseTitle){
 		int a=0, b=0;
 		IntList list=new IntList(3);

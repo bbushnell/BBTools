@@ -1911,6 +1911,8 @@ public class TaxTree implements Serializable{
 		}
 	}
 	
+	/** Percolate counts upward from a specific level.
+	 * @param fromLevel Starting level */
 	public void percolateUp(final int fromLevel){
 		final TaxNode[] stratum=treeLevelsExtended[fromLevel];
 		for(final TaxNode n : stratum){
@@ -1933,10 +1935,23 @@ public class TaxTree implements Serializable{
 		node.incrementSum(amt);
 	}
 	
+	/**
+	 * Gather nodes with count at least the limit.
+	 * @param limit Minimum count threshold
+	 * @return List of qualifying nodes
+	 */
 	public ArrayList<TaxNode> gatherNodesAtLeastLimit(final long limit){
 		return gatherNodesAtLeastLimit(limit, 0, nodesPerLevelExtended.length-1);
 	}
 	
+	/**
+	 * Gather nodes with count at least the limit within level range.
+	 *
+	 * @param limit Minimum count threshold
+	 * @param minLevel Minimum taxonomic level
+	 * @param maxLevel Maximum taxonomic level
+	 * @return List of qualifying nodes
+	 */
 	public ArrayList<TaxNode> gatherNodesAtLeastLimit(final long limit, final int minLevel, final int maxLevel){
 		final int minLevelExtended=levelToExtended(minLevel);
 		final int maxLevelExtended=levelToExtended(maxLevel);
@@ -1949,6 +1964,12 @@ public class TaxTree implements Serializable{
 		return list;
 	}
 	
+	/**
+	 * Gather nodes at extended level with count at least the limit.
+	 * @param fromLevelExtended Extended level to gather from
+	 * @param limit Minimum count threshold
+	 * @return List of qualifying nodes
+	 */
 	public ArrayList<TaxNode> gatherNodesAtLeastLimitExtended(final int fromLevelExtended, final long limit){
 		ArrayList<TaxNode> list=new ArrayList<TaxNode>();
 		final TaxNode[] stratum=treeLevelsExtended[fromLevelExtended];

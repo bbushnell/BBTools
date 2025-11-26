@@ -484,6 +484,15 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		return idx<0 ? new String(s) : new String(s, 0, idx);
 	}
 	
+	/**
+	 * Generates new contig name with coverage and taxonomic annotations.
+	 * Appends coverage values and optionally taxonomic IDs based on mapped read data.
+	 *
+	 * @param old Original contig name
+	 * @param scaflen Length of the contig
+	 * @param numericID Numeric identifier for the contig
+	 * @return Renamed contig header with annotations
+	 */
 	private String rename(final String old, final int scaflen, long numericID) {
 		final String name=old;
 		final String shortName=toShortName(name);

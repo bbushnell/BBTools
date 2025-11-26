@@ -1163,6 +1163,19 @@ public abstract class AbstractMapper {
 		return cris;
 	}
 	
+	/**
+	 * Prints alignment results and statistics to configured output destinations.
+	 *
+	 * @param mtts Mapping threads containing accumulated statistics
+	 * @param t Timer tracking total execution time
+	 * @param keylen K-mer length used for alignment
+	 * @param paired Whether input was paired-end
+	 * @param SKIMMER Whether skimmer mode was used
+	 * @param pile Coverage pileup data (null if not calculated)
+	 * @param nzoStats Whether to output non-zero-only statistics
+	 * @param sortStats Whether to sort scaffold statistics
+	 * @param dest Destination for statistics output
+	 */
 	void printOutput(final AbstractMapThread[] mtts, final Timer t, final int keylen, final boolean paired, final boolean SKIMMER, final CoveragePileup pile,
 			boolean nzoStats, boolean sortStats, String dest){
 		
@@ -1181,6 +1194,19 @@ public abstract class AbstractMapper {
 		
 	}
 	
+	/**
+	 * Prints detailed alignment statistics in human-readable format.
+	 * Aggregates statistics from all mapping threads and formats comprehensive output.
+	 *
+	 * @param mtts Mapping threads containing accumulated statistics
+	 * @param t Timer tracking total execution time
+	 * @param keylen K-mer length used for alignment
+	 * @param paired Whether input was paired-end
+	 * @param SKIMMER Whether skimmer mode was used
+	 * @param nzoStats Whether to output non-zero-only statistics
+	 * @param sortStats Whether to sort scaffold statistics
+	 * @param dest Destination for statistics output
+	 */
 	static void printOutputStats(final AbstractMapThread[] mtts, final Timer t, final int keylen, final boolean paired, final boolean SKIMMER,
 			boolean nzoStats, boolean sortStats, String dest){
 		if(MACHINE_OUTPUT){

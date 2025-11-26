@@ -45,6 +45,7 @@ public class Bell extends Function {
 	
 	/** String identifier for the Bell activation function. */
 	static final String name="BELL";
+	/** Numeric type identifier derived from the string name. */
 	static final int type=Function.toType(name, true);
 	/** Singleton instance of the Bell activation function. */
 	static final Bell instance=new Bell();

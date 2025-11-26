@@ -534,6 +534,16 @@ public class CallPeaks {
 		return sum;
 	}
 	
+	/**
+	 * Calculates genome size based on peak volumes and estimated copy numbers.
+	 * Multiplies each peak volume by its inferred copy number relative
+	 * to haploid coverage level.
+	 *
+	 * @param peaks List of called peaks
+	 * @param ploidy Genome ploidy level
+	 * @param haploidPeakCenter Coverage level of haploid peak
+	 * @return Estimated genome size in base pairs
+	 */
 	private static long genomeSizeInPeaks(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter){
 		if(peaks.size()<1){return 0;}
 		
@@ -546,6 +556,17 @@ public class CallPeaks {
 		return sizeSum;
 	}
 	
+	/**
+	 * Alternative genome size calculation using complete histogram data.
+	 * Analyzes all histogram positions starting from first peak
+	 * to estimate total genome size including repetitive regions.
+	 *
+	 * @param peaks List of called peaks for reference
+	 * @param ploidy Genome ploidy level
+	 * @param haploidPeakCenter Coverage level of haploid peak
+	 * @param hist Complete frequency histogram array
+	 * @return Estimated genome size including repetitive content
+	 */
 	private static long genomeSize2(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter, long[] hist){
 		if(peaks.size()<1){return 0;}
 		
@@ -725,6 +746,15 @@ public class CallPeaks {
 		return sloc;
 	}
 	
+	/**
+	 * Identifies peak corresponding to homozygous coverage level.
+	 * Finds peak closest to expected homozygous coverage (ploidy * haploid).
+	 *
+	 * @param peaks List of peaks to search
+	 * @param ploidy Genome ploidy level
+	 * @param haploidPeakCenter Coverage level of haploid peak
+	 * @return Index of peak closest to homozygous coverage
+	 */
 	private static int homozygousPeak(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter){
 		if(peaks.size()<2){return peaks.size()-1;}
 		assert(ploidy>0) : ploidy;
@@ -815,6 +845,16 @@ public class CallPeaks {
 		}
 	}
 	
+	/**
+	 * Calculates number of heterozygous genomic positions.
+	 * Sums volumes of sub-ploidy peaks to estimate heterozygous sites.
+	 *
+	 * @param peaks List of called peaks
+	 * @param ploidy Genome ploidy level
+	 * @param haploidPeakCenter Coverage level of haploid peak
+	 * @param k K-mer size for position calculation
+	 * @return Estimated number of heterozygous positions
+	 */
 	private static long calcHetLocations(ArrayList<Peak> peaks, final int ploidy, final float haploidPeakCenter, final int k){
 		if(peaks.size()<2){return 0;}
 		assert(ploidy>0) : ploidy;
@@ -845,6 +885,16 @@ public class CallPeaks {
 		return callPeaks(list.array, gcList==null ? null : gcList.array, list.size);
 	}
 	
+	/**
+	 * Main peak calling algorithm for k-mer frequency histograms.
+	 * Applies optional log scaling and smoothing, then identifies peaks
+	 * using state machine approach. Filters peaks by size and volume thresholds.
+	 *
+	 * @param original Input histogram array
+	 * @param gcArray GC content histogram (may be null)
+	 * @param length Active length of histogram arrays
+	 * @return List of identified peaks meeting filtering criteria
+	 */
 	public ArrayList<Peak> callPeaks(final long[] original, final long gcArray[], final int length){
 		
 		long[] array=original;
@@ -1056,6 +1106,15 @@ public class CallPeaks {
 	/*----------------           Smoothing          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Applies progressive smoothing with increasing radius.
+	 * Smoothing radius grows larger at higher positions to handle
+	 * varying peak widths across coverage spectrum.
+	 *
+	 * @param data Input histogram array
+	 * @param radius0 Initial smoothing radius
+	 * @return Progressively smoothed histogram
+	 */
 	public static long[] smoothProgressive(final long[] data, int radius0){
 		int radius=radius0;
 		long div=radius*radius;
@@ -1079,6 +1138,14 @@ public class CallPeaks {
 		return smoothed;
 	}
 	
+	/**
+	 * Applies uniform smoothing with fixed radius.
+	 * Uses weighted averaging within specified radius around each position.
+	 *
+	 * @param data Input histogram array
+	 * @param radius Smoothing radius in array positions
+	 * @return Smoothed histogram array
+	 */
 	public static long[] smooth(final long[] data, int radius){
 		final long div=radius*radius;
 		final double mult=1.0/div;
@@ -1117,6 +1184,14 @@ public class CallPeaks {
 		return sum;
 	}
 	
+	/**
+	 * Progressive smoothing for integer arrays.
+	 * Integer version of progressive smoothing with increasing radius.
+	 *
+	 * @param data Input integer histogram
+	 * @param radius0 Initial smoothing radius
+	 * @return Progressively smoothed integer histogram
+	 */
 	public static int[] smoothProgressive(final int[] data, int radius0){
 		int radius=radius0;
 		long div=radius*radius;
@@ -1140,6 +1215,14 @@ public class CallPeaks {
 		return smoothed;
 	}
 	
+	/**
+	 * Uniform smoothing for integer arrays.
+	 * Integer version of fixed-radius smoothing algorithm.
+	 *
+	 * @param data Input integer histogram
+	 * @param radius Smoothing radius
+	 * @return Smoothed integer histogram
+	 */
 	public static int[] smooth(final int[] data, int radius){
 		final long div=radius*radius;
 		final double mult=1.0/div;

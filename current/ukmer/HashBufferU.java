@@ -176,6 +176,14 @@ public class HashBufferU extends AbstractKmerTableU {
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Dumps a specific buffer to its backend table with locking control.
+	 * Uses force parameter to determine whether to block for lock or try-lock.
+	 *
+	 * @param way The buffer way index to dump
+	 * @param force Whether to force lock acquisition or use try-lock
+	 * @return Number of k-mers added to the backend table
+	 */
 	private int dumpBuffer(final int way, boolean force){
 		final KmerBufferU buffer=buffers[way];
 		final AbstractKmerTableU table=tables[way];
@@ -188,6 +196,14 @@ public class HashBufferU extends AbstractKmerTableU {
 		return x;
 	}
 	
+	/**
+	 * Internal buffer dumping implementation that processes buffered k-mers.
+	 * Reconstructs k-mers from buffer and adds them to backend table.
+	 * Handles both count-only and value-based insertion modes.
+	 *
+	 * @param way The buffer way index to process
+	 * @return Number of k-mers successfully added to backend table
+	 */
 	private int dumpBuffer_inner(final int way){
 		if(verbose){System.err.println("Dumping buffer for way "+way+" of "+ways);}
 		final KmerBufferU buffer=buffers[way];

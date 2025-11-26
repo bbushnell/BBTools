@@ -441,6 +441,8 @@ public class PartitionReads {
 	 * Used by priority queue to select the partition with fewest base pairs.
 	 */
 	private static class Partition implements Comparable<Partition> {
+		/** Creates a new partition with the specified identifier.
+		 * @param id_ Unique identifier for this partition */
 		public Partition(final int id_) {id=id_;}
 		@Override
 		public int compareTo(Partition o) {

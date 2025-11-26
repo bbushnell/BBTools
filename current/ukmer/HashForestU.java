@@ -95,8 +95,22 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Finds the parent node that would contain the specified k-mer.
+	 * @param kmer K-mer to search for
+	 * @param cell Hash table cell to search in
+	 * @return Parent node, or null if k-mer would be at root of cell
+	 */
 	public KmerNodeU findParent(Kmer kmer, final int cell){return findParent(kmer.key(), cell);}
 	
+	/**
+	 * Finds the parent node that would contain the specified k-mer key.
+	 * Traverses binary tree structure to locate insertion point.
+	 *
+	 * @param kmer Raw k-mer key as long array
+	 * @param cell Hash table cell to search in
+	 * @return Parent node, or null if k-mer would be at root of cell
+	 */
 	public KmerNodeU findParent(final long[] kmer, final int cell){
 		KmerNodeU n=array[cell], prev=null;
 		int cmp=(n==null ? 0 : compare(kmer, n.pivot()));

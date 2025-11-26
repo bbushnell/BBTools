@@ -437,13 +437,27 @@ public final class AminoAcid {
 	}
 
 
+	/**
+	 * Extended base to number mapping using bitwise OR of constituent IUPAC base numbers, -1 for invalid
+	 */
 	public static final void reverseComplementBasesInPlace(final byte[] in){
 		if(in!=null){reverseComplementBasesInPlace(in, in.length);}
 	}
+	/**
+	 * Complements DNA sequence in place without reversing.
+	 * Changes A<->T and C<->G in the input array.
+	 * @param in DNA sequence to be complemented in place
+	 */
 	public static final void complementBasesInPlace(final byte[] in){
 		if(in==null){return;}
 		complementBasesInPlace(in, in.length);
 	}
+	/**
+	 * Complements specified length of DNA sequence in place.
+	 * Changes A<->T and C<->G for the first 'length' bases.
+	 * @param in DNA sequence to be complemented
+	 * @param length Number of bases to complement
+	 */
 	public static final void complementBasesInPlace(final byte[] in, final int length){
 		if(in==null){return;}
 		for(int i=0; i<length; i++){
@@ -451,6 +465,12 @@ public final class AminoAcid {
 		}
 	}
 
+	/**
+	 * Reverse complements specified length of DNA sequence in place.
+	 * Efficiently handles both reversal and complementation simultaneously.
+	 * @param in DNA sequence to be reverse complemented
+	 * @param length Number of bases to process
+	 */
 	public static final void reverseComplementBasesInPlace(final byte[] in, final int length){
 		if(in==null){return;}
 		final int last=length-1;
@@ -1116,6 +1136,12 @@ public final class AminoAcid {
 		return out;
 	}
 
+	/**
+	 * Converts amino acid sequence back to canonical nucleotide codons.
+	 * Uses the canonical (first) codon for each amino acid.
+	 * @param aminos Amino acid sequence
+	 * @return DNA sequence using canonical codons
+	 */
 	public static final byte[] toNTs(final byte[] aminos){
 		if(aminos==null){return null;}
 		final int alen=aminos.length;

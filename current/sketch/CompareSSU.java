@@ -340,6 +340,14 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs a ProcessThread with output stream and thread parameters.
+		 * Initializes local data structures and copies the SSU sequence list.
+		 *
+		 * @param bsw_ Output stream writer for comparison results
+		 * @param tid_ Thread identifier
+		 * @param threads_ Total number of processing threads
+		 */
 		ProcessThread(ByteStreamWriter bsw_, final int tid_, final int threads_){
 			bsw=bsw_;
 			threadID=tid_;

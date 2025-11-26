@@ -549,6 +549,14 @@ public class RemoveAdapters3 {
 //			return score>=minSwScoreRcomp;
 		}
 
+		/**
+		 * Pads sequence array with 'N' bases at both ends.
+		 * Creates working buffer for alignment operations with boundary protection.
+		 *
+		 * @param array Original sequence array
+		 * @param pad Number of 'N' bases to add at each end
+		 * @return Padded sequence array
+		 */
 		private byte[] npad(final byte[] array, final int pad){
 			final int len=array.length+2*pad;
 			if(padbuffer==null || padbuffer.length!=len){padbuffer=new byte[len];}

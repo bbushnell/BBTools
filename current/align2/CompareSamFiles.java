@@ -206,6 +206,14 @@ public class CompareSamFiles {
 	}
 	
 
+	/**
+	 * Calculates alignment statistics for a single read and updates global counters.
+	 * Classifies reads as discarded, unmapped, ambiguous, or properly mapped based on quality scores.
+	 * For custom parsing mode, evaluates alignment correctness using strict and loose criteria.
+	 *
+	 * @param r The read to evaluate
+	 * @param sl Corresponding SAM line containing alignment details
+	 */
 	public static void calcStatistics1(final Read r, SamLine sl){
 		
 		int THRESH=0;
@@ -281,6 +289,15 @@ public class CompareSamFiles {
 	
 	
 
+	/**
+	 * Determines the classification type for a read based on mapping quality and correctness.
+	 * Returns integer codes: 0=discarded/unmapped, 1=ambiguous, 2=correct strict, 3=correct loose, 4=incorrect.
+	 * Uses original site information when parsecustom is enabled to evaluate mapping accuracy.
+	 *
+	 * @param r The read to classify
+	 * @param sl Corresponding SAM line with alignment information
+	 * @return Integer type code indicating read classification
+	 */
 	public static int type(final Read r, SamLine sl){
 		
 		int THRESH=0;

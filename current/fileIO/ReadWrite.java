@@ -2031,6 +2031,12 @@ public class ReadWrite {
 		}
 	}
 	
+	/**
+	 * Finds existing file by trying various compression extensions.
+	 * Searches for uncompressed, gzip, zip, bzip2, and xz variants.
+	 * @param fname Base filename to search for
+	 * @return Path to existing file or original name if none found
+	 */
 	public static String findFileExtension(final String fname){
 
 		File file=new File(fname);

@@ -253,6 +253,11 @@ public class SketchMakerMini extends SketchObject {
 		assert(heap.taxID<0 || heap.taxName()!=null || taxtree==null) : heap.taxID+", "+heap.taxName()+", "+heap.name()+", "+tn;
 	}
 
+	/**
+	 * Routes read processing based on sequence type.
+	 * Delegates to amino acid, translated, or nucleotide processing.
+	 * @param r The read to process
+	 */
 	public void processRead(final Read r){
 		if(amino){
 			processReadAmino(r);
@@ -263,6 +268,12 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Processes nucleotide reads by translating to amino acids.
+	 * Handles both six-frame translation and gene calling modes.
+	 * Extracts 16S rRNA sequences for SSU processing if enabled.
+	 * @param r Nucleotide read to translate and process
+	 */
 	public void processReadTranslated(final Read r){
 		assert(!r.aminoacid());
 		final ArrayList<Read> prots;
@@ -296,6 +307,12 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
+	/**
+	 * Processes nucleotide reads directly without translation.
+	 * Performs k-mer rolling hash generation with quality filtering and entropy tracking.
+	 * Handles both high-quality and low-quality data with automatic PacBio detection.
+	 * @param r Nucleotide read to process
+	 */
 	public void processReadNucleotide(final Read r){
 		if(processSSU && heap.r16S()==null && r.length()>=min_SSU_len && !useSSUMapOnly && !heap.isEukaryote()){
 			Orf orf=gCaller.makeRna(r.id, r.bases, ProkObject.r16S);//TODO: 18S
@@ -493,6 +510,11 @@ public class SketchMakerMini extends SketchObject {
 		return zero>=r.length()/2 && positive==0;
 	}
 
+	/**
+	 * Processes amino acid reads directly.
+	 * Generates k-mers from amino acid sequence using appropriate encoding.
+	 * @param r Amino acid read to process
+	 */
 	void processReadAmino(final Read r){
 		final byte[] bases=r.bases;
 		long kmer=0;
@@ -529,6 +551,11 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 
+	/**
+	 * Legacy amino acid processing without entropy filtering.
+	 * Retained for compatibility but not actively used.
+	 * @param r Amino acid read to process
+	 */
 	void processReadAmino_old_no_entropy(final Read r){
 		final byte[] bases=r.bases;
 		long kmer=0;

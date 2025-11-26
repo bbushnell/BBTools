@@ -318,6 +318,14 @@ public class DataLoader extends BinObject {
 		return contigs;
 	}
 
+	/**
+	 * Removes invalid edges from contig pair map that reference non-existent contigs.
+	 * Cleans up edge data after contig filtering operations.
+	 *
+	 * @param c Contig whose edges need fixing
+	 * @param numContigs Total number of valid contigs
+	 * @return Number of edges removed
+	 */
 	int fixEdges(final Contig c, final int numContigs) {
 		if(c.pairMap==null) {return 0;}
 		int removed=0, seen=0;
@@ -836,6 +844,14 @@ public class DataLoader extends BinObject {
 		phaseTimer.stopAndPrint();
 	}
 	
+	/**
+	 * Calculates depth from SAM/BAM alignment file using streaming parser.
+	 * Processes alignments sequentially and accumulates coverage per contig.
+	 *
+	 * @param ff File format specification for SAM/BAM input
+	 * @param sample Sample index for depth assignment
+	 * @param contigMap Map of reference names to contig objects
+	 */
 	@Deprecated
 	void calcDepthFromSam(FileFormat ff, final int sample, HashMap<String, Contig> contigMap) {
 		Streamer ss=null;
@@ -1001,6 +1017,15 @@ public class DataLoader extends BinObject {
 		return map;
 	}
 	
+	/**
+	 * Loads coverage file and assigns depth profiles to existing contigs.
+	 * Parses multi-sample coverage data with optional edge information.
+	 * Validates contig ordering and size consistency.
+	 *
+	 * @param fname Path to coverage file
+	 * @param contigs List of contigs to assign coverage data to
+	 * @param maxSamples Maximum number of samples to load from file
+	 */
 	public void loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
 		outstream.print("Loading coverage from "+fname+": \t");
 		phaseTimer.start();

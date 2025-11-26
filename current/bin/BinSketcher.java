@@ -156,6 +156,14 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Creates a ProcessThread for sketch generation.
+		 * Initializes display parameters for JSON output and creates SketchMakerMini.
+		 *
+		 * @param contigs_ List of Sketchable objects to process
+		 * @param tid_ Thread ID for this worker
+		 * @param threads_ Total number of threads in the pool
+		 */
 		ProcessThread(final ArrayList<? extends Sketchable> contigs_, final int tid_, final int threads_){
 			contigs=contigs_;
 			tid=tid_;

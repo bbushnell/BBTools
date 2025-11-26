@@ -190,6 +190,14 @@ public class SmallKmerFrequency extends BBTool_ST {
 		
 	}
 	
+	/**
+	 * Creates canonical k-mer index mapping for given k-mer length.
+	 * Maps both k-mer and its reverse complement to the same index value,
+	 * using the lexicographically smaller representation.
+	 *
+	 * @param n K-mer length in bases
+	 * @return Index array mapping k-mer values to canonical positions
+	 */
 	public static final int[] makeKmerIndex(final int n){
 		final int max=(1<<(2*n))-1;
 		int[] array=new int[max+1];

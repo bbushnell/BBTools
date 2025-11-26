@@ -2,6 +2,14 @@ package structures;
 
 import java.io.Serializable;
 
+/**
+ * Associates a string with a numeric value, providing comparison and counting functionality.
+ * Implements natural ordering based on numeric value first, then string lexicographically.
+ * Commonly used for counting occurrences of string keys in BBTools processing pipelines.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class StringNum implements Comparable<StringNum>, Serializable {
 
 	private static final long serialVersionUID=1L;

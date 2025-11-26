@@ -144,6 +144,11 @@ public class KCountArray5MT extends KCountArray {
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/**
+	 * Increments a k-mer count by one using buffered writes.
+	 * Adds the hashed key to a buffer and flushes to writer threads when full.
+	 * @param rawKey The unhashed k-mer key to increment
+	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 
@@ -497,6 +502,12 @@ public class KCountArray5MT extends KCountArray {
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
+		/**
+		 * Increments the count for a pre-hashed key in the local array.
+		 * Extracts cell position, updates count, and tracks cell usage.
+		 * @param key_ Pre-hashed key value
+		 * @return New count value after increment
+		 */
 		private int incrementHashedLocal(final long key_){
 			if(verbose){System.err.println("\n*** wt"+num+" incrementing hashed key "+key_+" ***");}
 			assert((key_&arrayMask)==num);

@@ -35,6 +35,18 @@ public abstract class BandedAligner {
 		return ba;
 	}
 	
+	/**
+	 * Performs progressive quadruple alignment with increasing edit distance thresholds.
+	 * Starts with minEdits limit and progressively increases by factor of 4 until maxEdits.
+	 * Tests all four orientations (forward, reverse, forward RC, reverse RC) at each threshold.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param minEdits Minimum edit distance to start testing
+	 * @param maxEdits Maximum edit distance allowed
+	 * @param exact Whether to require exact alignment within edit limit
+	 * @return Best edit distance found across all orientations
+	 */
 	public final int alignQuadrupleProgressive(final byte[] query, final byte[] ref, int minEdits, int maxEdits, final boolean exact){
 		maxEdits=Tools.min(maxEdits, Tools.max(query.length, ref.length));
 		minEdits=Tools.min(minEdits, maxEdits);
@@ -49,6 +61,17 @@ public abstract class BandedAligner {
 		return maxEdits;
 	}
 	
+	/**
+	 * Aligns sequences in all four orientations and returns the best result.
+	 * Tests forward, reverse, forward reverse-complement, and reverse reverse-complement.
+	 * Uses adaptive edit distance limiting based on initial forward/reverse results.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param maxEdits Maximum edit distance allowed
+	 * @param exact Whether to require exact alignment within edit limit
+	 * @return Minimum edit distance found across all four orientations
+	 */
 	public final int alignQuadruple(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		final int b=alignReverse(query, ref, query.length-1, ref.length-1, maxEdits, exact);
@@ -60,6 +83,16 @@ public abstract class BandedAligner {
 		return Tools.min(Tools.max(a, b), Tools.max(c, d));
 	}
 	
+	/**
+	 * Aligns sequences in forward and forward reverse-complement orientations.
+	 * More efficient alternative when only two orientations need testing.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param maxEdits Maximum edit distance allowed
+	 * @param exact Whether to require exact alignment within edit limit
+	 * @return Minimum edit distance between forward and forward RC alignments
+	 */
 	public final int alignDouble(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		if(a==0){return 0;}

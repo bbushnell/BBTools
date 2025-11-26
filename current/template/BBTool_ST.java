@@ -307,6 +307,11 @@ public abstract class BBTool_ST {
 	 * Implement if necessary */
 	protected abstract void startupSubclass();
 	
+	/**
+	 * Closes read and output streams and handles cleanup.
+	 * @param cris The input stream to close
+	 * @param ros The output stream to close
+	 */
 	protected final void shutdown(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		shutdownSubclass();
 		
@@ -321,6 +326,8 @@ public abstract class BBTool_ST {
 	 * Implement if necessary */
 	protected abstract void shutdownSubclass();
 	
+	/** Displays processing statistics and timing information.
+	 * @param t Timer containing execution time data */
 	protected void showStats(final Timer t){
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));

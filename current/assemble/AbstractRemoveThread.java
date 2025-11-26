@@ -45,6 +45,17 @@ public abstract class AbstractRemoveThread extends Thread{
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main entry point for multi-threaded k-mer removal processing.
+	 * Creates appropriate RemoveThread instances based on table type and coordinates their execution.
+	 *
+	 * @param threads Number of worker threads to create
+	 * @param min Minimum k-mer count to retain
+	 * @param max Maximum k-mer count to retain
+	 * @param tables K-mer table set to process
+	 * @param print Whether to print timing and removal statistics
+	 * @return Total number of k-mers removed across all threads
+	 */
 	public static long process(final int threads, final int min, final int max, AbstractKmerTableSet tables, boolean print){
 		Timer t=new Timer();
 		

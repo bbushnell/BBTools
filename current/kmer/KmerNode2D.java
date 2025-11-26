@@ -184,6 +184,13 @@ public class KmerNode2D extends KmerNode {
 		return count;
 	}
 	
+	/**
+	 * Inserts a value into the values array with duplicate checking and resizing.
+	 * Uses limited backward search for duplicates to avoid O(n) performance.
+	 * Automatically resizes array when full.
+	 * @param v The value to insert (must be >= 0)
+	 * @return 1 if value was added, 0 if it was a duplicate
+	 */
 	private final int insertIntoList(final int v){
 //		assert(countValues(values)==numValues) : countValues(values)+", "+numValues; //TODO: Slow assertion //123
 		assert(v>=0);

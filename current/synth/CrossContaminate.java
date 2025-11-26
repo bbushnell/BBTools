@@ -256,6 +256,11 @@ public class CrossContaminate {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Shuffles all output files to randomize read order.
+	 * Uses multiple threads to shuffle files in parallel for better performance.
+	 * @param threads Number of threads to use for shuffling operations
+	 */
 	void shuffle(final int threads){
 		outstream.println("Shuffling output in "+threads+" thread"+(threads==1 ? "." : "s."));
 		Shuffle.showSpeed=Shuffle.printClass=false;

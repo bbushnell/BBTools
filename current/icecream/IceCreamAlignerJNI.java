@@ -135,6 +135,24 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*----------------             JNI              ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Java implementation of forward alignment algorithm for testing and fallback.
+	 * Uses dynamic programming with two-row matrix optimization and aggressive
+	 * early exit conditions based on score thresholds and viability calculations.
+	 *
+	 * Implements optimized inner loops:
+	 * - Separate diagonal/vertical and horizontal insertion loops
+	 * - Early exit on minimum score and minimum viable score thresholds
+	 * - Score rescaling from alignment coordinates to base match counts
+	 *
+	 * @param query Query sequence as integer array
+	 * @param ref Reference sequence as integer array
+	 * @param retArray Return array [maxScore, maxQpos, maxRpos, iterations]
+	 * @param qlen Query length
+	 * @param rlen Reference length
+	 * @param minScore Minimum score for early termination
+	 * @param minRatio Minimum ratio for viability calculation
+	 */
 	private static void alignForwardPseudo(final int[] query, final int[] ref, final int[] retArray, 
 			final int qlen, final int rlen, final int minScore, final float minRatio) {
 		

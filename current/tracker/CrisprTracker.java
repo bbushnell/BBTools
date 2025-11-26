@@ -19,6 +19,12 @@ public class CrisprTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds CRISPR statistics from a single CRISPR structure to the tracker.
+	 * Calculates GC content, lengths, and increments appropriate counters and histograms.
+	 * @param p The CRISPR structure containing repeat ranges and alignment data
+	 * @param s The sequence bytes for GC content calculation
+	 */
 	public void add(final Crispr p, final byte[] s) {
 		Range r=(p.b.length()>p.a.length() ? p.b : p.a);
 		int sstart=p.a.b+1, sstop=p.b.a-1;

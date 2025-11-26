@@ -9,10 +9,23 @@ import structures.ByteBuilder;
  * This class is pretty ancient. */
 public class CustomHeader {
 	
+	/**
+	 * Creates a CustomHeader by parsing an original header string.
+	 * Automatically determines pair number from the header.
+	 * @param original Original header string starting with "SYN"
+	 */
 	public CustomHeader(final String original){
 		this(original, getPairnum(original));
 	}
 	
+	/**
+	 * Creates a CustomHeader by parsing an original header string with specified pair number.
+	 * Parses synthetic header format: id_start_stop_insert_strand_bbstart_bbchrom_match_rname.
+	 * Disables custom parsing if parsing fails.
+	 *
+	 * @param original Original header string starting with "SYN"
+	 * @param rnum_ Pair number (0 or 1)
+	 */
 	public CustomHeader(final String original, int rnum_){
 		assert(rnum_==0 || rnum_==1);
 		rnum=rnum_;

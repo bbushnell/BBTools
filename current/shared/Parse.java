@@ -20,6 +20,16 @@ public final class Parse {
 		return (int)x;
 	}
 	
+	/**
+	 * Parses a string with optional KMG suffix into a long value.
+	 * Supports decimal numbers and special values like "inf", "max", "huge".
+	 * KMG suffixes: k=1000, m=million, g/b=billion, t=trillion, p/q=quadrillion,
+	 * e=quintillion, c/h=hundred, d=ten.
+	 *
+	 * @param b0 String to parse, may include KMG suffix or special values
+	 * @return Parsed long value, or Long.MAX_VALUE for infinity values
+	 * @throws RuntimeException if suffix is unrecognized
+	 */
 	public static long parseKMG(final String b0){
 		String b=b0;
 		if(b==null){return 0;}
@@ -63,6 +73,15 @@ public final class Parse {
 		}
 	}
 	
+	/**
+	 * Parses a string with optional KMG suffix into a double value.
+	 * Similar to parseKMG but returns double precision result.
+	 * Additional support for 'f' suffix which is ignored.
+	 *
+	 * @param b0 String to parse, may include KMG suffix or special values
+	 * @return Parsed double value, or Long.MAX_VALUE for infinity values
+	 * @throws RuntimeException if suffix is unrecognized
+	 */
 	public static double parseDoubleKMG(final String b0){
 		String b=b0;
 		if(b==null){return 0;}
@@ -379,6 +398,12 @@ public final class Parse {
 		return Double.parseDouble(s);
 	}
 
+	/**
+	 * Parses a double from a byte array starting at given position.
+	 * @param array Byte array containing ASCII digits
+	 * @param start Starting index
+	 * @return Parsed double value
+	 */
 	public static double parseDouble(final byte[] array, final int start){
 		return parseDouble(array, start, array.length);
 	}

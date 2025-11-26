@@ -217,6 +217,12 @@ public class KCountArray8MT extends KCountArray {
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
+	/**
+	 * Increments count for a single k-mer across all hash positions.
+	 * Checks prefilter before processing and buffers hash results for WriteThreads.
+	 * Each hash position is sent to the appropriate WriteThread's buffer.
+	 * @param rawKey The raw k-mer key to increment
+	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 		if(prefilter!=null){
@@ -251,6 +257,12 @@ public class KCountArray8MT extends KCountArray {
 		}
 	}
 	
+	/**
+	 * Increments a k-mer that has already been hashed once.
+	 * Processes the first hash directly then continues hashing for remaining positions.
+	 * Used by the optimized array increment method.
+	 * @param pKey Partially hashed key from first hash function
+	 */
 	private void incrementPartiallyHashed(final long pKey){
 		if(verbose){System.err.println("\n*** Incrementing key "+pKey+" ***");}
 		

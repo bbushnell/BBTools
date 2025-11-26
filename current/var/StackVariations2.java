@@ -554,6 +554,14 @@ public class StackVariations2 {
 	 */
 	private static class SVThread implements Runnable {
 		
+		/**
+		 * Creates a worker thread for processing variants from one chromosome.
+		 *
+		 * @param fname1_ Input file pattern
+		 * @param fname2_ Output file name
+		 * @param chrom_ Chromosome number to process
+		 * @param filter_ Whether to apply quality filters
+		 */
 		public SVThread(String fname1_, String fname2_, final int chrom_, boolean filter_){
 			fname1=fname1_;
 			fname2=fname2_;
@@ -569,6 +577,14 @@ public class StackVariations2 {
 			addThread(-1);
 		}
 		
+		/**
+		 * Processes all variant blocks for this chromosome.
+		 * Reads blocks sequentially, merges variants, applies filters,
+		 * writes output, and optionally deletes input files.
+		 *
+		 * @param inName Input file pattern (may be null for coordinate-based access)
+		 * @param outName Output file path for filtered variants
+		 */
 		private final void processFile(final String inName, final String outName){
 			
 			final long[] keys=GenerateVarlets2.keys(chrom);

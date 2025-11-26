@@ -315,6 +315,15 @@ public abstract class HashArray extends AbstractKmerTable {
 		return setOwner(kmer, newOwner, cell);
 	}
 	
+	/**
+	 * Sets the thread owner for a k-mer at a specific cell.
+	 * Uses atomic compare-and-set with retry loop for thread safety.
+	 *
+	 * @param kmer The k-mer to claim ownership of
+	 * @param newOwner Thread ID of the new owner
+	 * @param cell The cell containing the k-mer
+	 * @return The actual owner after the operation (may be higher than newOwner)
+	 */
 	public final int setOwner(final long kmer, final int newOwner, final int cell){
 		assert(array[cell]==kmer);
 		final int original=owners.get(cell);
@@ -336,6 +345,14 @@ public abstract class HashArray extends AbstractKmerTable {
 		return clearOwner(kmer, owner, cell);
 	}
 	
+	/**
+	 * Clears ownership of a k-mer at a specific cell if owned by the specified thread.
+	 *
+	 * @param kmer The k-mer to release
+	 * @param owner Thread ID that should currently own the k-mer
+	 * @param cell The cell containing the k-mer
+	 * @return true if ownership was successfully cleared, false otherwise
+	 */
 	public final boolean clearOwner(final long kmer, final int owner, final int cell){
 		assert(array[cell]==kmer);
 		boolean success=owners.compareAndSet(cell, owner, NO_OWNER);
@@ -350,6 +367,11 @@ public abstract class HashArray extends AbstractKmerTable {
 		return getCellOwner(cell);
 	}
 	
+	/**
+	 * Gets the thread owner of a specific cell.
+	 * @param cell The cell index to check
+	 * @return Thread ID of the current owner
+	 */
 	public final int getCellOwner(final int cell){
 		return owners.get(cell);
 	}
@@ -358,6 +380,14 @@ public abstract class HashArray extends AbstractKmerTable {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Inserts a single value for a k-mer at a specific cell.
+	 * Implementation varies by subclass depending on storage strategy.
+	 *
+	 * @param kmer The k-mer being stored
+	 * @param v The value to insert
+	 * @param cell The cell position where the k-mer is stored
+	 */
 	protected abstract void insertValue(final long kmer, final int v, final int cell);
 
 //	protected abstract void insertValue(final long kmer, final int[] vals, final int cell);
@@ -393,6 +423,14 @@ public abstract class HashArray extends AbstractKmerTable {
 		return findKmer(kmer, kmerToCell(kmer));
 	}
 	
+	/**
+	 * Finds the cell position of a k-mer starting from a specific cell.
+	 * Uses linear probing within the extra cell window.
+	 *
+	 * @param kmer The k-mer to find
+	 * @param startCell The cell to start searching from
+	 * @return Cell position, NOT_PRESENT if not found, or HASH_COLLISION if probing limit reached
+	 */
 	final int findKmer(final long kmer, final int startCell){
 		int cell=startCell;
 		for(final int max=cell+extra; cell<max; cell++){

@@ -32,6 +32,18 @@ public class TrimSamFile {
 	}
 	
 	
+	/**
+	 * Identifies read names that should be excluded from the SAM file.
+	 * Finds reads that overlap the specified genomic region or have mapping problems.
+	 * Includes reads where either mate maps within the target region, reads that span
+	 * the region boundary, and unpaired or unmapped reads.
+	 *
+	 * @param tf Input SAM file to scan
+	 * @param scafS Target scaffold/chromosome name
+	 * @param from Start position of region to exclude (inclusive)
+	 * @param to End position of region to exclude (inclusive)
+	 * @return Set of read names to exclude from output
+	 */
 	public static HashSet<String> findBadLines(ByteFile tf, String scafS, int from, int to){
 		byte[] scaf=scafS.getBytes();
 		HashSet<String> set=new HashSet<String>(16000);
@@ -56,6 +68,12 @@ public class TrimSamFile {
 	}
 	
 	
+	/**
+	 * Prints SAM file content while excluding reads with names in the provided set.
+	 * Preserves all header lines and only filters alignment records.
+	 * @param tf Input SAM file to process
+	 * @param set Set of read names to exclude from output
+	 */
 	public static void printExcludingSet(ByteFile tf, HashSet<String> set){
 		LineParser1 lp=new LineParser1('\t');
 		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){

@@ -19,6 +19,16 @@ public class Foo2 {
 	/** Compiled regex pattern for splitting on pipe characters */
 	static final Pattern pipePattern=Pattern.compile("\\|");
 
+	/**
+	 * Main entry point for file processing. Reads a pipe-delimited file and
+	 * processes each line to extract file size information for files marked
+	 * with 'F' in the seventh field.
+	 *
+	 * @param args Command-line arguments where args[0] is the input file path
+	 * and optional args[1] specifies processing mode ("slow" for
+	 * regex-based parsing, anything else for fast manual parsing)
+	 * @throws Exception if file I/O operations fail
+	 */
 	public static void main(String[] args) throws Exception{
 		final boolean slow=args.length<2 ? true : "slow".equalsIgnoreCase(args[1]);
 		final BufferedReader reader=new BufferedReader(new FileReader(args[0]));

@@ -215,6 +215,16 @@ public class RepeatSet {
 		return removed;
 	}
 	
+	/**
+	 * Removes repeats that are fully contained within other repeats.
+	 * Sorts repeats by position and removes those spanned by earlier repeats.
+	 * Includes assertion checking for unexpected overlaps.
+	 *
+	 * @param repeats Repeat list to process (will be modified)
+	 * @param maxGap Maximum gap size (used for overlap assertions)
+	 * @param k K-mer length (used for overlap assertions)
+	 * @return Number of repeats removed
+	 */
 	public static int removeFullyContained(final ArrayList<Repeat> repeats, int maxGap, int k) {//maxGap and k are just for an assertion
 		if(repeats.size()<2) {return 0;}
 		repeats.sort(PosComparator2.comparator);

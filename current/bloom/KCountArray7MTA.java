@@ -389,6 +389,14 @@ public final class KCountArray7MTA extends KCountArray {
 		else{return incrementAndReturnUnincrementedUnlocked(rawKey, incr);}
 	}
 	
+	/**
+	 * Thread-safe increment using locks to ensure consistency across hash functions.
+	 * Reads current minimum, calculates new target, and updates all positions atomically.
+	 *
+	 * @param rawKey Raw k-mer key to increment
+	 * @param incr Amount to increment by
+	 * @return Count value before incrementing
+	 */
 	private int incrementAndReturnUnincrementedLocked(final long rawKey, final int incr){
 		assert(incr>0) : incr;
 		final Lock lock=getLock(rawKey);
@@ -412,6 +420,14 @@ public final class KCountArray7MTA extends KCountArray {
 		return value;
 	}
 	
+	/**
+	 * Unlocked increment using compare-and-swap operations for each hash position.
+	 * Returns minimum of pre-increment values across all hash positions.
+	 *
+	 * @param rawKey Raw k-mer key to increment
+	 * @param incr Amount to increment by
+	 * @return Minimum count value before incrementing across all positions
+	 */
 	private int incrementAndReturnUnincrementedUnlocked(final long rawKey, final int incr){
 		long key2=rawKey;
 		int value=maxValue;
@@ -755,6 +771,14 @@ public final class KCountArray7MTA extends KCountArray {
 //		return value;
 //	}
 	
+	/**
+	 * Atomically increments count to reach at least the specified minimum.
+	 * Only increments if current value is below target, ensuring minimum threshold.
+	 *
+	 * @param key Pre-hashed key location
+	 * @param newMin Target minimum value
+	 * @return Final count value (original if already ≥ newMin, otherwise incremented)
+	 */
 	private int incrementHashedLocal_toAtLeast(long key, final int newMin){
 		assert(newMin<=maxValue);
 		final int num=(int)(key&arrayMask);

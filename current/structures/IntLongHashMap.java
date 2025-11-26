@@ -462,6 +462,12 @@ public final class IntLongHashMap{
 		}
 	}
 	
+	/**
+	 * Rehashes a single cell to its optimal position.
+	 * Moves the key-value pair to the earliest available cell in its probe sequence.
+	 * @param cell The cell to rehash
+	 * @return true if the entry was moved, false if already in optimal position
+	 */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final long value=values[cell];
@@ -496,6 +502,12 @@ public final class IntLongHashMap{
 		}
 	}
 	
+	/**
+	 * Finds the cell containing the specified key using linear probing.
+	 * Searches from the hash position forward, wrapping around if necessary.
+	 * @param key The key to locate
+	 * @return Cell index containing the key, or -1 if not found
+	 */
 	private int findCell(final int key){
 		if(key==invalid){return -1;}
 		
@@ -513,6 +525,12 @@ public final class IntLongHashMap{
 		return -1;
 	}
 	
+	/**
+	 * Finds the cell containing the key or the first empty cell in its probe sequence.
+	 * Used for insertions to locate where a key should be placed.
+	 * @param key The key to locate or place
+	 * @return Cell index for the key or first available empty cell
+	 */
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -535,6 +553,12 @@ public final class IntLongHashMap{
 		resize(keys.length*2L+1);
 	}
 	
+	/**
+	 * Resizes hash table to specified capacity using prime number sizing.
+	 * Finds the smallest prime >= size2 and rehashes all entries to new table.
+	 * Handles integer overflow by capping at maximum safe prime.
+	 * @param size2 Target minimum capacity
+	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;

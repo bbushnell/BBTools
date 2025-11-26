@@ -320,6 +320,14 @@ public abstract class KmerSort {
 		}
 	}
 	
+	/**
+	 * Reads sequences from input stream using multi-threaded fetching.
+	 * Validates reads, optionally shrinks names, applies quality quantization,
+	 * performs entry filtering for duplicates, and hashes reads for processing.
+	 * @param cris Concurrent input stream
+	 * @param kc KmerComparator for hashing reads
+	 * @return List of fetched and preprocessed reads
+	 */
 	ArrayList<Read> fetchReads1(final ConcurrentReadInputStream cris, final KmerComparator kc){
 		Timer t=new Timer();
 		if(verbose){t.start("Making fetch threads.");}

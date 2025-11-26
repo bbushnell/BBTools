@@ -599,6 +599,18 @@ public class KmerLimit2 extends SketchObject {
 	//This can be done faster with bins.
 	//Each bin contains all kmers with count x.  When a bin is hit, one kmer moves to the next bin lower.
 	//Alternately, expand the array into one physical kmer per count.  Store the current counts in an IntMap. Remove key each time.
+	/**
+	 * Simulates random k-mer removal to estimate rounds needed to reach target count.
+	 * Uses weighted random selection where k-mers with higher counts are more likely
+	 * to be selected for removal, simulating the effect of read subsampling.
+	 *
+	 * @param counts0 Original k-mer count array (unchanged)
+	 * @param counts Working k-mer count array (modified during simulation)
+	 * @param minCount Minimum count threshold for k-mer validity
+	 * @param targetKeys Target number of valid k-mers to retain
+	 * @param randy Random number generator for sampling
+	 * @return Number of removal rounds needed to reach target
+	 */
 	public static long reduceRounds(final int[] counts0, final int[] counts, final int minCount, final int targetKeys, final Random randy){
 		assert(minCount>=0) : minCount;
 		long rounds=0;
@@ -657,6 +669,19 @@ public class KmerLimit2 extends SketchObject {
 	//This can be done faster with bins.
 	//Each bin contains all kmers with count x.  When a bin is hit, one kmer moves to the next bin lower.
 	//Alternately, expand the array into one physical kmer per count.  Store the current counts in an IntMap. Remove key each time.
+	/**
+	 * Optimized version of reduceRounds using expanded array representation.
+	 * Creates an expanded array where each k-mer appears once per count,
+	 * enabling faster uniform random selection for simulation accuracy.
+	 *
+	 * @param counts0 Original k-mer count array
+	 * @param expanded Pre-allocated expanded array for k-mer representation
+	 * @param minCount Minimum count threshold for k-mer validity
+	 * @param targetKeys Target number of valid k-mers to retain
+	 * @param randy Random number generator for sampling
+	 * @param map IntMap for tracking current k-mer counts
+	 * @return Number of removal rounds needed to reach target
+	 */
 	public static long reduceRoundsIM(final int[] counts0, final int[] expanded, final int minCount, final int targetKeys, final Random randy, final IntMap map){
 		assert(minCount>=0) : minCount;
 		long rounds=0;
@@ -708,6 +733,14 @@ public class KmerLimit2 extends SketchObject {
 	private class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructor for ProcessThread worker.
+		 *
+		 * @param cris_ Input read stream
+		 * @param ros_ Output read stream (may be null for counting phase)
+		 * @param tid_ Thread identifier
+		 * @param size Local heap size for k-mer storage
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_, final int size){
 			cris=cris_;
 			ros=ros_;
@@ -805,6 +838,12 @@ public class KmerLimit2 extends SketchObject {
 			if(r2!=null){processReadNucleotide(r2);}
 		}
 		
+		/**
+		 * Extracts k-mers from a single nucleotide read.
+		 * Uses rolling hash to generate forward and reverse complement k-mers,
+		 * applying quality filtering and adding valid k-mers to the local heap.
+		 * @param r Read to process for k-mer extraction
+		 */
 		void processReadNucleotide(final Read r){
 			final byte[] bases=r.bases;
 			final byte[] quals=r.quality;

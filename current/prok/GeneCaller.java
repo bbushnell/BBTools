@@ -945,6 +945,20 @@ public class GeneCaller extends ProkObject {
 		return refined;
 	}
 	
+	/**
+	 * Refines ORF by alignment to specific consensus sequence.
+	 * Dispatches to either IDAligner or SingleStateAligner based on configuration.
+	 *
+	 * @param orf ORF to refine
+	 * @param bases Sequence bases
+	 * @param strand Current strand
+	 * @param sc Statistics container
+	 * @param consensus Reference sequence for alignment
+	 * @param startSlop Maximum start position adjustment allowed
+	 * @param stopSlop Maximum stop position adjustment allowed
+	 * @param recurLimit Recursion limit for boundary expansion
+	 * @return true if successful alignment with sufficient identity
+	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
 		if(useIDAligner) {
@@ -956,6 +970,20 @@ public class GeneCaller extends ProkObject {
 		}
 	}
 	
+	/**
+	 * Refines ORF boundaries using IDAligner for fast identity-based alignment.
+	 * Pads ORF region and aligns consensus to find best boundaries within identity threshold.
+	 *
+	 * @param orf ORF to refine (modified in place)
+	 * @param bases Sequence bases
+	 * @param strand Current strand
+	 * @param sc Statistics container with identity threshold
+	 * @param consensus Reference sequence
+	 * @param startSlop Maximum start adjustment
+	 * @param stopSlop Maximum stop adjustment
+	 * @param recurLimit Unused for IDAligner
+	 * @return true if alignment meets identity threshold
+	 */
 	boolean refineByAlignment_IDA(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
 		final int start0=orf.start;
@@ -998,6 +1026,21 @@ public class GeneCaller extends ProkObject {
 		return orf.length()>0;
 	}
 	
+	/**
+	 * Refines ORF boundaries using SingleStateAligner for detailed alignment.
+	 * Performs dynamic programming alignment with optional boundary expansion.
+	 * Can recursively expand search region if initial alignment extends beyond padding.
+	 *
+	 * @param orf ORF to refine (modified in place)
+	 * @param bases Sequence bases
+	 * @param strand Current strand
+	 * @param sc Statistics container with identity threshold
+	 * @param consensus Reference sequence
+	 * @param startSlop Maximum start adjustment
+	 * @param stopSlop Maximum stop adjustment
+	 * @param recurLimit Recursion limit for boundary expansion
+	 * @return true if alignment meets identity threshold
+	 */
 	boolean refineByAlignment_SSA(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
 		final int start0=orf.start;
@@ -1075,6 +1118,18 @@ public class GeneCaller extends ProkObject {
 		return true;
 	}
 	
+	/**
+	 * Finds high-scoring positions within a sequence region using iterative threshold reduction.
+	 * Continues lowering threshold until at least 8 points found or minimum threshold reached.
+	 *
+	 * @param left Start position of search region
+	 * @param right End position of search region
+	 * @param bases Sequence bases
+	 * @param fs Frame statistics for position scoring
+	 * @param thresh Initial score threshold
+	 * @param points Output list of qualifying positions
+	 * @param scores Output list of corresponding scores
+	 */
 	void fillPoints(final int left, final int right, final byte[] bases, final FrameStats fs, float thresh, final IntList points, final FloatList scores){
 		points.clear();
 		scores.clear();

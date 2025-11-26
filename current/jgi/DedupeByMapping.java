@@ -170,6 +170,15 @@ public class DedupeByMapping extends BBTool_ST{
 	}
 	
 	
+	/**
+	 * Performs deduplication on unsorted SAM/BAM input in three phases.
+	 * Phase 1: Reads input and pairs reads by name.
+	 * Phase 2: Identifies duplicates based on mapping coordinates and selects best quality reads.
+	 * Phase 3: Outputs retained reads and generates statistics.
+	 *
+	 * @param cris Input stream for reading SAM/BAM data
+	 * @param ros Output stream for writing deduplicated reads
+	 */
 	void processInner_unsorted(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		readsProcessed=0;
@@ -297,6 +306,12 @@ public class DedupeByMapping extends BBTool_ST{
 	
 	
 	
+	/**
+	 * Performs deduplication on coordinate-sorted SAM/BAM input (unimplemented).
+	 * Currently throws assertion error - intended for future sorted processing optimization.
+	 * @param cris Input stream for reading coordinate-sorted SAM/BAM data
+	 * @param ros Output stream for writing deduplicated reads
+	 */
 	void processInner_sorted(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		assert(false) : "TODO";
 		readsProcessed=0;

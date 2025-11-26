@@ -312,6 +312,12 @@ public class FindPrimers implements Accumulator<FindPrimers.ProcessThread> {
 	class ProcessThread extends Thread {
 		
 		//Constructor
+		/**
+		 * Constructs processing thread with input/output streams.
+		 * @param cris_ Input stream for reading sequences
+		 * @param ros_ Output stream for writing results
+		 * @param tid_ Thread identifier
+		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;

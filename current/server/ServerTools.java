@@ -655,6 +655,14 @@ public class ServerTools {
 		return false;
 	}
 	
+	/**
+	 * Lists directory contents via FTP using ";type=d" suffix.
+	 * Retries with exponential backoff on failure up to specified retry count.
+	 *
+	 * @param baseAddress FTP directory URL (trailing slashes removed)
+	 * @param retries Maximum number of retry attempts on failure
+	 * @return List of full file paths in the directory, empty on failure
+	 */
 	public static ArrayList<String> listDirectory(String baseAddress, final int retries){
 //		System.err.println("listDirectory '"+baseAddress+"'");
 		while(baseAddress.endsWith("/")){baseAddress=baseAddress.substring(0, baseAddress.length()-1);}

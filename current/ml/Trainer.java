@@ -1147,6 +1147,15 @@ public class Trainer implements Accumulator<WorkerThread> {
 //		return seeds;
 //	}
 	
+	/**
+	 * Scans multiple random seeds to identify the most promising ones for training.
+	 * Uses multiple scanner threads to evaluate seeds in parallel and returns
+	 * the best performing seeds sorted by quality.
+	 *
+	 * @param seedsToScan0 Total number of seeds to evaluate
+	 * @param seedsToReturn0 Number of best seeds to return
+	 * @return List of best performing seeds sorted by quality
+	 */
 	private ArrayList<Seed> scanForSeeds(final int seedsToScan0, final int seedsToReturn0) {
 		int seedsToScan=seedsToScan0, seedsToReturn=seedsToReturn0;
 		final int stsPerThread=(seedsToScan+networksPerCycle-1)/networksPerCycle;
@@ -1292,6 +1301,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 		return dims;
 	}
 	
+	/**
+	 * Loads networks from file paths (comma-separated for multiple networks).
+	 * Adjusts networks per cycle to match the number of loaded networks.
+	 * @param path Comma-separated file paths to network files
+	 * @return Array of loaded networks ready for training
+	 */
 	private CellNet[] loadNetworks(final String path){
 		assert(path!=null);
 		String[] paths=path.split(",");

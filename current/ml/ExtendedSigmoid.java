@@ -41,6 +41,7 @@ public class ExtendedSigmoid extends Function {
 	
 	/** String identifier for extended sigmoid function type */
 	static final String name="ESIG";
+	/** Numeric type identifier derived from the function name. */
 	static final int type=Function.toType(name, true);
 	/** Singleton instance for extended sigmoid activation function */
 	static final ExtendedSigmoid instance=new ExtendedSigmoid();

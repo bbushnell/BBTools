@@ -108,6 +108,16 @@ public class BarcodeCounter {
 		return cris;
 	}
 	
+	/**
+	 * Processes a batch of reads, extracting and counting barcodes from each.
+	 * Validates reads and delegates individual read processing to processRead method.
+	 *
+	 * @param ln ListNum containing batch of reads to process
+	 * @param cris ConcurrentReadInputStream for returning the processed list
+	 * @param codeMap HashMap to accumulate barcode counts
+	 * @param ihp IlluminaHeaderParser2 for parsing read headers
+	 * @param addTile Whether to include tile information in barcode keys
+	 */
 	private static final void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, 
 			HashMap<String, Barcode> codeMap, IlluminaHeaderParser2 ihp, boolean addTile){
 
@@ -125,6 +135,16 @@ public class BarcodeCounter {
 		cris.returnList(ln);
 	}
 	
+	/**
+	 * Processes a single read to extract and count its barcode.
+	 * Parses the read header to extract barcode and optionally tile information,
+	 * creates new Barcode objects as needed, and increments counts.
+	 *
+	 * @param r1 Read object to process
+	 * @param codeMap HashMap to store/update barcode counts
+	 * @param ihp IlluminaHeaderParser2 for parsing read headers
+	 * @param addTile Whether to append tile information to barcode key
+	 */
 	private static final void processRead(final Read r1, HashMap<String, Barcode> codeMap, IlluminaHeaderParser2 ihp, boolean addTile){
 		ihp.parse(r1.id);
 		final String key=ihp.barcode();

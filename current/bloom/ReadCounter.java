@@ -114,6 +114,16 @@ public class ReadCounter extends KmerCountAbstract {
 	/** Defaults for nucleotides. */
 	public ReadCounter(final int k_){this(k_, true, false, false, false);}
 	
+	/**
+	 * Creates a ReadCounter with specified configuration options.
+	 * Initializes bit manipulation constants and k-mer processing parameters.
+	 *
+	 * @param k_ K-mer length for counting
+	 * @param rcomp_ Whether to use reverse complement canonical k-mers
+	 * @param ecco_ Whether to enable error correction
+	 * @param merge_ Whether to merge overlapping paired reads
+	 * @param amino_ Whether to process amino acid sequences instead of nucleotides
+	 */
 	public ReadCounter(final int k_, final boolean rcomp_, 
 			final boolean ecco_, final boolean merge_, final boolean amino_){
 		k=k_;
@@ -478,6 +488,21 @@ public class ReadCounter extends KmerCountAbstract {
 		return counts;
 	}
 	
+	/**
+	 * Counts k-mers with trusted k-mer filtering for error correction.
+	 * Uses a trusted k-mer set to guide which k-mers to count or correct.
+	 *
+	 * @param reads1 Primary input file path
+	 * @param reads2 Secondary input file path (null for single-end)
+	 * @param cbits Bits per count cell (unused in this context)
+	 * @param counts KCountArray to increment with k-mer counts
+	 * @param trusted Reference KCountArray containing trusted k-mers
+	 * @param maxReads Maximum number of reads to process
+	 * @param thresh Minimum count threshold in trusted set
+	 * @param conservative Whether to use conservative error detection
+	 * @return The updated KCountArray
+	 * @throws Exception If file I/O or processing errors occur
+	 */
 	public KCountArray count(String reads1, String reads2, final int cbits, 
 			KCountArray counts, final KCountArray trusted, final long maxReads,
 			final int thresh, final boolean conservative) throws Exception{

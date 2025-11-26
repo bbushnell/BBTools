@@ -426,10 +426,20 @@ public class ApplyVariants {
 		if(removed>0){Tools.condenseStrict(vars);}
 	}
 	
+	/** Filters indel variants from a read based on configured restrictions.
+	 * @param r Read whose variants should be filtered */
 	private void filterIndels(final Read r){
 		filterIndels(r, null);
 	}
 	
+	/**
+	 * Filters indel variants based on size, frameshift, and depth restrictions.
+	 * Removes variants that exceed maximum indel size, cause frameshifts (when disabled),
+	 * or occur in low-coverage regions.
+	 *
+	 * @param r Read whose variants should be filtered
+	 * @param ca Coverage array for depth filtering, or null to look up by read ID
+	 */
 	private void filterIndels(final Read r, CoverageArray ca){
 		if(minDepth<=0 && maxIndel==Integer.MAX_VALUE && !noIndels && !noFrameshifts){return;}
 		

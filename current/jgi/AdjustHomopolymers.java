@@ -411,6 +411,14 @@ public class AdjustHomopolymers {
 		return true;
 	}
 	
+	/**
+	 * Applies homopolymer length adjustments to a single read.
+	 * Scans for consecutive identical bases and expands/contracts runs based
+	 * on the configured rate. Preserves quality scores during adjustments.
+	 * Only modifies fully-defined DNA bases, skipping ambiguous characters.
+	 *
+	 * @param r Read to process (null reads are skipped)
+	 */
 	void processRead(final Read r){
 		if(r==null){return;}
 		bbBases.clear();

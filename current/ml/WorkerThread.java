@@ -17,6 +17,12 @@ import shared.Tools;
  */
 class WorkerThread extends Thread implements Comparable<WorkerThread> {
 	//Constructor
+	/**
+	 * Constructs a worker thread with specified configuration parameters.
+	 * @param tid_ Thread identifier for tracking and sorting
+	 * @param wq Job queue for receiving work assignments
+	 * @param cutoffForEvaluation_ Threshold for binary classification evaluation
+	 */
 	WorkerThread(final int tid_, final ArrayBlockingQueue<JobData> wq,	/*final Object LOCK_, */final float cutoffForEvaluation_){
 		tid=tid_;
 		jobQueue=wq;

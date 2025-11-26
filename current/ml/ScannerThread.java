@@ -18,6 +18,19 @@ import shared.Tools;
  */
 public class ScannerThread extends Thread {
 	
+	/**
+	 * Creates a scanner thread for neural network evaluation.
+	 * @param parent_ Parent trainer managing the process
+	 * @param dims0_ Base network dimensions
+	 * @param minDims_ Minimum allowed dimensions
+	 * @param maxDims_ Maximum allowed dimensions
+	 * @param seedsToEvaluate_ Number of network seeds to test
+	 * @param seedsToReturn_ Number of best networks to return
+	 * @param epochs_ Maximum training epochs per network
+	 * @param maxSamples_ Maximum samples to use for training
+	 * @param netSeed0_ Initial random seed for network generation
+	 * @param returnQueue_ Queue for returning best network seeds
+	 */
 	public ScannerThread(Trainer parent_, final int[] dims0_, final int[] minDims_, final int[] maxDims_,
 			final int seedsToEvaluate_, final int seedsToReturn_, final int epochs_, 
 			final int maxSamples_, final long netSeed0_, final ArrayBlockingQueue<ArrayList<Seed>> returnQueue_) {
@@ -435,6 +448,13 @@ public class ScannerThread extends Thread {
 		return jobs;
 	}
 	
+	/**
+	 * Collects results from worker threads using ordered or disordered strategy.
+	 * @param net0 Network to accumulate changes into (if accumulate is true)
+	 * @param mq Message queue containing job results
+	 * @param accumulate Whether to accumulate network changes
+	 * @param numJobs Expected number of job results
+	 */
 	private void gatherResults(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		if(orderedJobs) {
@@ -444,6 +464,13 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Collects job results in any order as they complete.
+	 * @param net0 Network to accumulate changes into
+	 * @param mq Message queue with results
+	 * @param accumulate Whether to accumulate network changes
+	 * @param numJobs Number of results to collect
+	 */
 	private void gatherResultsDisordered(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		//System.err.println("M waiting for threads.");
@@ -460,6 +487,13 @@ public class ScannerThread extends Thread {
 		}
 	}
 	
+	/**
+	 * Collects job results in sequential order to ensure deterministic training.
+	 * @param net0 Network to accumulate changes into
+	 * @param mq Message queue with results
+	 * @param accumulate Whether to accumulate network changes
+	 * @param numJobs Number of results to collect
+	 */
 	private void gatherResultsOrdered(final CellNet net0, final ArrayBlockingQueue<JobResults> mq, 
 			final boolean accumulate, final int numJobs) {
 		JobResults[] results=new JobResults[numJobs];

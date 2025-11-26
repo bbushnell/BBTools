@@ -125,6 +125,15 @@ public class SketchIndex extends SketchObject {
 		return taxSet.add(taxID);
 	}
 	
+	/**
+	 * List-based sketch search algorithm using IntList for hit accumulation.
+	 * Searches index for k-mer matches, accumulates hits per sketch, and filters by minimum hits.
+	 * Supports contamination level tracking and taxonomic filtering when enabled.
+	 *
+	 * @param a Query sketch to search for
+	 * @param params Display parameters including minimum hits threshold
+	 * @return SketchResults with matching sketches above hit threshold
+	 */
 	public SketchResults getSketchesList(final Sketch a, DisplayParams params){
 		final int minHits=params.minHits, contamLevel=params.contamLevel();
 		final boolean countContamHits=params.needContamCounts();//, metaFilter=params.hasMetaFilters(), taxFilter=params.hasTaxFilters();
@@ -234,6 +243,15 @@ public class SketchIndex extends SketchObject {
 		return ids;
 	}
 	
+	/**
+	 * Map-based sketch search algorithm using IntHashMap for hit counting.
+	 * More memory efficient than list-based approach for large result sets.
+	 * Tracks hit counts per sketch and supports contamination analysis.
+	 *
+	 * @param a Query sketch to search for
+	 * @param params Display parameters including minimum hits and contamination level
+	 * @return SketchResults with matching sketches above hit threshold
+	 */
 	public SketchResults getSketchesMap(final Sketch a, DisplayParams params){
 		final int minHits=params.minHits, contamLevel=params.contamLevel();
 		final boolean countContamHits=params.needContamCounts();//, metaFilter=params.hasMetaFilters(), taxFilter=params.hasTaxFilters();

@@ -467,6 +467,12 @@ public class KmerLimit extends SketchObject {
 			if(r2!=null){processReadNucleotide(r2);}
 		}
 		
+		/**
+		 * Extracts k-mers from a single nucleotide read.
+		 * Processes each base to build rolling k-mers, applying quality filtering
+		 * when quality scores are available, and adds qualifying k-mers to the local heap.
+		 * @param r The read to process for k-mer extraction
+		 */
 		void processReadNucleotide(final Read r){
 			final byte[] bases=r.bases;
 			final byte[] quals=r.quality;

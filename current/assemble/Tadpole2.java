@@ -1450,6 +1450,24 @@ public class Tadpole2 extends Tadpole {
 		return false;
 	}
 	
+	/**
+	 * Main error correction implementation using multiple strategies.
+	 * Applies pincer correction, tail correction, and reassembly as needed.
+	 * Includes rollback functionality to prevent over-correction.
+	 *
+	 * @param r Read to correct
+	 * @param leftCounts Buffer for left extension counts
+	 * @param rightCounts Buffer for right extension counts
+	 * @param counts K-mer count list for the read
+	 * @param counts2 Additional count buffer
+	 * @param bb ByteBuilder for sequence work
+	 * @param bb2 Additional ByteBuilder
+	 * @param tracker Error tracking object
+	 * @param bs BitSet for base marking
+	 * @param kmer Working k-mer object
+	 * @param regenKmer K-mer for count regeneration
+	 * @return Total number of bases corrected
+	 */
 	public int errorCorrect(Read r, final int[] leftCounts, final int[] rightCounts, IntList counts, IntList counts2,
 			final ByteBuilder bb, final ByteBuilder bb2, final ErrorTracker tracker, final BitSet bs, final Kmer kmer, final Kmer regenKmer){
 		
@@ -1539,6 +1557,21 @@ public class Tadpole2 extends Tadpole {
 		return tracker.corrected();
 	}
 
+	/**
+	 * Corrects errors using pincer approach with flanking k-mer validation.
+	 * Identifies substitutions by comparing left and right k-mer counts around gaps.
+	 *
+	 * @param bases Sequence bases to correct
+	 * @param quals Quality scores for bases
+	 * @param leftBuffer Buffer for left extension counts
+	 * @param rightBuffer Buffer for right extension counts
+	 * @param counts K-mer counts for sequence
+	 * @param bb ByteBuilder for extension work
+	 * @param tracker Error tracking object
+	 * @param errorExtension Extension distance for validation
+	 * @param kmer Working k-mer object
+	 * @return Number of bases corrected
+	 */
 	public int errorCorrectPincer(final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final IntList counts, final ByteBuilder bb, final ErrorTracker tracker, final int errorExtension, final Kmer kmer){
 		
@@ -1591,6 +1624,22 @@ public class Tadpole2 extends Tadpole {
 		return corrected;
 	}
 
+	/**
+	 * Corrects errors from sequence ends using tail-based approach.
+	 * Validates corrections by extending and comparing with original sequence.
+	 *
+	 * @param bases Sequence bases to correct
+	 * @param quals Quality scores for bases
+	 * @param leftBuffer Buffer for left extension counts
+	 * @param rightBuffer Buffer for right extension counts
+	 * @param counts K-mer counts for sequence
+	 * @param bb ByteBuilder for extension work
+	 * @param tracker Error tracking object
+	 * @param startPos Starting position for correction scanning
+	 * @param errorExtension Extension distance for validation
+	 * @param kmer Working k-mer object
+	 * @return Number of bases corrected
+	 */
 	public int errorCorrectTail(final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final IntList counts, final ByteBuilder bb, final ErrorTracker tracker, final int startPos, final int errorExtension, final Kmer kmer){
 		if(bases.length<kbig+2+errorExtension+deadZone){return 0;}
@@ -1727,6 +1776,22 @@ public class Tadpole2 extends Tadpole {
 		return corrected;
 	}
 	
+	/**
+	 * Corrects single base substitution using bidirectional validation.
+	 * Extends from both flanking k-mers to confirm correction consistency.
+	 *
+	 * @param a Left k-mer position
+	 * @param d Right k-mer position
+	 * @param bases Sequence to correct
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extensions
+	 * @param rightBuffer Buffer for right extensions
+	 * @param counts K-mer count list
+	 * @param bb ByteBuilder for extensions
+	 * @param errorExtension Validation extension distance
+	 * @param kmer0 Working k-mer object
+	 * @return 1 if corrected, 0 if correction failed
+	 */
 	private int correctSingleBasePincer(final int a, final int d, final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final IntList counts, final ByteBuilder bb, final int errorExtension, final Kmer kmer0){
 		final byte leftReplacement, rightReplacement;
@@ -1765,6 +1830,21 @@ public class Tadpole2 extends Tadpole {
 		return 1;
 	}
 	
+	/**
+	 * Corrects single base substitution using rightward extension validation.
+	 * Extends from left k-mer and validates against original sequence.
+	 *
+	 * @param a Left k-mer position
+	 * @param bases Sequence to correct
+	 * @param quals Quality scores
+	 * @param leftBuffer Buffer for left extensions
+	 * @param rightBuffer Buffer for right extensions
+	 * @param counts K-mer count list
+	 * @param bb ByteBuilder for extensions
+	 * @param errorExtension0 Maximum extension distance
+	 * @param kmer0 Working k-mer object
+	 * @return 1 if corrected, 0 if correction failed
+	 */
 	private int correctSingleBaseRight(final int a, final byte[] bases, final byte[] quals, final int[] leftBuffer, final int[] rightBuffer,
 			final IntList counts, final ByteBuilder bb, final int errorExtension0, final Kmer kmer0){
 		final byte leftReplacement;
@@ -1792,6 +1872,17 @@ public class Tadpole2 extends Tadpole {
 		return 1;
 	}
 	
+	/**
+	 * Checks if replacing a base results in similar k-mer coverage.
+	 * Used to validate error corrections by coverage consistency.
+	 *
+	 * @param bases Sequence containing k-mer
+	 * @param a Position of k-mer start
+	 * @param newBase Replacement base to test
+	 * @param counts K-mer count list
+	 * @param kmer0 Working k-mer object
+	 * @return true if coverage is similar with new base
+	 */
 	private final boolean isSimilar(byte[] bases, int a, byte newBase, IntList counts, final Kmer kmer0){
 		Kmer kmer=getKmer(bases, a, kmer0);
 		if(kmer==null){

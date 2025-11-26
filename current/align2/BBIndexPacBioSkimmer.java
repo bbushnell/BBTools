@@ -447,6 +447,17 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Retrieves hit list boundaries for k-mers on specified chromosome.
+	 * Populates start/stop arrays with valid hit ranges for downstream processing.
+	 *
+	 * @param keys Array of k-mer values to look up
+	 * @param chrom Chromosome to search
+	 * @param maxLen Maximum list length to consider
+	 * @param starts Output array for hit list start positions
+	 * @param stops Output array for hit list stop positions
+	 * @return Number of k-mers with valid hits
+	 */
 	private final int getHits(final int[] keys, final int chrom, final int maxLen, final int[] starts, final int[] stops){
 		int numHits=0;
 		final Block b=index[chrom];
@@ -470,6 +481,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Counts k-mers with hit lists under specified length threshold.
+	 * Optionally marks oversized lists as invalid for downstream filtering.
+	 *
+	 * @param keys Array of k-mer values to check
+	 * @param maxLen Maximum acceptable list length
+	 * @param clearBadKeys Whether to mark oversized keys as invalid (-1)
+	 * @return Number of keys with acceptable hit list sizes
+	 */
 	private final int countHits(final int[] keys, final int maxLen, boolean clearBadKeys){
 		int numHits=0;
 		for(int i=0; i<keys.length; i++){
@@ -1361,6 +1381,23 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Rapidly finds maximum quick score and hit count for prescanning optimization.
+	 * Uses coordinate walking to identify best possible alignment scores without
+	 * expensive extension, enabling early termination and block skipping.
+	 *
+	 * @param starts Hit list start positions
+	 * @param stops Hit list stop positions
+	 * @param offsets K-mer positions within read
+	 * @param keyScores K-mer quality scores
+	 * @param baseChrom_ Base chromosome for coordinate calculations
+	 * @param triples Coordinate tracking structures
+	 * @param values Site coordinate values
+	 * @param prevMaxHits Previous maximum hit count for early termination
+	 * @param earlyExit Whether to terminate early on perfect matches
+	 * @param perfectOnly Whether to consider only perfect alignments
+	 * @return Array containing [maxQscore, maxHits]
+	 */
 	private final int[] findMaxQscore2(final int[] starts, final int[] stops, final int[] offsets, final int[] keyScores,
 			final int baseChrom_, final Quad[] triples, final int[] values, final int prevMaxHits,
 			boolean earlyExit, boolean perfectOnly){
@@ -1569,6 +1606,21 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Calculates quick alignment score based on k-mer positioning and quality.
+	 * Uses center-based alignment with left/right extension scoring and indel penalties.
+	 * Includes Y-score terms for k-mer span and optional list size bonuses.
+	 *
+	 * @param locs Alignment site coordinates for k-mers
+	 * @param keyScores K-mer quality scores
+	 * @param centerIndex Index of central k-mer for alignment anchor
+	 * @param offsets K-mer positions within read
+	 * @param sizes Hit list sizes for bonus calculation
+	 * @param penalizeIndels Whether to apply indel penalties
+	 * @param numApproxHits Number of approximate hits found
+	 * @param numHits Total number of hits
+	 * @return Quick score value for this alignment configuration
+	 */
 	private final int quickScore(final int[] locs, final int[] keyScores, final int centerIndex, final int offsets[],
 			int[] sizes, final boolean penalizeIndels, final int numApproxHits, final int numHits){
 		
@@ -1671,6 +1723,22 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	
 	
 	
+	/**
+	 * Performs detailed alignment extension and scoring using reference sequence.
+	 * Extends k-mer matches bidirectionally, handling mismatches and gaps.
+	 * Creates location array mapping read positions to reference coordinates.
+	 *
+	 * @param bases Read sequence
+	 * @param baseScores Base quality scores for scoring
+	 * @param offsets K-mer positions within read
+	 * @param values K-mer alignment site coordinates
+	 * @param chrom Chromosome containing alignment sites
+	 * @param centerIndex Index of central k-mer for extension anchor
+	 * @param locArray Output array mapping read positions to reference
+	 * @param numHits Total number of k-mer hits
+	 * @param numApproxHits Number of approximate hits in alignment region
+	 * @return Extended alignment score incorporating base matches and penalties
+	 */
 	private final int extendScore(final byte[] bases, final byte[] baseScores, final int[] offsets, final int[] values,
 			final int chrom, final int centerIndex, final int[] locArray, final int numHits, final int numApproxHits){
 		callsToExtendScore++;
@@ -2358,6 +2426,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	/** Maximum length for alignment subsumption operations */
 	static final int MAX_SUBSUMPTION_LENGTH=MAX_INDEL2;
 	
+	/**
+	 * Calculates dynamic quick score cutoff for alignment filtering.
+	 * Balances between fixed thresholds and score-proportional thresholds.
+	 *
+	 * @param max Maximum possible quick score
+	 * @param score Current best quick score achieved
+	 * @param currentCutoff Current cutoff threshold
+	 * @return Updated cutoff threshold
+	 */
 	private static final int calcQScoreCutoff(final int max, final int score, final int currentCutoff){
 		assert(max>=score) : max+", "+score;
 		assert(score>=0);
@@ -2370,6 +2447,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		return r;
 	}
 	
+	/**
+	 * Calculates dynamic alignment score cutoff for site filtering.
+	 * Uses both fixed fraction of maximum and dynamic fraction of current best.
+	 *
+	 * @param max Maximum possible alignment score
+	 * @param score Current best alignment score achieved
+	 * @param currentCutoff Current cutoff threshold
+	 * @return Updated score cutoff threshold
+	 */
 	private static final int calcScoreCutoff(final int max, final int score, final int currentCutoff){
 		assert(max>=score) : max+", "+score;
 		assert(score>=0);
@@ -2379,6 +2465,16 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		return r;
 	}
 	
+	/**
+	 * Calculates dynamic approximate hits cutoff for alignment consideration.
+	 * Adjusts requirements based on perfect match status and alignment mode.
+	 *
+	 * @param keys Total number of k-mers in read
+	 * @param hits Current maximum hits achieved
+	 * @param currentCutoff Current hits threshold
+	 * @param perfect Whether perfect alignment has been found
+	 * @return Updated approximate hits cutoff
+	 */
 	private static final int calcApproxHitsCutoff(final int keys, final int hits, int currentCutoff, final boolean perfect){ //***$
 		assert(keys>=hits) : keys+", "+hits;
 		assert(hits>=0);

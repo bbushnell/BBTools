@@ -525,6 +525,16 @@ public class KmerSort3 extends KmerSort {
 		if(verbose){System.err.println("Sent writable reads.");}
 	}
 	
+	/**
+	 * Creates and starts multiple fetch threads for concurrent read processing.
+	 * Each thread processes input groups independently and communicates via queue.
+	 *
+	 * @param kc K-mer comparator for read processing
+	 * @param fetchThreads Number of fetch threads to create
+	 * @param listQ Queue for communication between fetch threads and main thread
+	 * @param rosa Output streams for direct streaming when appropriate
+	 * @return List of created and started fetch threads
+	 */
 	public ArrayList<FetchThread3> fetchReads(final KmerComparator kc, final int fetchThreads, SynchronousQueue<ArrayList<Read>> listQ, ConcurrentReadOutputStream[] rosa){
 		AtomicInteger nextGroup=new AtomicInteger(0);
 		if(verbose){outstream.println("Making "+fetchThreads+" fetch thread"+(fetchThreads==1 ? "." : "s."));}
@@ -592,6 +602,14 @@ public class KmerSort3 extends KmerSort {
 	 */
 	private class FetchThread3 extends Thread{
 		
+		/**
+		 * Constructs fetch thread with processing dependencies.
+		 *
+		 * @param kc_ K-mer comparator for read processing
+		 * @param listQ_ Queue for communicating processed reads to main thread
+		 * @param nextGroup_ Atomic counter for determining next input group to process
+		 * @param rosa_ Output streams for direct streaming when memory constrained
+		 */
 		FetchThread3(final KmerComparator kc_, SynchronousQueue<ArrayList<Read>> listQ_, AtomicInteger nextGroup_, ConcurrentReadOutputStream[] rosa_){
 			kc=kc_;
 			listQ=listQ_;

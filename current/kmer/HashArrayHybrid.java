@@ -173,6 +173,15 @@ public final class HashArrayHybrid extends HashArray {
 		}
 	}
 	
+	/**
+	 * Legacy method for inserting values into setList arrays.
+	 * Handles array growth and duplicate checking. Replaced by
+	 * more efficient implementation in setList.insertIntoList().
+	 *
+	 * @param v Value to insert
+	 * @param loc Location in setList
+	 * @return 1 if new value added, 0 if duplicate found
+	 */
 	@Deprecated
 	private final int insertIntoListOld(final int v, final int loc){
 		
@@ -201,6 +210,14 @@ public final class HashArrayHybrid extends HashArray {
 		return 1;
 	}
 	
+	/**
+	 * Inserts a value into a setList array at specified location.
+	 * Delegates to setList's optimized insertion method.
+	 *
+	 * @param v Value to insert
+	 * @param loc Location in setList
+	 * @return 1 if new value added, 0 if duplicate found
+	 */
 	private final int insertIntoList(final int v, final int loc){
 		return setList.insertIntoList(v, loc);
 	}
