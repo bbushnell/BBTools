@@ -202,7 +202,7 @@ public class RandomReadsMG{
 				depthVariance=Float.parseFloat(b);
 			}else if(a.equals("wavecov") || a.equals("sinewave")){
 				waveCoverage=Parse.parseBoolean(b);
-			}else if(a.equals("waves") || a.equals("sinewaves")){
+			}else if(a.equals("waves") || a.equals("sinewaves") || a.equals("numwaves")){
 				numSineWaves=Integer.parseInt(b);
 				waveCoverage=numSineWaves>0;
 			}else if(a.equals("maxamplitude") || a.equals("waveamp")){

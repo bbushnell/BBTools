@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 15, 2025
+Last modified November 26, 2025
 
 Description:  Generates synthetic reads from a set of fasta assemblies.
 Each assembly is assigned a random coverage level, with optional custom 
@@ -88,7 +88,7 @@ hrate=-1        Homopolymer error boost; default 0.02 ONT / 0.000015 PB.
 
 Coverage variation parameters (only used with 'sinewave' flag):
 sinewave        Enable realistic coverage variation within contigs.
-numwaves=4      Number of sine waves to combine; more waves create more 
+waves=4         Number of sine waves to combine; more waves create more 
                 complex coverage patterns with irregular peaks and valleys.
 waveamp=0.70    Controls the maximum variation in coverage due to the sine 
                 waves.  Higher values (0-1) create more dramatic differences 

@@ -31,7 +31,11 @@ public final class AminoAcid {
 		String acids=stringToAAs(bases);
 
 		System.out.println(bases+" -> "+acids);
-
+		for(int i=0; i<baseToComplementExtended.length; i++) {
+			if(baseToComplementExtended[i]<1) {baseToComplementExtended[i]=(byte)i;}
+		}
+		System.out.println(new String(baseToComplementExtended));
+		System.out.println(Arrays.toString(baseToComplementExtended));
 	}
 
 
