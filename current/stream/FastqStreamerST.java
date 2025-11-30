@@ -30,14 +30,16 @@ public class FastqStreamerST implements Streamer {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
 		FastqStreamerST st=new FastqStreamerST(ff, 0, -1);
 		st.start();
-		long reads=0, bases=0;
+		long reads=0, bases=0, lists=0;
 		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
 			for(Read r : ln) {
 				reads+=r.pairCount();
 				bases+=r.pairLength();
 			}
 		}
+		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
+		System.err.println("lists="+lists+", reads="+reads+", bases="+bases);
 	}
 	
 	/*--------------------------------------------------------------*/
