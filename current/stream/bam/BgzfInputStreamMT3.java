@@ -292,7 +292,13 @@ public class BgzfInputStreamMT3 extends InputStream {
 		final byte[] buffer=new byte[65536];
 		int total=0;
 		while(total<buffer.length){
-			int n=plainGzipStream.read(buffer, total, buffer.length-total);
+			int n=0;
+			try {//Protects from a closing race condition
+				n=plainGzipStream.read(buffer, total, buffer.length-total);
+			} catch (Exception e) {
+				if(closed) {return null;} // Expected shutdown error
+				throw e; // Real error
+			}
 			if(n<0){break;}
 			if(n==0){continue;}
 			total+=n;
