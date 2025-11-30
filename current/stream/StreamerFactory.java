@@ -23,6 +23,16 @@ public class StreamerFactory {
 		return makeStreamer(ff1, ff2, qf1, qf2, true, maxReads, keepSamHeader, true, threads);
 	}
 	
+	public static Streamer makeSamOrBamStreamer(String fname, int threads, boolean saveHeader, 
+			boolean ordered, long maxReads, boolean makeReads) {
+		return makeSamOrBamStreamer(FileFormat.testInput(fname, FileFormat.SAM, null, true, false), threads, saveHeader, ordered, maxReads, makeReads);
+	}
+	
+	public static Streamer makeSamOrBamStreamer(FileFormat ffin, int threads, boolean saveHeader, 
+			boolean ordered, long maxReads, boolean makeReads) {
+		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------         Twin Files           ----------------*/
 	/*--------------------------------------------------------------*/
@@ -75,6 +85,10 @@ public class StreamerFactory {
 		Streamer s2=makeStreamer(ff2, qf2, 1, true, maxReads, saveHeader, makeReads, threads);
 		return s2==null ? s1 : new PairStreamer(s1, s2);
 	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------         Single File          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
 	 * Creates a Streamer for a single input file with default settings.
@@ -145,10 +159,11 @@ public class StreamerFactory {
 			return null;
 			
 		}else if(ff.fastq()){
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>1)) {
+			if(Shared.threads()>=16 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>1)) {
 				return new FastqStreamer(ff, threads, pairnum, maxReads);
 			}else {
-				return new FastqStreamerST(ff, pairnum, maxReads);
+//				return new FastqStreamerST(ff, pairnum, maxReads);
+				return new FastqScanStreamer(ff, pairnum, maxReads);
 			}
 			
 		}else if(ff.fasta() && qf==null){
@@ -195,15 +210,9 @@ public class StreamerFactory {
 		throw new RuntimeException("Unsupported file format: "+ff);
 	}
 	
-	//Legacy
-	
-	public static Streamer makeSamOrBamStreamer(String fname, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
-		return makeSamOrBamStreamer(FileFormat.testInput(fname, FileFormat.SAM, null, true, false), threads, saveHeader, ordered, maxReads, makeReads);
-	}
-	
-	public static Streamer makeSamOrBamStreamer(FileFormat ffin, int threads, boolean saveHeader, boolean ordered, long maxReads, boolean makeReads) {
-		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
-	}
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	//Generally faster and makes fewer objects
 	//It does scan for newlines twice though
