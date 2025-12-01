@@ -36,20 +36,16 @@ import var2.VcfLoader;
  * @date November 19, 2025
  *
  */
-public class BBDukIndex_clean {
+public class BBDukIndexAndLoader {
 	
 	/**
 	 * Constructor.
-	 * @param args Command line arguments
+	 * @param p Parser with command line arguments
 	 */
-	public BBDukIndex_clean(String[] args){
+	public BBDukIndexAndLoader(BBDukParser p){
 		
 		scaffoldNames.add(""); //Necessary so that the first real scaffold gets an id of 1, not zero
 		scaffoldLengths.add(0);
-		
-		/* Parse arguments */
-		
-		BBDukParser p=new BBDukParser(args, getClass());
 		
 		silent=p.silent;
 		json=p.json;
@@ -313,7 +309,7 @@ public class BBDukIndex_clean {
 	/**
 	 * Write statistics on a per-reference basis.
 	 */
-	private void writeRefStats(String in1, String in2, long readsIn){
+	void writeRefStats(String in1, String in2, long readsIn){
 		if(outrefstats==null){return;}
 		final TextStreamWriter tsw=new TextStreamWriter(outrefstats, overwrite, false, false);
 		tsw.start();
@@ -898,10 +894,10 @@ public class BBDukIndex_clean {
 	 * @param sets Kmer hash tables
 	 * @return Value stored in table, or -1
 	 */
-	private final int getValue(final long kmer, final long rkmer, final long lengthMask, final int qPos, final int len, final int qHDist, final AbstractKmerTable[] sets){
+	final int getValue(final long kmer, final long rkmer, final long lengthMask, final int qPos, final int len, final int qHDist){
 		assert(lengthMask==0 || (kmer<lengthMask && rkmer<lengthMask)) : lengthMask+", "+kmer+", "+rkmer;
 		if(verbose){outstream.println("getValue()");}
-		int id=getValueInner(kmer, rkmer, lengthMask, len, qPos, sets);
+		int id=getValueInner(kmer, rkmer, lengthMask, len, qPos);
 		if(id<1 && qHDist>0){
 			final int qHDist2=qHDist-1;
 			
@@ -911,7 +907,7 @@ public class BBDukIndex_clean {
 					final long temp=(kmer&clearMasks[i])|setMasks[j][i];
 					if(temp!=kmer){
 						long rtemp=rcomp(temp, len);
-						id=getValue(temp, rtemp, lengthMask, qPos, len, qHDist2, sets);
+						id=getValue(temp, rtemp, lengthMask, qPos, len, qHDist2);
 					}
 				}
 			}
@@ -928,7 +924,7 @@ public class BBDukIndex_clean {
 	 * @param sets Kmer hash tables
 	 * @return Value stored in table
 	 */
-	private final int getValueInner(final long kmer, final long rkmer, final long lengthMask, final int len, final int qPos, final AbstractKmerTable[] sets){
+	private final int getValueInner(final long kmer, final long rkmer, final long lengthMask, final int len, final int qPos){
 		assert(lengthMask==0 || (kmer<lengthMask && rkmer<lengthMask)) : lengthMask+", "+kmer+", "+rkmer;
 		if(qSkip>1 && (qPos%qSkip!=0)){return -1;}
 
@@ -942,7 +938,7 @@ public class BBDukIndex_clean {
 		if(verbose){outstream.println("key="+AminoAcid.kmerToString(key, len)+" ("+key+")");}
 		if(passesSpeed(key)){
 			if(verbose){outstream.println("Testing key "+kmerToString(key, len)+" ("+key+")");}
-			AbstractKmerTable set=sets[(int)(key%WAYS)];
+			AbstractKmerTable set=keySets[(int)(key%WAYS)];
 			final int id=set.getValue(key);
 			if(verbose){outstream.println("getValueInner("+kmerToString(kmer, len)+", "+kmerToString(rkmer, len)+") > "+kmerToString(key, len)+" ("+key+") = "+id);}
 			return id;
@@ -1031,24 +1027,24 @@ public class BBDukIndex_clean {
 	private final JsonObject jsonStats;
 	
 	/** Number of reference reads processed for kmer loading */
-	private long refReads;
+	long refReads;
 	/** Number of reference bases processed for kmer loading */
-	private long refBases;
+	long refBases;
 	/** Number of reference kmers encountered during loading */
-	private long refKmers;
+	long refKmers;
 	/** Number of unique kmers actually stored in hash tables */
-	private long storedKmers;
+	long storedKmers;
 	
 	/** scaffoldCounts[id] stores the number of reads with kmer matches to that scaffold */
-	private AtomicLongArray scaffoldReadCounts;
+	AtomicLongArray scaffoldReadCounts;
 	/** scaffoldBaseCounts[id] stores the number of bases with kmer matches to that scaffold */
-	private AtomicLongArray scaffoldBaseCounts;
+	AtomicLongArray scaffoldBaseCounts;
 	/** scaffoldLengths[id] stores the length of that scaffold */
-	private IntList scaffoldLengths=new IntList();
+	IntList scaffoldLengths=new IntList();
 	/** hitCounts[x] stores the number of reads with exactly x kmer matches */
 	private long[] hitCounts;
 	/** Set to false to force threads to share atomic counter arrays. */
-	private boolean ALLOW_LOCAL_ARRAYS;
+	boolean ALLOW_LOCAL_ARRAYS;
 	
 	/*--------------------------------------------------------------*/
 	
@@ -1058,17 +1054,17 @@ public class BBDukIndex_clean {
 	private final int initialSize;
 	
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in keySets[Y] */
-	private final AbstractKmerTable[] keySets;
+	final AbstractKmerTable[] keySets;
 	/** A scaffold's name is stored at scaffoldNames.get(id).
 	 * scaffoldNames[0] is reserved, so the first id is 1. */
-	private final ArrayList<String> scaffoldNames=new ArrayList<String>();
+	final ArrayList<String> scaffoldNames=new ArrayList<String>();
 	/** Names of reference files (refNames[0] is valid). */
-	private ArrayList<String> refNames;
-	private final ArrayList<String> altRefNames;
+	ArrayList<String> refNames;
+	final ArrayList<String> altRefNames;
 	/** Number of scaffolds per reference. */
-	private int[] refScafCounts;
+	int[] refScafCounts;
 	/** Array of reference files from which to load kmers */
-	private String[] ref;
+	String[] ref;
 	/** Alternate reference to be used if main reference has no kmers */
 	private final String[] altref;
 	/** Array of literal strings from which to load kmers */
@@ -1124,9 +1120,9 @@ public class BBDukIndex_clean {
 	//TODO: Document
 	private final String varFile;
 	private final String vcfFile;
-	private VarMap varMap;
-	private ScafMap scafMap;
-	private boolean fixVariants;
+	VarMap varMap;
+	ScafMap scafMap;
+	boolean fixVariants;
 	private final boolean unfixVariants;
 	
 	/** Optional file for quality score recalibration */
@@ -1248,7 +1244,7 @@ public class BBDukIndex_clean {
 	private final int alignK2;
 	private final int alignMM1;
 	private final int alignMM2;
-	private final SideChannel3 sidechannel;
+	final SideChannel3 sidechannel;
 	
 	/*--------------------------------------------------------------*/
 	

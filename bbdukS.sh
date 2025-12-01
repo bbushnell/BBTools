@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 23, 2025
+Last modified December 1, 2025
 
 #This is an experimental new version of BBDuk using a faster I/O system
 

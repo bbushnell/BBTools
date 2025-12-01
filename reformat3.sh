@@ -3,7 +3,10 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 23, 2025
+Last modified December 1, 2025
+
+#This is an experimental new version of Reformat using a faster I/O system,
+#refactored to support multithreading
 
 Description:  Reformats reads to change ASCII quality encoding, interleaving, file format, or compression format.
 Optionally performs additional functions such as quality trimming, subsetting, and subsampling.
@@ -20,7 +23,6 @@ Parameters and their defaults:
 
 ow=f                    (overwrite) Overwrites files that already exist.
 app=f                   (append) Append to files that already exist.
-zl=4                    (ziplevel) Set compression level, 1 (low) to 9 (max).
 int=f                   (interleaved) Determines whether INPUT file is considered interleaved.
 fastawrap=70            Length of lines in fasta output.
 fastareadlen=0          Set to a non-zero number to break fasta files into reads of at most this length.
@@ -35,6 +37,16 @@ qfout2=<.qual file>     Write qualities from this qual file, for the reads comin
 outsingle=<file>        (outs) If a read is longer than minlength and its mate is shorter, the longer one goes here.
 deleteinput=f           Delete input upon successful completion.
 ref=<file>              Optional reference fasta for sam processing.
+
+Threading and Compression Parameters:
+
+zl=4                    (ziplevel) Set compression level, 1 (low) to 9 (max); values above 6 are slow.
+wt=auto                 (workers) Number of worker threads.
+tin=auto                (threadsin) Number of threads for file reading.
+tout=auto               (threadsout) Number of threads for file writing.
+t=auto                  (threads) Maximum number of threads per pipeline stage; affects speed of things like bgzip processing.
+                        All stages will be capped at this number unless specified.  Default is logical cores.
+Note: Particularly with fasta files, fewer threads need less memory, so wt=1 tin=1 tout=1 is advisable with large contigs/chromosomes.
 
 Processing Parameters:
 

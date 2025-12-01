@@ -144,8 +144,6 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 				skipreads=Parse.parseKMG(b);
 			}else if(a.equals("deleteinput")){
 				deleteInput=Parse.parseBoolean(b);
-			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt") || a.equals("w")){
-				workers=Integer.parseInt(b);
 			}else if(processor.parse(arg, a, b)){
 				//Argument was consumed by the processor
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
@@ -164,6 +162,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 		processor.setFromParser(parser);
 
 		//Get fields from parser that the harness needs
+		workers=parser.workers;
 		maxReads=parser.maxReads;
 		breakLength=parser.breakLength;
 		overwrite=ReadStats.overwrite=parser.overwrite;

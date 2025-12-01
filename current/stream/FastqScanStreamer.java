@@ -135,6 +135,7 @@ public final class FastqScanStreamer implements Streamer{
 		long maxRecords=Math.min(records, maxReads-nextRID);
 		records=(int)maxRecords;
 		ArrayList<Read> reads=new ArrayList<Read>(records);
+		final int offset=-FASTQ.ASCII_OFFSET;
 		for(int i=0, j=0; i<records; i++, j+=4) {
 			final int headerEnd=newlines.get(j);
 			final int basesEnd=newlines.get(j+1);
@@ -150,6 +151,7 @@ public final class FastqScanStreamer implements Streamer{
 			final String header=new String(buffer, recordStart+1, headerLen);
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
+			Vector.applyQualOffset(quals, bases, offset);
 			final Read r=new Read(bases, quals, header, nextRID);
 			r.setPairnum(pairnum);
 			reads.add(r);
@@ -172,6 +174,7 @@ public final class FastqScanStreamer implements Streamer{
 		long maxRecords=(records<remainingRecords ? records : Math.min(records, remainingRecords*2));
 		records=(int)maxRecords;
 		ArrayList<Read> reads=new ArrayList<Read>(records);
+		final int offset=-FASTQ.ASCII_OFFSET;
 		for(int i=0, j=0; i<records; i++, j+=4) {
 			final int headerEnd=newlines.get(j);
 			final int basesEnd=newlines.get(j+1);
@@ -187,6 +190,7 @@ public final class FastqScanStreamer implements Streamer{
 			final String header=new String(buffer, recordStart+1, headerLen);
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
+			Vector.applyQualOffset(quals, bases, offset);
 			final Read r=new Read(bases, quals, header, nextRID);
 			r.setPairnum(pairnum);
 			reads.add(r);
@@ -211,7 +215,7 @@ public final class FastqScanStreamer implements Streamer{
 				+ " as interleaved but had an odd number of reads.");
 		}
 		if(lim<1) {return;}
-		for(int i=0; i<lim; i++) {
+		for(int i=0; i<lim; i+=2) {
 			Read r1=reads.get(i), r2=reads.set(i+1, null);
 			r1.mate=r2;
 			r2.mate=r1;

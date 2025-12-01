@@ -13,7 +13,7 @@
 
 ## 📊 Version
 
-Current Version: **39.52**
+Current Version: **39.53**
 
 ## 🚀 Features
 
@@ -62,7 +62,7 @@ cd bbmap
 ```
 
 ### Requirements
-- Java 8 or higher (Java 17+ recommended)
+- Java 8 or higher (Java 25+ recommended)
 - Bash recommended but not required
 
 ## 📖 Documentation

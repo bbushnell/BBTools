@@ -100,7 +100,7 @@ public class BBDuk6 {
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
 		DISPLAY_PROGRESS=BBDukParser.DISPLAY_PROGRESS;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 
@@ -142,7 +142,7 @@ public class BBDuk6 {
 
 		p.parser.validateStdio(ffin1, ffout1, ffoutb1, ffouts);
 		
-		index=new BBDukIndex(p);
+		index=new BBDukIndexAndLoader(p);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -436,7 +436,7 @@ public class BBDuk6 {
 	/*--------------------------------------------------------------*/
 	
 	private final BBDukParser parser;
-	private final BBDukIndex index;
+	private final BBDukIndexAndLoader index;
 	
 	/** A scaffold's name is stored at scaffoldNames.get(id).
 	 * scaffoldNames[0] is reserved, so the first id is 1. */

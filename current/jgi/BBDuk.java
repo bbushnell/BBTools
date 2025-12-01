@@ -156,14 +156,7 @@ public class BBDuk {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(a.equals("threads") || a.equals("t")){
-				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
-				Shared.setThreads(x);
-				THREADS=x;
-			}else if(a.equals("workers") || a.equals("wt") || a.equals("workerthreads")){
-				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
-				THREADS=x;
-			}else if(Parser.parseZip(arg, a, b)){
+			if(Parser.parseZip(arg, a, b)){
 				//do nothing
 			}else if(Parser.parseHist(arg, a, b)){
 				//do nothing
@@ -598,7 +591,7 @@ public class BBDuk {
 			samplerate=parser.samplerate;
 			sampleseed=parser.sampleseed;
 			recalibrateQuality=parser.recalibrateQuality;
-			
+			THREADS=parser.workers();
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 			

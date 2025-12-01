@@ -54,7 +54,7 @@ public class BBDukProcessor2 {
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
-	public BBDukProcessor2(BBDukParser p, BBDukIndex index_, ConcurrentReadInputStream cris_, 
+	public BBDukProcessor2(BBDukParser p, BBDukIndexAndLoader index_, ConcurrentReadInputStream cris_, 
 		ConcurrentReadOutputStream ros_, ConcurrentReadOutputStream rosb_, ConcurrentReadOutputStream ross_){
 		
 		parser=p;
@@ -222,7 +222,7 @@ public class BBDukProcessor2 {
 		overwrite=BBDukParser.overwrite;
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 		
@@ -2927,7 +2927,7 @@ public class BBDukProcessor2 {
 
 	/*--------------------------------------------------------------*/
 
-	private final BBDukIndex index;
+	private final BBDukIndexAndLoader index;
 	private final BBDukParser parser;
 	/** Input read stream */
 	private final ConcurrentReadInputStream cris;

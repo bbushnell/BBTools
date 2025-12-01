@@ -303,7 +303,7 @@ public class BBDuk2 {
 		append=p.append;
 		showSpeed=p.showSpeed;
 		DISPLAY_PROGRESS=p.DISPLAY_PROGRESS;
-		THREADS=p.THREADS;
+		THREADS=p.workers;
 		STATS_COLUMNS=p.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=p.REPLICATE_AMBIGUOUS;
 

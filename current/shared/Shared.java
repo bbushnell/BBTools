@@ -35,9 +35,9 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.52";
+	public static String BBTOOLS_VERSION_STRING="39.53";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Scanner Scrum";
+	public static String BBMAP_VERSION_NAME="Fighting Fungus";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
