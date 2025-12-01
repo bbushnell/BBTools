@@ -221,7 +221,7 @@ public class BBDukProcessorS {
 		overwrite=BBDukParser.overwrite;
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 		
@@ -247,7 +247,7 @@ public class BBDukProcessorS {
 			varMap=index.varMap;
 
 			//3. Sync Primitives and Status Flags
-			ALLOW_LOCAL_ARRAYS=index.ALLOW_LOCAL_ARRAYS;
+			ALLOW_LOCAL_ARRAYS=p.ALLOW_LOCAL_ARRAYS;
 			storedKmers=index.storedKmers; // Critical for logic checks
 			fixVariants=index.fixVariants; // Critical for variant logic
 			errorState|=index.errorState;  // Merge error states

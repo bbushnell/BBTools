@@ -79,6 +79,9 @@ public class A_SampleStreamer{
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 			setInterleaved=parser.setInterleaved;
+			workers=parser.workers();
+			threadsIn=parser.threadsIn;
+			threadsOut=parser.threadsOut;
 			
 			in1=parser.in1;
 			in2=parser.in2;
@@ -135,10 +138,6 @@ public class A_SampleStreamer{
 			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("threadsin") || a.equals("tin")){
-				threadsIn=Integer.parseInt(b);
-			}else if(a.equals("threadsout") || a.equals("tout")){
-				threadsOut=Integer.parseInt(b);
 			}else if(a.equals("samplerate") || a.equals("sample")){
 				samplerate=Float.parseFloat(b);
 			}else if(a.equals("sampleseed") || a.equals("seed")){
@@ -364,6 +363,8 @@ public class A_SampleStreamer{
 	/** Secondary output file format */
 	private FileFormat ffout2;
 	
+	/** Number of workers, for multithreaded implementations (-1 = auto) */
+	private int workers=-1;
 	/** Number of threads for input streaming (-1 = auto) */
 	private int threadsIn=-1;
 	/** Number of threads for output writing (-1 = auto) */

@@ -258,7 +258,7 @@ public class BBDuk4 {
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
 		DISPLAY_PROGRESS=BBDukParser.DISPLAY_PROGRESS;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 
@@ -311,7 +311,7 @@ public class BBDuk4 {
 //			outstream.println("NOTE: No reference files specified, no trimming mode, no min avg quality, no histograms - read sequences will not be changed.");
 		}
 		
-		index=new BBDukIndex(p);
+		index=new BBDukIndexAndLoader(p);
 		
 		//Initialize polymer-tracking
 		if(countPolymers){
@@ -3376,7 +3376,7 @@ public class BBDuk4 {
 	
 	/*--------------------------------------------------------------*/
 	
-	private final BBDukIndex index;
+	private final BBDukIndexAndLoader index;
 	
 	/** A scaffold's name is stored at scaffoldNames.get(id).
 	 * scaffoldNames[0] is reserved, so the first id is 1. */

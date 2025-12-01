@@ -136,12 +136,6 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 				skipreads=Parse.parseKMG(b);
 			}else if(a.equals("deleteinput")){
 				deleteInput=Parse.parseBoolean(b);
-			}else if(a.equals("workers") || a.equals("workerthreads") || a.equals("wt") || a.equals("w")){
-				workers=Integer.parseInt(b);
-			}else if(a.equals("threadsin") || a.equals("tin")){
-				threadsIn=Integer.parseInt(b);
-			}else if(a.equals("threadsout") || a.equals("tout")){
-				threadsOut=Integer.parseInt(b);
 			}else if(a.equals("forceparse")){
 				forceParse=Parse.parseBoolean(b);
 			}else if(processor.parse(arg, a, b)){
@@ -160,8 +154,11 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 
 		//Set processor fields from parser
 		processor.setFromParser(parser);
-
+		
 		//Get fields from parser that the harness needs
+		workers=parser.workers;
+		threadsIn=parser.threadsIn;
+		threadsOut=parser.threadsOut;
 		maxReads=parser.maxReads;
 		breakLength=parser.breakLength;
 		overwrite=ReadStats.overwrite=parser.overwrite;

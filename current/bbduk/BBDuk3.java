@@ -268,7 +268,7 @@ public class BBDuk3 {
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
 		DISPLAY_PROGRESS=BBDukParser.DISPLAY_PROGRESS;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 
@@ -321,7 +321,7 @@ public class BBDuk3 {
 //			outstream.println("NOTE: No reference files specified, no trimming mode, no min avg quality, no histograms - read sequences will not be changed.");
 		}
 		
-		index=new BBDukIndex(p);
+		index=new BBDukIndexAndLoader(p);
 		
 		//Initialize polymer-tracking
 		if(countPolymers){
@@ -3462,7 +3462,7 @@ public class BBDuk3 {
 	
 	/*--------------------------------------------------------------*/
 	
-	private final BBDukIndex index;
+	private final BBDukIndexAndLoader index;
 	
 	/** Hold kmers.  A kmer X such that X%WAYS=Y will be stored in keySets[Y] */
 	private AbstractKmerTable[] keySets;

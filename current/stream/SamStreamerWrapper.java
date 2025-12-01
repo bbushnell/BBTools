@@ -79,7 +79,9 @@ public class SamStreamerWrapper{
 		{//Parse the arguments
 			final Parser parser=parse(args);
 			Parser.processQuality();
-
+			
+			threadsIn=parser.threadsIn;
+			threadsOut=parser.threadsOut;
 			in1=parser.in1;
 			out1=parser.out1;
 		}
@@ -146,13 +148,10 @@ public class SamStreamerWrapper{
 			}else if(a.equals("samversion") || a.equals("samv") || a.equals("sam")){
 				Parser.parseSam(arg, a, b);
 				fixCigar=true;
-			}else if(a.equals("threadsin") || a.equals("tin")){
-				threadsIn=Integer.parseInt(b);
-			}else if(a.equals("threadsout") || a.equals("tout")){
-				threadsOut=Integer.parseInt(b);
+			}
 
 			//Filter parameters
-			}else if(a.equals("filter")){
+			else if(a.equals("filter")){
 				doFilter=Parse.parseBoolean(b);
 			}else if(filter.parse(arg, a, b)){
 				//do nothing

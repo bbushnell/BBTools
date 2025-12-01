@@ -104,7 +104,7 @@ public class BBDukS {
 		append=BBDukParser.append;
 		showSpeed=BBDukParser.showSpeed;
 		DISPLAY_PROGRESS=BBDukParser.DISPLAY_PROGRESS;
-		THREADS=BBDukParser.THREADS;
+		THREADS=BBDukParser.workers;
 		STATS_COLUMNS=BBDukParser.STATS_COLUMNS;
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 
@@ -146,7 +146,8 @@ public class BBDukS {
 
 		p.parser.validateStdio(ffin1, ffout1, ffoutb1, ffouts);
 		
-		index=new BBDukIndex(p);
+		loader=new BBDukLoader(p);
+		index=loader.index;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -163,7 +164,7 @@ public class BBDukS {
 		
 		{//TODO: State sync can be mostly eliminated once Index is used for complete encapsulation 
 			//1. Load Index
-			index.loadRef(in1);
+			loader.loadIndex(in1);
 
 			//2. Sync State - References and Arrays
 			sidechannel=index.sidechannel;
@@ -439,6 +440,7 @@ public class BBDukS {
 	/*--------------------------------------------------------------*/
 	
 	private final BBDukParser parser;
+	private final BBDukLoader loader;
 	private final BBDukIndex index;
 	
 	/** A scaffold's name is stored at scaffoldNames.get(id).

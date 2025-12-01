@@ -48,6 +48,10 @@ class BBDukParser {
 		{//Process parser fields
 			Parser.processQuality();
 			
+			workers=parser.workers();
+			threadsIn=parser.threadsIn;
+			threadsOut=parser.threadsOut;
+			
 			maxReads=parser.maxReads;
 			samplerate=parser.samplerate;
 			sampleseed=parser.sampleseed;
@@ -436,6 +440,8 @@ class BBDukParser {
 	}
 	
 	private void runParseLoop(String[] args) {
+		
+		
 		/* Parse arguments */
 		for(int i=0; i<args.length; i++){
 
@@ -444,18 +450,7 @@ class BBDukParser {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(a.equals("threads") || a.equals("t")){
-				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
-				Shared.setThreads(x);
-				THREADS=x;
-			}else if(a.equals("workers") || a.equals("wt") || a.equals("w") || a.equals("workerthreads")){
-				int x=("auto".equals(b) ? Shared.LOGICAL_PROCESSORS : Integer.parseInt(b));
-				THREADS=x;
-			}else if(a.equals("threadsin") || a.equals("tin")){
-				threadsIn=Integer.parseInt(b);
-			}else if(a.equals("threadsout") || a.equals("tout")){
-				threadsOut=Integer.parseInt(b);
-			}else if(a.equals("in") || a.equals("in1")){
+			if(a.equals("in") || a.equals("in1")){
 				in1=b;
 			}else if(a.equals("in2")){
 				in2=b;
@@ -1498,7 +1493,7 @@ class BBDukParser {
 	/** Display progress messages such as memory usage */
 	public static boolean DISPLAY_PROGRESS=true;
 	/** Number of ProcessThreads */
-	public static int THREADS=Shared.threads();
+	public static int workers=-1;
 	/** Number of columns for statistics output, 3 or 5 */
 	public static int STATS_COLUMNS=3;
 	/** Make unambiguous copies of ref sequences with ambiguous bases */

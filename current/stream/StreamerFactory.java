@@ -159,7 +159,8 @@ public class StreamerFactory {
 			return null;
 			
 		}else if(ff.fastq()){
-			if(Shared.threads()>=16 && threads!=0 && (threads>1 || FastqStreamer.DEFAULT_THREADS>1)) {
+			threads=(threads<0 ? FastqStreamer.DEFAULT_THREADS : threads);
+			if(Shared.threads()>8 && threads>1) {
 				return new FastqStreamer(ff, threads, pairnum, maxReads);
 			}else {
 //				return new FastqStreamerST(ff, pairnum, maxReads);
@@ -167,14 +168,14 @@ public class StreamerFactory {
 			}
 			
 		}else if(ff.fasta() && qf==null){
-			if(threads==0 || (threads<0 && FastaStreamer.DEFAULT_THREADS<1) || 
-					Shared.threads()<4 || Shared.LOW_MEMORY) {
+			threads=(threads<0 ? FastaStreamer.DEFAULT_THREADS : threads);
+			if(threads==0 || Shared.threads()<4 || Shared.LOW_MEMORY) {
 				if(FASTA_STREAMER_2 && Shared.SIMD && !ff.interleaved()) {
 					return new FastaStreamer2ZT(ff, pairnum, maxReads);
 				}else {
 					return new FastaStreamerZT(ff, pairnum, maxReads);
 				}
-			}else if(threads==1 || (threads<0 && FastaStreamer.DEFAULT_THREADS<2) || Shared.threads()<8) {
+			}else if(threads==1 || Shared.threads()<8) {
 				if(FASTA_STREAMER_2 && Shared.SIMD && !ff.interleaved()) {
 					return new FastaStreamer2ST(ff, pairnum, maxReads);
 				}else {
@@ -188,7 +189,8 @@ public class StreamerFactory {
 			return new BamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);
 			
 		}else if(ff.samOrBam()){
-			if(Shared.threads()>=4 && threads!=0 && (threads>1 || SamStreamer.DEFAULT_THREADS>0)) {
+			threads=(threads<0 ? SamStreamer.DEFAULT_THREADS : threads);
+			if(Shared.threads()>=4 && threads>1) {
 				return new SamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);
 			}else {
 				return new SamStreamerST(ff, saveHeader, maxReads, makeReads);

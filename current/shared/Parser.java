@@ -130,6 +130,12 @@ public class Parser {
 			recalibrateQuality=Parse.parseBoolean(b);
 		}else if(a.equals("silent")){
 			silent=Parse.parseBoolean(b);
+		}else if(a.equals("wt") || a.equals("w") || a.equals("workers") || a.equals("workerthreads")){
+			workers="auto".equalsIgnoreCase(b) ? -1 : Integer.parseInt(b);
+		}else if(a.equals("threadsin") || a.equals("tin")){
+			threadsIn="auto".equalsIgnoreCase(b) ? -1 : Integer.parseInt(b);
+		}else if(a.equals("threadsout") || a.equals("tout")){
+			threadsOut="auto".equalsIgnoreCase(b) ? -1 : Integer.parseInt(b);
 		}else{
 			return false;
 		}
@@ -1891,6 +1897,11 @@ public class Parser {
 	
 	/** K-mer length for sequence analysis */
 	public int k=31;
+
+	public int workers() {return workers<1 ? Shared.threads() : workers;}
+	public int workers=-1;
+	public int threadsIn=-1;
+	public int threadsOut=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

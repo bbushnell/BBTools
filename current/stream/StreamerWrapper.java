@@ -85,6 +85,8 @@ public class StreamerWrapper{
 			overwrite=ReadStats.overwrite=parser.overwrite;
 			append=ReadStats.append=parser.append;
 			setInterleaved=parser.setInterleaved;
+			threadsIn=parser.threadsIn;
+			threadsOut=parser.threadsOut;
 			
 			in1=parser.in1;
 			in2=parser.in2;
@@ -146,10 +148,6 @@ public class StreamerWrapper{
 			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("threadsin") || a.equals("tin")){
-				threadsIn=Integer.parseInt(b);
-			}else if(a.equals("threadsout") || a.equals("tout")){
-				threadsOut=Integer.parseInt(b);
 			}else if(a.equals("samplerate") || a.equals("sample")){
 				samplerate=Float.parseFloat(b);
 			}else if(a.equals("sampleseed") || a.equals("seed")){
