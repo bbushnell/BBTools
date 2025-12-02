@@ -2358,8 +2358,7 @@ public class ReadWrite {
 				"; error="+errorState+"; c.error="+st.errorState());}
 			st.close();
 			errorState|=st.errorState();
-			if(verbose){System.err.println("Closed streamer"+st.fname()+
-				"; error="+errorState);}
+			if(verbose){System.err.println("Closed streamer"+st.fname()+"; error="+errorState);}
 		}
 		if(writers!=null){
 			for(Writer w : writers){

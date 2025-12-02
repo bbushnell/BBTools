@@ -9,11 +9,13 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.ReadWriteLock;
 
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
 import stream.Streamer;
 import stream.StreamerFactory;
+import stream.Writer;
 import structures.IntHashMap;
 import structures.ListNum;
 import template.Accumulator;
@@ -106,11 +108,14 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			sslist.add(ss);
 			ss.start();
 			covlist[i]=new AtomicLongArray(contigs.size());
+//			outstream.println("Opened "+ss.fname());
 		}
 		
 		//Fill a list with LoadThreads
-		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(covThreadsPF);
-		for(int i=0; i<covThreadsPF; i++){
+		final int threads=covThreadsPF*files;
+		assert(threads>=files);
+		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(threads);
+		for(int i=0; i<threads; i++){
 			final int sample=i%files;
 //			System.err.println("Started a thread for sample "+sample+", pid="+i+
 //				", threads="+covThreadsPF+", streamerThreads="+streamerThreadsPF);
@@ -122,6 +127,10 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
+		for(Streamer st : sslist) {
+			ReadWrite.closeStreams(st, (Writer[])null);
+//			outstream.println("Closed "+st.fname());
+		}
 		
 		for(int i=0; i<files; i++) {postprocess(covlist[i], contigs, i);}
 		
@@ -190,7 +199,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	 */
 	class LoadThread extends Thread {
 		
-		LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
+		private LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
 				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
 			ss=ss_;
 			sample=sample_;
@@ -213,7 +222,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		 */
 		private void runInner() {
 			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
-			//else {outstream.println("tid "+tid+">sample "+sample);}
+//			else {outstream.println("tid "+tid+">sample "+sample);}
 
 //			System.err.println("SamLoader.LoadThread "+tid+" started processSam_Thread.");
 			processSam_Thread(ss, depthArray);//They never leave here aside from one

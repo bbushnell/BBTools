@@ -461,6 +461,22 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		if(ln!=null){
 			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
+		
+		//TODO:  This caused a crash
+//		java -ea  --add-modules jdk.incubator.vector -Xmx31g -Xms31g -cp /clusterfs/jgi/groups/gentech/homes/bbushnell/BBTools/current/ bin.ContigRenamer -Xmx31g in=renamed0.fa out=renamed.fa flat.sam.gz wipe depth=f delimiter=_
+//			WARNING: Using incubator modules: jdk.incubator.vector
+//			Executing bin.ContigRenamer [-Xmx31g, in=renamed0.fa, out=renamed.fa, flat.sam.gz, wipe, depth=f, delimiter=_]
+//
+//			Exception in thread "main" java.lang.IllegalStateException: Queue full
+//				at java.base/java.util.AbstractQueue.add(AbstractQueue.java:98)
+//				at java.base/java.util.concurrent.ArrayBlockingQueue.add(ArrayBlockingQueue.java:330)
+//				at stream.ConcurrentGenericReadInputStream.close(ConcurrentGenericReadInputStream.java:668)
+//				at fileIO.ReadWrite.closeStreams(ReadWrite.java:2319)
+//				at bin.ContigRenamer.processReference(ContigRenamer.java:464)
+//				at bin.ContigRenamer.process(ContigRenamer.java:271)
+//				at bin.ContigRenamer.main(ContigRenamer.java:68)
+
+		
 		errorState|=ReadWrite.closeStreams(cris, ros);
 	}
 	

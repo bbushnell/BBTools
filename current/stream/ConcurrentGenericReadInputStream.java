@@ -650,11 +650,11 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(threads!=null && threads[0]!=null && threads[0].isAlive()){
 			
 			while(threads[0].isAlive()){
-//				System.out.println("crisG:    B");
+				//				System.out.println("crisG:    B");
 				ArrayList<Read> list=null;
 				for(int i=0; i<1000 && list==null && threads[0].isAlive(); i++){
 					try {
-						list=depot.full.poll(200, TimeUnit.MILLISECONDS);
+						list=depot.full.poll(100, TimeUnit.MILLISECONDS);
 					} catch (InterruptedException e) {
 						// TODO Auto-generated catch block
 						System.err.println("crisG:    Do not be alarmed by the following error message:");
@@ -663,9 +663,20 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					}
 				}
 				
-				if(list!=null){
+				while(list!=null){//Loop added to prevent race condition in add
 					list.clear();
-					depot.empty.add(list);
+					boolean b;
+					try{
+						b=depot.empty.offer(list, 100, TimeUnit.MILLISECONDS);
+						if(b) {
+							list=null;
+						}else {
+							depot.empty.clear();//Clear the queue to try again
+						}
+					}catch(InterruptedException e){
+						e.printStackTrace();
+						list=null;//Abort
+					}
 				}
 			}
 			
