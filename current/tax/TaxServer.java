@@ -217,7 +217,10 @@ public class TaxServer {
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		if("auto".equalsIgnoreCase(patternFile)){patternFile=TaxTree.defaultPatternFile();}
-		if("auto".equalsIgnoreCase(sizeFile)){sizeFile=TaxTree.defaultSizeFile();}
+		if("auto".equalsIgnoreCase(sizeFile)){
+			sizeFile=TaxTree.defaultSizeFile();
+			if(!new File(sizeFile).canRead()) {sizeFile=null;}
+		}
 		
 		serverNum=AccessionToTaxid.serverNum=serverNum_;
 		serverCount=AccessionToTaxid.serverCount=serverCount_;

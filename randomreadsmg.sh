@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 26, 2025
+Last modified December 2, 2025
 
 Description:  Generates synthetic reads from a set of fasta assemblies.
 Each assembly is assigned a random coverage level, with optional custom 
@@ -27,14 +27,13 @@ mindepth=1      Minimum assembly average depth.
 maxdepth=256    Maximum assembly average depth.
 depth=          Sets minimum and maximum to the same level.
 reads=-1        If positive, ignore depth and make this many reads per contig.
-variance=0.5    Coverage within an assembly will vary by up to this much;
-                one region can be up to this fraction deeper than another.
 mode=min4       Random depth distribution; can be min4, exp, root, or linear.
 cov_x=          Set a custom coverage level for the file named x.
                 x can alternatively be the taxID if the filename starts
                 with tid_x_; e.g. cov_foo.fa=5 for foo.fa, or cov_7=5
                 for file tid_7_foo.fa
 <file>=x        Alternate way to set custom depth; file will get depth x.
+circular=f      Treat each contig as circular, and create spanning reads.
 threads=        Set the max number of threads; default is logical core count.
                 By default each input file uses 1 thread.  This flag will
                 also force multithreaded processing when there is exactly 1
@@ -77,6 +76,9 @@ addadapters     Add adapter sequence to paired reads with insert
                 size shorter than read length.
 adapter1=       Optionally specify a custom R1 adapter (as observed in R1).
 adapter2=       Optionally specify a custom R2 adapter (as observed in R2).
+illuminanames=f Make headers look like normal Illumina headers.
+barcode=        Specify the barcode for Illumina headers.
+machine=        Specify the machine for Illumina headers.
 
 Long-read error parameters
 Note: These may be overriden for any platform, including Illumina.
@@ -86,7 +88,7 @@ drate=-1        Deletion rate; default 0.0045 ONT / 0.000045 PB.
 hrate=-1        Homopolymer error boost; default 0.02 ONT / 0.000015 PB.
                 The indel chance increases this much per homopolymer base.
 
-Coverage variation parameters (only used with 'sinewave' flag):
+Coverage variation parameters (used with 'sinewave' flag):
 sinewave        Enable realistic coverage variation within contigs.
 waves=4         Number of sine waves to combine; more waves create more 
                 complex coverage patterns with irregular peaks and valleys.
@@ -100,6 +102,9 @@ minprob=0.10    Sets the minimum coverage probability as a fraction of target.
                 below this level, preventing assembly gaps.
 minperiod=2k    Minimum sine wave period, in bp.
 maxperiod=80k   Maximum sine wave period, in bp.
+variance=0.5    Vary coverage on a per-contig basis, within an assembly, by
+                plus/minus this factor.  Unrelated to sinewave mode, which
+		is generally superior.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

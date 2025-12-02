@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 28, 2024
+Last modified December 2, 2025
 
 Description:  Calculates per-scaffold or per-base coverage information from an unsorted sam or bam file.
 Supports SAM/BAM format for reads and FASTA for reference.

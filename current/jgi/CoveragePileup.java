@@ -262,12 +262,18 @@ public class CoveragePileup {
 				//do nothing
 			}else if(Parser.parseSam(arg, a, b)){
 				//do nothing
-			}else if(in1==null && arg.indexOf('=')<0 && new File(arg).exists()){
+			}else if(in1==null && Tools.looksLikeInputSequenceStream(arg) && FileFormat.isSamOrBamFile(arg)){
 				in1=arg;
+				outstream.println("Using input "+in1);
+			}else if(reference==null && Tools.looksLikeInputSequenceStream(arg) && FileFormat.isFastaFile(arg)){
+				reference=arg;
+				outstream.println("Using reference "+reference);
+			}else if(covstats==null && Tools.looksLikeOutputStream(arg) && FileFormat.isTextFile(arg) && !new File(arg).exists()){
+				covstats=arg;
+				outstream.println("Writing stats to "+covstats);
 			}else{
 				throw new RuntimeException("Unknown parameter: "+args[i]);
 			}
-			
 		}
 		trimE=(float)QualityTools.phredToProbError(trimq);
 //		assert(false) : qtrimLeft+", "+qtrimRight+", "+trimq+", "+trimE;
@@ -440,14 +446,6 @@ public class CoveragePileup {
 	/** Read and process all input data. */
 	public void process(){
 		createDataStructures();
-
-//		System.err.println("A");
-		if(in1!=null && FileFormat.isBamFile(in1)){
-			if(Data.SAMTOOLS() && useStreamer){ReadWrite.USE_SAMBAMBA=false;} //Disable because it takes forever to read the header
-		}
-//		ByteFile tf=ByteFile.makeByteFile(in1, false);
-
-//		System.err.println("B");
 		
 		final ByteStreamWriter tsw=(outsam==null ? null : new ByteStreamWriter(outsam, overwrite, false, true));
 		if(tsw!=null){tsw.start();}
@@ -496,7 +494,7 @@ public class CoveragePileup {
 	private void processViaStreamer(ByteStreamWriter tsw){
 		Streamer ss=StreamerFactory.makeSamOrBamStreamer(in1, streamerThreads, true, false, maxReads, false);
 		ss.start();
-		processHeader(tsw);
+		processSamHeader(tsw);
 		ByteBuilder bb=new ByteBuilder(33000);
 		for(ListNum<SamLine> ln=ss.nextLines(); ln!=null && ln.size()>0; ln=ss.nextLines()){
 			ArrayList<SamLine> list=(ln==null ? null : ln.list);
@@ -639,7 +637,7 @@ public class CoveragePileup {
 	/** Process all sam header lines from the tf.
 	 * Once a non-header line is encountered, return it.
 	 * If non-null, print all lines to the tsw. */
-	public void processHeader(ByteStreamWriter tsw){
+	public void processSamHeader(ByteStreamWriter tsw){
 		ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
 		if(header==null) {return;}
 		for(byte[] line : header){
@@ -653,7 +651,8 @@ public class CoveragePileup {
 					lp.set(line);
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					assert(!table.containsKey(scaf.name)) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
+					assert(!table.containsKey(scaf.name) || reference!=null) : 
+						"\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
 					table.put(scaf.name, scaf);
 					list.add(scaf);
 					refBases+=scaf.length;
@@ -764,10 +763,10 @@ public class CoveragePileup {
 				scaf=table.get(name);
 				if(ADD_FROM_REF && scaf==null){
 					scaf=new Scaffold(name, 0);
-					if(!warned){
-						outstream.println("Warning - SAM header did not include "+name+"\nAbsent scaffolds will be added; further warnings will be suppressed.");
-						warned=true;
-					}
+//					if(!warned){//No longer relevant because order of loading changed.
+//						outstream.println("Warning - SAM header did not include "+name+"\nAbsent scaffolds will be added; further warnings will be suppressed.");
+//						warned=true;
+//					}
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
 					table.put(name, scaf);
 					list.add(scaf);
