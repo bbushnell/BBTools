@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 import fileIO.ByteFile;
@@ -18,6 +17,7 @@ import json.JsonObject;
 import json.JsonParser;
 import kmer.HashBuffer;
 import kmer.KmerTableSet;
+import map.ObjectIntMap;
 import server.ServerTools;
 import shared.Parse;
 import shared.Parser;
@@ -209,9 +209,9 @@ public class AccessionToTaxid {
 
 //		if(USE_MAPS){
 			assert(maps==null);
-			maps=new HashMap[128];
+			maps=new ObjectIntMap[128];
 			for(int i=0; i<maps.length; i++){
-				maps[i]=new HashMap<String, Integer>();
+				maps[i]=new ObjectIntMap<String>();
 			}
 //		}
 
@@ -562,9 +562,9 @@ public class AccessionToTaxid {
 		@SuppressWarnings("unchecked")
 		public HashThread(ByteFile bf_){
 //			if(USE_MAPS){
-				mapsT=new HashMap[128];
+				mapsT=new ObjectIntMap[128];
 				for(int i=0; i<mapsT.length; i++){
-					mapsT[i]=new HashMap<String, Integer>();
+					mapsT[i]=new ObjectIntMap<String>();
 				}
 //			}
 			if(USE_TABLES){
@@ -907,7 +907,7 @@ public class AccessionToTaxid {
 		/** Input file being processed by this thread */
 		final ByteFile bf;
 		/** Thread-local hash map for accession storage before merging to global map */
-		HashMap<String, Integer>[] mapsT;
+		ObjectIntMap<String>[] mapsT;
 		/** Thread-local hash buffer for efficient batch insertion into global tables */
 		HashBuffer table;
 		boolean success=false;
@@ -1006,7 +1006,7 @@ public class AccessionToTaxid {
 	/** Flag indicating whether mapping data has been successfully loaded */
 	private static boolean LOADED=false;
 	/** Hash map for storing accession-to-taxid mappings */
-	private static HashMap<String, Integer>[] maps=null;
+	private static ObjectIntMap<String>[] maps=null;
 	/** Hash table set for storing short accession mappings efficiently */
 	private static KmerTableSet tables;
 	/** Cache for IMG ID to taxonomic ID mappings to reduce server queries */
