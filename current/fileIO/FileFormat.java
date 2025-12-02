@@ -817,10 +817,21 @@ public final class FileFormat {
 			|| ext.equals("frn") || ext.equals("seq") || ext.equals("fsa") || ext.equals("faa") || ext.equals("prot"));
 	}
 	
+	public static boolean isTextExt(String ext){
+		if(ext==null){return false;}
+		return (ext.equals("txt") || ext.equals("text") || ext.equals("cov") || ext.equals("tsv"));
+	}
+	
 	public static boolean isFastaFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
 		return isFastaExt(ext);
+	}
+	
+	public static boolean isTextFile(String fname){
+		if(fname==null){return false;}
+		String ext=ReadWrite.rawExtension(fname);
+		return isTextExt(ext);
 	}
 	
 	public static boolean isSequence(String fname){

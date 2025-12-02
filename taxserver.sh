@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Shijie Yao
-Last modified Jan 7, 2020
+Last modified December 2, 2025
 
 Description:   Starts a server that translates NCBI taxonomy.
 

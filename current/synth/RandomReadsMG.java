@@ -200,6 +200,8 @@ public class RandomReadsMG{
 				maxDepth=Float.parseFloat(b);
 			}else if(a.equals("depthvariance") || a.equals("variance")){
 				depthVariance=Float.parseFloat(b);
+			}else if(a.equals("circular")){
+				circular=Parse.parseBoolean(b);
 			}else if(a.equals("wavecov") || a.equals("sinewave")){
 				waveCoverage=Parse.parseBoolean(b);
 			}else if(a.equals("waves") || a.equals("sinewaves") || a.equals("numwaves")){
@@ -310,6 +312,12 @@ public class RandomReadsMG{
 				String upper=b.toUpperCase();
 				platform=Tools.find(upper, platforms)%3;
 				assert(platform>=0) : platform;
+			}else if(a.equalsIgnoreCase("illuminaHeaders") || a.equalsIgnoreCase("illuminaNames")){
+				illuminaHeaders=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("barcode")){
+				barcode=(b==null ? null : b.getBytes());
+			}else if(a.equalsIgnoreCase("machine")){
+				machine=(b==null ? null : b.getBytes());
 			}else if(b==null && Tools.find(arg.toUpperCase(), modes)>=0){
 				depthMode=Tools.find(arg.toUpperCase(), modes);
 				assert(depthMode>=0) : depthMode;
@@ -1006,7 +1014,7 @@ public class RandomReadsMG{
 			//Generate from heavy tail (exponential)
 			double scale=meanLength*2; //Scale factor produces longer tail reads
 			double x=-Math.log(randy.nextDouble())*scale;
-			return (int)Math.min(x, maxLength);
+			return (int)Tools.mid(minLength, x, maxLength);
 		}else{
 			//Generate from log-normal core distribution
 			double sigma=0.5;
@@ -1014,6 +1022,36 @@ public class RandomReadsMG{
 			double logLength=mu+randy.nextGaussian()*sigma;
 			return Math.max(minLength, (int)Math.min(Math.exp(logLength), maxLength));
 		}
+	}
+	
+	private ByteBuilder illuminaHeader(ByteBuilder bb, Random randy, int pnum) {
+		if(bb==null) {bb=new ByteBuilder();}
+		if(machine!=null) {bb.append(machine);}
+		else{bb.append("LH000").append(hdrNum1);}
+		bb.colon().append(hdrNum2);
+		bb.colon().append(hdrNum3).append("GLGMLT3");
+		bb.colon().append(lane);
+		int tile=1000+randy.nextInt(2000);
+		int x=1000+randy.nextInt(15000);
+		int y=1000+randy.nextInt(15000);
+		bb.colon().append(tile).colon().append(x).colon().append(y);
+		
+		bb.tab().append(pnum+1).colon().append('N');
+		bb.colon().append('0').colon().append(barcode);
+		return bb;
+	}
+	
+	private byte[] randomBarcode(int len1, int len2, Random randy) {
+		ByteBuilder bb=new ByteBuilder(len1+len2+1);
+		for(int i=0; i<len1; i++) {
+			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
+		}
+		if(len2<1) {return bb.toBytes();}
+		bb.append('+');
+		for(int i=0; i<len2; i++) {
+			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
+		}
+		return bb.toBytes();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -1125,6 +1163,12 @@ public class RandomReadsMG{
 		 *@param fnum File number for read headers
 		 */
 		private void processContig(Read contig, float depth, int taxID, int fnum, String fname){
+			if(circular) {
+				bb.clear().append(contig.bases).append(contig.bases);
+				contig.bases=bb.toBytes();
+				bb.clear();
+				depth*=0.5f;
+			}
 			final int basesPerRead=(paired ? 2*readlen : readlen);
 			readsInT++;
 			basesInT+=contig.length();
@@ -1227,7 +1271,7 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, strand, paddedLen, taxID, fnum, cnum, 0, novel?0:1, fname);
+			String header=makeHeader(start, strand, paddedLen, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
 			Read r=new Read(bases, null, header, rnum);
 			if(addErrors){mutateLongRead(r, sRate, iRate, dRate, hRate, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
@@ -1267,7 +1311,7 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname);
+			String header=makeHeader(start, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
 			Read r=new Read(bases, null, header, rnum);
 			if(addErrors){mutateIllumina(r, meanQScore, qScoreRange, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
@@ -1321,8 +1365,8 @@ public class RandomReadsMG{
 				bases2=temp;
 			}
 			if(randomPriming && !RandomHexamer.keep(bases1, randy)){return null;}
-			String header1=makeHeader(start1, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname);
-			String header2=makeHeader(start1, strand, insert, taxID, fnum, cnum, 1, novel?0:1, fname);
+			String header1=makeHeader(start1, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
+			String header2=makeHeader(start1, strand, insert, taxID, fnum, cnum, 1, novel?0:1, fname, randy);
 			Read r1=new Read(bases1, null, header1, rnum);
 			Read r2=new Read(bases2, null, header2, rnum);
 			r2.setPairnum(1);
@@ -1383,11 +1427,17 @@ public class RandomReadsMG{
 		 *@param cnum Contig number
 		 *@param pnum Pair number (0=first, 1=second)
 		 *@param pcr PCR duplicate (0=original, 1+=duplicate)
+		 *@param randy A random number generator, for Illumina headers
 		 *@return Formatted header string
 		 */
 		private String makeHeader(int start, int strand, int insert, int taxID, 
-				int fnum, long cnum, int pnum, int pcr, String fname){
-			bb.clear().append('f').under().append(fnum).under().append('c').under().append(cnum);
+				int fnum, long cnum, int pnum, int pcr, String fname, Random randy){
+			bb.clear();
+			if(illuminaHeaders) {
+				illuminaHeader(bb, randy, pnum);
+				bb.tab();
+			}
+			bb.append('f').under().append(fnum).under().append('c').under().append(cnum);
 			bb.under().append('s').under().append(strand).under().append('p').under().append(start);
 			bb.under().append('i').under().append(insert);
 			if(pcrRate>0){bb.under().append('d').under().append(pcr);}
@@ -1462,8 +1512,10 @@ public class RandomReadsMG{
 	private float minDepth=1;
 	/** Maximum coverage depth for any reference sequence */
 	private float maxDepth=256;
-	/** Amount of within-contig coverage variation (0=uniform, 1=high variation) */
-	private float depthVariance=0.5f;
+	/** Amount of inter-contig coverage variation (0=uniform, 1=+-100%) */
+	private float depthVariance=0.0f;
+	/** Consider contigs as circular */
+	boolean circular=false;
 	/** Enable sine wave coverage modeling for realistic spatial bias */
 	private boolean waveCoverage=false;
 	/** Number of overlapping sine waves for coverage modeling */
@@ -1534,6 +1586,14 @@ public class RandomReadsMG{
 	static final int ILLUMINA=0, ONT=1, PACBIO=2;
 	/** Selected sequencing platform */
 	int platform=ILLUMINA;
+	/** Make synthetic Illumina headers */
+	boolean illuminaHeaders=false;
+	private int hdrNum1=(int)(Math.round(10+Math.random()*90));
+	private int hdrNum2=(int)(Math.round(10+Math.random()*90));
+	private int hdrNum3=(int)(Math.round(10+Math.random()*90));
+	private int lane=(int)(Math.round(1+Math.random()*8));
+	private byte[] barcode=randomBarcode(10, 10, new Random());
+	private byte[] machine;
 	/** Flag indicating read length was explicitly set by user */
 	boolean setReadLength=false;
 	/** Flag indicating maximum length was explicitly set by user */
