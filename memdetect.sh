@@ -21,7 +21,7 @@ RESERVED_MEM_KB=500000  # 500MB reserved for OS and other processes
 #   $3 - Memory mode: "auto", "partial", or "fixed"
 # Returns:
 #   Sets RAM variable with memory in megabytes
-function detectMemory() {
+detectMemory() {
     RAM=0
     local defaultMem=$DEFAULT_MEM_MB
     local defaultMemKB=$(($defaultMem * 1024))
@@ -167,7 +167,7 @@ function detectMemory() {
 }
 
 # Detect available memory on Linux systems
-function detectLinuxMemory() {
+detectLinuxMemory() {
     # Get memory statistics from /proc/meminfo
     # This accounts for both free memory and reclaimable buffer/cache memory
     availableMemKB=0
@@ -213,7 +213,7 @@ function detectLinuxMemory() {
 }
 
 # Detect available memory on macOS systems
-function detectMacMemory() {
+detectMacMemory() {
     availableMemKB=0
     
     # Get total physical memory

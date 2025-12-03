@@ -9,12 +9,12 @@
 # Check if DIR was already set by the calling script (new style)
 if [ -n "$DIR" ]; then
 	# New style - caller already resolved symlinks
-	source "$DIR/memdetect.sh"
+	. "$DIR/memdetect.sh"
 else
 	# Old style - need to find our own directory
 	# Use BASH_SOURCE[0] which works when sourced (bash-specific but this file already uses bash)
 	SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-	source "$SCRIPT_DIR/memdetect.sh"
+	. "$SCRIPT_DIR/memdetect.sh"
 fi
 
 # Initialize global variables
@@ -28,7 +28,7 @@ json=0
 silent=0
 
 # Detect if CPU supports AVX2 (or ARM NEON equivalent)
-function detectCPUVectorSupport() {
+detectCPUVectorSupport() {
 	if [ -f /proc/cpuinfo ]; then
 		# x86_64: Check for AVX2 (256-bit minimum)
 		if grep -q "avx2" /proc/cpuinfo; then
@@ -57,7 +57,7 @@ function detectCPUVectorSupport() {
 }
 
 # Detect Java version (need 17+)
-function detectJavaVersion() {
+detectJavaVersion() {
 	if ! command -v java >/dev/null 2>&1; then
 		return 1  # Java not found
 	fi
@@ -89,7 +89,7 @@ function detectJavaVersion() {
 }
 
 # Auto-detect SIMD support
-function autoDetectSIMD() {
+autoDetectSIMD() {
 	if detectCPUVectorSupport && detectJavaVersion; then
 		SIMD="--add-modules jdk.incubator.vector"
 		SIMD_AUTO="simd"
@@ -169,7 +169,7 @@ normalizeMemory() {
 # Parse Java memory and other flags
 # Arguments:
 #   All command-line arguments
-function parseJavaArgs() {
+parseJavaArgs() {
 	local setxmx=0
 	local setxms=0
 	local defaultXmx="4g"  # Default max heap
@@ -285,7 +285,7 @@ function parseJavaArgs() {
 }
 
 # Setup environment paths based on the execution environment
-function setEnvironment() {
+setEnvironment() {
 	if [ "$SHIFTER_RUNTIME" = "1" ]; then
 		shifter=1
 	elif [ -n "$EC2_HOME" ]; then
@@ -307,7 +307,7 @@ function setEnvironment() {
 #   $@ - All command-line arguments
 # Returns:
 #   Echoes the complete Java command
-function getJavaCommand() {
+getJavaCommand() {
 	parseJavaArgs "$@"
 	setEnvironment
 	
