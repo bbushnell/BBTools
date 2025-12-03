@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-# javasetup.sh v1.21
+# javasetup.sh v1.22 - POSIX compliant
 # Parses Java command-line arguments and sets up paths
 # Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla
 # Date: November 16, 2025
@@ -12,8 +12,8 @@ if [ -n "$DIR" ]; then
 	. "$DIR/memdetect.sh"
 else
 	# Old style - need to find our own directory
-	# Use BASH_SOURCE[0] which works when sourced (bash-specific but this file already uses bash)
-	SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	# Use $0 for POSIX compatibility
+	SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 	. "$SCRIPT_DIR/memdetect.sh"
 fi
 
@@ -108,7 +108,7 @@ normalizeMemory() {
 	local prefix="$2"
 	
 	# Strip excessive leading dashes (handle ---, ----, etc.)
-	while [[ "$mem" == --* ]]; do
+	while [ "${mem#--}" != "$mem" ]; do
 		mem="${mem#-}"
 	done
 	
@@ -123,15 +123,30 @@ normalizeMemory() {
 	mem="${mem#xms}"
 	
 	# Check if already has suffix (case-insensitive)
-	if [[ "$mem" =~ ^[0-9]+[gGmMkK]$ ]]; then
-		# Already has suffix, normalize to lowercase
-		mem=$(echo "$mem" | tr '[:upper:]' '[:lower:]')
-		echo "${prefix}${mem}"
-		return
-	fi
+	case "$mem" in
+		*[gGmMkK])
+			# Check if it's all digits followed by suffix
+			local digits="${mem%?}"
+			case "$digits" in
+				''|*[!0-9]*)
+					# Not all digits, fall through
+					;;
+				*)
+					# Already has suffix, normalize to lowercase
+					mem=$(echo "$mem" | tr '[:upper:]' '[:lower:]')
+					echo "${prefix}${mem}"
+					return
+					;;
+			esac
+			;;
+	esac
 	
 	# Pure number - apply heuristic
-	if [[ "$mem" =~ ^[0-9]+$ ]]; then
+	case "$mem" in
+		''|*[!0-9]*)
+			# Not a pure number, fall through to fallback
+			;;
+		*)
 		# Get TOTAL installed physical memory in GB (not available)
 		local physicalMemGB=0
 		if [ -e /proc/meminfo ]; then
@@ -160,7 +175,8 @@ normalizeMemory() {
 			echo "${prefix}${mem}m"
 		fi
 		return
-	fi
+		;;
+	esac
 	
 	# Fallback: use as-is with prefix
 	echo "${prefix}${mem}"
@@ -194,12 +210,32 @@ parseJavaArgs() {
 		elif [ "${arg%%=*}" = "--mode" ]; then
 			memMode="$(echo "$arg" | cut -d= -f2)"
 			
-		# Fix broken Xmx flags
-		elif [[ "$arg" =~ ^-*[xX][mM][xX]=?([0-9].*)$ ]]; then
-			XMX=$(normalizeMemory "${BASH_REMATCH[1]}" "-Xmx")
+		# Fix broken Xmx flags - POSIX version using case
+		elif case "$arg" in -*[xX][mM][xX]*|*[xX][mM][xX]*) true;; *) false;; esac; then
+			# Extract the memory value part
+			local value="$arg"
+			# Remove leading dashes
+			value="${value#-}"; value="${value#-}"; value="${value#-}"
+			# Remove Xmx/xmx prefix (case insensitive)
+			case "$value" in
+				[xX][mM][xX]*) value="${value#[xX][mM][xX]}" ;;
+			esac
+			# Remove optional = sign
+			value="${value#=}"
+			XMX=$(normalizeMemory "$value" "-Xmx")
 			setxmx=1
-		elif [[ "$arg" =~ ^-*[xX][mM][sS]=?([0-9].*)$ ]]; then
-			XMS=$(normalizeMemory "${BASH_REMATCH[1]}" "-Xms")
+		elif case "$arg" in -*[xX][mM][sS]*|*[xX][mM][sS]*) true;; *) false;; esac; then
+			# Extract the memory value part
+			local value="$arg"
+			# Remove leading dashes
+			value="${value#-}"; value="${value#-}"; value="${value#-}"
+			# Remove Xms/xms prefix (case insensitive)
+			case "$value" in
+				[xX][mM][sS]*) value="${value#[xX][mM][sS]}" ;;
+			esac
+			# Remove optional = sign
+			value="${value#=}"
+			XMS=$(normalizeMemory "$value" "-Xms")
 			setxms=1
 		
 		# Assertion settings
@@ -316,8 +352,14 @@ getJavaCommand() {
 }
 
 # Check if this script is being sourced or run directly
-if [ "$0" != "$BASH_SOURCE" ] && [ "$BASH_SOURCE" != "" ]; then
-	:
-else
-	getJavaCommand "$@"
-fi
+# In POSIX sh, we can't reliably detect sourcing, but this works in most cases
+case "$0" in
+	*javasetup.sh|javasetup.sh)
+		# Being run directly
+		getJavaCommand "$@"
+		;;
+	*)
+		# Being sourced (or run with different name)
+		:
+		;;
+esac

@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-# memdetect.sh v1.0.4
+# memdetect.sh v1.0.5 - POSIX compliant
 # Detects available memory for Java applications across various environments
 # Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla
 # Date: May 24, 2025
@@ -259,12 +259,15 @@ detectMacMemory() {
 }
 
 # Check if this script is being sourced or run directly
-# This is a more portable way than using BASH_SOURCE
-if [ "$0" != "$BASH_SOURCE" ] && [ "$BASH_SOURCE" != "" ]; then
-    # Being sourced
-    :
-else
-    # Being run directly
-    detectMemory "$@"
-    echo "Detected memory: ${RAM}MB"
-fi
+# POSIX version using case on $0
+case "$0" in
+    *memdetect.sh|memdetect.sh)
+        # Being run directly
+        detectMemory "$@"
+        echo "Detected memory: ${RAM}MB"
+        ;;
+    *)
+        # Being sourced (or run with different name)
+        :
+        ;;
+esac
