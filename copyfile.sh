@@ -45,7 +45,7 @@ calcXmx () {
 }
 calcXmx "$@"
 
-function copyfile() {
+copyfile() {
 	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP fileIO.CopyFile $@"
 	echo $CMD >&2
 	eval $CMD

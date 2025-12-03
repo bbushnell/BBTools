@@ -87,7 +87,7 @@ calcXmx () {
 }
 calcXmx "$@"
 
-function comparelabels() {
+comparelabels() {
 	local CMD="java $EA $SIMD $EOOM $z $z2 -cp $CP barcode.CompareLabels $@"
 	echo $CMD >&2
 	eval $CMD

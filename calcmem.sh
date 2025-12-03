@@ -8,7 +8,7 @@
 #}
 
 # Detect if CPU supports AVX2 (or ARM SVE equivalent)
-function detectCPUVectorSupport() {
+detectCPUVectorSupport() {
 	if [ -f /proc/cpuinfo ]; then
 		# x86_64: Check for AVX2 (256-bit minimum)
 		if grep -q "avx2" /proc/cpuinfo; then
@@ -35,7 +35,7 @@ function detectCPUVectorSupport() {
 }
 
 # Detect Java version (need 17+)
-function detectJavaVersion() {
+detectJavaVersion() {
 	if ! command -v java >/dev/null 2>&1; then
 		return 1
 	fi
@@ -57,7 +57,7 @@ function detectJavaVersion() {
 }
 
 # Auto-detect SIMD support
-function autoDetectSIMD() {
+autoDetectSIMD() {
 	if detectCPUVectorSupport && detectJavaVersion; then
 		SIMD="--add-modules jdk.incubator.vector"
 		return 0
@@ -66,7 +66,7 @@ function autoDetectSIMD() {
 }
 
 #Also parses other Java flags
-function parseXmx () {
+parseXmx () {
 	
 	local setxmx=0
 	local setxms=0
@@ -136,7 +136,7 @@ function parseXmx () {
 	
 }
 
-function setEnvironment(){
+setEnvironment(){
 
 	EA="-ea"
 	EOOM=""
@@ -168,7 +168,7 @@ function setEnvironment(){
 }
 
 
-function freeRam(){
+freeRam(){
 	RAM=0;
 
 	#Memory is in kilobytes.
