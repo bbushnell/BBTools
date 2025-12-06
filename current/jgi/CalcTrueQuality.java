@@ -21,8 +21,6 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
-import stream.ConcurrentGenericReadInputStream;
-import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -131,8 +129,6 @@ public class CalcTrueQuality {
 				ByteFile1.verbose=verbose;
 				ByteFile2.verbose=verbose;
 				stream.FastaReadInputStream.verbose=verbose;
-				ConcurrentGenericReadInputStream.verbose=verbose;
-				stream.FastqReadInputStream.verbose=verbose;
 				ReadWrite.verbose=verbose;
 			}else if(a.equals("reads") || a.equals("maxreads")){
 				maxReads=Parse.parseKMG(b);
@@ -160,10 +156,7 @@ public class CalcTrueQuality {
 				writeMatrices=Parse.parseBoolean(b);
 			}else if(a.equals("ss") || a.equals("samstreamer")){
 				if(b!=null && Tools.isDigit(b.charAt(0))){
-					useStreamer=true;
 					streamerThreads=Tools.max(1, Integer.parseInt(b));
-				}else{
-					useStreamer=Parse.parseBoolean(b);
 				}
 			}else if(a.equals("passes") || a.equals("recalpasses")){
 				passes=Integer.parseInt(b);
@@ -368,26 +361,13 @@ public class CalcTrueQuality {
 		
 		assert(gbmatrices.size()==pass || fnum>0) : gbmatrices.size()+", "+pass;
 		
-		final Streamer ss;
-		final ConcurrentReadInputStream cris;
-		{
-			FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
-			if(useStreamer && Shared.threads()>1 && ff.samOrBam()){
-				cris=null;
-				ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
-				ss.start();
-			}else{
-				ss=null;
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
-				if(verbose){System.err.println("Starting cris");}
-				cris.start(); //4567
-			}
-		}
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
+		final Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
 		
 		/* Create Workers */
 		final int wthreads=Tools.mid(1, threads, 16);
 		ArrayList<Worker> alpt=new ArrayList<Worker>(wthreads);
-		for(int i=0; i<wthreads; i++){alpt.add(new Worker(cris, ss, pass));}
+		for(int i=0; i<wthreads; i++){alpt.add(new Worker(ss, pass));}
 		for(Worker pt : alpt){pt.start();}
 		
 		GBMatrixSet gbmatrix;
@@ -424,7 +404,7 @@ public class CalcTrueQuality {
 		}
 		
 		/* Shut down I/O streams; capture error status */
-		errorState|=ReadWrite.closeStreams(cris);
+		errorState|=ReadWrite.closeStreams(ss);
 	
 	}
 	
@@ -1249,8 +1229,7 @@ public class CalcTrueQuality {
 	 */
 	private class Worker extends Thread {
 		
-		Worker(ConcurrentReadInputStream cris_, Streamer ss_, int pass_){
-			cris=cris_;
+		Worker(Streamer ss_, int pass_){
 			ss=ss_;
 			pass=pass_;
 			matrixT=new GBMatrixSet(pass);
@@ -1258,38 +1237,7 @@ public class CalcTrueQuality {
 		
 		@Override
 		public void run(){
-			if(cris==null){
-				runStreamer();
-			}else{
-				runCris();
-			}
-		}
-		
-		/** Processes reads using ConcurrentReadInputStream.
-		 * Applies recalibration from previous passes and collects statistics. */
-		public void runCris(){
-			ListNum<Read> ln=cris.nextList();
-			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-
-				for(int idx=0; idx<reads.size(); idx++){
-					Read r1=reads.get(idx);
-					Read r2=r1.mate;
-					if(pass>0){
-						recalibrate(r1, true, false);
-						if(r2!=null){recalibrate(r2, true, false);}
-					}
-					processLocal(r1);
-					processLocal(r2);
-				}
-				cris.returnList(ln);
-				ln=cris.nextList();
-				reads=(ln!=null ? ln.list : null);
-			}
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
+			runStreamer();
 		}
 		
 		/** Processes reads using SamReadStreamer.
@@ -1590,8 +1538,6 @@ public class CalcTrueQuality {
 		long readsUsedT=0, basesUsedT;
 		long varsFixedT=0, varsTotalT=0;
 		
-		/** Concurrent read input stream for this worker */
-		private final ConcurrentReadInputStream cris;
 		private final Streamer ss;
 		/** Calibration pass number for this worker */
 		private final int pass;
@@ -2552,8 +2498,6 @@ public class CalcTrueQuality {
 	private boolean callVariants=false;
 	/** Whether to write calibration matrices to disk */
 	private boolean writeMatrices=true;
-	/** Whether to use SamReadStreamer instead of ConcurrentReadInputStream */
-	private boolean useStreamer=true;
 	/** Number of threads for SamReadStreamer */
 	private int streamerThreads=3;
 

@@ -19,6 +19,11 @@ public class StreamerFactory {
 	/*--------------------------------------------------------------*/
 
 	public static Streamer getReadInputStream(long maxReads, boolean keepSamHeader,
+			FileFormat ff1, FileFormat ff2, int threads){
+		return makeStreamer(ff1, ff2, null, null, true, maxReads, keepSamHeader, true, threads);
+	}
+
+	public static Streamer getReadInputStream(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2, int threads){
 		return makeStreamer(ff1, ff2, qf1, qf2, true, maxReads, keepSamHeader, true, threads);
 	}

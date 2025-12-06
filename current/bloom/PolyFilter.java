@@ -20,8 +20,10 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -529,9 +531,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, -1);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -539,7 +541,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 		//Optionally create read output streams
-		final ConcurrentReadOutputStream ros, rosb;
+		final Writer ros, rosb;
 		if(ffout1!=null){
 			//Select output buffer size based on whether it needs to be ordered
 			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
@@ -549,7 +551,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 				outstream.println("Writing interleaved.");
 			}
 			
-			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, false);
+			ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, false, -1);
 			ros.start(); //Start the stream
 		}else{ros=null;}
 		
@@ -557,7 +559,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			//Select output buffer size based on whether it needs to be ordered
 			final int buff=(ordered ? Tools.mid(16, 128, (Shared.threads()*2)/3) : 8);
 			
-			rosb=ConcurrentReadOutputStream.getStream(ffoutm1, ffoutm2, null, null, buff, null, false);
+			rosb=WriterFactory.getStream(ffoutm1, ffoutm2, null, null, buff, null, false, -1);
 			rosb.start(); //Start the stream
 		}else{rosb=null;}
 		
@@ -629,7 +631,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, final ConcurrentReadOutputStream rosb){
+	private void spawnThreads(final Streamer cris, final Writer ros, final Writer rosb){
 		
 		//Do anything necessary prior to processing
 		
@@ -817,7 +819,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		 * @param rosb_ Output stream for discarded reads
 		 * @param tid_ Thread ID for this worker
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final ConcurrentReadOutputStream rosb_, final int tid_){
+		ProcessThread(final Streamer cris_, final Writer ros_, final Writer rosb_, final int tid_){
 			cris=cris_;
 			ros=ros_;
 			rosb=rosb_;
@@ -854,7 +856,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			}
 
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 				ArrayList<Read> keepList=new ArrayList<Read>(reads.size());
 				ArrayList<Read> tossList=new ArrayList<Read>(reads.size());
@@ -911,17 +913,9 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 				if(ros!=null){ros.add(keepList, ln.id);}
 				if(rosb!=null){rosb.add(tossList, ln.id);}
 
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		
@@ -1010,11 +1004,11 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		/** Shared output stream */
-		private final ConcurrentReadOutputStream ros;
+		private final Writer ros;
 		/** Matched output stream */
-		private final ConcurrentReadOutputStream rosb;
+		private final Writer rosb;
 		/** Thread ID */
 		final int tid;
 		

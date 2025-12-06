@@ -669,7 +669,7 @@ public class BBDukProcessor {
 	
 	/** Formats RQC statistics map as string output.
 	 * @return Formatted RQC statistics string */
-	private static String rqcString(){
+	public static String rqcString(){
 		if(RQC_MAP==null){return null;}
 		StringBuilder sb=new StringBuilder();
 		
@@ -718,7 +718,7 @@ public class BBDukProcessor {
 	 * @param evict Whether to replace existing value
 	 * @param add Whether to add to existing value
 	 */
-	static void putRqc(String key, Long value, boolean evict, boolean add){
+	public static void putRqc(String key, Long value, boolean evict, boolean add){
 		if(RQC_MAP==null){RQC_MAP=new HashMap<String,Long>();}
 		Long old=RQC_MAP.get(key);
 		if(evict || old==null){RQC_MAP.put(key, value);}

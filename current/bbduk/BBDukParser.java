@@ -103,10 +103,6 @@ class BBDukParser {
 		
 		adjustFiles();
 		
-		if(WAYS!=7){
-			System.err.println("WARNING! WAYS="+WAYS+".  Probably debug mode.");
-		}
-		
 		if(khistIn!=null || khistOut!=null){
 			if(khistIn!=null){parser.loglog=true;}
 			if(khistOut!=null){parser.loglogOut=true;}
@@ -509,8 +505,9 @@ class BBDukParser {
 				useArray=Parse.parseBoolean(b);
 				if(useArray){useTable=useForest=false;}
 			}else if(a.equals("ways")){
-//				WAYS=Integer.parseInt(b);
-				assert(false) : "WAYS is final.";
+				WAYS=Integer.parseInt(b);
+			}else if(a.equals("indexmask2") || a.equals("mask2")){
+				indexmask2=Parse.parseBoolean(b);
 			}else if(a.equals("ordered") || a.equals("ord")){
 				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("skipr1")){
@@ -573,7 +570,6 @@ class BBDukParser {
 				showSpeed=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				assert(false) : "Verbose flag is currently static final; must be recompiled to change.";
-//				assert(WAYS>1) : "WAYS=1 is for debug mode.";
 			}else if(a.equals("mm") || a.equals("maskmiddle")){
 				if(b==null || Tools.startsWithLetter(b)) {
 					maskMiddle=Parse.parseBoolean(b);
@@ -999,6 +995,9 @@ class BBDukParser {
 	private int minoverlap_=-1;
 	
 	/*--------------------------------------------------------------*/
+	
+	int WAYS=8;
+	boolean indexmask2=true;
 	
 	Parser parser=null;
 
@@ -1474,8 +1473,6 @@ class BBDukParser {
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of tables (and threads, during loading) */
-	static final int WAYS=7; //123
 	/** Default initial size of data structures */
 	static final int initialSizeDefault=128000;
 

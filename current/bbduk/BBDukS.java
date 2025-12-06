@@ -50,7 +50,7 @@ public class BBDukS {
 		
 		//Close the print stream if it was redirected
 		Shared.closeStream(outstream);
-		assert(WAYS==7 && !verbose) : "Undo WAYS and verbose";
+		assert(!verbose) : "Undo verbose";
 	}
 	
 	/**
@@ -161,13 +161,13 @@ public class BBDukS {
 	 * calls process2 for core processing, and calculates final statistics.
 	 */
 	public void process(){
-		
+		Timer t0=new Timer();
 		{//TODO: State sync can be mostly eliminated once Index is used for complete encapsulation 
 			//1. Load Index
 			loader.loadIndex(in1);
 
 			//2. Sync State - References and Arrays
-			sidechannel=index.sidechannel;
+			sidechannel=index.sidechannel();
 			ref=index.ref;
 			scaffoldNames=index.scaffoldNames;
 			
@@ -186,7 +186,13 @@ public class BBDukS {
 			throw new RuntimeException("One or more output files were duplicate or could not be written to.  Check the names or set the 'overwrite=true' flag.");
 		}
 		
-		process2();
+		process2(t0.time1);
+		t0.stop();
+		
+		if(showSpeed && !json){
+			outstream.println();
+			outstream.println(Tools.timeReadsBasesProcessed(t0, proc.readsIn, proc.basesIn, 8));
+		}
 		
 		if(outstream!=System.err && outstream!=System.out){outstream.close();}
 		
@@ -202,13 +208,7 @@ public class BBDukS {
 	 * Fills kmer tables from reference sequences, then spawns threads to match
 	 * reads against reference kmers and perform filtering/trimming operations.
 	 */
-	public void process2(){
-		
-		/* Start phase timer */
-		Timer t0=new Timer();
-		Timer t1=new Timer();
-		final long start=t0.time1;
-
+	public void process2(long start){
 		if(DISPLAY_PROGRESS && !json){
 			outstream.println("Initial:");
 			Shared.printMemory(outstream);
@@ -219,21 +219,14 @@ public class BBDukS {
 		Read.VALIDATE_IN_CONSTRUCTOR=THREADS<4;
 		
 		/* Do kmer matching of input reads */
-		BBDukProcessorS proc=spawnProcessThreads(parser, t1);
+		proc=spawnProcessThreads(parser);
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
 		proc.printOutput(start);
 		
 		/* Stop timer and calculate speed statistics */
-		t0.stop();
-		t1.stop();
 		lastReadsOut=proc.readsOut;
-		
-		if(showSpeed && !json){
-			outstream.println();
-			outstream.println(Tools.timeReadsBasesProcessed(t0, proc.readsIn, proc.basesIn, 8));
-		}
 	}
 	
 	
@@ -246,8 +239,8 @@ public class BBDukS {
 	 * Match reads against reference kmers, using multiple ProcessThread.
 	 * @param t
 	 */
-	private BBDukProcessorS spawnProcessThreads(BBDukParser p, Timer t){
-		t.start();
+	private BBDukProcessorS spawnProcessThreads(BBDukParser p){
+		Timer t=new Timer();
 		
 		/* Create read input stream */
 		final Streamer cris;
@@ -442,6 +435,7 @@ public class BBDukS {
 	private final BBDukParser parser;
 	private final BBDukLoader loader;
 	private final BBDukIndex index;
+	public BBDukProcessorS proc;
 	
 	/** A scaffold's name is stored at scaffoldNames.get(id).
 	 * scaffoldNames[0] is reserved, so the first id is 1. */
@@ -528,8 +522,6 @@ public class BBDukS {
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of tables (and threads, during loading) */
-	private static final int WAYS=7;
 	/** Verbose messages */
 	public static final boolean verbose=false;
 	

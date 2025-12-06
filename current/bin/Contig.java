@@ -136,7 +136,7 @@ public class Contig extends Bin {
 		bb.nl();
 		final int wrap=Shared.FASTA_WRAP;
 		for(int i=0; i<bases.length; i+=wrap) {
-			//Now with modified append I can just append(bases, wrap)
+			//Now with modified append I can just append(bases, wrap) ...???
 			bb.append(bases, i, wrap).nl();
 		}
 	}

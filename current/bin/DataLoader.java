@@ -26,7 +26,7 @@ import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
@@ -415,7 +415,7 @@ public class DataLoader extends BinObject {
 		sizeMap=new IntLongHashMap(1023);
 
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
+		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, 1);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		outstream.print("Loading contigs:\t");
@@ -713,7 +713,7 @@ public class DataLoader extends BinObject {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		ArrayList<Contig> list=new ArrayList<Contig>();
 
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
+		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, -1);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		
@@ -734,17 +734,8 @@ public class DataLoader extends BinObject {
 				if(c!=null) {list.add(c);}
 			}
 			
-			//Notify the input stream that the list was used
-			cris.returnList(ln);
-//			if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-			
 			//Fetch a new list
 			ln=cris.nextList();
-		}
-
-		//Notify the input stream that the final list was used
-		if(ln!=null){
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 		errorState|=ReadWrite.closeStream(cris);
 		phaseTimer.stopAndPrint();

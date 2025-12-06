@@ -1,21 +1,15 @@
 package bbduk;
 
-import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import aligner.SideChannel3;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import fileIO.TextStreamWriter;
-import json.JsonObject;
-import kmer.AbstractKmerTable;
-import kmer.ScheduleMaker;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
@@ -24,11 +18,7 @@ import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
-import structures.IntList;
 import structures.ListNum;
-import var2.ScafMap;
-import var2.VarMap;
-import var2.VcfLoader;
 
 /**
  * Index and loader for BBDuk
@@ -81,7 +71,8 @@ public class BBDukLoader {
 		REPLICATE_AMBIGUOUS=BBDukParser.REPLICATE_AMBIGUOUS;
 		
 		parser=p;
-		index=new BBDukIndex(p);
+		index=(p.WAYS==BBDukIndexMod.WAYS ? new BBDukIndexMod(p) : 
+			p.indexmask2 ? new BBDukIndexMask2(p) : new BBDukIndexMask(p));
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -355,7 +346,7 @@ public class BBDukLoader {
 		}
 		
 		if(verbose){
-			TextStreamWriter tsw=new TextStreamWriter("stdout", false, false, false, FileFormat.TEXT);
+			ByteStreamWriter tsw=new ByteStreamWriter("stdout", false, false, false, FileFormat.TEXT);
 			tsw.start();
 			index.dump(tsw, 0, Integer.MAX_VALUE);
 			tsw.poisonAndWait();

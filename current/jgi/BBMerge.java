@@ -27,8 +27,10 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.CustomHeader;
 import stream.FASTQ;
 import stream.Read;
@@ -1139,9 +1141,9 @@ public class BBMerge {
 		
 		Timer talign=new Timer();
 		
-		ConcurrentReadOutputStream rosgood=null;
-		ConcurrentReadOutputStream rosbad=null;
-		ConcurrentReadOutputStream rosinsert=null;
+		Writer rosgood=null;
+		Writer rosbad=null;
+		Writer rosinsert=null;
 		
 		if(out1!=null){
 			if(join==true){
@@ -1160,7 +1162,7 @@ public class BBMerge {
 			assert(!ff1.samOrBam()) : "Sam files need reference info for the header.";
 			
 			final int buff=Tools.max(16, 2*THREADS);
-			rosgood=ConcurrentReadOutputStream.getStream(ff1, ff2, null, null, buff, null, false);
+			rosgood=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, 1);
 			rosgood.start();
 		}
 		
@@ -1171,7 +1173,7 @@ public class BBMerge {
 			assert(!ff1.samOrBam()) : "Sam files need reference info for the header.";
 			
 			final int buff=Tools.max(16, 2*THREADS);
-			rosbad=ConcurrentReadOutputStream.getStream(ff1, ff2, null, null, buff, null, false);
+			rosbad=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, 1);
 			rosbad.start();
 		}
 		
@@ -1183,7 +1185,7 @@ public class BBMerge {
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1));
 			
 			final FileFormat ff=FileFormat.testOutput(out1, FileFormat.ATTACHMENT, ".info", true, overwrite, append, ordered);
-			rosinsert=ConcurrentReadOutputStream.getStream(ff, null, null, null, buff, header(), false);
+			rosinsert=WriterFactory.getStreamS(ff, null, null, null, buff, header(), false, 1);
 			rosinsert.start();
 		}
 		
@@ -1192,11 +1194,11 @@ public class BBMerge {
 			outstream.println("Started output threads.");
 		}
 		
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			cris.setSampleRate(samplerate, sampleseed);
 			if(verbose){outstream.println("Started cris");}
 			cris.start(); //4567
@@ -1302,13 +1304,13 @@ public class BBMerge {
 	 */
 	public static final long[] makeInsertHistogram(String fname1, String fname2, long numReads, float samplerate){
 		assert(fname1!=null);
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(fname1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(fname2, FileFormat.FASTQ, null, true, true);
 			if(ff1.stdio()){return null;}
 			assert(!ff1.stdio()) : "Standard in is not allowed as input when calculating insert size distributions for files.";
-			cris=ConcurrentReadInputStream.getReadInputStream(numReads, true, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(numReads, true, ff1, ff2, 1);
 			cris.setSampleRate(samplerate, 1);
 			if(verbose){outstream.println("Started cris");}
 			cris.start(); //4567
@@ -1327,18 +1329,16 @@ public class BBMerge {
 		}
 
 		LongList ll=new LongList(500);
-		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+		while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 
 			for(Read r1 : reads){
 				int x=findOverlapLoose(r1, r1.mate, false);
 				if(x>0){ll.increment(x, 1);}
 				else{ll.increment(0, 1);}
 			}
-			cris.returnList(ln);
 			ln=cris.nextList();
 			reads=(ln!=null ? ln.list : null);
 		}
-		cris.returnList(ln);
 		ReadWrite.closeStreams(cris);
 		return ll.toArray();
 	}
@@ -1824,7 +1824,7 @@ public class BBMerge {
 	private class MateThread extends Thread{
 		
 		
-		public MateThread(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream rosgood_, ConcurrentReadOutputStream rosbad_, ConcurrentReadOutputStream rosi_,
+		public MateThread(Streamer cris_, Writer rosgood_, Writer rosbad_, Writer rosi_,
 				boolean joinReads_, boolean trimByOverlap_) {
 			cris=cris_;
 			rosgood=rosgood_;
@@ -1861,7 +1861,7 @@ public class BBMerge {
 			
 			final byte[][] originals=((tadpole!=null || qtrimRight || qtrimLeft) &&
 					(rosbad!=null || (rosgood!=null && (!join || MIX_BAD_AND_GOOD)))) ? new byte[4][] : null;
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				
 				ArrayList<Read> listg=(rosgood==null /*&& rosi==null*/ ? null : new ArrayList<Read>(reads.size()));
 				ArrayList<Read> listb=(rosbad==null ? null : new ArrayList<Read>(reads.size()));
@@ -1916,15 +1916,11 @@ public class BBMerge {
 					if(quantizeQuality) {Quantizer.quantize(listb);}
 					rosbad.add(listb, ln.id);
 				}
-				
-				//			outstream.println("returning list");
-				cris.returnList(ln);
 				//			outstream.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 				//			outstream.println("reads: "+(reads==null ? "null" : reads.size()));
 			}
-			cris.returnList(ln);
 		}
 		
 		private int findOverlapInThread(final Read r1, final byte[][] originals, ArrayList<Read> listg, ArrayList<Read> listb){
@@ -2976,10 +2972,10 @@ public class BBMerge {
 		long adaptersExpectedT=0;
 		long adaptersFoundT=0;
 		
-		private final ConcurrentReadInputStream cris;
-		private final ConcurrentReadOutputStream rosgood;
-		private final ConcurrentReadOutputStream rosbad;
-		private final ConcurrentReadOutputStream rosi;
+		private final Streamer cris;
+		private final Writer rosgood;
+		private final Writer rosbad;
+		private final Writer rosi;
 		
 		private final boolean joinReads;
 		private final boolean trimReadsByOverlap;

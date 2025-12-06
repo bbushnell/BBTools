@@ -5385,6 +5385,26 @@ public final class Tools {
 		int ikey=(int)(key&0x7FFFFFFF);
 		return ikey<0x7FFFF800 ? ikey : (ikey-0x7FFFF800)*64;
 	}
+	
+	public static long hash64plus2(long key){
+//		key=(~key)+(key<<21);
+//		key=key^(key>>>24);
+//		key=(key+(key<<3))+(key<<8);
+//		key=key^(key>>>14);
+//		key=(key+(key<<2))+(key<<4);
+//		key=key^(key>>>28);
+//		key=key+(key<<31);
+//		key=(key&0x7FFFFFFFFFFFFFFFL);
+//		return key<0x7FFFF800FFFFFFFFL ? key : (key-0x7FFFF800FFFFFFFFL)*64;
+		
+		key^=key>>>33;
+		key*=0xff51afd7ed558ccdL;
+		key^=key>>>33;
+		key*=0xc4ceb9fe1a85ec53L;
+		key^=key>>>33;
+		key=(key&0x7FFFFFFFFFFFFFFFL);
+		return key<0x7FFFF800FFFFFFFFL ? key : (key-0x7FFFF800FFFFFFFFL)*64;
+	}
 
 	public static int hash32shift(int key){
 		key=~key+(key<<15); // key=(key<<15) - key - 1;

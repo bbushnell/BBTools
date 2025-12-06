@@ -15,8 +15,10 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -209,9 +211,9 @@ public class FilterByTaxa {
 	public void process(Timer t){
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2, 1);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -219,7 +221,7 @@ public class FilterByTaxa {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 		//Optionally create a read output stream
-		final ConcurrentReadOutputStream ros;
+		final Writer ros;
 		if(ffout1!=null){
 			final int buff=4;
 			
@@ -227,7 +229,7 @@ public class FilterByTaxa {
 				outstream.println("Writing interleaved.");
 			}
 			
-			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
+			ros=WriterFactory.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false, 1);
 			ros.start(); //Start the stream
 		}else{ros=null;}
 		
@@ -266,7 +268,7 @@ public class FilterByTaxa {
 	}
 	
 	/** Iterate through the reads */
-	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
+	void processInner(final Streamer cris, final Writer ros){
 		
 		//Do anything necessary prior to processing
 		
@@ -283,7 +285,7 @@ public class FilterByTaxa {
 			}
 			
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
 				
 				//Loop through each read in the list
@@ -310,18 +312,9 @@ public class FilterByTaxa {
 				//Output reads to the output stream
 				if(ros!=null){ros.add(reads, ln.id);}
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-				if(verbose){outstream.println("Returned a list.");}
-				
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-			
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		

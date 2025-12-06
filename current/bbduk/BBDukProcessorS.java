@@ -237,7 +237,7 @@ public class BBDukProcessorS {
 		
 		{
 			//2. Sync State - References and Arrays
-			sidechannel=index.sidechannel;
+			sidechannel=index.sidechannel();
 			ref=index.ref;
 			scaffoldNames=index.scaffoldNames;
 			scaffoldLengths=index.scaffoldLengths;
@@ -726,7 +726,7 @@ public class BBDukProcessorS {
 	
 	/** Calculates ratio of two specified polymer bases.
 	 * @return Ratio of polymer base counts (base1/base2) */
-	double getPolymerRatio(){
+	public double getPolymerRatio(){
 		return pTracker.calcRatioCumulative(polymerChar1, polymerChar2, polymerLength);
 	}
 	
@@ -2846,36 +2846,36 @@ public class BBDukProcessorS {
 	private final JsonObject jsonStats;
 
 	/** Total number of input reads processed */
-	long readsIn;
+	public long readsIn;
 	/** Total number of input bases processed */
-	long basesIn;
+	public long basesIn;
 	/** Total number of reads written to output */
-	long readsOut;
+	public long readsOut;
 	/** Total number of bases written to output */
-	private long basesOut;
+	public long basesOut;
 
 	private long readsQTrimmed;
 	private long basesQTrimmed;
-	private long readsFTrimmed;
-	private long basesFTrimmed;
+	public long readsFTrimmed;
+	public long basesFTrimmed;
 	private long readsQFiltered;
 	private long basesQFiltered;
 	private long readsEFiltered;
 	private long basesEFiltered;
-	private long readsNFiltered;
-	private long basesNFiltered;
+	public long readsNFiltered;
+	public long basesNFiltered;
 
-	private long readsPolyTrimmed;
-	private long basesPolyTrimmed;
+	public long readsPolyTrimmed;
+	public long basesPolyTrimmed;
 
 	/** Number of reads modified by kmer trimming */
-	private long readsKTrimmed;
+	public long readsKTrimmed;
 	/** Number of bases removed by kmer trimming */
-	private long basesKTrimmed;
+	public long basesKTrimmed;
 	/** Number of reads removed by kmer filtering */
-	private long readsKFiltered;
+	public long readsKFiltered;
 	/** Number of bases removed by kmer filtering */
-	private long basesKFiltered;
+	public long basesKFiltered;
 
 	private long badGcReads;
 	private long badGcBases;
@@ -2956,9 +2956,9 @@ public class BBDukProcessorS {
 	private final boolean swift; //https://issues.jgi.doe.gov/browse/AUTOQC-2193
 
 	/** For calculating kmer cardinality in input */
-	private final CardinalityTracker loglogIn;
+	public final CardinalityTracker loglogIn;
 	/** For calculating kmer cardinality in output */
-	private final CardinalityTracker loglogOut;
+	public final CardinalityTracker loglogOut;
 	/** Requires (and sets) cardinality tracking.  This is for input kmers. */
 	private final String khistIn;
 	/** Requires (and sets) cardinality tracking.  This is for output kmers. */

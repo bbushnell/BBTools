@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 1, 2025
+Last modified December 5, 2025
 
 #This is an experimental new version of BBDuk using a faster I/O system
 
@@ -114,6 +114,9 @@ ignorevcfindels=t   Also ignore indels listed in the VCF.
 Processing parameters:
 k=31                Kmer length used for finding contaminants.  Contaminants 
                     shorter than k will not be found.  k must be at least 1.
+ways=8              Index shards for ref kmers, must be 7 or a power of 2.
+                    Each shard can hold ~1.5B kmers, so this may be increased
+		    if there are too many kmers, but sufficient memory.
 rcomp=t             Look for reverse-complements of kmers in addition to 
                     forward kmers.
 maskmiddle=t        (mm) Treat the middle base of a kmer as a wildcard, to 

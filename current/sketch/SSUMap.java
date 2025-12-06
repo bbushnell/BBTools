@@ -6,9 +6,10 @@ import java.util.HashMap;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
-import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.Read;
+import stream.Streamer;
+import stream.StreamerFactory;
 import structures.ListNum;
 import tax.GiToTaxid;
 import tax.TaxTree;
@@ -74,61 +75,42 @@ public class SSUMap {
 	 * @return Map of taxonomic IDs to SSU sequence bytes
 	 */
 	private static HashMap<Integer, byte[]> loadSSU(FileFormat ff, PrintStream outstream){
-		ConcurrentReadInputStream cris=makeCris(ff, outstream);
+		Streamer st=makeStreamer(ff, outstream);
 		HashMap<Integer, byte[]> map=new HashMap<Integer, byte[]>(1000000);
 		
-		//Grab the first ListNum of reads
-		ListNum<Read> ln=cris.nextList();
-
-		//Check to ensure pairing is as expected
-		if(ln!=null && !ln.isEmpty()){
-//			if(verbose){outstream.println("Fetched "+ln.size()+" reads.");}
-			Read r=ln.get(0);
-			assert(ff.samOrBam() || (r.mate!=null)==cris.paired());
-		}
-
 		//As long as there is a nonempty read list...
-		while(ln!=null && ln.size()>0){
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
 			if(verbose){outstream.println("Fetched "+ln.size()+" reads.");}
 			for(Read r : ln){
+				assert(r.mate==null);
 				final int tid=GiToTaxid.getID(r.id);
 				if(tid>=0 && r.length()>1000){
 					byte[] old=map.get(tid);
 					if(old==null || old.length<r.length()){map.put(tid, r.bases);}
 				}
 			}
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-
-			//Fetch a new list
-			ln=cris.nextList();
 		}
-
-		//Notify the input stream that the final list was used
-		if(ln!=null){
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-		}
-		errorState|=ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(st);
 		
 		return map;
 	}
 	
 	/**
-	 * Creates and initializes a concurrent read input stream for SSU file processing.
+	 * Creates and initializes a streamer for SSU file processing.
 	 * Configures stream for unpaired sequence reading and starts the input pipeline.
 	 *
 	 * @param ff File format specification for the input file
 	 * @param outstream Print stream for debug messages
 	 * @return Initialized concurrent read input stream
 	 */
-	private static ConcurrentReadInputStream makeCris(FileFormat ff, PrintStream outstream){
+	private static Streamer makeStreamer(FileFormat ff, PrintStream outstream){
 		if(verbose){outstream.println("makeCris");}
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null);
-		cris.start(); //Start the stream
+		Streamer st=StreamerFactory.getReadInputStream(-1, false, ff, null, 1);
+		st.start(); //Start the stream
 		if(verbose){outstream.println("Loading "+ff.name());}
-		boolean paired=cris.paired();
+		boolean paired=st.paired();
 		assert(!paired);
-//		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
-		return cris;
+		return st;
 	}
 
 	/** Checks if any SSU sequence maps are loaded.

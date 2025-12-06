@@ -19,7 +19,8 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -397,9 +398,9 @@ public class SketchMaker extends SketchObject {
 		LongList sizes=new LongList();
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, 1);
 //			if(defaultParams.samplerate!=1){cris.setSampleRate(defaultParams.samplerate, sampleseed);} //Why would I ever want this here?
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
@@ -411,7 +412,7 @@ public class SketchMaker extends SketchObject {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		//As long as there is a nonempty read list...
-		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+		while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 			//					if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 
 			//Loop through each read in the list
@@ -439,19 +440,9 @@ public class SketchMaker extends SketchObject {
 					sizes.increment(taxID, a+b);
 				}
 			}
-
-			//Notify the input stream that the list was used
-			cris.returnList(ln);
-			//					if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-
 			//Fetch a new list
 			ln=cris.nextList();
 			reads=(ln!=null ? ln.list : null);
-		}
-
-		//Notify the input stream that the final list was used
-		if(ln!=null){
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 		
 		errorState|=ReadWrite.closeStream(cris);
@@ -479,9 +470,9 @@ public class SketchMaker extends SketchObject {
 		HashMap<Long, Long> sizes=new HashMap<Long, Long>();
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, 1);
 			if(defaultParams.samplerate!=1){cris.setSampleRate(defaultParams.samplerate, sampleseed);}
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
@@ -493,7 +484,7 @@ public class SketchMaker extends SketchObject {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		//As long as there is a nonempty read list...
-		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+		while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 			//					if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 
 			//Loop through each read in the list
@@ -516,19 +507,9 @@ public class SketchMaker extends SketchObject {
 					}
 				}
 			}
-
-			//Notify the input stream that the list was used
-			cris.returnList(ln);
-			//					if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-
 			//Fetch a new list
 			ln=cris.nextList();
 			reads=(ln!=null ? ln.list : null);
-		}
-
-		//Notify the input stream that the final list was used
-		if(ln!=null){
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 		
 		errorState|=ReadWrite.closeStream(cris);
@@ -559,9 +540,9 @@ public class SketchMaker extends SketchObject {
 			Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 
 			//Create a read input stream
-			final ConcurrentReadInputStream cris;
+			final Streamer cris;
 			{
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+				cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, -1);
 				cris.start(); //Start the stream
 				if(verbose){outstream.println("Started cris");}
 			}
@@ -631,7 +612,7 @@ public class SketchMaker extends SketchObject {
 	
 	/** Spawn process threads */
 	@SuppressWarnings("unchecked")
-	private void spawnThreads(final ConcurrentReadInputStream cris){
+	private void spawnThreads(final Streamer cris){
 		
 		//Do anything necessary prior to processing
 		Timer t=new Timer();
@@ -918,7 +899,7 @@ public class SketchMaker extends SketchObject {
 		 * @param cris_ Concurrent read input stream
 		 * @param tid_ Thread ID for identification
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
+		ProcessThread(final Streamer cris_, final int tid_){
 			cris=cris_;
 			threadID=tid_;
 			
@@ -958,7 +939,7 @@ public class SketchMaker extends SketchObject {
 //			long cntr1=0, cntr2=0, cntr3=0, cntr4=0;
 
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 
 				//Loop through each read in the list
@@ -969,18 +950,9 @@ public class SketchMaker extends SketchObject {
 					processReadPair(r1, r2);
 				}
 
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-//				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 			
 			if(mode==PER_TAXA && localMap.size()>0){dumpLocalMap();}
@@ -1419,7 +1391,7 @@ public class SketchMaker extends SketchObject {
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		/** Thread ID */
 		final int threadID;
 		/** Thread-local ByteBuilder for string operations */

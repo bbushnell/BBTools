@@ -31,13 +31,13 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.Streamer;
 import stream.StreamerFactory;
 import structures.AtomicStringNum;
 import structures.ByteBuilder;
@@ -516,9 +516,9 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			bloomFilter.filter.shutdown();
 		}else {
 			//Create a read input stream
-			final ConcurrentReadInputStream cris;
+			final Streamer cris;
 			{
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
+				cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, -1);
 				cris.start(); //Start the stream
 				if(verbose){outstream.println("Started cris");}
 			}
@@ -551,8 +551,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	void fillTiles(){
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
-		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
+		final Streamer cris;
+		cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, -1);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		boolean paired=cris.paired();
@@ -584,95 +584,6 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		errorState|=ReadWrite.closeStreams(cris);
 		if(sidechannel!=null) {errorState|=sidechannel.shutdown();}
 	}
-	
-//	/** Singlethreaded version. */
-//	private void loadSam_ST(String fname) {
-//		if(fname==null || processSamMT) {return;}
-//		Timer t=new Timer();
-//		outstream.println("Loading sam file.");
-//		final SamReadStreamer ss;
-//		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
-//		final int streamerThreads=Tools.min(4, Shared.threads());
-//		
-//		ss=new SamReadStreamer(ff, streamerThreads, false, maxReads);
-//		ss.start();
-//
-//		ListNum<Read> ln=ss.nextList();
-//		ArrayList<Read> reads=(ln==null ? null : ln.list);
-//		final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-//
-//		while(ln!=null && reads!=null && reads.size()>0){
-//
-//			for(int idx=0; idx<reads.size(); idx++){
-//				Read r=reads.get(idx);
-//				assert(r.mate==null);
-//				processSamLine(r, ihp);
-//			}
-//			ln=ss.nextList();
-//			reads=(ln==null ? null : ln.list);
-//		}
-//		t.stopAndPrint();
-//	}
-//	
-//	private void processSamLine(Read r, IlluminaHeaderParser2 ihp) {
-//		if(r==null){return;}
-//		final SamLine sl=r.samline;
-////		if(!sl.mapped() && !sl.nextMapped()) {return;} //Probably not PhiX
-//		if(!sl.mapped()) {return;}//TODO: Track unmapped info; requires modifying dump format
-//		
-//		
-//		if(!sl.mapped() || r.bases==null || r.match==null) {return;}
-//		final int pairnum=sl.pairnum();
-//		assert(sl.strand()==r.strand());
-//		
-////		final boolean needsFixing=(varMap!=null && Read.containsVars(r.match));
-//		
-//		if(r.shortmatch()){r.toLongMatchString(false);}
-//		final byte[] match=r.match;
-//
-//		int subs=0, inss=0, dels=0;
-////		final AtomicLongArray matchCounts=lane.matchCounts[pairnum];
-////		final AtomicLongArray subCounts=lane.subCounts[pairnum];
-//		for(int mpos=0, qpos=0; mpos<match.length; mpos++){
-//			byte m=match[mpos];
-//			if(m=='m'){
-////				matchCounts.incrementAndGet(qpos);
-//				qpos++;
-//			}else if(m=='S' || m=='N'){
-////				subCounts.incrementAndGet(qpos);
-//				subs++;
-//				qpos++;
-//			}else if(m=='I'){
-////				subCounts.incrementAndGet(qpos);
-//				inss++;
-//				qpos++;
-//			}else if(m=='X' || m=='Y' || m=='C'){
-//				qpos++;
-//			}else if(m=='D'){
-//				dels++;
-//			}else{
-//				assert(false) : "Unhandled symbol "+m;
-//			}
-//		}
-//		
-//		final MicroTile mt;
-//		final Lane lane;
-//		ihp.parse(r.id);
-//		final int lnum=ihp.lane(), tile=ihp.tile(), x=ihp.xPos(), y=ihp.yPos();
-//		synchronized(flowcell) {
-//			lane=flowcell.getLane(lnum);
-//			mt=lane.getMicroTile(tile, x, y);
-//		}
-//
-//		synchronized(mt) {
-//			mt.alignedReadCount++;
-//			mt.alignedBaseCount+=r.countAlignedBases();
-//			mt.readErrorCount+=((subs+inss+dels>0) ? 1 : 0);
-//			mt.baseErrorCount+=(subs+inss);
-//			mt.readInsCount+=(inss>0 ? 1 : 0);
-//			mt.readDelCount+=(dels>0 ? 1 : 0);
-//		}
-//	}
 	
 	//This version is not really any faster,
 	//though it does use 15% less CPU-time.
@@ -750,26 +661,24 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			outstream.print("Filtering reads:\t");
 
 			//Create a read input stream
-			final ConcurrentReadInputStream cris;
+			final Streamer cris;
 			{
 				Read.VALIDATE_IN_CONSTRUCTOR=true;
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2);
+				cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, 1);
 				cris.start(); //Start the stream
 				if(verbose){outstream.println("Started cris");}
 			}
-			boolean paired=cris.paired();
-			//		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 
 			//Optionally read output streams
-			final ConcurrentReadOutputStream ros, rosb;
+			final Writer ros, rosb;
 			final int buff=4;
 			if(ffout1!=null){
-				ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, buff, null, false);
+				ros=WriterFactory.getStream(ffout1, ffout2, buff, null, false, 1);
 				ros.start(); //Start the stream
 			}else{ros=null;}
 			
 			if(ffoutbad!=null){
-				rosb=ConcurrentReadOutputStream.getStream(ffoutbad, null, null, null, buff, null, false);
+				rosb=WriterFactory.getStream(ffoutbad, null, null, null, buff, null, false, 1);
 				rosb.start(); //Start the stream
 			}else{rosb=null;}
 			
@@ -819,8 +728,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	}
 	
 	/** Iterate through the reads */
-	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, 
-			final ConcurrentReadOutputStream rosb, final ByteStreamWriter coords){
+	void processInner(final Streamer cris, final Writer ros, 
+			final Writer rosb, final ByteStreamWriter coords){
 		
 		//Do anything necessary prior to processing
 		readsProcessed=0;
@@ -840,7 +749,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}
 			
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
 
 				ArrayList<Read> keepList=new ArrayList<Read>(reads.size());
@@ -881,19 +790,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 					}
 					if(!bb.isEmpty()) {coords.print(bb);}
 				}
-				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
 				if(verbose){outstream.println("Returned a list.");}
 				
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-			
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		
@@ -902,7 +803,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	}
 	
 	/** Iterate through the reads */
-	public void loadKmersInner(final ConcurrentReadInputStream cris){
+	public void loadKmersInner(final Streamer cris){
 		
 		bloomFilter=new BloomFilter(k, k, cbits, hashes, 1, true, false, true, 0.7f);
 		
@@ -920,7 +821,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			
 			LongList kmers=new LongList(300);
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");}
 
 				for(int idx=0; idx<reads.size(); idx++){
@@ -931,18 +832,9 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 					loadKmers(r2, kmers);
 				}
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-				if(verbose){outstream.println("Returned a list.");}
-				
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-			
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 	}
@@ -971,7 +863,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	}
 	
 	/** Iterate through the reads */
-	public void fillTilesInner(final ConcurrentReadInputStream cris, final Streamer ss){
+	public void fillTilesInner(final Streamer cris, final Streamer ss){
 		Timer t2=new Timer();
 		
 		if(merge && loadKmers) {fillThreads=Tools.max(fillThreads, fillThreadsM);}
@@ -1381,7 +1273,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	/*--------------------------------------------------------------*/
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, final Streamer ss){
+	private void spawnThreads(final Streamer cris, final Streamer ss){
 		
 		//Do anything necessary prior to processing
 		
@@ -1460,7 +1352,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		ProcessThread(final ConcurrentReadInputStream cris_, final Streamer ss_, final int tid_, final FlowCell flowcell_){
+		ProcessThread(final Streamer cris_, final Streamer ss_, final int tid_, final FlowCell flowcell_){
 			cris=cris_;
 			ss=ss_;
 			tid=tid_;
@@ -1493,17 +1385,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				
 				processList(ln);
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-//				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-				
 				//Fetch a new list
 				ln=cris.nextList();
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 			
 			if(ss!=null) {processSam();}
@@ -1747,7 +1630,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 			final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 
-			while(ln!=null && reads!=null && reads.size()>0){
+			while(ln!=null && reads!=null){
 
 				for(int idx=0; idx<reads.size(); idx++){
 					SamLine sl=reads.get(idx);
@@ -1789,7 +1672,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		boolean success=false;
 
 		/** Shared input stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		/** Optional sam input stream */
 		private final Streamer ss;
 		/** Thread ID */
