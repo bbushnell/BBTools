@@ -698,7 +698,7 @@ public class KmerCountExact {
 	
 //	void processRef(){
 //		FileFormat ffref=FileFormat.testInput(ref, FileFormat.FA, null, true, false);
-//		ConcurrentReadInputStream cris=makeCris(ffref);
+//		Streamer cris=makeCris(ffref);
 //		//Do anything necessary prior to processing
 //
 //		{
@@ -736,7 +736,7 @@ public class KmerCountExact {
 //	 * @param cris Read Input Stream
 //	 * @param ros Read Output Stream for reads that will be retained
 //	 */
-//	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris){
+//	void processList(ListNum<Read> ln, final Streamer cris){
 //
 //		//Grab the actual read list from the ListNum
 //		final ArrayList<Read> reads=ln.list;
@@ -778,8 +778,8 @@ public class KmerCountExact {
 ////		if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
 //	}
 //	
-//	private ConcurrentReadInputStream makeCris(FileFormat ff){
-//		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
+//	private Streamer makeCris(FileFormat ff){
+//		Streamer cris=Streamer.getReadInputStream(maxReads, true, ff, null);
 //		cris.start(); //Start the stream
 //		if(verbose){outstream.println("Started ref cris");}
 //		boolean paired=cris.paired();

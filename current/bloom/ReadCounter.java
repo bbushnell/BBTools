@@ -18,7 +18,8 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import sketch.SketchObject;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ListNum;
@@ -438,13 +439,13 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(reads1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(reads2, FileFormat.FASTQ, null, true, true);
 			if(ff2==null){ff1.preferShreds=true;}
 //			if(ff2!=null){ //TODO - interleaved flag
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			cris.start(); //4567
 		}
 		
@@ -519,12 +520,12 @@ public class ReadCounter extends KmerCountAbstract {
 			}
 		}
 		
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(reads1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(reads2, FileFormat.FASTQ, null, true, true);
 			if(ff2==null){ff1.preferShreds=true;}
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			cris.start(); //4567
 		}
 		
@@ -603,11 +604,11 @@ public class ReadCounter extends KmerCountAbstract {
 	
 	private class CountThread extends Thread{
 		
-		CountThread(final ConcurrentReadInputStream cris_, final KCountArray counts_){
+		CountThread(final Streamer cris_, final KCountArray counts_){
 			this(cris_, counts_, null, 2, true);
 		}
 		
-		CountThread(final ConcurrentReadInputStream cris_,
+		CountThread(final Streamer cris_,
 				final KCountArray counts_, final KCountArray trusted_, final int thresh_,
 				final boolean conservative_){
 			cris=cris_;
@@ -690,7 +691,7 @@ public class ReadCounter extends KmerCountAbstract {
 			incrementsLocal++;
 		}
 		
-		private final void count(final ConcurrentReadInputStream cris){
+		private final void count(final Streamer cris){
 			
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -698,7 +699,7 @@ public class ReadCounter extends KmerCountAbstract {
 			final LongList buffer=new LongList(300);
 			final Kmer kmer=(k>maxShortKmerLength ? new Kmer(k) : null);
 			
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				//System.err.println("reads.size()="+reads.size());
 				for(Read r1 : reads){
 					readsProcessedLocal+=r1.pairCount();
@@ -731,16 +732,12 @@ public class ReadCounter extends KmerCountAbstract {
 						addReadBig(r1.mate, kmer);
 					}
 				}
-				//System.err.println("returning list");
-				cris.returnList(ln);
 				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 			
 			if(verbose){System.err.println("Finished reading");}
-			cris.returnList(ln);
-			if(verbose){System.err.println("Returned list");}
 		}
 		
 		private int clearUntrustedBases(Read r) {
@@ -1033,7 +1030,7 @@ public class ReadCounter extends KmerCountAbstract {
 		private long incrementsLocal=0;
 		private long readsProcessedLocal=0;
 		
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		
 		private final KCountArray counts;
 		private final KCountArray trusted;

@@ -12,7 +12,7 @@ import shared.LineParserS1;
 import shared.LineParserS4;
 import shared.Shared;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
 import stream.Read;
 import structures.IntLongHashMap;
 import structures.ListNum;
@@ -56,7 +56,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 	}
 	
 	/** Spawn process threads */
-	public void makeSpectra(ArrayList<Contig> contigs, ConcurrentReadInputStream cris, int minlen){
+	public void makeSpectra(ArrayList<Contig> contigs, Streamer cris, int minlen){
 		
 		//Do anything necessary prior to processing
 //		sizeMap=(parseTax ? new IntLongHashMap(1021) : null);
@@ -113,7 +113,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		 * @param tid_ Thread ID for work distribution
 		 * @param threads_ Total number of processing threads
 		 */
-		LoadThread(ArrayList<Contig> contigs_, ConcurrentReadInputStream cris_, 
+		LoadThread(ArrayList<Contig> contigs_, Streamer cris_, 
 				int minlen_, int tid_, int threads_) {
 			contigs=contigs_;
 			cris=cris_;
@@ -163,7 +163,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			ListNum<Read> ln=cris.nextList();
 			
 			//As long as there is a nonempty read list...
-			while(ln!=null && ln.size()>0){
+			while(ln!=null){
 				ArrayList<Contig> localContigs=new ArrayList<Contig>(ln.size());
 				for(Read r : ln) {
 					Contig c=loadContig(r);
@@ -174,17 +174,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 				}
 				synchronized(contigs) {contigs.addAll(localContigs);}
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-//				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-				
 				//Fetch a new list
 				ln=cris.nextList();
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		
@@ -312,8 +303,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		final int minlen;
 		/** Shared list of contigs to process or populate */
 		final ArrayList<Contig> contigs;
-		/** Concurrent read input stream for loading contigs on demand */
-		final ConcurrentReadInputStream cris;
+		/** Streamer for loading contigs on demand */
+		final Streamer cris;
 		/** Entropy tracker for calculating sequence entropy metrics */
 		private EntropyTracker et;
 		/** Gene caller for detecting ribosomal RNA genes */

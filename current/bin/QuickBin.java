@@ -1,5 +1,6 @@
 package bin;
 
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -159,6 +160,8 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				report=b;
 			}else if(a.equalsIgnoreCase("writeChaff") || a.equalsIgnoreCase("chaff")){
 				writeChaff=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("writethreads")) {
+				writeThreads=Integer.parseInt(b);
 			}
 			
 			else if(a.equals("clusterbytax") || a.equals("clusterbytaxid")){
@@ -596,7 +599,15 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		ArrayList<BinStats> stats=GradeBins.toBinStats(null, bins, minClusterSize, true, true, true);
 		t2.stop("Analyzing bins:");
 		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report);}
-		outputClusters(outPattern, bins, minClusterSize, minContigsPerCluster);
+
+		if(writeThreads<2) {
+			ClusterWriter cw=new ClusterWriter(outstream, writeChaff, loud, overwrite, append);
+			cw.outputClusters(outPattern, sizeHist, bins, minClusterSize, minContigsPerCluster, binner, loader);
+		}else {
+			ClusterWriter2 cw=new ClusterWriter2(outstream, writeChaff, loud, 
+				overwrite, append, writeThreads, true);
+			cw.outputClusters(outPattern, sizeHist, bins, minClusterSize, minContigsPerCluster, binner, loader);
+		}
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
 		
@@ -727,158 +738,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		while(apad.length()<12) {apad+=" ";}
 		return(term+"\t"+apad+"\t"+String.format("%.3f%%", pct));
 	}
-	
-	/**
-	 * Writes clustered contigs to output files using specified pattern.
-	 * Supports individual bin files with % substitution or single combined output.
-	 * Optionally writes small clusters to a separate chaff file.
-	 *
-	 * @param pattern Output file pattern with % for bin numbering
-	 * @param clusters List of bins/clusters to output
-	 * @param minBases Minimum base count threshold for main output
-	 * @param minContigs Minimum contig count threshold for main output
-	 */
-	private void outputClusters(String pattern, ArrayList<? extends Bin> clusters, long minBases, int minContigs) {
-//		if(pattern==null) {return;}
-		if(pattern!=null) {
-			if(!pattern.contains(".") && !pattern.contains("%")) {
-				if(!pattern.endsWith("/")) {pattern=pattern+"/";}
-				pattern=pattern+"bin_%.fa";
-			}
-			outstream.println("Writing clusters to "+pattern);
-		}
-		long sizeOverLimit=0;
-		if(pattern!=null && pattern.indexOf('%')>=0) {
-			
-			ByteStreamWriter chaff=null;
-			if(writeChaff) {
-				chaff=ByteStreamWriter.makeBSW(pattern.replaceFirst("%", "chaff"), overwrite, append, true);
-			}
-			
-			final ByteBuilder bb=new ByteBuilder(32768);
-			for(int i=0; i<clusters.size(); i++) {
-				Bin a=clusters.get(i);
-				if(a.size()>=minBases && a.numContigs()>=minContigs) {
-					String fname=pattern.replaceFirst("%", Integer.toString(i));
-					if(fname.contains("%contam")) {fname=fname.replaceFirst("%contam", String.format("con%.4f", a.contam));}
-					else if(fname.contains("contam%")) {fname=fname.replaceFirst("contam%", String.format("con%.4f", a.contam));}
-					if(fname.contains("%comp")) {fname=fname.replaceFirst("%comp", String.format("com%.4f", a.completeness));}
-					else if(fname.contains("comp%")) {fname=fname.replaceFirst("comp%", String.format("com%.4f", a.completeness));}
-					final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, true);
-					printBin(a, bsw, bb, -1);
-					bsw.poison();
-					clustersWritten++;
-					contigsWritten+=a.numContigs();
-					basesWritten+=a.size();
-				}else {
-					printBin(a, chaff, bb, i+1);
-				}
-			}
-			if(chaff!=null) {chaff.poisonAndWait();}
-		}else {
-			final ByteBuilder bb=new ByteBuilder(32768);
-			final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(pattern, overwrite, append, true);
-			for(int i=0; i<clusters.size(); i++) {
-				Bin a=clusters.get(i);
-				printBin(a, bsw, bb, i+1);
-				clustersWritten++;
-				contigsWritten+=a.numContigs();
-				basesWritten+=a.size();
-			}
-			if(bsw!=null) {bsw.poisonAndWait();}
-		}
-		float cpct=contigsWritten*100f/loader.contigsLoaded;
-		float bpct=basesWritten*100f/loader.basesLoaded;
-		if(loud) {
-			outstream.println("\nMetric   \t        In\t       Out\tPercent");
-			outstream.println("Clusters \t"+Tools.padLeft(0, 10)+"\t"+Tools.padLeft(clustersWritten, 10));
-			outstream.println("Contigs  \t"+Tools.padLeft(loader.contigsLoaded, 10)+"\t"+
-					Tools.padLeft(contigsWritten, 10)+"\t"+Tools.format("%.2f%%", cpct));
-			outstream.println("Bases    \t"+Tools.padLeft(loader.basesLoaded, 10)+"\t"+
-					Tools.padLeft(basesWritten, 10)+"\t"+Tools.format("%.2f%%", bpct));
-		}
-		if(sizeHist!=null) {
-			final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(sizeHist, overwrite, append, true);
-			bsw.print("#Size\tGood\tBad\n");
-			for(int i=0; i<binner.goodMergeSize.length; i++) {
-				long size=1L<<i;
-				bsw.print(size).tab().print(binner.goodMergeSize[i]).tab().print(binner.badMergeSize[i]).nl();
-			}
-			bsw.poisonAndWait();
-		}
-	}
-	
-	/**
-	 * Prints a bin to output stream, handling both clusters and single contigs.
-	 * Dispatches to appropriate print method based on bin type.
-	 *
-	 * @param a Bin to print (cluster or single contig)
-	 * @param bsw Output stream writer (may be null)
-	 * @param bb Byte buffer for efficient output
-	 * @param id Numeric identifier for the bin
-	 */
-	private void printBin(Bin a, ByteStreamWriter bsw, ByteBuilder bb, int id) {
-		if(a.isCluster()) {printCluster((Cluster)a, bsw, bb, id);}
-		else {printContig((Contig)a, bsw, bb, id);}
-	}
-	
-	/**
-	 * Prints all contigs in a cluster to the output stream.
-	 * Sorts contigs within cluster and buffers output for efficiency.
-	 *
-	 * @param a Cluster containing multiple contigs
-	 * @param bsw Output stream writer (may be null)
-	 * @param bb Byte buffer for batched output
-	 * @param id Numeric identifier for the cluster
-	 */
-	private void printCluster(Cluster a, ByteStreamWriter bsw, ByteBuilder bb, int id) {
-		ArrayList<Contig> contigs=a.contigs;
-		Collections.sort(contigs);
-		for(Contig c : contigs) {
-			c.appendTo(bb, id);
-			if(bb.length>=16384) {
-				if(bsw!=null) {bsw.print(bb);}
-				bb.clear();
-			}
-		}
-		if(bsw!=null && !bb.isEmpty()) {bsw.print(bb);}
-		bb.clear();
-	}
-	
-	/**
-	 * Prints a single contig to the output stream.
-	 *
-	 * @param c Contig to print
-	 * @param bsw Output stream writer (may be null)
-	 * @param bb Byte buffer for output formatting
-	 * @param id Numeric identifier for the contig
-	 */
-	private void printContig(Contig c, ByteStreamWriter bsw, ByteBuilder bb, int id) {
-		c.appendTo(bb, id);
-		if(bsw!=null && !bb.isEmpty()) {bsw.print(bb);}
-		bb.clear();
-	}
-	
-//	private ConcurrentReadInputStream makeCris(FileFormat ff1, FileFormat ff2){
-//		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
-//		cris.start(); //Start the stream
-//		if(verbose){outstream.println("Started cris");}
-//		boolean paired=cris.paired();
-////		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
-//		return cris;
-//	}
-//	
-//	private ConcurrentReadOutputStream makeCros(String fname){
-//		if(fname==null) {return null;}
-//		FileFormat ff=FileFormat.testOutput(fname, FileFormat.FASTA, null, true, overwrite, append, false);
-//
-//		//Select output buffer size based on whether it needs to be ordered
-//		final int buff=8;
-//
-//		final ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff, null, buff, null, false);
-//		ros.start(); //Start the stream
-//		return ros;
-//	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
@@ -1070,6 +929,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	private String outPattern=null;
 	/** Whether to write small clusters to a separate chaff file */
 	private boolean writeChaff=false;
+	private int writeThreads=1;
 	
 	/** Override output file extension */
 	private String extout=null;

@@ -21,7 +21,8 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -303,9 +304,9 @@ public class BlacklistMaker extends SketchObject {
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, null, null, 1);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -341,7 +342,7 @@ public class BlacklistMaker extends SketchObject {
 	}
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris){
+	private void spawnThreads(final Streamer cris){
 		
 		//Do anything necessary prior to processing
 		
@@ -637,7 +638,7 @@ public class BlacklistMaker extends SketchObject {
 		 * @param cris_ Input stream for reading sequences
 		 * @param tid_ Thread identifier
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
+		ProcessThread(final Streamer cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;
 			
@@ -678,7 +679,7 @@ public class BlacklistMaker extends SketchObject {
 			}
 
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 //				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 
 				//Loop through each read in the list
@@ -731,19 +732,9 @@ public class BlacklistMaker extends SketchObject {
 						}
 					}
 				}
-
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-//				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		
@@ -885,7 +876,7 @@ public class BlacklistMaker extends SketchObject {
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		/** Thread ID */
 		final int tid;
 		

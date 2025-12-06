@@ -243,7 +243,7 @@ public class RandomReadsMG{
 			else if(a.equalsIgnoreCase("addErrors")){
 				addErrors=Parse.parseBoolean(b);
 			}else if(a.equals("qscore") || a.equals("avgq") || a.equals("qavg") || a.equals("avgqual")){
-				meanQScore=Integer.parseInt(b);
+				meanQScore=Shared.FAKE_QUAL=(byte)Integer.parseInt(b);
 			}else if(a.equals("qrange")){
 				qScoreRange=Integer.parseInt(b);
 			}else if(a.equals("subrate") || a.equals("snprate")){
@@ -795,7 +795,7 @@ public class RandomReadsMG{
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			if(AminoAcid.isFullyDefined(b)){
-				int q=baseQ+randy.nextInt(fullRange);
+				int q=baseQ+(fullRange<1 ? 0 : randy.nextInt(fullRange));
 				quals[i]=(byte)q;
 				float prob=QualityTools.PROB_CORRECT[q];
 				if(randy.nextFloat()>prob){
@@ -808,6 +808,7 @@ public class RandomReadsMG{
 				quals[i]=0;
 			}
 		}
+		assert(false) : Arrays.toString(quals);
 		return subs;
 	}
 

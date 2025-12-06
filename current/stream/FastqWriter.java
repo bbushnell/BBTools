@@ -1,5 +1,6 @@
 package stream;
 
+import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
@@ -9,6 +10,7 @@ import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.ReadStreamWriter.Job;
 import structures.ByteBuilder;
 import structures.ListNum;
 import template.ThreadWaiter;
@@ -102,7 +104,7 @@ public class FastqWriter implements Writer {
 		writeR1=writeR1_;
 		writeR2=writeR2_;
 		format=(ffout.format()==UNKNOWN ? FASTQ : ffout.format());
-		assert(format==FASTQ || format==FASTA || format==HEADER || format==SCARF) : ffout;
+		assert(format==FASTQ || format==FASTA || format==HEADER || format==SCARF || format==ATTACHMENT) : ffout;
 		
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
@@ -321,6 +323,8 @@ public class FastqWriter implements Writer {
 					writeHeader(reads, bb);
 				}else if(format==SCARF) {
 					writeScarf(reads, bb);
+				}else if(format==ATTACHMENT) {
+					writeAttachment(reads, bb);
 				}else {
 					throw new RuntimeException("Bad format: "+format);
 				}
@@ -392,6 +396,28 @@ public class FastqWriter implements Writer {
 				}
 			}
 		}
+
+		/**
+		 * @param job
+		 * @param bb
+		 * @param os
+		 * @throws IOException
+		 */
+		private void writeAttachment(ArrayList<Read> reads, ByteBuilder bb) {
+			for(Read r : reads){
+				if(r==null) {continue;}
+				final Read r1=(r.pairnum()==0 ? r : null);
+				final Read r2=(r.pairnum()==1 ? r : r.mate);
+				if(writeR1 && r1!=null){
+					bb.append(r1.obj.toString()).nl();
+					readsWrittenT++;
+				}
+				if(writeR2 && r2!=null){
+					bb.append(r2.obj.toString()).nl();
+					readsWrittenT++;
+				}
+			}
+		}
 		
 		private void writeScarf(ArrayList<Read> reads, ByteBuilder bb) {
 			for(Read r : reads){
@@ -458,6 +484,7 @@ public class FastqWriter implements Writer {
 	private static final int FASTA=FileFormat.FASTA;
 	private static final int HEADER=FileFormat.HEADER;
 	private static final int SCARF=FileFormat.SCARF;
+	private static final int ATTACHMENT=FileFormat.ATTACHMENT;
 	private static final int UNKNOWN=FileFormat.UNKNOWN;
 	
 	public static int DEFAULT_THREADS=3;

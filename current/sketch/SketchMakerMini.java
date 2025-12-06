@@ -16,7 +16,8 @@ import prok.Orf;
 import prok.ProkObject;
 import shared.Parse;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.Read;
 import structures.ListNum;
 import tax.TaxNode;
@@ -113,11 +114,11 @@ public class SketchMakerMini extends SketchObject {
 		final String simpleName;
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			simpleName=ffin1.simpleName();
 			heap.setFname(simpleName);
-			cris=ConcurrentReadInputStream.getReadInputStream(reads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(reads, true, ffin1, ffin2, null, null, 1);
 			if(samplerate!=1){cris.setSampleRate(samplerate, sampleseed);}
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
@@ -137,7 +138,7 @@ public class SketchMakerMini extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 	/** Iterate through the reads */
-	ArrayList<Sketch> processInner(ConcurrentReadInputStream cris){
+	ArrayList<Sketch> processInner(Streamer cris){
 		assert(heap.size()==0);
 		ArrayList<Sketch> sketches=new ArrayList<Sketch>(mode==ONE_SKETCH || mode==PER_FILE ? 1 : 8);
 		
@@ -147,7 +148,7 @@ public class SketchMakerMini extends SketchObject {
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 		//As long as there is a nonempty read list...
-		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+		while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 			//				if(verbose){outstream.println("Fetched "+reads.size()+" reads.");} //Disabled due to non-static access
 			
 			//Loop through each read in the list
@@ -168,19 +169,10 @@ public class SketchMakerMini extends SketchObject {
 					if(heap!=null){heap.clear(false);}
 				}
 			}
-
-			//Notify the input stream that the list was used
-			cris.returnList(ln);
-			//				if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
-
+			
 			//Fetch a new list
 			ln=cris.nextList();
 			reads=(ln!=null ? ln.list : null);
-		}
-
-		//Notify the input stream that the final list was used
-		if(ln!=null){
-			cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 		
 		if(mode==ONE_SKETCH || mode==PER_FILE){

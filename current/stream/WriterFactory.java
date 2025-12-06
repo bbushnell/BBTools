@@ -21,6 +21,19 @@ public class WriterFactory {
 	/*--------------------------------------------------------------*/
 	
 	/** For drop-in ConcurrentReadOutputStream support */
+	public static Writer getStreamS(FileFormat ffout1, FileFormat ffout2, String qf1, String qf2,
+			int buffersUnused, String header, boolean useSharedHeader, int threads) {
+		ArrayList<byte[]> headers=null;
+		if(header!=null) {
+			headers=new ArrayList<byte[]>();
+			for(String s : header.split("\n")) {
+				headers.add(s.getBytes());
+			}
+		}
+		return makeWriter(ffout1, ffout2, qf1, qf2, threads, headers, useSharedHeader);
+	}
+	
+	/** For drop-in ConcurrentReadOutputStream support */
 	public static Writer getStream(FileFormat ffout1, FileFormat ffout2, 
 			int buffersUnused, ArrayList<byte[]> header, boolean useSharedHeader, int threads) {
 		return makeWriter(ffout1, ffout2, threads, header, useSharedHeader);

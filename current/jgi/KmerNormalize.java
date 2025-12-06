@@ -29,7 +29,8 @@ import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
 import sort.ReadErrorComparator;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
@@ -1284,11 +1285,11 @@ public class KmerNormalize {
 			String outKeep1, String outToss1, String outLow1, String outMid1, String outHigh1, String outUnc1,
 			String outKeep2, String outToss2, String outLow2, String outMid2, String outHigh2, String outUnc2,
 			boolean ordered, boolean overwrite, String khistFile, String rhistFile, String peakFile, long estUnique, ArrayList<Read> storage) {
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			if(verbose){System.err.println("Started cris");}
 			cris.start(); //4567
 		}
@@ -1457,8 +1458,9 @@ public class KmerNormalize {
 		}
 		
 		long bases=downsample(cris, kca, k, maxReads, rosKeep, rosToss, rosLow, rosMid, rosHigh, rosUnc, khistFile, rhistFile, peakFile, overwrite, estUnique, storage);
-		
-		errorState|=ReadWrite.closeStreams(cris, rosKeep, rosToss, rosLow, rosMid, rosHigh, rosUnc);
+
+		errorState|=ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStreams(null, rosKeep, rosToss, rosLow, rosMid, rosHigh, rosUnc);
 		if(verbose){System.err.println("Closed streams");}
 		
 		return bases;
@@ -1758,11 +1760,11 @@ public class KmerNormalize {
 			String in1=list1[x];
 			String in2=(list2==null || list2.length<=x ? null : list2[x]);
 
-			final ConcurrentReadInputStream cris;
+			final Streamer cris;
 			{
 				FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 				FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
-				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff1, ff2);
+				cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 				if(verbose){System.err.println("Started cris");}
 				cris.start(); //4567
 			}
@@ -1805,7 +1807,7 @@ public class KmerNormalize {
 	 * @param storage Read storage (may be null)
 	 * @return Total bases processed
 	 */
-	public static long downsample(ConcurrentReadInputStream cris, KCountArray kca, int k, long maxReads,
+	public static long downsample(Streamer cris, KCountArray kca, int k, long maxReads,
 			ConcurrentReadOutputStream rosKeep, ConcurrentReadOutputStream rosToss, ConcurrentReadOutputStream rosLow, ConcurrentReadOutputStream rosMid, ConcurrentReadOutputStream rosHigh, ConcurrentReadOutputStream rosUnc,
 			String khistFile, String rhistFile, String peakFile, boolean overwrite, long estUnique, ArrayList<Read> storage) {
 		Timer tdetect=new Timer();
@@ -3030,7 +3032,7 @@ public class KmerNormalize {
 		 * @param rosu_ Uncorrected reads output stream
 		 * @param storage_ Read storage array (may be null)
 		 */
-		ProcessThread(ConcurrentReadInputStream cris_, KCountArray kca_, KCountArray kcaup_, int k_,
+		ProcessThread(Streamer cris_, KCountArray kca_, KCountArray kcaup_, int k_,
 				ConcurrentReadOutputStream rosk_, ConcurrentReadOutputStream rost_, ConcurrentReadOutputStream rosl_, ConcurrentReadOutputStream rosm_, ConcurrentReadOutputStream rosh_, ConcurrentReadOutputStream rosu_,
 				ArrayList<Read> storage_){
 			cris=cris_;
@@ -3075,7 +3077,7 @@ public class KmerNormalize {
 			int[] cov1=null, cov2=null;
 			long[] kmers1=null, kmers2=null;
 			
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				for(int rnum=0; rnum<reads.size(); rnum++){
 					Read r1=reads.get(rnum);
 					Read r2=r1.mate;
@@ -3410,15 +3412,11 @@ public class KmerNormalize {
 					rosu.add(uncList, ln.id);
 					uncList.clear();
 				}
-				
-				cris.returnList(ln);
 				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 			if(verbose){System.err.println("Finished reading");}
-			cris.returnList(ln);
-			if(verbose){System.err.println("Returned list");}
 		}
 		
 		
@@ -3435,7 +3433,7 @@ public class KmerNormalize {
 			int[] cov=null, covSorted=null, covup=null;
 			long[] kmers1=null, kmers2=null, kmers3=null;
 			
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				for(int rnum=0; rnum<reads.size(); rnum++){
 					Read r=reads.get(rnum);
 					Read r2=r.mate;
@@ -3585,14 +3583,11 @@ public class KmerNormalize {
 				assert(rosh==null) : "High fraction out not supported by countup.";
 				assert(rosu==null) : "TODO - Uncorrectable fraction out not supported by countup.";
 				
-				cris.returnList(ln);
 				//System.err.println("fetching list");
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
 			if(verbose){System.err.println("Finished reading");}
-			cris.returnList(ln);
-			if(verbose){System.err.println("Returned list");}
 		}
 		
 		private final int[] getSortedCoverageAndIncrementHistogram(Read r, int[] cov, long[] kmers,
@@ -3652,7 +3647,7 @@ public class KmerNormalize {
 		}
 		
 		/** Input stream for reading sequences concurrently */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		/** Premade table holding counts of input kmers */
 		private final KCountArray kca;
 		/** Dynamic table holding counts of output kmers */

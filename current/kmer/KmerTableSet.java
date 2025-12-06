@@ -21,7 +21,8 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
@@ -400,11 +401,11 @@ public class KmerTableSet extends AbstractKmerTableSet {
 	public long loadKmers(String fname1, String fname2){
 		
 		/* Create read input stream */
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			FileFormat ff1=FileFormat.testInput(fname1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(fname2, FileFormat.FASTQ, null, true, true);
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff1, ff2);
+			cris=StreamerFactory.getReadInputStream(maxReads, false, ff1, ff2, -1);
 			cris.start(); //4567
 		}
 		
@@ -476,7 +477,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		 * Constructor
 		 * @param cris_ Read input stream
 		 */
-		public LoadThread(ConcurrentReadInputStream cris_){
+		public LoadThread(Streamer cris_){
 			cris=cris_;
 			table=new HashBuffer(tables, buflen, k, false, true);
 			//TODO: handle MASK_MIDDLE in this thread.
@@ -488,7 +489,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 			
 			//While there are more reads lists...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 				
 				//For each read (or pair) in the list...
 				for(int i=0; i<reads.size(); i++){
@@ -574,13 +575,9 @@ public class KmerTableSet extends AbstractKmerTableSet {
 						}
 					}
 				}
-				
-				//Fetch a new read list
-				cris.returnList(ln);
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
-			cris.returnList(ln);
 			long temp=table.flush();
 			if(verbose){System.err.println("Flush: Added "+temp);}
 			added+=temp;
@@ -773,7 +770,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		/*--------------------------------------------------------------*/
 		
 		/** Input read stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		
 		/** Hash buffer for distributing k-mers across tables */
 		private final HashBuffer table;

@@ -21,7 +21,8 @@ import shared.KillSwitch;
 import shared.Parse;
 import shared.Shared;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -1342,7 +1343,7 @@ public final class SketchTool extends SketchObject {
 		 * @param minProb Minimum base call probability
 		 * @param minQual Minimum quality score threshold
 		 */
-		LoadThread2(ConcurrentReadInputStream cris_, float minEntropy, float minProb, byte minQual){
+		LoadThread2(Streamer cris_, float minEntropy, float minProb, byte minQual){
 			cris=cris_;
 			smm=new SketchMakerMini(SketchTool.this, ONE_SKETCH, minEntropy, minProb, minQual);
 		}
@@ -1356,39 +1357,27 @@ public final class SketchTool extends SketchObject {
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 
 			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+			while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 
 				//Loop through each read in the list
 				for(int idx=0; idx<reads.size(); idx++){
 					final Read r1=reads.get(idx);
 					final Read r2=r1.mate;
 					
-					if(validate){
-						if(r1!=null){r1.validate(true);}
-						if(r2!=null){r2.validate(true);}
-					}
+					if(r1!=null && !r1.validated()){r1.validate(true);}
+					if(r2!=null && !r2.validated()){r2.validate(true);}
 					
 					smm.processReadPair(r1, r2);
 				}
-
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
 
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
 		}
 		
-		/** Whether to validate reads during processing */
-		private final boolean validate=!Read.VALIDATE_IN_CONSTRUCTOR;
 		/** Concurrent read input stream for LoadThread2 */
-		ConcurrentReadInputStream cris;
+		Streamer cris;
 		/** SketchMakerMini instance for sequence processing */
 		SketchMakerMini smm;
 		
@@ -1526,21 +1515,20 @@ public final class SketchTool extends SketchObject {
 		maxThreads=Tools.mid(1, maxThreads, Shared.threads());
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		String simpleName;
 		{
 			simpleName=ffin1.simpleName();
-			cris=ConcurrentReadInputStream.getReadInputStream(reads, true, ffin1, ffin2, null, null);
+			cris=StreamerFactory.getReadInputStream(reads, true, ffin1, ffin2, null, null, 1);
 			if(samplerate!=1){cris.setSampleRate(samplerate, sampleseed);}
 			cris.start(); //Start the stream
 //			if(verbose){outstream.println("Started cris");}
 		}
 		
-		//TODO: bgzip actually decompresses fast.
 		final int threads=(int)Tools.min(maxThreads,
-				1.75f*(compressed ? 1 : 2)*(ffin2==null ? 4 : 8)*(mergePairs ? 3 : minEntropy>0 ? 2 : 1));
+				2*(4)*(ffin2==null ? 4 : 8)*(mergePairs ? 3 : minEntropy>0 ? 2 : 1));
 		
-		if(verbose2){System.err.println("Starting "+threads+" load threads.");}
+		if(verbose2 || true){System.err.println("Starting "+threads+" load threads.");}
 		ArrayList<LoadThread2> list=new ArrayList<LoadThread2>(threads);
 		for(int i=0; i<threads; i++){
 			list.add(new LoadThread2(cris, minEntropy, minProb, minQual));

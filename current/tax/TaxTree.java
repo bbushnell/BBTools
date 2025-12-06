@@ -2749,9 +2749,11 @@ public class TaxTree implements Serializable{
 	private static final String defaultTaxPathIGBVM="/data/tax/latest";
 	private static final String defaultTaxPathDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/tax/latest";
 	private static final String default16SFileNersc="/global/cfs/cdirs/bbtools/silva/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
+	private static final String default16SFileDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/ribo/all_prok_16S_consensus_species_maxns10_taxsorted.fa.gz";
 	private static final String default16SFileAws="/test1/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
 	private static final String default16SFileIGBVM="/data/sketch/silva/16S_consensus_with_silva_maxns10_taxsorted.fa.gz";
 	private static final String default18SFileNersc="/global/cfs/cdirs/bbtools/silva/18S_consensus_silva_maxns10_taxsorted.fa.gz";
+	private static final String default18SFileDori="/clusterfs/jgi/groups/gentech/homes/bbushnell/ribo/all_euk_18S_consensus_species_maxns10_taxsorted.fa.gz";
 	private static final String default18SFileAws="/test1/18S_consensus_silva_maxns10_taxsorted.fa.gz";
 	private static final String default18SFileIGBVM="/data/sketch/silva/18S_consensus_with_silva_maxns10_taxsorted.fa.gz";
 	
@@ -2786,12 +2788,14 @@ public class TaxTree implements Serializable{
 
 	/** 16S consensus sequences per TaxID */
 	public static final String default16SFile(){
-		return (Shared.AWS && !Shared.NERSC) ? default16SFileAws : Shared.IGBVM ? default16SFileIGBVM : default16SFileNersc;
+		return Shared.DORI ? default16SFileDori : (Shared.AWS && !Shared.NERSC)
+			? default16SFileAws : Shared.IGBVM ? default16SFileIGBVM : default16SFileNersc;
 	}
 
 	/** 18S consensus sequences per TaxID */
 	public static final String default18SFile(){
-		return (Shared.AWS && !Shared.NERSC) ? default18SFileAws : Shared.IGBVM ? default18SFileIGBVM : default18SFileNersc;
+		return Shared.DORI ? default18SFileDori : (Shared.AWS && !Shared.NERSC)
+			? default18SFileAws : Shared.IGBVM ? default18SFileIGBVM : default18SFileNersc;
 	}
 
 	/** Path to all taxonomy files, substituted in to make specific file paths */

@@ -14,7 +14,8 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.Read;
 import structures.IntList;
 import structures.ListNum;
@@ -240,13 +241,13 @@ public class TableLoaderLockFree {
 
 				/* Start an input stream */
 				FileFormat ff=FileFormat.testInput(refname, FileFormat.FASTA, null, false, true);
-				ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1L, false, ff, null, null, null, Shared.USE_MPI, true);
+				Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
 				cris.start(); //4567
 				ListNum<Read> ln=cris.nextList();
 				ArrayList<Read> reads=(ln!=null ? ln.list : null);
 				
 				/* Iterate through read lists from the input stream */
-				while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+				while(ln!=null && reads!=null){//ln!=null prevents a compiler potential null access warning
 					{
 						/* Assign a unique ID number to each scaffold */
 						ArrayList<Read> reads2=new ArrayList<Read>(reads);
@@ -285,14 +286,10 @@ public class TableLoaderLockFree {
 							}
 						}
 					}
-
-					/* Dispose of the old list and fetch a new one */
-					cris.returnList(ln);
 					ln=cris.nextList();
 					reads=(ln!=null ? ln.list : null);
 				}
 				/* Cleanup */
-				cris.returnList(ln);
 				errorState|=ReadWrite.closeStream(cris);
 				refNum++;
 			}
