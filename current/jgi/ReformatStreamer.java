@@ -114,7 +114,7 @@ public class ReformatStreamer implements Accumulator<ReformatStreamer.ProcessThr
 	/*--------------------------------------------------------------*/
 
 	private Parser parse(String[] args){
-
+//		assert(false);
 		Parser parser=new Parser();
 
 		for(int i=0; i<args.length; i++){

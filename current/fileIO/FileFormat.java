@@ -356,6 +356,7 @@ public final class FileFormat {
 		allowSubprocess=allowSubprocess_;
 		ordered=ordered_;
 		amino=isAminoExt(rawExtension());
+		subprocess=shouldUseSubprocess();
 		
 //		interleaved=interleaved_;
 //		maxReads=write() ? -1 : maxReads_;
@@ -386,7 +387,7 @@ public final class FileFormat {
 		sb.append(mode+"("+MODE_ARRAY[mode]+")").append(',');
 		sb.append("ow="+(overwrite ? "t" : "f")).append(',');
 		sb.append("app="+(append ? "t" : "f")).append(',');
-		sb.append("sub="+(allowSubprocess ? "t" : "f")).append(',');
+		sb.append("sub="+(subprocess ? "t" : "f")).append(',');
 		sb.append("ordered="+(ordered ? "t" : "f"));
 		return sb.toString();
 	}
@@ -620,9 +621,9 @@ public final class FileFormat {
 		if(fname.equalsIgnoreCase("stdin") || fname.toLowerCase().startsWith("stdin.")){return null;}
 		
 		ArrayList<String> oct=new ArrayList<String>(8);
-		
+		final boolean subprocess=isBz2File(fname);
 		{
-			InputStream is=ReadWrite.getInputStream(fname, false, fname.toLowerCase().endsWith(".bz2"));
+			InputStream is=ReadWrite.getInputStream(fname, false, subprocess);
 			BufferedReader br=new BufferedReader(new InputStreamReader(is));
 			try {
 				int cntr=0;
@@ -634,7 +635,7 @@ public final class FileFormat {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-			ReadWrite.finishReading(is, fname, true, br);
+			ReadWrite.finishReading(is, fname, subprocess, br);
 		}
 		return oct;
 	}
@@ -948,6 +949,17 @@ public final class FileFormat {
 		return ext.equalsIgnoreCase("vcf");
 	}
 	
+	public static boolean isBz2Ext(String ext){
+		if(ext==null){return false;}
+		return ext.equalsIgnoreCase("bz2") || ext.equalsIgnoreCase("bzip2");
+	}
+	
+	public static boolean isBz2File(String fname){
+		if(fname==null){return false;}
+		fname=fname.toLowerCase();
+		return fname.endsWith(".bz2") || fname.endsWith(".bzip2");
+	}
+	
 	public static boolean isBamFile(String fname){
 		if(fname==null){return false;}
 		String ext=ReadWrite.rawExtension(fname);
@@ -1177,7 +1189,7 @@ public final class FileFormat {
 
 	public final boolean overwrite(){return overwrite;}
 	public final boolean append(){return append;}
-	public final boolean allowSubprocess(){return allowSubprocess;}
+	public final boolean allowSubprocess(){return subprocess;}
 	public final boolean ordered(){return ordered;}
 
 	public boolean interleaved(){return interleaving==INTERLEAVED;}
@@ -1218,6 +1230,22 @@ public final class FileFormat {
 	public boolean bgzip() {
 		if(magicNumber==Long.MIN_VALUE) {magicNumber=ReadWrite.getMagicNumber(name);}
 		return magicNumber==529205252;
+	}
+	
+	private boolean shouldUseSubprocess(){//Note:  allowSubprocess is not really used...
+		if(!compressed()) {return false;}
+		else if(bz2()) {return true;}
+		
+		final boolean bam=bam(), gzip=gzip();
+		if(!bam && !gzip) {return true;}//Some unknown format
+		else if(mode==READ) {
+			if(gzip) {return !ReadWrite.nativeBgzfIn();}
+			else if(bam) {return !ReadWrite.nativeBamIn();}
+		}else {
+			if(gzip) {return !ReadWrite.nativeBgzfOut();
+			}else if(bam) {return !ReadWrite.nativeBamOut();}
+		}
+		throw new RuntimeException("Unexpected format: "+this);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1261,6 +1289,8 @@ public final class FileFormat {
 	private final boolean append;
 	/** Permission to spawn compression subprocesses */
 	private final boolean allowSubprocess;
+	/** Whether this should actually use a subprocess */
+	public final boolean subprocess;
 	/** Whether to maintain input order in multithreaded processing */
 	private final boolean ordered;
 	

@@ -187,7 +187,7 @@ public final class ByteFile4 extends ByteFile{
 		open=false;
 
 		if(is!=null){
-			errorState|=ReadWrite.finishReading(is, name(), allowSubprocess());
+			errorState|=ReadWrite.finishReading(is, name(), ff.subprocess);
 			is=null;
 		}
 		

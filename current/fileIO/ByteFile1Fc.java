@@ -118,7 +118,7 @@ public final class ByteFile1Fc extends ByteFile {
 		if(!open){return errorState;}
 		open=false;
 		assert(is!=null);
-		errorState|=ReadWrite.finishReading(is, name(), (allowSubprocess() || FileFormat.isBamFile(name())));
+		errorState|=ReadWrite.finishReading(is, name(), ff.subprocess);
 
 		is=null;
 		lineNum=-1;
