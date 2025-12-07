@@ -33,7 +33,7 @@ public class PipeThread extends Thread {
 	
 	@Override
 	public void run(){
-		final byte[] buf=new byte[16384];
+		final byte[] buf=new byte[32768];
 		try {
 			for(int len=is.read(buf); !finished && len>0; len=is.read(buf)){
 				os.write(buf, 0, len);
@@ -86,17 +86,6 @@ public class PipeThread extends Thread {
 			}
 		}
 	}
-	
-//	public static void killList(){
-//		System.err.println("Kill list.");
-//		synchronized(list){
-//			for(PipeThread pt : list){
-//				if(!pt.finished){
-//					pt.terminate();
-//				}
-//			}
-//		}
-//	}
 	
 	/** The input stream from which data is read during the pipe operation */
 	public final InputStream is;

@@ -7,6 +7,7 @@ import java.util.Arrays;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -25,13 +26,28 @@ public final class FastqScan{
 
 	public static void main(String[] args) {
 		Timer t=new Timer();
-		if(args.length!=1) {
-			System.err.println("Usage: fastqscan.sh filename");
-		}
+		if(args.length<1) {throw new RuntimeException("Usage: fastqscan.sh filename");}
 		String fname=args[0];
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
 		if(fname.startsWith("in=")) {fname=fname.substring(3);}
+		int threads=1;
+		for(int i=1; i<args.length; i++) {
+			String arg=args[i];
+			String[] split=arg.split("=");
+			String a=split[0].toLowerCase();
+			String b=split.length>1 ? split[1] : null;
+			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+			
+			if(a.equals("t") || a.equals("threads")) {threads=Integer.parseInt(b);}
+			else if(a.equalsIgnoreCase("simd")) {Shared.SIMD&=Parse.parseBoolean(b);}
+			else if(Tools.isNumeric(arg)) {threads=Integer.parseInt(arg);}
+			else {assert(false) : "Unknown parameter "+arg;}
+		}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
+		if(threads>1 && ff.fastq()) {
+			FastqScanMT.main(args);
+			return;
+		}
 		if(ff.stdin()) {
 			//Do nothing
 		}else{
