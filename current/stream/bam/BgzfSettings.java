@@ -12,6 +12,8 @@ public final class BgzfSettings {
 	/** Toggle to enable multithreaded BGZF input/output. */
 	public static boolean USE_MULTITHREADED_BGZF = true;
 
+	public static boolean USE_BGZFOS_MT2=true;
+	
 	/**
 	 * Number of worker threads to use when decompressing BGZF blocks.
 	 * Only consulted when {@link #USE_MULTITHREADED_BGZF} is true.

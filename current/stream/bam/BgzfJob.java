@@ -13,6 +13,7 @@ import stream.HasID;
  * workers complete out of order.
  *
  * @author Chloe
+ * @contributor Collei
  * @date October 18, 2025
  */
 public class BgzfJob implements HasID, Comparable<BgzfJob> {
@@ -37,15 +38,23 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 
 	/** Flag indicating this is the last job (no more jobs will be produced) */
 	public final boolean lastJob;
+	
+	/** Flag indicating this is a poison pill */
+	public final boolean isPoison;
 
 	/** Poison pill marker for worker shutdown */
-	public static final BgzfJob POISON_PILL = new BgzfJob(Long.MAX_VALUE, null, null, false);
+	public static final BgzfJob POISON_PILL = new BgzfJob(Long.MAX_VALUE, null, null, false, true);
 
 	public BgzfJob(long id, byte[] raw, byte[] comp, boolean last) {
+		this(id, raw, comp, last, false);
+	}
+	
+	public BgzfJob(long id, byte[] raw, byte[] comp, boolean last, boolean poison) {
 		this.id = id;
 		decompressed=raw;
 		compressed=comp;
 		lastJob=last;
+		isPoison=poison;
 	}
 
 	@Override
@@ -57,19 +66,19 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 	public long id() {return id;}
 	
 	@Override
-	public boolean poison() {return this==POISON_PILL;}
+	public boolean poison() {return isPoison;}
 	
 	@Override
 	public boolean last() {return lastJob;}
 	
 	@Override
 	public BgzfJob makePoison(long id_) {
-		return new BgzfJob(id_, null, null, false);
+		return new BgzfJob(id_, null, null, false, true);
 	}
 	
 	@Override
 	public BgzfJob makeLast(long id_){
-		return new BgzfJob(id_, null, null, true);
+		return new BgzfJob(id_, null, null, true, false);
 	}
 
 	/**
@@ -77,7 +86,7 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 	 * Workers should exit their loop when receiving this.
 	 */
 	public boolean isPoisonPill() {
-		return this == POISON_PILL;
+		return isPoison;
 	}
 
 	/**
@@ -85,6 +94,9 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 	 * Called with assert(!debugging || repOK()) pattern.
 	 */
 	public boolean repOK() {
+		// Poison pills are always OK
+		if(isPoison) {return true;}
+		
 		// At least one array should have data
 		if (compressed == null && decompressed == null) return false;
 
@@ -102,7 +114,7 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 		}
 
 		// ID should be non-negative (except for poison pill)
-		if (this != POISON_PILL && id < 0) {
+		if (id < 0) {
 			return false;
 		}
 

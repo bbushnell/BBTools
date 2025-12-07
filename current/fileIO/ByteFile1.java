@@ -144,7 +144,7 @@ public final class ByteFile1 extends ByteFile {
 		open=false;
 		assert(is!=null);
 		//		assert(false) : name()+","+allowSubprocess();
-		errorState|=ReadWrite.finishReading(is, name(), (allowSubprocess() || FileFormat.isBamFile(name())));
+		errorState|=ReadWrite.finishReading(is, name(), ff.subprocess);
 
 		is=null;
 		lineNum=-1;

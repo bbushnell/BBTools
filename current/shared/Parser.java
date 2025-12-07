@@ -1196,6 +1196,8 @@ public class Parser {
 				}
 			}else{ReadWrite.USE_BGZIP=Parse.parseBoolean(b);}
 			if(ReadWrite.USE_BGZIP){ReadWrite.PREFER_BGZIP=true;}
+		}else if(a.equals("usebgzf") || a.equals("bgzf")){
+			ReadWrite.USE_BGZF=Parse.parseBoolean(b);
 		}else if(a.equals("forcepigz")){
 			ReadWrite.FORCE_PIGZ=Parse.parseBoolean(b);
 			if(ReadWrite.FORCE_PIGZ){ReadWrite.USE_PIGZ=true;}
@@ -1248,8 +1250,8 @@ public class Parser {
 			ReadWrite.ALLOW_NATIVE_BGZF|=ReadWrite.PREFER_NATIVE_BGZF_IN;
 		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
 			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
-		}else if(a.equals("nativebgzipmt") || a.equals("nativebgzfmt") || a.equals("multithreadedbgzf")){
-			BgzfSettings.USE_MULTITHREADED_BGZF=Parse.parseBoolean(b);
+		}else if(a.equals("bgzfosmt2")){
+			BgzfSettings.USE_BGZFOS_MT2=Parse.parseBoolean(b);
 		}else if(a.equals("filteredbgzf")){
 			BgzfOutputStreamMT.FILTERED_BGZF=Parse.parseBoolean(b);
 		}else if(a.equals("bgzfthreadsin") || a.equals("bgzftin") || a.equals("bgzfreadthreads")){

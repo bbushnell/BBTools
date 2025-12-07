@@ -438,28 +438,69 @@ public class BgzfOutputStreamMT extends OutputStream {
 		out.flush();
 	}
 
+//	@Override
+//	public void close() throws IOException{
+//		if(closed){return;} // Already closed - idempotent
+//
+//		if(verbose){System.err.println("close(): starting shutdown");}
+//
+//		// Submit last marker before marking closed, so in-flight jobs are still processed
+//		flush(true);
+//
+//		// Now mark closed and nudge workers
+//		closed=true;
+//		inputQueue.offer(BgzfJob.POISON_PILL);
+//		for(Thread t : workers){ if(t!=null) t.interrupt(); }
+//
+//		// Wait briefly for writer thread to finish
+//		if(writer!=null){
+//			try{writer.join(10);}catch(InterruptedException ie){Thread.currentThread().interrupt();}
+//		}
+//
+//		// If still alive, keep nudging but do not block
+//		if(writer!=null && writer.isAlive()){
+//			inputQueue.offer(BgzfJob.POISON_PILL);
+//		}
+//
+//		// If any error captured, surface it
+//		if(workerError!=null){throw workerError;}
+//	}
+	
 	@Override
 	public void close() throws IOException{
 		if(closed){return;} // Already closed - idempotent
 
 		if(verbose){System.err.println("close(): starting shutdown");}
 
-		// Submit last marker before marking closed, so in-flight jobs are still processed
+		// Submit last marker
 		flush(true);
 
-		// Now mark closed and nudge workers
 		closed=true;
-		inputQueue.offer(BgzfJob.POISON_PILL);
-		for(Thread t : workers){ if(t!=null) t.interrupt(); }
-
-		// Wait briefly for writer thread to finish
+		
+		// Send poison to ALL workers. Use put() to ensure it lands.
+//		for(int i=0; i<workerThreads; i++){
+			try {
+				inputQueue.put(BgzfJob.POISON_PILL);
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt(); // Restore flag
+				// If main thread is interrupted, we can't do much, but we shouldn't kill workers yet
+			}
+//		}
+		
+		// Wait for writer to finish writing everything
 		if(writer!=null){
-			try{writer.join(10);}catch(InterruptedException ie){Thread.currentThread().interrupt();}
+			try{
+				writer.join(); // Wait for writer to finish (it exits when it sees lastJob)
+			}catch(InterruptedException ie){
+				Thread.currentThread().interrupt();
+			}
 		}
-
-		// If still alive, keep nudging but do not block
-		if(writer!=null && writer.isAlive()){
-			inputQueue.offer(BgzfJob.POISON_PILL);
+		
+		// Cleanup: Interrupt workers only if they are still alive (stuck)
+		for(Thread t : workers){ 
+			if(t!=null && t.isAlive()){
+				t.interrupt(); 
+			}
 		}
 
 		// If any error captured, surface it
