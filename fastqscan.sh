@@ -3,18 +3,28 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 23, 2025
+Last modified December 7, 2025
 
 Description:  Fast lightweight scanner that parses sequence files.
 Reports base and record counts.  Performs basic integrity checks;
 reports corruption and exits with code 1 when detected.
-Does not perform rigorous validation of all fields.
 
-Usage:  fastqscan.sh <file>
+Usage:  fastqscan.sh <file> <threads>
+e.g.
+fastqscan.sh contigs.fasta
+fastqscan.sh reads.fq.gz
+fastqscan.sh reads.fq 4
 
 Input may be fastq, fasta, sam, scarf, gfa, or fastg, 
 compressed or uncompressed.  To input stdin use e.g. stdin.fq
 as the argument (with proper extension).
+FastqScan does not perform validation of all fields with the same rigor as
+Reformat or other BBTools, but it does detect typical problems like incomplete
+records, missing a + or @ symbol, missing fields, and base/quality length
+mismatches, and reports Windows-style CRLF newlines.  It can perform 
+multithreaded reading for fastq only, which disables integrity checks.
+Bgzipped input processing is multithreaded and far faster than regular gzip.
+SIMD support is autodetected and can be disabled with the flag simd=f.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 For documentation and the latest version, visit: https://bbmap.org

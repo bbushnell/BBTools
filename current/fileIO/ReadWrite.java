@@ -2701,8 +2701,8 @@ public class ReadWrite {
 	/** Set tracking filenames that have been loaded (for debugging) */
 	public static final HashSet<String> loadedFiles=new HashSet<String>();
 
-	private static final String[] compressedExtensions=new String[] {".gz", ".gzip", ".zip", ".bz2", ".xz", ".dsrc", ".fqz", ".ac", ".7z", ".zst"};
-	private static final String[] compressedExtensionMap=new String[] {"gz", "gz", "zip", "bz2", "xz", "dsrc", "fqz", "ac", "7z", "zst"};
+	private static final String[] compressedExtensions=new String[] {".gz", ".gzip", ".bgz", ".bgzip", ".zip", ".bz2", ".xz", ".dsrc", ".fqz", ".ac", ".7z", ".zst"};
+	private static final String[] compressedExtensionMap=new String[] {"gz", "gz", "gz", "gz", "zip", "bz2", "xz", "dsrc", "fqz", "ac", "7z", "zst"};
 
 //	private static HashMap<String, Process> inputProcesses=new HashMap<String, Process>(8);
 //	private static HashMap<String, Process> outputProcesses=new HashMap<String, Process>(8);
