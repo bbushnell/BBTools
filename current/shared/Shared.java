@@ -127,7 +127,7 @@ public class Shared {
 	/** True if parallel sort is available */
 	public static boolean parallelSort=testParallelSort();
 	/** True if SIMD optimizations are enabled */
-	public static boolean SIMD=(Vector.vectorLoaded && Vector.simd256);
+	public static boolean SIMD=(Vector.simd256);
 	
 	// Memory management
 	/** True if running in low memory mode */
