@@ -1087,9 +1087,9 @@ public final class Vector {
 		return true;
 	}
 
-	private static synchronized boolean simd256Avaliable() {
-		try{return SIMD.maxVectorLength()>=256;}
-		catch(Throwable e){return false;}
+	private static synchronized int maxSimdWidth() {
+		try{return SIMD.maxVectorLength();}
+		catch(Throwable e){return 0;}
 	}
 
 	/** Minimum array length for 8-bit SIMD operations */
@@ -1112,8 +1112,11 @@ public final class Vector {
 	 * Whether to use SIMD for sparse FMA operations (grants speedup, slightly different results)
 	 */
 	public static boolean SIMD_FMA_SPARSE=true;//Grants a speedup, slightly different results
-	public static final boolean vectorLoaded=vectorLoaded();
-	public static final boolean simd256=simd256Avaliable();
+	private static final boolean vectorLoaded=vectorLoaded();
+	public static final int maxSimdWidth=vectorLoaded ? maxSimdWidth() : 0;
+	public static final boolean simd256=maxSimdWidth>=256;
+	public static final boolean simd128=maxSimdWidth>=128;
+	public static final boolean simd64=maxSimdWidth>=64;
 	public static final boolean varHandles=(Shared.javaVersion>=9 && VarHandler.AVAILABLE);
 	private final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 

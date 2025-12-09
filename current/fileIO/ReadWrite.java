@@ -41,7 +41,6 @@ import stream.Writer;
 import stream.bam.BamInputStream;
 import stream.bam.BamOutputStream;
 import stream.bam.BgzfInputStream;
-import stream.bam.BgzfInputStreamMT;
 import stream.bam.BgzfInputStreamMT2;
 import stream.bam.BgzfOutputStream;
 import stream.bam.BgzfOutputStreamMT;

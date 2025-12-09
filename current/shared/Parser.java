@@ -883,7 +883,7 @@ public class Parser {
 		
 		else if(a.equalsIgnoreCase("simd")){
 			if(b!=null && b.equalsIgnoreCase("auto")) {
-				Shared.SIMD=(Vector.simd256 && Vector.vectorLoaded);
+				Shared.SIMD=(Vector.simd256);
 			}else {
 				Shared.SIMD=Parse.parseBoolean(b);
 			}

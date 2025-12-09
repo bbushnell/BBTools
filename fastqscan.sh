@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 7, 2025
+Last modified December 9, 2025
 
 Description:  Fast lightweight scanner that parses sequence files.
 Reports base and record counts.  Performs basic integrity checks;
@@ -13,7 +13,7 @@ Usage:  fastqscan.sh <file> <threads>
 e.g.
 fastqscan.sh contigs.fasta
 fastqscan.sh reads.fq.gz
-fastqscan.sh reads.fq 4
+fastqscan.sh reads.fq 2
 
 Input may be fastq, fasta, sam, scarf, gfa, or fastg, 
 compressed or uncompressed.  To input stdin use e.g. stdin.fq

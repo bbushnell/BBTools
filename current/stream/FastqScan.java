@@ -8,10 +8,12 @@ import java.util.Arrays;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
+import shared.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
+import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 import structures.IntList;
 import structures.ListNum;
@@ -31,6 +33,7 @@ public final class FastqScan{
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
 		if(fname.startsWith("in=")) {fname=fname.substring(3);}
 		int threads=1;
+		BgzfSettings.READ_THREADS=Tools.mid(1, 18, Shared.threads());
 		for(int i=1; i<args.length; i++) {
 			String arg=args[i];
 			String[] split=arg.split("=");
@@ -41,6 +44,8 @@ public final class FastqScan{
 			if(a.equals("t") || a.equals("threads")) {threads=Integer.parseInt(b);}
 			else if(a.equalsIgnoreCase("simd")) {Shared.SIMD&=Parse.parseBoolean(b);}
 			else if(Tools.isNumeric(arg)) {threads=Integer.parseInt(arg);}
+			else if(Parser.parseCommonStatic(arg, a, b)) {}
+			else if(Parser.parseZip(arg, a, b)) {}
 			else {assert(false) : "Unknown parameter "+arg;}
 		}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
@@ -56,6 +61,7 @@ public final class FastqScan{
 				throw new RuntimeException("Can't read "+fname);
 			}
 		}
+		final int rt=BgzfSettings.READ_THREADS=Tools.mid(1, BgzfSettings.READ_THREADS, Shared.threads());
 		FastqScan fqs=new FastqScan(ff);
 		try{fqs.read();}
 		catch(IOException e){throw new RuntimeException(e);}
@@ -73,13 +79,18 @@ public final class FastqScan{
 		}
 	}
 
-	public static long[] countReadsAndBases(String fname, boolean halveInterleaved) {
+	public static long[] countReadsAndBases(String fname, boolean halveInterleaved, int readThreads, int zipThreads) {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
-		return countReadsAndBases(ff, halveInterleaved);
+		return countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);
 	}
 
 	/** Returns molecules, reads, bases, file headers */
-	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved) {
+	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved, int readThreads, int zipThreads) {
+		if(readThreads>1 && ff.fastq()) {return FastqScanMT.countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);}
+		final int oldZT=BgzfSettings.READ_THREADS;
+		if(ff.compressed()) {
+			BgzfSettings.READ_THREADS=(zipThreads>1 ? zipThreads : Tools.mid(1, Shared.threads(), 18));
+		}
 		int recordsPerRead=1;
 		if(ff.fastq() && halveInterleaved) {
 			int[] iq=FileFormat.testInterleavedAndQuality(ff.name(), false);
@@ -91,7 +102,7 @@ public final class FastqScan{
 			e.printStackTrace();
 			//throw new RuntimeException(e);
 			return null;
-		}
+		}finally {BgzfSettings.READ_THREADS=oldZT;}
 		long[] ret=new long[] {fqs.totalRecords/recordsPerRead, fqs.totalRecords, 
 			fqs.totalBases, fqs.totalRecords};
 		return ret;

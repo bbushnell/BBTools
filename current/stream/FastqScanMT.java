@@ -7,10 +7,12 @@ import java.util.ArrayList;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Parse;
+import shared.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
+import stream.bam.BgzfSettings;
 import structures.IntList;
 
 /**
@@ -29,7 +31,8 @@ public final class FastqScanMT {
 		String fname=args[0];
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
 		if(fname.startsWith("in=")) {fname=fname.substring(3);}
-		int threads=Math.min(4, Shared.threads());
+		int threads=Math.min(2, Shared.threads());
+		BgzfSettings.READ_THREADS=Tools.mid(1, 18, Shared.threads());
 		for(int i=1; i<args.length; i++) {
 			String arg=args[i];
 			String[] split=arg.split("=");
@@ -40,6 +43,8 @@ public final class FastqScanMT {
 			if(a.equals("t") || a.equals("threads")) {threads=Integer.parseInt(b);}
 			else if(a.equalsIgnoreCase("simd")) {Shared.SIMD&=Parse.parseBoolean(b);}
 			else if(Tools.isNumeric(arg)) {threads=Integer.parseInt(arg);}
+			else if(Parser.parseCommonStatic(arg, a, b)) {}
+			else if(Parser.parseZip(arg, a, b)) {}
 			else {assert(false) : "Unknown parameter "+arg;}
 		}
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
@@ -59,24 +64,29 @@ public final class FastqScanMT {
 		System.err.println("Bases:  \t"+fqs.totalBases);
 	}
 
-	public static long[] countReadsAndBases(String fname, boolean halveInterleaved){
+	public static long[] countReadsAndBases(String fname, boolean halveInterleaved, int readThreads, int zipThreads) {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
-		return countReadsAndBases(ff, halveInterleaved);
+		return countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);
 	}
 
 	/** Returns molecules, reads, bases, file headers */
-	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved){
+	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved, int readThreads, int zipThreads) {
+		final int oldZT=BgzfSettings.READ_THREADS;
+		if(ff.compressed()) {
+			BgzfSettings.READ_THREADS=(zipThreads>1 ? zipThreads : Tools.mid(1, Shared.threads(), 18));
+		}
 		int recordsPerRead=1;
-		if(ff.fastq() && halveInterleaved){
+		if(ff.fastq() && halveInterleaved) {
 			int[] iq=FileFormat.testInterleavedAndQuality(ff.name(), false);
 			recordsPerRead=(iq[1]==FileFormat.INTERLEAVED ? 2 : 1);
 		}
 		FastqScanMT fqs=new FastqScanMT(ff);
-		try{fqs.read(-1);}
+		try{fqs.read(readThreads);}
 		catch(IOException e){
 			e.printStackTrace();
+			//throw new RuntimeException(e);
 			return null;
-		}
+		}finally {BgzfSettings.READ_THREADS=oldZT;}
 		long[] ret=new long[] {fqs.totalRecords/recordsPerRead, fqs.totalRecords, 
 			fqs.totalBases, fqs.totalRecords};
 		return ret;
@@ -88,7 +98,7 @@ public final class FastqScanMT {
 		if(!ff.fastq()){throw new RuntimeException("FastqScanMT only supports FASTQ.");}
 		
 		final InputStream is=ReadWrite.getInputStream(ff.name(), false, false);
-		threads=(threads<1 ? Math.min(4, Shared.threads()) : threads);
+		threads=(threads<1 ? Math.min(2, Shared.threads()) : threads);//Peaks at 2
 		final ArrayList<ScanThread> alst=new ArrayList<ScanThread>(threads);
 		
 		for(int i=0; i<threads; i++){
