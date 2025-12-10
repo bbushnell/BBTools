@@ -26,7 +26,7 @@ import structures.IntList;
 public final class FastqScanMT {
 
 	public static void main(String[] args){
-		Timer t=new Timer();
+		Timer t=new Timer(System.out);
 		if(args.length<1) {throw new RuntimeException("Usage: fastqscan.sh filename");}
 		String fname=args[0];
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
@@ -60,8 +60,10 @@ public final class FastqScanMT {
 		try{fqs.read(threads);}
 		catch(IOException e){throw new RuntimeException(e);}
 		t.stop("Time:   \t");
-		System.err.println("Records:\t"+fqs.totalRecords);
-		System.err.println("Bases:  \t"+fqs.totalBases);
+		System.out.println("Records:\t"+fqs.totalRecords);
+		System.out.println("Bases:  \t"+fqs.totalBases);
+		System.out.println("Quals:  \t"+fqs.totalBases);//TODO
+		System.out.println("Bytes:  \t"+fqs.totalBytes);
 	}
 
 	public static long[] countReadsAndBases(String fname, boolean halveInterleaved, int readThreads, int zipThreads) {
@@ -117,6 +119,8 @@ public final class FastqScanMT {
 				success&=st.success;
 				totalRecords+=st.recordsT;
 				totalBases+=st.basesT;
+				totalQuals+=st.qualsT;
+				totalBytes+=st.bytesT;
 			}
 		}
 		
@@ -159,6 +163,7 @@ public final class FastqScanMT {
 					if(r<0){break;}
 					len+=r;
 				}
+				basesT+=len;
 				return len;
 			}
 		}
@@ -259,11 +264,15 @@ public final class FastqScanMT {
 		
 		long recordsT=0;
 		long basesT=0;
+		long qualsT=0;
+		long bytesT=0;
 		boolean success=false;
 	}
 
 	private final FileFormat ff;
 	long totalRecords=0;
 	long totalBases=0;
+	long totalQuals;
+	long totalBytes;
 
 }
