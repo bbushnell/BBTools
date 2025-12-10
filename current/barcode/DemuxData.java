@@ -674,7 +674,7 @@ public class DemuxData {
 	/** Whether to ensure barcodes are sorted before encoding */
 	public static boolean ENSURE_SORTED=true;
 	/** Whether to skip encoding duplicate consecutive values */
-	public static boolean SKIP_DUPLICATE=true;
+	public static boolean SKIP_DUPLICATE=false;
 	private static final int FLAGS=1, EXPECTED=2, COUNTS=3, END=4;
 	
 	/**

@@ -463,9 +463,8 @@ public class NovaDemux {
 		t.stop("");
 		t.start();
 		final HashMap<String, String> map;
-		
 		if(PCRMatrix.matrixType0==PCRMatrix.PROB_TYPE && PCRMatrixProb.clientside() && 
-				!setUseServer && !useServer) {
+				!setUseServer && !useServer && !PCRMatrix.probLoaded()) {
 			useServer=true;
 		}
 		if(useServer) {
@@ -506,7 +505,6 @@ public class NovaDemux {
 //		if(mapOut!=null) {BarcodeCounter.writeAssignmentMap(map, mapOut, overwrite, append);}
 		
 //		map=filterAssignmentMap(map, outSubset);//Sends known things to unknown
-		
 		return map;
 	}
 	

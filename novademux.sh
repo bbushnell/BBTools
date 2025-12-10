@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 18, 2024
+Last modified December 10, 2025
 
 Description:  Demultiplexes sequencer reads into multiple files based on
 their barcodes.  Uses statistical analysis to ensure optimal yield and

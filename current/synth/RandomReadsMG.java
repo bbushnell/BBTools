@@ -1444,7 +1444,7 @@ public class RandomReadsMG{
 			if(pcrRate>0){bb.under().append('d').under().append(pcr);}
 			if(taxID>0){bb.under().append("tid").under().append(taxID);}
 			else{bb.under().append("name").under().append(fname);}
-			bb.space().append(pnum+1).colon();
+			if(!illuminaHeaders) {bb.space().append(pnum+1).colon();}
 			return bb.toString();
 		}
 
