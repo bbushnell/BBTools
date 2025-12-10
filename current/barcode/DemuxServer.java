@@ -21,7 +21,6 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsServer;
 
-import barcode.stub.PCRMatrixProb;
 import dna.Data;
 import fileIO.ReadWrite;
 import server.ServerTools;
@@ -540,7 +539,7 @@ public class DemuxServer {
 	private HashMap<String, String> toAssignmentMap(DemuxData dd){
 		System.err.println("dd: type="+dd.type+", len1="+dd.length1+", len2="+dd.length2+", delimiter="+dd.barcodeDelimiter+
 				", hdistsum="+dd.hdistSum+", expected="+dd.expectedList.size()+", counts="+dd.codeCounts.size());
-		PCRMatrixProb matrix=(PCRMatrixProb)PCRMatrix.create(dd.type, dd.length1, dd.length2, dd.barcodeDelimiter, dd.hdistSum);
+		PCRMatrix matrix=(PCRMatrix)PCRMatrix.create(dd.type, dd.length1, dd.length2, dd.barcodeDelimiter, dd.hdistSum);
 		matrix.populateExpected(dd.expectedList);
 		matrix.populateSplitCodes(dd);
 		matrix.initializeData();

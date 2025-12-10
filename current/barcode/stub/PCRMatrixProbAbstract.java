@@ -63,11 +63,4 @@ public abstract class PCRMatrixProbAbstract extends PCRMatrix {
 	@Override
 	public final ByteBuilder toBytesProb(ByteBuilder bb) {return null;}
 	
-	/**
-	 * Indicates if this implementation supports client-side processing.
-	 * Always returns true for stub implementations.
-	 * @return true (supports client-side processing)
-	 */
-	public static final boolean clientside() {return true;}
-	
 }
