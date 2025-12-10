@@ -716,7 +716,7 @@ public final class FileFormat {
 				if(b!=null){len=Tools.max(b.length(), len);}
 				if(len<2){len=-1;}
 				if(h!=null){
-					String barcode=Read.headerToBarcode(h, false);
+					String barcode=Read.headerToBarcode(h, false, null);
 					if(barcode!=null && barcode.length()>0) {
 						numBarcodes=1;
 						if(barcode.length()>2){

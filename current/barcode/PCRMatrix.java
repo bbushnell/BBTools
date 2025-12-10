@@ -1,5 +1,7 @@
 package barcode;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -10,9 +12,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import barcode.stub.PCRMatrixProb;
-import barcode.stub.PCRMatrixProbAbstract;
-import barcode.stub.PCRMatrixTile;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import shared.KillSwitch;
@@ -27,6 +26,7 @@ import structures.IntList;
  * Used for demultiplexing.
  * 
  * @author Brian Bushnell
+ * @contributor Chloe
  * @date March 7, 2024
  *
  */
@@ -95,9 +95,9 @@ public abstract class PCRMatrix {
 		if(type==HDIST_TYPE) {
 			return new PCRMatrixHDist(length1_, length2_, delimiter_, hdistSum_);
 		}else if(type==PROB_TYPE) {
-			return new PCRMatrixProb(length1_, length2_, delimiter_, hdistSum_);
+			return createProbMatrix(length1_, length2_, delimiter_, hdistSum_);
 		}else if(type==TILE_TYPE) {
-			return new PCRMatrixTile(length1_, length2_, delimiter_, hdistSum_);
+			return createTileMatrix(length1_, length2_, delimiter_, hdistSum_);
 		}else if(type==HDIST_OLD_TYPE) {
 //			return new PCRMatrixHDist_old(length1_, length2_, delimiter_, hdistSum_);
 		}else if(type==PROB_OLD_TYPE) {
@@ -105,6 +105,18 @@ public abstract class PCRMatrix {
 		}
 		throw new RuntimeException("Unknown PCRMatrix type "+type);
 	}
+
+	private static synchronized PCRMatrix createProbMatrix(int length1, int length2, int delimiter, boolean hdistSum){
+		try{return PMPConstructor.newInstance(length1, length2, delimiter, hdistSum);}
+		catch(Exception e){throw new RuntimeException("Failed to instantiate PCRMatrixProb", e);}
+	}
+
+	private static synchronized PCRMatrix createTileMatrix(int length1, int length2, int delimiter, boolean hdistSum){
+		try{return PMTConstructor.newInstance(length1, length2, delimiter, hdistSum);}
+		catch(Exception e){throw new RuntimeException("Failed to instantiate PCRMatrixTile", e);}
+	}
+
+	static synchronized boolean probLoaded() {return probLoaded;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Parsing            ----------------*/
@@ -169,7 +181,7 @@ public abstract class PCRMatrix {
 			else if("prob".equals(b) || "probability".equals(b)) {matrixType0=PROB_TYPE;}
 			else if("tile".equals(b) || "bytile".equals(b)) {matrixType0=TILE_TYPE;}
 			else {matrixType0=Integer.parseInt(b);}
-		}else if(a.equals("probability")){
+		}else if(a.equals("probability") || a.equals("prob")){
 			matrixType0=(Parse.parseBoolean(b) ? PROB_TYPE : (matrixType0==PROB_TYPE ? HDIST_TYPE : matrixType0));
 		}else if(a.equals("bytile") || a.equals("tile")){
 			matrixType0=(Parse.parseBoolean(b) ? TILE_TYPE : (matrixType0==TILE_TYPE ? PROB_TYPE : matrixType0));
@@ -179,11 +191,10 @@ public abstract class PCRMatrix {
 			devMode=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("ensuresorted")){
 			DemuxData.ENSURE_SORTED=Parse.parseBoolean(b);
-		}else if(PCRMatrixHDist.parseStatic(arg, a, b) || 
-				PCRMatrixProbAbstract.parseStatic(arg, a, b)){
-			//In case of shared flags with different defaults
+		}else if(PCRMatrixHDist.parseStatic(arg, a, b)) {
+			callParseStatic(arg, a, b);//In case of shared flags with different defaults
+		}else if(callParseStatic(arg, a, b)) {
 			PCRMatrixHDist.parseStatic(arg, a, b);
-			PCRMatrixProbAbstract.parseStatic(arg, a, b);
 		}else{
 			return false;
 		}
@@ -205,7 +216,7 @@ public abstract class PCRMatrix {
 	 * Calls postParse methods on subclasses and sets tile mode flag. */
 	public static void postParseStatic(){
 		PCRMatrixHDist.postParseStatic();
-		PCRMatrixProbAbstract.postParseStatic();
+		callPostParseStatic();
 		if(matrixType0==TILE_TYPE) {byTile=true;}
 		else {
 			assert(byTile==false);
@@ -440,7 +451,7 @@ public abstract class PCRMatrix {
 	 * @return Filtered list of barcodes above threshold
 	 */
 	protected final ArrayList<Barcode> highpass(Collection<Barcode> codeCounts, long minCount) {
-		if(minCount<=1) {
+		if(minCount<=1 || codeCounts.size()<minSizeToFilter) {
 			return codeCounts instanceof ArrayList ? (ArrayList<Barcode>)codeCounts 
 					: new ArrayList<Barcode>(codeCounts);
 		}
@@ -1103,6 +1114,8 @@ public abstract class PCRMatrix {
 	
 	/** Global error state flag */
 	public static boolean errorStateS=false;
+	
+	public static int minSizeToFilter=100000;
 
 	/** Whether to add poly-A sequences to barcode sets */
 	protected static boolean addPolyA=false;
@@ -1139,5 +1152,62 @@ public abstract class PCRMatrix {
 	protected static final byte[] baseToNumber=AminoAcid.baseToNumber4;
 	/** Lookup array for converting numeric codes to bases */
 	protected static final byte[] numberToBase=AminoAcid.numberToBase;
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Reflection          ----------------*/
+	/*--------------------------------------------------------------*/
 	
+	private static boolean probLoaded=false;
+
+	private static Class<? extends PCRMatrix> pcrMatrixProbAbstractClass=getPMPAClass();
+	private static Class<? extends PCRMatrix> pcrMatrixProbClass=getPMPClass();
+	private static Class<? extends PCRMatrix> pcrMatrixTileClass=getPMTClass();
+	private static Method PMPA_parseStatic=getParseStatic(pcrMatrixProbAbstractClass);
+	private static Method PMPA_postParseStatic=getPostParseStatic(pcrMatrixProbAbstractClass);
+	private static Constructor<? extends PCRMatrix> PMPConstructor=getConstructor(pcrMatrixProbClass);
+	private static Constructor<? extends PCRMatrix> PMTConstructor=getConstructor(pcrMatrixTileClass);
+
+	private static synchronized Class<? extends PCRMatrix> getPMPAClass(){
+		try{
+			Class<? extends PCRMatrix> c=(Class<? extends PCRMatrix>)Class.forName("barcode.prob.PCRMatrixProbAbstract");
+			probLoaded=true;
+			return c;
+		}catch(ClassNotFoundException e) {return barcode.stub.PCRMatrixProbAbstract.class;}
+	}
+
+	private static Class<? extends PCRMatrix> getPMPClass(){
+		try{return (Class<? extends PCRMatrix>)Class.forName("barcode.prob.PCRMatrixProb");}
+		catch(ClassNotFoundException e) {return barcode.stub.PCRMatrixProb.class;}
+	}
+
+	private static Class<? extends PCRMatrix> getPMTClass(){
+		try{return (Class<? extends PCRMatrix>)Class.forName("barcode.prob.PCRMatrixTile");}
+		catch(ClassNotFoundException e) {return barcode.stub.PCRMatrixTile.class;}
+	}
+
+	private static boolean callParseStatic(String arg, String a, String b) {
+		try{return (Boolean)PMPA_parseStatic.invoke(null, arg, a, b);}
+		catch(Exception e){throw new RuntimeException("Error calling parseStatic via reflection", e);}
+	}
+
+	private static void callPostParseStatic() {
+		try{PMPA_postParseStatic.invoke(null);}
+		catch(Exception e){throw new RuntimeException("Error calling postParseStatic via reflection", e);}
+	}
+
+	private static Method getParseStatic(Class<?> c) {
+		try{return c.getMethod("parseStatic", String.class, String.class, String.class);}
+		catch(Exception e){throw new RuntimeException("Error calling parseStatic via reflection", e);}
+	}
+
+	private static Method getPostParseStatic(Class<?> c) {
+		try{return c.getMethod("postParseStatic");}
+		catch(Exception e){throw new RuntimeException("Error calling postParseStatic via reflection", e);}
+	}
+
+	private static Constructor<? extends PCRMatrix> getConstructor(Class<?> c) {
+		try{return (Constructor<? extends PCRMatrix>)c.getConstructor(int.class, int.class, int.class, boolean.class);}
+		catch(Exception e){throw new RuntimeException("Error calling getConstructor via reflection", e);}
+	}
+
 }

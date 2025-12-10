@@ -114,9 +114,9 @@ public class Dongle {
 	/** SimpleDateFormat instance configured with the MM-dd-yyyy pattern */
 	private static final SimpleDateFormat sdf=new SimpleDateFormat(pattern);
 	/** Minimum encoded timestamp value for range validation */
-	private static final long min=-6788251374689658131L;
+	private static final long min=-8950436867421912347L;
 	/** Maximum encoded timestamp value for range validation */
-	private static final long max=2715152938288332905L;
+	private static final long max=2408489082714442483L;
 	/** XOR key used in the encoding and decoding process */
 	private static final long number=4964420948893066024L;
 	/** Bit mask for first stage of encoding/decoding (alternating bits pattern) */

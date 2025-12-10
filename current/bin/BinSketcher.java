@@ -198,7 +198,6 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 			for(int i=tid; i<contigs.size(); i+=threads) {
 				Sketchable c=contigs.get(i);
 				synchronized(c) {
-					assert(c.id()==i);
 					Sketch sketch=c.toSketch(smm, dummy);
 					if(send) {
 						String results=SendSketch.sendSketch(sketch, "refseq", params, 0);

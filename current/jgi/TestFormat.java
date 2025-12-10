@@ -709,7 +709,6 @@ public class TestFormat {
 		if(expectedCodeFile!=null){
 			barcodeStats.loadBarcodeList(expectedCodeFile, barcodeDelimiter, false, false);
 		}
-		
 		spawnThreads(ff, cris);
 		
 		ReadWrite.closeStream(cris);

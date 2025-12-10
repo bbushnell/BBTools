@@ -2129,7 +2129,7 @@ public class RQCFilter3 {
 		if(!dryrun){//Run BBDukS
 			BBDukS duk=new BBDukS(dukargs);
 			try {
-				duk.proc.process();
+				duk.process();
 				outstream.println(format("Adapter Sequence Removed:", duk.proc.readsIn, duk.proc.readsOut, duk.proc.basesIn, duk.proc.basesOut));
 				log("#Input:\t"+duk.proc.readsIn+" reads\t"+duk.proc.basesIn+" bases\t"+duk.proc.loglogIn.cardinality()+" kmers", true, false);
 				log("#Remaining:\t"+duk.proc.readsOut+" reads\t"+duk.proc.basesOut+" bases\t"+duk.proc.loglogOut.cardinality()+" kmers", true, false);

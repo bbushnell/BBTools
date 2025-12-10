@@ -10,6 +10,7 @@ import align2.QualityTools;
 import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
+import hiseq.IlluminaHeaderParser2;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
@@ -2104,7 +2105,11 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	}
 
 	public String barcode(boolean failIfNoBarcode){
-		return headerToBarcode(id, failIfNoBarcode);
+		return headerToBarcode(id, failIfNoBarcode, null);
+	}
+
+	public String barcode(boolean failIfNoBarcode, IlluminaHeaderParser2 ihp){
+		return headerToBarcode(id, failIfNoBarcode, ihp);
 	}
 
 	/** 
@@ -2112,7 +2117,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	 * @param failIfNoBarcode Terminate the JVM if no barcode is present. 
 	 * @return The barcode
 	 */
-	public static String headerToBarcode(String id, boolean failIfNoBarcode){
+	public static String headerToBarcode(String id, boolean failIfNoBarcode, IlluminaHeaderParser2 ihp){
 
 		if(id==null){
 			if(failIfNoBarcode && Shared.EA()){
@@ -2121,6 +2126,11 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 			return null;
 		}
 
+		if(ihp==null) {ihp=new IlluminaHeaderParser2();}
+		ihp.parse(id);
+		String barcode=ihp.barcode();
+		if(barcode!=null) {return barcode;}
+		
 		final int loc=id.lastIndexOf(':');
 		final int loc2=Tools.max(id.indexOf(' '), id.indexOf('/'));
 		if(loc<0 || loc<=loc2 || loc>=id.length()-1){

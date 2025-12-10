@@ -115,6 +115,7 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 		totalCounted=totalAssigned=totalAssignedToExpected=0;
 		final long ops=list.size()*(long)expectedList.size();
 		if(list.size()<2 || ops<100000 || Shared.threads()<2) {//Singlethreaded mode
+			if(verbose) {System.err.println(list.size());}
 			for(Barcode query : list) {
 				final String s=query.name;
 				assert(s.length()==counts.length);
@@ -338,9 +339,7 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	
 	/** Default maximum Hamming distance threshold for barcode matching */
 	static int maxHDist0=2;
-	/**
-	 * Default clearzone threshold requiring minimum distance gap between matches
-	 */
+	/** Default clearzone threshold requiring minimum distance gap between matches */
 	static int clearzone0=1;
-	
+	private static final boolean verbose=false;
 }
