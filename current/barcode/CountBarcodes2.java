@@ -10,7 +10,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map.Entry;
 
-import barcode.stub.PCRMatrixProb;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -362,7 +361,7 @@ public class CountBarcodes2 {
 			final HashMap<String, String> assignmentMap;
 			{//New code block for using server
 
-				if(PCRMatrix.matrixType0==PCRMatrix.PROB_TYPE && PCRMatrixProb.clientside()
+				if(PCRMatrix.matrixType0==PCRMatrix.PROB_TYPE && !PCRMatrix.probLoaded()
 						&& !setUseServer && !useServer) {
 					useServer=true;
 				}
