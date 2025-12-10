@@ -27,7 +27,7 @@ import structures.ListNum;
 public final class FastqScan{
 
 	public static void main(String[] args) {
-		Timer t=new Timer();
+		Timer t=new Timer(System.out);
 		if(args.length<1) {throw new RuntimeException("Usage: fastqscan.sh filename");}
 		String fname=args[0];
 		while(fname.startsWith("-")) {fname=fname.substring(1);}
@@ -65,16 +65,18 @@ public final class FastqScan{
 		FastqScan fqs=new FastqScan(ff);
 		try{fqs.read();}
 		catch(IOException e){throw new RuntimeException(e);}
-		t.stop("Time:   \t");
-		System.err.println("Records:\t"+fqs.totalRecords);
-		System.err.println("Bases:  \t"+fqs.totalBases);
-		if(ff.samOrBam()) {System.err.println("Headers:\t"+fqs.totalHeaders);}
+		t.stop("Time:   \t");		
+		System.out.println("Records:\t"+fqs.totalRecords);
+		System.out.println("Bases:  \t"+fqs.totalBases);
+		System.out.println("Quals:  \t"+fqs.totalQuals);
+		System.out.println("Bytes:  \t"+fqs.totalBytes);
+		if(ff.samOrBam()) {System.out.println("Headers:\t"+fqs.totalHeaders);}
 		ByteBuilder bb=fqs.corruption();
 		if(fqs.slashrLines>0) {
-			System.err.println("Contained Windows-style \r\n");
+			System.out.println("Contained Windows-style \r\n");
 		}
 		if(bb!=null) {
-			System.err.print(bb);
+			System.out.print(bb);
 			System.exit(1);
 		}
 	}
@@ -146,6 +148,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -167,6 +170,7 @@ public final class FastqScan{
 				final int bases=basesEnd-headerEnd-1-slashr1;
 				final int quals=recordEnd-plusEnd-1-slashr2;
 				totalBases+=bases;
+				totalQuals+=quals;
 				bstart=recordEnd+1;
 				qualMismatch|=(quals!=bases);
 				missingAt|=(buffer[recordStart]!='@');
@@ -199,6 +203,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -245,6 +250,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -271,6 +277,7 @@ public final class FastqScan{
 						int quals=(buffer[basesStopTab+1]=='*' ? 0 : qualsStopSymbol-basesStopTab-1-slashr);
 						qualMismatch|=(quals>0 && quals!=bases);
 						totalBases+=bases;
+						totalQuals+=quals;
 					}else {
 						partialRecords++;
 					}
@@ -301,6 +308,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -325,6 +333,7 @@ public final class FastqScan{
 					qualMismatch|=(quals<bases || 
 						(quals>bases && !Tools.isDigit(buffer[basesStopSym+1]))); //Quals can be decimal
 					totalBases+=bases;
+					totalQuals+=quals;
 				}else {
 					partialRecords++;
 				}
@@ -354,6 +363,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -410,6 +420,7 @@ public final class FastqScan{
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
 			r=Math.max(r, 0);
+			totalBytes+=r;
 			bstop+=r;
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
@@ -465,6 +476,8 @@ public final class FastqScan{
 				int quals=sl.qual==null ? 0 : sl.qual.length;
 				totalRecords++;
 				totalBases+=bases;
+				totalQuals+=quals;
+				totalBytes+=sl.countBytes();
 				qualMismatch|=(quals>0 && quals!=bases);
 			}
 		}
@@ -480,6 +493,8 @@ public final class FastqScan{
 				int quals=r.quality==null ? 0 : r.quality.length;
 				totalRecords++;
 				totalBases+=bases;
+				totalQuals+=quals;
+				totalBytes+=r.countFastqBytes();
 				qualMismatch|=(quals>0 && quals!=bases);
 			}
 		}
@@ -498,6 +513,8 @@ public final class FastqScan{
 	long totalHeaders;
 	long totalRecords;
 	long totalBases;
+	long totalQuals;
+	long totalBytes;
 	
 	long partialRecords;
 	long slashrLines;
