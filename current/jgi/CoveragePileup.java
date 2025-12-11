@@ -287,7 +287,7 @@ public class CoveragePileup {
 			SamLine.PARSE_6=false;
 			SamLine.PARSE_7=false;
 			SamLine.PARSE_8=false;
-			if(k<1 && trimq<1){SamLine.PARSE_10=false;}
+//			if(k<1 && trimq<1){SamLine.PARSE_10=false;}
 			SamLine.PARSE_OPTIONAL=false;
 		}
 		
