@@ -44,8 +44,7 @@ public final class LongList{
 	/** Creates a new LongList with specified initial capacity.
 	 * @param initial Initial capacity for the internal array */
 	public LongList(int initial){
-		assert(initial>0) : initial;
-		array=KillSwitch.allocLong1D(initial);
+		array=KillSwitch.allocLong1D(Math.max(1, initial));
 	}
 
 	/** Resets the size to 0 without clearing array contents */

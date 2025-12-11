@@ -3,11 +3,10 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 20, 2025
+Last modified December 11, 2025
 
-Description:  Concatenates and recompresses text files.
+Description:  Concatenates and recompresses files.
 Compressed files (gz and bz2) are decompressed first.
-Do not use with binary files, it replaces \r\n with \n.
 
 Usage:  cat.sh *.fna out=catted.fa.gz
 
@@ -15,7 +14,7 @@ Standard parameters:
 in=<file>       Comma-delimited input.  Filenames with no 'in=' will
                 also be treated as input files.
 out=<file>      Output.  Defaults to stdout.
-ziplevel=2      (zl) Set to 1 (lowest) through 9 (max) to change compression
+ziplevel=4      (zl) Set to 1 (lowest) through 9 (max) to change compression
                 level; lower compression is faster.
 
 Processing parameters:
@@ -59,7 +58,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP fileIO.Concatenate $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP fileIO.Concatenate2 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

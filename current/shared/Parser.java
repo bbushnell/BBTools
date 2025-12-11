@@ -1175,6 +1175,7 @@ public class Parser {
 			int x=Integer.parseInt(b);
 			if(x>=0){
 				ReadWrite.ZIPLEVEL=Tools.min(x, 11);
+				ReadWrite.ALLOW_ZIPLEVEL_CHANGE=false;
 			}
 		}else if(a.equals("bziplevel") || a.equals("bzl")){
 			int x=Integer.parseInt(b);
