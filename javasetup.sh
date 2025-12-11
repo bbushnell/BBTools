@@ -1,9 +1,9 @@
 #!/bin/sh
 
-# javasetup.sh v1.22 - POSIX compliant
+# javasetup.sh v1.23 - POSIX compliant
 # Parses Java command-line arguments and sets up paths
-# Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla
-# Date: November 16, 2025
+# Authors: Brian Bushnell, Doug Jacobsen, Alex Copeland, Bryce Foster, Isla, Chloe
+# Date: December 11, 2025
 
 # Source memory detection script
 # Check if DIR was already set by the calling script (new style)
@@ -287,19 +287,12 @@ parseJavaArgs() {
 	
 	# Handle Xms (min heap)
 	if [ "$setxms" = "0" ]; then
-		if [ -n "$defaultXms" ]; then
-			# Use separate Xms default
-			if [ "$memMode" = "fixed" ]; then
-				XMS=$(normalizeMemory "$defaultXms" "-Xms")
-			else
-				# For auto mode with separate Xms, detect based on Xms default
-				local savedXmx="$XMX"  # Save Xmx
-				detectMemory "$defaultXms" "$memPercent" "$memMode"
-				XMS="-Xms${RAM}m"
-				XMX="$savedXmx"  # Restore Xmx
-			fi
+		if [ -n "$defaultXms" ] && [ "$memMode" = "fixed" ]; then
+			# Use separate Xms default ONLY in fixed mode
+			XMS=$(normalizeMemory "$defaultXms" "-Xms")
 		else
-			# Legacy behavior: Xms = Xmx
+			# For auto/partial mode OR no defaultXms: Xms = Xmx
+			# This prevents Xms > Xmx due to separate rounding in detectMemory
 			local substring=$(echo $XMX | cut -d'x' -f 2)
 			XMS="-Xms$substring"
 		fi
