@@ -25,11 +25,12 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Applies variants
- * 
+ * Applies variants from VCF files to reference sequences.
+ * Processes FASTA sequences and modifies bases according to variant calls,
+ * with optional depth filtering and indel restrictions.
+ *
  * @author Brian Bushnell
  * @date August 27, 2019
- *
  */
 public class ApplyVariants {
 	
@@ -37,10 +38,8 @@ public class ApplyVariants {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point for applying variants to sequences.
+	 * @param args Command-line arguments specifying input files and parameters */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -56,8 +55,9 @@ public class ApplyVariants {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams and validates file accessibility.
+	 * @param args Command-line arguments containing file paths and options
 	 */
 	public ApplyVariants(String[] args){
 		
@@ -106,7 +106,12 @@ public class ApplyVariants {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into configuration parameters.
+	 * Handles VCF file paths, coverage thresholds, indel filtering, and sample naming options.
+	 * @param args Array of command-line arguments to parse
+	 * @return Configured Parser object with standard parameters set
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -164,7 +169,8 @@ public class ApplyVariants {
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/** Validates required input files and coverage dependencies.
+	 * Ensures sequence and VCF files are specified, and coverage file exists when needed. */
 	private void doPoundReplacement(){
 		
 		//Ensure there is an input file
@@ -174,14 +180,17 @@ public class ApplyVariants {
 		
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes compression extensions (.gz, .bz2) as needed for input files.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		inVcf=Tools.fixExtension(inVcf);
 		inDepth=Tools.fixExtension(inDepth);
 	}
 	
-	/** Ensure files can be read and written */
+	/** Verifies that input files can be read and output files can be written.
+	 * Checks for duplicate file specifications and throws runtime exceptions if issues found. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -200,13 +209,14 @@ public class ApplyVariants {
 		}
 	}
 	
-	/** Make sure interleaving agrees with number of input and output files */
+	/** Configures FASTQ interleaving settings to disable forced and test modes. */
 	private void adjustInterleaving(){
 		FASTQ.FORCE_INTERLEAVED=false;
 		FASTQ.TEST_INTERLEAVED=false;
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file handling settings for optimal performance.
+	 * Enables BF2 mode for multi-threaded file reading when appropriate. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -220,7 +230,12 @@ public class ApplyVariants {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that applies variants to input sequences.
+	 * Loads VCF file, optionally loads coverage data, creates variant maps,
+	 * and processes all input reads through the variant application pipeline.
+	 * @param t Timer for tracking execution time and reporting statistics
+	 */
 	void process(Timer t){
 		
 		VCFFile vfile=new VCFFile(ffvcf);
@@ -310,7 +325,12 @@ public class ApplyVariants {
 		return ros;
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Processes read lists from the input stream through the variant application pipeline.
+	 * Iterates through all read lists, applies variants, and writes results to output.
+	 * @param cris Input stream providing read lists to process
+	 * @param ros Output stream for writing modified reads, may be null
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -346,10 +366,12 @@ public class ApplyVariants {
 	}
 	
 	/**
-	 * Process a list of Reads.
-	 * @param ln The list.
-	 * @param cris Read Input Stream
-	 * @param ros Read Output Stream for reads that will be retained
+	 * Processes a single list of reads by applying variants to each one.
+	 * Validates reads, tracks statistics, applies variants, and outputs results.
+	 *
+	 * @param ln List container with reads to process
+	 * @param cris Input stream for returning processed lists
+	 * @param ros Output stream for writing modified reads, may be null
 	 */
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 
@@ -384,8 +406,6 @@ public class ApplyVariants {
 //		if(verbose){outstream.println("Returned a list.");} //Disabled due to non-static access
 	}
 	
-	/** Applies depth filtering to a read by setting low-coverage bases to N.
-	 * @param r Read to modify with depth-based masking */
 	@SuppressWarnings("unused")
 	private void applyDepth(Read r){applyDepth(r, null);}
 	
@@ -426,20 +446,10 @@ public class ApplyVariants {
 		if(removed>0){Tools.condenseStrict(vars);}
 	}
 	
-	/** Filters indel variants from a read based on configured restrictions.
-	 * @param r Read whose variants should be filtered */
 	private void filterIndels(final Read r){
 		filterIndels(r, null);
 	}
 	
-	/**
-	 * Filters indel variants based on size, frameshift, and depth restrictions.
-	 * Removes variants that exceed maximum indel size, cause frameshifts (when disabled),
-	 * or occur in low-coverage regions.
-	 *
-	 * @param r Read whose variants should be filtered
-	 * @param ca Coverage array for depth filtering, or null to look up by read ID
-	 */
 	private void filterIndels(final Read r, CoverageArray ca){
 		if(minDepth<=0 && maxIndel==Integer.MAX_VALUE && !noIndels && !noFrameshifts){return;}
 		
@@ -478,8 +488,12 @@ public class ApplyVariants {
 	}
 	
 	/**
-	 * Process a single read.
-	 * @param r Read 1
+	 * Applies all variants to a single read sequence.
+	 * Handles depth masking, indel filtering, variant deduplication by position,
+	 * and sequence modification through insertions, deletions, and substitutions.
+	 *
+	 * @param r Original read to modify
+	 * @return New read with variants applied and optionally renamed
 	 */
 	Read processRead(final Read r){
 		
@@ -597,99 +611,73 @@ public class ApplyVariants {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Variant input file */
+	/** Variant input file path */
 	private String inVcf;
-	/** Per-base coverage depth file (optional) */
+	/** Per-base coverage depth file path (optional) */
 	private String inDepth;
 
-	/** Primary output file path */
 	private String out1=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** If positive, change regions below this depth to N */
 	private int minDepth=0;
 	
-	/** Symbol used to replace bases in low-coverage regions */
 	private byte noCovSymbol='N';
 	
-	/** Maps sequence names to their associated variant lists */
 	HashMap<String, ArrayList<Var>> varMap;
 	
-	/** Maps sequence names to their coverage arrays for depth filtering */
 	HashMap<String, CoverageArray> depthMap;
 	
-	/** Name of output sequences, if different from input */
 	String sampleName=null;
-	/** Add numbers as a suffix to the name of each contig, if they will be renamed */
 	boolean addContigNumbers=true;
-	/** Use samplename as prefix, rather than replacing the existing name. */
+	/** Use samplename as prefix, rather than replacing the existing name */
 	boolean usePrefix=false;
-	/** Delimits modified names. */
+	/** Character that delimits modified names */
 	char delimiter='_';
 	
-	/** Ignore non-multiple-of-3 indels */
 	private boolean noFrameshifts=false;
-	/** Ignore indels longer than this */
 	private int maxIndel=Integer.MAX_VALUE;
-	/** Ignore indels */
 	private boolean noIndels=false;
 	
-	/** Reusable string builder for constructing sequence names */
 	private ByteBuilder nameBuilder=new ByteBuilder();
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
 	protected long readsOut=0;
-	/** Number of bases retained */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Count of variants successfully applied */
 	private long applied=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format */
 	private final FileFormat ffin1;
-	/** Variant input file */
+	/** Variant input file format */
 	private final FileFormat ffvcf;
-	/** Coverage input file */
+	/** Coverage input file format */
 	private final FileFormat ffdepth;
 	
-	/** Primary output file */
+	/** Primary output file format */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered=false;
 	
 }

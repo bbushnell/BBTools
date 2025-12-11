@@ -5,15 +5,20 @@ import structures.ByteBuilder;
 import ukmer.Kmer;
 
 /**
- * Searches for dead ends.
+ * Abstract thread class for exploring k-mer graph structures to identify dead ends and bubbles.
+ * Part of the assembly shaving pipeline that removes spurious branches from k-mer graphs.
+ * Extends ShaveObject to inherit exploration codes and branch constants.
+ *
  * @author Brian Bushnell
  * @date Jul 20, 2015
- *
  */
 abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 
 	/**
-	 * Constructor
+	 * Constructs an exploration thread with specified ID and k-mer size.
+	 * Initializes k-mer working objects and creates the underlying thread.
+	 * @param id_ Thread identifier for tracking and coordination
+	 * @param kbig_ K-mer size for the graph structures being explored
 	 */
 	public AbstractExploreThread(int id_, int kbig_){
 		id=id_;
@@ -22,6 +27,8 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 		thread=new Thread(this);
 	}
 
+	/** Main thread execution that iteratively processes tables and victim lists,
+	 * then accumulates bubble statistics from removal matrices after exploration. */
 	@Override
 	public final void run(){
 		//TODO:
@@ -63,63 +70,32 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 	 */
 	abstract boolean processNextTable(final Kmer kmer, Kmer temp);
 
-	/**
-	 * Processes the next victim list using the thread's default k-mer objects.
-	 * Convenience method that delegates to the abstract processNextVictims implementation.
-	 * @return true if processing should continue, false if complete
-	 */
 	boolean processNextVictims(){return processNextVictims(myKmer, myKmer);}
-	/**
-	 * Processes the next batch of victim k-mers identified for removal.
-	 * Abstract method that must be implemented by concrete subclasses.
-	 *
-	 * @param kmer Primary k-mer object for graph traversal
-	 * @param temp Temporary k-mer object for computations
-	 * @return true if more victim processing is needed, false if complete
-	 */
 	abstract boolean processNextVictims(final Kmer kmer, Kmer temp);
 
 	/*--------------------------------------------------------------*/
 
-	/** Starts the underlying thread for concurrent execution */
 	public final void start(){thread.start();}
-	/** Gets the current state of the underlying thread.
-	 * @return The thread's current execution state */
 	public final Thread.State getState(){return thread.getState();}
-	/** Waits for the thread to complete execution.
-	 * @throws InterruptedException If the current thread is interrupted while waiting */
 	public final void join() throws InterruptedException{thread.join();}
 
 	/*--------------------------------------------------------------*/
 	
-	/** Thread-local count of k-mers tested during exploration */
 	long kmersTestedT=0;
-	/** Thread-local count of dead ends discovered and removed */
 	long deadEndsFoundT=0;
-	/** Thread-local count of bubbles identified from branch intersections */
 	long bubblesFoundT=0;
 	
-	/** Unique identifier for this thread within the exploration pool */
 	final int id;
 	/** Secondary thread-local k-mer used for temporary computations. */
-	/** Primary thread-local k-mer used for traversal and analysis. */
 	final Kmer myKmer, myKmer2;
 
-	/** Array for counting left-extending bases during k-mer exploration */
 	final int[] leftCounts=KillSwitch.allocInt1D(4);
-	/** Array for counting right-extending bases during k-mer exploration */
 	final int[] rightCounts=KillSwitch.allocInt1D(4);
-	/** Thread-local byte buffer for constructing sequences during exploration */
 	final ByteBuilder builderT=new ByteBuilder();
 
-	/** Thread-local matrix tracking counts of each exploration code combination */
 	long[][] countMatrixT=new long[MAX_CODE+1][MAX_CODE+1];
-	/**
-	 * Thread-local matrix tracking removal counts for each exploration code combination
-	 */
 	long[][] removeMatrixT=new long[MAX_CODE+1][MAX_CODE+1];
 	
-	/** The underlying Java thread object for concurrent execution */
 	public final Thread thread;
 	
 }

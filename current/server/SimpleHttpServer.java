@@ -14,20 +14,16 @@ import com.sun.net.httpserver.HttpServer;
 import shared.Tools;
 
 /**
+ * Simple HTTP server for handling RESTful requests with JSON responses.
+ * Creates a basic web service that parses URL paths as key/value pairs
+ * and returns JSON-formatted data for bioinformatics applications.
+ *
  * @author Shijie Yao
  * @date Dec 13, 2016
- *
  */
 public class SimpleHttpServer {
-	/** Default port number for the HTTP server */
 	public static int port = 8321;
 
-	/**
-	 * Program entry point that starts the HTTP server.
-	 * Creates server instance, registers GET handler, and begins listening.
-	 * @param args Command-line arguments (unused)
-	 * @throws Exception If server creation or startup fails
-	 */
 	public static void main(String[] args) throws Exception {
 		HttpServer server = HttpServer.create(new InetSocketAddress(SimpleHttpServer.port), 0);
 		server.createContext("/", new GetHandler());
@@ -35,9 +31,15 @@ public class SimpleHttpServer {
 		server.start();
 	}
 
-	/** HTTP request handler that processes GET requests and returns JSON responses.
-	 * Parses RESTful-style URL parameters and constructs appropriate JSON output. */
 	static class GetHandler implements HttpHandler {
+		/**
+		 * Handles incoming HTTP GET requests and generates JSON responses.
+		 * Parses URL path as key/value pairs, adds mock data, and returns JSON.
+		 * Expects URLs in format "/key/value" and responds with JSON object.
+		 *
+		 * @param t The HTTP exchange containing request and response information
+		 * @throws IOException If response writing fails
+		 */
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			Headers h = t.getResponseHeaders();

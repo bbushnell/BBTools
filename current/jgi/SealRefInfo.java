@@ -13,9 +13,10 @@ import structures.IntList;
 
 
 /**
- * Handles duties related to tracking Seal's reference set and scaffolds.
- * @author BBushnell
- *
+ * Manages reference information and statistics tracking for Seal operations.
+ * Handles reference file processing, scaffold management, and output generation.
+ * Maintains counts of reads, fragments, and bases mapped to each reference scaffold.
+ * @author Brian Bushnell
  */
 public class SealRefInfo {
 	
@@ -24,7 +25,14 @@ public class SealRefInfo {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * @param outstream Typically stderr
+	 * Constructs SealRefInfo with reference files and literal sequences.
+	 * Processes reference file paths, resolves built-in references, and initializes
+	 * scaffold tracking structures. Adds fake first entries to maintain 1-based indexing.
+	 *
+	 * @param refs_ List of reference file paths or built-in reference names
+	 * @param literals_ Array of literal sequences to use as references
+	 * @param outstream Output stream for error messages, typically stderr
+	 * @throws RuntimeException If reference files cannot be read
 	 */
 	public SealRefInfo(ArrayList<String> refs_, String[] literals_, PrintStream outstream){
 		
@@ -106,24 +114,14 @@ public class SealRefInfo {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Checks if this SealRefInfo contains any references.
-	 * @return true if no reference files or literals are available */
 	boolean isEmpty(){
 		return refs.isEmpty() && (literals==null || literals.length<1);
 	}
 	
-	/**
-	 * Gets the number of reference scaffolds.
-	 * Accounts for fake first scaffold by subtracting 1.
-	 * @return Number of valid scaffolds (excluding index 0)
-	 */
 	int numScaffolds(){
 		return Tools.max(0, scaffoldNames.size()-1);
 	}
 	
-	/**
-	 * Clear stored sequence data.
-	 */
 	public void unloadScaffolds(){
 		if(scaffoldNames!=null && !scaffoldNames.isEmpty()){
 			scaffoldNames.clear();
@@ -141,9 +139,6 @@ public class SealRefInfo {
 	/*----------------           Printing           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Write statistics on a per-reference basis.
-	 */
 	void writeRefStats(String fname, boolean ow, boolean useRefNames, boolean printNonZeroOnly,
 			String in1, String in2, long readsIn){
 		if(fname==null){return;}
@@ -200,7 +195,15 @@ public class SealRefInfo {
 	}
 	
 	/**
-	 * Write statistics on a per-reference basis.
+	 * Writes reference statistics in BBSplit output format.
+	 * Produces output compatible with BBSplit's reference statistics format,
+	 * including percentage and megabase calculations.
+	 *
+	 * @param fname Output filename
+	 * @param ow Whether to overwrite existing file
+	 * @param useRefNames Whether to use reference names for grouping
+	 * @param printNonZeroOnly Whether to skip references with zero counts
+	 * @param totalReads Total number of reads for percentage calculation
 	 */
 	void writeRefStats_BBSplitStyle(String fname, boolean ow, boolean useRefNames, 
 			boolean printNonZeroOnly, long totalReads){
@@ -252,32 +255,27 @@ public class SealRefInfo {
 	/*--------------------------------------------------------------*/
 
 //	/** Array of reference files from which to load kmers */
-	/** List of reference file paths to load k-mers from */
 	final ArrayList<String> refs;
 //	/** Array of literal strings from which to load kmers */
-	/** Array of literal sequences to use as references */
 	final String[] literals;
 	
-	/** A scaffold's name is stored at scaffoldNames.get(id).
-	 * scaffoldNames[0] is reserved, so the first id is 1. */
+	/** Scaffold names indexed by scaffold ID (ID 0 is reserved/fake) */
 	final ArrayList<String> scaffoldNames=new ArrayList<String>();
-	/** Names of reference files (refNames[0] is valid). */
+	/** Reference file names (index 0 is valid) */
 	final ArrayList<String> refNames=new ArrayList<String>();
-	/** Number of scaffolds per reference. */
 	final int[] refScafCounts;
 	
-	/** scaffoldCounts[id] stores the number of reads with kmer matches to that scaffold */
 	AtomicLongArray scaffoldReadCounts;
-	/** scaffoldFragCounts[id] stores the number of fragments (reads or pairs) with kmer matches to that scaffold */
+	/** Number of fragments (reads or pairs) with k-mer matches to each scaffold */
 	AtomicLongArray scaffoldFragCounts;
-	/** scaffoldBaseCounts[id] stores the number of bases with kmer matches to that scaffold */
+	/** Number of bases with k-mer matches to each scaffold */
 	AtomicLongArray scaffoldBaseCounts;
 	
-	/** scaffoldLengths[id] stores the length of that scaffold */
+	/** Length in bases of each scaffold */
 	IntList scaffoldLengths=new IntList();
-	/** scaffoldLengths[id] stores the number of kmers in that scaffold (excluding mutants) */
+	/** Number of k-mers in each scaffold (excluding variants) */
 	IntList scaffoldKmers=new IntList();
-	/** scaffolds[id] stores the number of kmers in that scaffold */
+	/** Scaffold sequence data stored as byte arrays */
 	ArrayList<byte[]> scaffolds=new ArrayList<byte[]>();
 	
 }

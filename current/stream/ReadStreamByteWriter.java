@@ -8,31 +8,12 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import structures.ByteBuilder;
 
-/**
- * Thread-safe stream writer that outputs sequence reads in various formats using
- * ByteBuilder for efficient buffering. Extends ReadStreamWriter to provide
- * byte-based writing capabilities with format-specific output methods.
- * Supports FASTA, FASTQ, SAM, attachment, header-only, sites-only, and
- * proprietary formats like BREAD and FASTR.
- *
- * @author Brian Bushnell
- */
 public class ReadStreamByteWriter extends ReadStreamWriter {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Constructs a ReadStreamByteWriter with specified format and parameters.
-	 *
-	 * @param ff File format specification for output
-	 * @param qfname_ Quality file name (may be null)
-	 * @param read1_ True if processing read1, false for read2
-	 * @param bufferSize Size of the internal buffer for writing
-	 * @param header Header text to include in output
-	 * @param useSharedHeader Whether to use a shared header across threads
-	 */
 	public ReadStreamByteWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, CharSequence header, boolean useSharedHeader){
 		super(ff, qfname_, read1_, bufferSize, header, buffered, useSharedHeader);
 	}
@@ -41,6 +22,11 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------          Execution           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main execution method for the writer thread. Handles IOException
+	 * by setting finishedSuccessfully flag to false and rethrowing as
+	 * RuntimeException.
+	 */
 	@Override
 	public void run() {
 		try {
@@ -52,12 +38,6 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 		}
 	}
 	
-	/**
-	 * Internal execution method that performs the actual writing workflow.
-	 * Creates ByteBuilders for sequence and quality data, then processes
-	 * jobs from the queue until completion.
-	 * @throws IOException if writing operations fail
-	 */
 	private void run2() throws IOException{
 		writeHeader();
 		
@@ -72,12 +52,6 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Writes format-specific header information to the output stream.
-	 * Handles headers for FASTR, interleaved mode, sites-only mode,
-	 * and standard READ format headers.
-	 * @throws IOException if header writing fails
-	 */
 	private void writeHeader() throws IOException {
 		if(!OUTPUT_SAM && !OUTPUT_FASTQ && !OUTPUT_FASTA && !OUTPUT_ATTACHMENT && !OUTPUT_HEADER && !OUTPUT_ONELINE){
 			if(OUTPUT_FASTR){
@@ -98,15 +72,6 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 		}
 	}
 
-	/**
-	 * Processes writing jobs from the queue until a poison job is received.
-	 * Routes jobs to appropriate format-specific writers based on output flags.
-	 * Handles both regular and closing jobs with proper stream management.
-	 *
-	 * @param bb ByteBuilder for sequence data
-	 * @param bbq ByteBuilder for quality data (may be null)
-	 * @throws IOException if job processing fails
-	 */
 	private void processJobs(final ByteBuilder bb, final ByteBuilder bbq) throws IOException{
 		
 		Job job=null;
@@ -171,8 +136,13 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 	
 	/**
-	 * @throws IOException
-	 * 
+	 * Completes writing operations by flushing remaining data and closing streams.
+	 * Writes any remaining data in buffers to output and quality streams,
+	 * then properly closes all streams using ReadWrite.finishWriting().
+	 *
+	 * @param bb ByteBuilder containing remaining sequence data
+	 * @param bbq ByteBuilder containing remaining quality data
+	 * @throws IOException if final write operations fail
 	 */
 	private synchronized void finishWriting(final ByteBuilder bb, final ByteBuilder bbq) throws IOException {
 		if(myOutstream!=null){
@@ -197,15 +167,6 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Writes quality scores in FASTA-like format to the quality output stream.
-	 * Handles both read1/read2 selection and interleaved output modes.
-	 * Uses 32KB buffer chunks for efficient writing.
-	 *
-	 * @param job Job containing reads to process
-	 * @param bbq ByteBuilder for quality data output
-	 * @throws IOException if quality writing fails
-	 */
 	private void writeQuality(final Job job, final ByteBuilder bbq) throws IOException{
 		bbq.setLength(0);
 		if(read1){
@@ -257,10 +218,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 	
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes reads in BREAD format (BBTools native text format).
+	 * Outputs complete read information including metadata using Read.toText().
+	 * Handles interleaved mode and read1/read2 selection with 32KB buffering.
+	 *
+	 * @param job Job containing reads to write
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if BREAD writing fails
 	 */
 	private void writeBread(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -304,10 +269,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes attachment objects or SAM lines associated with reads.
+	 * Outputs either the read's attached object (toString()) or samline data.
+	 * Used for custom data formats attached to read objects.
+	 *
+	 * @param job Job containing reads with attachments
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if attachment writing fails
 	 */
 	private void writeAttachment(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -349,10 +318,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes only read headers/identifiers without sequence data.
+	 * Outputs read IDs one per line, handling interleaved mode and
+	 * read1/read2 selection. Used for creating read name lists.
+	 *
+	 * @param job Job containing reads to extract headers from
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if header writing fails
 	 */
 	private void writeHeader(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -391,10 +364,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes reads in FASTA format with configurable line wrapping.
+	 * Uses Read.toFasta() method with FASTA_WRAP setting for proper formatting.
+	 * Handles interleaved output and maintains read/base counts.
+	 *
+	 * @param job Job containing reads to write in FASTA format
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if FASTA writing fails
 	 */
 	private void writeFasta(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -435,10 +412,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes reads in tab-delimited one-line format (ID \t SEQUENCE).
+	 * Each read becomes a single line with tab-separated identifier and bases.
+	 * Compact format useful for downstream processing tools.
+	 *
+	 * @param job Job containing reads to write in one-line format
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if one-line writing fails
 	 */
 	private void writeOneline(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -479,10 +460,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes reads in standard FASTQ format with quality scores.
+	 * Uses Read.toFastq() method for proper 4-line FASTQ formatting.
+	 * Handles interleaved output and maintains read/base statistics.
+	 *
+	 * @param job Job containing reads to write in FASTQ format
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if FASTQ writing fails
 	 */
 	private void writeFastq(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		if(read1){
@@ -523,10 +508,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes reads in FASTR format (BBTools fast read format).
+	 * Outputs in blocks: count, all IDs, all sequences, all qualities.
+	 * Optimized format for rapid I/O with reduced per-read overhead.
+	 *
+	 * @param job Job containing reads to write in FASTR format
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if FASTR writing fails
 	 */
 	private void writeFastr(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		bb.append(job.list.size()).append('\n');
@@ -581,10 +570,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @param os
-	 * @throws IOException
+	 * Writes alignment sites information for reads.
+	 * Outputs site data using Read.toSites() method for both read1 and read2.
+	 * Only processes reads that have alignment sites data available.
+	 *
+	 * @param job Job containing reads with sites data
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream to write to
+	 * @throws IOException if sites writing fails
 	 */
 	private void writeSites(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		assert(read1);
@@ -611,9 +604,14 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 
 	/**
-	 * @param job
-	 * @param bb
-	 * @throws IOException
+	 * Writes reads in SAM format with proper paired-read handling.
+	 * Creates SamLine objects for primary alignments and handles secondary
+	 * alignments if enabled. Ensures consistent naming for paired reads.
+	 *
+	 * @param job Job containing reads to write in SAM format
+	 * @param bb ByteBuilder for output formatting
+	 * @param os OutputStream used to flush buffered SAM records
+	 * @throws IOException if SAM writing fails
 	 */
 	private void writeSam(Job job, ByteBuilder bb, OutputStream os) throws IOException {
 		assert(read1);
@@ -636,9 +634,13 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	}
 	
 	/**
-	 * @param r Read to print
-	 * @param primary Primary alignment of this read
-	 * @param bb A buffer
+	 * Writes a single read and its alignments in SAM format.
+	 * Outputs the primary alignment and optionally secondary alignments.
+	 * Creates cloned reads for secondary alignments with proper SAM flags.
+	 *
+	 * @param r Read to write
+	 * @param primary Primary alignment SamLine for this read
+	 * @param bb ByteBuilder for SAM output formatting
 	 */
 	private void writeSam(Read r, SamLine primary, ByteBuilder bb) {
 		if(r==null || primary==null) {return;}
@@ -671,9 +673,7 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Whether to use buffered output streams for improved performance */
 	private static final boolean buffered=true;
-	/** Controls verbose logging output for debugging purposes */
 	private static final boolean verbose=false;
 	
 }

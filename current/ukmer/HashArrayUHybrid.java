@@ -10,10 +10,12 @@ import shared.Tools;
 import structures.IntList2;
 
 /**
- * Stores kmers in a long[] and counts in an int[], with a victim cache.
+ * Hybrid hash array for k-mer storage with flexible count management.
+ * Stores k-mers in long[] arrays and counts in int[] arrays, with support for both
+ * single and multi-value storage modes using a victim cache for collision handling.
+ *
  * @author Brian Bushnell
  * @date Oct 25, 2013
- *
  */
 public final class HashArrayUHybrid extends HashArrayU {
 	
@@ -21,14 +23,6 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates a hybrid hash array with scheduled resizing.
-	 * Initializes the hash table with a victim cache and flexible count storage.
-	 *
-	 * @param schedule_ Resizing schedule for automatic growth
-	 * @param k_ K-mer length for hashing
-	 * @param kbig_ Maximum k-mer length supported
-	 */
 	public HashArrayUHybrid(int[] schedule_, int k_, int kbig_){
 		super(schedule_, k_, kbig_, true);
 		values=allocInt1D(prime+extra);
@@ -49,6 +43,14 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Increments the count for a k-mer, inserting if not present.
+	 * Handles hash collisions by using the victim cache and automatically
+	 * resizes the table when size limits are exceeded.
+	 *
+	 * @param kmer The k-mer to increment
+	 * @return The new count value for the k-mer
+	 */
 	@Override
 	public final int increment(final Kmer kmer){
 		final int cell=findKmerOrEmpty(kmer);
@@ -70,6 +72,14 @@ public final class HashArrayUHybrid extends HashArrayU {
 		}
 	}
 	
+	/**
+	 * Increments a k-mer count and returns the number of new k-mers created.
+	 * Returns 1 if the k-mer was newly inserted, 0 if it already existed.
+	 * Automatically resizes when size limits are exceeded.
+	 *
+	 * @param kmer The k-mer to increment
+	 * @return 1 if k-mer was newly created, 0 if it already existed
+	 */
 	@Override
 	public final int incrementAndReturnNumCreated(final Kmer kmer){
 		final int cell=findKmerOrEmpty(kmer);
@@ -95,6 +105,14 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the value stored in a hash table cell.
+	 * Handles both single-value storage (positive values) and multi-value
+	 * storage (negative indices into setList).
+	 *
+	 * @param cell The cell index to read from
+	 * @return The value stored in the cell or first value from multi-value array
+	 */
 	@Override
 	protected final int readCellValue(int cell) {
 		final int x=values[cell];
@@ -102,6 +120,15 @@ public final class HashArrayUHybrid extends HashArrayU {
 		return setList.get(0-x)[0];
 	}
 	
+	/**
+	 * Reads all values stored in a hash table cell.
+	 * For single values, returns the singleton array; for multi-values,
+	 * returns the array from setList.
+	 *
+	 * @param cell The cell index to read from
+	 * @param singleton Single-element array for single-value returns
+	 * @return Array containing all values for the cell
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		final int x=values[cell];
@@ -112,6 +139,15 @@ public final class HashArrayUHybrid extends HashArrayU {
 		return setList.get(0-x);
 	}
 	
+	/**
+	 * Inserts multiple values into a hash table cell for a k-mer.
+	 * Handles conversion from single-value to multi-value storage and
+	 * manages the setList for storing value arrays.
+	 *
+	 * @param kmer The k-mer key being inserted
+	 * @param vals Array of values to insert
+	 * @param cell The target cell for insertion
+	 */
 	@Override
 	protected final void insertValue(long[] kmer, int[] vals, int cell) {
 		if(verbose){System.err.println("insertValue("+kmer+", "+Arrays.toString(vals)+", "+cell+"); old="+values[cell]);}
@@ -147,6 +183,15 @@ public final class HashArrayUHybrid extends HashArrayU {
 		}
 	}
 	
+	/**
+	 * Inserts a single value into a hash table cell for a k-mer.
+	 * Handles conversion from single-value to multi-value storage when
+	 * multiple values need to be stored for the same k-mer.
+	 *
+	 * @param kmer The k-mer key being inserted
+	 * @param v The value to insert
+	 * @param cell The target cell for insertion
+	 */
 	@Override
 	protected final void insertValue(long[] kmer, int v, int cell) {
 		assert(matches(kmer, cell));
@@ -164,15 +209,6 @@ public final class HashArrayUHybrid extends HashArrayU {
 		}
 	}
 	
-	/**
-	 * Inserts a value into a multi-value array at the specified location.
-	 * Creates new arrays as needed and expands existing arrays when full.
-	 * Prevents duplicate values from being inserted.
-	 *
-	 * @param v The value to insert
-	 * @param loc The location index in setList
-	 * @return 1 if value was newly inserted, 0 if it already existed
-	 */
 	private final int insertIntoList(final int v, final int loc){
 		
 		if(loc>=setList.size){
@@ -204,6 +240,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns false as this implementation does not support rebalancing */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
@@ -317,6 +354,12 @@ public final class HashArrayUHybrid extends HashArrayU {
 //	}
 
 	
+	/**
+	 * Resizes the hash table to accommodate more k-mers.
+	 * Rehashes all existing k-mers and victim cache entries into the new larger table.
+	 * Uses either scheduled sizing or dynamic sizing based on load factors.
+	 * Triggers memory kill if maximum table size is exceeded.
+	 */
 	@Override
 	protected synchronized void resize(){
 		if(verbose){System.err.println("Resizing from "+prime+"; load="+(size*1f/prime));}
@@ -425,12 +468,19 @@ public final class HashArrayUHybrid extends HashArrayU {
 	}
 	
 	
+	/** @deprecated Rebalancing is not implemented for this hash table type */
 	@Deprecated
 	@Override
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * @deprecated Regeneration is not supported for this hash table type
+	 * @param limit Unused parameter
+	 * @return Never returns normally
+	 * @throws RuntimeException Always thrown
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -441,9 +491,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing count values for k-mers in the hash table */
 	private int[] values;
-	/** List of integer arrays for storing multi-value k-mer counts */
 	private IntList2 setList;
 	
 

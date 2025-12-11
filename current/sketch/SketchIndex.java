@@ -15,21 +15,8 @@ import structures.IntHashMap;
 import structures.IntHashSetList;
 import structures.IntList;
 
-/**
- * Index structure for fast k-mer lookup across multiple reference sketches.
- * Provides efficient search capabilities using hash tables distributed across multiple ways.
- * Supports both list-based and map-based search algorithms for different performance needs.
- * Used for rapid similarity searches in large sketch databases.
- *
- * @author Brian Bushnell
- */
 public class SketchIndex extends SketchObject {
 	
-	/**
-	 * Constructs a SketchIndex with reference sketches and allocates hash tables.
-	 * Creates KmerTableSet with specified ways and preallocated space for efficient indexing.
-	 * @param refs ArrayList of reference sketches to index
-	 */
 	public SketchIndex(ArrayList<Sketch> refs){
 		refSketches=refs;
 		tables=new KmerTableSet(new String[] {"ways="+WAYS, "tabletype="+AbstractKmerTable.ARRAYHF, "prealloc="+(prealloc>0 ? ""+prealloc : "f")}, 
@@ -38,8 +25,6 @@ public class SketchIndex extends SketchObject {
 		tableArray=tables.tables();
 	}
 	
-	/** Loads the index by spawning indexing threads and optionally initializing whitelist.
-	 * Populates hash tables with k-mers from all reference sketches using multithreading. */
 	public void load(){
 		spawnIndexThreads();
 		if(useWhitelist){
@@ -48,7 +33,8 @@ public class SketchIndex extends SketchObject {
 		}
 	}
 	
-	/** Spawn index threads */
+	/** Creates and manages multiple indexing threads for parallel processing of reference sketches.
+	 * Distributes work across threads, aggregates success state, and reports total unique and total hash codes indexed. */
 	private void spawnIndexThreads(){
 		
 		//Do anything necessary prior to processing
@@ -100,14 +86,6 @@ public class SketchIndex extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main entry point for sketch similarity search.
-	 * Delegates to either map-based or list-based search algorithm based on useIntMap setting.
-	 *
-	 * @param a Query sketch to search for
-	 * @param params Display and filtering parameters
-	 * @return SketchResults containing matching reference sketches
-	 */
 	public SketchResults getSketches(Sketch a, DisplayParams params){
 		if(useIntMap){
 			return getSketchesMap(a, params);
@@ -116,7 +94,14 @@ public class SketchIndex extends SketchObject {
 		}
 	}
 	
-	/** Return true if added. */
+	/**
+	 * Adds taxonomic ID to contamination tracking set at specified taxonomic level.
+	 * Retrieves tax ID from sketch and maps to appropriate taxonomic level using tax tree.
+	 * @param sketchID ID of the sketch to get taxonomic information from
+	 * @param taxSet Set to add taxonomic ID to
+	 * @param taxLevelExtended Taxonomic level to resolve to
+	 * @return true if taxonomic ID was successfully added, false otherwise
+	 */
 	private boolean addToTaxSet(int sketchID, IntHashSetList taxSet, int taxLevelExtended){
 		Sketch sk=refSketches.get(sketchID);
 		int taxID=sk.taxID;
@@ -125,15 +110,6 @@ public class SketchIndex extends SketchObject {
 		return taxSet.add(taxID);
 	}
 	
-	/**
-	 * List-based sketch search algorithm using IntList for hit accumulation.
-	 * Searches index for k-mer matches, accumulates hits per sketch, and filters by minimum hits.
-	 * Supports contamination level tracking and taxonomic filtering when enabled.
-	 *
-	 * @param a Query sketch to search for
-	 * @param params Display parameters including minimum hits threshold
-	 * @return SketchResults with matching sketches above hit threshold
-	 */
 	public SketchResults getSketchesList(final Sketch a, DisplayParams params){
 		final int minHits=params.minHits, contamLevel=params.contamLevel();
 		final boolean countContamHits=params.needContamCounts();//, metaFilter=params.hasMetaFilters(), taxFilter=params.hasTaxFilters();
@@ -229,29 +205,12 @@ public class SketchIndex extends SketchObject {
 	
 //	static ThreadLocal<IntHashMap> intMapHolder=new ThreadLocal<IntHashMap>();
 	
-	/**
-	 * Retrieves sketch IDs that contain the specified k-mer key.
-	 * Uses hash table lookup with key modulo WAYS for distribution.
-	 *
-	 * @param key K-mer hash code to search for
-	 * @param singleton Reusable array for single value results
-	 * @return Array of sketch IDs containing the key, or null if not found
-	 */
 	public final int[] getSketchIdsMap(long key, int[] singleton){
 		AbstractKmerTable set=tableArray[(int)(key%WAYS)];
 		final int[] ids=set.getValues(key, singleton);
 		return ids;
 	}
 	
-	/**
-	 * Map-based sketch search algorithm using IntHashMap for hit counting.
-	 * More memory efficient than list-based approach for large result sets.
-	 * Tracks hit counts per sketch and supports contamination analysis.
-	 *
-	 * @param a Query sketch to search for
-	 * @param params Display parameters including minimum hits and contamination level
-	 * @return SketchResults with matching sketches above hit threshold
-	 */
 	public SketchResults getSketchesMap(final Sketch a, DisplayParams params){
 		final int minHits=params.minHits, contamLevel=params.contamLevel();
 		final boolean countContamHits=params.needContamCounts();//, metaFilter=params.hasMetaFilters(), taxFilter=params.hasTaxFilters();
@@ -341,21 +300,8 @@ public class SketchIndex extends SketchObject {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread for parallel indexing of reference sketches.
-	 * Processes assigned sketches by adding their k-mers to hash tables with sketch IDs.
-	 * Uses HashBuffer for efficient batch insertions and tracks processing statistics.
-	 */
 	public class IndexThread extends Thread {
 		
-		/**
-		 * Constructs IndexThread with shared counters for work distribution.
-		 * Initializes HashBuffer for efficient k-mer insertion into hash tables.
-		 *
-		 * @param nextIndex_ Atomic counter for next sketch to process
-		 * @param keyCount_ Atomic counter for total k-mers processed
-		 * @param uniqueKeyCount_ Atomic counter for unique k-mers added
-		 */
 		public IndexThread(AtomicInteger nextIndex_, AtomicLong keyCount_, AtomicLong uniqueKeyCount_){
 			buffer=new HashBuffer(tableArray, 1000, 31, true, false);
 			nextIndex=nextIndex_;
@@ -363,6 +309,8 @@ public class SketchIndex extends SketchObject {
 			uniqueKeyCount=uniqueKeyCount_;
 		}
 		
+		/** Indexes assigned reference sketches in this worker thread.
+		 * Adds sketch k-mers to hash tables with IDs offset by 1 and tracks per-thread code counts via shared Atomics. */
 		@Override
 		public void run(){
 //			System.err.println("Thread running.");
@@ -393,43 +341,28 @@ public class SketchIndex extends SketchObject {
 			}
 		}
 		
-		/** Shared counter for thread work distribution across reference sketches */
 		AtomicInteger nextIndex;
-		/** Total number of k-mer keys processed by all threads */
 		AtomicLong keyCount;
-		/** Number of unique k-mer keys added to the index */
 		AtomicLong uniqueKeyCount;
-		/** Thread-local counter of k-mer codes processed by this thread */
 		long codesProcessedT=0;
-		/** Buffer for efficient batch insertion of k-mers into hash tables */
 		HashBuffer buffer;
-		/** Indicates successful completion of this thread's indexing work */
 		boolean success=false;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Set of hash tables for distributed k-mer storage */
 	public final KmerTableSet tables;
-	/** Array of individual hash tables from the table set */
 	public final AbstractKmerTable[] tableArray;
-	/** Reference sketches being indexed for similarity searches */
 	public final ArrayList<Sketch> refSketches;
 	
-	/** Indicates if an error occurred during indexing operations */
 	public boolean errorState=false;
 
-	/** Debug flag to enable timing output for performance analysis */
 	private static final boolean printTime=false;
-	/** Controls whether to use IntHashMap or IntList for hit accumulation */
 	public static boolean useIntMap=true;
 //	public static boolean useIntMapBinary=false;
-	/** Initial size for IntHashMap when using map-based search algorithm */
 	public static int intMapSize=1000;
-	/** Maximum number of k-mers to index per sketch */
 	public static int indexLimit=Integer.MAX_VALUE;
-	/** Number of hash table ways for distributing k-mers across tables */
 	public static final int WAYS=31;
 	
 }

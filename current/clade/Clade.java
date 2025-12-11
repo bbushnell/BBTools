@@ -19,9 +19,7 @@ import tracker.KmerTracker;
 
 /**
  * Represents a taxonomic clade with k-mer frequency signatures.
- * Contains 1-mer through 5-mer frequencies and various statistics for genome comparison.
- * K-mers are stored as canonical forms to reduce dimensionality.
- * 
+ * Contains 1-mer through 5-mer counts and derived statistics for genome comparison, using canonical k-mers to reduce dimensionality.
  * @author Brian Bushnell
  * @date April 12, 2025
  */
@@ -29,8 +27,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 	/**
 	 * Constructs a Clade with the specified taxonomic information.
-	 * Initializes k-mer count arrays from 1-mer through 5-mer.
-	 * 
+	 * Initializes k-mer count arrays from 1-mer through 5-mer using canonical indexing.
 	 * @param taxID_ The taxonomic ID number
 	 * @param level_ The taxonomic level (e.g., species, genus)
 	 * @param name_ The taxonomic name
@@ -47,12 +44,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		counts[5]=new long[arrayLength[5]];//Could be optionally allocated later
 	}
 
-	/**
-	 * Creates a Clade from a taxonomic ID by looking up taxonomic information.
-	 * 
-	 * @param tid The taxonomic ID to look up
-	 * @return A new Clade with information from the taxonomy tree, or a minimal Clade if ID not found
-	 */
 	public static Clade makeClade(int tid) {
 		if(perSequence || !useTree) {return new Clade(tid, -1, null);}
 		TaxNode tn=tree.getNode(tid);
@@ -63,12 +54,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return new Clade(tn.id, tn.level, tn.name);
 	}
 	
-	/**
-	 * Convert a list of byte arrays to a Clade object.
-	 * @param list List of byte arrays containing clade data
-	 * @param lp LineParser for parsing the data
-	 * @return Clade object created from the data
-	 */
 	public static Clade parseClade(ArrayList<byte[]> list, LineParser1 lp) {
 		int lines=0;
 		int coding=Clade.DECIMAL;
@@ -167,13 +152,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return c;
 	}
 	
-	/**
-	 * Adds a sequence to this Clade, updating k-mer counts and statistics.
-	 * 
-	 * @param seq The sequence to add
-	 * @param et An EntropyTracker for calculating sequence entropy
-	 * @param caller A GeneCaller for calling 16S/18S
-	 */
 	public synchronized void add(Read r, EntropyTracker et, GeneCaller caller) {
 		add(r.bases, et);
 		if(caller==null || hasSSU() || r.length()<900) {return;}
@@ -191,12 +169,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		}
 	}
 	
-	/**
-	 * Adds a sequence to this Clade, updating k-mer counts and statistics.
-	 * 
-	 * @param seq The sequence to add
-	 * @param et An EntropyTracker for calculating sequence entropy
-	 */
 	public synchronized void add(byte[] seq, EntropyTracker et) {
 		finished=false;
 		countKmersMulti(seq, counts, 5);
@@ -209,8 +181,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	
 	/**
 	 * Merges another Clade into this one, combining counts and updating statistics.
-	 * If this Clade is empty, it will adopt the taxonomic information of the other Clade.
-	 * 
+	 * If this Clade is empty, it adopts the taxonomic information of the other Clade.
 	 * @param c The Clade to merge into this one
 	 */
 	public synchronized void add(Clade c) {
@@ -237,7 +208,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	
 	/**
 	 * Completes the Clade by calculating derived statistics.
-	 * This includes GC content, strandedness, entropy compensation, and normalized k-mer distributions.
+	 * Computes GC content, strandedness, homopolymer and CA-GA measures, entropy compensation, and k-mer frequency arrays.
 	 * Once completed, the Clade's state should not be modified.
 	 */
 	public synchronized void finish() {
@@ -257,11 +228,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		finished=true;
 	}
 	
-	/**
-	 * Calculates the GC content from the 1-mer counts.
-	 * 
-	 * @return The fraction of G and C bases relative to all counted bases (A,C,G,T)
-	 */
 	private synchronized float calcGC() {
 		long[] acgtn=counts[1];
 		long a=acgtn[0], c=acgtn[1], g=acgtn[2], t=acgtn[3];
@@ -269,11 +235,9 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	}
 	
 	/**
-	 * Makes a kmer frequency array with raw or normalized frequencies.
-	 * For ABSCOMP method, groups k-mers by GC content and normalizes within each group.
-	 * This means for 3-mers, CCC frequency would be calculated as 
-	 * (count of CCC)/(CCC+CCG+CGC+...+GGG) rather than as a fraction of all 3-mers.
-	 * This assumes a canonical count array.  Non-normalized version has no such requirement.
+	 * Makes a k-mer frequency array with raw or GC-compensated frequencies.
+	 * For ABSCOMP, calls SimilarityMeasures.compensate to normalize within GC content groups; otherwise normalizes counts to sum to 1.
+	 * Assumes counts come from a canonical k-mer array for compensated mode.
 	 */
 	public static synchronized float[] toFrequencies(long[] counts, final int k) {
 		if(Comparison.method==Comparison.ABSCOMP) {return SimilarityMeasures.compensate(counts, k);}
@@ -284,12 +248,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return freqs;
 	}
 	
-	/** Returns true if this Clade contains 16S or 18S rRNA sequences */
 	synchronized boolean hasSSU() {return r16S!=null | r18S!=null;}
 	
-	/**
-	 * Resets the Clade to an empty state, clearing all counts and statistics.
-	 */
 	public synchronized void clear() {
 		finished=false;
 		
@@ -301,12 +261,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		Tools.fill(counts, 0);
 	}
 	
-	/**
-	 * Compares Clades primarily by HH, then by GC content, then by size, then by taxonomic ID.
-	 * 
-	 * @param b The Clade to compare to
-	 * @return Negative if this Clade should be ordered before b, positive if after
-	 */
 	@Override
 	public int compareTo(Clade b) {
 		if(hh!=b.hh) {return hh>b.hh ? 1 : -1;}
@@ -315,19 +269,11 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return taxID-b.taxID;
 	}
 
-	/** Gets the cached taxonomic lineage or generates it from the taxonomic ID.
-	 * @return Formatted taxonomic lineage string, or "NA" if unavailable */
 	public CharSequence lineage() {
 		if(lineage!=null) {return lineage;}
 		return taxID<1 ? "NA" : (lineage=lineage(taxID).toString());
 	}
 	
-	/**
-	 * Gets the taxonomic lineage for a given taxonomic ID.
-	 * 
-	 * @param tid Taxonomic ID
-	 * @return Formatted taxonomic lineage string, or "NA" if unavailable
-	 */
 	public static CharSequence lineage(int tid) {
 		if(tree==null || tid<1) {return "NA";}
 		TaxNode tn=tree.getNode(tid);
@@ -335,24 +281,12 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return PrintTaxonomy.makeTaxLine(tree, tn, MIN_LINEAGE_LEVEL_E, TaxTree.SUPERKINGDOM_E, true, true);
 	}
 	
-	/**
-	 * Returns a simple string representation of this Clade.
-	 * 
-	 * @return String containing taxonomic ID, GC content, and name
-	 */
 	public synchronized String toString() {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("tid=").append(taxID).append("\tgc=").append(gc, 4).append("\tname=").append(name);
 		return bb.toString();
 	}
 	
-	/**
-	 * Creates a detailed text representation of this Clade.
-	 * Includes all taxonomic information, statistics, and k-mer counts.
-	 * 
-	 * @param bb ByteBuilder to append to, or null to create a new one
-	 * @return The ByteBuilder with appended Clade information
-	 */
 	public synchronized ByteBuilder toBytes(ByteBuilder bb) {
 		if(bb==null) {bb=new ByteBuilder();}
 		assert(finished);
@@ -394,63 +328,34 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return bb;
 	}
 	
-	/**
-	 * Checks if this Clade has been completed with finish().
-	 * 
-	 * @return true if finish() has been called, false otherwise
-	 */
 	public synchronized boolean finished() {return finished;}
 	
-	/** Taxonomic ID number */
 	public int taxID=-1;
-	/** Taxonomic level (e.g., species, genus) */
 	public int level=-1;
-	/** Taxonomic name */
 	public String name=null;
-	/** Taxonomic lineage */
 	public String lineage=null;
-	/** K-mer count arrays - index 1 for 1-mers, 2 for 2-mers, etc. */
 	public final long[][] counts;
-	/** Normalized frequencies or GC-compensated values */
 	public float[][] frequencies;
 
-	/** 16S ribosomal RNA sequence */
 	public byte[] r16S;
-	/** 18S ribosomal RNA sequence */
 	public byte[] r18S;
 	
-	/** Total number of bases in this Clade */
 	public long bases;
-	/** Number of contigs or sequences in this Clade */
 	public long contigs;
-	/** GC content (fraction of G+C bases) */
 	public float gc;
-	/** Shannon entropy of sequence */
 	public float entropy;
-	/** GC-compensated entropy */
 	public float gcCompEntropy;
-	/** Measure of strand bias */
 	public float strandedness;
-	/** Measure of homopolymer tendency */
 	public float hh;
-	/** CA-GA tendency */
 	public float caga;
-	/** Flag indicating whether this Clade has been completed with finish() */
 	private boolean finished=false;
 	
-	/** Constant for decimal encoding format */
 	public static final int DECIMAL=0, A48=1;
-	/** Output encoding format (DECIMAL or A48) */
 	public static int outputCoding=A48; //A48 breaks Cloudflare...  now bypassed
-	/** Maximum k-mer length to process */
 	public static int MAXK=5;
-	/** Flag to enable 16S/18S rRNA gene calling */
 	public static boolean callSSU=false;
-	/** Flag to include taxonomic lineage in output */
 	public static boolean writeLineage=true;
-	/** Flag to create frequency arrays */
 	public static boolean MAKE_FREQUENCIES=true;
-	/** Flag to delete count arrays after conversion to frequencies */
 	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.
 	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
 	

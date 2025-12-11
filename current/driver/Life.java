@@ -16,9 +16,13 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Implementation of Conway's Game of Life cellular automaton.
+ * Simulates the evolution of a 2D grid of cells according to simple rules:
+ * live cells with 2-3 neighbors survive, dead cells with 3 neighbors become alive.
+ * Supports configurable grid dimensions, initial probability, display options, and cycle limits.
+ *
  * @author Brian Bushnell
  * @date April 9, 2020
- *
  */
 public class Life {
 	
@@ -27,8 +31,9 @@ public class Life {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for Conway's Game of Life simulation.
+	 * Creates a Life instance, runs the simulation, and handles cleanup.
+	 * @param args Command-line arguments for configuration
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -45,8 +50,10 @@ public class Life {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a new Life simulation with command-line arguments.
+	 * Parses configuration options, initializes the game grid, and sets up output streams.
+	 * Creates three 2D byte arrays for current, previous, and next generation states.
+	 * @param args Command-line arguments containing grid size, probability, cycles, display options
 	 */
 	public Life(String[] args){
 		
@@ -82,7 +89,14 @@ public class Life {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments to configure the Life simulation.
+	 * Supports parameters: x/width/columns, y/height/rows, cycles/rounds,
+	 * prob/load, display, interval/delay, and verbose.
+	 *
+	 * @param args Array of command-line arguments in key=value format
+	 * @return Parser object containing parsed configuration
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -124,12 +138,6 @@ public class Life {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that runs the complete Life simulation.
-	 * Initializes the grid with random cells, runs the evolution cycles,
-	 * and handles timing and error reporting.
-	 * @param t Timer for tracking execution time and performance metrics
-	 */
 	void process(Timer t){
 		init();
 		
@@ -151,11 +159,6 @@ public class Life {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Initializes the game grid with random living cells.
-	 * Each cell has a probability (prob) of starting alive based on random generation.
-	 * Uses thread-local random number generator for consistent seeding.
-	 */
 	private void init(){
 		Random randy=Shared.threadLocalRandom();
 		for(int y=0; y<rows; y++){
@@ -165,11 +168,6 @@ public class Life {
 		}
 	}
 	
-	/**
-	 * Executes the main simulation loop for all cycles.
-	 * Clears the display if enabled and runs each generation cycle sequentially.
-	 * Handles console clearing for animated display mode.
-	 */
 	private void processInner(){
 
 		if(display){
@@ -181,14 +179,6 @@ public class Life {
 		}
 	}
 	
-	/**
-	 * Executes a single generation cycle of the Game of Life.
-	 * Updates display with current cycle number, advances the generation,
-	 * and rotates the grid arrays for the next iteration.
-	 *
-	 * @param cycle The current cycle number for display purposes
-	 * @return true if any cells changed state during this cycle
-	 */
 	private boolean runCycle(long cycle){
 
 		if(display){
@@ -210,12 +200,6 @@ public class Life {
 		return changes>0;
 	}
 	
-	/**
-	 * Advances the simulation by one generation using Game of Life rules.
-	 * Processes each row, counts changes, handles display output,
-	 * and applies the configured delay between generations.
-	 * @return Number of cells that changed state during this generation
-	 */
 	private int advance(){
 		int changes=0;
 		for(int y=0; y<rows; y++){
@@ -240,15 +224,6 @@ public class Life {
 //		System.out.println("-----------------");
 //	}
 	
-	/**
-	 * Calculates the next generation state for a single row.
-	 * Applies Conway's Game of Life rules: live cells with 2-3 neighbors survive,
-	 * dead cells with exactly 3 neighbors become alive. Uses wraparound edges
-	 * treating the grid as a torus topology.
-	 *
-	 * @param y The row index to process
-	 * @return Number of cells that changed state in this row
-	 */
 	private int fillRow(int y){
 		final byte[] dest=current[y];
 		final byte[] a=getRow(y-1, prev);
@@ -290,12 +265,6 @@ public class Life {
 	}
 	
 	//Using bsw
-	/**
-	 * Prints a row to the text stream writer using character mapping.
-	 * Converts cell states to display characters and writes to the output buffer.
-	 * Updates line and byte counters for statistics.
-	 * @param row Array of cell states to print
-	 */
 	private void printRow(byte[] row){
 		for(int i=0; i<row.length; i++){
 			byte state=row[i];
@@ -307,12 +276,6 @@ public class Life {
 	}
 	
 	//Using System.out
-	/**
-	 * Prints a row directly to System.out for live display.
-	 * Converts cell states to display characters for real-time visualization.
-	 * Updates line and byte counters for statistics.
-	 * @param row Array of cell states to display
-	 */
 	private void printRow2(byte[] row){
 		for(int i=0; i<row.length; i++){
 			byte state=row[i];
@@ -323,23 +286,10 @@ public class Life {
 		bytesOut+=row.length;
 	}
 	
-	/**
-	 * Gets a row from the matrix with wraparound boundary conditions.
-	 * Implements torus topology where edges wrap to opposite sides.
-	 *
-	 * @param y Row index (may be out of bounds)
-	 * @param matrix The 2D grid to access
-	 * @return The requested row with boundary wraparound applied
-	 */
 	private byte[] getRow(int y, byte[][] matrix){
 		return y<0 ? matrix[yMax] : y>yMax ? matrix[0] : matrix[y];
 	}
 	
-	/**
-	 * Creates and starts a text stream writer for the given file format.
-	 * @param ff File format specification, or null for no output
-	 * @return Initialized TextStreamWriter, or null if ff is null
-	 */
 	private static TextStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		TextStreamWriter bsw=new TextStreamWriter(ff);
@@ -347,11 +297,6 @@ public class Life {
 		return bsw;
 	}
 	
-	/**
-	 * Introduces a delay for animation timing.
-	 * Uses Thread.sleep() to control the speed of generation updates for visual display.
-	 * @param millis Delay time in milliseconds (no delay if less than 1)
-	 */
 	private void delay(int millis){
 		if(millis<1){return;}
 		
@@ -370,77 +315,52 @@ public class Life {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file path for saving simulation results */
 	private String out=null;
-	/** Maximum number of generation cycles to simulate */
 	private long maxCycles=100;
 	
-	/** Number of columns (width) in the game grid */
 	private int columns=50;
-	/** Number of rows (height) in the game grid */
 	private int rows=20;
-	/** Probability that a cell starts alive during initialization */
 	private float prob=0.25f;
-	/** Whether to show live display of the simulation */
 	private boolean display=true;
-	/** Delay in milliseconds between generation updates */
 	private int delay=0;
 	
 	/** Maximum y-coordinate index (rows - 1) */
-	/** Maximum x-coordinate index (columns - 1) */
 	private final int xMax, yMax;
-	/** Character buffer for row output with newline terminator */
 	private final byte[] buffer;
 	
-	/** Text stream writer for file output */
 	private final TextStreamWriter bsw;
 	
-	/** Current generation grid state */
 	private byte[][] current;
-	/** Previous generation grid state */
 	private byte[][] prev;
-	/** Next generation grid state (rotates with current and prev) */
 	private byte[][] next;
 	
-	/**
-	 * Conway's Game of Life state transition rules: [currentState][neighborCount] -> nextState
-	 */
 	private final byte[][] stateMap=new byte[][] {
 		{0, 0, 0, 1, 0, 0, 0, 0, 0, 0}, //Dead
 		{0, 0, 0, 1, 1, 0, 0, 0, 0, 0} //Live (Add 1)
 	};
 	
-	/** Maps cell states to display characters: 0=' ' (space), 1='@' */
 	private final byte[] charMap=new byte[] {' ', '@'};
 //	private final byte[] charMap=new byte[] {' ', block}; //Eclipse can't handle block character
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of output lines written */
 	private long linesOut=0;
-	/** Count of output bytes written */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file format specification */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for messages and errors */
 	private PrintStream outstream=System.err;
-	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** Indicates if the program encountered errors during execution */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

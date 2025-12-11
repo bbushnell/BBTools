@@ -12,17 +12,15 @@ import stream.Read;
 import template.BBTool_ST;
 
 /**
+ * Generates small-k k-mer frequency profiles for reads and writes the top hits.
+ * Builds canonical k-mer indices, counts occurrences, and formats results per read.
  * @author Brian Bushnell
  * @date Feb 19, 2015
- *
  */
 public class SmallKmerFrequency extends BBTool_ST {
 	
-	/**
-	 * Code entrance from the command line.
-	 * Must be overridden; the commented body is an example.
-	 * @param args Command line arguments
-	 */
+	/** Entry point that constructs the tool and runs processing with timing.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FileFormat.PRINT_WARNING=false;
@@ -30,6 +28,7 @@ public class SmallKmerFrequency extends BBTool_ST {
 		bbt.process(t);
 	}
 	
+	/** Sets default parameters: k=2, display=3, numeric counts disabled. */
 	@Override
 	protected void setDefaults(){
 		k=2;
@@ -37,9 +36,8 @@ public class SmallKmerFrequency extends BBTool_ST {
 		addNumbers=false;
 	}
 
-	/**
-	 * @param args
-	 */
+	/** Parses arguments, builds k-mer index and count arrays, and prepares output.
+	 * @param args Command-line arguments */
 	public SmallKmerFrequency(String[] args) {
 		super(args);
 		reparse(args);
@@ -66,6 +64,14 @@ public class SmallKmerFrequency extends BBTool_ST {
 	/* (non-Javadoc)
 	 * @see jgi.BBTool_ST#parseArgument(java.lang.String, java.lang.String, java.lang.String)
 	 */
+	/**
+	 * Parses tool-specific arguments (k, display, addnumbers/number/counts).
+	 *
+	 * @param arg Full argument string
+	 * @param a Argument key
+	 * @param b Argument value
+	 * @return true if the argument was handled
+	 */
 	@Override
 	public boolean parseArgument(String arg, String a, String b) {
 		if(a.equals("k")){
@@ -81,6 +87,14 @@ public class SmallKmerFrequency extends BBTool_ST {
 		return false;
 	}
 	
+	/**
+	 * Creates k-mer frequency profiles for each read in a pair and attaches results.
+	 * Counts canonical k-mers, sorts by frequency, and emits top entries with optional counts.
+	 *
+	 * @param r1 First read (may be null)
+	 * @param r2 Second read (may be null)
+	 * @return true on success
+	 */
 	@Override
 	protected boolean processReadPair(Read r1, Read r2) {
 		if(r1!=null){
@@ -120,7 +134,15 @@ public class SmallKmerFrequency extends BBTool_ST {
 		return true;
 	}
 	
-	/** Makes a kmer (e.g., tetramer) profile of a cluster */
+	/**
+	 * Generates a canonical k-mer count array for a sequence.
+	 * Resets counts on ambiguous bases and uses a rolling hash for efficiency.
+	 *
+	 * @param bases Input bases
+	 * @param array_ Reusable count array (allocated if null)
+	 * @param clear Whether to zero the array before counting
+	 * @return The populated count array
+	 */
 	private final int[] makeKmerProfile(byte[] bases, int[] array_, boolean clear){
 		final int nbits=2*k;
 		final int[] array=(array_==null ? new int[maxKmer+1] : array_);
@@ -149,22 +171,27 @@ public class SmallKmerFrequency extends BBTool_ST {
 		return array;
 	}
 	
+	/** Subclass hook for startup (no-op). */
 	@Override
 	protected void startupSubclass() {}
 	
+	/** Subclass hook for shutdown (no-op). */
 	@Override
 	protected void shutdownSubclass() {}
 	
+	/**
+	 * Subclass hook for stats reporting (no-op).
+	 * @param t Timer tracking execution
+	 * @param readsIn Reads processed
+	 * @param basesIn Bases processed
+	 */
 	@Override
 	protected void showStatsSubclass(Timer t, long readsIn, long basesIn) {}
 	
 	private class Kmer{
 		
-		/** String representation of the k-mer sequence */
 		String s;
-		/** Frequency count of this k-mer in the current sequence */
 		int count=0;
-		/** Numeric representation of the k-mer for sorting purposes */
 		int num;
 		
 		@Override
@@ -191,12 +218,9 @@ public class SmallKmerFrequency extends BBTool_ST {
 	}
 	
 	/**
-	 * Creates canonical k-mer index mapping for given k-mer length.
-	 * Maps both k-mer and its reverse complement to the same index value,
-	 * using the lexicographically smaller representation.
-	 *
-	 * @param n K-mer length in bases
-	 * @return Index array mapping k-mer values to canonical positions
+	 * Builds canonical index mapping for all k-mers of length n, pairing forward and reverse complements.
+	 * @param n K-mer length
+	 * @return Mapping from k-mer value to canonical index
 	 */
 	public static final int[] makeKmerIndex(final int n){
 		final int max=(1<<(2*n))-1;
@@ -215,30 +239,22 @@ public class SmallKmerFrequency extends BBTool_ST {
 		return array;
 	}
 	
+	/** Indicates this tool uses the shared header format.
+	 * @return true */
 	@Override
 	protected final boolean useSharedHeader(){return true;}
 
-	/** Comparator instance for sorting k-mers by numeric representation */
 	private static final NumComparator numComparator=new NumComparator();
-	/** Comparator instance for sorting k-mers by frequency count */
 	private static final CountComparator countComparator=new CountComparator();
 	
-	/** K-mer length in bases for frequency analysis */
 	private int k;
-	/** Number of top k-mers to display in output */
 	private int display;
-	/** Whether to include numeric counts in output display */
 	private boolean addNumbers;
-	/** Maximum k-mer index value for the given k-mer length */
 	private final int maxKmer;
-	/** Canonical index mapping for k-mer values */
 	private final int[] kmerIndex;
-	/** Array to store k-mer frequency counts during processing */
 	private final int[] counts;
-	/** String builder for constructing output lines */
 	private final StringBuilder sb=new StringBuilder();
 	
-	/** Array of k-mer objects containing sequence strings and counts */
 	private final Kmer[] kmers;
 	
 }

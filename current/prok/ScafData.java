@@ -10,9 +10,12 @@ import structures.IntList;
 
 /**
  * Tracks information about a scaffold for AnalyzeGenes.
+ * Manages scaffold sequence data, frame annotations, and gene feature collections
+ * for prokaryotic genome analysis. Supports strand-specific annotation storage
+ * and sequence manipulation operations including reverse complementing.
+ *
  * @author Brian Bushnell
  * @date Sep 24, 2018
- *
  */
 class ScafData {
 	
@@ -20,22 +23,17 @@ class ScafData {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates ScafData from a Read object.
-	 * Initializes with read ID, bases, and empty frame array.
-	 * @param r Read object containing sequence data
-	 */
+	/** Constructs ScafData from a Read, copying name and bases and allocating frame array.
+	 * @param r Read containing scaffold sequence */
 	ScafData(Read r){
 		this(r.id, r.bases, new byte[r.length()]);
 	}
 	
 	/**
-	 * Creates ScafData with specified name, bases, and frame annotations.
-	 * Initializes empty ArrayLists for CDS and RNA annotations on both strands.
-	 *
-	 * @param name_ Scaffold identifier
-	 * @param bases_ Nucleotide sequence as byte array
-	 * @param frames_ Frame annotation array parallel to bases
+	 * Constructs ScafData with explicit name, bases, and frame annotations; initializes CDS/RNA lists per strand.
+	 * @param name_ Scaffold name
+	 * @param bases_ Sequence bases
+	 * @param frames_ Frame annotation array
 	 */
 	ScafData(String name_, byte[] bases_, byte[] frames_){
 		name=name_;
@@ -51,42 +49,38 @@ class ScafData {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Clears frame annotations and start/stop position lists.
-	 * Resets frames array to zeros and empties coordinate tracking lists. */
+	/** Clears frame annotations and resets start/stop lists. */
 	void clear(){
 		Arrays.fill(frames, (byte)0);
 		starts.clear();
 		stops.clear();
 	}
 	
-	/** Reverse complements the scaffold sequence and flips strand orientation.
-	 * Modifies bases array in-place and toggles strand between 0 and 1. */
+	/** Reverse-complements bases in place and flips strand. */
 	void reverseComplement(){
 		Vector.reverseComplementInPlaceFast(bases);
 		strand=1^strand;
 	}
 	
-	/** Adds a coding sequence annotation to the appropriate strand collection.
-	 * @param gline GFF line representing a CDS feature with valid strand */
+	/** Adds a CDS annotation to the strand-appropriate list.
+	 * @param gline CDS GFF line */
 	void addCDS(GffLine gline){
 		assert(gline.strand>=0) : gline+"\n"+gline.strand;
 		cdsLines[gline.strand].add(gline);
 	}
 	
-	/** Adds an RNA annotation to the appropriate strand collection.
-	 * @param gline GFF line representing an RNA feature with valid strand */
+	/** Adds an RNA annotation to the strand-appropriate list.
+	 * @param gline RNA GFF line */
 	void addRNA(GffLine gline){
 		assert(gline.strand>=0) : gline+"\n"+gline.strand;
 		rnaLines[gline.strand].add(gline);
 	}
 	
 	/**
-	 * Extracts a subsequence from the scaffold bases.
-	 * Returns inclusive range from start to stop positions.
-	 *
-	 * @param start Starting position (inclusive)
-	 * @param stop Ending position (inclusive)
-	 * @return Subsequence as byte array
+	 * Returns subsequence from start..stop (inclusive) from the scaffold bases.
+	 * @param start Start index (inclusive)
+	 * #param stop End index (inclusive)
+	 * #return Subsequence bytes
 	 */
 	byte[] fetch(int start, int stop){
 		assert(start>=0 && stop<bases.length);
@@ -94,33 +88,26 @@ class ScafData {
 		return Arrays.copyOfRange(bases, start, stop+1);
 	}
 	
-	/** Returns current strand orientation (0 or 1) */
+	/** Returns current strand (0 forward, 1 reverse). */
 	int strand(){return strand;}
 
-	/** Returns scaffold length, or 0 if bases is null */
+	/** Returns scaffold length (0 if bases is null).
+	 * @return Length in bases */
 	public int length() {return bases==null ? 0 : bases.length;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Scaffold identifier */
 	final String name;
-	/** Nucleotide sequence as byte array */
 	final byte[] bases;
-	/** Frame annotation array parallel to bases */
 	final byte[] frames;
-	/** List of start codon positions for gene detection */
 	final IntList starts=new IntList(8);
-	/** List of stop codon positions for gene detection */
 	final IntList stops=new IntList(8);
-	/** Current strand orientation: 0 for forward, 1 for reverse */
 	private int strand=0;
 	
-	/** gLines[strand] holds the GffLines for that strand */
 	@SuppressWarnings("unchecked")
 	ArrayList<GffLine>[] cdsLines=new ArrayList[2];
-	/** RNA annotations indexed by strand [0=forward, 1=reverse] */
 	@SuppressWarnings("unchecked")
 	ArrayList<GffLine>[] rnaLines=new ArrayList[2];
 }

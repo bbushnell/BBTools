@@ -11,15 +11,19 @@ import shared.PreParser;
 import shared.Tools;
 
 /**
+ * Summarizes and aggregates statistics from Seal output files.
+ * Parses Seal statistics files to identify primary taxa and calculate contamination levels.
+ * Supports filtering options for same taxa, barcode, or location to refine contamination analysis.
+ *
  * @author Brian Bushnell
  * @date May 8, 2015
- *
  */
 public class SummarizeSealStats {
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for command-line execution.
+	 * Creates a SummarizeSealStats instance and executes the summarization process.
+	 * @param args Command line arguments for configuration and input files
 	 */
 	public static void main(String[] args){
 		//Create a new SummarizeSealStats instance
@@ -30,10 +34,9 @@ public class SummarizeSealStats {
 	}
 	
 	/**
-	 * Constructs a SummarizeSealStats instance with command-line arguments.
-	 * Parses configuration options and input file specifications.
-	 * Processes file patterns and expands directories into individual files.
-	 * @param args Command-line arguments including input files and options
+	 * Parses command-line arguments, collects input Seal stats files (expanding directories
+	 * and comma lists), and configures filtering flags for taxa/barcode/location handling.
+	 * @param args Command-line arguments including input file patterns and options
 	 */
 	public SummarizeSealStats(String[] args){
 
@@ -88,11 +91,8 @@ public class SummarizeSealStats {
 		}
 	}
 	
-	/**
-	 * Executes the main summarization process for all input files.
-	 * Creates SealSummary objects for each input file, aggregates totals,
-	 * and writes formatted output with primary taxa and contamination statistics.
-	 */
+	/** Aggregates Seal summaries across all inputs, computes totals/ppm contamination,
+	 * and writes a tab-delimited report (optionally including a combined TOTAL row). */
 	public void summarize(){
 		ArrayList<SealSummary> list=new ArrayList<SealSummary>();
 		
@@ -116,19 +116,8 @@ public class SummarizeSealStats {
 		tsw.poisonAndWait();
 	}
 	
-	/**
-	 * Inner class representing statistics summary for a single Seal output file.
-	 * Tracks primary and other taxa counts, bases, and calculates contamination metrics.
-	 * Supports filtering modes to ignore same taxa, barcode, or location matches.
-	 */
 	private class SealSummary {
 		
-		/**
-		 * Constructs a SealSummary for the specified file.
-		 * Automatically processes the file using appropriate summarization method
-		 * based on configured filtering options.
-		 * @param fname_ Path to the Seal statistics file to process
-		 */
 		SealSummary(String fname_){
 			fname=fname_;
 			if(fname!=null){
@@ -140,11 +129,6 @@ public class SummarizeSealStats {
 			}
 		}
 		
-		/**
-		 * Aggregates statistics from another SealSummary into this one.
-		 * Adds counts and bases, then recalculates contamination ppm.
-		 * @param ss The SealSummary to add to this summary
-		 */
 		public void add(SealSummary ss){
 			pcount+=ss.pcount;
 			ocount+=ss.ocount;
@@ -165,11 +149,6 @@ public class SummarizeSealStats {
 			return Tools.format("%s\t%s\t%d\t%d\t%d\t%d\t%.2f", fname, pname, pcount, ocount, pbases, obases, ppm);
 		}
 		
-		/**
-		 * Basic summarization method that processes Seal statistics file.
-		 * Identifies primary taxa (highest base count) and calculates other taxa statistics.
-		 * Parses total counts from header lines and individual taxa from data lines.
-		 */
 		private void summarize(){
 			TextFile tf=new TextFile(fname);
 			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
@@ -203,11 +182,6 @@ public class SummarizeSealStats {
 			}
 		}
 		
-		/**
-		 * Advanced summarization with filtering for same taxa, barcode, or location.
-		 * Parses taxa names and barcodes to apply filtering logic before counting.
-		 * Ignores contamination from specified same-category matches based on configuration.
-		 */
 		public void cleanAndSummarize(){
 			TextFile tf=new TextFile(fname);
 			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
@@ -265,43 +239,26 @@ public class SummarizeSealStats {
 			}
 		}
 		
-		/** Path to the input Seal statistics file */
 		final String fname;
-		/** Name of the primary taxa with highest base count */
 		String pname=null;
 		/** Total read count from file header */
 		/** Combined read count for all other (non-primary) taxa */
-		/** Read count for the primary taxa */
 		long pcount=0, ocount=0, tcount=0;
 		/** Total base count from file header */
 		/** Combined base count for all other (non-primary) taxa */
-		/** Base count for the primary taxa */
 		long pbases=0, obases=0, tbases=0;
-		/**
-		 * Parts per million contamination level (other bases relative to total or primary+other)
-		 */
 		double ppm;
 		/** Parsed barcode components of the primary taxa for filtering comparisons */
-		/** Parsed components of the primary taxa name for filtering comparisons */
 		String[] name0=null, barcode0=null;
 		
 	}
 	
-	/** List of input file paths to process */
 	final ArrayList<String> in;
-	/** Output file path or "stdout" for console output */
 	final String out;
-	/** Whether to ignore contamination from taxa with similar names */
 	boolean ignoreSameTaxa=false;
-	/** Whether to ignore contamination from sequences with matching barcodes */
 	boolean ignoreSameBarcode=false;
-	/** Whether to ignore contamination from samples from the same location */
 	boolean ignoreSameLocation=false;
-	/**
-	 * Whether to use total bases as denominator for ppm calculation instead of primary+other
-	 */
 	boolean totalDenominator=false;
-	/** Whether to include aggregated totals in the output */
 	boolean printTotal=true;
 	
 }

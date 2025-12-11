@@ -2,22 +2,8 @@ package tax;
 
 import structures.ByteBuilder;
 
-/**
- * Represents canonical taxonomic lineage with standardized DADA2 format output.
- * Constructs hierarchical taxonomy from TaxTree nodes and formats as semicolon-delimited
- * string with standard prefixes (k__, p__, c__, o__, f__, g__, s__).
- * @author Brian Bushnell
- */
 public class CanonicalLineage {
 
-	/** 
-	 * Produces e.g. k__something;p__something, etc
-	 * kpcofgs levels must all be present.
-	 * Missing values should use NA, e.g. k__NA;
-	 * 
-	 * @param TaxID Taxonomy ID to get lineage for
-	 * @param tree Taxonomy tree to use
-	 */
 	public CanonicalLineage(int tid, TaxTree tree) {
 		taxID=tid;
 		if(tree==null || taxID<1) {
@@ -66,8 +52,10 @@ public class CanonicalLineage {
 	}
 
 	/**
-	 * Converts the lineage to a ByteBuilder with DADA2 format.
-	 * @return ByteBuilder containing the formatted lineage
+	 * Converts lineage to DADA2-formatted ByteBuilder with standard prefixes.
+	 * Creates semicolon-delimited string with k__, p__, c__, o__, f__, g__, s__ prefixes.
+	 * Missing levels use "NA", except species level uses "tid_[taxID]" when undefined.
+	 * @return ByteBuilder containing formatted lineage string
 	 */
 	public ByteBuilder toBytes() {
 		ByteBuilder bb = new ByteBuilder();
@@ -84,20 +72,15 @@ public class CanonicalLineage {
 		return bb;
 	}
 
-	/** Returns string representation of the canonical lineage.
-	 * @return DADA2-formatted lineage string */
 	public String toString() {
 		return toBytes().toString();
 	}
 	
-	/** Original taxonomy ID used to construct this lineage */
 	public final int taxID;
-	/** Number of taxonomic levels successfully populated from the tree */
 	public final int levelsDefined;
-	/** Holds nodes for the 7 standard taxonomic levels */
-	final TaxNode[] nodes=new TaxNode[7];
 	/**
-	 * DADA2 standard prefixes for taxonomic levels: k__, p__, c__, o__, f__, g__, s__
+	 * Array holding TaxNode references for 7 standard taxonomic levels (kingdom, phylum, class, order, family, genus, species)
 	 */
+	final TaxNode[] nodes=new TaxNode[7];
 	private static final String[] prefixes = {"k__", "p__", "c__", "o__", "f__", "g__", "s__"};
 }

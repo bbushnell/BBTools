@@ -7,21 +7,20 @@ import shared.Tools;
 
 /**
  * Utility class for writing CallVariants output files.
- * Contains static methods for generating various output formats.
- * 
+ * Provides static methods for generating Var, VCF, GFF formats and histogram files.
+ * Handles output of variant data with timing and statistics.
  * @author Brian Bushnell
- * @author Isla
- * @date June 2025
  */
 public class CVOutputWriter {
 	
 	/**
 	 * Writes output files (Var, VCF, GFF) based on provided parameters.
+	 * Creates VcfWriter instance and conditionally outputs files with timing.
 	 * @param varMap Variant map containing all variants
 	 * @param varFilter Variant filtering parameters
-	 * @param ffout FileFormat for var file output
-	 * @param vcf VCF output file path
-	 * @param gffout GFF output file path
+	 * @param ffout FileFormat for var file output (may be null)
+	 * @param vcf VCF output file path (may be null)
+	 * @param gffout GFF output file path (may be null)
 	 * @param readsProcessed Total reads processed (minus discarded)
 	 * @param pairedInSequencingReadsProcessed Paired reads processed
 	 * @param properlyPairedReadsProcessed Properly paired reads processed
@@ -61,12 +60,13 @@ public class CVOutputWriter {
 	
 	/**
 	 * Writes histogram files for score, zygosity, and quality distributions.
-	 * @param scoreHistFile Score histogram output file path
-	 * @param zygosityHistFile Zygosity histogram output file path
-	 * @param qualityHistFile Quality histogram output file path
-	 * @param scoreArray Score distribution array
+	 * Conditionally writes each histogram type with timing information.
+	 * @param scoreHistFile Score histogram output file path (may be null)
+	 * @param zygosityHistFile Zygosity histogram output file path (may be null)
+	 * @param qualityHistFile Quality histogram output file path (may be null)
+	 * @param scoreArray Score distribution array (uses index 0)
 	 * @param ploidyArray Ploidy distribution array
-	 * @param avgQualityArray Average quality distribution array
+	 * @param avgQualityArray Average quality distribution array (uses index 0)
 	 * @param maxQualityArray Maximum quality distribution array
 	 */
 	public static void writeHistograms(String scoreHistFile, String zygosityHistFile, String qualityHistFile,
@@ -89,9 +89,10 @@ public class CVOutputWriter {
 	
 	/**
 	 * Writes score histogram to specified file.
+	 * Calculates statistics (mean, median, mode) and writes formatted output.
 	 * @param fname Output file name
 	 * @param array Score histogram array
-	 * @return True if successful
+	 * @return True if successful (based on TextStreamWriter errorState)
 	 */
 	static boolean writeScoreHist(String fname, long[] array){
 		int max=array.length-1;
@@ -120,9 +121,10 @@ public class CVOutputWriter {
 	
 	/**
 	 * Writes zygosity histogram to specified file.
+	 * Calculates mean and homozygous fraction statistics.
 	 * @param fname Output file name
 	 * @param array Zygosity histogram array
-	 * @return True if successful
+	 * @return True if successful (based on TextStreamWriter errorState)
 	 */
 	static boolean writeZygosityHist(String fname, long[] array){
 		int max=array.length-1;
@@ -147,10 +149,11 @@ public class CVOutputWriter {
 	
 	/**
 	 * Writes quality histogram to specified file.
+	 * Combines average and maximum quality arrays with statistics.
 	 * @param fname Output file name
 	 * @param avgQualArray Average quality histogram array
 	 * @param maxQualArray Maximum quality histogram array
-	 * @return True if successful
+	 * @return True if successful (based on TextStreamWriter errorState)
 	 */
 	static boolean writeQualityHist(String fname, long[] avgQualArray, long[] maxQualArray){
 		int max=avgQualArray.length-1;

@@ -7,18 +7,27 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Banded for speed.
- *Identity is approximate.
+ * Banded sequence aligner optimized for high-identity alignments.
+ * Uses dynamic programming with restricted bands to achieve linear time complexity
+ * for sequences with low divergence. Computes approximate nucleotide identity (ANI)
+ * without full traceback, using only two arrays for memory efficiency.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 19, 2025
+ * The banding strategy adapts bandwidth based on observed substitution rate,
+ * making it particularly efficient for comparing highly similar sequences
+ * where full alignment matrices would be wasteful.
+ *
+ * @author Brian Bushnell
+ * @contributor Isla (Highly-customized Claude instance)
+ * @date April 19, 2025
  */
 public class BandedPlusAlignerInt implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test framework.
+	 * Uses reflection to determine the calling class and pass it to the test harness.
+	 * @param args Command-line arguments for testing
+	 * @throws Exception if class reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -36,6 +45,7 @@ public class BandedPlusAlignerInt implements IDAligner{
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the aligner name for identification and logging */
 	@Override
 	public final String name() {return "BandedInt+";}
 	@Override
@@ -51,7 +61,16 @@ public class BandedPlusAlignerInt implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Adaptively determines optimal bandwidth based on sequence divergence.
+	 * Scans the initial portion of both sequences to count substitutions,
+	 * then sets bandwidth to accommodate the observed divergence rate.
+	 * This optimization reduces computation for highly similar sequences.
+	 *
+	 * @param query Encoded query sequence
+	 * @param ref Encoded reference sequence
+	 * @return Bandwidth for the banded alignment (minimum of observed subs + 1 or max bandwidth)
+	 */
 	private static int decideBandwidth(int[] query, int[] ref) {
 		int bandwidth=Math.min(100, 4+Math.max(query.length, ref.length)/8);
 		int subs=0;
@@ -62,11 +81,14 @@ public class BandedPlusAlignerInt implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Performs banded sequence alignment to compute approximate nucleotide identity.
+	 * Uses space-efficient dynamic programming with adaptive bandwidth based on
+	 * sequence divergence. Optionally swaps sequences to ensure query is shorter.
+	 *
+	 * @param query0 Query sequence bases
+	 * @param ref0 Reference sequence bases
+	 * @param posVector Optional int[2] array to receive alignment coordinates [start, end]
+	 * @return Nucleotide identity as float between 0.0 and 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not inter than ref
@@ -239,14 +261,16 @@ public class BandedPlusAlignerInt implements IDAligner{
 	}
 	
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Aligns query to a specific window of the reference sequence.
+	 * Extracts the reference region and adjusts alignment coordinates
+	 * to account for the window offset.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Complete reference sequence
+	 * @param posVector Optional array to receive adjusted alignment coordinates
+	 * @param refStart Start position of alignment window in reference
+	 * @param refEnd End position of alignment window in reference
+	 * @return Nucleotide identity between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -262,16 +286,9 @@ public class BandedPlusAlignerInt implements IDAligner{
 		return id;
 	}
 	
-	/** Counter for total alignment matrix cells computed across all instances */
 	private static AtomicLong loops=new AtomicLong(0);
-	/**
-	 * Returns the total number of DP matrix cells computed across all alignments
-	 */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter for alignment cell computations.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -279,29 +296,17 @@ public class BandedPlusAlignerInt implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Position will use the lower 15 bits (sufficient for 32kbp)
-	/**
-	 * Number of bits allocated for storing alignment positions (supports up to 32KB sequences)
-	 */
 	private static final int POSITION_BITS=15;
-	/** Bit mask for extracting position information from packed integers */
 	private static final int POSITION_MASK=(1 << POSITION_BITS)-1;
-	/** Bit mask for extracting score information from packed integers */
 	private static final int SCORE_MASK=~POSITION_MASK;
-	/** Bit shift amount for packing scores into the upper bits of integers */
 	private static final int SCORE_SHIFT=POSITION_BITS;
 
 	// Equal weighting for operations
-	/** Score increment for matching bases in alignment */
 	private static final int MATCH=1 << SCORE_SHIFT;
-	/** Score penalty for substituted bases in alignment */
 	private static final int SUB=(-1) << SCORE_SHIFT;
-	/** Score penalty for inserted bases in alignment */
 	private static final int INS=(-1) << SCORE_SHIFT;
-	/** Score penalty for deleted bases in alignment */
 	private static final int DEL=(-1) << SCORE_SHIFT;
-	/** Score for alignments involving ambiguous nucleotides (N bases) */
 	private static final int N_SCORE=0;
-	/** Sentinel value for invalid or uninitialized alignment cells */
 	private static final int BAD=Integer.MIN_VALUE/2;
 
 

@@ -21,12 +21,10 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * Reads a text file.
- * Prints it to another text file.
- * Filters out invalid lines and prints them to an optional third file.
+ * File size and access time analysis utility that reports storage access patterns across files.
+ * Reads a pipe-delimited text file containing file metadata, analyzes file sizes and last access times,
+ * and prints percentile-based summaries of how long files have remained unaccessed and how much space they occupy.
  * @author Brian Bushnell
- * @date May 9, 2016
- *
  */
 public class Foo4 {
 	
@@ -34,10 +32,6 @@ public class Foo4 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -52,10 +46,6 @@ public class Foo4 {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor.
-	 * @param args Command line arguments
-	 */
 	public Foo4(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -92,7 +82,12 @@ public class Foo4 {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses arguments from the command line.
+	 * Handles parameters including 'invalid' for alternate output file, 'lines' for maximum lines to process, and 'verbose' for debug output.
+	 * @param args Command line arguments array
+	 * @return Configured Parser object with parsed parameters
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -137,13 +132,16 @@ public class Foo4 {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 as needed and validates that an input file was provided.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Ensures files can be read and written.
+	 * Validates output file write permissions, input file read access, and checks for duplicate file specifications. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -162,7 +160,8 @@ public class Foo4 {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts file-related static fields as needed for this program.
+	 * Configures ByteFile threading mode based on available thread count. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -175,7 +174,8 @@ public class Foo4 {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/** Ensures parameter ranges are within bounds and required parameters are set.
+	 * @return true if all parameters are valid */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
@@ -186,7 +186,11 @@ public class Foo4 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Creates streams and processes all data.
+	 * Opens input and optional invalid-output streams, runs the core analysis, and handles cleanup and error reporting.
+	 * @param t Timer for performance tracking
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -222,16 +226,6 @@ public class Foo4 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Core data processing logic that reads input lines and generates statistics.
-	 * Parses each line to extract file sizes and access times, builds sorted
-	 * lists, and calculates percentile statistics. Outputs time-based file
-	 * access reports showing what percentage of files haven't been accessed
-	 * since specific dates.
-	 * @param bf Input ByteFile for reading data
-	 * @param bsw Primary output stream writer (unused in current implementation)
-	 * @param bswInvalid Invalid data output stream writer (unused)
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		LongList sizes=new LongList(100000000);
@@ -280,18 +274,8 @@ public class Foo4 {
 		System.out.println("P95 size:   \t"+sizes.get((int)(sizes.size*0.95))+" bytes");
 	}
 
-	/** Pipe delimiter character for parsing input lines */
 	static final byte delimiter=(byte)'|';
 	
-	/**
-	 * Parses a single pipe-delimited line to extract file size and access time.
-	 * Advances through 12 pipe-delimited fields to locate file size (field 4)
-	 * and last access time (field 12). Only processes files marked as 'F' in
-	 * field 7. Adds valid entries to the size list and time-size pair list.
-	 * @param line Byte array containing the pipe-delimited line data
-	 * @param list ArrayList to collect Pair objects with size and time data
-	 * @param sizes LongList to collect file sizes for statistical analysis
-	 */
 	void processLine(byte[] line, ArrayList<Pair> list, LongList sizes) {
 		int a=0, b=0;
 
@@ -368,11 +352,6 @@ public class Foo4 {
 //	P90 File Size: 1187502 bytes
 //	P95 File Size: 10694780 bytes
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the specified FileFormat.
-	 * @param ff FileFormat to create writer for, may be null
-	 * @return Started ByteStreamWriter or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -382,11 +361,6 @@ public class Foo4 {
 	
 	private static class Pair implements Comparable<Pair> {
 		
-		/**
-		 * Constructor for file size and access time pair.
-		 * @param size_ File size in bytes
-		 * @param time_ Last access time as Unix timestamp
-		 */
 		Pair(long size_, long time_){
 			size=size_;
 			time=time_;
@@ -401,11 +375,6 @@ public class Foo4 {
 		
 	}
 	
-	/**
-	 * Converts millisecond timestamp to PST timezone formatted date string.
-	 * @param time Millisecond timestamp to convert
-	 * @return Formatted date string in "yyyy-MM-dd HH:mm:ss" format
-	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
@@ -417,53 +386,38 @@ public class Foo4 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Junk output file path */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of input lines processed */
 	private long linesProcessed=0;
-	/** Count of valid output lines generated */
 	private long linesOut=0;
-	/** Total bytes read from input */
 	private long bytesProcessed=0;
-	/** Total bytes written to output */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
 	private final FileFormat ffin1;
-	/** Output File */
 	private final FileFormat ffout1;
-	/** Optional Output File for Junk */
+	/** Optional output file format wrapper for invalid lines */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

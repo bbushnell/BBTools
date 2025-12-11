@@ -22,9 +22,13 @@ import structures.ListNum;
 import tracker.EntropyTracker;
 
 /**
+ * Converts DNA sequences to numerical vectors for machine learning applications.
+ * Supports two modes: raw base encoding using one-hot vectors, and k-mer frequency
+ * spectra with reverse-complement condensation. Includes metadata features like
+ * length, GC content, entropy, and homopolymer statistics.
+ *
  * @author Brian Bushnell
  * @date Oct 6, 2023
- *
  */
 public class SequenceToVector {
 
@@ -42,12 +46,6 @@ public class SequenceToVector {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs SequenceToVector with command-line argument parsing.
-	 * Sets up input/output files, vectorization mode, k-mer parameters,
-	 * and dimensional constraints.
-	 * @param args Command-line arguments for configuration
-	 */
 	public SequenceToVector(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -122,12 +120,6 @@ public class SequenceToVector {
 		assert(result0!=-1 || parseHeader);
 	}
 	
-	/**
-	 * Main processing method that converts sequences to vectors.
-	 * Reads input sequences, generates vectors using specified mode,
-	 * and writes output with dimension headers.
-	 * @param t Timer for performance measurement
-	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -192,18 +184,6 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Converts a Read to vector format and writes to output.
-	 * Handles reverse complement processing if enabled.
-	 * @param r Read to vectorize
-	 * @param bb ByteBuilder for output formatting
-	 * @param bsw Stream writer for output
-	 * @param width Maximum sequence width for raw mode
-	 * @param k K-mer size for spectrum mode
-	 * @param result Target value for the vector
-	 * @param buffer Reusable float array for spectrum mode
-	 * @param rcomp Whether to include reverse complement
-	 */
 	private static void toVector(Read r, ByteBuilder bb, ByteStreamWriter bsw, int width, int k,
 			float result, float[] buffer, boolean rcomp) {
 		if(r==null) {return;}
@@ -214,18 +194,6 @@ public class SequenceToVector {
 		toVector(r.reverseComplementFast(), bb, bsw, width, k, result, buffer, false);
 	}
 	
-	/**
-	 * Core vectorization method that converts sequence bases to numerical features.
-	 * Calculates length, GC content, entropy, and homopolymer statistics.
-	 * Uses raw one-hot encoding or k-mer spectrum based on k parameter.
-	 * @param bases Sequence bases to vectorize
-	 * @param bb ByteBuilder for formatted output
-	 * @param width Maximum width for raw mode
-	 * @param k K-mer size (0 for raw mode)
-	 * @param result Target value to append
-	 * @param buffer Reusable array for spectrum calculations
-	 * @return ByteBuilder with appended vector data
-	 */
 	private static ByteBuilder toVector(byte[] bases, ByteBuilder bb, int width, int k, float result, float[] buffer) {
 		float len=bases.length/(float)(width+5);
 		float gc=Tools.calcGC(bases);
@@ -257,14 +225,6 @@ public class SequenceToVector {
 		return bb;
 	}
 	
-	/**
-	 * Appends raw one-hot encoded bases to output buffer.
-	 * Each base becomes a 4-element vector (A,C,G,T).
-	 * Pads shorter sequences with zeros to maintain fixed width.
-	 * @param bases Sequence bases to encode
-	 * @param bb ByteBuilder for output
-	 * @param width Target width for padding
-	 */
 	private static void appendRaw(byte[] bases, ByteBuilder bb, int width) {
 		for(int i=0; i<bases.length && i<width; i++) {
 			byte b=bases[i];
@@ -276,12 +236,6 @@ public class SequenceToVector {
 		}
 	}
 	
-	/**
-	 * Appends k-mer spectrum vector to output buffer.
-	 * Formats each float value with tab separation.
-	 * @param bb ByteBuilder for output
-	 * @param vec Float array containing spectrum values
-	 */
 	private static void appendSpectrum(ByteBuilder bb, float[] vec) {
 		for(float f : vec) {
 			bb.append(f, 5, true).tab();
@@ -291,29 +245,11 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Fills vector array with sequence features for the entire sequence.
-	 * @param bases Sequence bases to analyze
-	 * @param vec Output vector array to fill
-	 * @param k K-mer size (0 for raw mode)
-	 * @return The filled vector array
-	 */
 	public static float[] fillVector(byte[] bases, float[] vec, int k) {
 		assert(vec!=null);
 		return fillVector(bases, vec, k, 0, bases.length-1);
 	}
 	
-	/**
-	 * Fills vector array with sequence features for a subsequence range.
-	 * Calculates metadata (length, GC, entropy, homopolymers) and fills
-	 * with raw one-hot or k-mer spectrum data based on k parameter.
-	 * @param bases Sequence bases to analyze
-	 * @param vec Output vector array to fill
-	 * @param k K-mer size (0 for raw mode)
-	 * @param from Start position (inclusive)
-	 * @param to End position (inclusive)
-	 * @return The filled vector array
-	 */
 	public static float[] fillVector(byte[] bases, float[] vec, int k, int from, int to) {//To is inclusive
 		assert(vec!=null);
 		final int len=(to-from+1);
@@ -344,15 +280,6 @@ public class SequenceToVector {
 		return vec;
 	}
 	
-	/**
-	 * Fills vector with raw one-hot encoded bases in specified range.
-	 * Each base position gets a 4-element one-hot vector.
-	 * @param bases Sequence bases to encode
-	 * @param vec Output vector to fill
-	 * @param offset Starting position in output vector
-	 * @param from Start position in sequence
-	 * @param to End position in sequence (exclusive)
-	 */
 	public static void fillRaw(byte[] bases, float[] vec, int offset, int from, int to) {
 		for(int i=from, j=offset; i<to; i++, j+=4) {
 			byte b=bases[i];
@@ -361,18 +288,6 @@ public class SequenceToVector {
 		}
 	}
 	
-	/**
-	 * Fills vector with k-mer frequency spectrum in specified range.
-	 * Uses reverse-complement condensed k-mer space to reduce dimensionality.
-	 * Normalizes frequencies to relative fractions with average 0.25.
-	 * @param bases Sequence bases to analyze
-	 * @param vec Output vector to fill
-	 * @param offset Starting position in output vector
-	 * @param from Start position in sequence
-	 * @param to End position in sequence (exclusive)
-	 * @param k K-mer length
-	 * @return Count of valid k-mers processed
-	 */
 	public static int fillSpectrum(byte[] bases, float[] vec, int offset, int from, int to, int k) {
 		final int[] map=kmapArray[k];
 
@@ -396,16 +311,6 @@ public class SequenceToVector {
 		return count;
 	}
 	
-	/**
-	 * Scores a sequence using a neural network with optional reverse complement.
-	 * Applies the sequence vector to the network and returns the maximum score
-	 * between forward and reverse orientations.
-	 * @param bases Sequence bases to score
-	 * @param vec Vector buffer for network input
-	 * @param net Neural network for scoring
-	 * @param rcomp Whether to test reverse complement
-	 * @return Maximum score from forward and/or reverse orientations
-	 */
 	public static float score(byte[] bases, float[] vec, CellNet net, boolean rcomp) {
 		net.applyInput(vec);
 		final float r, f=net.feedForward();
@@ -420,13 +325,6 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Calculates the size of reverse-complement condensed k-mer space.
-	 * Accounts for palindromic k-mers to avoid double-counting.
-	 * Uses closed-form solution: (fullSpace + palindromes) / 2.
-	 * @param k K-mer length
-	 * @return Size of condensed k-mer space
-	 */
 	public static int calcKSpace(int k) {
 		assert(k<16 && k>=0) : k;
 		final int fullSpace=1<<(2*k);
@@ -442,7 +340,6 @@ public class SequenceToVector {
 		return closedForm;
 	}
 	
-	/** Produces a condensed kmer space */
 	public static int[] kmap(int k, int maxDims) {
 		assert(k<16 && k>=0) : k;
 		final int fullSpace=1<<(2*k);
@@ -466,22 +363,12 @@ public class SequenceToVector {
 		return map;
 	}
 	
-	/**
-	 * Sets maximum dimensions and rebuilds k-mer mapping arrays.
-	 * Recalculates all k-mer spaces and mappings for k=1 to kMax.
-	 * @param maxDims New maximum dimension limit
-	 */
 	public static void setDimensions(int maxDims) {
 		if(maxDimensions==maxDims) {return;}
 		maxDimensions=maxDims;
 		fillArrays(maxDimensions);
 	}
 	
-	/**
-	 * Precomputes k-mer space sizes and mapping arrays for all k values.
-	 * Fills fullspaceArray, kspaceArray, and kmapArray for k=1 to kMax.
-	 * @param maxDims Maximum dimensions for mapping arrays
-	 */
 	private static void fillArrays(int maxDims) {
 		for(int k=1; k<=kMax; k++) {
 			fullspaceArray[k]=(1<<(2*k));
@@ -493,18 +380,12 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path for sequences */
 	private String in1=null;
-	/** Output file path for vectors */
 	private String out1=null;
 	
-	/** Input file format handler */
 	private final FileFormat ffin1;
-	/** Output file format handler */
 	private final FileFormat ffout1;
 
-	/** Thread-local entropy calculators for different sequence lengths.
-	 * Pre-allocated for window sizes from minWindow to maxWindow. */
 	private static final ThreadLocal<EntropyTracker[]> localETrackers=new ThreadLocal<EntropyTracker[]>(){
         @Override protected EntropyTracker[] initialValue() {
         	EntropyTracker[] array=new EntropyTracker[maxWindow+1];
@@ -518,43 +399,28 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process */
 	private long maxReads=-1;
-	/** Error state flag for processing */
 	private boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Whether to include reverse complement vectors */
 	private boolean rcomp=false;
-	/** Whether to parse result values from sequence headers */
 	private boolean parseHeader=false;
-	/** Maximum sequence width for raw mode vectors */
 	private int width=55;
-	/** Default result value when not parsing from headers */
 	float result0=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** K-mer length for spectrum mode */
 	final int k;//=4;
-	/** Total k-mer space size (4^k) */
 	final int fullSpace;//=(1<<(2*k));
-	/** Reverse-complement condensed k-mer space size */
 	final int kSpace;//=calcKSpace(k);
-	/** Mapping from k-mer index to condensed space */
 	final int[] kmap;
 
-	/** Precomputed full k-mer space sizes for k=1 to kMax */
 	private static final int[] fullspaceArray;
-	/** Precomputed condensed k-mer space sizes for k=1 to kMax */
 	private static final int[] kspaceArray;
-	/** Precomputed k-mer mapping arrays for k=1 to kMax */
 	private static final int[][] kmapArray;
 	
-	/** Maximum allowed dimensions for k-mer vectors */
 	private static int maxDimensions=Integer.MAX_VALUE;
-	/** Maximum k-mer length supported */
 	private static final int kMax=8;
 	
 	static {
@@ -566,30 +432,22 @@ public class SequenceToVector {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Vectorization mode: RAW or SPECTRUM */
 	private int mode=RAW;
-	/** Raw one-hot base encoding mode constant */
 	static final int RAW=0, SPECTRUM=1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Minimum window size for entropy calculation */
 	public static final int minWindow=16;
-	/** Maximum window size for entropy calculation */
 	public static final int maxWindow=40;
-	/** K-mer length for entropy calculation */
 	public static final int ke=3;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** One-hot encoding strings for DNA bases A, C, G, T, N */
 	public static final String[] hotCodes=new String[] {"1\t0\t0\t0", "0\t1\t0\t0", "0\t0\t1\t0", "0\t0\t0\t1", "1\t0\t0\t0"};
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages */
 	private java.io.PrintStream outstream=System.err;
-	/** Verbose output flag for debugging */
 	public static boolean verbose=false;
 	
 }

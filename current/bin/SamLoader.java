@@ -23,29 +23,19 @@ import template.ThreadWaiter;
 import tracker.EntropyTracker;
 
 /**
- * Loads SAM/BAM files to calculate contig coverage depth and build connectivity graphs.
- * Processes multiple SAM files concurrently using thread-based parallelization.
- * Accumulates alignment statistics and creates contig-to-contig linkage information
- * from paired-end reads mapping to different contigs.
- *
- * @author Brian Bushnell
- * @date April 15, 2015
+ * Loads SAM/BAM files to compute contig coverage and connectivity graphs.
+ * Streams alignments in parallel, aggregates depth, and builds contig linkage edges
+ * from paired-end mappings.
  */
 public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	
-	/** Constructs a SamLoader with specified output stream.
-	 * @param outstream_ Stream for progress and diagnostic output */
+	/** Builds a loader that reports status to the provided PrintStream. */
 	public SamLoader(PrintStream outstream_) {
 		outstream=outstream_;
 	}
 	
 	/**
-	 * Loads SAM files using deprecated interface.
-	 * Converts contig map to sorted list and delegates to main load method.
-	 * @param fnames List of SAM file names to process
-	 * @param contigMap Map of contig names to Contig objects
-	 * @param graph Array of maps for storing contig connectivity
-	 * @deprecated Use load(ArrayList, HashMap, ArrayList, IntHashMap[]) instead
+	 * Deprecated entry point that converts the contig map to a sorted list before loading.
 	 */
 	@Deprecated
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, IntHashMap[] graph) {
@@ -56,7 +46,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		load(fnames, contigMap, list, graph);
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Main loader: creates streamers per file, spawns LoadThreads, and aggregates coverage/connectivity.
+	 */
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
 			ArrayList<Contig> contigs, IntHashMap[] graph){
 		final int files=fnames.size();
@@ -138,6 +130,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		
 	}
 	
+	/**
+	 * Converts per-contig depth totals into normalized depth values and stores them on the contigs.
+	 */
 	private void postprocess(AtomicLongArray depthArray, ArrayList<Contig> contigs, int sample) {
 		for(int cnum=0; cnum<depthArray.length(); cnum++) {
 			Contig c=contigs.get(cnum);
@@ -146,13 +141,8 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		}
 	}
 	
-	/** 
-	 * Allocates threads optimally given ideal ratios and budget.
-	 * Scales ratios proportionally and applies ceiling to ensure no component is starved.
-	 * Each component is capped at its ideal maximum (ceiling of ideal value).
-	 * @param ideal Array of ideal thread ratios for each component (also serves as max)
-	 * @param budget Total threads available for allocation
-	 * @return Array of allocated threads, one per component in ideal
+	/**
+	 * Allocates threads according to ideal ratios and available budget, capping each component.
 	 */
 	private static int[] allocateThreads(float[] ideal, int budget){
 	    final int terms=ideal.length;
@@ -173,6 +163,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	    return allocated;
 	}
 	
+	/**
+	 * Accumulates per-thread statistics (reads/bases/bytes) and propagates error state.
+	 */
 	@Override
 	public synchronized void accumulate(LoadThread t) {
 		synchronized(t) {
@@ -184,21 +177,24 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		}
 	}
 
+	/** @return No lock is used for accumulation (returns null). */
 	@Override
 	public ReadWriteLock rwlock() {return null;}
 
+	/** @return Overall success flag propagated from worker threads. */
 	@Override
 	public synchronized boolean success() {
 		return errorState;
 	}
 	
 	/**
-	 * Thread for processing a single SAM file.
-	 * Calculates contig coverage depths and builds connectivity graph
-	 * from paired-end reads mapping to different contigs.
+	 * Worker thread that consumes a Streamer, updates per-contig depth, and records contig linkage edges.
 	 */
 	class LoadThread extends Thread {
 		
+		/**
+		 * Creates a loader for one input stream and associated per-contig data structures.
+		 */
 		private LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
 				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
 			ss=ss_;
@@ -210,15 +206,14 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			tid=tid_;
 		}
 		
+		/** Synchronizes runInner() to avoid double execution. */
 		@Override
 		public void run() {
 			synchronized(this) {runInner();}
 		}
 		
 		/**
-		 * Main thread processing logic.
-		 * Creates SAM streamer, processes alignments, and calculates final depths.
-		 * Updates contig depth values after processing all reads.
+		 * Consumes all SAM lines from the Streamer and marks the thread successful on completion.
 		 */
 		private void runInner() {
 			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
@@ -230,6 +225,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 //			System.err.println("SamLoader.LoadThread "+tid+" terminated successfully.");
 		}
 		
+		/**
+		 * Iterates over streamed SAM batches, accumulating depth and edge statistics.
+		 */
 		void processSam_Thread(Streamer ss, AtomicLongArray depthArray) {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
@@ -252,14 +250,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 //			assert(false) : (ln==null ? "null" : "poison="+ln.poison()+", last="+ln.last());
 		}
 		
-		/**
-		 * Calculates aligned bases excluding contig tips for small contigs.
-		 * For contigs shorter than 1.5*tipLimit, returns full alignment length.
-		 * For longer contigs, excludes alignment portions near contig ends.
-		 * @param sl SAM line with alignment information
-		 * @param contigLen Length of the reference contig
-		 * @return Number of aligned bases excluding tip regions
-		 */
+		/** Calculates aligned bases while trimming contig tips for longer contigs. */
 		private int calcAlignedBases(SamLine sl, int contigLen) {
 			int aligned=sl.mappedNonClippedBases();
 			if(contigLen<1.5f*tipLimit) {return aligned;}
@@ -272,6 +263,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			return Tools.overlapLength(lineStart, lineStop, contigStart, contigStop);
 		}
 		
+		/**
+		 * Processes a single alignment: updates depth, optionally adds contig linkage edges, and enforces filters.
+		 */
 		private boolean addSamLine(SamLine sl, AtomicLongArray depthArray) {
 			if(!sl.mapped()) {return false;}
 			if(maxSubs<999 && sl.countSubs()>maxSubs) {return false;}
@@ -327,58 +321,34 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		}
 		
 		final Streamer ss;
-		/** Sample number for depth assignment */
 		final int sample;
 		final int tid;
-		/** Map from contig names to Contig objects */
 		final HashMap<String, Contig> contigMap;
-		/** Ordered list of contigs for depth calculation */
 		final ArrayList<Contig> contigs;
-		/** Array of connectivity maps between contigs */
 		final IntHashMap[] graph;
-		/** Entropy tracker for sequence complexity filtering */
 		final EntropyTracker et=new EntropyTracker(5, 80, false, minEntropy, true);
 		final AtomicLongArray depthArray;
-		/** Thread-local count of input reads processed */
 		long readsInT=0;
-		/** Thread-local count of reads passing filters */
 		long readsUsedT=0;
-		/** Thread-local count of input bases processed */
 		long basesInT=0;
-		/** Thread-local count of input bytes processed */
 		long bytesInT=0;
-		/** Thread completion status flag */
 		boolean success=false;
 	}
 	
-	/** Output stream for progress messages */
 	public PrintStream outstream=System.err;
-	/** Total count of input reads across all threads */
 	public long readsIn=0;
-	/** Total count of reads passing all filters */
 	public long readsUsed=0;
-	/** Total count of input bases processed */
 	public long basesIn=0;
-	/** Total count of input bytes processed */
 	public long bytesIn=0;
-	/** Minimum mapping quality for connectivity graph edges */
 	public int minMapq=4;
-	/** Minimum mate mapping quality for graph edges */
 	public int minMateq=4;
-	/** Minimum alignment identity for read acceptance */
 	public float minID=0f;
-	/** Minimum mate alignment identity for graph edges */
 	public float minMateID=0f;
-	/** Maximum substitutions allowed for read acceptance */
 	public int maxSubs=999;
-	/** Distance from contig ends to exclude in depth calculations */
 	public int tipLimit=100;
-	/** Minimum sequence entropy for complexity filtering */
 	public float minEntropy=0;
-	/** Minimum aligned bases required for graph edge creation */
 	public int minAlignedBases=0;
 	
-	/** Overall error state flag for processing */
 	public boolean errorState=false;
 	public static int MAX_SAM_LOADER_THREADS=1024;
 	public static int MAX_SAM_LOADER_THREADS_PER_FILE=2;

@@ -25,11 +25,12 @@ import tax.TaxTree;
 import tracker.ReadStats;
 
 /**
- * Compares one or more input sketches to a set of reference sketches.
- * 
+ * Compares one or more input sketches to a set of reference sketches using SketchObject utilities.
+ * Supports all-to-all comparison, taxonomy-aware filtering, and emitting sketches or comparison summaries.
+ * Manages shared resources (threads, buffers, JSON writers) so multithreaded comparisons stay ordered.
+ * Parses the same CLI surface area as other sketch tools, allowing power users to reuse scripts.
  * @author Brian Bushnell
  * @date July 29, 2016
- *
  */
 public class CompareSketch extends SketchObject {
 	
@@ -40,8 +41,9 @@ public class CompareSketch extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point that instantiates CompareSketch, routes arguments, and executes process().
+	 * Starts a timer, preserves/restores global buffer length, and ensures output streams and aligner pools close.
+	 * @param args Command line arguments supplied on the CLI
 	 */
 	public static void main(String[] args){
 		
@@ -65,8 +67,10 @@ public class CompareSketch extends SketchObject {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command line arguments, configures parser/searcher defaults, and expands helper files.
+	 * Initializes PreParser, shared IO settings (e.g., pigz threads), default sketching mode, and CLI flags.
+	 * Loads or defers tax trees, organizes sketch/reference file lists, and validates ordered/all-to-all modes.
+	 * @param args Command line arguments containing file paths and options
 	 */
 	public CompareSketch(String[] args){
 		
@@ -251,12 +255,6 @@ public class CompareSketch extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that loads sketches and performs comparisons.
-	 * Handles different comparison modes (all-to-all, whitelist, standard).
-	 * Uses multithreading for large sketch sets and outputs results.
-	 * @param t Timer for tracking execution time
-	 */
 	public void process(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -406,12 +404,6 @@ public class CompareSketch extends SketchObject {
 		if(!silent){outstream.println("Total Time: \t"+ttotal);}
 	}
 	
-	/**
-	 * Writes loaded sketches to output files.
-	 * Delegates to single file or multiple file writing based on filename pattern.
-	 * @param fname Output filename pattern (may contain # for multiple files)
-	 * @param files Number of files to split output across
-	 */
 	void writeSketches(String fname, int files){
 		if(fname==null){return;}
 		if(files==1 || fname.indexOf('#')<0){
@@ -421,8 +413,6 @@ public class CompareSketch extends SketchObject {
 		}
 	}
 	
-	/** Writes all sketches to a single output file.
-	 * @param fname Output filename */
 	void writeOneSketchFile(String fname){
 		if(fname==null){return;}
 		ByteBuilder bb=new ByteBuilder();
@@ -437,12 +427,6 @@ public class CompareSketch extends SketchObject {
 		errorState|=bsw.errorState;
 	}
 	
-	/**
-	 * Writes sketches to multiple output files based on sketch ID.
-	 * Uses modulo distribution to assign sketches to files.
-	 * @param fname Filename pattern with # placeholder
-	 * @param files Number of output files to create
-	 */
 	void writeManySketchFiles(String fname, int files){
 		if(fname==null){return;}
 		assert(fname.indexOf('#')>=0) : fname;
@@ -469,14 +453,6 @@ public class CompareSketch extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Adds file paths to a collection, handling comma-separated lists.
-	 * If the input contains commas and doesn't represent an existing file,
-	 * splits on commas and adds each part separately.
-	 *
-	 * @param a File path or comma-separated file paths
-	 * @param list Collection to add file paths to
-	 */
 	private static void addFiles(String a, Collection<String> list){
 		if(a==null){return;}
 		File f=null;
@@ -492,22 +468,19 @@ public class CompareSketch extends SketchObject {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread for parallel sketch comparison.
-	 * Each thread processes a subset of input sketches against the reference set. */
 	private class CompareThread extends Thread {
 		
-		/**
-		 * Creates a comparison thread.
-		 * @param tid_ Thread ID for this worker
-		 * @param nextSketch_ Shared counter for sketch assignment
-		 * @param tsw_ Writer for output results
-		 */
 		CompareThread(final int tid_, final AtomicInteger nextSketch_, ByteStreamWriter tsw_){
 			tid=tid_;
 			nextSketch=nextSketch_;
 			tsw=tsw_;
 		}
 		
+		/**
+		 * Worker thread loop that drains assigned sketches, processes them via SketchSearcher, and emits results.
+		 * Maintains per-thread buffers, respects ordered vs unordered output, and wraps JSON payloads as needed.
+		 * Marks success=true after finishing so ThreadWaiter accumulation can observe completion.
+		 */
 		@Override
 		public void run(){
 			success=false;
@@ -552,21 +525,14 @@ public class CompareSketch extends SketchObject {
 			synchronized(this){success=true;}
 		}
 		
-		/** Thread ID for this comparison worker */
 		private final int tid;
-		/** Reusable buffer for sketch comparisons */
 		private final CompareBuffer buffer=new CompareBuffer(false);
 
-		/** Shared counter for thread-safe sketch assignment */
 		private final AtomicInteger nextSketch;
-		/** Counter for generating fake taxonomic IDs */
 		private final AtomicInteger fakeID=new AtomicInteger(minFakeID);
-		/** Thread-safe map for storing comparison results */
 		private ConcurrentHashMap<Integer, Comparison> map=new ConcurrentHashMap<Integer, Comparison>(101);
-		/** Writer for outputting comparison results */
 		final ByteStreamWriter tsw;
 		
-		/** Whether this thread completed successfully */
 		boolean success=false;
 		
 	}
@@ -575,70 +541,49 @@ public class CompareSketch extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input sketch file paths */
 	private ArrayList<String> in=new ArrayList<String>();
 	
-	/** Primary output file path */
 	private String out="stdout.txt";
 	
-	/** Taxonomic tree file path for taxonomic analysis */
 	private String taxTreeFile=null;
 	
-	/** Loaded input sketches for comparison */
 	private ArrayList<Sketch> inSketches;
 	
-	/** Handles sketch searching and reference loading */
 	public final SketchSearcher searcher=new SketchSearcher();
 	
-	/** Whether to print memory usage statistics */
 	private boolean printMemory=false;
-	/** Whether to suppress status messages */
 	private boolean silent=false;
 	
 	/*Override metadata */
-	/** Override taxonomic name for output sketches */
 	private String outTaxName=null;
-	/** Override filename for output sketches */
 	private String outFname=null;
-	/** Override primary name for output sketches */
 	private String outName0=null;
-	/** Output file path for writing sketches */
 	private String outSketch=null;
-	/** Number of files to split sketch output across */
 	private int sketchFiles=1;
-	/** Override taxonomic ID for output sketches */
 	private int outTaxID=-1;
-	/** Override species ID for output sketches */
 	private long outSpid=-1;
-	/** Override IMG ID for output sketches */
 	private long outImgID=-1;
-	/** Additional metadata to add to output sketches */
 	private ArrayList<String> outMeta=null;
-	/** Counter for number of results printed (for JSON formatting) */
 	private long resultsPrinted=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary output file */
+	/**
+	 * Primary output FileFormat (stdout or path) for printing comparison summaries or sketches
+	 */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Whether to maintain output order for multithreaded processing */
 	private boolean ordered=true;
 	
 }

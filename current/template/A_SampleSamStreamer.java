@@ -28,14 +28,11 @@ import var2.SamFilter;
 import var2.ScafMap;
 
 /**
- * This class does nothing.
- * It is designed to be easily modified into a program
- * that processes reads in multiple threads, by
- * filling in the processRead method.
- * 
+ * Template class for processing SAM/BAM files in multiple threads.
+ * Designed to be easily modified by filling in the processRead method.
+ * Provides a framework for multi-threaded read processing with SAM filtering, realignment, and reference loading.
  * @author Brian Bushnell
  * @date September 6, 2019
- *
  */
 public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.ProcessThread> {
 	
@@ -43,10 +40,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that constructs an A_SampleSamStreamer and processes reads.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -62,8 +57,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses arguments and initializes the processing environment.
+	 * Sets up input/output files, SAM filtering, threading parameters, and validates configuration.
+	 * @param args Command line arguments for configuration
 	 */
 	public A_SampleSamStreamer(String[] args){
 		
@@ -129,7 +125,12 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into configuration parameters.
+	 * Handles verbose mode, reference file, ordering, realignment, ploidy, SAM filtering, and other options.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser object with standard parameters set
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -178,13 +179,16 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 extensions as needed for input and reference files.
+	 */
 	private void fixExtensions(){
 		in=Tools.fixExtension(in);
 		ref=Tools.fixExtension(ref);
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that all required files exist and can be accessed.
+	 * Ensures input and reference files are readable, output files are writable, and no file paths are duplicated. */
 	private void checkFileExistence(){
 
 		//Ensure there is an input file
@@ -211,7 +215,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static configuration for optimal file I/O performance.
+	 * Sets ByteFile modes based on thread count and validates FASTA stream settings. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -221,7 +226,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/** Validates that parameter ranges are within bounds and required parameters are set.
+	 * @return true if all parameters are valid */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
@@ -232,7 +238,11 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that orchestrates the read processing pipeline.
+	 * Creates input/output streams, loads reference data, spawns worker threads, and reports timing statistics.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -277,11 +287,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 
-	/**
-	 * Loads scaffold mapping data from the reference file.
-	 * Initializes ScafMap for coordinate lookups and optionally configures
-	 * the Realigner with the loaded reference.
-	 */
 	private void loadScafMapFromReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -290,8 +295,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		loadedRef=true;
 	}
 
-	/** Template method for custom reference loading logic.
-	 * Currently contains placeholder code for processing reference sequences. */
 	private void loadReferenceCustom(){
 		ConcurrentReadInputStream cris=makeRefCris();
 		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()) {
@@ -300,11 +303,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 	}
 	
-	/**
-	 * Creates a concurrent read input stream for the reference file.
-	 * Validates that the reference is not paired-end data.
-	 * @return Configured and started ConcurrentReadInputStream for reference
-	 */
 	private ConcurrentReadInputStream makeRefCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffref, null);
 		cris.start(); //Start the stream
@@ -322,11 +320,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		return ss;
 	}
 	
-	/**
-	 * Creates a concurrent read output stream for writing processed reads.
-	 * Buffer size is optimized based on whether ordered output is required.
-	 * @return Configured and started ConcurrentReadOutputStream, or null if no output
-	 */
 	private ConcurrentReadOutputStream makeCros(){
 		if(ffout==null){return null;}
 
@@ -342,7 +335,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
 	private void spawnThreads(final Streamer ss, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -378,6 +370,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		errorState|=(!pt.success);
 	}
 	
+	/** Reports overall processing success status.
+	 * @return true if no errors occurred during processing */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -389,8 +383,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
 	class ProcessThread extends Thread {
 		
 		//Constructor
@@ -402,6 +394,8 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 		
 		//Called by start()
+		/** Main execution method for the worker thread.
+		 * Processes reads and sets the success flag upon completion. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -415,7 +409,9 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Core processing loop that retrieves and processes read lists until input is exhausted.
+		 */
 		void processInner(){
 			
 			//Grab and process all lists
@@ -427,12 +423,6 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			
 		}
 		
-		/**
-		 * Processes a list of reads from the input stream.
-		 * Iterates through each read, applies processing logic, updates statistics,
-		 * and outputs results to the output stream.
-		 * @param ln ListNum containing reads to process
-		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -469,10 +459,10 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Template method for processing individual reads.
+		 * Currently contains basic validation and SAM filtering logic and is intended for customization.
+		 * @param r Read to process
+		 * @return true if the read should be retained, false if it should be discarded
 		 */
 		boolean processRead(final Read r){
 			if(r.bases==null || r.length()<=1){return false;}
@@ -488,26 +478,23 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 			return true;
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** Number of reads retained by this thread */
 		protected long readsOutT=0;
-		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 		
-		/** True only if this thread has completed successfully */
+		/** Flag indicating successful completion of this thread. */
 		boolean success=false;
 		
-		/** Shared input stream */
+		/** Shared input stream for reading SAM data. */
 		private final Streamer ss;
-		/** Shared output stream */
+		/** Shared output stream for writing processed reads. */
 		private final ConcurrentReadOutputStream ros;
-		/** Thread ID */
 		final int tid;
-		/** For realigning reads */
+		/**
+		 * Realigner instance for adjusting read alignments (null if realignment disabled).
+		 */
 		final Realigner realigner;
 	}
 	
@@ -515,85 +502,72 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in=null;
-	/** Secondary input file path */
+	/** Reference file path for scaffold mapping. */
 	private String ref=null;
 
-	/** Primary output file path */
 	private String out=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Total number of reads processed across all threads. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Total number of bases processed across all threads. */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Total number of reads retained after processing. */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Total number of bases retained after processing. */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of reads to process; -1 for no limit. */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Threads dedicated to reading the sam file */
+	/** Number of threads dedicated to reading the SAM file. */
 	private int streamerThreads=-1;
 	
-	/** Flag indicating whether reference has been loaded */
 	private boolean loadedRef=false;
 	
-	/** Whether to perform realignment of reads */
 	private boolean realign=false;
 	
-	/** Ploidy level for variant calling; default is 1 (haploid) */
 	private int ploidy=1;
 	
-	/** Scaffold mapping data loaded from reference file */
 	public ScafMap scafMap;
-	/** SAM filtering configuration for read selection criteria */
 	public final SamFilter samFilter=new SamFilter();
 	
+	/** Provides read-write lock for thread-safe access.
+	 * @return ReadWriteLock instance for synchronization */
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format specification. */
 	private final FileFormat ffin;
-	/** Secondary input file */
+	/** Reference input file format specification. */
 	private final FileFormat ffref;
 	
-	/** Primary output file */
+	/** Primary output file format specification. */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages. */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
 	private boolean ordered=false;
 	
 }

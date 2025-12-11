@@ -5,19 +5,13 @@ import java.util.Arrays;
 import shared.KillSwitch;
 
 
-/** 
- * Like IntList2 but has a size for each array independent of its length.
- * This is similar to a list of IntList but more efficient.
- * Designed for use with HashArrayHybridFast.
- * Assumes each entry is a set with all adds either ascending (Seal)
- * or unique (Sketch).
- * 
- * IntList3 does not extend IntList2 because virtual functions might be slower,
- * but it would make the code more concise.
- * 
+/**
+ * A dynamic list of long arrays where each entry maintains its own size independently.
+ * Similar to a list of LongList but more memory efficient. Designed for use with
+ * HashArrayHybridFast where each entry represents a set of values with specific
+ * ordering constraints (ascending or unique additions).
  * @author Brian Bushnell
  * @date Dec 10, 2018
- *
  */
 public final class LongList3{
 	
@@ -25,11 +19,14 @@ public final class LongList3{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Re-call with default initial size and mode. */
+	/** Creates a LongList3 with default initial size and mode. */
 	public LongList3(){this(defaultInitialSize, defaultMode);}
 	
-	/** Construct an IntList3 with this initial size.
-	 * Setting the proper mode is the caller's responsibility. */
+	/**
+	 * Creates a LongList3 with specified initial capacity and ordering mode.
+	 * @param initialSize Initial capacity for the entries array
+	 * @param mode_ Ordering constraint mode (ASCENDING or UNIQUE)
+	 */
 	public LongList3(int initialSize, int mode_){
 		assert(initialSize>0);
 		entries=new long[initialSize][];
@@ -43,12 +40,21 @@ public final class LongList3{
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Add this entry to the end of the list */
+	/**
+	 * Adds an entry to the end of the list.
+	 * @param entry The long array to add
+	 * @param len Number of valid elements in the entry
+	 */
 	public final void add(long[] entry, int len){
 		set(size, entry, len);
 	}
 	
-	/** Set this location to specified entry */
+	/**
+	 * Sets the entry at the specified location, resizing if necessary.
+	 * @param loc The location to set
+	 * @param entry The long array to store
+	 * @param len Number of valid elements in the entry
+	 */
 	public final void set(int loc, long[] entry, int len){
 		assert((entry==null && len==0) || (entry.length>0 && len<=entry.length)) : len+", "+(entry==null ? entry : ""+entry.length);
 		
@@ -60,10 +66,14 @@ public final class LongList3{
 		size=max(size, loc+1);
 	}
 	
-	/** 
-	 * Add this value to the specified location. 
-	 * If an entry exists, insert the value, enlarging if necessary.
-	 * Otherwise, create a new entry. */
+	/**
+	 * Inserts a value into the entry at the specified location. Creates a new entry
+	 * if none exists, or adds to existing entry if value is not already present.
+	 * Optimized for ascending or unique insertion modes.
+	 * @param v The value to insert
+	 * @param loc The location to insert into
+	 * @return 1 if value was added, 0 if already present
+	 */
 	public final int insertIntoList(final long v, final int loc){
 		
 		//If the location is empty
@@ -102,24 +112,23 @@ public final class LongList3{
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Resize the array of entries */
+	/** Resizes the entries and sizes arrays to the specified capacity.
+	 * @param size2 New capacity (must be greater than current size) */
 	public final void resize(int size2){
 		assert(size2>size);
 		entries=KillSwitch.copyOf(entries, size2);//TODO: Safe copy to prevent memory exception
 		sizes=KillSwitch.copyOf(sizes, size2);
 	}
 	
-	/** Compress the list by eliminating the unused trailing space */
+	/** Compresses the list by eliminating unused trailing space in the arrays. */
 	public final void shrink(){
 		if(size==entries.length){return;}
 		entries=KillSwitch.copyOf(entries, size);
 		sizes=KillSwitch.copyOf(sizes, size);
 	}
 	
-	/**
-	 * Provided for supporting disordered additions; not currently used.  
-	 * Make each entry unique and minimal-length. 
-	 * */
+	/** Makes each entry unique and minimal-length by removing duplicates.
+	 * Currently untested and not expected to be used in production. */
 	public final void shrinkToUnique(){
 		assert(false) : "TODO: This function has not been tested and is not expected to be used.";
 		assert(!shrunk);
@@ -134,9 +143,10 @@ public final class LongList3{
 	}
 	
 	/**
-	 * Provided for supporting disordered additions; not currently used. 
-	 * I could redo this so that the sets become packed and the size changes without creating a new array. 
-	 * */
+	 * Removes duplicates from a specific entry by sorting and condensing.
+	 * Creates a new array if duplicates are found.
+	 * @param loc The location of the entry to make unique
+	 */
 	private void shrinkToUnique(int loc){
 		final long[] entry=entries[loc];
 		final int oldSize=sizes[loc];
@@ -168,8 +178,6 @@ public final class LongList3{
 		set(loc, set2, unique);
 	}
 	
-	/** Checks if the list is ready for use based on shrinking status and mode.
-	 * @return true if ready, false otherwise */
 	private boolean readyToUse(){
 		return shrunk || mode==ASCENDING || mode==UNIQUE;
 	}
@@ -178,12 +186,16 @@ public final class LongList3{
 	/*----------------           Reading            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Get the entry at the location */
 	public final long[] get(int loc){
 		return(loc>=size ? null : entries[loc]);
 	}
 	
-	/** Added for better IntList2 compatibility */
+	/**
+	 * Returns the length of the entry at the specified location.
+	 * Added for better IntList2 compatibility.
+	 * @param i The location to check
+	 * @return The length of the entry, or 0 if out of bounds
+	 */
 	public int getLen(int i) {
 		return i>=size ? 0 : sizes[i];
 	}
@@ -192,6 +204,9 @@ public final class LongList3{
 	/*----------------           ToString           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Returns a string representation showing all non-null entries with their indices.
+	 */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -211,55 +226,51 @@ public final class LongList3{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns the minimum of two integers. */
 	private static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns the maximum of two integers. */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Holds entries.  Each entry is a sets of numbers in an int[]. 
+	/** Holds entries where each entry is a set of numbers in a long array.
 	 * Leftmost values are valid, rightmost values are invalid. */
 	private long[][] entries;
-	/** Number of values in each entry. */
 	private int[] sizes;
-	/** Number of entries in the primary array. */
 	public int size=0;
 	
-	/** True after shrinkToUnique has been called.
-	 * Currently unused. */
 	private boolean shrunk=false;
 	
-	/** Preconditions for adding values */
+	/** Preconditions for adding values (ASCENDING, UNIQUE, or DISORDERED). */
 	private final int mode;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This could be made mutable per instance, but it would be a lot of work. */
+	/** Marker value for invalid/unused array positions. */
 	public static final int INVALID=-1;
 	
-	/** Only scan back this far for duplicates when adding values */
+	/**
+	 * Only scan back this far for duplicates when adding values to optimize performance.
+	 */
 	public static final int slowAddLimit=4;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Modes             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** All adds to an entry must be nondescending */
+	/** Mode requiring all adds to an entry must be nondescending. */
 	public static final int ASCENDING=1;
-	/** All adds to an entry must be unique */
+	/** Mode requiring all adds to an entry must be unique. */
 	public static final int UNIQUE=2;
-	/** No requirements for adds.
-	 * To ensure set functionality, shrinkToUnique should be called before use. */
+	/** Mode with no requirements for adds. To ensure set functionality,
+	 * shrinkToUnique should be called before use. */
 	public static final int DISORDERED=3;
 	
-	/** Should be set prior to creation, e.g. by Seal or Sketch */
+	/** Default mode for new instances. Should be set prior to creation. */
 	public static int defaultMode=ASCENDING;
-	/** Default initial size for new instances. */
+	/** Default initial capacity (in entry slots) for new LongList3 instances. */
 	public static int defaultInitialSize=256;
 	
 }

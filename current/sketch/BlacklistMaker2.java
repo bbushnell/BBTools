@@ -28,11 +28,13 @@ import tax.TaxNode;
 import tax.TaxTree;
 
 /**
- * Makes blacklists from existing sketches.
- * 
+ * Creates blacklists from existing sketches to filter common k-mers.
+ * Processes sketch databases to identify frequently occurring k-mers across
+ * multiple taxa or sequences, generating blacklists to improve sketch specificity.
+ * Supports per-sequence, per-taxa, and per-IMG modes for different blacklist scopes.
+ *
  * @author Brian Bushnell
  * @date November 12, 2019
- *
  */
 public class BlacklistMaker2 extends SketchObject {
 	
@@ -41,8 +43,9 @@ public class BlacklistMaker2 extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for blacklist generation.
+	 * Initializes the tool, processes sketches, and generates output blacklists.
+	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -63,8 +66,10 @@ public class BlacklistMaker2 extends SketchObject {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a BlacklistMaker2 instance with command-line configuration.
+	 * Parses arguments, sets up threading, initializes sketch searcher,
+	 * and validates output paths.
+	 * @param args Command-line arguments containing input sketches and parameters
 	 */
 	@SuppressWarnings("unchecked")
 	public BlacklistMaker2(String[] args){
@@ -220,7 +225,11 @@ public class BlacklistMaker2 extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that creates the blacklist from loaded sketches.
+	 * Loads reference sketches, spawns worker threads, and generates output.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		makeIndex=true; //(searcher.refFileCount()>0); //Index is required in whitelist mode.
@@ -246,7 +255,11 @@ public class BlacklistMaker2 extends SketchObject {
 		}
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and manages worker threads for parallel blacklist generation.
+	 * Each thread processes a portion of the k-mer index to identify
+	 * frequently occurring k-mers across sketches.
+	 */
 	private void spawnThreads(){
 		
 		//Do anything necessary prior to processing
@@ -299,18 +312,11 @@ public class BlacklistMaker2 extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Converts internal data structures to a Sketch object and writes to output.
-	 * @param destroy Whether to free internal data structures after conversion */
 	private void writeSketch(boolean destroy){
 		Sketch sk=toSketch(destroy);
 		if(ffsketch!=null){errorState|=SketchTool.write(sk, ffsketch);}
 	}
 	
-	/**
-	 * Compacts internal k-mer lists and writes k-mer count histogram.
-	 * Sorts and shrinks compressed integer lists, then generates a histogram
-	 * of k-mer occurrence frequencies for diagnostic output.
-	 */
 	private void shrinkListsAndWriteHist(){
 		int max=1000000;
 		long[] counts=new long[max+1];
@@ -340,14 +346,6 @@ public class BlacklistMaker2 extends SketchObject {
 		}
 	}
 
-	/**
-	 * Converts internal k-mer maps to a final Sketch object.
-	 * Filters k-mers by minimum tax count, sorts by frequency,
-	 * and creates a sketch containing the most common k-mers.
-	 *
-	 * @param destroy Whether to free internal data structures during conversion
-	 * @return Sketch object containing blacklisted k-mers
-	 */
 	private Sketch toSketch(boolean destroy){
 		long[] array=toArray(destroy);
 		hashArrayToSketchArray(array);
@@ -358,14 +356,6 @@ public class BlacklistMaker2 extends SketchObject {
 		return sk;
 	}
 	
-	/**
-	 * Converts k-mer frequency maps to a sorted array of blacklisted k-mers.
-	 * Filters k-mers by minimum count threshold, sorts by frequency,
-	 * and returns the top k-mers up to maxKeys limit.
-	 *
-	 * @param destroy Whether to free internal data structures during conversion
-	 * @return Array of k-mer hashes sorted by frequency
-	 */
 	private long[] toArray(boolean destroy){
 		ArrayList<KeyPair> pairs=new ArrayList<KeyPair>();
 		long entries=0;
@@ -402,22 +392,17 @@ public class BlacklistMaker2 extends SketchObject {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a worker thread for processing k-mer indices.
-		 * @param tid_ Thread ID for work partitioning
-		 * @param threads_ Total number of threads for parallel processing
-		 */
 		ProcessThread(final int tid_, final int threads_){
 			threadID=tid_;
 			threads=threads_;
 		}
 		
 		//Called by start()
+		/** Thread execution method that processes assigned k-mer index partitions.
+		 * Called automatically when thread starts via start() method. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -431,7 +416,8 @@ public class BlacklistMaker2 extends SketchObject {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Iterates through assigned k-mer index tables and processes each k-mer.
+		 * Partitions work across threads by hash table index modulo thread count. */
 		void processInner(){
 			SketchIndex index=searcher.index;
 			for(int i=threadID; i<index.tableArray.length; i+=threads) {
@@ -445,14 +431,6 @@ public class BlacklistMaker2 extends SketchObject {
 			}
 		}
 		
-		/**
-		 * Processes a single k-mer key to determine its blacklist inclusion.
-		 * Retrieves sketch IDs containing this k-mer, applies taxonomic promotion
-		 * if needed, and adds qualifying k-mers to the frequency maps.
-		 *
-		 * @param key0 K-mer hash value to process
-		 * @param table Hash table containing sketch ID mappings
-		 */
 		void processKey(final long key0, HashArrayHybridFast table){
 			keysProcessedT++;
 			final int[] sketchIds=table.getValues(key0, singleton); //searcher.index.getSketchIdsMap(key, singleton);
@@ -496,12 +474,6 @@ public class BlacklistMaker2 extends SketchObject {
 			}
 		}
 		
-		/**
-		 * Adds a k-mer and associated value to the appropriate frequency map.
-		 * Uses thread-safe synchronization to handle concurrent access to maps.
-		 * @param key0 K-mer hash value
-		 * @param value Sketch ID or taxonomic ID associated with this k-mer
-		 */
 		void addToMap(long key0, int value){
 			keysAddedT++;
 			Long key=Long.valueOf(key0);
@@ -522,21 +494,18 @@ public class BlacklistMaker2 extends SketchObject {
 			}
 		}
 		
-		/** Number of bases processed by this thread */
+		/** Number of k-mers processed by this thread */
 		protected long keysProcessedT=0;
 		
-		/** Number of k-mers added to maps by this thread */
 		protected long keysAddedT=0;
 		
-		/** True only if this thread has completed successfully */
+		/** True only if this thread completed successfully */
 		boolean success=false;
 		
-		/** Thread ID */
+		/** Unique identifier for this processing thread */
 		final int threadID;
-		/** Total number of threads being used for parallel processing */
 		final int threads;
 		
-		/** Reusable array for retrieving single sketch ID values */
 		private final int[] singleton=new int[1];
 	}
 	
@@ -544,25 +513,24 @@ public class BlacklistMaker2 extends SketchObject {
 	
 	private static class KeyPair implements Comparable<KeyPair> {
 
-		/**
-		 * Constructs a key-count pair for frequency sorting.
-		 * @param key_ K-mer hash value
-		 * @param count_ Occurrence count for this k-mer
-		 */
 		KeyPair(long key_, int count_){
 			key=key_;
 			count=count_;
 		}
 		
+		/**
+		 * Compares KeyPairs for sorting by count (descending) then by key.
+		 * Higher counts are considered smaller for reverse sorting.
+		 * @param o Other KeyPair to compare against
+		 * @return Negative if this comes before o, positive if after, zero if equal
+		 */
 		@Override
 		public int compareTo(KeyPair o) {
 			if(count!=o.count){return o.count-count;}
 			return key>o.key ? -1 : key<o.key ? 1 : 0;
 		}
 		
-		/** K-mer hash value in this key-count pair */
 		long key;
-		/** Occurrence count for this k-mer across sketches */
 		int count;
 		
 	}
@@ -571,84 +539,67 @@ public class BlacklistMaker2 extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Search engine for loading and indexing reference sketches */
 	public final SketchSearcher searcher=new SketchSearcher();
 	
-	/** Blacklist generation mode: PER_SEQUENCE, PER_TAXA, or PER_IMG */
 	private final int mode;
 	
-	/** Path to taxonomic tree file for taxa-based blacklist generation */
 	private String taxTreeFile=null;
-	/** Path to IMG database file for IMG-based blacklist generation */
 	private String imgFile=null;
 
-	/** Name for the output blacklist */
 	private String outName="blacklist";
-	/** Internal name for the generated sketch */
 	private String sketchName=null;
-	/** Taxonomic ID to assign to the output blacklist sketch */
 	private int outTaxid=-1;
 	
-	/** Taxonomic level for k-mer aggregation (species, genus, etc.) */
 	private int taxLevel=1;
-	/** Whether to exclude unranked or low-quality taxonomic assignments */
 	private boolean tossJunk=true;
-	/** Minimum number of taxa/sequences a k-mer must appear in to be blacklisted */
 	private int minTaxCount=20;
-	/** Maximum number of k-mers to include in the final blacklist */
 	private int maxKeys=300000;
 	
-	/**
-	 * Array of hash maps for storing k-mer frequencies across multiple partitions
-	 */
 	private HashMap<Long, IntListCompressor>[] maps;
 	
-	/** Number of hash map partitions to reduce synchronization contention */
 	final int ways=63;
 	
-	/** Final size of the generated blacklist after filtering and sorting */
 	int resultingSize=-1;
 	
-	/** Thread-safe counter for assigning fake taxonomic IDs to unknown sequences */
 	private final AtomicInteger nextUnknown=new AtomicInteger(SketchObject.minFakeID);
 	
 	/*--------------------------------------------------------------*/
 
-	/** Primary output file path */
+	/** Primary output file path for the blacklist sketch */
 	private String outSketch=null;
 
-	/** Histogram output file path */
+	/** Output file path for k-mer count histogram */
 	private String outHist=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of input sketches processed */
 	protected long sketchesProcessed=0;
-	/** Number of bases processed */
+	/** Total number of k-mers examined across all sketches */
 	protected long keysProcessed=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary output file */
+	/** File format handler for primary blacklist output */
 	private final FileFormat ffsketch;
-	/** Histogram output file */
+	/** File format handler for histogram output */
 	private final FileFormat ffhist;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Controls verbosity of status output messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Tracks whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

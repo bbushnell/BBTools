@@ -19,20 +19,10 @@ import var2.SamFilter;
 import var2.ScafMap;
 
 /**
- * Streams SAM/BAM files with optional filtering and format conversion.
- * 
- * Supports:
- * - SAM/BAM to FASTQ/FASTA conversion
- * - SAM/BAM to SAM/BAM conversion with filtering
- * - CIGAR normalization for different SAM versions
- * - SamFilter for quality/mapping filters
- * - Reference-based coordinate lookups
- * 
- * Usage examples:
- *   SamStreamerWrapper in=mapped.bam out=reads.fq.gz
- *   SamStreamerWrapper in=input.sam out=filtered.bam mapped=t
- *   SamStreamerWrapper in=aligned.bam out=output.sam samversion=1.4
- * 
+ * Wrapper for streaming SAM/BAM files with optional filtering, conversion, and CIGAR normalization.
+ * Supports emitting reads or SAM/BAM output, running SamFilter-based screening, and generating BAM
+ * indexes when requested.
+ *
  * @author Brian Bushnell, Isla
  * @date November 6, 2025
  */
@@ -42,10 +32,8 @@ public class SamStreamerWrapper{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Entry point for command-line execution.
+	 * Initializes the wrapper and runs processing with a timer. */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -61,8 +49,9 @@ public class SamStreamerWrapper{
 	}
 
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs the wrapper from command-line arguments.
+	 * Handles preparsing for config/help, parses options, initializes IO formats, and
+	 * configures SAM parsing behavior based on requested output.
 	 */
 	SamStreamerWrapper(String[] args){
 
@@ -108,10 +97,8 @@ public class SamStreamerWrapper{
 		ReadStreamByteWriter.USE_ATTACHED_SAMLINE=true;
 	}
 
-	/** 
-	 * Parse arguments from the command line.
-	 * @param args Command line arguments
-	 * @return Parser object with standard flags processed
+	/**
+	 * Parses command-line options and initializes the SamFilter and parser state.
 	 */
 	private Parser parse(String[] args){
 
@@ -180,12 +167,16 @@ public class SamStreamerWrapper{
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Add or remove .gz or .bz2 extensions as needed */
+	/**
+	 * Normalizes input/output filename extensions (adds/removes compression suffixes).
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 	}
 
-	/** Ensure input files can be read and output files can be written */
+	/**
+	 * Validates that input exists, output paths are writable, and filenames are unique.
+	 */
 	private void checkFileExistence(){
 		//Ensure input file exists
 		if(in1==null){
@@ -213,8 +204,7 @@ public class SamStreamerWrapper{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Create Streamer and Writer, then process all data.
-	 * @param t Timer for tracking elapsed time
+	 * Creates Streamer/Writer components and processes all records according to parsed options.
 	 */
 	void process(Timer t){
 
@@ -289,11 +279,6 @@ public class SamStreamerWrapper{
 		}
 	}
 
-	/**
-	 * Process data as Read objects (for SAM/BAM -> FASTQ/FASTA conversion).
-	 * @param st Input Streamer
-	 * @param fw Output Writer (may be null)
-	 */
 	private void processAsReads(Streamer st, Writer fw){
 		for(ListNum<Read> ln=st.nextList(); ln!=null && ln.size()>0; ln=st.nextList()){
 			ArrayList<Read> list=ln.list;
@@ -319,9 +304,7 @@ public class SamStreamerWrapper{
 	}
 
 	/**
-	 * Process data as SamLine objects (for SAM/BAM -> SAM/BAM conversion).
-	 * @param st Input Streamer
-	 * @param fw Output Writer (may be null)
+	 * Processes records as SamLine objects for SAM/BAM-to-SAM/BAM workflows, applying filtering and CIGAR fixes.
 	 */
 	private void processAsSam(Streamer st, Writer fw){
 		for(ListNum<SamLine> ln=st.nextLines(); ln!=null && ln.size()>0; ln=st.nextLines()){
@@ -367,53 +350,55 @@ public class SamStreamerWrapper{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** SAM/BAM filter for quality/mapping criteria */
+	/** SAM/BAM filter for quality/mapping criteria; null disables filtering. */
 	private SamFilter filter;
 
-	/** Primary input file path */
+	/** Primary input SAM/BAM filename. */
 	private String in1=null;
-	/** Primary output file path */
+	/** Primary output filename (SAM/BAM/FASTQ/FASTA). */
 	private String out1=null;
-	/** Reference genome path for coordinate lookups */
+	/** Reference path for coordinate lookups or CIGAR reconstruction. */
 	private String ref=null;
 
-	/** Primary input file format */
+	/** Input file format descriptor. */
 	private FileFormat ffin1;
-	/** Primary output file format */
+	/** Output file format descriptor. */
 	private FileFormat ffout1;
 
-	/** Number of threads for input streaming (-1 = auto) */
+	/** Thread count for input streaming (-1 to auto-detect). */
 	private int threadsIn=-1;
-	/** Number of threads for output writing (-1 = auto) */
+	/** Thread count for output writing (-1 to auto-detect). */
 	private int threadsOut=-1;
 
-	/** Number of reads processed */
+	/** Number of reads processed by the pipeline. */
 	private long readsProcessed=0;
-	/** Number of reads written */
+	/** Number of reads emitted to the writer. */
 	private long readsOut=0;
-	/** Number of bases processed */
+	/** Number of bases processed by the pipeline. */
 	private long basesProcessed=0;
-	/** Number of bases written */
+	/** Number of bases emitted to the writer. */
 	private long basesOut=0;
 
 	/*--------------------------------------------------------------*/
 
-	/** True if an error was encountered */
+	/** True if any stage of processing encountered an error. */
 	public boolean errorState=false;
-	/** Maintain input order in output */
+	/** Preserve input order in output when true. */
 	public boolean ordered=true;
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Limit on reads to process; -1 means no limit. */
 	private long maxReads=-1;
-	/** Force parsing of all SAM fields even if not needed */
+	/**
+	 * Force parsing of all SAM fields even when not required by the output format.
+	 */
 	private boolean forceParse;
-	/** Normalize CIGAR strings to specified SAM version */
+	/** Normalize CIGAR strings to the requested SAM version. */
 	private boolean fixCigar;
 
 	/*--------------------------------------------------------------*/
 
-	/** Print status messages to this output stream */
+	/** Output stream used for status messages and timing summaries. */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enables verbose debugging output. */
 	public static boolean verbose=false;
 
 }

@@ -6,12 +6,10 @@ import java.util.ArrayList;
 import structures.ByteBuilder;
 
 /**
- * How to use this class:
- * 1) Create one instance per thread 
- * 2) set() some Json text
- * 3) Call either parseJsonObject or parseJsonArray
+ * Simple JSON parser for reading JSON objects and arrays from text.
+ * Parses JSON text into JsonObject instances or Object arrays.
+ * Thread-safe when each thread uses its own instance.
  * @author Brian Bushnell
- *
  */
 public class JsonParser {
 	
@@ -19,7 +17,11 @@ public class JsonParser {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** For testing */
+	/**
+	 * Test method demonstrating JSON parsing capabilities.
+	 * Parses sample JSON objects and arrays, printing original and regenerated forms.
+	 * @param args Command-line arguments (unused)
+	 */
 	public static void main(String[] args){
 		String s;
 		
@@ -85,27 +87,16 @@ public class JsonParser {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates an empty JSON parser ready for text input */
 	public JsonParser(){}
 	
-	/** Creates a JSON parser initialized with text to parse.
-	 * @param s JSON text string to parse */
 	public JsonParser(String s){
 		set(s.getBytes());
 	}
 	
-	/** Creates a JSON parser initialized with byte array to parse.
-	 * @param s JSON text as byte array */
 	public JsonParser(byte[] s){
 		set(s);
 	}
 	
-	/**
-	 * Static convenience method to parse a JSON object from string.
-	 * Creates a temporary parser instance and returns the parsed object.
-	 * @param s JSON object string to parse
-	 * @return Parsed JsonObject or null if input is null or empty
-	 */
 	public static JsonObject parseJsonObjectStatic(String s){
 		if(s==null || s.length()<1) {return null;}
 		return new JsonParser(s).parseJsonObject();
@@ -115,12 +106,6 @@ public class JsonParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Sets new text to parse and resets parser state.
-	 * Clears position counter and error state for fresh parsing.
-	 * @param s New JSON text as byte array
-	 * @return This parser instance for method chaining
-	 */
 	public JsonParser set(byte[] s){
 		text=s;
 		pos=0;
@@ -128,55 +113,26 @@ public class JsonParser {
 		return this;
 	}
 	
-	/**
-	 * Parses a JSON object from the given string.
-	 * Sets the input text and calls the main parseJsonObject method.
-	 * @param s JSON object string to parse
-	 * @return Parsed JsonObject
-	 */
 	public JsonObject parseJsonObject(String s){
 		set(s.getBytes());
 		return parseJsonObject();
 	}
 	
-	/**
-	 * Parses a JSON object from the given byte array.
-	 * Sets the input text and calls the main parseJsonObject method.
-	 * @param s JSON object text as byte array
-	 * @return Parsed JsonObject
-	 */
 	public JsonObject parseJsonObject(byte[] s){
 		set(s);
 		return parseJsonObject();
 	}
 	
-	/**
-	 * Parses a JSON array from the given string.
-	 * Sets the input text and calls the main parseJsonArray method.
-	 * @param s JSON array string to parse
-	 * @return Parsed array of Objects
-	 */
 	public Object[] parseJsonArray(String s){
 		set(s.getBytes());
 		return parseJsonArray();
 	}
 	
-	/**
-	 * Parses a JSON array from the given byte array.
-	 * Sets the input text and calls the main parseJsonArray method.
-	 * @param s JSON array text as byte array
-	 * @return Parsed array of Objects
-	 */
 	public Object[] parseJsonArray(byte[] s){
 		set(s);
 		return parseJsonArray();
 	}
 	
-	/**
-	 * Parses a JSON object from the currently set text.
-	 * Expects text to start with '{' character.
-	 * @return Parsed JsonObject or null if no text is set
-	 */
 	public JsonObject parseJsonObject(){
 		if(text==null || text.length<1){return null;}
 		assert(text[0]=='{') : text[0]+"\n"+new String(text);
@@ -184,11 +140,6 @@ public class JsonParser {
 		return o;
 	}
 	
-	/**
-	 * Parses a JSON array from the currently set text.
-	 * Expects text to start with '[' character.
-	 * @return Parsed array of Objects or null if no text is set
-	 */
 	public Object[] parseJsonArray(){
 		if(text==null || text.length<1){return null;}
 		assert(text[0]=='[') : text[0]+"\n"+new String(text);
@@ -196,11 +147,6 @@ public class JsonParser {
 		return array;
 	}
 	
-	/**
-	 * Validates whether the currently set text is valid JSON.
-	 * Attempts to parse as either array or object and checks for errors.
-	 * @return true if the JSON is valid, false otherwise
-	 */
 	public boolean validate(){
 		if(text==null || text.length<1){return true;}
 		try {
@@ -219,7 +165,6 @@ public class JsonParser {
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This handles cases when the value is not surrounded by quotes. */
 	private Object bufferToObject(ByteBuilder bb){
 		String s=bb.toString();
 		bb.clear();
@@ -250,7 +195,6 @@ public class JsonParser {
 		return value;
 	}
 	
-	/** Not strictly correct, but allows t and f */
 	private static boolean parseBoolean(String s) throws Exception{
 		if(s==null){throw INVALID_JSON;}
 		if(s.equalsIgnoreCase("true") || s.equalsIgnoreCase("t")){return true;}
@@ -258,7 +202,6 @@ public class JsonParser {
 		throw INVALID_JSON;
 	}
 	
-	/** Create a JsonObject from { to the next } */
 	private JsonObject makeObject(){
 		assert(text[pos]=='{');
 		pos++;
@@ -357,7 +300,6 @@ public class JsonParser {
 		return current;
 	}
 	
-	/** Create an array from [ to the next ] */
 	private Object[] makeArray(){
 		assert(text[pos]=='[');
 		pos++;
@@ -440,18 +382,12 @@ public class JsonParser {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** JSON text being parsed as byte array */
 	byte[] text;
-	/** Current parsing position in the text array */
 	int pos=0;
-	/** Flag indicating whether parsing encountered errors */
 	boolean errorState;
 	
-	/** Always false except when testing */
 	private static final boolean verbose=false;
-	/** Output stream for verbose debugging messages */
 	private static final PrintStream outstream=System.err;
-	/** Exception instance used for invalid JSON parsing errors */
 	private static final Exception INVALID_JSON=new Exception("Invalid Json");
 	
 }

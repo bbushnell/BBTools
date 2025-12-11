@@ -58,8 +58,6 @@ public class ReformatBatchOutput {
 //	false negative:        	 0.000%
 	
 	
-	/** Program entry point. Reads batch mapping output file and reformats data.
-	 * @param args Command-line arguments; args[0] should be input file path */
 	public static void main(String[] args){
 		TextFile tf=new TextFile(args[0], false);
 		String[] lines=tf.toStringLines();
@@ -91,8 +89,6 @@ public class ReformatBatchOutput {
 	}
 	
 	
-	/** Generates tab-delimited header for reformatted output table.
-	 * @return Header string containing column names for mapping statistics */
 	public static String header() {
 		return("program\tfile\tvartype\tcount\treads\tprimary\tsecondary\ttime\tmapped\tretained\tdiscarded\tambiguous\ttruePositive\t" +
 				"falsePositive\ttruePositiveL\tfalsePositiveL\tfalseNegative");

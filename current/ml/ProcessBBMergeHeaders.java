@@ -16,14 +16,15 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Processes BBMerge output headers to extract merge statistics for machine learning analysis.
+ * Parses read headers containing overlap statistics, insert size predictions, and quality metrics
+ * from BBMerge output and reformats them into structured tabular data suitable for analysis.
+ *
  * @author Brian Bushnell
  * @date June 1, 2016
- *
  */
 public class ProcessBBMergeHeaders {
 
-	/** Program entry point for processing BBMerge headers.
-	 * @param args Command-line arguments specifying input/output files and parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ProcessBBMergeHeaders x=new ProcessBBMergeHeaders(args);
@@ -33,11 +34,6 @@ public class ProcessBBMergeHeaders {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs ProcessBBMergeHeaders instance and parses command-line arguments.
-	 * Sets up input/output file formats and initializes processing parameters.
-	 * @param args Command-line arguments containing file paths and options
-	 */
 	public ProcessBBMergeHeaders(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -79,14 +75,6 @@ public class ProcessBBMergeHeaders {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
-	/**
-	 * Main processing method that reads BBMerge output and extracts header statistics.
-	 * Processes reads containing merge statistics, parses header information, and outputs
-	 * tabular data for machine learning analysis. Adds column headers and processes
-	 * each read to extract overlap metrics, insert size predictions, and quality scores.
-	 *
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -158,14 +146,6 @@ public class ProcessBBMergeHeaders {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Parses a BBMerge header line into a structured Header object.
-	 * Validates that the line contains required BBMerge statistics markers
-	 * and attempts to parse the encoded merge statistics.
-	 *
-	 * @param line The read identifier line containing merge statistics
-	 * @return Header object containing parsed statistics, or null if invalid
-	 */
 	private Header makeHeader(String line){
 		if(!line.startsWith("insert=")){return null;}
 		if(!line.contains(" mo=")){return null;}
@@ -173,32 +153,15 @@ public class ProcessBBMergeHeaders {
 		return h.valid ? h : null;
 	}
 	
-	/**
-	 * Returns the column header string for tabular output.
-	 * Defines the columns that will be output for each processed header,
-	 * including correctness, overlap metrics, error rates, and probabilities.
-	 * @return Tab-separated header string for output table
-	 */
 	public String headerString(){
 		return "#Correct\tminOverlap\tbestOverlap\tbestBadInt\tsecondBestOverlap\tsecondBestBadInt\t"
 				+ "expectedErrors\tbestExpectedErrors\tbestRatio\tbestBad\tsecondBestRatio\tsecondBestBad\tprobability";
 	}
 	
-	/**
-	 * Represents parsed BBMerge header statistics for a single read pair.
-	 * Contains overlap predictions, insert size estimates, error rates, and
-	 * correctness validation for machine learning analysis of merge performance.
-	 */
 	private class Header {
 	
 		//mo=14_r1ee=5.2728_r2ee=3.4856_bi=202_bo=98_bb=5.3063_br=0.0598_bbi=6_sbi=270_sbo=30_sbb=12.4775_sbr=0.4343_sbbi=14_be=6.5990_pr=0.0007
 		
-		/**
-		 * Parses a BBMerge header line to extract all merge statistics.
-		 * Decodes embedded statistics including insert sizes, overlap lengths,
-		 * error rates, and probability scores from the encoded header format.
-		 * @param line_ The header line containing encoded merge statistics
-		 */
 		Header(String line_){
 			line=line_;
 			String[] split=line.split(" ");
@@ -255,75 +218,49 @@ public class ProcessBBMergeHeaders {
 							expectedErrors1+expectedErrors2, bestExpected, bestRatio, bestBad, secondBestRatio, secondBestBad, probability);
 		}
 		
-		/** True insert size from the read identifier */
 		int trueInsert;
 		
-		/** Minimum overlap length required for merging */
 		int minOverlap;
-		/** Expected errors in read 1 based on quality scores */
 		float expectedErrors1;
-		/** Expected errors in read 2 based on quality scores */
 		float expectedErrors2;
 		
-		/** Expected errors for the best overlap prediction */
 		float bestExpected;
-		/** Probability score for the merge prediction */
 		float probability;
 		
-		/** Best predicted insert size from merge analysis */
 		int bestInsert;
-		/** Best overlap length found during merge analysis */
 		int bestOverlap;
-		/** Quality ratio for the best merge prediction */
 		float bestRatio;
-		/** Bad score (mismatch/error metric) for best prediction */
 		float bestBad;
-		/** Integer version of bad score for best prediction */
 		int bestBadInt;
 		
-		/** Second best predicted insert size */
 		int secondBestInsert;
-		/** Second best overlap length found */
 		int secondBestOverlap;
-		/** Quality ratio for the second best prediction */
 		float secondBestRatio;
-		/** Bad score for second best prediction */
 		float secondBestBad;
-		/** Integer version of bad score for second best prediction */
 		int secondBestBadInt;
 
-		/** Whether the best prediction matches the true insert size */
 		boolean correct;
-		/** Whether the header contains valid, complete merge statistics */
 		boolean valid=false;
 		
-		/** Original header line containing the encoded statistics */
 		String line;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path */
 	private String in1=null;
-	/** Output file path */
 	private String out1=null;
 	
-	/** Input file format specification */
 	private final FileFormat ffin1;
-	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
-	/** Whether to print verbose status messages during processing */
 	public static boolean verbose=false;
 	
 }

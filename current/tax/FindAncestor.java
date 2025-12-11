@@ -21,17 +21,13 @@ import structures.IntList;
 import tracker.ReadStats;
 
 /**
+ * Finds taxonomic ancestors and majority classifications for sequences based on GI numbers.
+ * Processes input files containing GI numbers, converts them to NCBI taxonomy IDs, and determines common ancestors and majority classifications using a taxonomy tree.
  * @author Brian Bushnell
  * @date May 9, 2016
- *
  */
 public class FindAncestor {
 	
-	/**
-	 * Program entry point for taxonomic ancestor finding.
-	 * Initializes FindAncestor instance and processes input data.
-	 * @param args Command-line arguments including input files and taxonomy data paths
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FindAncestor x=new FindAncestor(args);
@@ -41,14 +37,6 @@ public class FindAncestor {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs FindAncestor with command-line arguments.
-	 * Parses arguments, loads GI table and taxonomy tree, validates file paths.
-	 * Initializes all required data structures for taxonomic classification.
-	 *
-	 * @param args Command-line arguments for configuration and file paths
-	 * @throws RuntimeException If required files are missing or invalid
-	 */
 	public FindAncestor(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -138,12 +126,6 @@ public class FindAncestor {
 		lifeNode=tree.getNodeByName("life");
 	}
 	
-	/**
-	 * Main processing method that reads input file and generates taxonomic classifications.
-	 * Processes each line containing GI numbers, finds ancestors and majority classifications,
-	 * writes results to output files with full taxonomic lineages.
-	 * @param t Timer for tracking processing time and performance statistics
-	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -238,14 +220,6 @@ public class FindAncestor {
 		}
 	}
 	
-	/**
-	 * Fills traversal list with taxonomic lineage from given taxon ID to root.
-	 * Traverses up the taxonomy tree collecting all parent nodes.
-	 *
-	 * @param id NCBI taxonomy ID to start traversal from
-	 * @param traversal List to fill with taxonomic lineage
-	 * @param addLife Whether to include the root "life" node in traversal
-	 */
 	private void fillTraversal(int id, IntList traversal, boolean addLife){
 		traversal.clear();
 		for(TaxNode node=tree.getNode(id); node!=null && node!=lifeNode; node=tree.getNode(node.pid)){
@@ -254,12 +228,6 @@ public class FindAncestor {
 		if(addLife || traversal.size==0){traversal.add(lifeNode.id);}
 	}
 	
-	/**
-	 * Writes taxonomic lineage names to output buffer.
-	 * Converts taxonomy IDs to names and formats them tab-separated from root to leaf.
-	 * @param traversal List of taxonomy IDs in the lineage
-	 * @param bb ByteBuilder to append formatted lineage names
-	 */
 	private void writeTraversal(IntList traversal, ByteBuilder bb){
 		for(int i=traversal.size-1; i>=0; i--){
 			final int id=traversal.get(i);
@@ -272,15 +240,6 @@ public class FindAncestor {
 		}
 	}
 	
-	/**
-	 * Extracts GI numbers from input line after the sequence name field.
-	 * Parses comma-delimited GI numbers, handling optional "gi|" prefixes.
-	 *
-	 * @param line Input line bytes containing sequence name and GI numbers
-	 * @param list IntList to populate with extracted GI numbers
-	 * @param delimiter Character separating GI numbers (typically comma)
-	 * @return Number of GI numbers successfully extracted
-	 */
 	private int getGiNumbers(final byte[] line, final IntList list, final char delimiter){
 		int i=0;
 		
@@ -306,14 +265,6 @@ public class FindAncestor {
 		return list.size;
 	}
 	
-	/**
-	 * Converts GI numbers to NCBI taxonomy IDs using loaded GI table.
-	 * Filters out invalid GI numbers that cannot be mapped to taxonomy IDs.
-	 *
-	 * @param giList List of GI numbers to convert
-	 * @param ncbiList List to populate with valid NCBI taxonomy IDs
-	 * @return Number of valid taxonomy IDs obtained
-	 */
 	private static int getTaxidNumbers(final IntList giList, final IntList ncbiList){
 		final int size=giList.size;
 		for(int i=0; i<size; i++){
@@ -325,24 +276,10 @@ public class FindAncestor {
 		return ncbiList.size;
 	}
 	
-	/**
-	 * Finds lowest common ancestor for all taxonomy IDs in the list.
-	 * @param list List of NCBI taxonomy IDs
-	 * @return NCBI taxonomy ID of the lowest common ancestor
-	 */
 	private int findAncestor(IntList list){
 		return findAncestor(tree, list);
 	}
 	
-	/**
-	 * Finds lowest common ancestor for taxonomy IDs using specified tree.
-	 * Iteratively computes common ancestors between pairs of taxonomy IDs
-	 * until a single ancestor representing the entire set is found.
-	 *
-	 * @param tree Taxonomy tree containing hierarchical relationships
-	 * @param list List of NCBI taxonomy IDs to find common ancestor for
-	 * @return NCBI taxonomy ID of the lowest common ancestor, or -1 if none found
-	 */
 	public static int findAncestor(TaxTree tree, IntList list){
 		if(list.size<1){
 			assert(false);
@@ -363,14 +300,6 @@ public class FindAncestor {
 		return ancestor;
 	}
 	
-	/**
-	 * Finds majority consensus taxonomy classification from input taxonomy IDs.
-	 * Uses vote counting by percolating counts up the taxonomy tree to find
-	 * the most specific taxonomic level supported by majority of sequences.
-	 *
-	 * @param list List of NCBI taxonomy IDs from input sequences
-	 * @return NCBI taxonomy ID representing majority consensus classification
-	 */
 	private int findMajority(IntList list){
 		if(list.size<3){return findAncestor(list);}
 		final int majority=list.size/2+1;
@@ -417,69 +346,46 @@ public class FindAncestor {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path containing sequence names and GI numbers */
 	private String in1=null;
-	/** Output file path for taxonomic classification results */
 	private String out1=null;
-	/** Output file path for sequences with invalid or unmappable GI numbers */
 	private String outInvalid=null;
 
-	/** File path to GI-to-taxonomy mapping table */
 	private String giTableFile=null;
-	/** File path to NCBI taxonomy tree structure */
 	private String taxTreeFile=null;
 	
-	/** Loaded taxonomy tree for hierarchical classifications */
 	private final TaxTree tree;
 	
-	/** Root taxonomy node representing "life" - highest level classification */
 	private final TaxNode lifeNode;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of GI numbers processed from input */
 	private long taxaCounted=0;
-	/** Number of GI numbers successfully mapped to taxonomy IDs */
 	private long taxaValid=0;
-	/** Total number of input lines processed */
 	private long linesProcessed=0;
-	/** Number of input lines with at least one valid taxonomy mapping */
 	private long linesValid=0;
-	/** Total bytes read from input files */
 	private long bytesProcessed=0;
 	
-	/** Maximum number of input lines to process */
 	private long maxLines=Long.MAX_VALUE;
 
 //	private boolean prefix=false;
-	/** Whether to generate count tables for taxonomy statistics */
 	private boolean countTable=true;
 //	private boolean keepInvalidSequence=false;
 	
-	/** Prefix string "gi|" used to identify GI numbers in input */
 	private final String prefix="gi|";
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format specification for input file */
 	private final FileFormat ffin1;
-	/** File format specification for main output file */
 	private final FileFormat ffout1;
-	/** File format specification for invalid sequences output file */
 	private final FileFormat ffoutInvalid;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
-	/** Global flag controlling verbose output in various BBTools components */
 	public static boolean verbose=false;
-	/** Flag indicating whether processing encountered errors */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

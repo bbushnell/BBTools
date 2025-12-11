@@ -9,10 +9,12 @@ import shared.Timer;
 import ukmer.KmerTableSetU;
 
 /**
- * Designed for removal of dead ends (aka hairs).
+ * Abstract base class for removing dead ends (hairs) and bubbles from k-mer graphs.
+ * Provides factory methods for creating concrete implementations and manages
+ * multi-threaded exploration and removal of graph artifacts during assembly.
+ *
  * @author Brian Bushnell
  * @date Jun 26, 2015
- *
  */
 public abstract class Shaver extends ShaveObject {
 	
@@ -259,13 +261,9 @@ public abstract class Shaver extends ShaveObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Cumulative count of k-mers tested across all shaving operations */
 	public long kmersTested=0;
-	/** Cumulative count of dead ends (hairs) found across all operations */
 	public long deadEndsFound=0;
-	/** Cumulative count of bubble structures found across all operations */
 	public long bubblesFound=0;
-	/** Cumulative count of k-mers removed across all shaving operations */
 	public long kmersRemoved=0;
 	
 	/*--------------------------------------------------------------*/
@@ -278,48 +276,28 @@ public abstract class Shaver extends ShaveObject {
 	 * @return The k-mer table set being processed
 	 */
 	abstract AbstractKmerTableSet tables();
-	/** K-mer size used in the assembly graph */
 	final int kbig;
-	/** Number of threads to use for parallel processing */
 	final int threads;
-	/** Minimum k-mer count to consider for removal operations */
 	int minCount;
-	/** Maximum k-mer count to consider for removal operations */
 	int maxCount;
-	/** Minimum k-mer count required to start path exploration */
 	final int minSeed;
-	/** Minimum k-mer count required to extend paths during exploration */
 	final int minCountExtend;
-	/** Branch multiplier threshold for bubble detection algorithms */
 	final float branchMult2;
-	/** Maximum length in bases of paths that can be removed */
 	final int maxLengthToDiscard;
-	/** Maximum distance to explore outward from seed k-mers */
 	final int maxDistanceToExplore;
-	/** Whether to remove dead-end paths (hairs) from the graph */
 	final boolean removeHair;
-	/** Whether to remove bubble structures from the graph */
 	final boolean removeBubbles;
-	/**
-	 * Whether to start exploration from high-count k-mers for better performance
-	 */
 	static boolean startFromHighCounts=true; //True is much faster, but decreases contiguity.
-	/** Whether to use fast shaving algorithm optimizations */
 	static boolean shaveFast=true;
-	/** Whether to use very fast shaving with potential contiguity trade-offs */
 	static final boolean shaveVFast=false; //True is faster, but slightly decreases contiguity.
 
-	/**
-	 * Matrix tracking counts of different types of graph events during exploration
-	 */
 	private long[][] countMatrix;
-	/** Matrix tracking removal counts for different types of graph artifacts */
 	private long[][] removeMatrix;
 	
-	/** For controlling access to tables */
+	/** Atomic counter for coordinating thread access to k-mer tables */
 	final AtomicInteger nextTable=new AtomicInteger(0);
 	
-	/** For controlling access to victim buffers */
+	/** Atomic counter for coordinating thread access to victim k-mer buffers */
 	final AtomicInteger nextVictims=new AtomicInteger(0);
 	
 }

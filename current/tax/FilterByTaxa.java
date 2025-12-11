@@ -26,13 +26,12 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Filters sequences according to their taxonomy,
- * as determined by the sequence name.  Sequences should
- * be labeled with a gi number or NCBI taxID.
- * 
+ * Filters sequences according to their taxonomy as determined by sequence names.
+ * Sequences should be labeled with gi numbers or NCBI taxIDs in their headers.
+ * Supports both include and exclude filtering modes based on taxonomic hierarchy.
+ *
  * @author Brian Bushnell
  * @date November 23, 2015
- *
  */
 public class FilterByTaxa {
 	
@@ -41,8 +40,9 @@ public class FilterByTaxa {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point from command line.
+	 * Creates FilterByTaxa instance and processes input with timing.
+	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -54,8 +54,10 @@ public class FilterByTaxa {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes the filter.
+	 * Sets up input/output files, creates TaxFilter, and configures processing options.
+	 * Handles file validation, format detection, and interleaving settings.
+	 * @param args Command-line arguments containing file paths and filter parameters
 	 */
 	public FilterByTaxa(String[] args){
 		
@@ -207,7 +209,11 @@ public class FilterByTaxa {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams and processes all sequence data through the taxonomic filter.
+	 * Sets up concurrent input/output streams, processes reads in batches, and reports statistics.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	public void process(Timer t){
 		
 		//Create a read input stream
@@ -267,7 +273,6 @@ public class FilterByTaxa {
 		}
 	}
 	
-	/** Iterate through the reads */
 	void processInner(final Streamer cris, final Writer ros){
 		
 		//Do anything necessary prior to processing
@@ -335,10 +340,13 @@ public class FilterByTaxa {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Process a single read pair.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
+	 * Processes a single read pair through the taxonomic filter.
+	 * Extracts taxonomy information from read headers and determines if reads pass the filter.
+	 * Collects taxonomy nodes for results output if enabled.
+	 *
+	 * @param r1 Primary read
+	 * @param r2 Mate read, may be null for unpaired data
+	 * @return true if reads pass the taxonomic filter and should be kept
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		boolean b=filter.passesFilter(r1.id);
@@ -353,89 +361,75 @@ public class FilterByTaxa {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
+	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
-	/** Primary input quality file path */
 	private String qfin1=null;
-	/** Secondary input quality file path */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 
-	/** Primary output quality file path */
 	private String qfout1=null;
-	/** Secondary output quality file path */
 	private String qfout2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** The actual filter */
 	private final TaxFilter filter;
 	
-	/** Recur at a higher level until some sequence matches.  Intended for include mode. */
+	/**
+	 * Recur at higher taxonomic levels until some sequence matches, intended for include mode
+	 */
 	public boolean bestEffort=false;
 	
-	/** For listing what is present in the output */
 	public String resultsFile=null;
 	
-	/**
-	 * Collection of taxonomy nodes found in filtered output for results reporting
-	 */
 	public LinkedHashSet<TaxNode> nodes=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Number of input bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads out */
+	/** Number of reads written to output */
 	public long readsOut=0;
-	/** Number of bases out */
+	/** Number of bases written to output */
 	public long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format handler */
 	private final FileFormat ffin1;
-	/** Secondary input file */
+	/** Secondary input file format handler */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
+	/** Primary output file format handler */
 	private final FileFormat ffout1;
-	/** Secondary output file */
+	/** Secondary output file format handler */
 	private final FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Print stream for status messages and logging output */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose status messages during processing */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag indicating if an error was encountered during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
+	/** Flag for ordered processing, has no effect on single-threaded programs */
 	private final boolean ordered=false;
 	
 }

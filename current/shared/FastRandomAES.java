@@ -11,49 +11,35 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * Uses SIMD, but ends up slower.
- * May be useful for filling large arrays.
- * 
+ * AES-based cryptographically secure pseudorandom number generator using counter mode.
+ * Uses SIMD operations but performance is slower than other PRNGs.
+ * May be useful for filling large arrays with cryptographically secure random data.
+ * Extends Random and provides all standard PRNG methods using AES encryption as the source.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 21, 2025
  */
 public final class FastRandomAES extends Random {
-    /** Serialization version identifier for Random compatibility */
     private static final long serialVersionUID = 1L;
     
     // Buffer size in longs (512 bytes = 64 longs)
-    /** Buffer size in longs (512 bytes = 64 longs) for batch random generation */
     private static final int BUFFER_SIZE = 64;
     
     // Direct ByteBuffer for efficient native access
-    /** Direct ByteBuffer for efficient native access to random bytes */
     private final ByteBuffer directBuffer;
-    /** Buffer of 64 longs to store generated random values */
     private final long[] longBuffer = new long[BUFFER_SIZE];
-    /** Current position in the long buffer; starts at BUFFER_SIZE (empty) */
     private int bufferPos = BUFFER_SIZE; // Start empty
     
     // AES internals
-    /** AES cipher instance configured for counter mode encryption */
     private final Cipher cipher;
-    /** Counter block array for AES counter mode input */
     private final byte[] counterBlock;
-    /** Output block array for AES encryption results */
     private final byte[] outputBlock;
     
-    /** Creates a new AES-based random number generator seeded with current system nanoseconds.
-     * Initializes AES cipher in counter mode with a time-based seed. */
     public FastRandomAES() {
         this(System.nanoTime());
     }
     
-    /**
-     * Creates a new AES-based random number generator with the specified seed.
-     * Initializes counter and output blocks, sets up direct buffer, and configures
-     * AES cipher in counter mode with no padding.
-     * @param seed The initial seed value for the random number generator
-     */
     public FastRandomAES(long seed) {
         // Initialize counter and output blocks
         counterBlock = new byte[BUFFER_SIZE * 8];
@@ -71,11 +57,6 @@ public final class FastRandomAES extends Random {
     	setSeed(seed);
     }
     
-    /**
-     * Refills the internal buffer with new random data using AES encryption.
-     * Encrypts counter blocks to generate random bytes, then converts to longs
-     * using ByteBuffer for efficiency. Resets buffer position to zero.
-     */
     private void refillBuffer() {
         try {
             // Encrypt counter blocks to generate random bytes
@@ -114,9 +95,6 @@ public final class FastRandomAES extends Random {
 //        setSeed(seed);
 //    }
     
-    /**
-     * Mixes a seed value using SplitMix64 algorithm.
-     */
     private static long mixSeed(long x) {
         x += 0x9E3779B97F4A7C15L;
         x = (x ^ (x >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -124,17 +102,11 @@ public final class FastRandomAES extends Random {
         return x ^ (x >>> 31);
     }
     
-    /**
-     * Returns a pseudorandom int value.
-     */
     @Override
     public int nextInt() {
         return (int)nextLong();
     }
     
-    /**
-     * Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
-     */
     @Override
     public int nextInt(int bound) {
         if(bound<=0) {
@@ -156,9 +128,6 @@ public final class FastRandomAES extends Random {
         return val;
     }
     
-    /**
-     * Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
-     */
     @Override
     public int nextInt(int origin, int bound) {
         if(origin>=bound) {
@@ -167,9 +136,6 @@ public final class FastRandomAES extends Random {
         return origin + nextInt(bound-origin);
     }
     
-    /**
-     * Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
-     */
     @Override
     public long nextLong(long bound) {
         if(bound<=0) {
@@ -191,17 +157,11 @@ public final class FastRandomAES extends Random {
         return val;
     }
     
-    /**
-     * Returns a pseudorandom boolean value.
-     */
     @Override
     public boolean nextBoolean() {
         return (nextLong() & 1)!=0;
     }
     
-    /**
-     * Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public float nextFloat() {
         return (nextLong() >>> 40) * 0x1.0p-24f;
@@ -212,17 +172,11 @@ public final class FastRandomAES extends Random {
 //        return Float.intBitsToFloat((int)(0x3f800000 | (nextLong() & 0x7fffff))) - 1.0f;
 //    }
     
-    /**
-     * Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public double nextDouble() {
         return (nextLong() >>> 11) * 0x1.0p-53d;
     }
     
-    /**
-     * Fills the given array with random bytes.
-     */
     @Override
     public void nextBytes(byte[] bytes) {
         int i=0;
@@ -251,9 +205,6 @@ public final class FastRandomAES extends Random {
         }
     }
     
-    /**
-     * Sets the seed of this random number generator.
-     */
     @Override
     public void setSeed(long seed) {
     	if(cipher==null) {return;}
@@ -276,9 +227,6 @@ public final class FastRandomAES extends Random {
         }
     }
     
-    /**
-     * Main method for benchmarking against other PRNGs.
-     */
     public static void main(String[] args) {
         int iterations=args.length>0 ? Integer.parseInt(args[0]) : 100_000_000;
         

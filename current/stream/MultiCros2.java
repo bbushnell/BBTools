@@ -14,15 +14,20 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
+ * Synchronous stream implementation for cross-splitting reads into multiple output files.
  * This implementation allows only a single, synchronous open stream.
- * 
+ * Buffers reads by name/barcode and writes them when sufficient data accumulates.
+ *
  * @author Brian Bushnell
  * @date May 1, 2019
- *
  */
 public class MultiCros2 extends BufferedMultiCros {
 
-	/** For testing */
+	/**
+	 * Testing method for MultiCros2 functionality.
+	 * Reads from input file and cross-splits reads by barcode into multiple streams.
+	 * @param args Command-line arguments: [input_file] [pattern] [names...]
+	 */
 	public static void main(String[] args){
 		String in=args[0];
 		String pattern=args[1];
@@ -57,7 +62,19 @@ public class MultiCros2 extends BufferedMultiCros {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** @See Details in superclass constructor */
+	/**
+	 * Constructs a MultiCros2 with file patterns and stream settings.
+	 * Initializes with single-threaded operation and creates buffer map for tracking reads.
+	 *
+	 * @param pattern1_ Output file pattern for read 1 (% will be replaced with read name/barcode)
+	 * @param pattern2_ Output file pattern for read 2 (% will be replaced with read name/barcode)
+	 * @param overwrite_ Whether to overwrite existing output files
+	 * @param append_ Whether to append to existing output files
+	 * @param allowSubprocess_ Whether to allow subprocess execution
+	 * @param useSharedHeader_ Whether to use shared header across files
+	 * @param defaultFormat_ Default file format for output
+	 * @param threaded_ Threading mode (forced to single-threaded in this implementation)
+	 */
 	public MultiCros2(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, boolean threaded_){
 		super(pattern1_, pattern2_, overwrite_, append_, allowSubprocess_, useSharedHeader_, defaultFormat_, threaded_, 1);
@@ -68,11 +85,21 @@ public class MultiCros2 extends BufferedMultiCros {
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Checks if the cross-splitting operation completed without errors.
+	 * @return true if no error state was encountered, false otherwise */
 	@Override
 	public boolean finishedSuccessfully(){
 		return !errorState;
 	}
 	
+	/**
+	 * Adds a read to the buffer for the specified name/barcode.
+	 * Creates a new buffer if one doesn't exist for this name.
+	 * May trigger a buffer dump if thresholds are exceeded.
+	 *
+	 * @param r The read to add to the buffer
+	 * @param name The name/barcode identifying which buffer to use
+	 */
 	@Override
 	public void add(Read r, String name){
 		assert(!threaded);
@@ -86,6 +113,12 @@ public class MultiCros2 extends BufferedMultiCros {
 //		System.err.println("Added "+name);
 	}
 	
+	/**
+	 * Dumps residual reads that didn't meet the minimum threshold for file creation.
+	 * Processes all buffers containing fewer than minReadsToDump reads.
+	 * @param rosu Output stream for residual reads, may be null
+	 * @return Number of reads dumped (currently always returns 0)
+	 */
 	@Override
 	public long dumpResidual(ConcurrentReadOutputStream rosu){
 		long dumped=0;
@@ -106,6 +139,11 @@ public class MultiCros2 extends BufferedMultiCros {
 		return dumped;
 	}
 	
+	/**
+	 * Generates a tab-separated report of read counts and bases per buffer.
+	 * Includes residual counts and only reports buffers meeting minimum thresholds.
+	 * @return ByteBuilder containing formatted report with name, read count, and base count
+	 */
 	@Override
 	public ByteBuilder report(){
 		ByteBuilder bb=new ByteBuilder(1024);
@@ -121,6 +159,8 @@ public class MultiCros2 extends BufferedMultiCros {
 		return bb;
 	}
 	
+	/** Gets the set of buffer names/barcodes currently tracked.
+	 * @return Set of string keys for all active buffers */
 	@Override
 	public Set<String> getKeys(){return bufferMap.keySet();}
 	
@@ -128,12 +168,19 @@ public class MultiCros2 extends BufferedMultiCros {
 	/*----------------        Inner Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Internal close method that dumps all remaining buffered reads.
+	 * @return Number of reads dumped during close operation */
 	@Override
 	long closeInner() {
 		long x=dumpAll();
 		return x;
 	}
 	
+	/**
+	 * Dumps all buffers regardless of their read counts.
+	 * Forces output of all accumulated reads to their respective files.
+	 * @return Total number of reads dumped across all buffers
+	 */
 	@Override
 	long dumpAll(){
 		long dumped=0;
@@ -151,19 +198,13 @@ public class MultiCros2 extends BufferedMultiCros {
 	/*----------------        Inner Classes         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * A Buffer holds reads destined for to a specific file.
-	 * When sufficient reads are present, it opens a stream and writes them,
-	 * then closes the stream.
+	/**
+	 * Buffer holds reads destined for a specific output file.
+	 * Accumulates reads until threshold is met, then opens stream, writes reads, and closes stream.
+	 * Tracks read/base counts and manages file deletion for overwrite scenarios.
 	 */
 	private class Buffer {
 		
-		/**
-		 * Constructs a Buffer for reads with the specified name/barcode.
-		 * Creates FileFormat objects by substituting name into output patterns.
-		 * Initializes read list and sets up file handling with append mode.
-		 * @param name_ The name/barcode for this buffer (replaces % in patterns)
-		 */
 		Buffer(String name_){
 			name=name_;
 			String s1=pattern1.replaceFirst("%", name);
@@ -180,10 +221,6 @@ public class MultiCros2 extends BufferedMultiCros {
 			if(verbose){System.err.println("Made buffer for "+name);}
 		}
 		
-		/** 
-		 * Add a read to this buffer, and update all the tracking variables.
-		 * This may trigger a dump.
-		 */
 		void add(Read r){
 			list.add(r);
 			long size=r.countPairBytes();
@@ -213,7 +250,12 @@ public class MultiCros2 extends BufferedMultiCros {
 			}
 		}
 		
-		/** Create a stream, dump buffered reads, and close the stream */
+		/**
+		 * Creates output stream, writes all buffered reads, and closes stream.
+		 * Deletes existing files on first dump if overwrite mode is enabled.
+		 * Resets buffer for next batch of reads after successful write.
+		 * @return Number of reads written to output stream
+		 */
 		long dump(){
 //			System.err.println("Dumping "+name);
 			if(list.isEmpty() || readsIn<minReadsToDump){return 0;}
@@ -240,37 +282,27 @@ public class MultiCros2 extends BufferedMultiCros {
 			return size0;
 		}
 		
-		/**
-		 * Deletes the file associated with the given FileFormat if it exists.
-		 * Used for overwrite mode to remove existing files before writing.
-		 * @param ff FileFormat containing the file path to delete, may be null
-		 */
 		private void delete(FileFormat ff){
 			if(ff==null){return;}
 			File f=new File(ff.name());
 			if(f.exists()){f.delete();}
 		}
 		
-		/** Current list of buffered reads */
+		/** Current list of buffered reads waiting to be written */
 		private ArrayList<Read> list;
 		
-		/** Stream name, which is the variable part of the file pattern */
 		private final String name;
-		/** Output file 1 */
 		private final FileFormat ff1;
-		/** Output file 2 */
+		/** Output file format for read 2 */
 		private final FileFormat ff2;
-		/** Number of reads entering the buffer */
 		private long readsIn=0;
-		/** Number of bases entering the buffer */
 		private long basesIn=0;
-		/** Number of reads written to disk */
+		/** Number of reads written to disk (does not count read2) */
 		@SuppressWarnings("unused")
 		private long readsWritten=0;//This does not count read2!
-		/** Number of bytes currently in this buffer (estimated) */
 		private long currentBytes=0;
 		
-		/** Number of dumps executed */
+		/** Number of dumps executed for this buffer */
 		private long numDumps=0;
 		
 	}
@@ -279,7 +311,7 @@ public class MultiCros2 extends BufferedMultiCros {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Map of names to buffers */
+	/** Map of names to buffers for tracking reads by barcode/name */
 	public final LinkedHashMap<String, Buffer> bufferMap;
 
 }

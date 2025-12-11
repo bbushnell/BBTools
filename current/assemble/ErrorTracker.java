@@ -6,16 +6,13 @@ import structures.ByteBuilder;
  * Tracks and manages sequencing errors detected during assembly processing.
  * Maintains statistics on error detection, correction attempts, and rollback operations
  * for quality assessment and debugging.
- * 
+ *
  * @author Brian Bushnell
  * @documentation Eru
  * @date Oct 1, 2016
  */
 public class ErrorTracker {
 	
-	/**
-	 * Creates a new error tracking instance with all counters initialized to zero.
-	 */
 	public ErrorTracker(){
 		
 	}
@@ -79,6 +76,11 @@ public class ErrorTracker {
 		return correctedReassembleInner+correctedReassembleOuter; //Sum both reassembly types
 	}
 	
+	/**
+	 * Creates a formatted string representation of all tracking statistics.
+	 * Displays suspected, detected, and corrected error counts in tabular format.
+	 * @return Tab-separated statistics summary
+	 */
 	@Override
 	public String toString(){
 		ByteBuilder sb=new ByteBuilder();
@@ -96,33 +98,21 @@ public class ErrorTracker {
 		return sb.toString();
 	}
 
-	/** Number of errors suspected but not yet confirmed */
 	public int suspected;
 	
-	/** Number of errors detected using pincer method */
 	public int detectedPincer;
-	/** Number of errors detected using tail method */
 	public int detectedTail;
-	/** Number of errors detected using brute-force method */
 	public int detectedBrute;
-	/** Number of errors detected requiring reassembly */
 	public int detectedReassemble;
 	
-	/** Number of errors corrected using pincer method */
 	public int correctedPincer;
-	/** Number of errors corrected using tail method */
 	public int correctedTail;
-	/** Number of errors corrected using brute-force method */
 	public int correctedBrute;
-	/** Number of errors corrected via inner reassembly method */
 	public int correctedReassembleInner;
-	/** Number of errors corrected via outer reassembly method */
 	public int correctedReassembleOuter;
 	
-	/** Number of sequences marked for special processing */
 	public int marked;
 	
-	/** Flag indicating whether rollback operations should be performed */
 	public boolean rollback=false;
 	
 }

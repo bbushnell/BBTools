@@ -3,17 +3,15 @@ package shared;
 import java.util.Random;
 
 /**
- * A fast, seedable random number generator for non-cryptographic purposes.
- * Based on XorShift128+ algorithm (Sebastiano Vigna and David Blackman) for speed and quality.
- * Safe for use in constructors and thread initialization.
- * 
+ * Fast, seedable XorShift128+ RNG for non-cryptographic use.
+ * Provides faster alternatives to java.util.Random with deterministic seeding.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 14, 2025
  */
 public final class FastRandom extends java.util.Random {
 	
-    /** Required for Serializable interface compatibility */
     private static final long serialVersionUID = 1L;
     
     @Override
@@ -21,20 +19,15 @@ public final class FastRandom extends java.util.Random {
         return (int)(nextLong() >>> (64 - bits));
     }
     
-    /** State variables for XorShift128+ */
     private long seed0, seed1;
     
-    /**
-     * Creates a new FastRandom with a random seed derived from system time.
-     */
+    /** Creates a FastRandom seeded from system time. */
     public FastRandom() {
         this(System.nanoTime());
     }
     
-    /**
-     * Creates a new FastRandom with the specified seed.
-     * @param seed The initial seed
-     */
+    /** Creates a FastRandom with the specified seed (negative seeds use system time).
+     * @param seed Initial seed */
     public FastRandom(long seed) {
     	if(seed<0) {seed=System.nanoTime();}
     	
@@ -55,7 +48,9 @@ public final class FastRandom extends java.util.Random {
     }
     
     /**
-     * Mixes a seed value using SplitMix64 algorithm.
+     * Mixes a seed via SplitMix64 to initialize RNG state.
+     * @param x Seed to mix
+     * @return Mixed seed value
      */
     private static long mixSeed(long x) {
         x += 0x9E3779B97F4A7C15L;
@@ -64,10 +59,8 @@ public final class FastRandom extends java.util.Random {
         return x ^ (x >>> 31);
     }
     
-    /**
-     * Returns the next pseudorandom long value.
-     * This is the core generation function using XorShift128+.
-     */
+    /** Returns the next pseudorandom long using XorShift128+ core.
+     * @return Next random long */
     @Override
     public long nextLong() {
         long s0 = seed0;
@@ -81,16 +74,15 @@ public final class FastRandom extends java.util.Random {
         return result;
     }
     
-    /**
-     * Returns a pseudorandom int value.
-     */
     @Override
     public int nextInt() {
         return (int)nextLong();
     }
     
     /**
-     * Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
+     * Returns a pseudorandom int in [0, bound), rejecting to avoid bias for non-powers of two.
+     * @param bound Upper bound (exclusive, positive)
+     * @return Random int in range
      */
     @Override
     public int nextInt(int bound) {
@@ -114,7 +106,10 @@ public final class FastRandom extends java.util.Random {
     }
     
     /**
-     * Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
+     * Returns a pseudorandom int in [origin, bound).
+     * @param origin Lower bound (inclusive)
+     * @param bound Upper bound (exclusive)
+     * @return Random int in range
      */
     @Override
     public int nextInt(int origin, int bound) {
@@ -125,7 +120,9 @@ public final class FastRandom extends java.util.Random {
     }
     
     /**
-     * Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
+     * Returns a pseudorandom long in [0, bound), with bias-free rejection for non-powers of two.
+     * @param bound Upper bound (exclusive, positive)
+     * @return Random long in range
      */
     @Override
     public long nextLong(long bound) {
@@ -148,17 +145,11 @@ public final class FastRandom extends java.util.Random {
         return val;
     }
     
-    /**
-     * Returns a pseudorandom boolean value.
-     */
     @Override
     public boolean nextBoolean() {
         return (nextLong() & 1)!=0;
     }
     
-    /**
-     * Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public float nextFloat() {
         return (nextLong() >>> 40) * 0x1.0p-24f;
@@ -169,17 +160,11 @@ public final class FastRandom extends java.util.Random {
 //        return Float.intBitsToFloat((int)(0x3f800000 | (nextLong() & 0x7fffff))) - 1.0f;
 //    }
     
-    /**
-     * Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public double nextDouble() {
         return (nextLong() >>> 11) * 0x1.0p-53d;
     }
     
-    /**
-     * Fills the given array with random bytes.
-     */
     @Override
     public void nextBytes(byte[] bytes) {
         int i=0;
@@ -208,9 +193,8 @@ public final class FastRandom extends java.util.Random {
         }
     }
     
-    /**
-     * Sets the seed of this random number generator.
-     */
+    /** Reinitializes RNG state using SplitMix64 seeds and a short warmup.
+     * @param seed New seed (negative uses system time) */
     @Override
     public void setSeed(long seed) {
         seed0=seed;
@@ -228,9 +212,8 @@ public final class FastRandom extends java.util.Random {
         }
     }
     
-    /**
-     * Main method for benchmarking against other PRNGs.
-     */
+    /** Benchmarks FastRandom vs java.util.Random and ThreadLocalRandom for nextFloat().
+     * @param args Optional iteration count (default 100,000,000) */
     public static void main(String[] args) {
         int iterations=args.length>0 ? Integer.parseInt(args[0]) : 100_000_000;
         

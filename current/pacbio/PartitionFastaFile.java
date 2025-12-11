@@ -6,19 +6,16 @@ import fileIO.TextStreamWriter;
 import shared.Timer;
 
 /**
+ * Partitions FASTA files into multiple smaller files based on sequence length.
+ * Splits input FASTA by base count, creating new files when partition size is reached.
+ * Ensures complete sequences are not split across partition boundaries.
+ *
  * @author Brian Bushnell
  * @date Jul 10, 2012
- *
  */
 public class PartitionFastaFile {
 	
 	
-	/**
-	 * Program entry point for FASTA file partitioning.
-	 * Expects arguments: input_file output_pattern partition_size [max_output]
-	 * Output pattern must contain "#" which is replaced with partition number.
-	 * @param args [0]=input file, [1]=output pattern, [2]=partition size, [3]=max data out
-	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -39,15 +36,6 @@ public class PartitionFastaFile {
 		
 	}
 	
-	/**
-	 * Splits FASTA file into partitions based on sequence base count.
-	 * Creates new output files when current partition reaches size limit.
-	 * Sequence headers trigger partition boundary checks; sequences are never split.
-	 *
-	 * @param tf Input text file reader for FASTA data
-	 * @param outfile Output filename pattern containing "#" for partition numbering
-	 * @param partition Maximum number of bases per partition before creating new file
-	 */
 	public static void split(TextFile tf, String outfile, long partition) {
 		long currentBases=0;
 		int pnum=1;
@@ -89,13 +77,9 @@ public class PartitionFastaFile {
 		tsw.poison();
 	}
 	
-	/** Minimum contig length threshold (currently unused) */
 	public static int MIN_CONTIG_TO_ADD=150; //Not currently used
-	/** Maximum total output length limit (200 billion bases) */
 	public static long MAX_OUTPUT_LEN=200000000000L;
-	/** Maximum data to output before stopping processing */
 	public static long maxDataOut=Long.MAX_VALUE;
-	/** Running count of total bases written to output files */
 	private static long dataOut=0;
 	
 }

@@ -8,22 +8,8 @@ import dna.Data;
 import shared.Shared;
 import structures.ListNum;
 
-/**
- * Concurrent read input stream that reads from in-memory collections of Read objects.
- * Provides thread-safe access to paired or unpaired read collections through a
- * depot-based buffering system. Supports sampling and progress tracking.
- * @author Brian Bushnell
- */
 public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStream {
 	
-	/**
-	 * Constructs a concurrent collection read input stream.
-	 * Creates a depot-based buffering system for thread-safe access to read collections.
-	 *
-	 * @param source1 Primary read collection (required)
-	 * @param source2 Secondary read collection for paired reads (may be null)
-	 * @param maxReadsToGenerate Maximum number of reads to process, or negative for unlimited
-	 */
 	public ConcurrentCollectionReadInputStream(List<Read> source1, List<Read> source2, long maxReadsToGenerate){
 		super("list");
 		assert(source1!=source2);
@@ -73,6 +59,11 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		}
 	}
 	
+	/**
+	 * Main execution method that processes reads from the source collections.
+	 * Reads singles/pairs from collections, fills depot buffers, and adds poison
+	 * pills when complete. Handles remaining empty buffers during shutdown.
+	 */
 	@Override
 	public void run() {
 //		producer.start();
@@ -94,8 +85,6 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 //		System.err.println("cris thread terminated. Final depot size: "+depot.full.size()+", "+depot.empty.size());
 	}
 	
-	/** Adds poison pills to the depot to signal completion to consumers.
-	 * Retrieves empty buffers and converts them to poison pills for shutdown coordination. */
 	private final void addPoison(){
 		//System.err.println("Adding poison.");
 		//Add poison pills
@@ -124,11 +113,6 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		//System.err.println("Added poison.");
 	}
 	
-	/**
-	 * Reads individual or paired reads from source collections into depot buffers.
-	 * Handles read pairing, mate assignment, sampling, and progress tracking.
-	 * Respects maximum read limits and buffer size constraints.
-	 */
 	private final void readSingles(){
 
 		for(int i=0; !shutdown && i<producer1.size() && generated<maxReads; i++){
@@ -177,9 +161,10 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		}
 	}
 	
-	/** Flag indicating whether shutdown has been initiated */
 	private boolean shutdown=false;
 	
+	/** Initiates shutdown of the read stream.
+	 * Sets shutdown flag and interrupts any running threads. */
 	@Override
 	public void shutdown(){
 		if(verbose){System.out.println("Called shutdown.");}
@@ -198,6 +183,8 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		if(verbose){System.out.println("shutdown 6.");}
 	}
 	
+	/** Resets the stream to initial state for reuse.
+	 * Clears shutdown flag, recreates depot, and resets counters. */
 	@Override
 	public synchronized void restart(){
 		shutdown=false;
@@ -278,11 +265,6 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	@Override
 	public boolean verbose(){return verbose;}
 	
-	/**
-	 * Increments the generated read counter and displays progress if enabled.
-	 * Prints progress dots at regular intervals when SHOW_PROGRESS is true.
-	 * @param amt Number of reads to add to generated count
-	 */
 	private void incrementGenerated(long amt){
 		generated+=amt;
 		if(SHOW_PROGRESS && generated>=nextProgress){
@@ -291,6 +273,12 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		}
 	}
 	
+	/**
+	 * Sets the sampling rate for read selection.
+	 * Creates random number generator for subsampling if rate is less than 1.0.
+	 * @param rate Fraction of reads to keep (0.0 to 1.0)
+	 * @param seed Random seed for reproducible sampling, or negative for random seed
+	 */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
@@ -301,52 +289,44 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 		}
 	}
 	
+	/** Returns total number of bases processed from input.
+	 * @return Total bases read from source collections */
 	@Override
 	public long basesIn(){return basesIn;}
+	/** Returns total number of reads processed from input.
+	 * @return Total reads processed from source collections */
 	@Override
 	public long readsIn(){return readsIn;}
 	
+	/** Returns current error state of the stream.
+	 * @return true if an error has occurred, false otherwise */
 	@Override
 	public boolean errorState(){return errorState;}
-	/** TODO */
+	/** Flag tracking error state of the stream */
 	private boolean errorState=false;
 	
-	/** Sampling rate for read selection (1.0 = keep all reads) */
 	private float samplerate=1f;
-	/** Random number generator for read sampling */
 	private java.util.Random randy=null;
 	
-	/** Array of threads used by this stream */
 	private Thread[] threads;
 	
 	@Override
 	public Object[] producers(){return new Object[] {producer1, producer2};}
 	
-	/** Primary source collection containing reads */
 	public final List<Read> producer1;
-	/** Secondary source collection for paired reads (may be null) */
 	public final List<Read> producer2;
-	/** Concurrent depot managing read list buffers for thread-safe access */
 	private ConcurrentDepot<Read> depot;
 	
-	/** Total number of bases processed from input collections */
 	private long basesIn=0;
-	/** Total number of reads processed from input collections */
 	private long readsIn=0;
 	
-	/** Maximum number of reads to generate from collections */
 	private long maxReads;
-	/** Number of reads generated so far */
 	private long generated=0;
-	/** Sequential number assigned to each list returned */
 	private long listnum=0;
-	/** Next milestone for displaying progress indicator */
 	private long nextProgress=PROGRESS_INCR;
 	
-	/** Global flag enabling verbose debug output */
 	public static boolean verbose=false;
 	
-	/** Empty list used as poison pill to signal stream completion */
 	private static final ArrayList<Read> poison=new ArrayList<Read>(0);
 	
 }

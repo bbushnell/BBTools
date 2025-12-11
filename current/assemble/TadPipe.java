@@ -17,10 +17,14 @@ import shared.Shared;
 import stream.FASTQ;
 
 /**
- * Merges and error-corrects reads, then assembles.
+ * Automated pipeline for read processing and de novo assembly.
+ * Performs adapter trimming, error correction, read merging, extension,
+ * and multi-k assembly to produce high-quality contigs from raw sequencing data.
+ * Pipeline stages: BBDuk trimming -> BBMerge overlap correction -> Clumpify deduplication
+ * -> BBMerge merging, Tadpole error correction, extension, and TadpoleWrapper assembly.
+ *
  * @author Brian Bushnell
  * @date August 16, 2016
- *
  */
 public class TadPipe {
 	
@@ -28,10 +32,6 @@ public class TadPipe {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		TadPipe x=new TadPipe(args);
 		x.process();
@@ -41,7 +41,10 @@ public class TadPipe {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructs TadPipe and parses command-line arguments.
+	 * Separates arguments into tool-specific parameter lists using prefixes:
+	 * merge_, ecco_, ecc_, extend_, extend2_, clump_, trim_, assemble_.
+	 * Sets shared configuration for compression and threading.
 	 * @param args Command line arguments
 	 */
 	public TadPipe(String[] args){
@@ -408,9 +411,9 @@ public class TadPipe {
 	}
 	
 	/**
-	 * Delete all non-null filenames.
-	 * @param prefix Append this prefix to filenames before attempting to delete them
-	 * @param names Filenames to delete
+	 * Deletes specified temporary files if they exist.
+	 * Includes safety check to prevent deletion of input files.
+	 * @param names Variable number of filenames to delete
 	 */
 	private void delete(String...names){
 		for(String s : names){
@@ -433,55 +436,39 @@ public class TadPipe {
 //
 //	private ArrayList<String> adapterArgs=new ArrayList<String>();
 	
-	/** Arguments for BBDuk adapter trimming and quality filtering stage */
 	private ArrayList<String> trimArgs=new ArrayList<String>();
 	
-	/** Arguments for BBMerge overlap-based error correction stage */
 	private ArrayList<String> eccoArgs=new ArrayList<String>();
 	
-	/** Arguments for Clumpify deduplication and error correction stage */
 	private ArrayList<String> clumpifyArgs=new ArrayList<String>();
 	
-	/** Arguments for TadpoleWrapper multi-k assembly stage */
 	private ArrayList<String> assembleArgs=new ArrayList<String>();
 	
-	/** Arguments for BBMerge read pair merging stage */
 	private ArrayList<String> mergeArgs=new ArrayList<String>();
 	
-	/** Arguments for Tadpole k-mer based error correction stage */
 	private ArrayList<String> eccArgs=new ArrayList<String>();
 	
-	/** Arguments for first Tadpole read extension stage */
 	private ArrayList<String> extendArgs=new ArrayList<String>();
 	
-	/** Arguments for optional second Tadpole read extension stage */
 	private ArrayList<String> extend2Args=new ArrayList<String>();
 	
 	private String in1, in2;
 	
-	/** Output fasta file path for assembled contigs */
 	private String out="contigs.fa";
 	
-	/** Directory path for storing temporary intermediate files */
 	private String tempdir=Shared.tmpdir();
 
-	/** Whether to delete temporary files after pipeline completion */
 	private boolean deleteTemp=true;
-	/** Whether to compress temporary files with gzip */
 	private boolean gz=false;
 	
-	/** Whether to perform second round of read extension with longer k-mers */
 	private boolean extend2=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
 	
 }

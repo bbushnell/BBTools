@@ -9,9 +9,10 @@ import structures.ByteBuilder;
 import structures.SuperLongList;
 
 /**
+ * Abstract binary search tree node for storing k-mer counts and associated data.
+ * Each node stores a k-mer pivot, count values, and optional multi-value data, with support for ownership tracking and rebalancing.
  * @author Brian Bushnell
  * @date Oct 22, 2013
- *
  */
 public abstract class KmerNode extends AbstractKmerTable {
 	
@@ -19,30 +20,11 @@ public abstract class KmerNode extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Constructs a new node with the specified k-mer as pivot.
-	 * @param pivot_ The k-mer value to use as the pivot for this node */
 	protected KmerNode(long pivot_){
 		pivot=pivot_;
 	}
 	
-	/**
-	 * Factory method to create a new node with single value.
-	 * Implementation depends on the concrete subclass type.
-	 *
-	 * @param pivot_ The k-mer value for the new node
-	 * @param value_ The initial count value
-	 * @return A new node instance
-	 */
 	public abstract KmerNode makeNode(long pivot_, int value_);
-	/**
-	 * Factory method to create a new node with multiple values.
-	 * Implementation depends on the concrete subclass type.
-	 *
-	 * @param pivot_ The k-mer value for the new node
-	 * @param values_ Array of values to store
-	 * @param vlen_ Number of valid values in the array
-	 * @return A new node instance
-	 */
 	public abstract KmerNode makeNode(long pivot_, int[] values_, int vlen_);
 	
 	/*--------------------------------------------------------------*/
@@ -110,7 +92,6 @@ public abstract class KmerNode extends AbstractKmerTable {
 //	}
 	
 	
-	/** Returns number of nodes added */
 	@Override
 	public final int set(long kmer, int value){
 		if(verbose){System.err.println("Set0: kmer="+kmer+", v="+value+", old="+Arrays.toString(values(new int[1])));}
@@ -135,7 +116,13 @@ public abstract class KmerNode extends AbstractKmerTable {
 	}
 	
 	
-	/** Returns number of nodes added */
+	/**
+	 * Sets the count for a k-mer only if it is not already present.
+	 * Creates a new node with the specified value if the k-mer is absent.
+	 * @param kmer The k-mer to set
+	 * @param value The count value to assign if not present
+	 * @return Number of nodes added (1 if new node created, 0 if k-mer already exists)
+	 */
 	@Override
 	public final int setIfNotPresent(long kmer, int value){
 		if(verbose){System.err.println("setIfNotPresent0: kmer="+kmer+", v="+value+", old="+Arrays.toString(values(new int[0])));}
@@ -150,18 +137,34 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return 0;
 	}
 	
+	/**
+	 * Retrieves the count value for a k-mer.
+	 * @param kmer The k-mer to look up
+	 * @return The count value, or -1 if the k-mer is not present
+	 */
 	@Override
 	public final int getValue(long kmer){
 		KmerNode n=get(kmer);
 		return n==null ? -1 : n.value();
 	}
 	
+	/**
+	 * Retrieves all values associated with a k-mer for multi-value nodes.
+	 * @param kmer The k-mer to look up
+	 * @param singleton Reusable array for single-value results (optimization)
+	 * @return Array of values, or null if the k-mer is not present
+	 */
 	@Override
 	public final int[] getValues(long kmer, int[] singleton){
 		KmerNode n=get(kmer);
 		return n==null ? null : n.values(singleton);
 	}
 	
+	/**
+	 * Tests whether a k-mer is present in the tree.
+	 * @param kmer The k-mer to search for
+	 * @return true if the k-mer is present, false otherwise
+	 */
 	@Override
 	public final boolean contains(long kmer){
 		KmerNode node=get(kmer);
@@ -172,35 +175,28 @@ public abstract class KmerNode extends AbstractKmerTable {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the left child node */
 	public KmerNode left(){return left;}
-	/** Gets the right child node */
 	public KmerNode right(){return right;}
-	/** Gets the k-mer value stored at this node */
 	public long pivot(){return pivot;}
-	/** Gets the ownership identifier for this node */
 	public int owner(){return owner;}
 	
-	/** Gets the count value for this node (alias for value()) */
 	public int count(){return value();}
-	/** Gets the primary count value stored at this node */
 	protected abstract int value();
-	/**
-	 * Gets all values stored at this node for multi-value implementations.
-	 * @param singleton Reusable array for single-value results (optimization)
-	 * @return Array containing all values at this node
-	 */
 	protected abstract int[] values(int[] singleton);
-	/** Returns new value */
-	public abstract int set(int value_);
 	/**
-	 * Sets multiple values for this node in multi-value implementations.
-	 * @param values_ Array of values to store
-	 * @param vlen Number of valid values in the array
-	 * @return Status code indicating success or failure
+	 * Sets the primary value for this node.
+	 * @param value_ The new value to store
+	 * @return The value that was set
 	 */
+	public abstract int set(int value_);
 	protected abstract int set(int[] values_, int vlen);
 	
+	/**
+	 * Finds the node containing the specified k-mer.
+	 * Uses iterative binary search for efficient traversal.
+	 * @param kmer The k-mer to search for
+	 * @return The node containing the k-mer, or null if not found
+	 */
 	@Override
 	final KmerNode get(long kmer){
 //		if(kmer<pivot){
@@ -217,23 +213,12 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return n;
 	}
 	
-	/**
-	 * Finds the node containing the k-mer, or its prospective parent.
-	 * Used for insertion operations to locate where a new node should be placed.
-	 * @param kmer The k-mer to search for
-	 * @return The node containing the k-mer, or the node that would be its parent
-	 */
 	final KmerNode getNodeOrParent(long kmer){
 		if(pivot==kmer || pivot<0){return this;}
 		if(kmer<pivot){return left==null ? this : left.getNodeOrParent(kmer);}
 		return right==null ? this : right.getNodeOrParent(kmer);
 	}
 	
-	/**
-	 * Inserts a node into the tree at the correct position.
-	 * @param n The node to insert
-	 * @return true if the node was inserted, false if a node with the same pivot already exists
-	 */
 	final boolean insert(KmerNode n){
 		assert(pivot!=-1);
 		if(n.pivot<pivot){
@@ -247,22 +232,12 @@ public abstract class KmerNode extends AbstractKmerTable {
 		}
 	}
 	
-	/**
-	 * Performs in-order traversal of the tree, adding nodes to the list.
-	 * Results in sorted order by k-mer value.
-	 * @param list The list to populate with nodes in sorted order
-	 */
 	final void traversePrefix(ArrayList<KmerNode> list){
 		if(left!=null){left.traversePrefix(list);}
 		list.add(this);
 		if(right!=null){right.traversePrefix(list);}
 	}
 	
-	/**
-	 * Performs pre-order traversal of the tree, adding nodes to the list.
-	 * Visits current node before children.
-	 * @param list The list to populate with nodes in pre-order
-	 */
 	final void traverseInfix(ArrayList<KmerNode> list){
 		list.add(this);
 		if(left!=null){left.traverseInfix(list);}
@@ -277,6 +252,8 @@ public abstract class KmerNode extends AbstractKmerTable {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Counts the number of nodes in the tree with non-zero values.
+	 * @return The number of nodes containing valid k-mer counts */
 	@Override
 	public final long size() {
 		if(value()<1){return 0;}
@@ -286,12 +263,6 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return size;
 	}
 	
-	/**
-	 * Rebalances the tree to optimize search performance.
-	 * Creates a balanced binary tree from the current nodes.
-	 * @param list Temporary list for collecting and reorganizing nodes
-	 * @return The new root node of the rebalanced tree
-	 */
 	final KmerNode rebalance(ArrayList<KmerNode> list){
 		assert(list.isEmpty());
 		traversePrefix(list);
@@ -303,15 +274,6 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return n;
 	}
 	
-	/**
-	 * Recursively builds a balanced tree from a sorted node list.
-	 * Selects middle element as root and recursively balances subtrees.
-	 *
-	 * @param list Sorted list of nodes to reorganize
-	 * @param a Start index (inclusive)
-	 * @param b End index (inclusive)
-	 * @return Root node of the balanced subtree for this range
-	 */
 	private static final KmerNode rebalance(ArrayList<KmerNode> list, int a, int b){
 		final int size=b-a+1;
 		final int middle=a+size/2;
@@ -354,28 +316,8 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return true;
 	}
 	
-	/**
-	 * Appends k-mer text representations to a StringBuilder within count range.
-	 * Implementation varies by node type (single vs multi-value).
-	 *
-	 * @param sb StringBuilder to append to
-	 * @param k Length of k-mers for string conversion
-	 * @param mincount Minimum count threshold (inclusive)
-	 * @param maxcount Maximum count threshold (inclusive)
-	 * @return The StringBuilder with k-mer data appended
-	 */
 	protected abstract StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount);
 	
-	/**
-	 * Appends k-mer text representations to a ByteBuilder within count range.
-	 * Implementation varies by node type (single vs multi-value).
-	 *
-	 * @param bb ByteBuilder to append to
-	 * @param k Length of k-mers for string conversion
-	 * @param mincount Minimum count threshold (inclusive)
-	 * @param maxcount Maximum count threshold (inclusive)
-	 * @return The ByteBuilder with k-mer data appended
-	 */
 	protected abstract ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount);
 	
 	@Override
@@ -405,9 +347,7 @@ public abstract class KmerNode extends AbstractKmerTable {
 		if(right!=null){right.countGC(gcCounts, max);}
 	}
 
-	/** Tests whether this node type supports multiple values per k-mer */
 	abstract boolean TWOD();
-	/** Gets the number of values stored at this node */
 	abstract int numValues();
 	
 	/*--------------------------------------------------------------*/
@@ -424,6 +364,13 @@ public abstract class KmerNode extends AbstractKmerTable {
 	@Override
 	public final void clearOwnership(){initializeOwnership();}
 	
+	/**
+	 * Sets the owner of a k-mer node using thread-safe atomic operations.
+	 * Owner values only increase to prevent ownership conflicts.
+	 * @param kmer The k-mer whose ownership to set
+	 * @param newOwner The new owner identifier
+	 * @return The final owner value after the operation
+	 */
 	@Override
 	public final int setOwner(final long kmer, final int newOwner){
 		KmerNode n=get(kmer);
@@ -451,6 +398,11 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return false;
 	}
 	
+	/**
+	 * Retrieves the current owner of a k-mer.
+	 * @param kmer The k-mer to check ownership for
+	 * @return The owner identifier, or -1 if unowned
+	 */
 	@Override
 	public final int getOwner(final long kmer){
 		KmerNode n=get(kmer);
@@ -458,11 +410,6 @@ public abstract class KmerNode extends AbstractKmerTable {
 		return n.owner;
 	}
 	
-	/**
-	 * Estimates the memory usage of this tree in bytes.
-	 * Uses 48 bytes per node as base estimate plus recursive calculation.
-	 * @return Estimated memory usage in bytes
-	 */
 	public long calcMem() {//48 is a guess
 		return 48+(left==null ? 0 : left.calcMem())+(right==null ? 0 : right.calcMem());
 	}
@@ -475,9 +422,7 @@ public abstract class KmerNode extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** The k-mer value stored at this node (BST key) */
 	long pivot;
-	/** Current owner identifier for thread-safe operations (-1 = unowned) */
 	int owner=-1;
 	KmerNode left, right;
 	

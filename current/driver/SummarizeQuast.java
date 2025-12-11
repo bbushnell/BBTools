@@ -13,14 +13,19 @@ import shared.PreParser;
 import shared.Tools;
 
 /**
+ * Summarizes and aggregates metrics from multiple QUAST output files.
+ * Processes tabular QUAST reports to extract assembly quality metrics,
+ * optionally normalizes values, and outputs consolidated results.
+ * Supports box plot statistics and filtering by assembly name patterns.
+ *
  * @author Brian Bushnell
  * @date May 8, 2015
- *
  */
 public class SummarizeQuast {
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point. Creates SummarizeQuast instance, processes QUAST files,
+	 * and outputs aggregated metrics.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -33,11 +38,6 @@ public class SummarizeQuast {
 		sq.print(map);
 	}
 	
-	/**
-	 * Constructs SummarizeQuast instance and parses command-line arguments.
-	 * Processes input file paths, output destination, and analysis options.
-	 * @param args Command line arguments including file paths and options
-	 */
 	public SummarizeQuast(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -91,12 +91,6 @@ public class SummarizeQuast {
 		}
 	}
 	
-	/**
-	 * Main processing method that aggregates metrics from all QUAST files.
-	 * Creates QuastSummary objects for each input file, optionally normalizes
-	 * values, and consolidates metrics by name and assembly.
-	 * @return Nested map: metric name -> assembly name -> list of values
-	 */
 	public LinkedHashMap<String, LinkedHashMap<String, ArrayList<Double>>> summarize(){
 		
 		ArrayList<QuastSummary> alqs=new ArrayList<QuastSummary>();
@@ -131,14 +125,6 @@ public class SummarizeQuast {
 		return metricMap;
 	}
 	
-	/**
-	 * Outputs aggregated metrics to the specified destination.
-	 * Formats results as tab-delimited text with metric names as headers.
-	 * Optionally outputs box plot statistics (10th, 25th, 50th, 75th, 90th percentiles)
-	 * instead of individual values when box mode is enabled.
-	 *
-	 * @param metricMap Nested map containing aggregated metric values
-	 */
 	public void print(LinkedHashMap<String, LinkedHashMap<String, ArrayList<Double>>> metricMap){
 		TextStreamWriter tsw=new TextStreamWriter(out, true, false, false);
 		tsw.start();
@@ -176,29 +162,13 @@ public class SummarizeQuast {
 		tsw.poisonAndWait();
 	}
 	
-	/**
-	 * Represents metrics extracted from a single QUAST output file.
-	 * Parses tabular QUAST format and stores metrics organized by row name.
-	 * Supports value normalization by dividing each metric by its mean.
-	 */
 	private class QuastSummary{
 		
-		/** Constructs QuastSummary by parsing the specified QUAST file.
-		 * @param path_ Path to the QUAST output file */
 		QuastSummary(String path_){
 			path=path_;
 			metrics=process(path);
 		}
 		
-		/**
-		 * Parses a QUAST tabular file and extracts metrics.
-		 * Reads header row to identify assembly columns, then processes data rows
-		 * to create Entry objects for each numeric metric value.
-		 * Filters assemblies based on requiredString if specified.
-		 *
-		 * @param fname Path to the QUAST file to parse
-		 * @return Map of metric name to list of Entry objects
-		 */
 		LinkedHashMap<String, ArrayList<Entry>> process(String fname){
 			LinkedHashMap<String, ArrayList<Entry>> map=new LinkedHashMap<String, ArrayList<Entry>>();
 			TextFile tf=new TextFile(fname);
@@ -232,19 +202,12 @@ public class SummarizeQuast {
 			return map;
 		}
 		
-		/** Normalizes all metric values by dividing each by the mean of its metric group.
-		 * Applied to make metrics with different scales comparable. */
 		void normalize(){
 			for(ArrayList<Entry> list : metrics.values()){
 				normalize(list);
 			}
 		}
 		
-		/**
-		 * Normalizes a single metric's values by dividing each by the group mean.
-		 * Handles empty lists and zero averages to avoid division errors.
-		 * @param list List of Entry objects to normalize
-		 */
 		private void normalize(ArrayList<Entry> list){
 			if(list.isEmpty()){return;}
 			if(list==null || list.isEmpty()){return;}
@@ -259,56 +222,32 @@ public class SummarizeQuast {
 			}
 		}
 		
-		/** Map of metric names to lists of Entry objects containing assembly values */
 		final LinkedHashMap<String, ArrayList<Entry>> metrics;
-		/** Path to the source QUAST file */
 		final String path;
 		
 	}
 	
-	/** Represents a single metric value for a specific assembly.
-	 * Pairs an assembly name with its corresponding numeric metric value. */
 	private class Entry{
 		
-		/**
-		 * Constructs Entry by parsing string value as double.
-		 * @param assembly_ Assembly name identifier
-		 * @param value_ String representation of metric value
-		 * @throws NumberFormatException if value cannot be parsed as double
-		 */
 		Entry(String assembly_, String value_) throws NumberFormatException {
 			this(assembly_, Double.parseDouble(value_));
 		}
 		
-		/**
-		 * Constructs Entry with pre-parsed numeric value.
-		 * @param assembly_ Assembly name identifier
-		 * @param value_ Numeric metric value
-		 */
 		Entry(String assembly_, double value_){
 			assembly=assembly_;
 			value=value_;
 		}
 		
-		/** Assembly name identifier */
 		String assembly;
-		/** Numeric metric value for this assembly */
 		double value;
 		
 	}
 	
-	/** List of input QUAST file paths to process */
 	final ArrayList<String> in;
-	/** Output destination for aggregated results */
 	final String out;
 	
-	/**
-	 * Optional filter string - only assemblies containing this string are included
-	 */
 	String requiredString=null;
-	/** Whether to normalize metric values by dividing by group means */
 	boolean normalize=true;
-	/** Whether to output box plot percentiles instead of individual values */
 	boolean box=true;
 	
 }

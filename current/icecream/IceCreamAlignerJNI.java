@@ -4,38 +4,24 @@ import aligner.AlignmentResult;
 import shared.KillSwitch;
 import shared.Shared;
 
-/**
- * High-performance Java Native Interface (JNI) implementation for sequence alignment.
- * Provides optimized alignment algorithms using native C/C++ code with dynamic
- * precision selection based on sequence length constraints.
- *
- * Uses specialized alignment strategies:
- * - 32-bit integer arrays for long sequences
- * - 16-bit short arrays for sequences fitting in Short.MAX_VALUE constraint
- * - Aggressive early exit conditions for performance optimization
- * - Dynamic programming with configurable scoring parameters
- *
- * @author Brian Bushnell
- */
 public final class IceCreamAlignerJNI extends IceCreamAligner {
 
 	static {
 		Shared.loadJNI();
 	}
 
-	/** Creates a new JNI aligner instance with native library loading.
-	 * Initializes JNI environment through static block execution. */
 	IceCreamAlignerJNI(){}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Performs forward alignment using JNI implementation with dynamic precision selection.
+	 * Uses 32-bit integer or 16-bit short arrays based on sequence length to optimize memory use and performance, and applies early-exit thresholds.
+	 * @param query Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param rstart Reference start position (inclusive)
+	 * @param rstop Reference stop position (inclusive)
+	 * @param minScore Minimum score threshold for early termination
+	 * @param minRatio Minimum ratio of rescaled match count to query length for returning a result
+	 * @return AlignmentResult with score, positions, and ratio, or null if below minRatio
 	 */
 	@Override
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
@@ -83,14 +69,15 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Performs short forward alignment using optimized JNI implementation.
+	 * Uses short-alignment native methods and accumulates a separate iteration counter for performance tracking.
+	 * @param query Query sequence as byte array
+	 * @param ref Reference sequence as byte array
+	 * @param rstart Reference start position (inclusive)
+	 * @param rstop Reference stop position (inclusive)
+	 * @param minScore Minimum score threshold for early termination (used in JNI 32-bit path)
+	 * @param minRatio Minimum ratio of rescaled match count to query length for returning a result
+	 * @return AlignmentResult with score, positions, and ratio, or null if below minRatio
 	 */
 	@Override
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
@@ -135,24 +122,6 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*----------------             JNI              ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Java implementation of forward alignment algorithm for testing and fallback.
-	 * Uses dynamic programming with two-row matrix optimization and aggressive
-	 * early exit conditions based on score thresholds and viability calculations.
-	 *
-	 * Implements optimized inner loops:
-	 * - Separate diagonal/vertical and horizontal insertion loops
-	 * - Early exit on minimum score and minimum viable score thresholds
-	 * - Score rescaling from alignment coordinates to base match counts
-	 *
-	 * @param query Query sequence as integer array
-	 * @param ref Reference sequence as integer array
-	 * @param retArray Return array [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query length
-	 * @param rlen Reference length
-	 * @param minScore Minimum score for early termination
-	 * @param minRatio Minimum ratio for viability calculation
-	 */
 	private static void alignForwardPseudo(final int[] query, final int[] ref, final int[] retArray, 
 			final int qlen, final int rlen, final int minScore, final float minRatio) {
 		
@@ -250,22 +219,6 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		retArray[3]=iters;
 	}
 	
-	/**
-	 * Java implementation of short forward alignment for testing and fallback.
-	 * Optimized for shorter sequences with query-based array sizing and
-	 * simplified scoring without early exit conditions.
-	 *
-	 * Uses transposed dynamic programming approach:
-	 * - Query-sized arrays for memory efficiency
-	 * - Separate diagonal/vertical and horizontal insertion loops
-	 * - Tracks maximum score across all reference positions
-	 *
-	 * @param query Query sequence as integer array
-	 * @param ref Reference sequence as integer array
-	 * @param retArray Return array [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query length
-	 * @param rlen Reference length
-	 */
 	private static void alignForwardShortPseudo(int[] query, int[] ref, int[] retArray, int qlen, int rlen) {
 		
 		final int arrayLength=qlen;
@@ -347,66 +300,28 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 		retArray[3]=itersShort;
 	}
 
-	/**
-	 * Native method for forward alignment using 32-bit integer arrays.
-	 * Implements high-performance alignment algorithm in native code with
-	 * early exit optimization and configurable scoring parameters.
-	 *
-	 * @param query Query sequence as integer array
-	 * @param ref Reference sequence as integer array
-	 * @param retArray Return array for results [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query sequence length
-	 * @param rlen Reference sequence length
-	 * @param minScore Minimum score threshold for early termination
-	 * @param minRatio Minimum ratio threshold for result filtering
-	 */
 	private static native void alignForwardJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen, int minScore, float minRatio);
-	/**
-	 * Native method for forward alignment using 16-bit short arrays.
-	 * Memory-optimized version for sequences that fit within short integer
-	 * constraints, providing better cache performance for smaller alignments.
-	 *
-	 * @param query Query sequence as short array
-	 * @param ref Reference sequence as short array
-	 * @param retArray Return array for results [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query sequence length as short
-	 * @param rlen Reference sequence length as short
-	 * @param minScore Minimum score threshold as short
-	 * @param minRatio Minimum ratio threshold for result filtering
-	 */
 	private static native void alignForward16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen, short minScore, float minRatio);
-	/**
-	 * Native method for short forward alignment using 32-bit integer arrays.
-	 * Optimized native implementation for shorter sequences without
-	 * early exit conditions, focusing on maximum performance.
-	 *
-	 * @param query Query sequence as integer array
-	 * @param ref Reference sequence as integer array
-	 * @param retArray Return array for results [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query sequence length
-	 * @param rlen Reference sequence length
-	 */
 	private static native void alignForwardShortJNI(int[] query, int[] ref, int[] retArray, int qlen, int rlen);
-	/**
-	 * Native method for short forward alignment using 16-bit short arrays.
-	 * Memory-optimized native implementation for short sequences,
-	 * maximizing cache efficiency and minimizing memory footprint.
-	 *
-	 * @param query Query sequence as short array
-	 * @param ref Reference sequence as short array
-	 * @param retArray Return array for results [maxScore, maxQpos, maxRpos, iterations]
-	 * @param qlen Query sequence length as short
-	 * @param rlen Reference sequence length as short
-	 */
 	private static native void alignForwardShort16JNI(short[] query, short[] ref, int[] retArray, short qlen, short rlen);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Returns total iterations performed by forward alignment operations.
+	 * Tracks computational work across all calls to alignForward for performance analysis.
+	 * @return Total iteration count for forward alignments
+	 */
 	@Override
 	long iters(){return iters;}
 
+	/**
+	 * Returns total iterations performed by short alignment operations.
+	 * Tracks computational work across all calls to alignForwardShort for performance analysis.
+	 * @return Total iteration count for short alignments
+	 */
 	@Override
 	long itersShort(){return itersShort;}
 
@@ -414,22 +329,16 @@ public final class IceCreamAlignerJNI extends IceCreamAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tracks total iterations performed by forward alignment operations */
 	long iters = 0;
-	/** Tracks total iterations performed by short alignment operations */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Scoring value for sequence matches in alignment algorithm */
 	public static final int pointsMatch = 1;
-	/** Penalty value for substitutions in alignment algorithm */
 	public static final int pointsSub = -1;
-	/** Penalty value for deletions in alignment algorithm */
 	public static final int pointsDel = -2;
-	/** Penalty value for insertions in alignment algorithm */
 	public static final int pointsIns = -2;
 	
 }

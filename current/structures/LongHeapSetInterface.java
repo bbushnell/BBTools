@@ -1,67 +1,59 @@
 package structures;
 
 /**
- * Maintains a heap of unique values.
+ * Interface for heap-based collections that maintain unique values.
+ * Combines heap and set functionality for efficient top-N selection with uniqueness constraints.
+ * Implementations maintain a fixed-capacity heap where new values replace smaller values
+ * when capacity is exceeded, while ensuring no duplicate values are stored.
+ *
  * @author Brian Bushnell
  * @date July 6, 2016
- *
  */
 public interface LongHeapSetInterface {
 	
 	/**
-	 * Adds a value to the heap-set if not already present.
-	 * If heap is at capacity, replaces the smallest value only if the new value is larger.
-	 * Maintains uniqueness by checking set membership before insertion.
-	 *
-	 * @param key The value to add
-	 * @return true if the value was added, false if it was a duplicate or too small
+	 * Adds a value if absent; at capacity, replaces the smallest only if the new value is larger.
+	 * Maintains uniqueness by checking membership before insertion.
+	 * @param key Value to add
+	 * @return true if added; false if duplicate or too small
 	 */
 	public boolean add(long key);
 	
 	/**
-	 * Increments the count associated with a key.
-	 * For simple heap-set implementations, this typically behaves like add().
-	 *
-	 * @param key The key to increment
-	 * @param incr The increment amount
-	 * @return The new count value after incrementing
+	 * Increments the count associated with a key (or behaves like add in simple implementations).
+	 * @param key Key to increment
+	 * @param incr Amount to add
+	 * @return Updated count
 	 */
 	public int increment(long key, int incr);
 	
-	/** Removes all elements from the heap-set.
-	 * Resets both heap and set components to empty state. */
+	/** Removes all elements, resetting heap and set state. */
 	public void clear();
 	
-	/** Returns the current number of elements in the heap-set.
-	 * @return The number of unique values currently stored */
+	/** Returns the current number of stored elements.
+	 * @return Unique element count */
 	public int size();
 	
-	/** Returns the maximum number of elements this heap-set can contain.
-	 * @return The fixed capacity limit */
+	/** Returns the fixed capacity of the heap-set.
+	 * @return Maximum element count */
 	public int capacity();
 	
-	/** Checks if there is space for additional elements without eviction.
-	 * @return true if size is less than capacity, false otherwise */
+	/** Indicates whether there is space without eviction.
+	 * @return true if size < capacity */
 	public boolean hasRoom();
 	
-	/**
-	 * Provides access to the underlying heap structure.
-	 * Allows direct manipulation of heap ordering and iteration over values.
-	 * @return The internal LongHeap maintaining value ordering
-	 */
+	/** Returns access to the underlying heap structure.
+	 * @return Internal LongHeap maintaining ordering */
 	public LongHeap heap();
 	
-	/**
-	 * Returns the smallest value in the heap-set without removing it.
-	 * This is the value that would be evicted next if a larger value is added at capacity.
-	 * @return The minimum value currently stored
-	 */
+	/** Returns the smallest value without removal (would evict next at capacity).
+	 * @return Minimum stored value */
 	public long peek();
 
 	/**
-	 * Tests if a specific value is present in the heap-set.
-	 * @param key The value to search for
-	 * @return true if the value is found, false otherwise
+	 * Tests whether a value is present in the heap-set.
+	 * @param key Value to search for
+	 * @return true if contained
 	 */
 	public boolean contains(long key);
 	

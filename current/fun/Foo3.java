@@ -9,30 +9,8 @@ import java.util.Date;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
 
-/**
- * File size and access time analysis utility with performance-optimized
- * processing of large file datasets. Processes pipe-delimited metadata files
- * containing file information and generates statistical summaries of file
- * sizes and access times across different percentile ranges.
- *
- * Supports both regex-based (slow) and manual character parsing (fast) modes
- * for optimal performance with large datasets. Generates reports showing
- * which percentages of files have not been accessed since specific dates,
- * along with cumulative storage statistics.
- *
- * @author Brian Bushnell
- */
 public class Foo3 {
 
-	/**
-	 * Main entry point for file metadata analysis. Processes a pipe-delimited
-	 * file containing file metadata and generates statistical reports on file
-	 * sizes and access times.
-	 *
-	 * @param args Command line arguments: [filename] [mode].
-	 * Mode can be "slow" for regex parsing or omit for fast parsing
-	 * @throws Exception If file cannot be read or processed
-	 */
 	public static void main(String[] args) throws Exception{
 		final boolean slow=args.length<2 ? false : "slow".equalsIgnoreCase(args[1]);
 		final BufferedReader reader=new BufferedReader(new FileReader(args[0]));
@@ -83,12 +61,6 @@ public class Foo3 {
 		System.out.println("P95 size:   \t"+sizes.get((int)(sizes.size*0.95))+" bytes");
 	}
 	
-	/**
-	 * Sorts an ArrayList using parallel sorting for improved performance.
-	 * Converts list to array, performs parallel sort, then repopulates list.
-	 * @param <T> Type that extends Comparable
-	 * @param list ArrayList to sort in-place
-	 */
 	static <T extends Comparable<? super T>> void psort(ArrayList<T> list) {
 		@SuppressWarnings("unchecked")
 		T[] array=list.toArray((T[])new Comparable[0]);
@@ -97,25 +69,24 @@ public class Foo3 {
 		for(T r : array){list.add(r);}
 	}
 	
-	/**
-	 * Converts a timestamp to a formatted date string in PST timezone.
-	 * @param time Timestamp in milliseconds since epoch
-	 * @return Formatted date string in "yyyy-MM-dd HH:mm:ss" format
-	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
 		return sdf.format(new Date(time));
 	}
 	
-	/**Example line:<br>
-	*
-	120395044|1465795004|3191|11574|MEP_itags|1465795004|FAu|1|14297|14297
-	|-rw-r-----|1496172205|1496172205|1048576|1516819694
-	|%2Fdna%2F.snapshots%2F2023-05-17%2Fprojectdirs%2FMEP%2Fitags%2FiTagger3%2F
-	data%2FDIVERSITY%2F1%2F1822.qiime%2Fbdiv_even1000%2Funweighted_unifrac_emperor
-	_pcoa_plot%2Femperor_required_resources%2Fjs%2Fjquery.colorPicker.js
-	*/
+	/**
+	 * Processes a pipe-delimited line using regex pattern matching (slow mode).
+	 * Extracts file size from column 4 and access time from column 12.
+	 * Only processes lines where column 7 starts with 'F' (file type indicator).
+	 *
+	 * Expected line format:
+	 * field1|field2|field3|size|field5|field6|type|field8|field9|field10|
+	 * field11|accessTime|field13|field14|path
+	 *
+	 * @param line Pipe-delimited input line to parse
+	 * @return Pair containing size and access time, or null if not a file
+	 */
 	static Pair processSlow(String line) {
 		String[] split=pipePattern.split(line);
 		if(split[6].charAt(0)!='F') {return null;}
@@ -124,19 +95,6 @@ public class Foo3 {
 		return new Pair(size, time);
 	}
 
-	/**
-	 * Processes a pipe-delimited line using manual character parsing (fast mode).
-	 * Manually traverses the string to extract file size and access time without
-	 * regex overhead. Skips to specific field positions for optimal performance.
-	 *
-	 * Parses fields by counting pipe delimiters:
-	 * - Field 4: File size (bytes)
-	 * - Field 7: Type indicator (must be 'F' for file)
-	 * - Field 12: Last access time (Unix timestamp)
-	 *
-	 * @param line Pipe-delimited input line to parse
-	 * @return Pair containing size and access time, or null if not a file
-	 */
 	static Pair processFast(String line) {
 		final int delimiter='|';
 		final int len=line.length();
@@ -199,15 +157,6 @@ public class Foo3 {
 		return new Pair(size, time);
 	}
 	
-	/**
-	 * Parses a long integer from a substring without creating new String objects.
-	 * Handles negative numbers and validates digit characters for performance.
-	 *
-	 * @param array Source string containing the number
-	 * @param a Start index (inclusive)
-	 * @param b End index (exclusive)
-	 * @return Parsed long value
-	 */
 	static long parseLong(String array, int a, int b){
 		assert(b>a);
 		long r=0;
@@ -222,36 +171,26 @@ public class Foo3 {
 		return r*mult;
 	}
 	
-	/**
-	 * Returns the smaller of two long values.
-	 * @param x First value
-	 * @param y Second value
-	 * @return Minimum of x and y
-	 */
 	public static final long min(long x, long y){return x<y ? x : y;}
 	
-	/**
-	 * Data container for file size and access time pairs.
-	 * Implements Comparable to enable sorting by access time.
-	 * @author Brian Bushnell
-	 */
 	private static class Pair implements Comparable<Pair> {
 		
-		/**
-		 * Creates a new Pair with the specified size and time values.
-		 * @param size_ File size in bytes
-		 * @param time_ Last access time as Unix timestamp
-		 */
 		Pair(long size_, long time_){
 			size=size_;
 			time=time_;
 		}
 		
+		/**
+		 * Compares this Pair with another based on access time for sorting.
+		 * @param b Pair to compare against
+		 * @return Positive if this time > b.time, negative if less, 0 if equal
+		 */
 		@Override
 		public int compareTo(Pair b) {
 			return time>b.time ? 1 : time<b.time ? -1 : 0;
 		}
 		
+		/** File size in bytes and last access time as Unix timestamp */
 		final long size, time;
 	}
 	
@@ -268,26 +207,12 @@ public class Foo3 {
 //		
 //	}
 	
-	/** Number of lower bits used for size compression */
 	static final int LOWER_BITS=31;
-	/** Number of bits used for mantissa in compressed representation */
 	static final int MANTISSA_BITS=24;
-	/** Number of bits used for exponent in compressed representation */
 	static final int EXP_BITS=LOWER_BITS-MANTISSA_BITS;
-	/** Number of upper bits in 64-bit representation */
 	static final int UPPER_BITS=64-MANTISSA_BITS;
-	/** Bit mask for extracting lower bits */
 	static final long LOWER_MASK=~((-1L)<<LOWER_BITS);
-	/** Bit mask for extracting mantissa bits */
 	static final long MANTISSA_MASK=~((-1L)<<MANTISSA_BITS);
-	/**
-	 * Compresses a raw size value using floating-point-like representation.
-	 * Values fitting in MANTISSA_BITS are stored directly, larger values use
-	 * mantissa and exponent encoding for space efficiency.
-	 *
-	 * @param raw Original size value to compress
-	 * @return Compressed representation
-	 */
 	static final long compress(long raw) {
 		if(raw<=MANTISSA_MASK){return raw;}
 		int leading=Long.numberOfLeadingZeros(raw);
@@ -295,72 +220,33 @@ public class Foo3 {
 		assert(exp>=1);
 		return (raw>>>exp)|(exp<<MANTISSA_BITS);
 	}
-	/**
-	 * Decompresses a size value from floating-point-like representation.
-	 * Reverses the compression process to restore approximate original value.
-	 * @param f Compressed size value
-	 * @return Decompressed size approximation
-	 */
 	static final long decompress(long f) {
 		if(f<=MANTISSA_MASK){return f;}
 		int exp=(int)(f>>>MANTISSA_BITS);
 		assert(exp>=1);
 		return (f&MANTISSA_MASK)<<exp;
 	}
-	/**
-	 * Combines time and size values into a single long for compact storage.
-	 * Time occupies upper bits, compressed size occupies lower bits.
-	 *
-	 * @param time Unix timestamp
-	 * @param size File size in bytes
-	 * @return Combined representation
-	 */
 	static final long combine(long time, long size) {
 		return (time<<LOWER_BITS) | compress(size);
 	}
-	/**
-	 * Extracts time value from combined time-size representation.
-	 * @param combined Combined time-size value
-	 * @return Unix timestamp
-	 */
 	static final long getTime(long combined) {
 		return combined>>>LOWER_BITS;
 	}
-	/**
-	 * Extracts size value from combined time-size representation.
-	 * @param combined Combined time-size value
-	 * @return Decompressed file size in bytes
-	 */
 	static final long getSize(long combined) {
 		return decompress(combined&LOWER_MASK);
 	}
 	
-	/**
-	 * Resizable array for storing long values with automatic growth.
-	 * Provides efficient storage for large collections of file sizes
-	 * with built-in sorting capability.
-	 * @author Brian Bushnell
-	 */
 	static class LongList{
 		
-		/** Creates a new LongList with the specified initial capacity.
-		 * @param initial Initial array size (must be positive) */
 		public LongList(int initial){
 			assert(initial>0) : initial;
 			array=new long[initial];
 		}
 		
-		/**
-		 * Returns the value at the specified index.
-		 * @param loc Index to retrieve
-		 * @return Value at the specified position
-		 */
 		public final long get(int loc){
 			return array[loc];
 		}
 		
-		/** Adds a value to the end of the list, resizing if necessary.
-		 * @param x Value to add */
 		public final void add(long x){
 			if(size>=array.length){
 				resize(size*2L+1);
@@ -369,11 +255,6 @@ public class Foo3 {
 			size++;
 		}
 		
-		/**
-		 * Resizes the internal array to accommodate more elements.
-		 * Doubles capacity while respecting maximum array size limits.
-		 * @param size2 Requested new size
-		 */
 		private final void resize(final long size2){
 			assert(size2>size) : size+", "+size2;
 			final int size3=(int)min(MAX_ARRAY_LEN, size2);
@@ -381,22 +262,17 @@ public class Foo3 {
 			array=Arrays.copyOf(array, size3);
 		}
 		
-		/** Sorts the array in ascending order using parallel sort for performance.
-		 * Only sorts the occupied portion of the array. */
 		public void sort() {
 			if(size>1){Arrays.parallelSort(array, 0, size);}
 		}
 		
-		/** Internal array storing the long values */
 		public long[] array;
-		/** Highest occupied index plus 1, i.e., lowest unoccupied index */
+		/** Current number of elements in the list */
 		public int size=0;
 		
 	}
 	
-	/** Compiled regex pattern for splitting pipe-delimited strings */
 	static final Pattern pipePattern=Pattern.compile("\\|");
-	/** Maximum safe array length to avoid OutOfMemoryError */
 	static final int MAX_ARRAY_LEN=Integer.MAX_VALUE-20;
 
 }

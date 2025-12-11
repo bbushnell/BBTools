@@ -2,40 +2,21 @@ package shared;
 
 import java.util.Random;
 
-/**
- * A fast, seedable random number generator based on xoshiro256+ algorithm.
- * Designed by David Blackman and Sebastiano Vigna as an improved successor to XorShift128+.
- * 
- * @author Brian Bushnell
- * @contributor Isla
- * @date May 2025
- */
 public final class FastRandomXoshiro extends Random {
 
-	/** Serialization version identifier for compatibility */
 	private static final long serialVersionUID=1L;
 
 	// State variables for xoshiro256+
 	private long s0, s1, s2, s3;
 
-	/**
-	 * Creates a new FastRandomXoshiro with a random seed derived from system time.
-	 */
 	public FastRandomXoshiro() {
 		this(System.nanoTime());
 	}
 
-	/**
-	 * Creates a new FastRandomXoshiro with the specified seed.
-	 * @param seed The initial seed
-	 */
 	public FastRandomXoshiro(long seed) {
 		setSeed(seed>=0 ? seed : System.nanoTime());
 	}
 
-	/**
-	 * Sets the seed of this random number generator.
-	 */
 	@Override
 	public void setSeed(long seed) {
 		// Use SplitMix64 to initialize the state (as recommended by the authors)
@@ -60,6 +41,9 @@ public final class FastRandomXoshiro extends Random {
 
 	/**
 	 * Mixes a seed value using SplitMix64 algorithm.
+	 * Applies avalanche function to improve distribution quality.
+	 * @param x Seed value to mix
+	 * @return Mixed seed value with better distribution properties
 	 */
 	private static long mixSeed(long x) {
 		x+=0x9E3779B97F4A7C15L;
@@ -73,10 +57,6 @@ public final class FastRandomXoshiro extends Random {
 		return (int)(nextLong()>>>(64-bits));
 	}
 
-	/**
-	 * Returns the next pseudorandom long value.
-	 * This is the core generation function using xoshiro256+.
-	 */
 	@Override
 	public long nextLong() {
 		long result=s0+s3;
@@ -94,17 +74,11 @@ public final class FastRandomXoshiro extends Random {
 		return result;
 	}
 
-	/**
-	 * Returns a pseudorandom int value.
-	 */
 	@Override
 	public int nextInt() {
 		return (int)nextLong();
 	}
 
-	/**
-	 * Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
-	 */
 	@Override
 	public int nextInt(int bound) {
 		assert(bound>=0) : "bound must be positive: "+bound;
@@ -126,9 +100,6 @@ public final class FastRandomXoshiro extends Random {
 		return val;
 	}
 
-	/**
-	 * Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
-	 */
 	@Override
 	public long nextLong(long bound) {
 		if(bound <= 0) {
@@ -150,33 +121,21 @@ public final class FastRandomXoshiro extends Random {
 		return val;
 	}
 
-	/**
-	 * Returns a pseudorandom boolean value.
-	 */
 	@Override
 	public boolean nextBoolean() {
 		return (nextLong()&1)!=0;
 	}
 
-	/**
-	 * Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
-	 */
 	@Override
 	public float nextFloat() {
 		return (nextLong()>>>40)*0x1.0p-24f;
 	}
 
-	/**
-	 * Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
-	 */
 	@Override
 	public double nextDouble() {
 		return (nextLong()>>>11)*0x1.0p-53d;
 	}
 
-	/**
-	 * Fills the given array with random bytes.
-	 */
 	@Override
 	public void nextBytes(byte[] bytes) {
 		int i=0;
@@ -206,7 +165,10 @@ public final class FastRandomXoshiro extends Random {
 	}
 
 	/**
-	 * Main method for benchmarking against other PRNGs.
+	 * Benchmarks FastRandomXoshiro against other random number generators.
+	 * Tests performance of FastRandom, FastRandomXoshiro, java.util.Random,
+	 * and ThreadLocalRandom by generating floats and measuring execution time.
+	 * @param args Optional number of iterations (default: 100,000,000)
 	 */
 	public static void main(String[] args) {
 		int iterations=args.length > 0 ? Integer.parseInt(args[0]) : 100_000_000;

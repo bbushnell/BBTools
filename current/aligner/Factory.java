@@ -12,8 +12,6 @@ import shared.Tools;
  */
 public class Factory {
 
-	/** Creates an IDAligner using the default aligner type.
-	 * @return A new IDAligner instance of the currently configured type */
 	public static IDAligner makeIDAligner() {
 		return makeIDAligner(type);
 	}
@@ -40,7 +38,16 @@ public class Factory {
 		return null;
 	}
 	
-	/** Pads to a multiple of pad, assuming that is a power of 2 */
+	/**
+	 * Encodes a DNA sequence as long array with padding to specified alignment.
+	 * Converts DNA bases to numeric codes and pads the result to a multiple
+	 * of the specified value (assumed to be a power of 2).
+	 *
+	 * @param in Input DNA sequence as byte array
+	 * @param nCode Code to use for ambiguous bases and padding
+	 * @param pad Padding alignment value (must be power of 2)
+	 * @return Long array with encoded sequence padded to multiple of pad
+	 */
 	public static final long[] encodeLong(byte[] in, byte nCode, int pad) {
 		final int len=((in.length+pad-1)&~(pad-1));
 		long[] out=new long[len];
@@ -118,10 +125,8 @@ public class Factory {
 			WOBBLE=4, QUANTUM=5, CROSSCUT=6, SSA2=7, SSA3=8, WAVE=9;
 	public static final String[] types={"NULL", "GLOCAL", "BANDED", "DRIFTING", 
 			"WOBBLE", "QUANTUM", "CROSSCUT", "SSA2", "SSA3", "WAVE"};
-	/** Currently selected default aligner type */
 	public static int type=QUANTUM;
 	
-	/** Lookup table for converting DNA bases to numeric codes */
 	public static final byte[] codes=makeCodes((byte)(15+16));
 	/**
 	 * Creates a lookup table for DNA base encoding.

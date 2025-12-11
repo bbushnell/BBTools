@@ -16,8 +16,7 @@ import stream.SamLine;
 
 /**
  * Side channel mapper for performing lightweight alignment of reads to reference sequences.
- * Uses dual k-mer based indices for fast mapping with configurable identity thresholds.
- * Provides concurrent output streams for mapped and unmapped reads with statistics tracking.
+ * Uses one or two k-mer-based indices for fast mapping with configurable identity thresholds and tracks mapping statistics.
  * @author Brian Bushnell
  */
 public class SideChannel3 {
@@ -28,8 +27,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Constructs a SideChannel3 mapper with single k-mer configuration.
-	 * Creates indices and aligners using the specified k-mer size and identity threshold.
-	 *
+	 * Creates primary index and aligner using the specified k-mer size and identity threshold.
 	 * @param ref_ Reference sequence file path
 	 * @param out_ Output file for mapped reads
 	 * @param outu_ Output file for unmapped reads
@@ -46,9 +44,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Constructs a SideChannel3 mapper with dual k-mer configuration.
-	 * Creates two indices with different k-mer sizes for improved sensitivity.
-	 * The larger k-mer is used for initial mapping, smaller for unmapped reads.
-	 *
+	 * Creates two indices with different k-mer sizes, using the larger k for primary mapping and the smaller for unmapped reads.
 	 * @param ref_ Reference sequence file path
 	 * @param out_ Output file for mapped reads
 	 * @param outu_ Output file for unmapped reads
@@ -101,8 +97,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Maps a read pair using the configured aligners.
-	 * Convenience method that delegates to the main mapping method.
-	 *
+	 * Convenience method that delegates to the main mapping method with mapper1 and mapper2.
 	 * @param r1 First read of the pair
 	 * @param r2 Second read of the pair (may be null for single-end)
 	 * @return true if at least one read mapped successfully
@@ -113,9 +108,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Maps a read pair using specified aligners with dual k-mer strategy.
-	 * Uses the first mapper for initial alignment, then tries the second mapper
-	 * on unmapped reads. Sets proper pair flags for paired reads on same chromosome.
-	 *
+	 * Uses the first mapper for initial alignment, then optionally tries the second mapper on unmapped reads.
 	 * @param r1 First read of the pair
 	 * @param r2 Second read of the pair (may be null for single-end)
 	 * @param mapper1 Primary aligner (larger k-mer)
@@ -148,8 +141,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Generates alignment statistics summary string.
-	 * Reports mapped read counts, percentages, and average identity.
-	 *
+	 * Reports mapped read counts, percentages, and average identity relative to input reads.
 	 * @param readsIn Total number of input reads processed
 	 * @param basesIn Total number of input bases processed
 	 * @return Formatted statistics string with counts and percentages
@@ -166,7 +158,7 @@ public class SideChannel3 {
 	/*----------------             I/O              ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Starts the concurrent output streams for writing results.
+	/** Starts the concurrent output streams for writing mapped and unmapped reads.
 	 * Must be called before writing mapped or unmapped reads. */
 	public void start() {
 		if(cros!=null) {cros.start();}
@@ -183,7 +175,13 @@ public class SideChannel3 {
 		return errorState;
 	}
 
-	/** Everything in this list gets written */
+	/**
+	 * Writes all reads in the list to the mapped output stream.
+	 * Generates SAM lines if needed, updates alignment statistics, and writes all reads regardless of mapping status.
+	 * @param reads List of reads to write
+	 * @param num Sequence number for ordering (used with ordered output)
+	 * @return Number of reads written
+	 */
 	public int writeToMapped(ArrayList<Read> reads, long num) {
 		if(reads==null || (reads.isEmpty() && !ordered) || (cros==null && !TRACK_STATS)) {
 			assert(!ordered || reads!=null);
@@ -227,15 +225,26 @@ public class SideChannel3 {
 		return ro;
 	}
 
-	/** Expects a list of mixed mapped and unmapped reads */
+	/**
+	 * Writes reads to appropriate output streams based on mapping status.
+	 * Mapped reads go to the primary output, completely unmapped reads to the unmapped output.
+	 * @param reads Mixed list of mapped and unmapped reads
+	 * @param num Sequence number for ordering
+	 * @return Number of mapped reads written
+	 */
 	public int writeByStatus(ArrayList<Read> reads, long num) {
 		int ro=writeMappedOnly(reads, num);
 		writeUnmappedOnly(reads, num);
 		return ro;
 	}
 
-	/** Expects a list of mixed mapped and unmapped reads; 
-	 * only writes mapped reads (plus mates) */
+	/**
+	 * Filters and writes only mapped reads from a mixed list.
+	 * Updates statistics, creates SAM lines if needed, and includes mates of mapped reads regardless of mate mapping status.
+	 * @param reads Mixed list of reads to filter
+	 * @param num Sequence number for ordering
+	 * @return Number of reads written to mapped output
+	 */
 	private int writeMappedOnly(ArrayList<Read> reads, long num) {
 		if(reads==null || (reads.isEmpty() && !ordered)) {
 			assert(!ordered || reads!=null);
@@ -293,8 +302,13 @@ public class SideChannel3 {
 		return ro;
 	}
 
-	/** Expects a list of mixed mapped and unmapped reads; 
-	 * only writes unmapped reads with unmapped mates */
+	/**
+	 * Filters and writes only completely unmapped read pairs.
+	 * A read pair is written only if both reads are unmapped.
+	 * @param reads Mixed list of reads to filter
+	 * @param num Sequence number for ordering
+	 * @return Number of unmapped reads written
+	 */
 	private int writeUnmappedOnly(ArrayList<Read> reads, long num) {
 		if(reads==null || crosu==null || (reads.isEmpty() && !ordered)) {
 			assert(!ordered || reads!=null);
@@ -318,9 +332,8 @@ public class SideChannel3 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses comma-separated k-mer values from command line argument.
-	 * Returns array with up to 2 k-mer values for dual k-mer configuration.
-	 *
+	 * Parses comma-separated k-mer values from a command line argument.
+	 * Returns an array with up to two k-mer values for dual k-mer configuration.
 	 * @param arg Original argument name (unused)
 	 * @param a Argument key (unused)
 	 * @param b Comma-separated k-mer values
@@ -336,10 +349,10 @@ public class SideChannel3 {
 	}
 	
 	/**
-	 * Normalizes identity values to 0-1 range.
+	 * Normalizes identity values to the 0–1 range.
 	 * Converts percentage values (>1) to decimal format.
 	 * @param id Identity value to normalize
-	 * @return Normalized identity in 0-1 range
+	 * @return Normalized identity in 0–1 range
 	 */
 	static float fixID(float id) {
 		if(id>1) {id=id/100;}
@@ -349,7 +362,7 @@ public class SideChannel3 {
 	
 	/**
 	 * Resolves reference file paths, handling special cases.
-	 * Converts "phix" shorthand to full PhiX reference path.
+	 * Converts "phix" shorthand to the full PhiX reference path when needed.
 	 * @param refPath Original reference path
 	 * @return Resolved reference file path
 	 */
@@ -363,67 +376,43 @@ public class SideChannel3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary k-mer index for first alignment pass */
 	public final MicroIndex3 index1;
-	/** Secondary k-mer index for second alignment pass (may be null) */
 	public final MicroIndex3 index2;
-	/** Primary aligner using index1 */
 	public final MicroAligner3 mapper1;
-	/** Secondary aligner using index2 (may be null) */
 	public final MicroAligner3 mapper2;
 	
-	/** Primary k-mer size (larger of the two k values) */
 	public final int k1;
-	/** Secondary k-mer size (smaller of the two k values) */
 	public final int k2;
-	/** Minimum identity threshold for primary aligner */
 	public final float minIdentity1;
-	/** Minimum identity threshold for secondary aligner */
 	public final float minIdentity2;
 	
-	/** Reference sequence file path */
 	public final String ref;
-	/** Output file path for mapped reads */
 	public final String out;
-	/** Output file path for unmapped reads */
 	public final String outu;
-	/** Whether output format is SAM/BAM */
 	public final boolean samOut;
-	/** File format specification for mapped output */
 	public final FileFormat ffout;
-	/** File format specification for unmapped output */
 	public final FileFormat ffoutu;
-	/** Concurrent output stream for mapped reads */
 	private final ConcurrentReadOutputStream cros;
-	/** Concurrent output stream for unmapped reads */
 	private final ConcurrentReadOutputStream crosu;
 	
-	/** Count of reads that successfully mapped */
 	public long readsMapped=0;
-	/** Total count of reads written to output */
 	public long readsOut=0;
-	/** Total count of bases written to output */
 	public long basesOut=0;
-	/** Cumulative identity sum scaled by 10000 (0-10000 scale per read) */
 	public long identitySum=0;//x100%; 0-10000 scale. 
 	
-	/** Whether to overwrite existing output files */
 	public final boolean overwrite;
-	/** Whether to maintain input order in output files */
 	public final boolean ordered;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Global flag controlling whether to track alignment statistics */
 	public static boolean TRACK_STATS=true;
 
 }

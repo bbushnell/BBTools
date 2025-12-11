@@ -1,24 +1,22 @@
 package kmer;
 
-/**
- * Abstract base class for iterating through k-mer hash map data structures.
- * Provides iterator-like functionality for traversing k-mer collections
- * with access to both keys (k-mers) and their associated values.
- * @author Brian Bushnell
- */
 public abstract class Walker {
 
 	
-	/** 
-	 * Allows iteration through a hash map.
-	 * Concurrent modification is not recommended.
-	 */
 	public abstract boolean next();
 	
-	/** Current object kmer (key) for kmer package */
+	/**
+	 * Returns the current k-mer key as a long-encoded value.
+	 * Should be called after a successful next() operation.
+	 * @return The current k-mer encoded as a long
+	 */
 	public abstract long kmer();
 	
-	/** Current value */
+	/**
+	 * Returns the value associated with the current k-mer.
+	 * Should be called after a successful next() operation.
+	 * @return The value associated with the current k-mer
+	 */
 	public abstract int value();
 	
 }

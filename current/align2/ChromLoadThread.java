@@ -4,9 +4,12 @@ import dna.ChromosomeArray;
 import shared.Shared;
 
 /**
+ * Thread for concurrent loading of chromosome data from files.
+ * Manages thread pool limits and coordinates parallel loading of ChromosomeArray objects.
+ * Used for efficient bulk loading of reference genome data.
+ *
  * @author Brian Bushnell
  * @date Dec 31, 2012
- *
  */
 public class ChromLoadThread extends Thread {
 	
@@ -15,10 +18,10 @@ public class ChromLoadThread extends Thread {
 	}
 	
 	/**
-	 * Creates a chromosome loading thread for a specific file and array position.
-	 * @param fname_ Filename of the chromosome data to load
-	 * @param id_ Index position in the array where loaded data will be stored
-	 * @param r_ Array of ChromosomeArray objects to populate
+	 * Constructs a loader for one chromosome file and target array slot.
+	 * @param fname_ Filename to load
+	 * @param id_ Target index in the chromosome array
+	 * @param r_ Array to populate
 	 */
 	public ChromLoadThread(String fname_, int id_, ChromosomeArray[] r_){
 		fname=fname_;
@@ -96,6 +99,8 @@ public class ChromLoadThread extends Thread {
 		return r;
 	}
 	
+	/** Thread execution method that loads chromosome data from file.
+	 * Decrements thread counter when complete or on exception. */
 	@Override
 	public void run(){
 		try {
@@ -135,18 +140,11 @@ public class ChromLoadThread extends Thread {
 		return r;
 	}
 	
-	/** Index position in array where loaded chromosome data will be stored */
 	private final int id;
-	/** Filename of chromosome data to load */
 	private final String fname;
-	/** Array of ChromosomeArray objects to populate with loaded data */
 	private final ChromosomeArray[] array;
 	
-	/**
-	 * Synchronization object and counter for managing concurrent thread execution
-	 */
 	public static final int[] lock=new int[1];
-	/** Maximum number of concurrent loading threads allowed */
 	public static int MAX_CONCURRENT=Shared.threads();
 	
 }

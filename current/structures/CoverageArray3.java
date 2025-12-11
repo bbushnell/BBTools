@@ -5,19 +5,8 @@ import shared.KillSwitch;
 import shared.Tools;
 
 
-/**
- * 32-bit integer-based coverage array implementation for genomic coverage tracking.
- * Uses int[] for storage, providing coverage values up to Integer.MAX_VALUE per position.
- * Automatically resizes when accessing positions beyond current array bounds.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public class CoverageArray3 extends CoverageArray {
 	
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = -4216985130070239610L;
 	
 	public static void main(String[] args){
@@ -26,11 +15,6 @@ public class CoverageArray3 extends CoverageArray {
 //		translateGenomeBuild(args);
 	}
 	
-	/**
-	 * Runs performance testing for CoverageArray3 read/write operations.
-	 * Loads a coverage array from file, measures timing, and writes it back out.
-	 * @param args Command line arguments: [0] chromosome number, [1] input filename
-	 */
 	public static void runSpeedTest(String[] args){
 		
 		long time1=System.nanoTime();
@@ -67,28 +51,15 @@ public class CoverageArray3 extends CoverageArray {
 		
 	}
 	
-	/**
-	 * Constructs a new CoverageArray3 with specified chromosome and length.
-	 * Initializes the internal int array with the given capacity.
-	 * @param chrom Chromosome number identifier
-	 * @param len Initial array length capacity
-	 */
 	public CoverageArray3(int chrom, int len){
 		super(chrom, len);
 		array=KillSwitch.allocInt1D(len);
 	}
 	
-	/**
-	 * @param loc
-	 * @param amt
-	 */
 	public void increment(int loc, long amt) {
 		set(loc, get(loc)+amt);
 	}
 	
-	/**
-	 * @param loc
-	 */
 	@Override
 	public void increment(int loc) {
 		set(loc, get(loc)+1L);
@@ -99,25 +70,32 @@ public class CoverageArray3 extends CoverageArray {
 		increment(loc, (long)amt);
 	}
 
-	@Override
-	public synchronized void incrementRangeSynchronized(int min, int max, int amt) {
-		incrementRange(min, max, amt);
-	}
-	
-	@Override
-	public void incrementRange(int min, int max, int amt) {
-		incrementRange(min, max, (long)amt);
-	}
-
 	/**
-	 * Increments coverage values across a range of positions by a long amount.
-	 * Automatically resizes array if max position exceeds current bounds.
-	 * Caps values at Integer.MAX_VALUE to prevent overflow.
+	 * Thread-safe version of incrementRange for concurrent access.
+	 * Synchronizes access to prevent race conditions during range increments.
 	 *
 	 * @param min Starting position of range (inclusive)
 	 * @param max Ending position of range (inclusive)
 	 * @param amt Amount to increment each position in range
 	 */
+	@Override
+	public synchronized void incrementRangeSynchronized(int min, int max, int amt) {
+		incrementRange(min, max, amt);
+	}
+	
+	/**
+	 * Increments coverage values across a range of positions.
+	 * Converts int amount to long and delegates to the long version.
+	 *
+	 * @param min Starting position of range (inclusive)
+	 * @param max Ending position of range (inclusive)
+	 * @param amt Amount to increment each position in range
+	 */
+	@Override
+	public void incrementRange(int min, int max, int amt) {
+		incrementRange(min, max, (long)amt);
+	}
+
 	public void incrementRange(int min, int max, long amt) {
 		if(min<0){min=0;}
 		if(max>=array.length){//Increase size
@@ -141,20 +119,17 @@ public class CoverageArray3 extends CoverageArray {
 		maxIndex=max(max, maxIndex);
 	}
 	
+	/**
+	 * Sets the coverage value at the specified location.
+	 * Converts int value to long and delegates to the long version.
+	 * @param loc Array position to set
+	 * @param val New coverage value
+	 */
 	@Override
 	public void set(int loc, int val){
 		set(loc, (long)val);
 	}
 	
-	/**
-	 * Sets the coverage value at the specified location to the given long value.
-	 * Automatically resizes array if location exceeds current bounds.
-	 * Caps value at Integer.MAX_VALUE to prevent overflow.
-	 * Updates minIndex and maxIndex to track used range.
-	 *
-	 * @param loc Array position to set
-	 * @param val New coverage value (will be capped at Integer.MAX_VALUE)
-	 */
 	public void set(int loc, long val){
 		
 		if(loc>=array.length){//Increase size
@@ -177,11 +152,23 @@ public class CoverageArray3 extends CoverageArray {
 		maxIndex=max(loc, maxIndex);
 	}
 	
+	/**
+	 * Gets the coverage value at the specified location.
+	 * Returns 0 for positions outside array bounds or negative indices.
+	 * @param loc Array position to retrieve
+	 * @return Coverage value at the position, or 0 if out of bounds
+	 */
 	@Override
 	public int get(int loc){
 		return loc>=array.length || loc<0 ? 0 : array[loc];
 	}
 	
+	/**
+	 * Resizes the internal array to the specified new length.
+	 * Copies existing data to the new array up to the minimum of old/new lengths.
+	 * Asserts that the new length is sufficient to contain maxIndex.
+	 * @param newlen New array capacity
+	 */
 	@Override
 	public void resize(int newlen){
 //		System.err.println("Resized CoverageArray "+chromosome+" to "+newlen);
@@ -206,20 +193,18 @@ public class CoverageArray3 extends CoverageArray {
 		return sb.toString();
 	}
 	
+	/** Returns the internal int array directly.
+	 * @return Reference to the internal coverage array */
 	@Override
 	public int[] toArray() {return array;}
 	
 	
-	/** Internal storage array for coverage values */
 	public int[] array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
 	@Override
 	public int arrayLength(){return array.length;}
 	
-	/**
-	 * Flag to track if any coverage values have been capped at Integer.MAX_VALUE
-	 */
 	private static boolean OVERFLOWED=false;
 	
 }

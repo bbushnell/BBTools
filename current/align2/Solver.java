@@ -11,17 +11,6 @@ import java.util.Arrays;
 public class Solver {
 	
 	
-	/**
-	 * Evaluates all possible combinations of lists using brute force enumeration.
-	 * Tests every possible bit combination to find optimal list selection.
-	 *
-	 * @param offsets Array of offset positions for each list
-	 * @param lengths Array of lengths for each list
-	 * @param chunk Size of alignment chunk
-	 * @param minLists Minimum number of lists required
-	 * @param maxTotalLength Maximum total length allowed
-	 * @return Score of optimal combination
-	 */
 	public static final long bruteForce(int[] offsets, int[] lengths, int chunk, int minLists, int maxTotalLength){
 		
 		int bits=offsets.length;
@@ -70,17 +59,6 @@ public class Solver {
 	}
 	
 	
-	/**
-	 * Finds the worst-scoring list using greedy selection with weighted evaluation.
-	 * Applies individual weights to each list during scoring calculations.
-	 *
-	 * @param offsets Array of offset positions for each list
-	 * @param lengths Array of lengths for each list
-	 * @param weights Weight factors for each list
-	 * @param chunk Size of alignment chunk
-	 * @param lists Array of list indices to evaluate
-	 * @param r Output array: [0]=worst index, [1]=worst score
-	 */
 	public static final void findWorstGreedy(final int[] offsets, final int[] lengths,
 			final float[] weights, final int chunk, final int[] lists, int[] r){
 		assert(r!=null && r.length==2);
@@ -107,18 +85,6 @@ public class Solver {
 	}
 	
 	
-	/**
-	 * Calculates the value of removing a specific list element from the current selection.
-	 * Considers list bonuses, spacing penalties, coverage benefits, and positional factors.
-	 *
-	 * @param offsets Array of offset positions for each list
-	 * @param lengths Array of lengths for each list
-	 * @param keyWeight Weight factor for this specific element
-	 * @param chunk Size of alignment chunk
-	 * @param lists Current list selection
-	 * @param index Index of element to evaluate
-	 * @return Calculated value score for the element
-	 */
 	public static long valueOfElement(final int[] offsets, final int[] lengths, float keyWeight,
 			final int chunk, final int[] lists, int index){
 		
@@ -200,11 +166,6 @@ public class Solver {
 		return ((long)(valuep*keyWeight))+valuem;
 	}
 	
-	/**
-	 * Converts a 32-bit integer to an array of set bit positions.
-	 * @param key 32-bit integer with set bits representing selected lists
-	 * @return Array of indices where bits are set
-	 */
 	public static int[] toBitList(final int key){
 		final int numlists=Integer.bitCount(key);
 		final int[] lists=new int[numlists];
@@ -217,11 +178,6 @@ public class Solver {
 		return lists;
 	}
 	
-	/**
-	 * Converts a 64-bit long to an array of set bit positions.
-	 * @param key 64-bit long with set bits representing selected lists
-	 * @return Array of indices where bits are set
-	 */
 	public static int[] toBitList(final long key){
 		final int numlists=Long.bitCount(key);
 		assert(numlists>0);
@@ -235,17 +191,6 @@ public class Solver {
 		return lists;
 	}
 	
-	/**
-	 * Evaluates the total score for a given list selection.
-	 * Calculates composite score including list bonuses, spacing penalties,
-	 * coverage rewards, and end-position bonuses.
-	 *
-	 * @param offsets Array of offset positions for each list
-	 * @param lengths Array of lengths for each list
-	 * @param chunk Size of alignment chunk
-	 * @param key Bit pattern representing selected lists
-	 * @return Total score for the list selection
-	 */
 	public static long evaluate(int[] offsets, int[] lengths, final int chunk, final long key){
 		
 		long score=0;
@@ -292,31 +237,20 @@ public class Solver {
 		return score;
 	}
 	
-	/** Base value used to initialize POINTS_PER_SITE */
 	public static final int BASE_POINTS_PER_SITE=-50; //Used to set POINTS_PER_SITE
-	/** Score points awarded per site in a list */
 	public static long POINTS_PER_SITE=-50; //TODO:  Make private with a get() and set() function
 	
-	/** Multiplier for spacing penalty calculations */
 	public static final long MULT_FOR_SPACING_PENALTY=-30;
 	
-	/** Threshold score for early termination in greedy algorithms */
 	public static long EARLY_TERMINATION_SCORE=(POINTS_PER_SITE*2000); //TODO: Should be set dynamically
 	
-	/** Base score points awarded for each selected list */
 	public static final long POINTS_PER_LIST=30000;
-	/** Score points for a base covered exactly once */
 	public static final long POINTS_PER_BASE1=6000; //Points for a base covered once
-	/** Score points for a base covered exactly twice */
 	public static final long POINTS_PER_BASE2=1000;//POINTS_PER_BASE1/4; //Points for a base covered twice
-	/** Bonus points awarded for selecting first or last list */
 	public static final long BONUS_POINTS_FOR_END_LIST=40000; //Extra points for the first and last list
-	/** Multiplier for distance between first and last selected lists */
 	public static final long POINTS_FOR_TOTAL_LIST_WIDTH=5500; //multiplier for distance between first and last list
 
-	/** Bit masks for 64-bit operations, where masks[i] = 1L << i */
 	public static final long[] masks=new long[64];
-	/** Bit masks for 32-bit operations, where masks32[i] = 1 << i */
 	public static final int[] masks32=new int[32];
 	static{
 		for(int i=0; i<masks.length; i++){masks[i]=(1L<<i);}

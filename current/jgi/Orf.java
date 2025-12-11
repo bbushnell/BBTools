@@ -6,20 +6,21 @@ import shared.Tools;
 import structures.CoverageArray;
 
 /**
- * This class is designed to help calculate coverage of ORFs
+ * Represents an Open Reading Frame (ORF) with coverage analysis capabilities.
+ * Calculates various coverage metrics including base coverage, depth statistics,
+ * and provides comparison functionality for sorting ORFs.
+ *
  * @author Brian Bushnell
  * @date May 13, 2013
- *
  */
 public class Orf implements Comparable<Orf>{
 	
 	/**
-	 * Constructs an ORF with position and strand information.
-	 *
-	 * @param name_ Name identifier for this ORF
+	 * Constructs an ORF with name, coordinates, and strand.
+	 * @param name_ ORF identifier
 	 * @param start_ Start position (0-based)
 	 * @param stop_ Stop position (0-based, inclusive)
-	 * @param strand_ Strand orientation as byte value
+	 * @param strand_ Strand orientation
 	 */
 	public Orf(String name_, int start_, int stop_, byte strand_){
 		name=name_;
@@ -34,30 +35,29 @@ public class Orf implements Comparable<Orf>{
 		return name+"\t"+start+"\t"+stop+"\t"+strand;
 	}
 
-	/** Gets the length of the ORF in bases */
+	/** Returns ORF length in bases (stop - start + 1).
+	 * @return Length of the ORF */
 	public int length(){return stop-start+1;}
 
-	/** Calculates average coverage depth across the ORF.
-	 * @return Average base depth, or 0 if ORF has no length */
+	/** Calculates average coverage depth across the ORF (0 if length is 0).
+	 * @return Average base depth */
 	public double avgCoverage(){
 		int len=length();
 		return len<=0 ? 0 : baseDepth/(double)len;
 	}
 	
-	/** Calculates fraction of ORF bases with non-zero coverage.
-	 * @return Fraction of bases covered (0.0 to 1.0), or 0 if ORF has no length */
+	/** Fraction of bases with coverage > 1 across the ORF (0 if length is 0).
+	 * @return Coverage fraction in [0,1] */
 	public double fractionCovered(){
 		int len=length();
 		return len<=0 ? 0 : baseCoverage/(double)len;
 	}
 	
 	/**
-	 * Reads coverage data from a CoverageArray and calculates statistics.
-	 * Populates all coverage metrics including min/max/median depth and standard deviation.
-	 * Only counts bases with coverage > 1 towards coverage statistics.
-	 *
-	 * @param ca CoverageArray containing per-base coverage data
-	 * @return Array of coverage values for each base in the ORF, or null if invalid
+	 * Reads coverage from a CoverageArray, populating depth stats (min/max/median/stdev) and returning per-base coverage.
+	 * Counts bases with coverage > 1 toward coverage/depth.
+	 * @param ca Coverage array source
+	 * @return Per-base coverage array for the ORF, or null if invalid
 	 */
 	public int[] readCoverageArray(CoverageArray ca){
 		
@@ -90,6 +90,12 @@ public class Orf implements Comparable<Orf>{
 		return array;
 	}
 	
+	/**
+	 * Compares ORFs for sorting by name, then by start position, stop position, and strand.
+	 * Uses reverse ordering for positions (higher positions first).
+	 * @param o The other ORF to compare to
+	 * @return Negative, zero, or positive for less than, equal to, or greater than
+	 */
 	@Override
 	public int compareTo(Orf o) {
 		int x=name.compareTo(o.name);
@@ -104,37 +110,26 @@ public class Orf implements Comparable<Orf>{
 	@Override
 	public boolean equals(Object o){return equals((Orf)o);}
 	/**
-	 * Tests equality with another ORF using compareTo method.
-	 * @param o ORF to compare with
-	 * @return true if ORFs are equal (compareTo returns 0)
+	 * Tests equality by delegating to compareTo (all comparison fields equal).
+	 * @param o Other ORF
+	 * @return true if equal
 	 */
 	public boolean equals(Orf o){return compareTo(o)==0;}
 	
 	@Override
 	public int hashCode(){return Integer.rotateLeft(name.hashCode(),16)^(start<<8)^(stop)^strand;}
 	
-	/** Name of ORF (not necessarily the name of its scaffold) */
 	public String name;
-	/** Start position of the ORF (0-based) */
 	public int start;
-	/** Stop position of the ORF (0-based, inclusive) */
 	public int stop;
-	/** Strand orientation of the ORF */
 	public byte strand;
 
-	/** Number of bases with nonzero coverage */
 	public long baseCoverage;
-	/** Number of reads mapped to this orf */
 	public long readDepth=0;
-	/** Number of bases mapped to this orf */
 	public long baseDepth=0;
-	/** Lowest base depth */
 	public long minDepth=0;
-	/** Highest base depth */
 	public long maxDepth=0;
-	/** Median base depth */
 	public long medianDepth=0;
-	/** Standard deviation of depth */
 	public double stdevDepth=0;
 			
 	

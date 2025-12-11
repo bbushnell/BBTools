@@ -36,16 +36,24 @@ import ukmer.KmerTableSetU;
 
 
 /**
- * Assembles kmers into a concise representation.
+ * Assembles kmers into a concise representation by compressing overlapping
+ * k-mers into contigs through De Bruijn graph traversal.
+ *
+ * Implements k-mer graph traversal to build contigs from shared k-mer overlaps,
+ * performing atomic ownership claiming to prevent duplicate processing in
+ * multithreaded environments. Uses hash table distribution with atomic access
+ * control for thread-safe contig construction.
+ *
  * @author Brian Bushnell
  * @date May 15, 2015
- *
  */
 public class KmerCompressor {
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for k-mer compression and contig assembly.
+	 * Initializes KmerCompressor with command-line arguments and executes
+	 * the complete processing pipeline.
+	 * @param args Command-line arguments for assembly configuration
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer(), t2=new Timer();
@@ -87,8 +95,12 @@ public class KmerCompressor {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs KmerCompressor with command-line arguments and optional default settings.
+	 * Parses all assembly parameters, configures threading, and initializes k-mer tables
+	 * for subsequent contig construction.
+	 *
+	 * @param args Command-line arguments for configuration
+	 * @param setDefaults Whether to apply default global settings for compression and threading
 	 */
 	public KmerCompressor(String[] args, boolean setDefaults){
 
@@ -275,11 +287,6 @@ public class KmerCompressor {
 		}
 	}
 	
-	/**
-	 * Loads k-mers from input files into hash tables for assembly processing.
-	 * @param t Timer for tracking k-mer loading time
-	 * @return Number of k-mers successfully loaded into tables
-	 */
 	public long loadKmers(Timer t){
 		tables.process(t);
 		return tables.kmersLoaded;
@@ -334,7 +341,9 @@ public class KmerCompressor {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Build contigs.
+	 * Builds contigs through multithreaded k-mer graph traversal.
+	 * Creates worker threads for parallel contig construction, then aggregates
+	 * results and writes output files with optional length-based sorting and fusion.
 	 */
 	private final void buildContigs(){
 		
@@ -433,26 +442,21 @@ public class KmerCompressor {
 	/*----------------          BuildThread         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Factory method creating BuildThread worker for contig construction.
-	 * @param id Unique thread identifier for coordination
-	 * @return New BuildThread instance configured for this assembly
-	 */
 	BuildThread makeBuildThread(int id){
 		return new BuildThread(id);
 	}
 	
-	/**
-	 * Builds contigs.
-	 */
 	private class BuildThread extends AbstractBuildThread{
 		
-		/** Constructs BuildThread worker for parallel contig assembly.
-		 * @param id_ Unique thread identifier for work coordination */
 		public BuildThread(int id_){
 			super(id_, Tadpole.contigMode, null);
 		}
 		
+		/**
+		 * Main thread execution method for contig building.
+		 * Processes hash tables and collision victims in parallel using atomic
+		 * work distribution until all k-mers have been processed.
+		 */
 		@Override
 		public void run(){
 			//Build from kmers
@@ -574,7 +578,14 @@ public class KmerCompressor {
 			return processKmer(key);
 		}
 		
-		/** Returns length of new contig */
+		/**
+		 * Constructs contig from k-mer seed through bidirectional extension.
+		 * Creates contig object with sequential numbering and optional coverage
+		 * annotation based on REQUIRE_SAME_COUNT setting.
+		 *
+		 * @param key K-mer to use as contig seed
+		 * @return Length of constructed contig
+		 */
 		private int processKmer(long key){
 			byte[] bases=makeContig(key, builderT, true);
 			if(bases!=null){
@@ -596,7 +607,16 @@ public class KmerCompressor {
 			return 0;
 		}
 		
-		/** From kmers */
+		/**
+		 * Constructs contig sequence from k-mer seed through graph traversal.
+		 * Performs bidirectional extension using forward and reverse complement
+		 * processing with atomic ownership claiming for thread safety.
+		 *
+		 * @param key Seed k-mer for contig construction
+		 * @param bb ByteBuilder for sequence construction
+		 * @param alreadyClaimed Whether k-mer ownership has been claimed
+		 * @return Byte array containing assembled contig sequence, or null if failed
+		 */
 		private byte[] makeContig(final long key, final ByteBuilder bb, boolean alreadyClaimed){
 			builderT.setLength(0);
 			builderT.appendKmer(key, k);
@@ -684,9 +704,14 @@ public class KmerCompressor {
 	
 	
 	/**
-	 * Extend these bases into a contig.
-	 * Stops at both left and right junctions.
-	 * Claims ownership.
+	 * Extends sequence rightward through k-mer graph traversal.
+	 * Claims ownership of k-mers along extension path and terminates at
+	 * junctions, dead ends, or maximum length limits.
+	 *
+	 * @param bb ByteBuilder containing initial sequence
+	 * @param rightCounts Array for nucleotide frequency counting
+	 * @param id Thread identifier for ownership claiming
+	 * @return Extension result code (DEAD_END, TOO_LONG, BAD_SEED)
 	 */
 	public int extendToRight(final ByteBuilder bb, final int[] rightCounts, final int id){
 		if(bb.length()<k){return BAD_SEED;}
@@ -800,9 +825,14 @@ public class KmerCompressor {
 	
 	
 	/**
-	 * Extend these bases into a contig.
-	 * Stops at both left and right junctions.
-	 * Claims ownership.
+	 * Extends sequence rightward using only reverse complement k-mers.
+	 * Alternative extension method for reverse complement processing
+	 * with simplified k-mer key selection.
+	 *
+	 * @param bb ByteBuilder containing initial sequence
+	 * @param rightCounts Array for nucleotide frequency counting
+	 * @param id Thread identifier for ownership claiming
+	 * @return Extension result code (DEAD_END, TOO_LONG, BAD_SEED)
 	 */
 	public int extendToRight_RcompOnly(final ByteBuilder bb, final int[] rightCounts, final int id){
 		if(bb.length()<k){return BAD_SEED;}
@@ -919,7 +949,16 @@ public class KmerCompressor {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Currently unused */
+	/**
+	 * Extracts k-mer from sequence at specified location.
+	 * Currently unused helper method for k-mer extraction with
+	 * ambiguous base handling.
+	 *
+	 * @param bases Sequence data
+	 * @param loc Starting position for k-mer extraction
+	 * @param kmer Kmer object to populate
+	 * @return Populated Kmer object, or null if ambiguous bases encountered
+	 */
 	protected final static Kmer getKmer(byte[] bases, int loc, Kmer kmer){
 		kmer.clear();
 		for(int i=loc, lim=loc+kmer.k; i<lim; i++){
@@ -936,81 +975,54 @@ public class KmerCompressor {
 	/*----------------        Recall Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Computes reverse complement of k-mer using fast binary operations */
 	private final long rcomp(long kmer){return AminoAcid.reverseComplementBinaryFast(kmer, k);}
-	/** Converts k-mer and reverse complement to canonical hash table value */
 	private final long toValue(long kmer, long rkmer){return tables.toValue(kmer, rkmer);}
-	/** Gets frequency count for k-mer from hash tables */
 	public final int getCount(long kmer, long rkmer){return tables.getCount(kmer, rkmer);}
-	/** Claims ownership of k-mer for thread-safe processing */
 	final boolean claim(long kmer, int id){return claim(kmer, rcomp(kmer), id);}
-	/** Claims ownership of k-mer using both forward and reverse complement */
 	private final boolean claim(long kmer, long rkmer, int id){return tables.claim(kmer, rkmer, id);}
-	/** Finds current owner of sequence for ownership validation */
 	final int findOwner(ByteBuilder bb, int id){return tables.findOwner(bb, id);}
-	/** Releases ownership claim on k-mer */
 	final void release(long key, int id){tables.release(key, id);}
-	/**
-	 * Fills array with counts for all four possible right-side nucleotide extensions
-	 */
 	private final int fillRightCounts(long kmer, long rkmer, int[] counts, long mask, int shift2){return tables.fillRightCounts(kmer, rkmer, counts, mask, shift2);}
-	/** Fills right extension counts using only reverse complement k-mers */
 	private final int fillRightCountsRcompOnly(long kmer, long rkmer, int[] counts, long mask, int shift2){return tables.fillRightCountsRcompOnly(kmer, rkmer, counts, mask, shift2);}
-	/** Converts k-mer to readable DNA sequence string */
 	final StringBuilder toText(long kmer){return AbstractKmerTable.toText(kmer, k);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** K-mer hash tables for storing and retrieving k-mer frequency data */
 	public final KmerTableSet tables;
 	
-	/** Normal kmer length */
+	/** K-mer length for assembly operations */
 	final int k;
-	/** k-1; used in some expressions */
+	/** K-mer length minus one, used in overlap calculations */
 	private final int k2;
 
-	/** Collection of all assembled contigs from parallel workers */
 	private ArrayList<Contig> allContigs;
-	/** Total number of contigs successfully constructed */
 	private long contigsBuilt=0;
-	/** Total number of bases assembled into contigs */
 	private long basesBuilt=0;
-	/** Length of longest contig assembled */
 	private long longestContig=0;
 	
-	/** Whether to extend contigs through left-side branch points */
 	protected boolean extendThroughLeftJunctions=true;
 
-	/** Minimum k-mer frequency required for assembly inclusion */
 	int minCount=1;
-	/** Maximum k-mer frequency allowed for assembly inclusion */
 	int maxCount=Integer.MAX_VALUE;
 	
-	/** Only extend to kmers with the same count as this kmer */
+	/** Only extend to k-mers with identical frequency as current k-mer */
 	boolean REQUIRE_SAME_COUNT=false;
 	
-	/** Whether to display assembly statistics after completion */
 	public boolean showStats=true;
 	
-	/** Has this class encountered errors while processing? */
+	/** Indicates whether errors were encountered during processing */
 	public boolean errorState=false;
 	
-	/** Contig output file */
+	/** Output file path for assembled contigs */
 	private String outContigs=null;
 	
-	/** Total number of input reads processed */
 	long readsIn=0;
-	/** Total number of input bases processed */
 	long basesIn=0;
-	/** Total number of output reads generated */
 	long readsOut=0;
-	/** Total number of output bases generated */
 	long basesOut=0;
-	/** Number of reads failing quality thresholds */
 	long lowqReads=0;
-	/** Number of bases failing quality thresholds */
 	long lowqBases=0;
 	
 	/*--------------------------------------------------------------*/
@@ -1032,70 +1044,62 @@ public class KmerCompressor {
 		localKmer.set(new Kmer(k));
 	}
 	
-	/** Thread-local array for nucleotide frequency counting */
 	protected ThreadLocal<int[]> localRightCounts=new ThreadLocal<int[]>();
-	/** Thread-local list for long value storage */
 	protected ThreadLocal<LongList> localLongList=new ThreadLocal<LongList>();
-	/** Thread-local list for integer value storage */
 	protected ThreadLocal<IntList> localIntList=new ThreadLocal<IntList>();
-	/** Thread-local sequence builder for contig construction */
 	protected ThreadLocal<ByteBuilder> localByteBuilder=new ThreadLocal<ByteBuilder>();
-	/** Thread-local bit set for boolean flag management */
 	protected ThreadLocal<BitSet> localBitSet=new ThreadLocal<BitSet>();
-	/** Thread-local k-mer object for sequence operations */
 	protected ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** For numbering contigs */
+	/** Atomic counter for sequential contig numbering */
 	final AtomicLong contigNum=new AtomicLong(0);
 	
-	/** For controlling access to tables for contig-building */
+	/** Atomic counters for thread-safe hash table access control */
 	final AtomicInteger nextTable[];
 	
-	/** For controlling access to victim buffers for contig-building */
+	/** Atomic counters for thread-safe collision victim access control */
 	final AtomicInteger nextVictims[];
 	
-	/** Minimum length threshold for contig fusion operations */
 	final int fuse;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print messages to this stream */
+	/** Output stream for progress messages and statistics */
 	protected static PrintStream outstream=System.err;
-	/** Permission to overwrite existing files */
+	/** Permission to overwrite existing output files */
 	public static boolean overwrite=true;
-	/** Permission to append to existing files */
+	/** Permission to append to existing output files */
 	public static boolean append=false;
-	/** Print speed statistics upon completion */
+	/** Whether to display timing and speed statistics */
 	public static boolean showSpeed=true;
-	/** Display progress messages such as memory usage */
+	/** Whether to display progress messages during processing */
 	public static boolean DISPLAY_PROGRESS=true;
-	/** Verbose messages */
+	/** Enable verbose debugging messages */
 	public static boolean verbose=false;
-	/** Debugging verbose messages */
+	/** Enable additional debugging verbose messages */
 	public static boolean verbose2=false;
-	/** Reverse-complement */
+	/** Whether to process reverse complement k-mers */
 	public static boolean doRcomp=true;
-	/** Number of load threads */
+	/** Number of threads for k-mer loading operations */
 	public static int LOAD_THREADS=Shared.threads();
-	/** Number of build threads */
+	/** Number of threads for contig building operations */
 	public static int BUILD_THREADS=1;
 	
-	/** Explore codes */
+	/** Extension result code indicating normal continuation */
 	public static final int KEEP_GOING=0, DEAD_END=1, TOO_SHORT=2, TOO_LONG=3, TOO_DEEP=4;
 	
-	/** Extend codes */
+	/** Extension error code indicating invalid seed k-mer */
 	public static final int BAD_SEED=12;
 	
 	/** K-mer processing status indicating confirmed for retention */
 	/** K-mer processing status indicating marked for removal */
 	/** K-mer processing status indicating completed analysis */
-	/** K-mer processing status indicating no analysis performed */
 	public static final int STATUS_UNEXPLORED=0, STATUS_EXPLORED=1, STATUS_REMOVE=2, STATUS_KEEP=3;
 	
 }

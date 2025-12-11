@@ -23,12 +23,9 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * Reads a text file.
- * Prints it to another text file.
- * Filters out invalid lines and prints them to an optional third file.
+ * Reads a text file containing file system metadata and generates statistical summaries.
+ * Filters file records by type, compresses timestamp/size pairs, and prints percentile statistics on file sizes and access times.
  * @author Brian Bushnell
- * @date May 9, 2016
- *
  */
 public class Foo7 {
 	
@@ -36,10 +33,6 @@ public class Foo7 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -54,10 +47,8 @@ public class Foo7 {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor.
-	 * @param args Command line arguments
-	 */
+	/** Constructor that parses command line arguments and initializes file formats and processing parameters.
+	 * @param args Command line arguments */
 	public Foo7(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -95,7 +86,11 @@ public class Foo7 {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses arguments from the command line including input/output files, processing limits, delimiter parser choice, and verbose settings.
+	 * @param args Command line arguments array
+	 * @return Configured Parser object with file settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -142,13 +137,16 @@ public class Foo7 {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 extensions as needed for input files and throws a RuntimeException if no input file is specified.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Ensures files can be read and written.
+	 * Validates input file accessibility, output file writability, and checks for duplicate file specifications. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -167,7 +165,8 @@ public class Foo7 {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts file-related static fields as needed for this program.
+	 * Forces ByteFile2 mode for multi-threaded file reading when appropriate. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -180,7 +179,11 @@ public class Foo7 {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Ensures parameter ranges are within bounds and required parameters are set.
+	 * Currently returns true without additional validation logic.
+	 * @return Always true in current implementation
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
@@ -191,7 +194,11 @@ public class Foo7 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Creates streams and processes all data.
+	 * Opens input and optional invalid-output streams, runs the core analysis, and handles cleanup and error reporting.
+	 * @param t Timer for performance measurement
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -227,14 +234,6 @@ public class Foo7 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Core processing logic that reads file records, extracts size/timestamp
-	 * data, and generates percentile statistics. Outputs various file size
-	 * distributions and access time statistics.
-	 * @param bf Input file reader
-	 * @param bsw Output writer (currently unused)
-	 * @param bswInvalid Invalid record writer (currently unused)
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		
 		Timer t=new Timer();
@@ -301,13 +300,6 @@ public class Foo7 {
 		t.start();
 	}
 	
-	/**
-	 * Process a single line from input file. Parses file size, type, and
-	 * timestamp. Only processes file records (type 'F'), ignoring others.
-	 * @param line Raw line bytes from input
-	 * @param list Collection to store processed timestamp/size combinations
-	 * @return File size if valid file record, -1 if invalid or non-file
-	 */
 	long processLine(byte[] line, LongList list) {
 		lp.set(line, 11);
 		
@@ -322,11 +314,6 @@ public class Foo7 {
 		return size;
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the given FileFormat.
-	 * @param ff FileFormat specification, may be null
-	 * @return Started ByteStreamWriter or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -334,11 +321,6 @@ public class Foo7 {
 		return bsw;
 	}
 	
-	/**
-	 * Formats Unix timestamp as human-readable PST date/time string.
-	 * @param time Unix timestamp in milliseconds
-	 * @return Formatted date string in PST timezone
-	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
@@ -346,25 +328,12 @@ public class Foo7 {
 		return sdf.format(new Date(time));
 	}
 	
-	/** Number of bits used for compressed size storage */
 	static final int LOWER_BITS=31;
-	/** Number of mantissa bits for size compression */
 	static final int MANTISSA_BITS=24;
-	/** Number of exponent bits for size compression */
 	static final int EXP_BITS=LOWER_BITS-MANTISSA_BITS;
-	/** Number of bits available for timestamp storage */
 	static final int UPPER_BITS=64-MANTISSA_BITS;
-	/** Bit mask for extracting compressed size from combined value */
 	static final long LOWER_MASK=~((-1L)<<LOWER_BITS);
-	/** Bit mask for mantissa extraction during compression */
 	static final long MANTISSA_MASK=~((-1L)<<MANTISSA_BITS);
-	/**
-	 * Compresses large file sizes using floating-point representation.
-	 * Values <= 24-bit mantissa are stored directly; larger values use
-	 * mantissa + exponent encoding to fit in lower 31 bits.
-	 * @param raw Uncompressed file size
-	 * @return Compressed size representation
-	 */
 	static final long compress(long raw) {
 		if(raw<=MANTISSA_MASK){return raw;}
 		int leading=Long.numberOfLeadingZeros(raw);
@@ -372,41 +341,18 @@ public class Foo7 {
 		assert(exp>=1);
 		return (raw>>>exp)|(exp<<MANTISSA_BITS);
 	}
-	/**
-	 * Decompresses file sizes encoded by compress(). Reverses the
-	 * mantissa + exponent encoding for large values.
-	 * @param f Compressed size representation
-	 * @return Original file size (approximate for large values)
-	 */
 	static final long decompress(long f) {
 		if(f<=MANTISSA_MASK){return f;}
 		int exp=(int)(f>>>MANTISSA_BITS);
 		assert(exp>=1);
 		return (f&MANTISSA_MASK)<<exp;
 	}
-	/**
-	 * Combines timestamp and compressed file size into single long value.
-	 * Places timestamp in upper 33 bits, compressed size in lower 31 bits.
-	 * @param time Unix timestamp
-	 * @param size File size (will be compressed)
-	 * @return Combined timestamp/size representation
-	 */
 	static final long combine(long time, long size) {
 		return (time<<LOWER_BITS) | compress(size);
 	}
-	/**
-	 * Extracts timestamp from combined timestamp/size value.
-	 * @param combined Value created by combine()
-	 * @return Original timestamp
-	 */
 	static final long getTime(long combined) {
 		return combined>>>LOWER_BITS;
 	}
-	/**
-	 * Extracts and decompresses file size from combined timestamp/size value.
-	 * @param combined Value created by combine()
-	 * @return Original file size (approximate for compressed values)
-	 */
 	static final long getSize(long combined) {
 		return decompress(combined&LOWER_MASK);
 	}
@@ -415,61 +361,42 @@ public class Foo7 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Junk output file path */
 	private String outInvalid=null;
 	
-	/** Whether to use LineParser2 instead of LineParser1 */
 	private boolean useLP2=false;
 
-	/** Field delimiter character for parsing input lines */
 	private static final byte delimiter=(byte)'|';
-	/** Parser for delimited input lines */
 	private final LineParser lp;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of input lines processed */
 	private long linesProcessed=0;
-	/** Number of valid output lines processed */
 	private long linesOut=0;
-	/** Total bytes read from input */
 	private long bytesProcessed=0;
-	/** Total bytes written to output */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
 	private final FileFormat ffin1;
-	/** Output File */
 	private final FileFormat ffout1;
-	/** Optional Output File for Junk */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

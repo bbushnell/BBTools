@@ -6,23 +6,16 @@ import java.util.concurrent.atomic.AtomicLong;
 import shared.Shared;
 import shared.Tools;
 
-/**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *Center of band drifts toward highest score.
- *Band starts wide and narrows to allow glocal alignments.
- *Band dynamically widens in response to low sequence identity.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
- */
 public class DriftingPlusAligner2 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Test entry point that delegates to the Test class.
+	 * Uses reflection to determine the calling class and pass it to Test.testAndPrint.
+	 *
+	 * @param <C> IDAligner subclass type
+	 * @param args Command-line arguments
+	 * @throws Exception If class reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -34,21 +27,55 @@ public class DriftingPlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a new DriftingPlusAligner2 instance with default settings */
 	public DriftingPlusAligner2() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the aligner name for identification */
 	@Override
 	public final String name() {return "Drifting+2";}
+	/**
+	 * Aligns two sequences and returns average nucleotide identity.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Identity from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity with reference coordinates.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Output array for reference start and stop positions [rStart, rStop]
+	 * @return Identity from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * Currently ignores the minScore parameter.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Output array for reference coordinates
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences to a specific window of the reference.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Output array for reference coordinates
+	 * @param rStart Reference window start position
+	 * @param rStop Reference window end position
+	 * @return Identity from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -56,7 +83,15 @@ public class DriftingPlusAligner2 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates initial bandwidth for banded alignment based on sequence similarity.
+	 * Tests prefix alignment to detect high-identity sequences that need narrow bands.
+	 * Uses adaptive bandwidth between 8 and 40 plus length-based scaling.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Initial bandwidth for alignment
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Tools.mid(8, 1+Math.max(qLen, rLen)/16, 40+(int)Math.sqrt(rLen)/4);
@@ -66,11 +101,15 @@ public class DriftingPlusAligner2 implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Main alignment method using drifting band dynamic programming.
+	 * Implements glocal alignment with adaptive bandwidth that widens for low-identity sequences.
+	 * Band center drifts toward highest-scoring regions to track optimal alignment path.
+	 * Uses bit-packed scoring to track positions and deletions without full traceback.
+	 *
+	 * @param query0 Query sequence to align
+	 * @param ref0 Reference sequence to align against
+	 * @param posVector Optional output array for reference coordinates [rStart, rStop]
+	 * @return Identity from 0.0 to 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -206,15 +245,6 @@ public class DriftingPlusAligner2 implements IDAligner{
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}
 
-	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param prev Most recent score row
-	 * @param qLen Query length
-	 * @param bandStart Beginning of score band for the previous row
-	 * @param bandEnd End of score band for the previous row
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
-	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
 		long maxScore=Long.MIN_VALUE;
@@ -270,14 +300,15 @@ public class DriftingPlusAligner2 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Aligns query to a specific window of the reference sequence.
+	 * Extracts reference region and adjusts returned coordinates to global positions.
+	 *
 	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param ref Full reference sequence
+	 * @param posVector Output array for global reference coordinates
+	 * @param refStart Window start position in reference
+	 * @param refEnd Window end position in reference
+	 * @return Identity from 0.0 to 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -293,18 +324,9 @@ public class DriftingPlusAligner2 implements IDAligner{
 		return id;
 	}
 
-	/**
-	 * Thread-safe counter for total alignment loop iterations across all instances
-	 */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Returns total loop iterations performed by all aligner instances */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/**
-	 * Output file path for alignment visualization (null disables visualization)
-	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -312,41 +334,26 @@ public class DriftingPlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits used to store reference position in score field */
 	private static final int POSITION_BITS=21;
-	/** Number of bits used to store deletion count in score field */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount to access alignment score in packed field */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting reference position from score field */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from score field */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting alignment score from packed field */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score increment for matching bases (+1 in high bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions (-1 in high bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions (-1 in high bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions (-1 in high bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for alignments involving ambiguous bases (N) - no penalty */
 	private static final long N_SCORE=0L;
-	/** Score representing invalid/impossible alignment states */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined score and position increment for deletion operations */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
-	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
-	/** Whether to use global alignment scoring (false = glocal alignment) */
 	public static final boolean GLOBAL=false;
 
 }

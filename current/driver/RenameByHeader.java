@@ -13,15 +13,17 @@ import shared.Shared;
 import shared.Timer;
 
 /**
- * Renames files based on their headers
- * @author Brian Bushnell
- * @date May 19, 2016
+ * Renames files based on their headers by parsing biological sequence files.
+ * Extracts organism names from FASTA/FASTQ headers and renames files with
+ * taxonomic identifiers. Processes individual files or entire directories
+ * containing sequence files.
  *
+ * @author Brian Bushnell
  */
 public class RenameByHeader {
 	
-	/** Program entry point for file renaming utility.
-	 * @param args Command-line arguments specifying input files or directories */
+	/** Entry point: parses args, processes files, and closes redirected streams.
+	 * @param args Input files or directories to rename (supports fastq/fasta) */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameByHeader x=new RenameByHeader(args);
@@ -31,12 +33,8 @@ public class RenameByHeader {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs RenameByHeader instance and parses command-line arguments.
-	 * Processes input arguments to identify files and directories containing
-	 * FASTA/FASTQ files. Supports verbose mode and directory traversal.
-	 * @param args Command-line arguments including file paths and options
-	 */
+	/** Parses command-line arguments, collects FASTA/FASTQ files (files or directories), and sets verbosity/streams.
+	 * @param args Arguments including file paths and optional verbose flag */
 	public RenameByHeader(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -80,11 +78,8 @@ public class RenameByHeader {
 		
 	}
 	
-	/**
-	 * Processes all files in the input list for renaming.
-	 * Iterates through collected file paths and applies header-based renaming.
-	 * @param t Timer for tracking execution duration
-	 */
+	/** Processes all collected files, applying header-based renaming.
+	 * @param t Timer for tracking execution */
 	void process(Timer t){
 		for(String s : list){
 			processFile(s);
@@ -92,12 +87,9 @@ public class RenameByHeader {
 	}
 	
 	/**
-	 * Processes a single file for header-based renaming.
-	 * Reads the first header line, extracts taxonomic information, and renames
-	 * the file using genus and species identifiers. Handles species abbreviations
-	 * and constructs new filename with original extension preserved.
-	 *
-	 * @param path Absolute path to the file to be renamed
+	 * Processes a single FASTA/FASTQ file: reads first header, extracts taxonomy tokens, and renames file with genus/species.
+	 * Preserves original extension and directory.
+	 * @param path Absolute path to the file
 	 */
 	void processFile(String path){
 		TextFile tf=new TextFile(path);
@@ -134,11 +126,8 @@ public class RenameByHeader {
 	
 	/*--------------------------------------------------------------*/
 
-	/** List of file paths to process for renaming */
 	private ArrayList<String> list=new ArrayList<String>();
-	/** Output stream for messages and error reporting */
 	private PrintStream outstream=System.err;
-	/** Controls verbose output during file processing */
 	private static boolean verbose=false;
 	
 }

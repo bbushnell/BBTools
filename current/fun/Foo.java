@@ -17,12 +17,18 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * Reads a text file.
- * Prints it to another text file.
- * Filters out invalid lines and prints them to an optional third file.
- * @author Brian Bushnell
- * @date May 9, 2016
+ * Text file processor that reads delimited data and computes file size statistics.
+ * Parses pipe-delimited files containing filesystem metadata including inode numbers,
+ * generation numbers, snapshot IDs, file sizes, and file types. Filters files by
+ * type and computes statistical distributions of file sizes.
  *
+ * Expected input format per line:
+ * INODE|GENERATION|SNAPSHOT_ID|FILE_SIZE|MEP_ID|TIMESTAMP|FILE_TYPE|...
+ *
+ * Only processes files marked with type 'F' and outputs comprehensive size statistics
+ * including median, mean, mode, and various percentiles.
+ *
+ * @author Brian Bushnell
  */
 public class Foo {
 	
@@ -31,8 +37,9 @@ public class Foo {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point that processes delimited text files and computes statistics.
+	 * Creates Foo instance, runs processing with timing, and ensures proper cleanup.
+	 * @param args Command line arguments for file paths and processing options
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -49,8 +56,10 @@ public class Foo {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs Foo processor by parsing arguments and initializing file formats.
+	 * Sets up input/output streams, validates parameters, and prepares file formats
+	 * for reading input and writing valid/invalid output streams.
+	 * @param args Command line arguments including file paths and options
 	 */
 	public Foo(String[] args){
 		
@@ -88,7 +97,13 @@ public class Foo {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments into configuration parameters.
+	 * Recognizes 'invalid' (junk output path), 'lines' (max lines to process),
+	 * 'verbose' (detailed logging), and standard parser arguments.
+	 * @param args Array of command line arguments in key=value format
+	 * @return Configured Parser instance with file paths and options set
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -133,13 +148,18 @@ public class Foo {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adds or removes compression extensions (.gz, .bz2) as needed for input files.
+	 * Ensures at least one input file is specified and properly formatted. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that all input files are readable and output files are writable.
+	 * Checks for duplicate file specifications and enforces overwrite/append policies.
+	 * Throws RuntimeException if any file access issues are detected.
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -158,7 +178,11 @@ public class Foo {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Adjusts file-related static configuration for optimal performance.
+	 * Forces ByteFile2 mode when using more than 2 threads for improved
+	 * multi-threaded file reading performance.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -171,7 +195,11 @@ public class Foo {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates parameter ranges and ensures required parameters are set.
+	 * Currently returns true as placeholder for future parameter validation.
+	 * @return Always true in current implementation
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
@@ -182,7 +210,12 @@ public class Foo {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Main processing method that creates streams and processes all input data.
+	 * Sets up ByteFile reader and ByteStreamWriter outputs, processes data through
+	 * inner method, closes streams properly, and reports timing and statistics.
+	 * @param t Timer instance for performance measurement
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -218,14 +251,16 @@ public class Foo {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**Example line:<br>
-	*
-	120395044|1465795004|3191|11574|MEP_itags|1465795004|FAu|1|14297|14297
-	|-rw-r-----|1496172205|1496172205|1048576|1516819694
-	|%2Fdna%2F.snapshots%2F2023-05-17%2Fprojectdirs%2FMEP%2Fitags%2FiTagger3%2F
-	data%2FDIVERSITY%2F1%2F1822.qiime%2Fbdiv_even1000%2Funweighted_unifrac_emperor
-	_pcoa_plot%2Femperor_required_resources%2Fjs%2Fjquery.colorPicker.js
-	*/
+	/**
+	 * Core processing logic that parses pipe-delimited lines and extracts file sizes.
+	 * Processes lines with format: INODE|GENERATION|SNAPSHOT_ID|FILE_SIZE|MEP_ID|...
+	 * Filters for files marked with type 'F', collects sizes into LongList,
+	 * sorts the data, and computes comprehensive statistics including total,
+	 * mean, median, mode, and various percentiles (P80, P90, P95, P99).
+	 * @param bf ByteFile reader for input data
+	 * @param bsw ByteStreamWriter for valid output (currently unused)
+	 * @param bswInvalid ByteStreamWriter for invalid data (currently unused)
+	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		
@@ -310,12 +345,6 @@ public class Foo {
 		System.out.println("P99 size:   \t"+sizes.get((int)(sizes.size*0.99)));
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the given FileFormat.
-	 * Returns null if FileFormat is null, otherwise creates started writer.
-	 * @param ff FileFormat specification for output stream
-	 * @return Started ByteStreamWriter or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -327,53 +356,40 @@ public class Foo {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Junk output file path */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of input lines processed */
 	private long linesProcessed=0;
-	/** Number of valid output lines (files with type 'F') */
 	private long linesOut=0;
-	/** Total bytes read from input including line terminators */
 	private long bytesProcessed=0;
-	/** Total bytes written to output (currently unused) */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
+	/** Input file format specification */
 	private final FileFormat ffin1;
-	/** Output File */
 	private final FileFormat ffout1;
-	/** Optional Output File for Junk */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

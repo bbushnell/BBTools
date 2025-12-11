@@ -8,14 +8,12 @@ import structures.LongHashMap;
 
 /**
  * Aligns reads to a small, single sequence reference like PhiX.
- * The reference should not have any duplicate kmers.
- * Alignment is only attempted once, at the first matching kmer.
- * This will generate a match string and return the identity.
- * Mapped reads can be printed as sam output.
- * 
+ * Uses k-mer lookup for initial positioning, then applies alignment at that position.
+ * Designed for references without duplicate k-mers, performing alignment only once
+ * at the first matching k-mer location.
+ *
  * @author Brian Bushnell
  * @date November 15, 2024
- *
  */
 public class MicroAligner3 implements MicroAligner {
 	
@@ -47,12 +45,24 @@ public class MicroAligner3 implements MicroAligner {
 	/*----------------          Alignment           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns identity */
+	/**
+	 * Maps a read to the reference using the default minimum identity threshold.
+	 * @param r The read to align
+	 * @return Identity score of the alignment, or 0 if no mapping found
+	 */
 	public float map(Read r) {
 		return map(r, minIdentity);
 	}
 	
-	/** Returns identity */
+	/**
+	 * Maps a read to the reference with specified minimum identity threshold.
+	 * Uses k-mer lookup to find initial position, then performs alignment.
+	 * Handles both forward and reverse complement orientations.
+	 *
+	 * @param r The read to align
+	 * @param minid Minimum identity threshold for accepting the alignment
+	 * @return Identity score of the alignment, or 0 if no mapping found above threshold
+	 */
 	public float map(Read r, float minid) {
 		if(r==null || r.length()<k || r.match!=null || r.samline!=null) {return 0;}
 		
@@ -133,7 +143,17 @@ public class MicroAligner3 implements MicroAligner {
 		return id;
 	}
 	
-	/** Returns identity (approx, in the case of Ns) */
+	/**
+	 * Performs fast approximate alignment by direct base comparison.
+	 * Builds match string and calculates identity without dynamic programming.
+	 * Used as first-pass alignment attempt before full alignment.
+	 *
+	 * @param read The read to align
+	 * @param ref Reference sequence bytes
+	 * @param a Start position in reference for alignment
+	 * @param minid Minimum identity threshold
+	 * @return Approximate identity score, accounting for N bases and substitutions
+	 */
 	public float quickAlign(Read read, byte[] ref, int a, float minid) {
 		byte[] bases=read.bases;
 		ByteBuilder buffer=getBuffer();
@@ -210,38 +230,24 @@ public class MicroAligner3 implements MicroAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the k-mer hash map from the underlying index.
-	 * @return Hash map containing k-mer to position mappings */
 	public LongHashMap getMap() {return index.map;}
 	
-	/** Minimum identity threshold for accepting alignments */
 	final float minIdentity;
-	/** Maximum fraction of substitutions allowed (1 - minIdentity) */
 	final float maxSubFraction;
-	/** K-mer length used for indexing and alignment */
 	final int k;
-	/** K-mer length minus 1, used for rolling hash calculations */
 	final int k2;
-	/** Bit mask for middle-masking k-mers during fuzzy matching */
 	final long middleMask;
-	/** K-mer index containing reference sequence and hash map */
 	final MicroIndex3 index;
-	/** Private SingleStateAligner instance when not using shared resources */
 	final SingleStateAlignerFlat2 mySSA;
-	/** Private ByteBuilder instance when not using shared resources */
 	final ByteBuilder myBuffer;
-	/** Whether to use shared thread-local resources or private instances */
 	final boolean shared;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Statics           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Multiplier constant for N base handling in identity calculations */
 	private static final float nMult=1024;
-	/** Inverse multiplier constant for N base handling in identity calculations */
 	private static final float nMultInv=1.0f/nMult;
-	/** Thread-local holder for shared ByteBuilder instances */
 	private static final ThreadLocal<ByteBuilder> bufferHolder=new ThreadLocal<ByteBuilder>();
 //	final ByteBuilder buffer=new ByteBuilder();
 	

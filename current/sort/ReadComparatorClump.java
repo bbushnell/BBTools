@@ -5,18 +5,24 @@ import shared.Tools;
 import stream.Read;
 
 /**
- * Sorts similarly to Clumpify
+ * Read comparator that implements k-mer based clumping similar to Clumpify.
+ * Uses maximum k-mer hash values to group similar sequences together for
+ * compression and deduplication. Sorts reads by their dominant k-mer signature,
+ * strand orientation, and genomic position.
+ *
  * @author Brian Bushnell
  * @date Oct 5, 2022
- *
  */
 public final class ReadComparatorClump extends ReadComparator {
 	
-	/**
-	 * Private constructor prevents external instantiation. Use static comparator instance.
-	 */
 	private ReadComparatorClump(){}
 	
+	/**
+	 * Compares two reads using k-mer signature, strand, start, and mates (if present), then ID.
+	 * @param a First read
+	 * @param b Second read
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	@Override
 	public int compare(Read a, Read b) {
 		int x=compareInner(a, b);
@@ -25,14 +31,6 @@ public final class ReadComparatorClump extends ReadComparator {
 		return ascending*x;
 	}
 
-	/**
-	 * Internal comparison logic for individual reads.
-	 * Compares by numericID (k-mer signature), strand orientation, then start position.
-	 *
-	 * @param a First read (may be null)
-	 * @param b Second read (may be null)
-	 * @return Comparison result with null handling
-	 */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -43,7 +41,14 @@ public final class ReadComparatorClump extends ReadComparator {
 		return 0;
 	}
 	
-	/** Finds the global maximum, forward and reverse */
+	/**
+	 * Computes and sets the k-mer signature for a read of length >= k.
+	 * Finds the maximum k-mer (forward or reverse) across the entire sequence,
+	 * uses its hash as the sort key, and records strand and position metadata.
+	 *
+	 * @param r Read to process
+	 * @return The maximum k-mer value found
+	 */
 	public static final long set(Read r){
 		if(r.length()<k){return setShort(r);}
 		
@@ -91,7 +96,12 @@ public final class ReadComparatorClump extends ReadComparator {
 		return topKmer;
 	}
 	
-	/** Generates a key when the read is shorter than k */
+	/**
+	 * Generates a signature for reads shorter than k by hashing the available bases and reverse complement.
+	 * Sets numericID, strand, and start accordingly.
+	 * @param r Read to process
+	 * @return Calculated k-mer signature
+	 */
 	public static final long setShort(Read r){
 		final byte[] bases=r.bases;
 		final int max=Tools.min(bases.length, k);
@@ -113,6 +123,8 @@ public final class ReadComparatorClump extends ReadComparator {
 		return kmax;
 	}
 	
+	/** Sets the sort order direction.
+	 * @param asc true for ascending order, false for descending */
 	@Override
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
@@ -127,19 +139,13 @@ public final class ReadComparatorClump extends ReadComparator {
 //		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 //	}
 	
-	/** Singleton instance for k-mer based read comparison */
 	public static final ReadComparatorClump comparator=new ReadComparatorClump();
 	
-	/** Sort direction multiplier: 1 for ascending, -1 for descending */
 	private int ascending=-1;
 	
-	/** K-mer length used for sequence hashing and comparison */
 	private static final int k=31;
-	/** Bit shift value for k-mer encoding (2 * k bits) */
 	private static final int shift=2*k;
-	/** Bit shift for reverse complement k-mer rolling (shift - 2) */
 	private static final int shift2=shift-2;
-	/** Bit mask for extracting k-mer values from rolling hash */
 	private static final long mask=(shift>63 ? -1L : ~((-1L)<<shift));;
 	
 }

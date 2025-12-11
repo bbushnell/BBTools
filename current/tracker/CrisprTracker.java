@@ -7,11 +7,12 @@ import structures.LongList;
 import structures.Range;
 
 /**
- * Tracks crispr stats.
- * 
+ * Tracks statistics for CRISPR repeats and spacers, including lengths, GC content,
+ * matches, mismatches, and alignment outcomes. Maintains histograms and counters for
+ * downstream reporting and merging across reads or contigs.
+ *
  * @author Brian Bushnell
  * @date Sept 5, 2023
- *
  */
 public class CrisprTracker {
 	
@@ -20,10 +21,12 @@ public class CrisprTracker {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Adds CRISPR statistics from a single CRISPR structure to the tracker.
-	 * Calculates GC content, lengths, and increments appropriate counters and histograms.
-	 * @param p The CRISPR structure containing repeat ranges and alignment data
-	 * @param s The sequence bytes for GC content calculation
+	 * Accumulates metrics for a single CRISPR structure.
+	 * Computes GC content for repeats and spacers, updates length histograms, and
+	 * increments match/mismatch counters and discovery tallies.
+	 *
+	 * @param p CRISPR structure containing repeat ranges and alignment info
+	 * @param s Sequence bytes used to compute GC content
 	 */
 	public void add(final Crispr p, final byte[] s) {
 		Range r=(p.b.length()>p.a.length() ? p.b : p.a);
@@ -56,10 +59,10 @@ public class CrisprTracker {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Merges statistics from another CrisprTracker into this one.
-	 * Combines all counters, histograms, and metrics from both trackers.
-	 * @param p The CrisprTracker to merge into this one
-	 * @return This CrisprTracker after merging
+	 * Merges statistics from another tracker into this one.
+	 * Adds histogram counts and aggregates all counters.
+	 * @param p Tracker to merge from
+	 * @return This tracker after merging
 	 */
 	public CrisprTracker add(CrisprTracker p) {
 		for(int i=0; i<lists.length; i++) {
@@ -79,10 +82,10 @@ public class CrisprTracker {
 
 	
 	/**
-	 * Appends formatted CRISPR statistics to a ByteBuilder.
+	 * Appends a tab-delimited summary of CRISPR statistics to the provided buffer.
 	 * Uses PalindromeTracker formatting for consistency with other trackers.
-	 * @param bb The ByteBuilder to append statistics to
-	 * @return The ByteBuilder with appended statistics
+	 * @param bb Buffer to append results to
+	 * @return The same buffer with statistics appended
 	 */
 	public ByteBuilder appendTo(ByteBuilder bb) {
 		return PalindromeTracker.append(bb, 
@@ -90,6 +93,7 @@ public class CrisprTracker {
 			lists, histmax);
 	}
 	
+	/** Returns a string representation of the tracked CRISPR statistics. */
 	@Override
 	public String toString() {
 		return appendTo(new ByteBuilder()).toString();
@@ -99,52 +103,52 @@ public class CrisprTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array for tracking nucleotide composition (A, C, G, T, N) */
+	/** Counts of A/C/G/T/N bases observed across processed CRISPR regions. */
 	private final int[] acgtn=new int[5];
 
-	/** Total number of CRISPR sequences found */
+	/** Total number of CRISPR structures discovered. */
 	public long crisprsFound=0;
-	/** Number of reads containing CRISPR sequences */
+	/** Number of reads that contained at least one CRISPR structure. */
 	public long readsWithCrisprs=0;
-	/** Number of sequences trimmed based on consensus analysis */
+	/** Number of reads trimmed based on CRISPR consensus analysis. */
 	public long trimmedByConsensus=0;
-	/** Number of repeats that are partial or at sequence tips */
+	/** Count of CRISPRs with partial or tip repeats that may be incomplete. */
 	public long partialTipRepeats=0;
-	/** Number of sequences successfully aligned to reference */
+	/** Number of CRISPRs successfully aligned to a reference. */
 	public long alignedToRef=0;
-	/** Number of sequences modified based on reference alignment */
+	/** Number of CRISPRs modified after reference alignment. */
 	public long modifiedByRef=0;
-	/** Number of sequences that failed alignment to reference */
+	/** Number of CRISPR alignments that failed. */
 	public long failedAlignment=0;
-	/** Total number of alignments performed */
+	/** Total number of alignment attempts performed. */
 	public long alignments=0;
-	/** Number of alignments that were requested */
+	/** Number of times an alignment was requested. */
 	public long alignmentRequested=0;
 	
-	/** Repeat length */
+	/** Histogram of repeat lengths. */
 	public LongList rlenList=new LongList();
-	/** Spacer length */
+	/** Histogram of spacer lengths. */
 	public LongList slenList=new LongList();
-	/** Length of a spacer+repeat */
+	/** Histogram of combined spacer+repeat lengths. */
 	public LongList ulenList=new LongList();
-	/** Total length */
+	/** Histogram of total CRISPR structure lengths. */
 	public LongList tlenList=new LongList();
-	/** Number of matches */
+	/** Histogram of match counts between repeats. */
 	public LongList matchList=new LongList();
-	/** Number of mismatches between repeats */
+	/** Histogram of mismatch counts between repeats. */
 	public LongList mismatchList=new LongList();
-	/** Copy count of this repeat */
+	/** Histogram of repeat copy counts. */
 	public LongList copyList=new LongList();
-	/** Repeat gc, in 2% increments */
+	/** Histogram of repeat GC content in 2% increments. */
 	public LongList rgcList=new LongList(51);
-	/** Spacer gc, in 2% increments */
+	/** Histogram of spacer GC content in 2% increments. */
 	public LongList sgcList=new LongList(51);
-	/** Number of mismatches with reference */
+	/** Histogram of reference mismatch counts for all alignments. */
 	public LongList refMismatchList=new LongList(51);
-	/** Number of mismatches with reference for valid alignments */
+	/** Histogram of reference mismatches for valid alignments only. */
 	public LongList refMismatchListValid=new LongList(51);
 	
-	/** Array containing all histogram lists for batch operations */
+	/** Array of all histogram lists for batch operations and merging. */
 	public final LongList[] lists={rlenList, slenList, ulenList, tlenList, 
 			rgcList, sgcList, matchList, mismatchList, 
 			copyList, refMismatchList, refMismatchListValid};
@@ -153,11 +157,9 @@ public class CrisprTracker {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maximum value for histogram binning */
+	/** Maximum value for histogram binning. */
 	public static int histmax=150;
-	/**
-	 * Multiplier for converting GC percentages to histogram bins (100 = 1% resolution)
-	 */
+	/** Multiplier for converting GC fraction to histogram bins (100 = 1% steps). */
 	public static int gcMult=100;
 	
 }

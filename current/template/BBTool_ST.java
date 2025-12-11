@@ -22,9 +22,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Abstract base class for single-threaded BBTools that process sequence reads.
+ * Provides common infrastructure for argument parsing, file I/O setup, and read processing,
+ * using a template pattern where subclasses define specific processing and statistics logic.
  * @author Brian Bushnell
  * @date Jan 12, 2015
- *
  */
 public abstract class BBTool_ST {
 	
@@ -34,7 +36,7 @@ public abstract class BBTool_ST {
 	
 	/**
 	 * Code entrance from the command line.
-	 * Must be overridden; the commented body is an example.
+	 * Must be overridden by concrete tools; the commented body in the source is an example implementation.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -48,8 +50,8 @@ public abstract class BBTool_ST {
 	}
 	
 	/**
-	 * Constructor.  Parses argument list and sets relevant fields.
-	 * Must be called by subclass.
+	 * Parses argument list, sets shared fields, and initializes file formats.
+	 * Must be called by subclass constructors before additional configuration.
 	 * @param args Command line arguments
 	 */
 	public BBTool_ST(String[] args){
@@ -163,14 +165,8 @@ public abstract class BBTool_ST {
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 	}
 	
-	/** Must be overridden if variables are defined at bottom of class file. */
 	protected abstract void setDefaults();
 	
-	/**
-	 * Re-parses selected arguments from command line.
-	 * Calls parseArgument for each argument without full initialization.
-	 * @param args Command line arguments to re-parse
-	 */
 	protected void reparse(String[] args){
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -185,13 +181,12 @@ public abstract class BBTool_ST {
 	}
 	
 	/**
-	 * Must be overridden; this body is just for example.
-	 * Parses an argument from the command line.
-	 * Assumed to be in "key=value" form, but this is not required.
-	 * @param arg The full original argument.
-	 * @param a Left hand side, to lower case.
-	 * @param b Right hand side, unaltered.
-	 * @return true if a matched some keyword.
+	 * Parses a tool-specific argument from the command line.
+	 * Assumes arguments are generally in "key=value" form but does not require it.
+	 * @param arg The full original argument
+	 * @param a Left hand side, converted to lower case
+	 * @param b Right hand side, unaltered (may be null)
+	 * @return true if this method recognized and handled the argument
 	 */
 	public abstract boolean parseArgument(String arg, String a, String b);
 	
@@ -212,7 +207,12 @@ public abstract class BBTool_ST {
 //	}
 	
 	/**
-	 * And example of how to override parseArgument.
+	 * Example of how a subclass might implement parseArgument.
+	 * This method is never called in production and always throws if reached.
+	 * @param arg The full original argument
+	 * @param a Left hand side, to lower case
+	 * @param b Right hand side, unaltered
+	 * @return true if argument was recognized and handled
 	 */
 	private boolean parseArgument_EXAMPLE(String arg, String a, String b){
 		if(true){throw new RuntimeException("parseArgument() must be overridden.");}
@@ -246,10 +246,13 @@ public abstract class BBTool_ST {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Convenience method to process with a new Timer */
 	public void process(){process(new Timer());}
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams and processes all data.
+	 * Coordinates startup, inner processing, shutdown, and final statistics reporting using the provided timer.
+	 * @param t Timer for tracking execution time
+	 */
 	protected void process(Timer t){
 		
 		//Start the read streams
@@ -267,7 +270,9 @@ public abstract class BBTool_ST {
 		showStats(t);
 	}
 
-	/** Create read streams */
+	/**
+	 * Creates read streams and initializes file I/O components, then calls startupSubclass() for tool-specific setup.
+	 */
 	protected void startup(){
 		startupSubclass();
 		
@@ -303,15 +308,10 @@ public abstract class BBTool_ST {
 		ros_primary=ros;
 	}
 	
-	/** Called before startup().
-	 * Implement if necessary */
+	/** Called before the core startup logic allocates streams.
+	 * Implement to perform tool-specific initialization prior to opening I/O. */
 	protected abstract void startupSubclass();
 	
-	/**
-	 * Closes read and output streams and handles cleanup.
-	 * @param cris The input stream to close
-	 * @param ros The output stream to close
-	 */
 	protected final void shutdown(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		shutdownSubclass();
 		
@@ -322,12 +322,10 @@ public abstract class BBTool_ST {
 		errorState|=ReadWrite.closeStreams(cris, ros);
 	}
 	
-	/** Called before shutdown().
-	 * Implement if necessary */
+	/** Called before shutdown() closes streams and writes final statistics.
+	 * Implement to perform tool-specific cleanup. */
 	protected abstract void shutdownSubclass();
 	
-	/** Displays processing statistics and timing information.
-	 * @param t Timer containing execution time data */
 	protected void showStats(final Timer t){
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
@@ -339,12 +337,21 @@ public abstract class BBTool_ST {
 		}
 	}
 	
-	/** Called AFTER showStats().
-	 * Implement if necessary */
+	/**
+	 * Called after showStats() prints common timing and throughput statistics.
+	 * Implement to add tool-specific summary information.
+	 * @param t Timer containing execution time
+	 * @param readsIn Total reads processed
+	 * @param basesIn Total bases processed
+	 */
 	protected abstract void showStatsSubclass(final Timer t, long readsIn, long basesIn);
 	
-	/** Iterate through the reads.
-	 * This may optionally be overridden. */
+	/**
+	 * Iterates through the reads and calls processReadPair for each pair.
+	 * Subclasses may override to customize streaming behavior while retaining the same lifecycle.
+	 * @param cris Input stream for reading data
+	 * @param ros Output stream for writing processed data
+	 */
 	protected void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		readsProcessed=0;
@@ -401,88 +408,59 @@ public abstract class BBTool_ST {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Process a single read pair.  Must be overidden.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
-	 */
 	protected abstract boolean processReadPair(final Read r1, final Read r2);
 	
-	/** For sam format */
+	/** Indicates whether a shared SAM header should be used for output streams.
+	 * @return true if a shared header should be used across SAM/BAM outputs */
 	protected abstract boolean useSharedHeader();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
 	protected String in1=null;
-	/** Secondary input file path for paired reads */
 	protected String in2=null;
 	
-	/** Quality file for primary input */
 	protected String qfin1=null;
-	/** Quality file for secondary input */
 	protected String qfin2=null;
 
-	/** Primary output file path */
 	protected String out1=null;
-	/** Secondary output file path for paired reads */
 	protected String out2=null;
 
-	/** Quality file for primary output */
 	protected String qfout1=null;
-	/** Quality file for secondary output */
 	protected String qfout2=null;
 	
-	/** Input file extension override */
 	protected String extin=null;
-	/** Output file extension override */
 	protected String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary concurrent input stream */
 	private ConcurrentReadInputStream cris_primary;
-	/** Primary concurrent output stream */
 	private ConcurrentReadOutputStream ros_primary;
 	
-	/** Total number of reads processed */
 	protected long readsProcessed=0;
-	/** Total number of bases processed */
 	protected long basesProcessed=0;
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format for primary input */
 	protected final FileFormat ffin1;
-	/** File format for secondary input */
 	protected final FileFormat ffin2;
 
-	/** File format for primary output */
 	protected FileFormat ffout1;
-	/** File format for secondary output */
 	protected FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	protected PrintStream outstream=System.err;
-	/** Enable verbose output messages */
 	public static boolean verbose=false;
-	/** Indicates if an error occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	protected boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	protected boolean append=false;
 	
 }

@@ -16,11 +16,14 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
+ * BBMap5 short-read sequence aligner with k-mer indexing and high-performance mapping.
+ * Provides fast and accurate alignment of DNA sequences to reference genomes using
+ * an optimized k-mer based indexing strategy. Extends AbstractMapper with BBTools-specific
+ * alignment algorithms and supports paired-end reads, quality filtering, and multiple
+ * output formats including SAM/BAM.
  * Based on TestIndex11f
- * 
  * @author Brian Bushnell
  * @date Jan 3, 2013
- *
  */
 public final class BBMap5 extends AbstractMapper  {
 	
@@ -53,6 +56,12 @@ public final class BBMap5 extends AbstractMapper  {
 		super(args);
 	}
 	
+	/**
+	 * Sets BBMap5-specific default values for alignment parameters.
+	 * Configures compression preferences, match string generation, k-mer length,
+	 * alignment scoring thresholds, key density parameters, padding values,
+	 * and aligner type. Uses optimized values for balanced speed and accuracy.
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -79,6 +88,15 @@ public final class BBMap5 extends AbstractMapper  {
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 	}
 	
+	/**
+	 * Preprocesses arguments based on speed mode selection and adjusts parameters.
+	 * Modifies alignment parameters for fast, slow, or very slow modes by adjusting
+	 * tip search distance, indel limits, hit requirements, bandwidth, minimum ratio,
+	 * rescue parameters, and key density values. Also configures genome fraction
+	 * exclusion based on mode selection.
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with speed-mode specific parameters
+	 */
 	@Override
 	public String[] preparse(String[] args){
 		if(fast){
@@ -151,6 +169,13 @@ public final class BBMap5 extends AbstractMapper  {
 		return args;
 	}
 	
+	/**
+	 * Performs post-parsing configuration and validation after argument processing.
+	 * Adjusts padding parameters based on bandwidth ratio, sets indel limits,
+	 * configures expected sites, validates input files, sets ambiguous mapping modes,
+	 * and handles various output and scoring configurations.
+	 * @param args Processed command-line arguments
+	 */
 	@Override
 	void postparse(String[] args){
 		
@@ -232,6 +257,13 @@ public final class BBMap5 extends AbstractMapper  {
 		
 	}
 	
+	/**
+	 * Performs initial setup and validation before alignment execution.
+	 * Validates random read parameters, sets minimum alignment score ratio from
+	 * identity, configures XS and intron tags, determines output modes, sets
+	 * minimum read length, validates build number, creates blacklist if specified,
+	 * and handles reference indexing if needed.
+	 */
 	@Override
 	public void setup(){
 		
@@ -278,6 +310,13 @@ public final class BBMap5 extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Configures handling of reads that map to multiple references.
+	 * Sets behavior for ambiguous mappings between different reference sequences
+	 * including split output, first reference only, random selection, discarding,
+	 * or writing to all relevant streams. Only processes when multiple references
+	 * are present (Data.scaffoldPrefixes is true).
+	 */
 	@Override
 	void processAmbig2(){
 		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
@@ -305,6 +344,14 @@ public final class BBMap5 extends AbstractMapper  {
 		}
 	}
 	
+	/**
+	 * Loads and initializes the k-mer index for alignment operations.
+	 * Sets genome build, determines chromosome ranges, calculates expected sites
+	 * from target genome size, loads chromosome arrays if needed, generates
+	 * BBIndex5, adjusts parameters based on genome size, handles coverage
+	 * calculation setup, analyzes index statistics, and creates bloom filter
+	 * if requested. Performs automatic parameter tuning for small genomes.
+	 */
 	@Override
 	void loadIndex(){
 		Timer t=new Timer();
@@ -444,6 +491,14 @@ public final class BBMap5 extends AbstractMapper  {
 		}
 	}
 		
+	/**
+	 * Executes the main alignment pipeline with performance monitoring.
+	 * Opens input streams, adjusts thread count based on memory constraints,
+	 * creates and starts mapping threads, processes reads in single or paired-end
+	 * mode, coordinates thread shutdown, closes streams, and prints comprehensive
+	 * results including statistics and timing information.
+	 * @param args Command-line arguments for alignment execution
+	 */
 	@Override
 	public void testSpeed(String[] args){
 		
@@ -515,6 +570,13 @@ public final class BBMap5 extends AbstractMapper  {
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
 	
+	/**
+	 * Configures parameters for semiperfect alignment mode.
+	 * Disables trim list, reduces key density parameters by half, sets minimum
+	 * key density to 1.1, halves maximum desired keys, sets alignment score
+	 * ratio to 0.45, and enables semiperfect mode in BBIndex5 for more
+	 * sensitive but slower alignment.
+	 */
 	@Override
 	void setSemiperfectMode() {
 		assert(SEMIPERFECTMODE);
@@ -529,6 +591,13 @@ public final class BBMap5 extends AbstractMapper  {
 		}
 	}
 
+	/**
+	 * Configures parameters for perfect alignment mode.
+	 * Disables trim list, reduces key density parameters by half, sets minimum
+	 * key density to 1.1, halves maximum desired keys, sets alignment score
+	 * ratio to 1.0 (requiring perfect matches), and enables perfect mode in
+	 * BBIndex5 for exact matching with maximum speed.
+	 */
 	@Override
 	void setPerfectMode() {
 		assert(PERFECTMODE);
@@ -544,6 +613,14 @@ public final class BBMap5 extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Prints detailed alignment configuration settings and parameters.
+	 * Displays key density ranges, maximum keys, block subsections, genome
+	 * fraction removal, hit retention settings, clumpy removal parameters,
+	 * hit list trimming options, greedy trimming, site count limits, index
+	 * scoring, and dynamic trimming configuration based on verbosity level.
+	 * @param k K-mer length for alignment
+	 */
 	@Override
 	void printSettings(int k){
 		

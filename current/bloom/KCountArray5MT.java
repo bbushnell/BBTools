@@ -9,22 +9,15 @@ import shared.Timer;
 
 
 /**
- * 
- * Uses hashing rather than direct-mapping to support longer kmers.
- * 
+ * Multi-threaded k-mer count array using hash-based indexing for longer k-mers.
+ * Distributes work across multiple writer threads to improve performance on multi-core systems and uses hashing rather than direct mapping to support arbitrary k-mer lengths efficiently.
  * @author Brian Bushnell
  * @date Aug 17, 2012
- *
  */
 public class KCountArray5MT extends KCountArray {
 	
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = -5456926900022701212L;
 
-	/** Test method demonstrating basic increment and read operations.
-	 * @param args Command-line arguments: cells, bits, gap, hashes */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -66,14 +59,6 @@ public class KCountArray5MT extends KCountArray {
 		
 	}
 		
-	/**
-	 * Constructs a multi-threaded k-mer count array.
-	 *
-	 * @param cells_ Total number of cells in the array
-	 * @param bits_ Number of bits per cell for storing counts
-	 * @param gap_ Gap parameter (unused in this implementation)
-	 * @param hashes_ Number of hash functions to use for counting
-	 */
 	public KCountArray5MT(long cells_, int bits_, int gap_, int hashes_){
 		super(cells_, bits_);
 //		verbose=false;
@@ -89,6 +74,11 @@ public class KCountArray5MT extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
+	/**
+	 * Reads the count value for a k-mer using multiple hash functions and returns the minimum count across all hash positions to avoid overestimation.
+	 * @param rawKey The unhashed k-mer key
+	 * @return Minimum count value across all hash positions
+	 */
 	@Override
 	public int read(final long rawKey){
 		assert(finished);
@@ -105,12 +95,6 @@ public class KCountArray5MT extends KCountArray {
 		return min;
 	}
 	
-	/**
-	 * Reads a count value from a pre-hashed key position.
-	 * Extracts the array number, cell index, and bit shift from the hashed key.
-	 * @param key Pre-hashed key value
-	 * @return Count value at the specified position
-	 */
 	int readHashed(long key){
 		assert(finished);
 		if(verbose){System.err.print("Reading hashed key "+key);}
@@ -133,22 +117,28 @@ public class KCountArray5MT extends KCountArray {
 		return (int)((word>>>cellShift)&valueMask);
 	}
 	
+	/**
+	 * Direct write operation is not supported in this multi-threaded implementation; use increment operations instead.
+	 * @param key The key to write to
+	 * @param value The value to write
+	 * @throws RuntimeException Always thrown as operation is not allowed
+	 */
 	@Override
 	public void write(final long key, int value){
 		throw new RuntimeException("Not allowed for this class.");
 	}
 	
 	//Slow
+	/**
+	 * Increments a k-mer count by a specified amount by performing repeated single-key increments.
+	 * @param rawKey The unhashed k-mer key
+	 * @param amt Amount to increment by
+	 */
 	@Override
 	public void increment(final long rawKey, int amt){
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
-	/**
-	 * Increments a k-mer count by one using buffered writes.
-	 * Adds the hashed key to a buffer and flushes to writer threads when full.
-	 * @param rawKey The unhashed k-mer key to increment
-	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 
@@ -170,6 +160,11 @@ public class KCountArray5MT extends KCountArray {
 	}
 	
 
+	/**
+	 * Batch increment operation for multiple k-mer keys.
+	 * Hashes all keys and distributes them to all writer threads.
+	 * @param keys Array of unhashed k-mer keys to increment
+	 */
 	@Override
 	public synchronized void increment(long[] keys){
 		for(int i=0; i<keys.length; i++){
@@ -180,17 +175,27 @@ public class KCountArray5MT extends KCountArray {
 		}
 	}
 	
-	/** Returns unincremented value */
+	/**
+	 * Atomic increment with return of previous value is not supported.
+	 * @param key The key to increment
+	 * @param incr Increment amount
+	 * @return Never returns normally
+	 * @throws RuntimeException Always thrown as operation is not supported
+	 */
 	@Override
 	public int incrementAndReturnUnincremented(long key, int incr){
 		throw new RuntimeException("Operation not supported.");
 	}
 	
+	/** Transforms count values to a frequency histogram where index represents count and value represents frequency.
+	 * @return Array where index represents count and value represents frequency */
 	@Override
 	public long[] transformToFrequency(){
 		return transformToFrequency(matrix);
 	}
 	
+	/** Creates a string representation of all count values in the array by iterating through all arrays and extracting individual cell values.
+	 * @return Comma-separated string of all count values */
 	@Override
 	public String toContentsString(){
 		StringBuilder sb=new StringBuilder();
@@ -212,12 +217,25 @@ public class KCountArray5MT extends KCountArray {
 		return sb.toString();
 	}
 	
+	/** Calculates the fraction of cells that contain non-zero counts.
+	 * @return Fraction of used cells as a double between 0.0 and 1.0 */
 	@Override
 	public double usedFraction(){return cellsUsed/(double)cells;}
 	
+	/**
+	 * Calculates the fraction of cells with counts above a minimum threshold.
+	 * @param mindepth Minimum count threshold
+	 * @return Fraction of cells meeting the threshold
+	 */
 	@Override
 	public double usedFraction(int mindepth){return cellsUsed(mindepth)/(double)cells;}
 	
+	/**
+	 * Counts cells with count values above a minimum threshold.
+	 * Scans all arrays and extracts individual cell values for comparison.
+	 * @param mindepth Minimum count threshold
+	 * @return Number of cells with counts >= mindepth
+	 */
 	@Override
 	public long cellsUsed(int mindepth){
 		long count=0;
@@ -236,6 +254,13 @@ public class KCountArray5MT extends KCountArray {
 	}
 	
 	
+	/**
+	 * Applies hash transformation to a key using row-specific masks.
+	 * Uses double hashing on first row for improved distribution.
+	 * @param key Input key to hash
+	 * @param row Hash function row index
+	 * @return Hashed key value
+	 */
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
@@ -252,9 +277,10 @@ public class KCountArray5MT extends KCountArray {
 	}
 	
 	/**
-	 * @param i
-	 * @param j
-	 * @return
+	 * Generates random hash masks for the hash functions, with each mask having exactly 16 bits set in both upper and lower 32-bit halves.
+	 * @param rows Number of hash function rows
+	 * @param cols Number of hash positions per row
+	 * @return 2D array of random hash masks
 	 */
 	private static long[][] makeMasks(int rows, int cols) {
 		
@@ -275,12 +301,6 @@ public class KCountArray5MT extends KCountArray {
 		return r;
 	}
 	
-	/**
-	 * Fills an array with hash masks having exactly 16 bits set in each half.
-	 * Ensures uniform bit distribution and avoids collisions between hash positions.
-	 * @param r Array to fill with hash masks
-	 * @param randy Random number generator for mask creation
-	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -332,6 +352,8 @@ public class KCountArray5MT extends KCountArray {
 	}
 	
 	
+	/** Initializes and starts all writer threads for parallel processing.
+	 * Waits for each thread to become alive before proceeding. */
 	@Override
 	public void initialize(){
 		for(int i=0; i<writers.length; i++){
@@ -344,6 +366,8 @@ public class KCountArray5MT extends KCountArray {
 		}
 	}
 	
+	/** Gracefully shuts down all writer threads and finalizes counts.
+	 * Flushes remaining buffer contents, sends termination signals, and aggregates cell usage statistics from all threads. */
 	@Override
 	public void shutdown(){
 		if(finished){return;}
@@ -390,19 +414,14 @@ public class KCountArray5MT extends KCountArray {
 		}
 	}
 	
-	/**
-	 * Worker thread responsible for processing increments on a subset of the array.
-	 * Each thread manages one array partition and processes keys assigned to it
-	 * based on hash value modulo the number of arrays.
-	 */
 	private class WriteThread extends Thread{
 		
-		/** Constructs a writer thread with a specific thread number.
-		 * @param tnum Thread number identifying which array partition to manage */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
 		
+		/** Main execution loop for the writer thread.
+		 * Processes batches of keys from the queue until a shutdown signal is received and creates a local array for NUMA-friendly memory allocation. */
 		@Override
 		public void run(){
 			assert(matrix[num]==null);
@@ -477,11 +496,6 @@ public class KCountArray5MT extends KCountArray {
 			array=null;
 		}
 		
-		/**
-		 * Adds a batch of keys to this thread's processing queue.
-		 * Blocks until space is available in the queue.
-		 * @param keys Array of hashed keys to process
-		 */
 		void add(long[] keys){
 //			assert(isAlive());
 			
@@ -502,12 +516,6 @@ public class KCountArray5MT extends KCountArray {
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
-		/**
-		 * Increments the count for a pre-hashed key in the local array.
-		 * Extracts cell position, updates count, and tracks cell usage.
-		 * @param key_ Pre-hashed key value
-		 * @return New count value after increment
-		 */
 		private int incrementHashedLocal(final long key_){
 			if(verbose){System.err.println("\n*** wt"+num+" incrementing hashed key "+key_+" ***");}
 			assert((key_&arrayMask)==num);
@@ -524,59 +532,37 @@ public class KCountArray5MT extends KCountArray {
 			return value;
 		}
 		
-		/** Local array partition managed by this writer thread */
 		private int[] array;
-		/** Thread number identifying which array partition this thread manages */
 		private final int num;
-		/** Count of non-zero cells in this thread's array partition */
 		public long cellsUsedPersonal=0;
 		
-		/** Queue for receiving batches of keys to process */
 		public ArrayBlockingQueue<long[]> writeQueue=new ArrayBlockingQueue<long[]>(8);
-		/** Flag indicating whether this thread should terminate */
 		public boolean shutdown=false;
 		
 	}
 	
 	
-	/** Returns the total number of cells with non-zero counts */
 	public long cellsUsed(){return cellsUsed;}
 	
-	/** Flag indicating whether shutdown process has completed */
 	private boolean finished=false;
 	
-	/** Total count of cells containing non-zero values */
 	private long cellsUsed;
-	/** 2D array storing count data, partitioned across writer threads */
 	final int[][] matrix;
-	/** Array of writer threads for parallel processing */
 	private final WriteThread[] writers=new WriteThread[numArrays];
-	/** Number of hash functions used for each k-mer */
 	final int hashes;
-	/** Number of 32-bit words in each array partition */
 	final int wordsPerArray;
-	/** Number of cells assigned to each array partition */
 	private final long cellsPerArray;
-	/** Modulus value for cell indexing within array partitions */
 	final long cellMod;
-	/** Pre-computed random masks for hash function transformations */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
 	
-	/** Buffer for batching keys before sending to writer threads */
 	private long[] buffer=new long[2000];
-	/** Current number of keys stored in the buffer */
 	private int bufferlen=0;
 	
-	/** Number of bits used for hash array indexing */
 	private static final int hashBits=6;
-	/** Length of hash mask arrays (2^hashBits) */
 	private static final int hashArrayLength=1<<hashBits;
-	/** Bit mask for extracting hash array indices */
 	private static final int hashCellMask=hashArrayLength-1;
-	/** Sentinel value used to signal thread shutdown */
 	static final long[] poison=new long[0];
 	
-	/** Static counter for generating unique random seeds */
 	private static long counter=0;
 	
 }

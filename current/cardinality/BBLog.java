@@ -7,9 +7,12 @@ import shared.Tools;
 import structures.LongList;
 
 /**
+ * LogLog-based cardinality estimator that tracks the maximum hash value per bucket.
+ * Uses a probabilistic approach to estimate the number of unique k-mers in large datasets
+ * with constant memory usage proportional to the number of buckets.
+ *
  * @author Brian Bushnell
  * @date Feb 20, 2020
- *
  */
 public final class BBLog extends CardinalityTracker {
 	
@@ -17,12 +20,17 @@ public final class BBLog extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/** Creates a LogLog estimator with default parameters.
+	 * Uses 2048 buckets, k-mer length 31, random seed, and no minimum probability filter. */
 	BBLog(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/**
+	 * Creates a LogLog estimator with parameters parsed from command-line arguments.
+	 * Initializes appropriate storage arrays based on atomic and count tracking settings.
+	 * @param p Parser containing configuration parameters
+	 */
 	BBLog(Parser p){
 		super(p);
 		maxArrayA=(atomic ? new AtomicLongArray(buckets) : null);
@@ -31,11 +39,12 @@ public final class BBLog extends CardinalityTracker {
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
-	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * Creates a LogLog estimator with explicitly specified parameters.
+	 *
+	 * @param buckets_ Number of buckets for hash partitioning
+	 * @param k_ K-mer length for sequence processing
+	 * @param seed Random number generator seed; -1 for random seed
+	 * @param minProb_ Minimum probability threshold for k-mer inclusion
 	 */
 	BBLog(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -51,6 +60,14 @@ public final class BBLog extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Estimates the total cardinality using LogLog algorithm.
+	 * Computes multiple estimates from bucket max values: arithmetic mean-based,
+	 * geometric mean-based, and median-based. Returns the arithmetic mean estimate
+	 * which typically provides the best variance characteristics.
+	 *
+	 * @return Estimated number of unique elements
+	 */
 	@Override
 	public final long cardinality(){
 		double difSum=0;
@@ -106,23 +123,24 @@ public final class BBLog extends CardinalityTracker {
 		return cardinality;
 	}
 
+	/** Returns the count array tracking occurrences of maximum values per bucket.
+	 * @return Array of counts, or null if count tracking is disabled */
 	@Override
 	public int[] getCounts(){
 		return counts;
 	}
 	
+	/**
+	 * Merges another cardinality tracker into this one.
+	 * Casts to BBLog and delegates to the typed add method.
+	 * @param log The cardinality tracker to merge
+	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((BBLog)log);
 	}
 	
-	/**
-	 * Merges another BBLog into this one by taking the maximum value per bucket.
-	 * For atomic operation, uses compare-and-set. For count tracking, updates
-	 * counts appropriately when maximum values change.
-	 * @param log The BBLog to merge into this one
-	 */
 	public void add(BBLog log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -178,6 +196,11 @@ public final class BBLog extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Returns compensation factors for LogLog estimation accuracy.
+	 * This implementation returns null as compensation is not used.
+	 * @return null (no compensation factors)
+	 */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return null;
@@ -187,11 +210,11 @@ public final class BBLog extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maintains state.  These are the actual buckets. */
+	/** Non-atomic array storing maximum hash values per bucket */
 	private final long[] maxArray;
-	/** Atomic version of maxArray. */
+	/** Atomic array storing maximum hash values per bucket for concurrent access */
 	private final AtomicLongArray maxArrayA;
-	/** Counts associated with values in the buckets. */
+	/** Array tracking occurrence counts of maximum values per bucket */
 	private final int[] counts;
 	
 //	private static long minKey=(long)(0.75f*Long.MAX_VALUE); //non-atomic 15% faster without this

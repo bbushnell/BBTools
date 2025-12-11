@@ -3,11 +3,12 @@ package structures;
 import shared.Tools;
 
 /**
- * Holds counts of numbers for histograms.
- * Small numbers are stored as counts in an array.
- * Large numbers are stored individually in a LongList.
- * @author Brian Bushnell
+ * Hybrid histogram storage structure optimizing memory usage for value distributions.
+ * Small values (0 to limit-1) are stored as counts in an array for fast access.
+ * Large values (limit and above) are stored individually in a LongList.
+ * Provides statistical analysis functions including percentiles, mode, and standard deviation.
  *
+ * @author Brian Bushnell
  */
 public class SuperLongList {
 	
@@ -15,15 +16,10 @@ public class SuperLongList {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates a SuperLongList with default array limit of 100,000.
-	 * Values 0-99,999 stored in array, values 100,000+ stored in list. */
 	public SuperLongList(){
 		this(100000);
 	}
 	
-	/**
-	 * @param limit_ Length of array used to store small numbers.
-	 */
 	public SuperLongList(int limit_){
 		limit=limit_;
 		array=new long[limit];
@@ -34,17 +30,9 @@ public class SuperLongList {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the internal count array for small values */
 	public long[] array(){return array;}
-	/** Gets the internal LongList for large values */
 	public LongList list(){return list;}
 	
-	/**
-	 * Adds this histogram's counts to the provided count array.
-	 * Array values are added to their corresponding indices in ca.
-	 * List values are added as single counts at their value indices (clamped to ca.length-1).
-	 * @param ca Count array to receive accumulated counts
-	 */
 	public void addTo(long[] ca){
 		final int max=ca.length-1;
 		{
@@ -66,14 +54,17 @@ public class SuperLongList {
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Add or increment these keys. */
+	/**
+	 * Adds all values from the LongList as individual histogram entries.
+	 * Each value increments its corresponding count in the histogram.
+	 * @param ll LongList containing values to add
+	 */
 	public void add(LongList ll){
 		for(int i=0; i<ll.size; i++){
 			add(ll.get(i));
 		}
 	}
 	
-	/** Add or increment these counts. */
 	public void addCounts(long[] counts){
 		for(int i=0; i<counts.length; i++){
 			long x=counts[i];
@@ -82,25 +73,14 @@ public class SuperLongList {
 		}
 	}
 	
-	/** Add or increment this key.
-	 * May result in duplicate copies appearing, which is fine. */
 	public void add(long x){
 		if(x<limit){array[(int)x]++;}
 		else{list.add(x);}
 		sum+=x;
 		count++;
 	}
-	/** Alias for add(long x) - adds a single value to the histogram */
 	public void increment(long x){add(x);}
 	
-	/**
-	 * Increments the count for value x by the specified amount.
-	 * For array values, adds amt to array[x]. For list values, adds x to list amt times.
-	 * Updates total count and sum statistics.
-	 *
-	 * @param x Value to increment
-	 * @param amt Amount to increment by (must be non-negative)
-	 */
 	public void increment(long x, long amt){
 		assert(amt>=0) : "SLL does not support decrements.";
 		if(x<limit){array[(int)x]+=amt;}
@@ -111,12 +91,6 @@ public class SuperLongList {
 		count+=amt;
 	}
 	
-	/**
-	 * Merges another SuperLongList into this one.
-	 * If array lengths match, uses fast array addition and list appending.
-	 * Otherwise uses slower generic addition of counts and values.
-	 * @param sllT SuperLongList to merge into this one
-	 */
 	public void add(SuperLongList sllT){
 		if(array.length==sllT.array.length){//Fast, expected case
 			assert(array.length==sllT.array.length) : "Array lengths must match.";
@@ -131,12 +105,8 @@ public class SuperLongList {
 			add(sllT.list);
 		}
 	}
-	/**
-	 * Alias for add(SuperLongList sllT) - merges another SuperLongList into this one
-	 */
 	public void incrementBy(SuperLongList sllT) {add(sllT);}
 	
-	/** Sorts the list portion for operations requiring sorted order */
 	public void sort() {
 		list.sort();
 //		sorted=true;
@@ -146,11 +116,6 @@ public class SuperLongList {
 	/*----------------          Statistics          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Calculates the standard deviation of all values in the histogram.
-	 * Computes variance across both array and list portions weighted by counts.
-	 * @return Standard deviation of the histogram values
-	 */
 	public double stdev(){
 		final long div=Tools.max(1, count);
 		double avg=sum/(double)div;
@@ -169,7 +134,6 @@ public class SuperLongList {
 		return Math.sqrt(sumdev2/div);
 	}
 	
-	/** Returns value such that percentile of values are below that value */
 	public long percentileValueByCount(double percentile){
 //		assert(sorted);
 		long thresh=(long)(count*percentile);
@@ -194,7 +158,12 @@ public class SuperLongList {
 		return 0;
 	}
 	
-	/** Returns value such that percentile of sum of values are below that value */
+	/**
+	 * Returns the value at the specified percentile by cumulative sum.
+	 * Finds the value such that (percentile * 100)% of the total sum is below it.
+	 * @param percentile Percentile value between 0.0 and 1.0
+	 * @return Value at the specified percentile by sum
+	 */
 	public long percentileValueBySum(double percentile){
 //		assert(sorted);
 		long thresh=(long)(sum*percentile);
@@ -219,7 +188,12 @@ public class SuperLongList {
 		return 0;
 	}
 
-	/** Returns the sum of the lower percentile of values */
+	/**
+	 * Returns the sum of values in the lower percentile by count.
+	 * Calculates the cumulative sum up to the specified percentile of occurrences.
+	 * @param percentile Percentile value between 0.0 and 1.0
+	 * @return Sum of values in the lower percentile
+	 */
 	public long percentileSumByCount(double percentile){
 //		assert(sorted);
 		long thresh=(long)(count*percentile);
@@ -252,7 +226,12 @@ public class SuperLongList {
 		return 0;
 	}
 
-	/** Returns the number of lower values needed to sum to this percentile of the total sum */
+	/**
+	 * Returns the count of values needed to reach the specified percentile by sum.
+	 * Finds how many lowest values sum to the specified percentile of total sum.
+	 * @param percentile Percentile value between 0.0 and 1.0
+	 * @return Count of values in the lower percentile by sum
+	 */
 	public long percentileCountBySum(double percentile){
 //		assert(sorted);
 		long thresh=(long)(sum*percentile);
@@ -286,12 +265,6 @@ public class SuperLongList {
 	}
 	
 	//Slow, avoid using
-	/**
-	 * Returns the maximum value in the histogram.
-	 * Checks list maximum first, then scans array backwards for highest non-zero count.
-	 * Performance warning: slow operation, avoid frequent use.
-	 * @return Maximum value present in the histogram
-	 */
 	public long max(){
 		if(list.size>0){return list.max();}
 		for(int i=array.length-1; i>=0; i--){
@@ -300,24 +273,14 @@ public class SuperLongList {
 		return 0;
 	}
 	
-	/** Calculates the arithmetic mean of all values in the histogram.
-	 * @return Mean value (sum divided by count) */
 	public double mean(){
 		return sum/Tools.max(1.0, count);
 	}
 	
-	/** Returns the median value (50th percentile by count).
-	 * @return Median value of the histogram */
 	public long median(){
 		return percentileValueByCount(0.5);
 	}
 	
-	/**
-	 * Returns the mode (most frequently occurring value) of the histogram.
-	 * For array portion, finds index with highest count.
-	 * For list portion, requires sorting to count consecutive identical values.
-	 * @return Most frequently occurring value
-	 */
 	public long mode(){
 		long maxCount=0;
 		long maxValue=0;
@@ -376,27 +339,18 @@ public class SuperLongList {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the total count of all values added to the histogram */
 	public long count() {return count;}
-	/** Gets the total sum of all values added to the histogram */
 	public long sum() {return sum;}
 	
-	/** Total count of all values added to the histogram */
 	private long count;
-	/** Total sum of all values added to the histogram */
 	private long sum;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing counts for small values (0 to limit-1) */
 	final long[] array;
-	/** List storing individual occurrences of large values (limit and above) */
 	final LongList list;
-	/**
-	 * Threshold value separating array storage (below) from list storage (at/above)
-	 */
 	final int limit;
 	
 }

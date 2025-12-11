@@ -23,13 +23,13 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Filters sequences according to their taxonomy,
- * as determined by the sequence name.  Sequences should
- * be labeled with a gi number or NCBI taxID.
- * 
+ * Splits sequence datasets based on taxonomic classification.
+ * Processes input sequences labeled with GI numbers or NCBI taxIDs and divides
+ * them into separate output files based on their taxonomic assignment at a
+ * specified taxonomic level (e.g., phylum, class, order).
+ *
  * @author Brian Bushnell
  * @date November 23, 2015
- *
  */
 public class SplitByTaxa {
 	
@@ -38,8 +38,9 @@ public class SplitByTaxa {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point.
+	 * Creates a SplitByTaxa instance and processes sequences according to taxonomy.
+	 * @param args Command-line arguments specifying input/output files and parameters
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -51,8 +52,10 @@ public class SplitByTaxa {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a new SplitByTaxa instance with command-line arguments.
+	 * Parses arguments for input/output files, taxonomic level, and other parameters.
+	 * Initializes file formats, loads taxonomy tree, and validates configuration.
+	 * @param args Command-line arguments containing input files, output patterns, and options
 	 */
 	public SplitByTaxa(String[] args){
 		
@@ -202,7 +205,12 @@ public class SplitByTaxa {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes the taxonomic splitting workflow.
+	 * Creates input streams, processes all reads by taxonomic classification,
+	 * and writes them to appropriate output files based on taxonomy.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	public void process(Timer t){
 		
 		//Create a read input stream
@@ -247,7 +255,15 @@ public class SplitByTaxa {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Processes individual reads and assigns them to taxonomic output streams.
+	 * Parses taxonomic information from read headers, determines taxonomic
+	 * classification at the specified level, and routes reads to appropriate
+	 * output files. Creates new output streams as needed for each taxonomy.
+	 *
+	 * @param cris Input stream containing reads to process
+	 * @param map HashMap mapping taxonomic names to output streams
+	 */
 	void processInner(final ConcurrentReadInputStream cris, HashMap<String, ConcurrentReadOutputStream> map){
 		
 		{
@@ -327,66 +343,63 @@ public class SplitByTaxa {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
+	/** Secondary input file path for paired-end reads */
 	private String in2=null;
 
-	/** Primary output file path */
+	/**
+	 * Primary output file path pattern containing % placeholder for taxonomy names
+	 */
 	private String out1=null;
-	/** Secondary output file path */
+	/** Secondary output file path pattern for paired-end reads */
 	private String out2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** The actual filter */
+	/**
+	 * Extended taxonomic level at which to split sequences (e.g., phylum, class, order)
+	 */
 	private int taxLevelE=TaxTree.stringToLevelExtended("phylum");
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of reads processed during execution */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Number of bases processed during execution */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of reads to process; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format */
 	private final FileFormat ffin1;
-	/** Secondary input file */
+	/** Secondary input file format for paired-end reads */
 	private final FileFormat ffin2;
 	
-	/** Taxonomic tree for parsing and resolving taxonomic classifications */
 	private final TaxTree tree;
 	
-	/**
-	 * Default taxonomy node for sequences with unresolvable taxonomic information
-	 */
 	private final TaxNode unknown=new TaxNode(-99, -99, TaxTree.LIFE, TaxTree.LIFE_E, "UNKNOWN");
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag indicating whether an error was encountered during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Whether to append to existing output files */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
+	/**
+	 * Whether to maintain read order in output (has no effect on single-threaded programs)
+	 */
 	private final boolean ordered=false;
 	
 }

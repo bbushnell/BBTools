@@ -10,9 +10,11 @@ import structures.IntList3;
 
 /**
  * Stores kmers in a long[] and counts in an int[], with a victim cache.
+ * Uses hybrid storage combining direct array access for primary storage
+ * with a victim cache for collisions, plus an IntList3 for multi-value entries.
+ *
  * @author Brian Bushnell
  * @date Oct 25, 2013
- *
  */
 public final class HashArrayHybridFast extends HashArray {
 	
@@ -20,12 +22,6 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a new HashArrayHybridFast with specified scheduling and core mask.
-	 * Initializes the values array and setList for multi-value storage.
-	 * @param schedule_ Resize schedule for the hash array
-	 * @param coreMask_ Core mask for kmer hashing
-	 */
 	public HashArrayHybridFast(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt1D(prime+extra);
@@ -46,6 +42,15 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Increments the count for a kmer by the specified amount.
+	 * Searches primary array first, then falls back to victim cache if needed.
+	 * Creates new entry if kmer not found.
+	 *
+	 * @param kmer The kmer to increment
+	 * @param incr Amount to increment the count by
+	 * @return New count value after incrementing
+	 */
 	@Override
 	public final int increment(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
@@ -71,6 +76,14 @@ public final class HashArrayHybridFast extends HashArray {
 		return x;
 	}
 	
+	/**
+	 * Increments a kmer count and returns number of new entries created.
+	 * Similar to increment() but tracks whether a new kmer entry was created.
+	 *
+	 * @param kmer The kmer to increment
+	 * @param incr Amount to increment the count by
+	 * @return 1 if a new entry was created, 0 if existing entry was updated
+	 */
 	@Override
 	public final int incrementAndReturnNumCreated(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
@@ -100,6 +113,12 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the value at a specific cell in the hash array.
+	 * Handles both direct values and references to multi-value lists.
+	 * @param cell The cell index to read from
+	 * @return The first value stored at that cell
+	 */
 	@Override
 	protected final int readCellValue(int cell) {
 		final int x=values[cell];
@@ -107,6 +126,14 @@ public final class HashArrayHybridFast extends HashArray {
 		return setList.get(0-x)[0];
 	}
 	
+	/**
+	 * Reads all values at a specific cell, handling multi-value entries.
+	 * Returns singleton array for single values or full array for multi-values.
+	 *
+	 * @param cell The cell index to read from
+	 * @param singleton Reusable array for single-value returns
+	 * @return Array containing all values at the cell
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		final int x=values[cell];
@@ -117,6 +144,15 @@ public final class HashArrayHybridFast extends HashArray {
 		return setList.get(0-x);
 	}
 	
+	/**
+	 * Inserts multiple values for a kmer at the specified cell.
+	 * Manages transition from single values to multi-value arrays in setList.
+	 *
+	 * @param kmer The kmer being stored
+	 * @param vals Array of values to insert
+	 * @param cell The cell index for insertion
+	 * @param vlen Number of valid values in the vals array
+	 */
 	@Override
 	protected final void insertValue(long kmer, int[] vals, int cell, int vlen) {
 		if(verbose){System.err.println("insertValue("+kmer+", "+Arrays.toString(vals)+", "+cell+"); old="+values[cell]);}
@@ -153,6 +189,14 @@ public final class HashArrayHybridFast extends HashArray {
 		}
 	}
 	
+	/**
+	 * Inserts a single value for a kmer at the specified cell.
+	 * Handles conversion to multi-value storage if multiple values exist.
+	 *
+	 * @param kmer The kmer being stored
+	 * @param v The value to insert
+	 * @param cell The cell index for insertion
+	 */
 	@Override
 	protected final void insertValue(long kmer, int v, int cell) {
 		assert(array[cell]==kmer);
@@ -170,12 +214,6 @@ public final class HashArrayHybridFast extends HashArray {
 		}
 	}
 	
-	/**
-	 * Inserts a value into the multi-value list at the specified location.
-	 * @param v The value to insert
-	 * @param loc The list location index
-	 * @return Result of the insertion operation
-	 */
 	private final int insertIntoList(final int v, final int loc){
 		return setList.insertIntoList(v, loc);
 	}
@@ -184,9 +222,16 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Indicates whether this hash array supports rebalancing operations.
+	 * @return false, as this implementation does not support rebalancing */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
+	/**
+	 * Resizes the hash array when load factor limits are exceeded.
+	 * Rehashes all existing entries from both primary array and victim cache
+	 * into new larger arrays. Preserves all kmer-value associations.
+	 */
 	@Override
 	protected synchronized void resize(){
 		
@@ -345,6 +390,12 @@ public final class HashArrayHybridFast extends HashArray {
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Deprecated rebalancing method that throws RuntimeException.
+	 * This implementation does not support rebalancing operations.
+	 * @throws RuntimeException Always thrown as operation is not supported
+	 * @deprecated This operation is not implemented
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -355,9 +406,7 @@ public final class HashArrayHybridFast extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing count values corresponding to kmers in the main array */
 	private int[] values;
-	/** List storage for cells containing multiple values per kmer */
 	private IntList3 setList;
 	
 }

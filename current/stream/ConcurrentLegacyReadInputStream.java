@@ -5,22 +5,8 @@ import java.util.concurrent.TimeUnit;
 
 import structures.ListNum;
 
-/**
- * Legacy implementation of concurrent read input stream with producer-consumer buffering.
- * Wraps a ReadInputStream and provides thread-safe buffered access to sequence reads
- * using a depot-based queuing system with configurable buffer sizes.
- * Supports both single-read and list-based read processing modes.
- *
- * @author Brian Bushnell
- */
 public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	
-	/**
-	 * Constructs a concurrent read stream with specified maximum read limit.
-	 * Initializes the depot buffering system and sets up producer stream.
-	 * @param source The underlying ReadInputStream to wrap
-	 * @param maxReadsToGenerate Maximum reads to generate (negative for unlimited)
-	 */
 	public ConcurrentLegacyReadInputStream(ReadInputStream source, long maxReadsToGenerate){
 		super(source.fname());
 		producer=source;
@@ -61,6 +47,11 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		}
 	}
 	
+	/**
+	 * Runs the producer thread: fills the depot via readLists(),
+	 * adds poison lists for consumers, then returns all empty buffers
+	 * to the full queue before exiting.
+	 */
 	@Override
 	public void run() {
 //		producer.start();
@@ -78,11 +69,6 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //		System.err.println(depot.full.size()+", "+depot.empty.size());
 	}
 	
-	/**
-	 * Adds poison pill lists to signal end-of-stream to all consumers.
-	 * Creates one poison list per buffer to ensure all consumer threads
-	 * receive the shutdown signal.
-	 */
 	private final void addPoison(){
 		//System.err.println("Adding poison.");
 		//Add poison pills
@@ -193,9 +179,10 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 
 	}
 	
-	/** Flag indicating whether shutdown has been initiated */
 	private boolean shutdown=false;
 	
+	/** Initiates shutdown of the stream by setting shutdown flag
+	 * and interrupting the producer thread. */
 	@Override
 	public void shutdown(){
 		shutdown=true;
@@ -225,6 +212,8 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		producer.close();
 	}
 
+	/** Returns whether the underlying stream contains paired-end reads.
+	 * @return true if stream contains paired reads */
 	@Override
 	public boolean paired() {
 		return producer.paired();
@@ -250,40 +239,33 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	@Override
 	public long readsIn(){return readsIn;}
 	
+	/** Returns whether this stream or its producer is in an error state.
+	 * @return true if error state detected */
 	@Override
 	public boolean errorState(){return errorState || (producer!=null && producer.errorState());}
-	/** TODO */
+	/** Error state flag for this stream instance */
 	private boolean errorState=false;
 	
-	/** Sampling rate for random read sampling (1.0 = no sampling) */
 	private float samplerate=1f;
-	/** Random number generator for read sampling (null when no sampling) */
 	private java.util.Random randy=null;
 	
+	/** Returns array containing the underlying producer stream.
+	 * @return Array with single producer element */
 	@Override
 	public Object[] producers(){return new Object[] {producer};}
 
-	/** Array containing the producer thread */
 	private Thread[] threads;
 
-	/** The underlying read input stream being wrapped */
 	public final ReadInputStream producer;
-	/** Depot managing full and empty buffer queues for producer-consumer pattern */
 	private ConcurrentDepot<Read> depot;
 	
-	/** Global verbose logging flag for debugging output */
 	public static boolean verbose=false;
 	
-	/** Total number of bases read from the input stream */
 	private long basesIn=0;
-	/** Total number of reads processed from the input stream */
 	private long readsIn=0;
 	
-	/** Maximum number of reads to generate before stopping */
 	private long maxReads;
-	/** Number of reads generated so far by the producer */
 	private long generated=0;
-	/** Sequential number assigned to each list returned by nextList() */
 	private long listnum=0;
 	
 

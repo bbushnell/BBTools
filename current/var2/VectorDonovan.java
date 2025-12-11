@@ -17,38 +17,27 @@ import dna.Data;
  * @author Brian Bushnell
  */
 public class VectorDonovan {
-	/**
-	 * Java implementation of sklearn's QuantileTransformer with uniform output distribution.
-	 * Replicates the exact transformation used in Python for neural network feature preprocessing.
-	 */
+	/** Java implementation of sklearn's QuantileTransformer with uniform output distribution.
+	 * Replicates the exact transformation used in Python for neural network feature preprocessing. */
 	public static class QuantileTransformer {
-		/** Precomputed quantile values for transformation */
 		private final double[] quantiles;
-		/** Name of the feature this transformer handles */
 		private final String featureName;
 
-		/**
-		 * Private constructor for creating transformer instances.
-		 * @param quantiles Array of quantile values for transformation
-		 * @param featureName Name of the feature being transformed
-		 */
 		private QuantileTransformer(double[] quantiles, String featureName) {
 			this.quantiles = quantiles.clone();
 			this.featureName = featureName;
 		}
 
-		/**
-		 * Constructor for Total_Depth transformer
-		 */
+		/** Creates a quantile transformer for Total_Depth feature.
+		 * @return QuantileTransformer configured for total depth values */
 		public static QuantileTransformer forTotalDepth() {
 			String path=Data.findPath("?total_depth_quantiles.txt");
 			double[] quantiles = loadQuantiles(path);
 			return new QuantileTransformer(quantiles, "Total_Depth");
 		}
 
-		/**
-		 * Constructor for End_Distance_Average transformer
-		 */
+		/** Creates a quantile transformer for End_Distance_Average feature.
+		 * @return QuantileTransformer configured for end distance average values */
 		public static QuantileTransformer forEndDistanceAverage() {
 			String path=Data.findPath("?end_distance_quantiles.txt");
 			double[] quantiles = loadQuantiles(path);
@@ -56,7 +45,10 @@ public class VectorDonovan {
 		}
 
 		/**
-		 * Loads quantile values from a text file
+		 * Loads quantile values from a text file, trying resources first then filesystem.
+		 * @param filename Path to quantile data file
+		 * @return Array of quantile values loaded from file
+		 * @throws RuntimeException if file cannot be loaded or parsed
 		 */
 		private static double[] loadQuantiles(String filename) {
 			try {
@@ -89,7 +81,10 @@ public class VectorDonovan {
 		}
 
 		/**
-		 * Transforms input value using quantile mapping to uniform distribution [0,1]
+		 * Transforms input value using quantile mapping to uniform distribution [0,1].
+		 * Uses linear interpolation between quantiles for smooth transformation.
+		 * @param value Input value to transform
+		 * @return Transformed value in range [0,1]
 		 */
 		public double transform(double value) {
 			// Handle edge cases
@@ -115,7 +110,9 @@ public class VectorDonovan {
 		}
 
 		/**
-		 * Binary search to find the largest quantile index where quantiles[index] <= value
+		 * Binary search to find the largest quantile index where quantiles[index] <= value.
+		 * @param value Value to locate in quantile array
+		 * @return Index of quantile interval containing the value
 		 */
 		private int findQuantileIndex(double value) {
 			int left = 0;
@@ -134,17 +131,16 @@ public class VectorDonovan {
 	}
 
 	/**
-	 * Donovan's feature vector for quality score prediction and true/false classification.
-	 * Uses 16 features with normalization pipeline including quantile transformations.
-	 * 
-	 * @param v Variant to convert
+	 * Generates Donovan's 16-feature vector for variant quality prediction.
+	 * Applies complete normalization pipeline including quantile transformations.
+	 * @param v Variant to convert to feature vector
 	 * @param pairingRate Overall proper pairing rate (unused in Donovan's model)
-	 * @param totalQualityAvg Average base quality from dataset (unused in Donovan's model)
-	 * @param totalMapqAvg Average mapping quality from dataset (unused in Donovan's model)
-	 * @param readLengthAvg Average read length
+	 * @param totalQualityAvg Average base quality from dataset (unused)
+	 * @param totalMapqAvg Average mapping quality from dataset (unused)
+	 * @param readLengthAvg Average read length for allele fraction revision
 	 * @param ploidy Sample ploidy (unused in Donovan's model)
-	 * @param map Scaffold mapping (unused in Donovan's model)
-	 * @return 16-element normalized feature vector for Donovan's neural network
+	 * @param map Scaffold mapping for end distance calculation
+	 * @return 16-element normalized feature vector for neural network input
 	 */
 	public static float[] makeDonovanVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
@@ -165,7 +161,12 @@ public class VectorDonovan {
 	}
 
 	/**
-	 * Extracts the 16 raw features for Donovan's model.
+	 * Extracts the 16 raw features from variant data before normalization.
+	 * Features include depth, quality scores, mapping metrics, and strand bias.
+	 * @param v Variant to extract features from
+	 * @param readLengthAvg Average read length for calculations
+	 * @param scafMap Scaffold mapping for end distance calculation
+	 * @return Array of 16 raw feature values
 	 */
 	private static double[] extractDonovanRawFeatures(Var v, double readLengthAvg, ScafMap scafMap) {
 
@@ -225,15 +226,12 @@ public class VectorDonovan {
 		return features;
 	}
 
-	/**
-	 * Cached transformer instances for performance
-	 */
+	/** Cached transformer for Total_Depth feature */
 	private static final QuantileTransformer TOTAL_DEPTH_TRANSFORMER = QuantileTransformer.forTotalDepth();
-	/** Cached transformer for End_Distance_Average feature */
 	private static final QuantileTransformer END_DISTANCE_TRANSFORMER = QuantileTransformer.forEndDistanceAverage();
 
 	/**
-	 * Percentile parameters from training data {p0, p99}
+	 * Percentile parameters from training data {p0, p99} for each of the 16 features
 	 */
 	private static final double[][] PERCENTILES = {
 			{2.000000, 3127.000000}, // 0: Total_Depth
@@ -255,8 +253,11 @@ public class VectorDonovan {
 	};
 
 	/**
-	 * Applies Donovan's complete normalization pipeline.
-	 * Replicates the Python normalization sequence used in training.
+	 * Applies Donovan's complete normalization pipeline to raw features.
+	 * Sequence: log transforms, power transforms, quantile transforms, percentile scaling.
+	 * Replicates the Python preprocessing pipeline used in training.
+	 * @param features Array of 16 raw feature values
+	 * @return Array of 16 normalized feature values ready for neural network
 	 */
 	private static double[] normalizeDonovanFeatures(double[] features) {
 

@@ -8,28 +8,21 @@ import structures.IntHashSet;
 
 /**
  * Graph-based bin refinement using modularity maximization.
- * Constructs similarity graph and applies community detection algorithms
- * to find natural cluster boundaries that may be missed by centroid methods.
- * 
- * "Like sociology - find communities by analyzing the network of relationships,
- * not just individual similarities." - GraphRefiner Philosophy
- * 
+ * Constructs a contig similarity graph and applies community detection algorithms to find natural cluster boundaries that may be missed by centroid methods.
  * @author UMP45
  */
 class GraphRefiner extends AbstractRefiner {
     
-    /**
-     * Creates a GraphRefiner with specified Oracle for similarity calculations.
-     * @param oracle_ Oracle instance for contig similarity evaluation
-     */
+    /** Creates a GraphRefiner with the specified Oracle for similarity calculations using default GraphRefinerParams.
+     * @param oracle_ Oracle instance for contig similarity evaluation */
     public GraphRefiner(Oracle oracle_) {
         this(oracle_, new AbstractRefiner.GraphRefinerParams());
     }
     
     /**
-     * Creates a GraphRefiner with specified Oracle and parameters.
+     * Creates a GraphRefiner with the specified Oracle and parameters and initializes the random number generator for deterministic behavior.
      * @param oracle_ Oracle instance for contig similarity evaluation
-     * @param params GraphRefiner-specific parameters
+     * @param params GraphRefiner-specific parameters including edge weight threshold
      */
     public GraphRefiner(Oracle oracle_, AbstractRefiner.GraphRefinerParams params) {
         oracle = oracle_;
@@ -41,6 +34,12 @@ class GraphRefiner extends AbstractRefiner {
         successfulSplits = 0;
     }
     
+    /**
+     * Refines a bin into communities represented as IntHashSet collections.
+     * Builds a similarity graph, applies modularity-based community detection, and validates that new communities improve modularity over a single cluster.
+     * @param input Bin to refine (must be Cluster with 4+ contigs)
+     * @return List of communities as IntHashSet, or null if refinement unsuccessful
+     */
     @Override
     ArrayList<IntHashSet> refineToIntSets(Bin input) {
         if(input == null || input.numContigs() < 4) return null;
@@ -76,6 +75,12 @@ class GraphRefiner extends AbstractRefiner {
         return communities;
     }
     
+    /**
+     * Refines a bin into multiple Cluster objects using graph-based community detection.
+     * Converts IntHashSet communities to Cluster objects, checks that the split is beneficial, and restores the original cluster if refinement is not beneficial.
+     * @param input Bin to refine (must be Cluster with 4+ contigs)
+     * @return List of refined Cluster objects, or null if refinement unsuccessful
+     */
     @Override
     ArrayList<Bin> refine(Bin input) {
         if(input == null || input.numContigs() < 4) return null;
@@ -111,8 +116,10 @@ class GraphRefiner extends AbstractRefiner {
     }
     
     /**
-     * Builds weighted similarity graph from contigs.
-     * Only creates edges above minimum weight threshold.
+     * Builds a weighted similarity graph from contigs.
+     * Creates edges between contig pairs whose distance is below the configured threshold, converting similarity to distance for threshold comparison but keeping similarity as edge weight.
+     * @param contigs List of contigs to build graph from
+     * @return SimilarityGraph with edges above minimum weight threshold
      */
     private SimilarityGraph buildSimilarityGraph(ArrayList<Contig> contigs) {
         SimilarityGraph graph = new SimilarityGraph(contigs.size());
@@ -136,7 +143,10 @@ class GraphRefiner extends AbstractRefiner {
     
     /**
      * Applies Louvain-style modularity maximization for community detection.
-     * Iteratively moves nodes to communities that maximize modularity gain.
+     * Iteratively moves nodes to communities that maximize modularity gain, processing nodes in random order to avoid bias in community assignment.
+     * @param graph Similarity graph of contigs
+     * @param contigs Original contig list for size validation
+     * @return List of detected communities as IntHashSet, or null if no improvement
      */
     private ArrayList<IntHashSet> detectCommunities(SimilarityGraph graph, ArrayList<Contig> contigs) {
         int n = contigs.size();
@@ -187,6 +197,12 @@ class GraphRefiner extends AbstractRefiner {
     
     /**
      * Calculates modularity gain from moving a node to a different community.
+     * Compares internal edge weights in the current vs proposed community assignment.
+     * @param graph Similarity graph containing edge weights
+     * @param node Node index to potentially move
+     * @param newCommunity Target community ID
+     * @param communities Current community assignments for all nodes
+     * @return Modularity gain (positive indicates beneficial move)
      */
     private float calculateModularityGain(SimilarityGraph graph, int node, int newCommunity, int[] communities) {
         float currentContribution = 0.0f;
@@ -207,7 +223,9 @@ class GraphRefiner extends AbstractRefiner {
     }
     
     /**
-     * Groups nodes by community ID into IntHashSet collections.
+     * Groups nodes by community ID into IntHashSet collections and filters out singleton communities to ensure meaningful clustering.
+     * @param communities Array mapping node indices to community IDs
+     * @return List of communities with 2+ members, or null if insufficient communities
      */
     private ArrayList<IntHashSet> groupIntoCommunities(int[] communities) {
         HashMap<Integer, IntHashSet> communityMap = new HashMap<>();
@@ -232,7 +250,11 @@ class GraphRefiner extends AbstractRefiner {
     }
     
     /**
-     * Calculates modularity score for given community structure.
+     * Calculates modularity score for a given community structure.
+     * Uses a Newman-Girvan-style modularity formula comparing internal edges to expected internal edges; higher scores indicate better community structure.
+     * @param graph Similarity graph with edge weights
+     * @param communities Current community partition
+     * @return Modularity score (higher is better, typically in the range -0.5 to 1.0)
      */
     private float calculateModularity(SimilarityGraph graph, ArrayList<IntHashSet> communities) {
         float modularity = 0.0f;
@@ -264,7 +286,10 @@ class GraphRefiner extends AbstractRefiner {
     }
     
     /**
-     * Creates single community containing all nodes for baseline modularity calculation.
+     * Creates a single community containing all nodes for baseline modularity calculation.
+     * Used to compare against multi-community partitions to validate improvement.
+     * @param contigs List of contigs to include in the single community
+     * @return Single-element list containing one community with all contig indices
      */
     private ArrayList<IntHashSet> createSingleCommunity(ArrayList<Contig> contigs) {
         IntHashSet singleCommunity = new IntHashSet();
@@ -278,6 +303,10 @@ class GraphRefiner extends AbstractRefiner {
     
     /**
      * Converts IntHashSet communities to Cluster objects for compatibility.
+     * Uses the lowest-index contig from each community as cluster ID and populates Cluster objects with the corresponding contigs.
+     * @param communities List of communities as IntHashSet of indices
+     * @param contigs Original contig list for creating clusters
+     * @return List of Cluster objects containing grouped contigs
      */
     private ArrayList<Bin> convertToCluster(ArrayList<IntHashSet> communities, ArrayList<Contig> contigs) {
         ArrayList<Bin> result = new ArrayList<>();
@@ -306,7 +335,8 @@ class GraphRefiner extends AbstractRefiner {
     
     /**
      * Restores original cluster references when refinement fails or is rejected.
-     * Prevents cluster reference corruption similar to CrystalChamber fix.
+     * Prevents cluster reference corruption by restoring contig cluster assignments to the original cluster.
+     * @param originalCluster The original cluster to restore contig references to
      */
     private void restoreOriginalCluster(Cluster originalCluster) {
         for(Contig contig : originalCluster.contigs) {
@@ -315,7 +345,10 @@ class GraphRefiner extends AbstractRefiner {
     }
     
     /**
-     * Generates random permutation of indices 0..n-1 for unbiased processing.
+     * Generates a random permutation of indices 0..n-1 for unbiased processing.
+     * Uses Fisher-Yates shuffle algorithm for uniform randomness.
+     * @param n Number of elements to permute
+     * @return Array containing randomized order of indices 0 through n-1
      */
     private int[] generateRandomOrder(int n) {
         int[] order = new int[n];
@@ -334,22 +367,13 @@ class GraphRefiner extends AbstractRefiner {
         return order;
     }
     
-    /**
-     * Internal representation of weighted similarity graph.
-     */
+    /** Internal representation of weighted similarity graph.
+     * Stores contig similarity relationships as a weighted adjacency list optimized for modularity calculations and community detection algorithms. */
     private static class SimilarityGraph {
-        /** Adjacency list storing edges for each node */
         private final ArrayList<ArrayList<Edge>> adjacencyList;
-        /** Number of nodes in the graph */
         private final int nodeCount;
-        /** Sum of all edge weights for modularity calculations */
         private float totalWeight;
         
-        /**
-         * Creates empty similarity graph with specified number of nodes.
-         * Initializes adjacency list structure for all nodes.
-         * @param nodeCount Number of nodes (contigs) in the graph
-         */
         public SimilarityGraph(int nodeCount) {
             this.nodeCount = nodeCount;
             this.adjacencyList = new ArrayList<>(nodeCount);
@@ -360,25 +384,12 @@ class GraphRefiner extends AbstractRefiner {
             }
         }
         
-        /**
-         * Adds weighted undirected edge between two nodes.
-         * Updates total graph weight for modularity calculations.
-         *
-         * @param u First node index
-         * @param v Second node index
-         * @param weight Similarity weight for the edge
-         */
         public void addEdge(int u, int v, float weight) {
             adjacencyList.get(u).add(new Edge(v, weight));
             adjacencyList.get(v).add(new Edge(u, weight));
             totalWeight += weight;
         }
         
-        /**
-         * Returns list of neighboring node indices connected to given node.
-         * @param node Node index to get neighbors for
-         * @return List of neighbor node indices
-         */
         public ArrayList<Integer> getNeighbors(int node) {
             ArrayList<Integer> neighbors = new ArrayList<>();
             for(Edge edge : adjacencyList.get(node)) {
@@ -387,12 +398,6 @@ class GraphRefiner extends AbstractRefiner {
             return neighbors;
         }
         
-        /**
-         * Returns edge weight between two nodes, or 0 if no edge exists.
-         * @param u First node index
-         * @param v Second node index
-         * @return Edge weight, or 0.0 if nodes are not connected
-         */
         public float getWeight(int u, int v) {
             for(Edge edge : adjacencyList.get(u)) {
                 if(edge.target == v) return edge.weight;
@@ -400,12 +405,6 @@ class GraphRefiner extends AbstractRefiner {
             return 0.0f;
         }
         
-        /**
-         * Returns weighted degree (sum of edge weights) for a node.
-         * Used in modularity calculations for expected edge weight computation.
-         * @param node Node index to calculate degree for
-         * @return Sum of weights of all edges connected to this node
-         */
         public float getDegree(int node) {
             float degree = 0.0f;
             for(Edge edge : adjacencyList.get(node)) {
@@ -414,11 +413,6 @@ class GraphRefiner extends AbstractRefiner {
             return degree;
         }
         
-        /**
-         * Returns total number of edges in the graph.
-         * Counts each undirected edge once (divides adjacency list count by 2).
-         * @return Number of undirected edges in the graph
-         */
         public int getEdgeCount() {
             int count = 0;
             for(ArrayList<Edge> edges : adjacencyList) {
@@ -427,24 +421,14 @@ class GraphRefiner extends AbstractRefiner {
             return count / 2; // Each edge counted twice
         }
         
-        /** Returns sum of all edge weights in the graph */
         public float getTotalWeight() {
             return totalWeight;
         }
         
-        /** Represents a weighted edge to a target node in the similarity graph.
-         * Simple data structure for adjacency list storage. */
         private static class Edge {
-            /** Target node index for this edge */
             final int target;
-            /** Similarity weight for this edge */
             final float weight;
             
-            /**
-             * Creates an edge to target node with specified weight.
-             * @param target Target node index
-             * @param weight Similarity weight for this edge
-             */
             Edge(int target, float weight) {
                 this.target = target;
                 this.weight = weight;
@@ -452,19 +436,12 @@ class GraphRefiner extends AbstractRefiner {
         }
     }
     
-    /** Oracle instance for contig similarity calculations */
     private final Oracle oracle;
-    /** Minimum edge weight threshold for graph construction */
     private final float minEdgeWeight;
-    /** Maximum iterations for community detection */
     private final int maxIterations;
-    /** Random number generator for deterministic tie-breaking */
     private final Random random;
     
-    /** Enable debugging output */
     private final boolean debug;
-    /** Split attempt counter */
     private int splitAttempts;
-    /** Successful split counter */
     private int successfulSplits;
 }

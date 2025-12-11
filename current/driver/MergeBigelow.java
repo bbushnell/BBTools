@@ -15,14 +15,15 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Merges two tab-delimited text files based on matching first columns.
+ * Processes text by removing specific patterns like SCGC identifiers,
+ * converts to lowercase, and replaces commas with underscores.
+ *
  * @author Brian Bushnell
  * @date Oct 17, 2014
- *
  */
 public class MergeBigelow {
 	
-	/** Program entry point that initializes and runs the merge process.
-	 * @param args Command-line arguments for input/output files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		MergeBigelow x=new MergeBigelow(args);
@@ -32,14 +33,6 @@ public class MergeBigelow {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs MergeBigelow instance and parses command-line arguments.
-	 * Initializes file formats and validates input/output paths.
-	 * Requires two input files (in1, in2) and optional output file.
-	 *
-	 * @param args Command-line arguments containing file paths and options
-	 * @throws RuntimeException if required input files are missing or output validation fails
-	 */
 	public MergeBigelow(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -105,12 +98,6 @@ public class MergeBigelow {
 		ffin2=FileFormat.testInput(in2, FileFormat.TEXT, null, true, true);
 	}
 	
-	/**
-	 * Main processing method that performs the file merge operation.
-	 * Hashes the second input file, then processes each line from the first file,
-	 * merging matching rows and applying text transformations.
-	 * @param t Timer for tracking execution time and reporting statistics
-	 */
 	void process(Timer t){
 		
 		table=hash(ffin2);
@@ -155,14 +142,6 @@ public class MergeBigelow {
 	}
 	
 	
-	/**
-	 * Processes a single line by merging with data from the lookup table.
-	 * Applies text transformations including SCGC removal, case conversion,
-	 * and comma replacement. Returns the original line if no match found.
-	 *
-	 * @param line Input line to process
-	 * @return Merged and transformed line, or original line if no table match
-	 */
 	private CharSequence processLine(String line){
 		String[] split=line.split(delimiter);
 		String[] split2=table.get(split[0]);
@@ -196,12 +175,6 @@ public class MergeBigelow {
 		return sb;
 	}
 	
-	/**
-	 * Creates a lookup table by reading the second input file.
-	 * Maps the first column value to the entire split line array.
-	 * @param ff FileFormat for the file to hash
-	 * @return HashMap mapping first column values to complete line arrays
-	 */
 	private HashMap<String, String[]> hash(FileFormat ff){
 		final HashMap<String, String[]> table=new HashMap<String, String[]>();
 		final TextFile tf;
@@ -224,43 +197,29 @@ public class MergeBigelow {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Path to first input file */
 	private String in1=null;
-	/** Path to second input file used for lookup table */
 	private String in2=null;
-	/** Path to output file */
 	private String out1=null;
 	
-	/** Field delimiter for splitting input lines */
 	private String delimiter="\t";
-	/** Lookup table mapping first column values to complete line arrays */
 	private HashMap<String, String[]> table;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of lines to process, -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** FileFormat for first input file */
 	private final FileFormat ffin1;
-	/** FileFormat for second input file */
 	private final FileFormat ffin2;
-	/** FileFormat for output file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for logging and error messages */
 	private PrintStream outstream=System.err;
-	/** Controls verbose output for debugging and progress reporting */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

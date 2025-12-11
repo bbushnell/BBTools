@@ -20,14 +20,15 @@ import structures.LongList;
 import tracker.PalindromeTracker;
 
 /**
+ * Scores DNA sequences using neural network classifiers.
+ * Processes FASTA/FASTQ files to generate sequence-level confidence scores
+ * from trained CellNet models. Supports filtering, annotation, and histogram generation.
+ *
  * @author Brian Bushnell
  * @date Oct 6, 2014
- *
  */
 public class ScoreSequence {
 
-	/** Program entry point for sequence scoring pipeline.
-	 * @param args Command-line arguments specifying input files, neural network, and scoring parameters */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -42,11 +43,6 @@ public class ScoreSequence {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs ScoreSequence instance by parsing command-line arguments.
-	 * Initializes file formats, loads neural network, and configures scoring parameters.
-	 * @param args Command-line arguments containing input/output paths and scoring options
-	 */
 	public ScoreSequence(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -116,12 +112,6 @@ public class ScoreSequence {
 		else {assert(width==(net.numInputs()-4)/4) : width+", "+net.numInputs();}
 	}
 	
-	/**
-	 * Main processing loop that scores sequences using the neural network.
-	 * Reads input sequences, applies scoring model, optionally filters results,
-	 * and generates output files and histograms.
-	 * @param t Timer for tracking execution performance
-	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -193,17 +183,6 @@ public class ScoreSequence {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Processes a single read by scoring it with the neural network.
-	 * Converts sequence to vector representation, computes score, applies filtering,
-	 * updates histograms, and optionally writes to output.
-	 *
-	 * @param r The read to process
-	 * @param bb ByteBuilder for string operations
-	 * @param bsw Output writer for filtered sequences
-	 * @param vec Pre-allocated vector array for sequence encoding
-	 * @return true if read passes filters and is written to output
-	 */
 	private boolean processRead(Read r, ByteBuilder bb, ByteStreamWriter bsw, float[] vec) {
 		if(r==null) {return false;}
 		float result=(parseHeader ? Parse.parseFloat(r.id, "result=", '\t') : 0);
@@ -220,18 +199,6 @@ public class ScoreSequence {
 		return pass;
 	}
 	
-	/**
-	 * Scores a sequence using a neural network with optional reverse complement checking.
-	 * Converts sequence to k-mer vector, feeds through network, and returns maximum score
-	 * from forward and reverse orientations if reverse complement scoring is enabled.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param vec Pre-allocated vector for sequence encoding
-	 * @param k K-mer size for sequence vectorization
-	 * @param net Neural network classifier
-	 * @param rcomp Whether to score reverse complement and take maximum
-	 * @return Maximum neural network confidence score (0.0-1.0)
-	 */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp) {
 		SequenceToVector.fillVector(bases, vec, k);
 		net.applyInput(vec);
@@ -247,16 +214,6 @@ public class ScoreSequence {
 		return Tools.max(r, f);
 	}
 	
-	/**
-	 * Scores a sequence using a neural network in forward orientation only.
-	 * Converts sequence to k-mer vector and feeds through network.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param vec Pre-allocated vector for sequence encoding
-	 * @param k K-mer size for sequence vectorization
-	 * @param net Neural network classifier
-	 * @return Neural network confidence score (0.0-1.0)
-	 */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net) {
 		assert(vec!=null);
 		SequenceToVector.fillVector(bases, vec, k);
@@ -265,18 +222,6 @@ public class ScoreSequence {
 		return f;
 	}
 	
-	/**
-	 * Scores a subsequence using a neural network.
-	 * Converts specified region of sequence to k-mer vector and feeds through network.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param vec Pre-allocated vector for sequence encoding
-	 * @param k K-mer size for sequence vectorization
-	 * @param net Neural network classifier
-	 * @param from Starting position in sequence (inclusive)
-	 * @param to Ending position in sequence (exclusive)
-	 * @return Neural network confidence score (0.0-1.0)
-	 */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net, int from, int to) {
 		SequenceToVector.fillVector(bases, vec, k, from, to);
 		net.applyInput(vec);
@@ -286,63 +231,38 @@ public class ScoreSequence {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input FASTA/FASTQ file path */
 	private String in1=null;
-	/** Output file path for scored/filtered sequences */
 	private String out1=null;
-	/** Path to neural network model file */
 	private String netFile=null;
-	/** Path to histogram output file for score distributions */
 	private String histFile=null;
 	
-	/** File format handler for input sequences */
 	private final FileFormat ffin1;
-	/** File format handler for output sequences */
 	private final FileFormat ffout1;
-	/** File format handler for neural network model */
 	private final FileFormat ffnet;
 
-	/** Histogram of scores for positive class sequences */
 	private LongList phist=new LongList(101);
-	/** Histogram of scores for negative class sequences */
 	private LongList mhist=new LongList(101);
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads written to output after filtering */
 	private long readsOut=0;
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
-	/** Tracks whether any errors occurred during processing */
 	private boolean errorState=false;
 
-	/** K-mer size for sequence vectorization */
 	private int k=0;
-	/** Whether to score reverse complement and take maximum score */
 	private boolean rcomp=false;
-	/** Whether to parse expected result values from sequence headers */
 	private boolean parseHeader=false;
-	/** Width parameter for vector encoding (-1 for auto-detection from network) */
 	private int width=-1;
-	/** Neural network model for sequence scoring */
 	private final CellNet net;
 
-	/** Whether to filter sequences based on score cutoff */
 	private boolean filter=false;
-	/**
-	 * Whether filtering retains high-scoring (true) or low-scoring (false) sequences
-	 */
 	private boolean highpass=true;
-	/** Whether to add score annotations to output sequence headers */
 	private boolean annotate=true;
-	/** Score threshold for filtering sequences */
 	private float cutoff=0.5f;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
-	/** Whether to print verbose progress messages */
 	public static boolean verbose=false;
 	
 }

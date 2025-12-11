@@ -5,9 +5,13 @@ import shared.Tools;
 import structures.LongList;
 
 /**
+ * LogLog cardinality estimator using 16-bit counters with 10-bit mantissa compression.
+ * Implements a probabilistic data structure for approximating set cardinality with
+ * controlled memory usage and precision tradeoffs. Uses floating-point compression
+ * to store larger values in 16-bit counters while maintaining reasonable accuracy.
+ *
  * @author Brian Bushnell
  * @date Mar 6, 2020
- *
  */
 public final class LogLog16 extends CardinalityTracker {
 	
@@ -15,23 +19,26 @@ public final class LogLog16 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/** Creates a LogLog16 with default parameters.
+	 * Uses 2048 buckets, k=31, random seed, and no minimum probability filtering. */
 	LogLog16(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/** Creates a LogLog16 with parameters parsed from command-line arguments.
+	 * @param p Parser containing configuration from command-line flags */
 	LogLog16(Parser p){
 		super(p);
 		maxArray=new char[buckets];
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
-	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * Creates a LogLog16 with specified parameters.
+	 *
+	 * @param buckets_ Number of buckets (counters) for the hash table
+	 * @param k_ K-mer length for sequence hashing
+	 * @param seed Random number generator seed; -1 for random seed
+	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	LogLog16(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -46,14 +53,6 @@ public final class LogLog16 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	//Restores floating point to integer
-	/**
-	 * Restores compressed floating-point value back to original integer.
-	 * Decompresses a mantissa-encoded score back to its approximate original value
-	 * by reconstructing the mantissa and applying the appropriate bit shift.
-	 *
-	 * @param score Compressed score with leading zeros count and mantissa bits
-	 * @return Restored approximate original value
-	 */
 	private long restore(int score){
 		long lowbits=(~score)&mask;
 		int leading=(int)(score>>>mantissabits);
@@ -121,18 +120,17 @@ public final class LogLog16 extends CardinalityTracker {
 		return cardinality;
 	}
 	
+	/**
+	 * Merges another CardinalityTracker into this one.
+	 * Takes the maximum value from each bucket to combine the estimators.
+	 * @param log The tracker to merge; must be a LogLog16 instance
+	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog16)log);
 	}
 	
-	/**
-	 * Merges another LogLog16 into this one by taking maximum values per bucket.
-	 * Combines two LogLog16 estimators by selecting the larger counter value
-	 * from each corresponding bucket position.
-	 * @param log The LogLog16 to merge into this instance
-	 */
 	public void add(LogLog16 log){
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
@@ -141,6 +139,14 @@ public final class LogLog16 extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Hashes a number and updates the appropriate bucket counter.
+	 * Applies hash function, counts leading zeros, compresses the value using
+	 * mantissa encoding, and stores the maximum in the corresponding bucket.
+	 * Core method for adding elements to the cardinality tracker.
+	 *
+	 * @param number The value to hash and track
+	 */
 	@Override
 	public void hashAndStore(final long number){
 //		if(number%SKIPMOD!=0){return;} //Slows down moderately
@@ -180,19 +186,12 @@ public final class LogLog16 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array of maximum counter values for each bucket, stored as 16-bit chars */
 	private final char[] maxArray;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Sets the number of mantissa bits used for value compression.
-	 * Controls precision vs range tradeoff in the floating-point compression.
-	 * Must be less than 25 bits and leave room for leading zero count.
-	 * @param x Number of mantissa bits to use (recommended: 10)
-	 */
 	public static void setMantissaBits(int x){
 		assert(x>=0 && x<25);
 		assert(x+6<32);
@@ -200,16 +199,10 @@ public final class LogLog16 extends CardinalityTracker {
 		mask=(1<<mantissabits)-1;
 	}
 
-	/** Word length in bits for hash values (64-bit longs) */
 	private static final int wordlen=64;
 	
-	/** Precision or mantissa bits.
-	 * This should not be changed.  As long as it is >10 the result will be accurate.
-	 * At low values like 2 the cardinality estimate becomes too high due to a loss of precision,
-	 * and would need a fixed multiplier.  
-	 */
+	/** Number of mantissa bits for floating-point compression; 10 is maximum */
 	private static int mantissabits=10;//10 is the max possible
-	/** Bit mask for extracting mantissa bits from compressed values */
 	private static int mask=(1<<mantissabits)-1;
 	
 }

@@ -7,12 +7,10 @@ import shared.Shared;
 import structures.ListNum;
 
 /**
- * This class is designed for distributed environments.
- * The 'master' reads from the filesystem, creates reads, and broadcasts them.
- * The 'slaves' listen for broadcasts.
+ * Concurrent read input stream designed for distributed MPI environments.
+ * Supports master-slave architecture where the master reads from the filesystem and broadcasts reads to slave processes, using a concurrent depot for buffering and thread-safe read distribution.
  * @author Brian Bushnell
  * @date Oct 7, 2014
- *
  */
 public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	
@@ -20,15 +18,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a distributed read input stream.
-	 * Master nodes wrap an existing stream source, slaves listen for broadcasts.
-	 * Initializes MPI parameters and concurrent depot for buffering.
-	 *
-	 * @param cris_ Source stream for master nodes, null for slaves
-	 * @param master_ True if this is the master node that reads from filesystem
-	 * @param keepAll_ True to process all reads, false for distributed processing
-	 */
 	public ConcurrentReadInputStreamD(ConcurrentReadInputStream cris_, boolean master_, boolean keepAll_){
 		super(cris_.fname());
 		source=cris_;
@@ -54,6 +43,11 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Retrieves the next list of reads from the concurrent depot.
+	 * Blocks until reads are available or shutdown is signaled; thread-safe method for consuming read lists.
+	 * @return ListNum containing reads and sequence number, or null if shutdown
+	 */
 	@Override
 	public synchronized ListNum<Read> nextList() {
 		ArrayList<Read> list=null;
@@ -78,6 +72,12 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		return ln;
 	}
 	
+	/**
+	 * Returns an empty buffer to the depot for reuse.
+	 * Poison lists are added to the full queue to signal completion.
+	 * @param listNumber The list number being returned
+	 * @param poison True if this signals end of data
+	 */
 	@Override
 	public void returnList(long listNumber, boolean poison){
 		if(poison){
@@ -89,6 +89,8 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		}
 	}
 	
+	/** Main execution method that runs in a separate thread.
+	 * Masters read from the source and broadcast to slaves; slaves listen for data, then poison the depot and clean up after processing. */
 	@Override
 	public void run() {
 		synchronized(running){
@@ -126,11 +128,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Adds poison pills to signal end of processing.
-	 * Creates empty lists and adds them to full depot to unblock consumers.
-	 * Handles interruption gracefully during shutdown.
-	 */
 	private final void addPoison(){
 		//System.err.println("crisD:    Adding poison.");
 		//Add poison pills
@@ -159,11 +156,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		if(verbose){System.err.println("crisD:    Added poison.");}
 	}
 	
-	/**
-	 * Master node processing loop that reads from source stream.
-	 * Distributes reads based on rank assignment and broadcasts to slaves.
-	 * Handles unicast shutdown signaling when not keeping all reads.
-	 */
 	private final void readLists_master(){
 
 		if(verbose){System.err.println("crisD:    Entered readLists_master().");}
@@ -213,11 +205,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		if(verbose){System.err.println("crisD:    Finished readLists_master().");}
 	}
 	
-	/**
-	 * Slave node processing loop that listens for broadcasted reads.
-	 * Processes reads assigned to this rank and adds them to local depot.
-	 * Continues until master signals completion.
-	 */
 	private final void readLists_slave(){
 		
 		if(verbose){System.err.println("crisD:    Entered readLists_slave().");}
@@ -260,12 +247,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------      Concurrency Methods     ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Broadcasts read list to all slave processes.
-	 * Uses unicast for targeted distribution when not keeping all reads.
-	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
-	 * @param ln ListNum containing reads to broadcast
-	 */
 	protected void broadcast(ListNum<Read> ln){
 		if(!keepAll && ln.size()>0){//Decide how to send this list
 			final int toRank=(int)(ln.id%ranks);
@@ -288,14 +269,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		throw new RuntimeException("TODO");
 	}
 		
-	/**
-	 * Sends read list to specific slave process rank.
-	 * Skips sending if target rank matches current rank.
-	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
-	 *
-	 * @param ln ListNum containing reads to send
-	 * @param toRank Target MPI rank to receive the reads
-	 */
 	protected void unicast(ListNum<Read> ln, final int toRank){
 		if(toRank==rank){return;}
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Unicasting reads to "+toRank+".");}
@@ -313,12 +286,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		throw new RuntimeException("TODO");
 	}
 	
-	/**
-	 * Broadcasts paired-end read status to all slaves.
-	 * Ensures all processes know whether input contains paired reads.
-	 * Currently incomplete - placeholder for MPI implementation.
-	 * @param b True if reads are paired-end
-	 */
 	protected void broadcastPaired(boolean b){
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Broadcasting pairing status.");}
 		boolean success=false;
@@ -334,12 +301,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 //		throw new RuntimeException("TODO");
 	}
 		
-	/**
-	 * Broadcasts keepAll processing mode to all slaves.
-	 * Determines whether all processes handle all reads or distribute by rank.
-	 * Currently incomplete - placeholder for MPI implementation.
-	 * @param b True to process all reads on all nodes
-	 */
 	protected void broadcastKeepall(boolean b){
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Broadcasting keepAll status.");}
 		boolean success=false;
@@ -355,12 +316,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 //		throw new RuntimeException("TODO");
 	}
 
-	/**
-	 * Listens for broadcasted read lists from master process.
-	 * Blocks until data is received or shutdown occurs.
-	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
-	 * @return ListNum containing received reads, null on shutdown
-	 */
 	protected ListNum<Read> listen(){
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Listening to "+0+" for reads.");}
 		boolean success=false;
@@ -376,12 +331,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		throw new RuntimeException("TODO");
 	}
 	
-	/**
-	 * Listens for paired-end status broadcast from master.
-	 * Receives initial configuration about whether reads are paired.
-	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
-	 * @return True if reads are paired-end
-	 */
 	protected boolean listenPaired(){
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Listening to "+0+" for pairing status.");}
 		boolean success=false;
@@ -397,12 +346,6 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		throw new RuntimeException("TODO");
 	}
 	
-	/**
-	 * Listens for keepAll mode broadcast from master.
-	 * Receives configuration about read distribution strategy.
-	 * Currently incomplete - throws RuntimeException as placeholder for MPI implementation.
-	 * @return True if all nodes should process all reads
-	 */
 	protected boolean listenKeepall(){
 		if(verbose){System.err.println("crisD "+(master?"master":"slave ")+":    Listening to "+0+" for keepAll status.");}
 		boolean success=false;
@@ -422,6 +365,8 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------         Termination          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Initiates shutdown of the distributed stream.
+	 * Sets the shutdown flag and (in the intended design) interrupts worker threads and shuts down the source stream on masters. */
 	@Override
 	public void shutdown(){
 		if(verbose){System.out.println("crisD:    Called shutdown.");}
@@ -440,6 +385,8 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		}
 	}
 	
+	/** Resets the stream to initial state for reuse.
+	 * Reinitializes the depot and counters and restarts the source stream for masters, synchronized to prevent concurrent restart operations. */
 	@Override
 	public synchronized void restart(){
 		shutdown=false;
@@ -452,6 +399,8 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		}
 	}
 	
+	/** Closes the distributed stream and cleans up resources.
+	 * Calls shutdown, drains depot buffers, waits for thread termination, and closes the source stream for masters. */
 	@Override
 	public synchronized void close(){
 		shutdown();
@@ -507,28 +456,45 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns whether input contains paired-end reads. */
 	@Override
 	public boolean paired() {return paired;}
 	
+	/** Returns the current verbose logging setting. */
 	@Override
 	public boolean verbose(){return verbose;}
 	
+	/**
+	 * Sets sampling rate for read selection.
+	 * Only applies to master nodes which forward to source stream.
+	 * @param rate Fraction of reads to sample (0.0 to 1.0)
+	 * @param seed Random seed for reproducible sampling
+	 */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		if(master){source.setSampleRate(rate, seed);}
 	}
 	
+	/** Returns total number of bases processed. */
 	@Override
 	public long basesIn(){return basesIn;}
+	/** Returns total number of reads processed. */
 	@Override
 	public long readsIn(){return readsIn;}
 	
+	/**
+	 * Returns whether the stream is in an error state.
+	 * Masters also include their source stream error status.
+	 * @return True if any error has occurred
+	 */
 	@Override
 	public boolean errorState(){
 		if(master){return errorState|source.errorState();}
 		return errorState;
 	}
 	
+	/** Returns array of producer objects for masters; slaves return null since they don't have direct producers.
+	 * @return Producer array for masters, null for slaves */
 	@Override
 	public Object[] producers(){
 		if(master){return source.producers();}
@@ -539,45 +505,34 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Wrapped source of reads.  Null for slaves. */
+	/** Wrapped source of reads; null for slaves. */
 	private ConcurrentReadInputStream source;
-	/** True if this is the master process that reads from filesystem */
 	private final boolean master;
-	/** True to process all reads on all nodes, false for distributed processing */
 	protected final boolean keepAll;
 	protected final int rank, ranks;
 	
-	/** Flag indicating whether stream has encountered errors */
 	private boolean errorState=false;
 	
-	/** Array tracking whether processing thread is running */
 	private boolean[] running=new boolean[] {false};
 	
-	/** Flag to signal shutdown of processing threads */
 	private boolean shutdown=false;
 
-	/** Concurrent buffer depot for thread-safe read list storage */
 	private ConcurrentDepot<Read> depot;
 
-	/** Array of worker threads for concurrent processing */
 	private Thread[] threads;
 	
-	/** Counter for total bases processed by this stream */
 	private long basesIn=0;
-	/** Counter for total reads processed by this stream */
 	private long readsIn=0;
 	
-	/** Sequential counter for read list numbering */
 	private long listnum=0;
 	
-	/** This should be set in the first broadcast */
+	/** Whether input contains paired-end reads, set in the first broadcast. */
 	private final boolean paired;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Global flag controlling verbose debug output for all instances */
 	public static boolean verbose=false;
 	
 }

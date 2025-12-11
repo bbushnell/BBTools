@@ -3,22 +3,18 @@ package structures;
 import shared.KillSwitch;
 
 /**
+ * High-performance min-heap implementation for primitive long values.
+ * Provides efficient priority queue operations with optional rollover capability
+ * for maintaining top-N elements. Uses array-based binary heap structure
+ * optimized for performance and memory efficiency.
+ *
  * @author Brian Bushnell
  * @date June 30, 2016
- *
  */
 public final class LongHeap {
 	
-	/** Creates a LongHeap with rollover enabled.
-	 * @param maxSize Maximum number of elements the heap can contain */
 	public LongHeap(int maxSize){this(maxSize, true);}
 	
-	/**
-	 * Creates a LongHeap with specified capacity and rollover behavior.
-	 * Array size is automatically adjusted to be even for optimization.
-	 * @param maxSize Maximum number of elements the heap can contain
-	 * @param rollover_ If true, removes smallest element when capacity exceeded
-	 */
 	public LongHeap(int maxSize, boolean rollover_){
 		
 		int len=maxSize+1;
@@ -30,14 +26,6 @@ public final class LongHeap {
 //		queue=new PriorityQueue<T>(maxSize);
 	}
 	
-	/**
-	 * Adds an element to the heap, maintaining min-heap property.
-	 * If heap is at capacity and rollover is enabled, removes smallest element first.
-	 * Elements smaller than or equal to the current minimum are rejected when at capacity.
-	 *
-	 * @param t The value to add
-	 * @return true if element was added, false if rejected due to capacity constraints
-	 */
 	public boolean add(long t){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -68,8 +56,6 @@ public final class LongHeap {
 		return true;
 	}
 	
-	/** Returns the minimum element without removing it.
-	 * @return The smallest element in the heap, or EMPTY if heap is empty */
 	public long peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -83,11 +69,6 @@ public final class LongHeap {
 		return array[1];
 	}
 	
-	/**
-	 * Removes and returns the minimum element from the heap.
-	 * Restores heap property by moving last element to root and percolating up.
-	 * @return The smallest element that was removed, or EMPTY if heap was empty
-	 */
 	public long poll(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -137,11 +118,6 @@ public final class LongHeap {
 //		}
 //	}
 	
-	/**
-	 * Percolates an element down towards the root to maintain min-heap property.
-	 * Used when inserting new elements. Continues until proper position is found.
-	 * @param loc The array index of the element to percolate down
-	 */
 	private void percDown(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0);
@@ -162,11 +138,6 @@ public final class LongHeap {
 		array[loc]=a;
 	}
 	
-	/**
-	 * Percolates an element up towards leaves to maintain min-heap property.
-	 * Used after removing root element. Recursively swaps with smaller child.
-	 * @param loc The array index of the element to percolate up
-	 */
 	private void percUp(int loc){
 		//assert(testForDuplicates());
 //		assert(loc>0 && loc<=size+1) : loc+", "+size; //Allows use of more-efficient sketch creation, but gives different result...
@@ -200,11 +171,6 @@ public final class LongHeap {
 		}
 	}
 	
-	/**
-	 * Iterative version of percUp for better performance.
-	 * Percolates element towards leaves using loop instead of recursion.
-	 * @param loc The array index of the element to percolate up
-	 */
 	private void percUpIter(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -248,50 +214,34 @@ public final class LongHeap {
 		array[loc]=a;
 	}
 	
-	/** Returns true if the heap contains no elements */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
-	/** Returns true if the heap is at maximum capacity */
 	public boolean isFull(){
 		return size==CAPACITY;
 	}
 	
-	/** Returns true if the heap can accept more elements without rollover */
 	public boolean hasRoom(){
 		return size<CAPACITY;
 	}
 	
-	/** Removes all elements from the heap, resetting size to zero */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=EMPTY;}
 		size=0;
 	}
 	
-	/** Returns the current number of elements in the heap */
 	public int size(){
 		return size;
 	}
 	
-	/**
-	 * Calculates the tier level of a value based on bit position.
-	 * Uses leading zero count to determine magnitude tier.
-	 * @param x The value to analyze
-	 * @return The tier level (0-31) representing value magnitude
-	 */
 	public static int tier(int x){
 		int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
 	
-	/**
-	 * Debug method that checks for duplicate values in the heap.
-	 * Scans entire array to ensure no non-EMPTY values are duplicated.
-	 * @return true if no duplicates found, false otherwise
-	 */
 	public boolean testForDuplicates(){
 		for(int i=0; i<array.length; i++){
 			for(int j=i+1; j<array.length; j++){
@@ -301,14 +251,8 @@ public final class LongHeap {
 		return true;
 	}
 	
-	/** Returns the underlying array used for heap storage */
 	public long[] array(){return array;}
 	
-	/**
-	 * Converts heap contents to a LongList by polling all elements.
-	 * This operation empties the heap and returns elements in min-heap order.
-	 * @return LongList containing all heap elements in sorted order
-	 */
 	public LongList toList(){
 		LongList list=new LongList(size);
 		for(int i=0, lim=size; i<lim; i++){
@@ -318,19 +262,13 @@ public final class LongHeap {
 		return list;
 	}
 	
-	/** Returns the maximum capacity of the heap */
 	public int capacity(){return CAPACITY;}
 	
-	/** Internal array storage for heap elements using 1-based indexing */
 	private final long[] array;
-	/** Maximum number of elements the heap can contain */
 	private final int CAPACITY;
-	/** If true, removes smallest element when adding to full heap */
 	private final boolean rollover;
-	/** Current number of elements in the heap */
 	private int size=0;
 	
-	/** Sentinel value representing empty/null elements in the heap */
 	public static final long EMPTY=Long.MIN_VALUE;
 	
 }

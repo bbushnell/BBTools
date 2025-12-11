@@ -17,11 +17,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Static helpers for manipulating pgm files.
- * main() merges pgm files.
+ * Utility class for manipulating prokaryotic gene model (PGM) files.
+ * Primary function is merging multiple PGM files into a single consolidated model.
+ * Also provides model mixing capabilities with customizable multipliers for different gene types.
+ *
  * @author Brian Bushnell
  * @date Sep 24, 2018
- *
  */
 public class PGMTools extends ProkObject {
 	
@@ -29,7 +30,6 @@ public class PGMTools extends ProkObject {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Combines multiple pgm files into a single file */
 	public static void main(String[] args){
 		
 		//Start a timer immediately upon code entrance.
@@ -94,14 +94,6 @@ public class PGMTools extends ProkObject {
 		Shared.closeStream(outstream);
 	}
 	
-	/**
-	 * Parses static configuration parameters for gene prediction models.
-	 * Handles k-mer sizes, offset configurations, and gene type calling flags.
-	 * @param arg Complete argument string
-	 * @param a Parameter name (lowercase)
-	 * @param b Parameter value
-	 * @return true if parameter was recognized and parsed
-	 */
 	public static boolean parseStatic(String arg, String a, String b){
 		if(a.equals("kinnercds")){
 			int k=Integer.parseInt(b);
@@ -179,13 +171,6 @@ public class PGMTools extends ProkObject {
 		return true;
 	}
 	
-	/**
-	 * Loads gene models from specified files with optional multipliers.
-	 * File names can include @multiplier suffix (e.g., "model.pgm@1.5").
-	 * Applies normalization if enabled to balance models by bases processed.
-	 * @param fnames List of filenames, optionally with @multiplier suffixes
-	 * @return List of loaded and processed gene models
-	 */
 	public static ArrayList<GeneModel> loadModels(ArrayList<String> fnames){
 		ArrayList<GeneModel> models=new ArrayList<GeneModel>(fnames.size());
 		ArrayList<Double> mults=new ArrayList<Double>(fnames.size());
@@ -228,12 +213,6 @@ public class PGMTools extends ProkObject {
 		return models;
 	}
 	
-	/**
-	 * Merges multiple gene models into a single combined model.
-	 * Returns the single model unchanged if only one is provided.
-	 * @param models List of gene models to merge
-	 * @return Single merged gene model
-	 */
 	public static GeneModel mergeModels(ArrayList<GeneModel> models){
 		if(models.size()==1){return models.get(0);}
 		GeneModel pgmSum=new GeneModel(true);
@@ -243,7 +222,6 @@ public class PGMTools extends ProkObject {
 		return pgmSum;
 	}
 	
-	/** The first gene model is the dominant one */
 	public static GeneModel mix(double cdsMult, double rRnaMult, double tRnaMult, boolean normalize, GeneModel...models) {
 		assert(models.length>1);
 		GeneModel pgm0=models[0];
@@ -268,34 +246,16 @@ public class PGMTools extends ProkObject {
 		return pgm;
 	}
 	
-	/**
-	 * Convenience method to load and merge models in one operation.
-	 * @param in List of input filenames
-	 * @return Single merged gene model
-	 */
 	public static GeneModel loadAndMerge(ArrayList<String> in) {
 		ArrayList<GeneModel> models=loadModels(in);
 		return mergeModels(models);
 	}
 	
-	/**
-	 * Writes gene model to specified output file path.
-	 * @param pgm Gene model to write
-	 * @param out Output file path
-	 * @param overwrite Whether to overwrite existing files
-	 * @return true if error occurred during writing
-	 */
 	public static boolean writeModel(GeneModel pgm, String out, boolean overwrite){
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.PGM, null, true, overwrite, false, false);
 		return writeModel(pgm, ffout);
 	}
 	
-	/**
-	 * Writes gene model using specified file format.
-	 * @param pgm Gene model to write
-	 * @param ffout File format specification for output
-	 * @return true if error occurred during writing
-	 */
 	public static boolean writeModel(GeneModel pgm, FileFormat ffout){
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
 
@@ -310,7 +270,6 @@ public class PGMTools extends ProkObject {
 		return errorState;
 	}
 	
-	/** Ensure files can be read and written */
 	private static void checkFileExistence(ArrayList<String> in, String out, boolean overwrite, boolean allowDupes){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, false, false, out)){
@@ -348,11 +307,8 @@ public class PGMTools extends ProkObject {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for messages and errors */
 	private static PrintStream outstream=System.err;
-	/** Enable verbose output messages */
 	public static boolean verbose=false;
-	/** Mix models equally */
 	public static boolean normalize=false;
 	
 }

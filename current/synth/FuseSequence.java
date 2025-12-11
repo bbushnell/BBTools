@@ -14,26 +14,22 @@ import structures.ListNum;
 import template.BBTool_ST;
 
 /**
- * Fuses sequences together, with N-padding in between.
+ * Fuses sequences together with configurable padding between them.
+ * Can operate in two modes: concatenating reads into long sequences with N-padding,
+ * or fusing paired-end reads by reverse complementing R2 and joining with R1.
+ * Supports amino acid sequences and customizable padding characters.
+ *
  * @author Brian Bushnell
  * @date Jan 20, 2015
- *
  */
 public final class FuseSequence extends BBTool_ST {
 	
-	/** Program entry point.
-	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FuseSequence fs=new FuseSequence(args);
 		fs.process(t);
 	}
 	
-	/**
-	 * Constructs FuseSequence with command-line arguments.
-	 * Sets default padding symbol and enables amino acid mode if specified.
-	 * @param args Command-line arguments for configuration
-	 */
 	public FuseSequence(String[] args){
 		super(args);
 		reparse(args);
@@ -83,6 +79,14 @@ public final class FuseSequence extends BBTool_ST {
 		return false;
 	}
 	
+	/**
+	 * Main processing loop for fusing sequences.
+	 * Reads input sequences and either fuses pairs immediately or accumulates reads
+	 * in a buffer until maxlen is reached, then outputs the concatenated sequence.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param ros Output stream for writing processed sequences
+	 */
 	@Override
 	protected void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
@@ -157,12 +161,6 @@ public final class FuseSequence extends BBTool_ST {
 		}
 	}
 	
-	/**
-	 * Converts accumulated sequences in buffer to a Read object.
-	 * Clears the buffer after conversion and sets the read ID.
-	 * @param id Numeric identifier for the output read
-	 * @return Read object containing the concatenated sequence
-	 */
 	Read bufferToRead(long id){
 		Read r=new Read(bases.toBytes(), (quals==null ? null : quals.toBytes()), 0);
 		bases.clear();
@@ -175,6 +173,15 @@ public final class FuseSequence extends BBTool_ST {
 	/* (non-Javadoc)
 	 * @see jgi.BBTool_ST#processReadPair(stream.Read, stream.Read)
 	 */
+	/**
+	 * Processes a pair of reads based on the fusion mode.
+	 * In fusePairs mode, joins R1 and reverse complement of R2 with padding.
+	 * Otherwise, processes each read individually for concatenation.
+	 *
+	 * @param r1 First read in the pair
+	 * @param r2 Second read in the pair (may be null)
+	 * @return true if reads were fused as pairs, false if processed individually
+	 */
 	@Override
 	protected boolean processReadPair(Read r1, Read r2) {
 		if(fusePairs){
@@ -186,14 +193,6 @@ public final class FuseSequence extends BBTool_ST {
 		return false;
 	}
 	
-	/**
-	 * Fuses paired-end reads into a single sequence.
-	 * Reverse complements R2 and joins it to R1 with N-padding between them.
-	 * Quality scores are preserved if available from both reads.
-	 *
-	 * @param r1 First read (kept as-is)
-	 * @param r2 Second read (reverse complemented before joining)
-	 */
 	private void fusePair(Read r1, Read r2) {
 		if(r2==null){return;}
 		
@@ -219,12 +218,6 @@ public final class FuseSequence extends BBTool_ST {
 		r1.quality=quals;
 	}
 	
-	/**
-	 * Adds a single read to the accumulation buffer.
-	 * Appends padding symbols between reads and handles quality score assignment.
-	 * Uses the first read's ID as the base name if none is specified.
-	 * @param r Read to add to the buffer
-	 */
 	private void processRead(Read r) {
 		if(name==null){
 			name=r.id;
@@ -245,40 +238,32 @@ public final class FuseSequence extends BBTool_ST {
 		}
 	}
 	
+	/** Subclass-specific startup operations.
+	 * No operations needed for FuseSequence. */
 	@Override
 	protected void startupSubclass() {}
 	
 	@Override
 	protected void shutdownSubclass() {}
 	
+	/** Indicates whether to use shared header information.
+	 * @return false - FuseSequence does not use shared headers */
 	@Override
 	protected final boolean useSharedHeader(){return false;}
 	
 	@Override
 	protected void showStatsSubclass(Timer t, long readsIn, long basesIn) {}
 	
-	/** Maximum length for output sequences before flushing buffer */
 	int maxlen=Shared.MAX_ARRAY_LEN;
-	/** Number of padding characters to insert between sequences */
 	int npad;
-	/** Default quality score for bases when input lacks quality information */
 	byte defaultQuality;
-	/** Whether to fuse paired-end reads into single sequences */
 	boolean fusePairs;
-	/** Buffer for accumulating sequence bases */
 	ByteBuilder bases=new ByteBuilder();
-	/** Buffer for accumulating quality scores */
 	ByteBuilder quals=new ByteBuilder();
-	/** Name prefix for output sequences */
 	String name;
 //	boolean prefix=true;
-	/** Whether to append numeric suffixes to output sequence names */
 	boolean addNumber=false;
-	/**
-	 * Character used for padding between sequences ('N' for DNA, 'X' for amino acids)
-	 */
 	char PAD_SYMBOL='N';
-	/** Whether input sequences are amino acids rather than nucleotides */
 	boolean amino=false;
 	
 }

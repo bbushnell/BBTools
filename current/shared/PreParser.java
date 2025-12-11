@@ -9,46 +9,39 @@ import fileIO.ByteFile1;
 import json.JsonObject;
 import stream.NullOutputStream;
 
-/**
- * Pre-parses the command line to handle:
- * Leading hyphens
- * Java flags
- * Output stream redirection
- * Help/version information
- * 
- * @author Brian Bushnell
- * @date November 28, 2017
- *
- */
 public class PreParser {
 	
 	/**
-	 * Auxiliary constructor.
-	 * @param args Command line arguments
+	 * Auxiliary constructor with default print stream and auto-exit enabled.
+	 * @param args_ Command line arguments
 	 * @param c Class object of the caller
-	 * @param printVersion True if the BBTools version should be printed to the screen
+	 * @param printVersion True if the BBTools version should be printed
 	 */
 	public PreParser(final String[] args_, final Class<?> c, boolean printVersion){
 		this(args_, System.err, c, printVersion, true, true);
 	}
 	
 	/**
-	 * Auxiliary constructor.
-	 * @param args Command line arguments
+	 * Auxiliary constructor with auto-exit and parameter removal enabled.
+	 *
+	 * @param args_ Command line arguments
 	 * @param defaultPrintStream Print stream that will be used if not overridden
 	 * @param c Class object of the caller
-	 * @param printVersion True if the BBTools version should be printed to the screen
+	 * @param printVersion True if the BBTools version should be printed
 	 */
 	public PreParser(final String[] args_, PrintStream defaultPrintStream, final Class<?> c, boolean printVersion){
 		this(args_, defaultPrintStream, c, printVersion, true, true);
 	}
 	
 	/**
-	 * Primary constructor.
-	 * @param args0 Command line arguments
+	 * Primary constructor that pre-parses command line arguments.
+	 * Handles leading hyphens, Java flags, output stream redirection, and help/version info.
+	 * Sets up JSON output mode if requested and initializes the filtered argument array.
+	 *
+	 * @param args0 Original command line arguments
 	 * @param defaultPrintStream Print stream that will be used if not overridden
-	 * @param c Class object of the caller
-	 * @param printVersion True if the BBTools version should be printed to the screen
+	 * @param c Class object of the caller for identification
+	 * @param printVersion True if the BBTools version should be printed
 	 * @param removeKnown Remove parameters from args that are parsed here
 	 * @param autoExit Exit if there is a version or help flag
 	 */
@@ -144,12 +137,6 @@ public class PreParser {
 		}
 	}
 	
-	/**
-	 * Checks if amino acid mode is enabled in the argument list.
-	 * Searches for "amino=true" parameter in the provided arguments.
-	 * @param args Command line arguments to examine
-	 * @return true if amino acid mode is enabled, false otherwise
-	 */
 	public static boolean isAmino(String[] args){
 		boolean amino=false;
 		for(String arg : args){
@@ -164,12 +151,6 @@ public class PreParser {
 		return amino;
 	}
 
-	/**
-	 * Strips leading hyphens from arguments and returns the total count removed.
-	 * Does not modify Java flags (arguments starting with -D, -X, etc.).
-	 * @param args Command line arguments to process
-	 * @return Total number of hyphens stripped from all arguments
-	 */
 	public static int stripHyphens(String[] args){
 		int stripped=0;
 		for(int i=0; i<args.length; i++){
@@ -186,12 +167,6 @@ public class PreParser {
 		return stripped;
 	}
 	
-	/**
-	 * Parses outstream parameter and returns appropriate PrintStream.
-	 * Handles special values: null, stdout, stderr, or file paths.
-	 * @param b The outstream parameter value
-	 * @return PrintStream for the specified output destination
-	 */
 	private static PrintStream parseOutstream(final String b) {
 		
 		try {
@@ -206,28 +181,17 @@ public class PreParser {
 		return null; //Unreachable
 	}
 	
-	/** Original unmodified command line arguments */
 	public final String[] original;
-	/** Filtered command line arguments with known parameters removed */
 	public final String[] args;
-	/** Output stream for program messages and version information */
 	public final PrintStream outstream;
-	/** Whether help was requested in the command line */
 	public final boolean help;
-	/** Whether a config file was processed for these arguments */
 	public final boolean config;
-	/** Whether Java flags were detected in the arguments */
 	public final boolean jflag;
-	/** Whether JSON output mode is enabled */
 	public final boolean json;
-	/** Total number of leading hyphens stripped from arguments */
 	public final int hyphens;
-	/** JSON object containing program metadata when JSON mode is enabled */
 	public JsonObject jsonObject; 
 
-	/** Whether to print the executing class name and arguments */
 	public static boolean printExecuting=true;
-	/** Whether to suppress all output including version and execution info */
 	public static boolean silent=false;
 	
 }

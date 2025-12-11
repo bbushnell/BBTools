@@ -5,9 +5,12 @@ import shared.KillSwitch;
 import shared.Shared;
 
 /**
+ * JNI implementation of banded sequence alignment algorithms.
+ * Provides native C/C++ implementations of forward and reverse alignment methods
+ * with both normal and reverse-complement orientations for improved performance.
+ *
  * @author Jonathan Rood
  * @date Jul 18, 2014
- *
  */
 public class BandedAlignerJNI extends BandedAligner{
 
@@ -15,70 +18,12 @@ public class BandedAlignerJNI extends BandedAligner{
 		Shared.loadJNI();
 	}
 
-	/**
-	 * Native method for forward alignment of query to reference sequence.
-	 *
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
-	 * @param qstart Starting position in query sequence
-	 * @param rstart Starting position in reference sequence
-	 * @param maxEdits Maximum number of edits allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @param maxWidth Maximum alignment band width
-	 * @param baseToNumber Array mapping DNA bases to numeric values
-	 * @param returnVals Array to store return values: [lastQueryLoc, lastRefLoc, lastRow, lastEdits, lastOffset]
-	 * @return Number of edits in alignment
-	 */
 	private native int alignForwardJNI(byte[] query, byte[] ref, int qstart, int rstart, int maxEdits, boolean exact, int maxWidth, byte[] baseToNumber, int[] returnVals);
 
-	/**
-	 * Native method for forward alignment with reverse complement reference.
-	 *
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
-	 * @param qstart Starting position in query sequence
-	 * @param rstart Starting position in reference sequence
-	 * @param maxEdits Maximum number of edits allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @param maxWidth Maximum alignment band width
-	 * @param baseToNumber Array mapping DNA bases to numeric values
-	 * @param baseToComplementExtended Array mapping bases to complement values
-	 * @param returnVals Array to store return values: [lastQueryLoc, lastRefLoc, lastRow, lastEdits, lastOffset]
-	 * @return Number of edits in alignment
-	 */
 	private native int alignForwardRCJNI(byte[] query, byte[] ref, int qstart, int rstart, int maxEdits, boolean exact, int maxWidth, byte[] baseToNumber, byte[] baseToComplementExtended, int[] returnVals);
 
-	/**
-	 * Native method for reverse alignment of query to reference sequence.
-	 *
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
-	 * @param qstart Starting position in query sequence
-	 * @param rstart Starting position in reference sequence
-	 * @param maxEdits Maximum number of edits allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @param maxWidth Maximum alignment band width
-	 * @param baseToNumber Array mapping DNA bases to numeric values
-	 * @param returnVals Array to store return values: [lastQueryLoc, lastRefLoc, lastRow, lastEdits, lastOffset]
-	 * @return Number of edits in alignment
-	 */
 	private native int alignReverseJNI(byte[] query, byte[] ref, int qstart, int rstart, int maxEdits, boolean exact, int maxWidth, byte[] baseToNumber, int[] returnVals);
 
-	/**
-	 * Native method for reverse alignment with reverse complement reference.
-	 *
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
-	 * @param qstart Starting position in query sequence
-	 * @param rstart Starting position in reference sequence
-	 * @param maxEdits Maximum number of edits allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @param maxWidth Maximum alignment band width
-	 * @param baseToNumber Array mapping DNA bases to numeric values
-	 * @param baseToComplementExtended Array mapping bases to complement values
-	 * @param returnVals Array to store return values: [lastQueryLoc, lastRefLoc, lastRow, lastEdits, lastOffset]
-	 * @return Number of edits in alignment
-	 */
 	private native int alignReverseRCJNI(byte[] query, byte[] ref, int qstart, int rstart, int maxEdits, boolean exact, int maxWidth, byte[] baseToNumber, byte[] baseToComplementExtended, int[] returnVals);
 	
 	/**
@@ -119,19 +64,22 @@ public class BandedAlignerJNI extends BandedAligner{
 //		System.out.println("***********************\n");
 	}
 	
-	/** Constructs a BandedAlignerJNI with specified alignment band width.
-	 * @param width_ Maximum width of alignment band */
 	public BandedAlignerJNI(int width_){
 		super(width_);
 		assert(big>maxWidth/2);
 	}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Performs forward alignment using native implementation.
+	 * Delegates to alignForwardJNI and updates alignment state variables.
+	 *
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param qstart Starting position in query
+	 * @param rstart Starting position in reference
+	 * @param maxEdits Maximum edits allowed
+	 * @param exact Whether exact alignment is required
+	 * @return Edit distance of alignment
 	 */
 	@Override
 	public int alignForward(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -151,11 +99,16 @@ public class BandedAlignerJNI extends BandedAligner{
 	}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Performs forward alignment with reverse complement using native implementation.
+	 * Delegates to alignForwardRCJNI and updates alignment state variables.
+	 *
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param qstart Starting position in query
+	 * @param rstart Starting position in reference
+	 * @param maxEdits Maximum edits allowed
+	 * @param exact Whether exact alignment is required
+	 * @return Edit distance of alignment
 	 */
 	@Override
 	public int alignForwardRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -175,11 +128,16 @@ public class BandedAlignerJNI extends BandedAligner{
 	}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Performs reverse alignment using native implementation.
+	 * Delegates to alignReverseJNI and updates alignment state variables.
+	 *
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param qstart Starting position in query
+	 * @param rstart Starting position in reference
+	 * @param maxEdits Maximum edits allowed
+	 * @param exact Whether exact alignment is required
+	 * @return Edit distance of alignment
 	 */
 	@Override
 	public int alignReverse(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){
@@ -199,11 +157,16 @@ public class BandedAlignerJNI extends BandedAligner{
 	}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
+	 * Performs reverse alignment with reverse complement using native implementation.
+	 * Delegates to alignReverseRCJNI and updates alignment state variables.
+	 *
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param qstart Starting position in query
+	 * @param rstart Starting position in reference
+	 * @param maxEdits Maximum edits allowed
+	 * @param exact Whether exact alignment is required
+	 * @return Edit distance of alignment
 	 */
 	@Override
 	public int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact){

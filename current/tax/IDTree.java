@@ -16,9 +16,11 @@ import stream.Read;
 
 /**
  * Creates a taxonomic tree from an identity matrix.
+ * Reads tab-delimited input files containing identity values and generates
+ * hierarchical trees in Newick format using distance-based clustering.
+ *
  * @author Brian Bushnell
  * @date July 1, 2016
- *
  */
 public class IDTree {
 
@@ -26,10 +28,8 @@ public class IDTree {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		IDTree x=new IDTree(args);
@@ -40,8 +40,10 @@ public class IDTree {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Configures input/output files, validates file accessibility, and sets up
+	 * processing parameters including overwrite and append modes.
+	 * @param args Command-line arguments for configuration
 	 */
 	public IDTree(String[] args){
 		
@@ -123,7 +125,12 @@ public class IDTree {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that builds taxonomic tree from identity matrix.
+	 * Reads tab-delimited input file, creates IDNode objects with distance arrays,
+	 * constructs hierarchical tree using IDNode.makeTree(), and outputs Newick format.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ArrayList<IDNode> list=new ArrayList<IDNode>();
@@ -162,10 +169,12 @@ public class IDTree {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Process a single read pair.
+	 * FunctionUnclear - Method is unimplemented and throws RuntimeException.
+	 * Appears to be placeholder for potential read pair processing functionality.
+	 *
 	 * @param r1 Read 1
 	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
+	 * @return True if reads should be kept, false if discarded
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		throw new RuntimeException("TODO");
@@ -175,43 +184,33 @@ public class IDTree {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of lines processed */
 	protected long linesProcessed=0;
 	
-	/** Maximum number of lines to process (-1 for unlimited) */
 	protected long maxLines=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
 	
-	/** Primary output file */
+	/** Primary output file format */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

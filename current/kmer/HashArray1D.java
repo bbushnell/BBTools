@@ -9,10 +9,13 @@ import shared.Tools;
 import structures.SuperLongList;
 
 /**
- * Stores kmers in a long[] and counts in an int[], with a victim cache.
+ * A 1-dimensional hash table for storing k-mers with single integer counts.
+ * Uses a flat array structure with linear probing and a victim cache for overflow.
+ * Optimized for memory efficiency by storing counts in a separate int[] array
+ * rather than multidimensional arrays used by other hash table implementations.
+ *
  * @author Brian Bushnell
  * @date Oct 25, 2013
- *
  */
 public final class HashArray1D extends HashArray {
 	
@@ -20,22 +23,11 @@ public final class HashArray1D extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates a HashArray1D with scheduled resizing and core masking.
-	 * @param schedule_ Array of sizes for automatic resizing stages
-	 * @param coreMask_ Bit mask for restricting k-mer storage to specific cores
-	 */
 	public HashArray1D(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, false);
 		values=allocInt1D(prime+extra);
 	}
 	
-	/**
-	 * Creates a HashArray1D with fixed initial size and optional auto-resizing.
-	 * @param initialSize Initial capacity of the hash table
-	 * @param coreMask Bit mask for restricting k-mer storage to specific cores
-	 * @param autoResize_ Whether to automatically resize when load factor exceeds threshold
-	 */
 	public HashArray1D(int initialSize, long coreMask, boolean autoResize_){
 		super(initialSize, coreMask, autoResize_, false);
 		values=allocInt1D(prime+extra);
@@ -89,6 +81,11 @@ public final class HashArray1D extends HashArray {
 		return victims.incrementAndReturnNumCreated(kmer, incr);
 	}
 	
+	/**
+	 * Populates a histogram with all non-zero counts from this hash table.
+	 * Includes counts from both the main array and victim cache.
+	 * @param sll List to receive all count values for histogram generation
+	 */
 	@Override
 	public void fillHistogram(SuperLongList sll){
 		for(int i=0; i<values.length; i++){
@@ -104,23 +101,53 @@ public final class HashArray1D extends HashArray {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Reads the count value from a specific array cell.
+	 * @param cell Array index to read from
+	 * @return Count value at the specified cell
+	 */
 	@Override
 	public final int readCellValue(int cell) {
 		return values[cell];
 	}
 	
+	/**
+	 * Reads count value from a cell into a provided array.
+	 * For 1D arrays, only the first element is populated.
+	 *
+	 * @param cell Array index to read from
+	 * @param singleton Single-element array to receive the value
+	 * @return The singleton array with value at index 0
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		singleton[0]=values[cell];
 		return singleton;
 	}
 	
+	/**
+	 * Inserts a single integer value at the specified cell.
+	 * Assumes the k-mer is already stored in the array at the given cell.
+	 *
+	 * @param kmer K-mer that should already be stored at this cell
+	 * @param v Value to store
+	 * @param cell Array index where the value should be stored
+	 */
 	@Override
 	protected final void insertValue(long kmer, int v, int cell) {
 		assert(array[cell]==kmer);
 		values[cell]=v;
 	}
 	
+	/**
+	 * Inserts value from an array into the specified cell.
+	 * For 1D hash tables, only the first element of vals is used.
+	 *
+	 * @param kmer K-mer that should already be stored at this cell
+	 * @param vals Array containing values to insert (only index 0 used)
+	 * @param cell Array index where the value should be stored
+	 * @param vlen Length of valid data in vals array (ignored, assumes 1)
+	 */
 	@Override
 	protected final void insertValue(long kmer, int[] vals, int cell, int vlen) {
 		assert(array[cell]==kmer);
@@ -132,6 +159,11 @@ public final class HashArray1D extends HashArray {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Indicates whether this hash table supports rebalancing operations.
+	 * 1D hash arrays do not support rebalancing.
+	 * @return Always false for HashArray1D
+	 */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
@@ -211,6 +243,12 @@ public final class HashArray1D extends HashArray {
 //		sizeLimit=(long)(maxLoadFactor*prime);
 //	}
 	
+	/**
+	 * Resizes the hash table when load factor exceeds threshold.
+	 * Creates new larger arrays and rehashes all existing k-mers and counts.
+	 * Uses either scheduled sizes or load-factor based calculation for new size.
+	 * Supports two-pass resizing where high-count entries are moved first.
+	 */
 	@Override
 	protected synchronized void resize(){
 //		assert(false);
@@ -293,12 +331,22 @@ public final class HashArray1D extends HashArray {
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
 	}
 	
+	/** Rebalancing operation is not supported for 1D hash arrays.
+	 * @throws RuntimeException Always thrown as operation is unimplemented */
 	@Deprecated
 	@Override
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Removes entries with counts at or below the specified limit.
+	 * Entries with higher counts are preserved. Returns count of removed entries.
+	 * Clears ownership information before regeneration.
+	 *
+	 * @param limit Maximum count value to remove (inclusive)
+	 * @return Number of entries that were removed
+	 */
 	@Override
 	public long regenerate(final int limit){
 		long sum=0;
@@ -332,13 +380,13 @@ public final class HashArray1D extends HashArray {
 		return sum;
 	}
 	
+	/** Returns string representation of the k-mer array contents.
+	 * @return String showing array values */
 	@Override
 	public String toString(){
 		return Arrays.toString(array);
 	}
 	
-	/** Creates an iterator for traversing all k-mers and their counts.
-	 * @return Walker1D instance for iterating over entries */
 	public Walker walk(){
 		return new Walker1D();
 	}
@@ -347,31 +395,25 @@ public final class HashArray1D extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing count values parallel to the k-mer array */
 	private int[] values;
 	
-	/** Provides access to the internal count values array.
-	 * @return The array containing all count values */
 	public int[] values(){return values;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Walker            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Iterator for traversing k-mers and counts in a HashArray1D.
-	 * Walks through both the main array and victim cache entries. */
 	public class Walker1D extends Walker {
 		
-		/** Creates a walker for the enclosing HashArray1D.
-		 * Initializes victim list for iteration. */
 		Walker1D(){
 			ha=HashArray1D.this;
 			victims=ha.victims().toList();
 		}
 		
-		/** 
-		 * Fills this object with the next key and value.
-		 * @return True if successful.
+		/**
+		 * Advances to the next k-mer entry and fills kmer/value fields.
+		 * Iterates through main array first, then victim cache entries.
+		 * @return true if a valid entry was found, false if iteration is complete
 		 */
 		public boolean next(){
 			while(i<values.length && values[i]==NOT_XPRESENT){i++;}
@@ -395,36 +437,23 @@ public final class HashArray1D extends HashArray {
 			return false;
 		}
 		
-		/** Gets the current k-mer from iteration */
 		public long kmer(){return kmer;}
-		/** Gets the current count value from iteration */
 		public int value(){return value;}
 		
-		/** Hash map over which this is walking */
+		/** Reference to the hash array being walked */
 		private HashArray1D ha;
-		/** Victim list of the hash map */
 		private ArrayList<KmerNode> victims;
 		
-		/** Current k-mer during iteration */
 		private long kmer;
-		/** Current count value during iteration */
 		private int value;
 
-		/** Potential next kmer cell; may point to an empty cell */
 		private int i=0;
-		/** Next victim in list */
 		private int i2=0;
 	}
 	
 	//TODO: Remove after fixing array initialization
-	/** Sentinel value indicating empty cells in arrays */
 	private static final int NOT_XPRESENT=0;
 
-	/**
-	 * Calculates approximate memory usage of this hash table.
-	 * Includes k-mer array, values array, owners array, and victim cache.
-	 * @return Estimated memory usage in bytes
-	 */
 	public long calcMem() {
 		long mem=0;
 		mem+=(array.length*8);

@@ -11,20 +11,14 @@ import structures.ListNum;
 
 
 /**
- * Runs a ByteFile1 in a separate thread.  Can speed up disk reading, particularly of compressed files, at cost of slightly more work done.
- * Drop-in compatible with ByteFile1.
+ * Runs a ByteFile1 in a separate thread for improved disk reading performance.
+ * Drop-in compatible with ByteFile1 but uses background buffering and producer–consumer queues to speed up compressed-file reading.
  * @author Brian Bushnell
  * @date Sep 23, 2013
- *
  */
 public final class ByteFile2 extends ByteFile {
 	
 	
-	/**
-	 * Test program and speed benchmark for ByteFile2.
-	 * Supports reading specific line ranges or full file speed testing.
-	 * @param args Command-line arguments: [filename] [start_line|"speedtest"] [end_line]
-	 */
 	public static void main(String[] args){
 		long first=0, last=100;
 		boolean speedtest=false;
@@ -99,26 +93,19 @@ public final class ByteFile2 extends ByteFile {
 	
 //	public ByteFile2(String name()){this(name(), false);}
 	
-	/**
-	 * Creates ByteFile2 from filename with subprocess option.
-	 * @param fname Input filename or "stdin" for standard input
-	 * @param allowSubprocess_ Whether to allow subprocess execution for decompression
-	 */
 	public ByteFile2(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.TEXT, null, allowSubprocess_, false));
 	}
 	
-	/**
-	 * Creates ByteFile2 from FileFormat specification.
-	 * Automatically opens the file and starts background reading thread.
-	 * @param ff FileFormat containing file path and format specifications
-	 */
 	public ByteFile2(FileFormat ff){
 		super(ff);
 		if(verbose){System.err.println("ByteFile2("+ff+")");}
 		open();
 	}
 	
+	/**
+	 * Resets the file reader to the beginning by closing and reopening the underlying ByteFile1 and restarting the background thread.
+	 */
 	@Override
 	public final void reset(){
 		close();
@@ -191,12 +178,6 @@ public final class ByteFile2 extends ByteFile {
 		return r;
 	}
 	
-	/**
-	 * Retrieves next buffer from background thread via blocking queue.
-	 * Returns empty buffers to the thread for reuse and gets filled buffers.
-	 * Handles poison pill signaling for thread shutdown coordination.
-	 * @return true if valid buffer obtained, false if end of stream or shutdown
-	 */
 	private boolean getBuffer(){
 		if(verbose2){System.err.println("Getting new buffer.");}
 		currentLoc=0;
@@ -244,11 +225,6 @@ public final class ByteFile2 extends ByteFile {
 		return currentList!=poison;
 	}
 	
-	/**
-	 * Opens the file by creating and starting background reading thread.
-	 * Initializes thread-safe communication queues and starts producer thread.
-	 * @return The created BF1Thread instance
-	 */
 	private final synchronized BF1Thread open(){
 		if(verbose2){System.err.println("ByteFile2("+name()+").open()");}
 		assert(thread==null);
@@ -261,11 +237,6 @@ public final class ByteFile2 extends ByteFile {
 		return thread;
 	}
 	
-	/**
-	 * Background thread that reads from ByteFile1 and buffers lines in queues.
-	 * Implements producer side of producer-consumer pattern using blocking queues.
-	 * Handles buffer management and shutdown coordination via poison pill pattern.
-	 */
 	private class BF1Thread extends Thread{
 		
 //		public BF1Thread(String fname){
@@ -282,11 +253,6 @@ public final class ByteFile2 extends ByteFile {
 //			}
 //		}
 		
-		/**
-		 * Creates background reading thread with specified file format.
-		 * Initializes ByteFile1 instance and blocking queues for buffer management.
-		 * @param ff FileFormat specification for the file to read
-		 */
 		public BF1Thread(FileFormat ff){
 			bf1=new ByteFile1(ff);
 			qFull=new ArrayBlockingQueue<byte[][]>(buffs+2);
@@ -301,6 +267,8 @@ public final class ByteFile2 extends ByteFile {
 			}
 		}
 		
+		/** Main execution loop for the background reading thread.
+		 * Continuously reads lines from ByteFile1 into buffers, enqueues them for consumption, and handles buffer capacity and graceful shutdown. */
 		@Override
 		public void run(){
 			if(verbose){System.err.println("ByteFile2("+name()+").run()");}
@@ -401,11 +369,6 @@ public final class ByteFile2 extends ByteFile {
 			if(verbose){System.err.println("ByteFile2("+name()+").run() finished");}
 		}
 		
-		/**
-		 * Initiates graceful shutdown of the background reading thread.
-		 * Adds poison pills to queues to signal shutdown to consumer thread.
-		 * Thread-safe method that can be called multiple times safely.
-		 */
 		synchronized void shutdown(){
 			if(verbose || verbose2){System.err.println("ByteFile2("+name()+").shutdown()");}
 			if(shutdown){return;}
@@ -417,17 +380,15 @@ public final class ByteFile2 extends ByteFile {
 			if(verbose || verbose2){System.err.println("ByteFile2("+name()+").shutdown() finished");}
 		}
 		
-		/** Flag indicating if thread shutdown has been initiated */
 		private boolean shutdown=false;
-		/** The underlying ByteFile1 instance that performs actual file reading */
 		final ByteFile1 bf1;
-		/** Queue containing buffers filled with read lines, ready for consumption */
 		final ArrayBlockingQueue<byte[][]> qFull;
-		/** Queue containing empty buffers available for reuse by producer thread */
 		final ArrayBlockingQueue<byte[][]> qEmpty;
 		
 	}
 	
+	/** Checks if the file is currently open and available for reading, based on current buffer and thread state.
+	 * @return true if file is open and data may be available */
 	@Override
 	public boolean isOpen(){
 		final byte[][] list=currentList;
@@ -445,6 +406,11 @@ public final class ByteFile2 extends ByteFile {
 //		}
 	}
 	
+	/**
+	 * Pushes a line back to be returned by the next nextLine() call.
+	 * Only one line can be pushed back at a time.
+	 * @param line Line to push back for re-reading
+	 */
 	@Override
 	public final void pushBack(byte[] line){
 		assert(pushBack==null);
@@ -483,7 +449,6 @@ public final class ByteFile2 extends ByteFile {
 //		bstop=newLen;
 //	}
 	
-	/** For debugging */
 	private static String toString(byte[][] x){
 		StringBuilder sb=new StringBuilder();
 		for(byte[] z : x){
@@ -498,35 +463,23 @@ public final class ByteFile2 extends ByteFile {
 	@Override
 	public final long lineNum(){return thread==null ? -1 : thread.bf1.lineNum();}
 
-	/** Counter for tracking number of lines processed by background thread */
 	long cntr;
-	/** Reference to the background reading thread instance */
 	private BF1Thread thread=null;
-	/** Current buffer array being consumed by main thread */
 	private byte[][] currentList=null;
-	/** Current position within the current buffer array */
 	private int currentLoc=0;
 //	private int currentSize=0;
 	
 //	private long numIn=0, numOut=0;
 	
-	/** Line that was pushed back to be returned by next nextLine() call */
 	private byte[] pushBack=null;
 	
-	/** Poison pill sentinel value used to signal thread shutdown in queues */
 	static final byte[][] poison=new byte[0][];
-	/** Enable verbose debugging output for operations */
 	public static boolean verbose=false;
-	/** Enable detailed debugging output for internal operations */
 	private static final boolean verbose2=false;
-	/** Number of lines per buffer in the queue system */
 	private static final int bufflen=1000;
-	/** Number of buffers to maintain in the queue system */
 	private static final int buffs=4;
-	/** Maximum total bytes per buffer before forcing buffer swap */
 	private static final int buffcapacity=256000;
 	
-	/** Flag indicating if any errors occurred during file operations */
 	private boolean errorState=false;
 	
 }

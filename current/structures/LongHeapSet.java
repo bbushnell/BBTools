@@ -1,18 +1,16 @@
 package structures;
 
 /**
- * Maintains a heap of unique values.
+ * Maintains a heap of unique long values with a fixed capacity limit.
+ * Combines a min-heap with a hash set to provide efficient top-N selection
+ * while ensuring uniqueness. When at capacity, smaller values are automatically
+ * evicted to make room for larger ones.
+ *
  * @author Brian Bushnell
  * @date July 6, 2016
- *
  */
 public class LongHeapSet implements LongHeapSetInterface {
 	
-	/**
-	 * Constructs a LongHeapSet with the specified capacity limit.
-	 * Creates a min-heap with the given limit and a hash set with double capacity.
-	 * @param limit_ Maximum number of values to maintain
-	 */
 	public LongHeapSet(int limit_){
 		limit=limit_;
 		heap=new LongHeap(limit, true);
@@ -47,11 +45,22 @@ public class LongHeapSet implements LongHeapSetInterface {
 		return false;
 	}
 	
+	/**
+	 * Attempts to increment a key's count, but since this is a set structure,
+	 * it simply tries to add the key and returns 1 if successful, 0 otherwise.
+	 * Note: This implementation doesn't truly support incrementing.
+	 *
+	 * @param key The key to increment
+	 * @param incr The increment amount (ignored)
+	 * @return 1 if key was added, 0 if already present
+	 */
 	@Override
 	public int increment(long key, int incr) {
 		return add(key) ? 1 : 0; //Not quite correct...
 	}
 	
+	/** Removes all elements from both the heap and set.
+	 * After clearing, both structures will be empty and size() will return 0. */
 	@Override
 	public void clear(){
 		assert(heap.size()==set.size()) : heap.size()+", "+set.size();
@@ -64,12 +73,6 @@ public class LongHeapSet implements LongHeapSetInterface {
 		assert(heap.size()==set.size());
 	}
 	
-	/**
-	 * Adds all values from another LongHeapSet to this one.
-	 * Iterates through the other set's heap array and adds each value,
-	 * respecting this set's capacity and uniqueness constraints.
-	 * @param b The LongHeapSet whose values to add
-	 */
 	public void add(LongHeapSet b){
 		assert(heap.size()==set.size());
 		final long[] array=b.heap.array();
@@ -80,6 +83,11 @@ public class LongHeapSet implements LongHeapSetInterface {
 		assert(heap.size()==set.size());
 	}
 	
+	/**
+	 * Returns the number of elements currently in the set.
+	 * The heap and set sizes are maintained to be equal.
+	 * @return Current number of elements
+	 */
 	@Override
 	public int size(){
 		assert(heap.size()==set.size());
@@ -89,22 +97,21 @@ public class LongHeapSet implements LongHeapSetInterface {
 	@Override
 	public boolean contains(long key){return set.contains(key);}
 
+	/** Returns the maximum number of elements this set can hold */
 	@Override
 	public int capacity(){return heap.capacity();}
+	/** Returns true if the set can accept more elements without eviction */
 	@Override
 	public boolean hasRoom(){return heap.hasRoom();}
+	/** Returns the underlying heap structure */
 	@Override
 	public LongHeap heap(){return heap;}
+	/** Returns the smallest value in the set without removing it */
 	@Override
 	public long peek(){return heap.peek();}
 	
-	/** Maximum number of elements this set can contain */
 	final int limit;
-	/**
-	 * Min-heap maintaining the smallest element at the root for efficient eviction
-	 */
 	public LongHeap heap;
-	/** Hash set providing O(1) uniqueness checking and membership testing */
 	public LongHashSet set;
 	
 }

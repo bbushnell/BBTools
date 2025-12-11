@@ -15,16 +15,17 @@ import shared.Tools;
 import ukmer.Kmer;
 
 /**
- * Assembles with multiple kmer lengths to find the best kmer length.
+ * Wrapper for Tadpole assembler that tests multiple k-mer lengths to find optimal assembly.
+ * Iterates through specified k-mer values, runs Tadpole for each, and selects the k-mer
+ * that produces the best assembly metrics (L50, L90, max contig length). Optionally
+ * performs bisection search or expansion to refine the optimal k-mer value.
+ *
  * @author Brian Bushnell
  * @date Oct 15, 2015
- *
  */
 public class TadpoleWrapper {
 	
 
-	/** Program entry point that processes command-line arguments and runs k-mer optimization.
-	 * @param args Command-line arguments including k-mer values and output settings */
 	public static void main(String[] args){
 		process(args);
 		
@@ -345,19 +346,8 @@ public class TadpoleWrapper {
 	 */
 	private static class Record implements Comparable<Record>{
 		
-		/** Default constructor for Record */
 		public Record(){}
 		
-		/**
-		 * Creates a Record with assembly statistics for a specific k-mer value.
-		 *
-		 * @param k_ K-mer length used for this assembly
-		 * @param L50_ L50 statistic (number of contigs containing 50% of assembly)
-		 * @param L90_ L90 statistic (number of contigs containing 90% of assembly)
-		 * @param contigLen_ Total length of all contigs in assembly
-		 * @param contigs_ Total number of contigs in assembly
-		 * @param maxContig_ Length of the longest contig in assembly
-		 */
 		public Record(int k_, long L50_, long L90_, long contigLen_, long contigs_, long maxContig_){
 			k=k_;
 			L50=L50_;
@@ -367,6 +357,15 @@ public class TadpoleWrapper {
 			maxContig=maxContig_;
 		}
 		
+		/**
+		 * Compares assembly quality between two Record objects using multiple metrics.
+		 * Uses hierarchical comparison with tolerance thresholds: first compares L50 and L90
+		 * with 1% tolerance, then maximum contig length, then number of contigs (fewer is better),
+		 * then uses tighter 0.2% tolerances, and finally prefers smaller k-mer values if tied.
+		 *
+		 * @param b The Record to compare against
+		 * @return Negative if this record is worse, positive if better, or k-mer difference if tied
+		 */
 		@Override
 		public int compareTo(Record b){
 			if(b==null){return 1;}
@@ -398,39 +397,22 @@ public class TadpoleWrapper {
 			return b.k-k;
 		}
 		
-		/** K-mer length used for this assembly */
 		int k;
-		/** L50 statistic - number of contigs containing 50% of total assembly length */
 		long L50;
-		/** L90 statistic - number of contigs containing 90% of total assembly length */
 		long L90;
-		/** Total length of all contigs in the assembly */
 		long contigLen;
-		/** Total number of contigs in the assembly */
 		long contigs;
-		/** Length of the longest contig in the assembly */
 		long maxContig;
 		
 	}
 	
-	/** Array of k-mer values to test for assembly optimization */
 	private static int[] kmers;
-	/** Whether to stop testing k-mers early when metrics stop improving */
 	private static boolean quitEarly=false;
-	/** Whether to delete intermediate assembly files after finding optimal k-mer */
 	private static boolean delete=false;
-	/**
-	 * Whether to expand search beyond initial k-mer range when best is at boundary
-	 */
 	private static boolean expand=false;
-	/**
-	 * Whether to perform bisection search to refine optimal k-mer between tested values
-	 */
 	private static boolean bisect=false;
-	/** Filename of the assembly produced with the optimal k-mer value */
 	private static String bestAssembly=null;
 	
-	/** Print status messages to this output stream */
 	private static PrintStream outstream=System.err;
 	
 }

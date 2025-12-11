@@ -6,9 +6,12 @@ import shared.Shared;
 import shared.Tools;
 
 /**
+ * Abstract base class for banded sequence alignment algorithms.
+ * Provides constrained alignment within a diagonal band to optimize speed and memory usage.
+ * Supports both forward and reverse complement alignments with configurable width limits.
+ *
  * @author Brian Bushnell
  * @date Aug 5, 2013
- *
  */
 public abstract class BandedAligner {
 	
@@ -23,12 +26,6 @@ public abstract class BandedAligner {
 		assert(big>maxWidth/2);
 	}
 	
-	/**
-	 * Factory method to create appropriate BandedAligner implementation.
-	 * Currently returns BandedAlignerConcrete; JNI implementation is disabled.
-	 * @param width_ Maximum width of the alignment band
-	 * @return BandedAligner instance optimized for the current environment
-	 */
 	public static final BandedAligner makeBandedAligner(int width_){
 		//TODO: Remove the false condition when BandedAlignerJNI yields identical results to BandedAlignerConcrete.
 		BandedAligner ba=((Shared.USE_JNI && false) ? new BandedAlignerJNI(width_) : new BandedAlignerConcrete(width_));
@@ -61,17 +58,6 @@ public abstract class BandedAligner {
 		return maxEdits;
 	}
 	
-	/**
-	 * Aligns sequences in all four orientations and returns the best result.
-	 * Tests forward, reverse, forward reverse-complement, and reverse reverse-complement.
-	 * Uses adaptive edit distance limiting based on initial forward/reverse results.
-	 *
-	 * @param query Query sequence to align
-	 * @param ref Reference sequence to align against
-	 * @param maxEdits Maximum edit distance allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @return Minimum edit distance found across all four orientations
-	 */
 	public final int alignQuadruple(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		final int b=alignReverse(query, ref, query.length-1, ref.length-1, maxEdits, exact);
@@ -83,16 +69,6 @@ public abstract class BandedAligner {
 		return Tools.min(Tools.max(a, b), Tools.max(c, d));
 	}
 	
-	/**
-	 * Aligns sequences in forward and forward reverse-complement orientations.
-	 * More efficient alternative when only two orientations need testing.
-	 *
-	 * @param query Query sequence to align
-	 * @param ref Reference sequence to align against
-	 * @param maxEdits Maximum edit distance allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @return Minimum edit distance between forward and forward RC alignments
-	 */
 	public final int alignDouble(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		if(a==0){return 0;}
@@ -100,40 +76,12 @@ public abstract class BandedAligner {
 		return Tools.min(a, c);
 	}
 	
-	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
-	 */
 	public abstract int alignForward(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 	
-	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
-	 */
 	public abstract int alignForwardRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 	
-	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
-	 */
 	public abstract int alignReverse(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 	
-	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @return Edit distance
-	 */
 	public abstract int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
 	
 	/**
@@ -147,12 +95,23 @@ public abstract class BandedAligner {
 		for(int i=1; i<lim; i++){array[i]=big;}
 	}
 	
-	/** Score is lastRow-edits */
+	/**
+	 * Calculates alignment score from the last alignment result.
+	 * Score represents alignment quality: higher values indicate better alignments.
+	 * @return Alignment score based on lastRow minus lastEdits plus one
+	 */
 	public final int score(){
 		return lastRow-lastEdits+1;
 	}
 	
-	/** Position of min value in array (meaning the best alignment) relative to the middle of the array. */
+	/**
+	 * Finds the position of minimum value in alignment array.
+	 * Searches outward from center to find best alignment position within band.
+	 *
+	 * @param array Alignment scores array
+	 * @param halfWidth Half-width of the search band
+	 * @return Offset from center of the best alignment position
+	 */
 	protected int lastOffset(int[] array, int halfWidth){
 		final int center=halfWidth+1;
 		int minLoc=center;
@@ -217,31 +176,22 @@ public abstract class BandedAligner {
 		return edits;
 	}
 	
-	/** Final row aligned in last alignment. */
+	/** Final row position reached in the last alignment operation */
 	public int lastRow;
-	/** Final edits value in last alignment. */
+	/** Final edit distance calculated in the last alignment operation */
 	public int lastEdits;
 
-	/** Position of min value in array (meaning the best alignment) relative to the middle of the array.
-	 * Positive value is to the right (ref sequence longer than query), negative value left (ref shorter than query) */
+	/** Position offset of best alignment relative to center of band */
 	protected int lastOffset;
 	
-	/** Final position in reference sequence from last alignment */
 	public int lastRefLoc;
-	/** Final position in query sequence from last alignment */
 	public int lastQueryLoc;
 	
-	/** Maximum width of the alignment band, guaranteed to be odd and at least 3 */
 	public final int maxWidth;
 	
-	/**
-	 * Large sentinel value used to represent impossible or very poor alignment scores
-	 */
 	public static final int big=99999999;
-	/** Debug flag to enable verbose output during alignment operations */
 	public static boolean verbose=false;
-	/** Penalizes non-length-neutral alignments.
-	 * This causes query-to-ref alignment to yield same score as ref-to-query alignment, which is useful for assertions.  */
+	/** Whether to apply penalties for alignments far from the center diagonal */
 	public static boolean penalizeOffCenter=true;
 	
 }

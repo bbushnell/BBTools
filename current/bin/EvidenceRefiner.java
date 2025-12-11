@@ -6,20 +6,11 @@ import java.util.Random;
 import structures.IntHashSet;
 import structures.LongHashMap;
 
-/**
- * Evidence-based bin refinement using DBSCAN-style density clustering.
- * Identifies dense regions of similar contigs separated by sparse boundaries,
- * automatically determining cluster count and identifying outliers.
- * 
- * "Like ecology - find dense populations separated by empty niches,
- * automatically discovering natural community boundaries." - EvidenceRefiner Philosophy
- * 
- * @author UMP45
- */
 class EvidenceRefiner extends AbstractRefiner {
     
     /**
-     * Creates an EvidenceRefiner with specified Oracle for similarity calculations.
+     * Creates an EvidenceRefiner with the specified Oracle and default parameters.
+     * Uses the default epsilon, minPoints, and minClusterSize values defined in EvidenceRefinerParams.
      * @param oracle_ Oracle instance for contig similarity evaluation
      */
     public EvidenceRefiner(Oracle oracle_) {
@@ -27,9 +18,10 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Creates an EvidenceRefiner with specified Oracle and parameters.
+     * Creates an EvidenceRefiner with specified Oracle and custom parameters.
+     * Initializes DBSCAN epsilon, minPoints, minClusterSize, and random seed from the provided params.
      * @param oracle_ Oracle instance for contig similarity evaluation
-     * @param params EvidenceRefiner-specific parameters
+     * @param params EvidenceRefiner-specific parameters including epsilon, minPoints, and minClusterSize
      */
     public EvidenceRefiner(Oracle oracle_, AbstractRefiner.EvidenceRefinerParams params) {
         oracle = oracle_;
@@ -42,6 +34,12 @@ class EvidenceRefiner extends AbstractRefiner {
         successfulSplits = 0;
     }
     
+    /**
+     * Refines a bin using DBSCAN clustering and returns index-based clusters.
+     * Applies density-based clustering to identify natural contig groupings from Oracle similarity metrics.
+     * @param input The bin to refine (must be a Cluster with at least 4 contigs)
+     * @return List of IntHashSets representing refined clusters, or null if refinement fails
+     */
     @Override
     ArrayList<IntHashSet> refineToIntSets(Bin input) {
         if(input == null || input.numContigs() < 4) return null;
@@ -85,6 +83,12 @@ class EvidenceRefiner extends AbstractRefiner {
         return result.clusters;
     }
     
+    /**
+     * Main refinement method that converts an input bin into refined Cluster objects.
+     * Calls refineToIntSets for clustering, converts results to Bin format, and validates that the split is beneficial.
+     * @param input The bin to refine
+     * @return List of refined Bin objects, or null if refinement is not beneficial
+     */
     @Override
     ArrayList<Bin> refine(Bin input) {
         if(input == null || input.numContigs() < 4) return null;
@@ -124,7 +128,10 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Performs DBSCAN clustering on contigs using Oracle similarity as distance metric.
+     * Executes DBSCAN clustering algorithm on contigs using cached similarity calculations.
+     * Identifies dense regions of similar contigs separated by sparse boundaries and classifies noise points.
+     * @param contigs List of contigs to cluster
+     * @return DBSCANResult containing identified clusters and noise points
      */
     private DBSCANResult performDBSCAN(ArrayList<Contig> contigs) {
         int n = contigs.size();
@@ -170,7 +177,12 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Finds all contigs within epsilon similarity of the given contig using cached similarities.
+     * Finds all contigs within epsilon distance of the specified contig.
+     * Uses cached Oracle similarity calculations and converts similarity scores to distances using (1 - similarity).
+     * @param index Index of the query contig
+     * @param contigs List of all contigs in the cluster
+     * @param similarityCache Cache storing pairwise similarity values
+     * @return Set of neighbor indices within epsilon distance
      */
     private IntHashSet findNeighbors(int index, ArrayList<Contig> contigs, LongHashMap similarityCache) {
         IntHashSet neighbors = new IntHashSet();
@@ -208,7 +220,14 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Expands cluster by recursively adding density-connected points.
+     * Recursively expands a cluster by adding density-connected points.
+     * Implements the cluster expansion phase of DBSCAN by visiting neighbors and promoting new core points.
+     * @param corePoint Index of the initial core point
+     * @param neighbors Initial neighbors of the core point
+     * @param cluster The cluster being expanded
+     * @param status Array tracking processing status of each contig
+     * @param contigs List of all contigs
+     * @param similarityCache Cache for similarity calculations
      */
     private void expandCluster(int corePoint, IntHashSet neighbors, IntHashSet cluster, 
                              ContigStatus[] status, ArrayList<Contig> contigs, LongHashMap similarityCache) {
@@ -252,7 +271,11 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Validates that clusters have good internal cohesion and external separation.
+     * Validates cluster quality by checking internal cohesion versus external separation.
+     * Requires internal similarity to exceed average external similarity by at least 0.1.
+     * @param clusters List of identified clusters
+     * @param contigs List of all contigs
+     * @return true if clusters show good separation, false otherwise
      */
     private boolean hasGoodSeparation(ArrayList<IntHashSet> clusters, ArrayList<Contig> contigs) {
         if(clusters.size() < 2) return false;
@@ -288,7 +311,11 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Calculates average internal similarity within a cluster.
+     * Calculates average pairwise similarity within a single cluster.
+     * Uses Oracle similarity measurements for all contig pairs within the cluster.
+     * @param cluster Set of contig indices in the cluster
+     * @param contigs List of all contigs
+     * @return Average internal similarity, or 1.0 for single-contig clusters
      */
     private float calculateInternalSimilarity(IntHashSet cluster, ArrayList<Contig> contigs) {
         if(cluster.size() < 2) return 1.0f;
@@ -309,7 +336,12 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Calculates average similarity between two different clusters.
+     * Calculates average similarity between contigs in two different clusters.
+     * Measures inter-cluster separation by computing all pairwise similarities between contigs from the two clusters.
+     * @param cluster1 First cluster
+     * @param cluster2 Second cluster
+     * @param contigs List of all contigs
+     * @return Average similarity between the two clusters
      */
     private float calculateExternalSimilarity(IntHashSet cluster1, IntHashSet cluster2, ArrayList<Contig> contigs) {
         float totalSimilarity = 0.0f;
@@ -329,7 +361,11 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Converts IntHashSet clusters to Cluster objects for compatibility.
+     * Converts index-based cluster sets into Cluster objects for system compatibility.
+     * Creates new Cluster instances using the lowest-indexed contig ID as cluster identifier and adds member contigs.
+     * @param clusterSets List of IntHashSets containing contig indices
+     * @param contigs List of all contigs
+     * @return List of Cluster objects corresponding to the input sets
      */
     private ArrayList<Bin> convertToCluster(ArrayList<IntHashSet> clusterSets, ArrayList<Contig> contigs) {
         ArrayList<Bin> result = new ArrayList<>();
@@ -357,8 +393,9 @@ class EvidenceRefiner extends AbstractRefiner {
     }
     
     /**
-     * Restores original cluster references when refinement fails or is rejected.
-     * Prevents cluster reference corruption similar to CrystalChamber fix.
+     * Restores contig-to-cluster references when refinement is rejected.
+     * Prevents reference corruption by ensuring all contigs point back to the original cluster (similar to CrystalChamber fix).
+     * @param originalCluster The original cluster to restore references to
      */
     private void restoreOriginalCluster(Cluster originalCluster) {
         for(Contig contig : originalCluster.contigs) {
@@ -375,39 +412,33 @@ class EvidenceRefiner extends AbstractRefiner {
         NOISE
     }
     
-    /**
-     * Result container for DBSCAN clustering.
-     */
+    /** Container for DBSCAN clustering results.
+     * Separates identified clusters from noise points for downstream processing. */
     private static class DBSCANResult {
         final ArrayList<IntHashSet> clusters;
         final IntHashSet noise;
         
-        /**
-         * Creates a DBSCANResult with identified clusters and noise points.
-         * @param clusters List of identified clusters
-         * @param noise Set of points classified as noise
-         */
         DBSCANResult(ArrayList<IntHashSet> clusters, IntHashSet noise) {
             this.clusters = clusters;
             this.noise = noise;
         }
     }
     
-    /** Oracle instance for contig similarity calculations */
     private final Oracle oracle;
-    /** DBSCAN epsilon parameter - similarity threshold for neighborhood */
     private final float epsilon;
-    /** DBSCAN minPoints parameter - minimum points for core region */
+    /**
+     * DBSCAN minPoints parameter; minimum neighbors required for core point status
+     */
     private final int minPoints;
-    /** Minimum cluster size to be considered viable */
+    /** Minimum viable cluster size after DBSCAN processing */
     private final int minClusterSize;
-    /** Random number generator for deterministic processing */
+    /** Random number generator for deterministic processing with fixed seed */
     private final Random random;
     
-    /** Enable debugging output */
+    /** Flag enabling debugging output for cluster analysis */
     private final boolean debug;
-    /** Split attempt counter */
+    /** Counter tracking total number of refinement attempts */
     private int splitAttempts;
-    /** Successful split counter */
+    /** Counter tracking number of successful cluster splits */
     private int successfulSplits;
 }

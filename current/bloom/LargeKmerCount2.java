@@ -14,18 +14,16 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Large-scale k-mer counting tool for sequence analysis.
+ * Uses hash table with collision tracking to count k-mer frequencies
+ * in FASTA/FASTQ files. Provides statistical analysis of k-mer distribution
+ * and collision estimation for memory-efficient processing.
+ *
  * @author Brian Bushnell
  * @date Jul 6, 2012
- *
  */
 public class LargeKmerCount2 {
 	
-/**
- * Program entry point for k-mer counting analysis.
- * Parses command-line arguments, performs k-mer counting, and outputs
- * frequency statistics with collision analysis.
- * @param args Command-line arguments: file1 [file2] indexbits cbits k
- */
 public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -91,19 +89,6 @@ public static void main(String[] args){
 		
 	}
 	
-	/**
-	 * Counts k-mers in FASTQ/FASTA files using rolling hash with collision tracking.
-	 * Uses bit rotation and XOR operations for efficient k-mer hashing.
-	 * Tracks hash table load, expected collisions, and actual collisions for
-	 * statistical analysis of k-mer distribution.
-	 *
-	 * @param reads1 Path to first input file (FASTQ/FASTA)
-	 * @param reads2 Path to second input file for paired reads (may be null)
-	 * @param indexbits Number of bits for hash table size (table size = 2^indexbits)
-	 * @param cbits Number of bits per counter in hash table
-	 * @param k K-mer length for analysis
-	 * @return KCountArray2 containing k-mer counts and statistics
-	 */
 	public static KCountArray2 countFastq(String reads1, String reads2, int indexbits, int cbits, int k){
 		assert(indexbits>=1 && indexbits<40);
 		final long cells=1L<<indexbits;
@@ -284,14 +269,6 @@ public static void main(String[] args){
 		return count;
 	}
 	
-	/**
-	 * Creates rotation masks for rolling k-mer hash computation.
-	 * Generates masks for each of the 4 DNA bases (A, C, G, T) rotated
-	 * by the specified distance for efficient k-mer rolling.
-	 *
-	 * @param rotDist Rotation distance for bit operations
-	 * @return Array of 4 rotation masks, one for each DNA base
-	 */
 	public static final long[] makeRotMasks(int rotDist){
 		long[] masks=new long[4];
 		for(long i=0; i<4; i++){
@@ -300,12 +277,6 @@ public static void main(String[] args){
 		return masks;
 	}
 	
-	/**
-	 * Converts k-mer count array to frequency histogram.
-	 * Creates histogram showing how many k-mers occur at each frequency level.
-	 * @param count Array of k-mer counts
-	 * @return Frequency histogram where index is count and value is frequency
-	 */
 	public static long[] transformToFrequency(int[] count){
 		long[] freq=new long[2000];
 		int max=freq.length-1;
@@ -317,98 +288,39 @@ public static void main(String[] args){
 		return freq;
 	}
 	
-	/**
-	 * Calculates sum of all elements in integer array.
-	 * @param array Input integer array
-	 * @return Sum of all elements as long to prevent overflow
-	 */
 	public static long sum(int[] array){
 		long x=0;
 		for(int y : array){x+=y;}
 		return x;
 	}
 	
-	/**
-	 * Calculates sum of all elements in long array.
-	 * @param array Input long array
-	 * @return Sum of all elements
-	 */
 	public static long sum(long[] array){
 		long x=0;
 		for(long y : array){x+=y;}
 		return x;
 	}
 
-	/**
-	 * Returns the smaller of two integer values.
-	 * @param x First integer
-	 * @param y Second integer
-	 * @return The smaller value
-	 */
 	public static final int min(int x, int y){return x<y ? x : y;}
-	/**
-	 * Returns the larger of two integer values.
-	 * @param x First integer
-	 * @param y Second integer
-	 * @return The larger value
-	 */
 	public static final int max(int x, int y){return x>y ? x : y;}
-	/**
-	 * Returns the smaller of two long values.
-	 * @param x First long
-	 * @param y Second long
-	 * @return The smaller value
-	 */
 	public static final long min(long x, long y){return x<y ? x : y;}
-	/**
-	 * Returns the larger of two long values.
-	 * @param x First long
-	 * @param y Second long
-	 * @return The larger value
-	 */
 	public static final long max(long x, long y){return x>y ? x : y;}
-	/**
-	 * Returns the smaller of two double values.
-	 * @param x First double
-	 * @param y Second double
-	 * @return The smaller value
-	 */
 	public static final double min(double x, double y){return x<y ? x : y;}
-	/**
-	 * Returns the larger of two double values.
-	 * @param x First double
-	 * @param y Second double
-	 * @return The larger value
-	 */
 	public static final double max(double x, double y){return x>y ? x : y;}
 	
-	/** Controls verbose output for debugging and progress reporting */
 	public static boolean verbose=true;
-	/** Minimum quality score threshold for base filtering */
 	public static byte minQuality=-5;
-	/** Total number of reads processed during k-mer counting */
 	public static long readsProcessed=0;
-	/** Maximum number of reads to process (limits memory usage) */
 	public static long maxReads=10000000L;
-	/** Bit rotation distance for rolling k-mer hash computation */
 	public static final int ROTATE_DIST=2;
 	
-	/** Non-empty cells in hash table */
 	public static long load;
-	/** Number of expected collisions */
 	public static double expectedCollisions;
-	/** Number of actual collisions (possibly by same value) */
 	public static long actualCollisions;
-	/** Number of probable collisions caused by new keys */
 	public static double probNewKeyCollisions;
-	/** Inverse of hash table size */
 	public static double invCells;
-	/** Inverse of number of potential kmers */
 	public static double invKmerSpace;
-	/** Inverse of number of potential kmers */
 	public static long keysCounted;
 	
-	/** Random number generator with fixed seed for reproducible testing */
 	public static final Random randy=new Random(1);
 	
 }

@@ -7,14 +7,6 @@ import java.util.Map.Entry;
 
 import structures.ByteBuilder;
 
-/**
- * Custom JSON object implementation for BBTools output formatting. Preserves key insertion
- * order and supports nested objects, arrays, and literal values for numeric formatting.
- * 
- * @author Brian Bushnell
- * @date Pre-2020 (before Java built-in JSON support)
- * @documentation Eru
- */
 public class JsonObject {
 
 	/**
@@ -51,16 +43,9 @@ public class JsonObject {
 		System.out.println("list:\n"+toString(list));
 	}
 	
-	/**
-	 * Creates an empty JsonObject with no initial key-value pairs.
-	 */
+	/** Creates an empty JsonObject with no initial key-value pairs */
 	public JsonObject(){}
 	
-	/**
-	 * Creates a JsonObject with a single initial key-value pair.
-	 * @param key The initial key to add
-	 * @param value The initial value to associate with the key
-	 */
 	public JsonObject(String key, Object value){
 		add(key, value, true);
 	}
@@ -77,6 +62,7 @@ public class JsonObject {
 	/**
 	 * Adds a formatted numeric value with specified decimal places as a literal.
 	 * The value will be output in JSON without quotes, formatted to the specified precision.
+	 *
 	 * @param key0 The key to associate with the value
 	 * @param value The numeric value to add
 	 * @param decimals Number of decimal places to include in the formatted output
@@ -88,8 +74,9 @@ public class JsonObject {
 
 	/**
 	 * Adds a string value as a literal (without quotes in JSON output).
-	 * WARNING: This method should be used with caution as it can produce 
+	 * WARNING: This method should be used with caution as it can produce
 	 * incorrectly formatted JSON files if the string contains special characters.
+	 *
 	 * @param key0 The key to associate with the value
 	 * @param value The string value to add as a literal
 	 */
@@ -98,11 +85,6 @@ public class JsonObject {
 		omap.put(key0, new JsonLiteral(value));
 	}
 
-	/**
-	 * Adds a key-value pair to this JsonObject, replacing any existing value.
-	 * @param key0 The key to add
-	 * @param value The value to associate with the key
-	 */
 	public void add(String key0, Object value){add(key0, value, true);}
 	
 	/**
@@ -113,12 +95,6 @@ public class JsonObject {
 	 */
 	public void addAndRename(String key0, Object value){add(key0, value, false);}
 
-	/**
-	 * Internal method for adding objects with replacement or renaming behavior.
-	 * @param key0 The base key name
-	 * @param value The value to add
-	 * @param replace If true, replaces existing values; if false, renames key to avoid conflicts
-	 */
 	private void add(String key0, Object value, boolean replace){
 		if(value!=null && value.getClass()==JsonObject.class){
 			add(key0, (JsonObject)value, replace);
@@ -134,26 +110,10 @@ public class JsonObject {
 		omap.put(key, value);
 	}
 
-	/**
-	 * Adds a JsonObject as a nested object, replacing any existing value.
-	 * @param key0 The key to add
-	 * @param value The JsonObject to nest under this key
-	 */
 	public void add(String key0, JsonObject value){add(key0, value, true);}
 	
-	/**
-	 * Adds a JsonObject as a nested object, renaming the key if it already exists.
-	 * @param key0 The base key to add
-	 * @param value The JsonObject to nest under this key
-	 */
 	public void addAndRename(String key0, JsonObject value){add(key0, value, false);}
 
-	/**
-	 * Internal method for adding JsonObjects with replacement or renaming behavior.
-	 * @param key0 The base key name
-	 * @param value The JsonObject to add
-	 * @param replace If true, replaces existing values; if false, renames key to avoid conflicts
-	 */
 	private void add(final String key0, JsonObject value, boolean replace){
 		int x=2;
 		String key=key0;
@@ -184,21 +144,10 @@ public class JsonObject {
 		return sb.toString();
 	}
 	
-	/**
-	 * Converts this JsonObject to formatted text using default parameters.
-	 * @return ByteBuilder containing the formatted JSON text
-	 */
 	public ByteBuilder toText(){
 		return toText(null, 0, false);
 	}
 	
-	/**
-	 * Converts this JsonObject to formatted text with specified parameters.
-	 * @param sb ByteBuilder to append to (created if null)
-	 * @param level Indentation level for pretty-printing
-	 * @param inArray Whether this object is inside an array (affects formatting)
-	 * @return ByteBuilder containing the formatted JSON text
-	 */
 	public ByteBuilder toText(ByteBuilder sb, int level, boolean inArray){
 		if(sb==null){sb=new ByteBuilder();}
 		append(level, sb, inArray);
@@ -221,30 +170,17 @@ public class JsonObject {
 		return sb.toString();
 	}
 	
-	/**
-	 * Converts an array of objects to JSON array string representation.
-	 * @param array The array to convert to JSON
-	 * @return JSON array string
-	 */
 	public static String toString(Object[] array){
 		ByteBuilder sb=new ByteBuilder();
 		appendArray(sb, array, 0);
 		return sb.toString();
 	}
 	
-	/**
-	 * Returns the JSON string representation of this object.
-	 * @return Formatted JSON string
-	 */
 	@Override
 	public String toString(){
 		return toText(null, 0, false).toString();
 	}
 	
-	/**
-	 * Returns the JSON string representation with a trailing newline.
-	 * @return Formatted JSON string with newline
-	 */
 	public String toStringln(){
 		return toText(null, 0, false).nl().toString();
 	}
@@ -252,6 +188,7 @@ public class JsonObject {
 	/**
 	 * Appends this JsonObject's formatted representation to a ByteBuilder.
 	 * Handles indentation, comma placement, and nested structure formatting.
+	 *
 	 * @param level Current indentation level for pretty-printing
 	 * @param sb ByteBuilder to append the formatted JSON to
 	 * @param inArray Whether this object is being rendered inside an array (affects formatting)
@@ -300,6 +237,7 @@ public class JsonObject {
 	/**
 	 * Appends a key-value entry to the ByteBuilder in JSON format.
 	 * Helper method that combines key and value formatting.
+	 *
 	 * @param sb ByteBuilder to append to
 	 * @param key The key to format and append
 	 * @param value The value to format and append
@@ -325,6 +263,7 @@ public class JsonObject {
 	 * Appends a value to the ByteBuilder with appropriate JSON formatting.
 	 * Handles type detection and applies correct formatting rules for each type.
 	 * Supports strings, numbers, booleans, null, arrays, collections, and nested objects.
+	 *
 	 * @param sb ByteBuilder to append to
 	 * @param value The value to format (may be null)
 	 * @param level Current indentation level for nested structures
@@ -358,6 +297,7 @@ public class JsonObject {
 	/**
 	 * Appends an Object array to the ByteBuilder in JSON array format.
 	 * Elements are separated by commas and spaces for readability.
+	 *
 	 * @param sb ByteBuilder to append to
 	 * @param array The Object array to format (may be null)
 	 * @param level Current indentation level for nested elements
@@ -378,6 +318,7 @@ public class JsonObject {
 	/**
 	 * Appends a Collection to the ByteBuilder in JSON array format.
 	 * Similar to appendArray but works with any Collection type.
+	 *
 	 * @param sb ByteBuilder to append to
 	 * @param stuff The Collection to format (may be null)
 	 * @param level Current indentation level for nested elements
@@ -395,12 +336,6 @@ public class JsonObject {
 		sb.append(']');
 	}
 
-	/**
-	 * Retrieves a String value associated with the specified key.
-	 * @param key The key to look up
-	 * @return The String value, or null if key doesn't exist or omap is null
-	 * @throws AssertionError if the value exists but is not a String
-	 */
 	public String getString(String key){
 		if(omap==null){return null;}
 		Object o=omap.get(key);
@@ -409,12 +344,6 @@ public class JsonObject {
 		return (String)o;
 	}
 
-	/**
-	 * Retrieves a Long value associated with the specified key.
-	 * @param key The key to look up
-	 * @return The Long value, or null if key doesn't exist or omap is null
-	 * @throws AssertionError if the value exists but is not a Long
-	 */
 	public Long getLong(String key){
 		if(omap==null){return null;}
 		Object o=omap.get(key);
@@ -423,12 +352,6 @@ public class JsonObject {
 		return (Long)o;
 	}
 
-	/**
-	 * Retrieves an Integer value associated with the specified key.
-	 * @param key The key to look up
-	 * @return The Integer value, or null if key doesn't exist
-	 * @throws AssertionError if omap is null or the value exists but is not an Integer
-	 */
 	public Integer getInt(String key){
 		assert(omap!=null);
 		Object o=omap.get(key);
@@ -463,6 +386,7 @@ public class JsonObject {
 	/**
 	 * Retrieves a Double value associated with the specified key.
 	 * Automatically converts Long values to Double if needed.
+	 *
 	 * @param key The key to look up
 	 * @return The Double value, or null if key doesn't exist or omap is null
 	 * @throws AssertionError if the value exists but is not a Double or Long
@@ -481,6 +405,7 @@ public class JsonObject {
 	/**
 	 * Retrieves a Number value associated with the specified key.
 	 * Accepts Double, Long, Integer, or Float values.
+	 *
 	 * @param key The key to look up
 	 * @return The Number value, or null if key doesn't exist or omap is null
 	 * @throws AssertionError if the value exists but is not a supported Number type
@@ -494,12 +419,6 @@ public class JsonObject {
 		return (Number)o;
 	}
 
-	/**
-	 * Retrieves an Object array associated with the specified key.
-	 * @param key The key to look up
-	 * @return The Object array, or null if key doesn't exist or omap is null
-	 * @throws AssertionError if the value exists but is not an Object array
-	 */
 	public Object[] getArray(String key){
 		if(omap==null){return null;}
 		Object o=omap.get(key);
@@ -508,54 +427,31 @@ public class JsonObject {
 		return (Object[])o;
 	}
 
-	/**
-	 * Retrieves a nested JsonObject associated with the specified key.
-	 * @param key The key to look up
-	 * @return The JsonObject, or null if key doesn't exist or jmap is null
-	 */
 	public JsonObject getJson(String key){
 		if(jmap==null){return null;}
 		return jmap.get(key);
 	}
 
-	/**
-	 * Removes and returns a nested JsonObject associated with the specified key.
-	 * @param key The key to remove
-	 * @return The removed JsonObject, or null if key doesn't exist or jmap is null
-	 */
 	public JsonObject removeJson(String key){
 		if(jmap==null){return null;}
 		return jmap.remove(key);
 	}
 
-	/**
-	 * Removes and returns an Object associated with the specified key.
-	 * @param key The key to remove
-	 * @return The removed Object, or null if key doesn't exist or omap is null
-	 */
 	public Object removeObject(String key){
 		if(omap==null){return null;}
 		return omap.remove(key);
 	}
 
-	/**
-	 * Clears all nested JsonObjects by setting jmap to null.
-	 */
+	/** Clears all nested JsonObjects by setting jmap to null */
 	public void clearJson(){
 		jmap=null;
 	}
 
-	/**
-	 * Clears all objects by setting omap to null.
-	 */
+	/** Clears all objects by setting omap to null */
 	public void clearOmap(){
 		omap=null;
 	}
 	
-	/**
-	 * Converts the nested JsonObject map to an array of JsonObjects.
-	 * @return Array of JsonObjects from jmap, or null if jmap is null
-	 */
 	public Object[] toJmapArray() {
 		if(jmap==null){return null;}
 		Object[] array=new Object[jmapSize()];
@@ -567,35 +463,19 @@ public class JsonObject {
 		return array;
 	}
 	
-	/**
-	 * Returns the number of entries in the nested JsonObject map.
-	 * @return Size of jmap, or 0 if jmap is null
-	 */
 	public int jmapSize(){return jmap==null ? 0 : jmap.size();}
 	
-	/**
-	 * Returns the number of entries in the object map.
-	 * @return Size of omap, or 0 if omap is null
-	 */
 	public int omapSize(){return omap==null ? 0 : omap.size();}
 	
 //	public String name;
-	/** Map for storing key-value pairs where values are primitives, arrays, or other objects */
 	public LinkedHashMap<String, Object> omap;
 	
-	/** Map for storing key-value pairs where values are nested JsonObjects */
 	public LinkedHashMap<String, JsonObject> jmap;
 
-	/** Global setting for restricting decimal places in numeric output (-1 = no restriction) */
 	private static int restictDecimals=-1;
 	
-	/** Format string for decimal output based on restictDecimals setting */
 	private static String decimalFormat="%."+restictDecimals+"f";
 	
-	/**
-	 * Sets the global decimal precision for numeric output.
-	 * @param d Number of decimal places to display (-1 for no restriction)
-	 */
 	public static synchronized void setDecimals(int d){
 		if(d!=restictDecimals){
 			restictDecimals=d;
@@ -603,10 +483,8 @@ public class JsonObject {
 		}
 	}
 	
-	/** Multiplier for indentation padding (number of spaces per level) */
 	public static final int padmult=3;
 	
-	/** If true, arrays are formatted without newlines for more compact output */
 	public static boolean noNewlinesInArrays=false;
 	
 }

@@ -17,11 +17,13 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * Based on TestIndex11f
- * 
+ * Specialized BBMap aligner optimized for Pacific Biosciences long reads.
+ * Configures alignment parameters specifically for PacBio sequencing characteristics
+ * including higher error rates and longer read lengths. Extends AbstractMapper
+ * with PacBio-specific settings for key density, alignment scoring, and index handling.
+ * Based on the TestIndex11f mapper branch.
  * @author Brian Bushnell
  * @date Jul 10, 2012
- *
  */
 public final class BBMapPacBio extends AbstractMapper  {
 	
@@ -54,6 +56,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 		super(args);
 	}
 	
+	/**
+	 * Sets PacBio-specific default parameters for alignment.
+	 * Configures compression settings (bgzip over pigz), key length (12),
+	 * key density parameters optimized for long reads, alignment score ratios,
+	 * padding settings, and aligner type (MultiStateAligner9PacBio).
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -82,6 +90,14 @@ public final class BBMapPacBio extends AbstractMapper  {
 		Shared.capBufferLen(20);
 	}
 	
+	/**
+	 * Preprocesses command-line arguments based on speed mode selection.
+	 * Modifies parameters for fast, slow, or vslow modes by adjusting
+	 * key densities, search distances, rescue parameters, and genome
+	 * fraction exclusion settings. Returns modified argument array.
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with mode-specific parameters
+	 */
 	@Override
 	public String[] preparse(String[] args){
 		if(fast){
@@ -150,6 +166,13 @@ public final class BBMapPacBio extends AbstractMapper  {
 		return args;
 	}
 	
+	/**
+	 * Post-processes parsed arguments to finalize configuration settings.
+	 * Adjusts padding based on bandwidth ratio, sets indel limits,
+	 * configures expected sites and genome exclusion fractions,
+	 * handles input file detection, and sets up ambiguous mapping modes.
+	 * @param args Parsed command-line arguments
+	 */
 	@Override
 	void postparse(String[] args){
 		
@@ -231,6 +254,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 		
 	}
 	
+	/**
+	 * Performs initial setup and validation before alignment processing.
+	 * Validates read parameters, configures minimum alignment score ratios,
+	 * sets up XS tag generation, determines output settings, validates
+	 * genome build, creates blacklists, and initializes reference indexing.
+	 */
 	@Override
 	public void setup(){
 		
@@ -277,6 +306,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Configures handling of reads that map ambiguously to multiple references.
+	 * Sets behavior for split, first, toss, random, or all modes when
+	 * dealing with scaffold prefixes and multi-reference mappings.
+	 * Only processes when Data.scaffoldPrefixes is true.
+	 */
 	@Override
 	void processAmbig2(){
 		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
@@ -304,6 +339,13 @@ public final class BBMapPacBio extends AbstractMapper  {
 		}
 	}
 	
+	/**
+	 * Loads and configures the BBIndexPacBio alignment index.
+	 * Sets up genome build, chromosome ranges, target genome sizing,
+	 * loads reference sequences and chromosome arrays, generates the index
+	 * with PacBio-specific optimizations, and optionally creates bloom filters
+	 * for k-mer filtering. Adjusts parameters based on genome size.
+	 */
 	@Override
 	void loadIndex(){
 		Timer t=new Timer();
@@ -443,6 +485,13 @@ public final class BBMapPacBio extends AbstractMapper  {
 		}
 	}
 		
+	/**
+	 * Executes the main alignment processing pipeline with timing measurement.
+	 * Opens input/output streams, creates and starts BBMapThreadPacBio worker threads,
+	 * processes reads in single or paired-end mode, collects results,
+	 * and outputs statistics and timing information.
+	 * @param args Command-line arguments for stream configuration
+	 */
 	@Override
 	public void testSpeed(String[] args){
 		
@@ -503,6 +552,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
 	
+	/**
+	 * Configures parameters for semi-perfect alignment mode.
+	 * Reduces key density and desired keys by half, sets minimum key density,
+	 * adjusts alignment score ratio to 0.45, and delegates to BBIndexPacBio
+	 * for index-specific semi-perfect mode configuration.
+	 */
 	@Override
 	void setSemiperfectMode() {
 		assert(SEMIPERFECTMODE);
@@ -517,6 +572,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 		}
 	}
 
+	/**
+	 * Configures parameters for perfect alignment mode.
+	 * Reduces key density and desired keys by half, sets minimum key density,
+	 * sets alignment score ratio to 1.0 (perfect matches only), and delegates
+	 * to BBIndexPacBio for index-specific perfect mode configuration.
+	 */
 	@Override
 	void setPerfectMode() {
 		assert(PERFECTMODE);
@@ -532,6 +593,14 @@ public final class BBMapPacBio extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Outputs current alignment configuration settings to the output stream.
+	 * Prints basic settings via superclass method, then adds PacBio-specific
+	 * parameters including key density ranges, block subsections, genome
+	 * fraction removal, hit filtering, and various optimization settings
+	 * based on verbosity level.
+	 * @param k K-mer length for alignment
+	 */
 	@Override
 	void printSettings(int k){
 		

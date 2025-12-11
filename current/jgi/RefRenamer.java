@@ -19,12 +19,13 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Converts reference sequence names in SAM files.
- * Updates both @SQ header lines and RNAME/RNEXT fields in alignment records.
+ * Converts reference sequence names in bioinformatics files using mapping tables.
+ * Supports SAM, FASTA, VCF, and GFF file formats with reference name translation.
+ * Updates header lines and data records to use new reference naming conventions.
+ *
  * @author Brian Bushnell
  * @author Isla
  * @date July 8, 2025
- *
  */
 public class RefRenamer {
 
@@ -33,8 +34,9 @@ public class RefRenamer {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for reference name conversion.
+	 * Creates RefRenamer instance and processes files with timing statistics.
+	 * @param args Command line arguments specifying input files and parameters
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -51,8 +53,9 @@ public class RefRenamer {
 	}
 
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that initializes RefRenamer with command-line arguments.
+	 * Parses arguments, validates parameters, loads mapping file, and sets up file formats.
+	 * @param args Command line arguments for configuration
 	 */
 	public RefRenamer(String[] args){
 
@@ -91,7 +94,12 @@ public class RefRenamer {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures program parameters.
+	 * Handles input/output files, mapping file, strict mode, and other options.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser instance with file paths and options
+	 */
 	private Parser parse(String[] args){
 
 		//Create a parser object
@@ -137,7 +145,11 @@ public class RefRenamer {
 		return parser;
 	}
 
-	/** Load the reference name mapping from TSV file */
+	/**
+	 * Loads reference name mappings from TSV file into internal map.
+	 * Reads tab-separated old name and new name pairs, optionally inverting mapping.
+	 * Skips comment lines starting with '#' and handles invert flag.
+	 */
 	private void loadMapping(){
 		if(mappingFile==null){
 			outstream.println("Warning: No mapping file specified. No reference names will be changed.");
@@ -170,14 +182,16 @@ public class RefRenamer {
 		if(verbose){outstream.println("Loaded "+refMap.size()+" reference mappings.");}
 	}
 
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adds or removes compression extensions (.gz, .bz2) as needed for file paths.
+	 * Ensures input file path is valid and not null. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		mappingFile=Tools.fixExtension(mappingFile);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 
-	/** Ensure files can be read and written */
+	/** Validates that input files can be read and output files can be written.
+	 * Checks for file permissions, duplicate file specifications, and path validity. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -196,7 +210,8 @@ public class RefRenamer {
 		}
 	}
 
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file handling settings for optimal performance.
+	 * Enables multi-threaded ByteFile reading when appropriate thread count available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -204,7 +219,11 @@ public class RefRenamer {
 		}
 	}
 
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates parameter combinations for correctness.
+	 * Ensures strict mode has required mapping file and other parameter constraints.
+	 * @return true if parameters are valid
+	 */
 	private boolean validateParams(){
 		if(mappingFile==null && strict){
 			throw new RuntimeException("Error: strict mode requires a mapping file.");
@@ -216,7 +235,11 @@ public class RefRenamer {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Main processing method that converts reference names in input file.
+	 * Creates input/output streams, processes all lines, and reports statistics.
+	 * @param t Timer for tracking execution time and throughput
+	 */
 	void process(Timer t){
 
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -310,6 +333,7 @@ public class RefRenamer {
 	/**
 	 * Process a SAM header line, converting @SQ reference names if mappings exist.
 	 * Other header lines pass through unchanged.
+	 *
 	 * @param line Raw header line bytes
 	 * @param bb ByteBuilder for output construction
 	 * @param lp LineParser for field parsing
@@ -348,7 +372,8 @@ public class RefRenamer {
 	/**
 	 * Process a SAM alignment line, converting RNAME and RNEXT fields if mappings exist.
 	 * Maintains all other fields unchanged while tracking conversion statistics.
-	 * @param line Raw alignment line bytes  
+	 *
+	 * @param line Raw alignment line bytes
 	 * @param bb ByteBuilder for output construction
 	 * @param lp LineParser for field parsing
 	 */
@@ -403,6 +428,7 @@ public class RefRenamer {
 	 * Process a FASTA header line, converting reference names while preserving descriptions.
 	 * Handles both full header replacement and partial replacement with whitespace.
 	 * Sequence lines pass through unchanged.
+	 *
 	 * @param line Raw FASTA line bytes
 	 * @param bb ByteBuilder for output construction
 	 * @return Updated ByteBuilder with processed line
@@ -437,6 +463,7 @@ public class RefRenamer {
 	/**
 	 * Process a VCF line, converting chromosome names in headers and data records.
 	 * Handles ##contig header lines and CHROM field in variant records.
+	 *
 	 * @param line Raw VCF line bytes
 	 * @param bb ByteBuilder for output construction
 	 * @param lp LineParser for field parsing
@@ -483,8 +510,9 @@ public class RefRenamer {
 	 * Process a GFF line, converting sequence names in annotation records.
 	 * Comment lines and headers pass through unchanged.
 	 * Converts the seqname field (field 0) in feature records.
+	 *
 	 * @param line Raw GFF line bytes
-	 * @param bb ByteBuilder for output construction  
+	 * @param bb ByteBuilder for output construction
 	 * @param lp LineParser for field parsing
 	 * @return Updated ByteBuilder with processed line
 	 */
@@ -537,11 +565,6 @@ public class RefRenamer {
 		}
 	}
 
-	/**
-	 * Create a ByteStreamWriter for the specified FileFormat.
-	 * @param ff FileFormat to create writer for
-	 * @return ByteStreamWriter or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -553,68 +576,46 @@ public class RefRenamer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Reference mapping file path */
 	private String mappingFile=null;
 
-	/** Crash on unknown references */
 	private boolean strict=false;
 
-	/** Flip the order of the map file names */
 	private boolean invert=false;
 
 	/*--------------------------------------------------------------*/
 
-	/** Maps old reference names to new reference names */
 	private final HashMap<String,String> refMap=new HashMap<String,String>();
-	/** Set of unknown reference names encountered during processing */
 	private final HashSet<String> unknownRefs=new HashSet<String>();
 
-	/** Total number of lines processed from input file */
 	private long linesProcessed=0;
-	/** Total number of bytes processed from input file */
 	private long bytesProcessed=0;
-	/** Number of header lines processed (SAM @SQ, FASTA >, VCF ##contig) */
 	private long headersProcessed=0;
-	/** Total number of unknown reference encounters (including duplicates) */
 	private long unknownsProcessed=0;
-	/** Number of header lines that had reference names successfully converted */
 	private long headersConverted=0;
-	/** Number of data records that had reference names successfully converted */
 	private long recordsConverted=0;
 
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Input File */
 	private final FileFormat ffin1;
-	/** Output File */
 	private final FileFormat ffout1;
-	/** Mapping File */
 	private final FileFormat ffMapping;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 
 }

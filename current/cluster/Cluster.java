@@ -6,21 +6,15 @@ import java.util.concurrent.atomic.AtomicLongArray;
 import stream.Read;
 
 /**
+ * Represents a cluster for grouping sequence reads based on k-mer composition,
+ * depth, and GC content characteristics. Uses atomic data structures for
+ * thread-safe accumulation of read statistics and k-mer frequency profiles.
+ *
  * @author Brian Bushnell
  * @date Mar 24, 2014
- *
  */
 public class Cluster{
 	
-	/**
-	 * Creates a new cluster with specified parameters and initializes k-mer arrays.
-	 *
-	 * @param id_ Unique identifier for this cluster
-	 * @param k1_ Length of 'big' k-mers for analysis
-	 * @param k2_ Length of 'small' k-mers for analysis
-	 * @param arraylen1_ Size of the big k-mer array
-	 * @param arraylen2_ Size of the small k-mer array
-	 */
 	public Cluster(int id_, int k1_, int k2_, int arraylen1_, int arraylen2_){
 		
 		id=id_;
@@ -38,11 +32,6 @@ public class Cluster{
 	
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Recalculates GC content and k-mer probability distributions.
-	 * Updates kmerProbArray1 and kmerProbArray2 based on accumulated k-mer counts
-	 * with smoothing (95% from counts, 5% uniform distribution).
-	 */
 	public void recalculate(){
 		gc=(float)(gcCount.doubleValue()/baseCount.doubleValue());
 
@@ -70,8 +59,6 @@ public class Cluster{
 		}
 	}
 	
-	/** Resets all atomic counters and k-mer arrays to zero.
-	 * Used to clear cluster statistics before reprocessing. */
 	public void resetAtomics(){
 		for(int i=0; i<arraylen1; i++){
 			kmerArray1.set(i, 0);
@@ -86,11 +73,6 @@ public class Cluster{
 		gcCount.set(0);
 	}
 	
-	/**
-	 * Adds a read to this cluster, updating all statistical counters and k-mer arrays.
-	 * Extracts k-mer counts, depth information, and GC content from the read's ReadTag.
-	 * @param r The read to add to this cluster
-	 */
 	public void add(Read r){
 		if(r==null){return;}
 		ReadTag rt=(ReadTag)r.obj;
@@ -132,25 +114,11 @@ public class Cluster{
 		}
 	}
 	
-	/**
-	 * Calculates similarity score between a read and this cluster.
-	 * Delegates to scoreSingle() or scorePaired() based on read type.
-	 * @param r The read to score against this cluster
-	 * @return Similarity score (higher values indicate better matches)
-	 */
 	public float score(Read r) {
 		if(r==null){return 0;}
 		return r.mate==null ? scoreSingle(r) : scorePaired(r);
 	}
 	
-	/**
-	 * Calculates similarity score for a single (unpaired) read.
-	 * Combines depth, GC content, and k-mer similarity scores with weights.
-	 * Note: Implementation is incomplete (contains TODO assertions).
-	 *
-	 * @param r The single read to score
-	 * @return Weighted similarity score
-	 */
 	public float scoreSingle(Read r) {
 		if(r==null){return 0;}
 		ReadTag rt=(ReadTag)r.obj;
@@ -167,10 +135,6 @@ public class Cluster{
 		return depthWeight*depthScore+gcWeight*gcScore+kmerWeight*kmerScore;
 	}
 	
-	/**
-	 * @param rt
-	 * @return
-	 */
 	private float scoreKmer1(ReadTag rt) {
 		int[] kmers=rt.kmerArray1(k1);
 		
@@ -188,10 +152,6 @@ public class Cluster{
 		return score;
 	}
 	
-	/**
-	 * @param rt
-	 * @return
-	 */
 	private float scoreKmer2(ReadTag rt) {
 		int[] kmers=rt.kmerArray2(k2);
 		float[] probs=rt.kmerFreq2(k2);
@@ -219,32 +179,18 @@ public class Cluster{
 		return score;
 	}
 
-	/**
-	 * @param rt
-	 * @return
-	 */
 	private float scoreGcSingle(ReadTag rt) {
 		assert(false) : "TODO";
 		// TODO Auto-generated method stub
 		return 0;
 	}
 
-	/**
-	 * @param rt
-	 * @return
-	 */
 	private float scoreDepthSingle(ReadTag rt) {
 		assert(false) : "TODO";
 		// TODO Auto-generated method stub
 		return 0;
 	}
 	
-	/**
-	 * Calculates similarity score for paired reads.
-	 * Note: Implementation is incomplete (marked as TODO).
-	 * @param r Paired read to score
-	 * @return Paired read similarity score
-	 */
 	public float scorePaired(Read r) {
 		assert(false) : "TODO";
 		if(r==null){return 0;}
@@ -257,67 +203,42 @@ public class Cluster{
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Unique identifier for this cluster */
 	public final int id;
 	
-	/** 'big' kmer */
 	public final int k1;
-	/** 'small' kmer */
 	public final int k2;
 
-	/** Size of the big k-mer array (kmerArray1) */
 	public final int arraylen1;
-	/** Size of the small k-mer array (kmerArray2) */
 	public final int arraylen2;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** GC content ratio of reads in this cluster */
 	public float gc;
 	/** Coverage depth for strand 2 */
-	/** Coverage depth for strand 1 */
 	public int depth1, depth2;
 	
-	/** Thread-safe array storing counts for big k-mers (k1) */
 	final AtomicLongArray kmerArray1;
-	/** Probability distribution for big k-mers derived from counts */
 	final float[] kmerProbArray1;
 	
-	/** Thread-safe array storing counts for small k-mers (k2) */
 	final AtomicLongArray kmerArray2;
-	/** Probability distribution for small k-mers derived from counts */
 	final float[] kmerProbArray2;
 	
-	/** Thread-safe accumulator for total depth on strand 1 */
 	final AtomicLong depthsum1=new AtomicLong(0);
-	/** Thread-safe accumulator for total depth on strand 2 */
 	final AtomicLong depthsum2=new AtomicLong(0);
 	
-	/** Thread-safe counter for total reads added to this cluster */
 	final AtomicLong readCount=new AtomicLong(0);
-	/** Thread-safe counter for total bases in all reads in this cluster */
 	final AtomicLong baseCount=new AtomicLong(0);
 //	final AtomicLong kmerCount=new AtomicLong(0);
-	/** Thread-safe counter for total GC bases across all reads */
 	final AtomicLong gcCount=new AtomicLong(0);
 	
 	/*--------------------------------------------------------------*/
 
-	/** Scoring mode using absolute difference between probability distributions */
 	public static final int SCORE_MODE_DIF=0;
-	/** Scoring mode using root mean square difference between distributions */
 	public static final int SCORE_MODE_RMS=1;
-	/** Scoring mode using logical AND operation on k-mer presence */
 	public static final int SCORE_MODE_AND=2;
-	/** Scoring mode using multiplication (inner product) of distributions */
 	public static final int SCORE_MODE_MULT=3;
-	/**
-	 * Scoring mode using Kolmogorov-Smirnov function for distribution comparison
-	 */
 	public static final int SCORE_MODE_KS=4;
 	
-	/** Active scoring mode for big k-mers (k1), defaults to SCORE_MODE_MULT */
 	public static int scoreMode1=SCORE_MODE_MULT;
-	/** Active scoring mode for small k-mers (k2), defaults to SCORE_MODE_RMS */
 	public static int scoreMode2=SCORE_MODE_RMS;
 }

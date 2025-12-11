@@ -18,17 +18,15 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Distributes input reads across multiple output files/partitions for parallel processing.
+ * Supports FASTQ, FASTA, and BREAD formats with configurable partition counts.
+ * Maintains read pairing integrity during partitioning and provides flexible output naming.
+ *
  * @author Brian Bushnell
  * @date Nov 15, 2012
- *
  */
 public class PartitionReads {
 
-	/**
-	 * Program entry point for read partitioning.
-	 * Parses command-line arguments, initializes input/output streams, and processes reads.
-	 * @param args Command-line arguments for input files, output patterns, and partitioning options
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -145,16 +143,6 @@ public class PartitionReads {
 		System.out.println("Time:  \t"+t);
 	}
 	
-	/**
-	 * Core processing method that distributes reads across output partitions.
-	 * Reads from input stream and writes to appropriate partition based on read index modulo.
-	 * Handles paired-end reads by writing mates to corresponding output streams.
-	 *
-	 * @param tsw1 Array of output writers for first reads in pairs
-	 * @param tsw2 Array of output writers for second reads in pairs (may be null for unpaired)
-	 * @param cris Input stream for reading sequence data
-	 * @return Total number of reads processed
-	 */
 	public static long process(TextStreamWriter[] tsw1, TextStreamWriter[] tsw2, ConcurrentReadInputStream cris){
 		for(TextStreamWriter tsw : tsw1){if(tsw!=null){tsw.start();}}
 		for(TextStreamWriter tsw : tsw2){if(tsw!=null){tsw.start();}}
@@ -221,17 +209,11 @@ public class PartitionReads {
 		return x;
 	}
 	
-	/** Permission to overwrite existing files */
 	public static boolean overwrite=true;
-	/** Permission to append to existing files */
 	public static boolean append=false;
-	/** Number of output partitions to create */
 	public static int partitions=2;
-	/** Output format flag for FASTQ format */
 	public static boolean fastq=false;
-	/** Output format flag for FASTA format */
 	public static boolean fasta=false;
-	/** Output format flag for BREAD format */
 	public static boolean bread=false;
 	
 }

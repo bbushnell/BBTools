@@ -12,9 +12,10 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Hash map that maps long keys to lists of long values.
+ * Uses open addressing with linear probing for collision resolution and is optimized for primitive longs to avoid boxing overhead.
  * @author Brian Bushnell
  * @date August 29, 2023
- *
  */
 public final class LongLongListHashMap{
 	
@@ -127,22 +128,14 @@ public final class LongLongListHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates a map with default initial size of 256 */
 	public LongLongListHashMap(){
 		this(256);
 	}
 	
-	/** Creates a map with specified initial size and default load factor.
-	 * @param initialSize Initial capacity of the hash table */
 	public LongLongListHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
-	/**
-	 * Creates a map with specified initial size and load factor.
-	 * @param initialSize Initial capacity of the hash table
-	 * @param loadFactor_ Load factor threshold for resizing (0.25-0.90)
-	 */
 	public LongLongListHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -156,7 +149,6 @@ public final class LongLongListHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Removes all key-value mappings and recycles large lists */
 	public void clear(){
 		if(size<1){return;}
 		for(int i=0; i<values.length /*&& size>0*/; i++) {//TODO: Enable the early exit
@@ -173,26 +165,15 @@ public final class LongLongListHashMap{
 //		assert(verify()); //123
 	}
 	
-	/**
-	 * Tests if the specified key is mapped in this table.
-	 * @param key Key to test for presence
-	 * @return true if the key exists, false otherwise
-	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
-	/** Alias for contains() method */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
-	/**
-	 * Returns the list of values mapped to the specified key.
-	 * @param key Key to look up
-	 * @return List of values for the key, or null if key not found
-	 */
 	public LongList get(long key){
 //		assert(verify()); //123
 		final int cell=findCell(key);
@@ -200,10 +181,11 @@ public final class LongLongListHashMap{
 	}
 	
 	/**
-	 * Map this key to value.
-	 * @param key
-	 * @param value
-	 * @return true if the key was added, false if it was already contained.
+	 * Adds a value to the list mapped by the specified key.
+	 * Creates a new list if the key is not already present.
+	 * @param key Key to map the value to
+	 * @param value Value to add to the key's list
+	 * @return true if the key was newly added, false if key already existed
 	 */
 	public boolean put(long key, long value){
 //		assert(verify()); //123
@@ -224,10 +206,11 @@ public final class LongLongListHashMap{
 	}
 	
 	/**
-	 * Map this key to value.
-	 * @param key
-	 * @param value
-	 * @return true if the key was added, false if it was already contained.
+	 * Adds all values from the specified list to the key's mapped list.
+	 * Creates a new list if the key is not already present.
+	 * @param key Key to map the values to
+	 * @param value List of values to add to the key's list
+	 * @return true if the key was newly added, false if key already existed
 	 */
 	public boolean put(long key, LongList value){
 //		assert(verify()); //123
@@ -248,9 +231,10 @@ public final class LongLongListHashMap{
 	}
 	
 	/**
-	 * Remove this key from the map.
-	 * @param key
-	 * @return true if it was present
+	 * Removes the specified key and its associated list from the map.
+	 * Clears the list and recycles it if it has large capacity.
+	 * @param key Key to remove
+	 * @return true if the key was present and removed, false otherwise
 	 */
 	public boolean remove(long key){
 //		assert(verify()); //123
@@ -268,22 +252,20 @@ public final class LongLongListHashMap{
 		return true;
 	}
 	
-	/** Returns the number of key-value mappings in this map */
 	public int size(){return size;}
 	
-	/** Returns true if this map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns a string representation showing all keys in this map. */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
 	
-	/** Returns detailed string showing cell indices, keys, and value lists */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -298,7 +280,6 @@ public final class LongLongListHashMap{
 		return sb.toString();
 	}
 	
-	/** Returns a bracketed list of all keys in the map */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -313,7 +294,6 @@ public final class LongLongListHashMap{
 		return sb.toString();
 	}
 	
-	/** Returns an array containing all keys in this map */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -330,7 +310,6 @@ public final class LongLongListHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Verifies internal consistency of the hash table structure */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -364,11 +343,6 @@ public final class LongLongListHashMap{
 		return pass;
 	}
 	
-	/**
-	 * Rehashes all entries starting from the specified cell.
-	 * Used after removal to maintain proper hash table structure.
-	 * @param initial Starting cell position for rehashing
-	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -384,11 +358,6 @@ public final class LongLongListHashMap{
 		}
 	}
 	
-	/**
-	 * Moves a key-value pair from source cell to its proper position.
-	 * @param sourceCell Cell containing the entry to rehash
-	 * @return true if the entry was moved, false if already in correct position
-	 */
 	private boolean rehashCell(final int sourceCell){
 		final long key=keys[sourceCell];
 		final LongList value=values[sourceCell];
@@ -404,7 +373,6 @@ public final class LongLongListHashMap{
 		return true;
 	}
 	
-	/** Generates a new invalid value when the current one conflicts with data */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -419,12 +387,6 @@ public final class LongLongListHashMap{
 		}
 	}
 	
-	/**
-	 * Finds the cell containing the specified key.
-	 * Uses linear probing starting from the hash position.
-	 * @param key Key to search for
-	 * @return Cell index if found, -1 if not present
-	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -442,12 +404,6 @@ public final class LongLongListHashMap{
 		return -1;
 	}
 	
-	/**
-	 * Finds the cell for the key, or the first empty cell if key not present.
-	 * Used for insertion operations.
-	 * @param key Key to search for
-	 * @return Cell index containing the key or first available empty cell
-	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -463,17 +419,11 @@ public final class LongLongListHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
-	/** Doubles the hash table size when load factor threshold is exceeded */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
-	/**
-	 * Resizes the hash table to accommodate the specified size.
-	 * Chooses a prime number for the modulus to improve distribution.
-	 * @param size2 Target size for the new hash table
-	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;
@@ -510,43 +460,30 @@ public final class LongLongListHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns the internal keys array (includes invalid entries) */
 	public long[] keys() {return keys;}
 
-	/** Returns the internal values array (includes null entries) */
 	public LongList[] values() {return values;}
 
-	/** Returns the current invalid value used for empty cells */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array storing the hash table keys */
 	private long[] keys;
-	/** Array storing lists of values for each key */
 	private LongList[] values;
 //	private LongList keyList;//TODO: Store keys here for quick clearing, perhaps
-	/** Number of key-value pairs currently in the map */
 	private int size=0;
-	/** Value for empty cells */
+	/** Sentinel value representing empty cells in the hash table */
 	private long invalid;
-	/** Prime number used for hash table indexing */
 	private int modulus;
-	/** Maximum entries before resizing is triggered */
 	private int sizeLimit;
-	/** Load factor threshold for triggering resize operations */
 	private final float loadFactor;
 	
-	/** Random number generator for creating invalid sentinel values */
 	private static final Random randy=new Random(1);
-	/** Bit mask for ensuring positive hash values (Long.MAX_VALUE) */
 	private static final long MASK=Long.MAX_VALUE;
-	/** Bit mask for ensuring negative invalid values (Long.MIN_VALUE) */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
-	/** Additional buffer space added to hash table capacity */
 	private static final int extra=10;
 	
 }

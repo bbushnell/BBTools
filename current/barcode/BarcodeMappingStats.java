@@ -22,7 +22,6 @@ public class BarcodeMappingStats {
 	/*----------------          Constructor         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates a new barcode mapping statistics tracker with empty collections */
 	public BarcodeMappingStats() {}
 	
 	/*--------------------------------------------------------------*/
@@ -132,11 +131,6 @@ public class BarcodeMappingStats {
 		errorState|=bsw.poisonAndWait();
 	}
 	
-	/**
-	 * Calculates the total count across all barcodes in the list.
-	 * @param list List of barcodes to sum
-	 * @return Total count of all barcodes in the list
-	 */
 	private static long sum(ArrayList<Barcode> list) {
 		long sum=0;
 		for(Barcode bc : list) {
@@ -165,19 +159,10 @@ public class BarcodeMappingStats {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Raw counts of barcodes */
 	public HashMap<String, Barcode> codeMap=new HashMap<String, Barcode>();
 	
-	/** 
-	 * A table of tables.  Key1 is the barcode of a read; key2 is where the read mapped to.
-	 * The barcode for key2 tracks the number of times reads with  key1 barcode mapped to key2's reference. 
-	 * E.G. if key1 is ABC-DEF then the top barcode in its table would be expected to
-	 * be ABC-DEF, and other entries would indicate contamination of that library.
-	 * 
-	 */
 	public HashMap<String, HashMap<String, Barcode>> sourceMap=new HashMap<String, HashMap<String, Barcode>>();
 	
-	/** Tracks whether any errors occurred during statistics processing or output */
 	public boolean errorState=false;
 	
 }

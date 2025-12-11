@@ -12,22 +12,15 @@ import shared.Shared;
 import shared.Tools;
 
 /**
+ * Generates multiple synthetic chromosomes from a single reference chromosome.
+ * Creates variant chromosomes with controlled substitutions, indels, and gap regions
+ * for testing and simulation purposes in genomic analysis pipelines.
+ *
  * @author Brian Bushnell
  * @date Jul 16, 2012
- *
  */
 public class GenerateMultiChrom {
 	
-	/**
-	 * Program entry point for generating synthetic chromosomes.
-	 * Creates multiple chromosome copies with optional gap insertion and variation.
-	 *
-	 * @param args Command-line arguments:
-	 * [0] genome ID or input file path
-	 * [1] number of copies to create
-	 * [2] build number for output directory
-	 * [3-5] optional: mincontig, maxcontig, buffer for gap insertion
-	 */
 	public static void main(String[] args){
 		
 		ChromosomeArray cha=null;
@@ -78,16 +71,6 @@ public class GenerateMultiChrom {
 		
 	}
 	
-	/**
-	 * Adds 'N' character buffer regions to simulate gaps in chromosome sequence.
-	 * Inserts gaps at random intervals within specified contig size ranges
-	 * to create more realistic chromosome structures for testing.
-	 *
-	 * @param cha The chromosome array to modify
-	 * @param minContig Minimum contig size before gap insertion
-	 * @param maxContig Maximum contig size before gap insertion
-	 * @param buffer Number of 'N' characters to insert as gaps
-	 */
 	private static void addN(ChromosomeArray cha, int minContig, int maxContig, int buffer){
 		
 		final int spread=maxContig-minContig+1;
@@ -115,11 +98,6 @@ public class GenerateMultiChrom {
 		}
 	}
 
-	/**
-	 * @param cha
-	 * @param i
-	 * @return
-	 */
 	private static ChromosomeArray makeSynthetic(ChromosomeArray cha, int chrom) {
 //		assert(false) : cha.array.length+", "+cha.maxIndex;
 		ChromosomeArray chb=new ChromosomeArray(chrom, Shared.PLUS, cha.minIndex, cha.array.length+40);

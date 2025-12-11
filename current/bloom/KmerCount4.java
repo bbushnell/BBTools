@@ -13,17 +13,13 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * K-mer counting implementation optimized for k-mer sizes suitable for direct encoding into bit-packed keys.
+ * Supports both standard k-mer counting and split k-mer counting with configurable gaps, using concurrent read streams for throughput.
  * @author Brian Bushnell
  * @date Jul 5, 2012
- *
  */
 public class KmerCount4 extends KmerCountAbstract {
 	
-	/**
-	 * Program entry point for k-mer counting with command-line parameter parsing.
-	 * Supports standard k-mer counting and split k-mer counting with configurable gap sizes.
-	 * @param args Command-line arguments: input files, k-mer size, cell bits, gap size
-	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -72,12 +68,6 @@ public class KmerCount4 extends KmerCountAbstract {
 		
 	}
 
-	/**
-	 * Prints detailed frequency distribution statistics for k-mer counts.
-	 * Displays frequency percentages, unique k-mer counts, singleton ratios,
-	 * and useful k-mer statistics with grouped frequency ranges.
-	 * @param count The k-mer count array to analyze
-	 */
 	public static void printStatistics(KCountArray2 count){
 		long[] freq=count.transformToFrequency();
 
@@ -117,34 +107,10 @@ public class KmerCount4 extends KmerCountAbstract {
 		System.out.println("Useful:        \t"+Tools.format("%.3f%%   ",(100l*x/(double)sum2))+"\t"+x);
 	}
 	
-	/**
-	 * Counts k-mers in sequence files with default null count array.
-	 * Convenience wrapper for the full count method.
-	 *
-	 * @param reads1 Primary input file path
-	 * @param reads2 Secondary input file path (may be null)
-	 * @param k K-mer length for counting
-	 * @param cbits Bits per counter cell
-	 * @param rcomp Whether to include reverse complement k-mers
-	 * @return K-mer count array with frequency data
-	 */
 	public static KCountArray2 count(String reads1, String reads2, int k, int cbits, boolean rcomp){
 		return count(reads1, reads2, k, cbits, rcomp, null);
 	}
 	
-	/**
-	 * Counts k-mers in sequence files using direct k-mer encoding.
-	 * Creates or uses existing count array for k-mer frequency tracking.
-	 * Processes reads concurrently and handles paired-end data automatically.
-	 *
-	 * @param reads1 Primary input file path
-	 * @param reads2 Secondary input file path (may be null)
-	 * @param k K-mer length for counting (must be 1-19)
-	 * @param cbits Bits per counter cell
-	 * @param rcomp Whether to include reverse complement k-mers
-	 * @param count Existing count array to use (created if null)
-	 * @return K-mer count array with frequency data
-	 */
 	public static KCountArray2 count(String reads1, String reads2, int k, int cbits, boolean rcomp, KCountArray2 count){
 		assert(k>=1 && k<20);
 		final int kbits=2*k;
@@ -205,21 +171,6 @@ public class KmerCount4 extends KmerCountAbstract {
 		return count;
 	}
 	
-	/**
-	 * Counts split k-mers with configurable gap between k-mer components.
-	 * Uses two k-mer segments (k1 and k2) separated by a gap to create composite keys.
-	 * Enables spaced k-mer analysis for improved sensitivity in sequence comparison.
-	 *
-	 * @param reads1 Primary input file path
-	 * @param reads2 Secondary input file path (may be null)
-	 * @param k1 Length of first k-mer component
-	 * @param k2 Length of second k-mer component
-	 * @param gap Number of bases between k-mer components
-	 * @param cbits Bits per counter cell
-	 * @param rcomp Whether to include reverse complement k-mers
-	 * @param count Existing count array to use (created if null)
-	 * @return K-mer count array with split k-mer frequency data
-	 */
 	public static KCountArray2 countFastqSplit(String reads1, String reads2, int k1, int k2, int gap, int cbits, boolean rcomp, KCountArray2 count){
 		assert(k1+k2>=1 && k1+k2<20);
 		assert(gap>=0);
@@ -285,17 +236,6 @@ public class KmerCount4 extends KmerCountAbstract {
 		return count;
 	}
 	
-	/**
-	 * Processes a single read and increments k-mer counts in the count array.
-	 * Slides a k-mer window across the read, handling quality filtering and ambiguous bases.
-	 * Optionally processes reverse complement for canonical k-mer counting.
-	 *
-	 * @param r The read to process
-	 * @param count K-mer count array to update
-	 * @param k K-mer length
-	 * @param mask Bit mask for k-mer encoding
-	 * @param rcomp Whether to also process reverse complement
-	 */
 	public static void addRead(final Read r, final KCountArray2 count, final int k, final long mask, boolean rcomp){
 		int len=0;
 		long kmer=0;
@@ -328,20 +268,6 @@ public class KmerCount4 extends KmerCountAbstract {
 		}
 	}
 	
-	/**
-	 * Processes a read using split k-mer counting with two separated k-mer components.
-	 * Extracts k-mers at positions i and i+k1+gap to create composite keys.
-	 * Handles quality filtering for both k-mer components simultaneously.
-	 *
-	 * @param r The read to process
-	 * @param count K-mer count array to update
-	 * @param k1 Length of first k-mer component
-	 * @param k2 Length of second k-mer component
-	 * @param mask1 Bit mask for first k-mer component
-	 * @param mask2 Bit mask for second k-mer component
-	 * @param gap Number of bases between k-mer components
-	 * @param rcomp Whether to also process reverse complement
-	 */
 	public static void addReadSplit(final Read r, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;
@@ -386,20 +312,6 @@ public class KmerCount4 extends KmerCountAbstract {
 		}
 	}
 	
-	/**
-	 * Processes raw sequence bytes using split k-mer counting.
-	 * Overloaded version that works directly with byte arrays instead of Read objects.
-	 * Includes debug output for k-mer key construction (prints hex values).
-	 *
-	 * @param bases Raw sequence bytes to process
-	 * @param count K-mer count array to update
-	 * @param k1 Length of first k-mer component
-	 * @param k2 Length of second k-mer component
-	 * @param mask1 Bit mask for first k-mer component
-	 * @param mask2 Bit mask for second k-mer component
-	 * @param gap Number of bases between k-mer components
-	 * @param rcomp Whether to also process reverse complement
-	 */
 	public static void addReadSplit(final byte[] bases, final KCountArray2 count, final int k1, final int k2, final long mask1, final long mask2, final int gap, boolean rcomp){
 		int len=0;
 		int shift=k2*2;

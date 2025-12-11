@@ -15,9 +15,12 @@ import structures.ByteBuilder;
 import structures.SuperLongList;
 
 /**
+ * Hash table implementation using binary search trees for k-mer storage and counting.
+ * Stores k-mers in a prime-sized array where each slot contains a binary search tree.
+ * Supports automatic resizing, rebalancing, and both 1D and 2D value storage modes.
+ *
  * @author Brian Bushnell
  * @date Oct 23, 2013
- *
  */
 public final class HashForest extends AbstractKmerTable implements Iterable<KmerNode> {
 	
@@ -25,21 +28,10 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates a HashForest with specified initial size and resizing behavior.
-	 * @param initialSize Initial capacity (converted to prime number)
-	 * @param autoResize_ Whether to automatically resize when load limit exceeded
-	 */
 	public HashForest(int initialSize, boolean autoResize_){
 		this(initialSize, autoResize_, false);
 	}
 	
-	/**
-	 * Creates a HashForest with specified configuration options.
-	 * @param initialSize Initial capacity (converted to prime number)
-	 * @param autoResize_ Whether to automatically resize when load limit exceeded
-	 * @param twod_ Whether to use 2D nodes (supporting multiple values per k-mer)
-	 */
 	public HashForest(int initialSize, boolean autoResize_, boolean twod_){
 		if(initialSize>1){
 			initialSize=(int)Tools.min(maxPrime, Primes.primeAtLeast(initialSize));
@@ -53,24 +45,10 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		TWOD=twod_;
 	}
 	
-	/**
-	 * Factory method to create appropriate node type based on TWOD configuration.
-	 * @param kmer The k-mer value
-	 * @param val The associated count value
-	 * @return KmerNode1D or KmerNode2D depending on TWOD setting
-	 */
 	private KmerNode makeNode(long kmer, int val){
 		return (TWOD ? new KmerNode2D(kmer, val) : new KmerNode1D(kmer, val));
 	}
 	
-	/**
-	 * Factory method to create 2D node with multiple values.
-	 *
-	 * @param kmer The k-mer value
-	 * @param vals Array of associated values
-	 * @param vlen Number of valid values in array
-	 * @return KmerNode2D with multiple values
-	 */
 	private KmerNode makeNode(long kmer, int[] vals, int vlen){
 		assert(TWOD);
 		return new KmerNode2D(kmer, vals, vlen);
@@ -222,6 +200,12 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return x;
 	}
 	
+	/**
+	 * Sets k-mer value only if k-mer is not already present.
+	 * @param kmer The k-mer to set
+	 * @param value The value to assign
+	 * @return 1 if new node created, 0 if k-mer already existed
+	 */
 	@Override
 	public int setIfNotPresent(long kmer, int value){
 		int x=1, cell=(int)(kmer%prime);
@@ -236,6 +220,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return x;
 	}
 	
+	/**
+	 * Retrieves the value associated with a k-mer.
+	 * @param kmer The k-mer to look up
+	 * @return The associated value, or -1 if not found
+	 */
 	@Override
 	public final int getValue(long kmer){
 		int cell=(int)(kmer%prime);
@@ -243,6 +232,12 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return n==null ? -1 : n.getValue(kmer);
 	}
 	
+	/**
+	 * Retrieves all values associated with a k-mer in 2D mode.
+	 * @param kmer The k-mer to look up
+	 * @param singleton Reusable array for single-value returns
+	 * @return Array of values, or null if k-mer not found
+	 */
 	@Override
 	public int[] getValues(long kmer, int[] singleton){
 		int cell=(int)(kmer%prime);
@@ -250,6 +245,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return n==null ? null : n.getValues(kmer, singleton);
 	}
 	
+	/**
+	 * Tests whether the table contains a specific k-mer.
+	 * @param kmer The k-mer to test
+	 * @return true if k-mer is present, false otherwise
+	 */
 	@Override
 	public boolean contains(long kmer){
 		return get(kmer)!=null;
@@ -259,6 +259,7 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------          Ownership           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Initializes ownership tracking for all nodes in the table */
 	@Override
 	public final void initializeOwnership(){
 		for(KmerNode n : array){
@@ -266,9 +267,16 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		}
 	}
 	
+	/** Clears ownership tracking for all nodes in the table */
 	@Override
 	public final void clearOwnership(){initializeOwnership();}
 	
+	/**
+	 * Sets the owner for a specific k-mer.
+	 * @param kmer The k-mer to set ownership for
+	 * @param newOwner The new owner identifier
+	 * @return Previous owner identifier
+	 */
 	@Override
 	public final int setOwner(final long kmer, final int newOwner){
 		final int cell=(int)(kmer%prime);
@@ -277,6 +285,12 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return n.setOwner(kmer, newOwner);
 	}
 	
+	/**
+	 * Clears ownership for a k-mer if owned by specified owner.
+	 * @param kmer The k-mer to clear ownership for
+	 * @param owner The expected current owner
+	 * @return true if ownership was cleared, false otherwise
+	 */
 	@Override
 	public final boolean clearOwner(final long kmer, final int owner){
 		final int cell=(int)(kmer%prime);
@@ -285,6 +299,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return n.clearOwner(kmer, owner);
 	}
 	
+	/**
+	 * Gets the current owner of a k-mer.
+	 * @param kmer The k-mer to query
+	 * @return Owner identifier for the k-mer
+	 */
 	@Override
 	public final int getOwner(final long kmer){
 		final int cell=(int)(kmer%prime);
@@ -297,6 +316,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Retrieves the node containing a specific k-mer.
+	 * @param kmer The k-mer to find
+	 * @return The node containing the k-mer, or null if not found
+	 */
 	@Override
 	final KmerNode get(long kmer){
 		int cell=(int)(kmer%prime);
@@ -307,21 +331,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return n;
 	}
 	
-	/**
-	 * Gets the root node for a specific hash table cell.
-	 * @param cell The hash table index
-	 * @return Root node at the specified cell, or null if empty
-	 */
 	public final KmerNode getNode(int cell){
 		KmerNode n=array[cell];
 		return n;
 	}
 	
-	/**
-	 * Inserts a node into the appropriate hash table cell.
-	 * @param n The node to insert
-	 * @return true if insertion succeeded, false otherwise
-	 */
 	boolean insert(KmerNode n){
 		n.left=null;
 		n.right=null;
@@ -341,15 +355,19 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns whether this table implementation supports resizing */
 	@Override
 	boolean canResize() {return true;}
 	
+	/** Returns whether this table implementation supports rebalancing */
 	@Override
 	public boolean canRebalance() {return true;}
 	
+	/** Returns the number of k-mers stored in the table */
 	@Override
 	public long size() {return size;}
 	
+	/** Returns the length of the underlying hash array */
 	@Override
 	public int arrayLength() {return array.length;}
 	
@@ -395,12 +413,16 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		}
 	}
 	
-	/** Removes all k-mers from the table and resets size to zero */
 	public void clear() {
 		size=0;
 		Arrays.fill(array, null);
 	}
 	
+	/**
+	 * Regenerate operation not implemented for HashForest.
+	 * @param limit Regeneration limit (unused)
+	 * @throws RuntimeException Always thrown as operation not supported
+	 */
 	@Override
 	long regenerate(final int limit) {
 		throw new RuntimeException("Not implemented.");
@@ -410,6 +432,14 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes k-mers and counts as text to the specified writer.
+	 * @param tsw Writer for text output
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold for output
+	 * @param maxcount Maximum count threshold for output
+	 * @return true when dump completed successfully
+	 */
 	@Override
 	public boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount){
 //		tsw.print("HashForest:\n");
@@ -424,6 +454,15 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return true;
 	}
 	
+	/**
+	 * Writes k-mers and counts as binary data to the specified writer.
+	 * @param bsw Writer for binary output
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold for output
+	 * @param maxcount Maximum count threshold for output
+	 * @param remaining Counter tracking remaining k-mers to output
+	 * @return true when dump completed successfully
+	 */
 	@Override
 	public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		for(int i=0; i<array.length; i++){
@@ -436,6 +475,16 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return true;
 	}
 	
+	/**
+	 * Multi-threaded version of binary k-mer dump using thread-local buffer.
+	 * @param bsw Writer for binary output
+	 * @param bb Thread-local buffer for building output
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold for output
+	 * @param maxcount Maximum count threshold for output
+	 * @param remaining Counter tracking remaining k-mers to output
+	 * @return true when dump completed successfully
+	 */
 	@Override
 	public boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		for(int i=0; i<array.length; i++){
@@ -448,6 +497,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		return true;
 	}
 	
+	/**
+	 * Fills a histogram array with k-mer count frequencies.
+	 * @param ca Array to receive histogram counts
+	 * @param max Maximum count value to include in histogram
+	 */
 	@Override
 	public void fillHistogram(long[] ca, int max){
 		for(int i=0; i<array.length; i++){
@@ -458,6 +512,8 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 		}
 	}
 	
+	/** Fills a SuperLongList with k-mer count frequencies.
+	 * @param sll List to receive histogram data */
 	@Override
 	public final void fillHistogram(SuperLongList sll){
 		for(int i=0; i<array.length; i++){
@@ -482,13 +538,13 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------          Iteration           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns an iterator over all k-mer nodes in the table.
+	 * @return Iterator for traversing all nodes */
 	@Override
 	public Iterator<KmerNode> iterator() {
 		return toList().iterator();
 	}
 	
-	/** Converts all nodes in the table to an ArrayList.
-	 * @return ArrayList containing all k-mer nodes */
 	public ArrayList<KmerNode> toList(){
 		assert(size<Integer.MAX_VALUE);
 		ArrayList<KmerNode> list=new ArrayList<KmerNode>((int)size);
@@ -507,24 +563,17 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns the underlying hash array for direct access */
 	public KmerNode[] array() {return array;}
 	
-	/** Hash array containing binary search tree roots for each hash slot */
 	KmerNode[] array;
-	/** Current prime size of the hash array */
 	int prime;
-	/** Number of k-mers currently stored in the table */
 	long size=0;
-	/** Size threshold that triggers automatic resizing */
 	long sizeLimit;
-	/** Whether table automatically resizes when size limit exceeded */
 	final boolean autoResize;
-	/** Whether nodes support multiple values per k-mer (2D mode) */
 	final boolean TWOD;
-	/** Lock for thread-safe access to table operations */
 	private final Lock lock=new ReentrantLock();
 	
+	/** Returns the lock for thread-safe operations */
 	@Override
 	final Lock getLock(){return lock;}
 	
@@ -532,17 +581,11 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Maximum prime number that can be used for array sizing */
 	final static int maxPrime=(int)Primes.primeAtMost(Integer.MAX_VALUE);
-	/** Minimum multiplication factor for resizing operations */
 	final static float resizeMult=2.5f; //Resize by a minimum of this much
-	/** Minimum load factor threshold for resizing decisions */
 	final static float minLoadFactor=0.75f; //Resize by enough to get the load above this factor
-	/** Maximum load factor threshold for resizing decisions */
 	final static float maxLoadFactor=2.5f; //Resize by enough to get the load under this factor
-	/** Inverse of minLoadFactor for load factor calculations */
 	final static float minLoadMult=1/minLoadFactor;
-	/** Inverse of maxLoadFactor for load factor calculations */
 	final static float maxLoadMult=1/maxLoadFactor;
 	
 

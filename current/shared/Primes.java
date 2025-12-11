@@ -10,9 +10,12 @@ import fileIO.TextStreamWriter;
 import structures.LongList;
 
 /**
+ * Utility class for prime number operations and prime file processing.
+ * Provides methods to find primes within ranges and process prime number files.
+ * Uses a preloaded array of prime numbers from an external data file.
+ *
  * @author Brian Bushnell
  * @date Oct 9, 2012
- *
  */
 public class Primes {
 	
@@ -58,14 +61,6 @@ public class Primes {
 	}
 	
 	
-	/**
-	 * Processes a file of prime numbers and creates a filtered output file.
-	 * Reads primes from input file and writes only those that are at least
-	 * mult times larger than the previous written prime.
-	 *
-	 * @param args Array containing [input_file, output_file, multiplier]
-	 * @throws RuntimeException If input file is not found
-	 */
 	public static void makePrimes(String[] args){
 		
 		
@@ -101,14 +96,6 @@ public class Primes {
 	}
 	
 	
-	/**
-	 * Finds the smallest prime number greater than or equal to x.
-	 * Uses binary search on the preloaded primes array for efficiency.
-	 * For values beyond the array bounds, approximates using prime factorization.
-	 *
-	 * @param x The minimum value to search for
-	 * @return The smallest prime >= x
-	 */
 	public static long primeAtLeast(long x){
 		int loc=Arrays.binarySearch(primes, x);
 		if(loc<0){
@@ -132,23 +119,10 @@ public class Primes {
 //		throw new RuntimeException("No primes big enough for "+x);
 	}
 
-	/**
-	 * Finds the largest prime number less than or equal to x.
-	 * @param x The maximum value to search for
-	 * @return The largest prime <= x
-	 */
 	public static int primeAtMost(int x){
 		return (int)primeAtMost((long)x);
 	}
 	
-	/**
-	 * Finds the largest prime number less than or equal to x.
-	 * Uses binary search on the preloaded primes array for efficiency.
-	 * For values beyond the array bounds, approximates using prime factorization.
-	 *
-	 * @param x The maximum value to search for
-	 * @return The largest prime <= x
-	 */
 	public static long primeAtMost(final long x){
 		final int loc0=Arrays.binarySearch(primes, x);
 		int loc=loc0;
@@ -192,11 +166,6 @@ public class Primes {
 //		return array;
 //	}
 	
-	/**
-	 * Loads prime numbers from the compressed primes data file.
-	 * Reads line by line and parses each prime into a long array.
-	 * @return Array of prime numbers loaded from the data file
-	 */
 	private static long[] fetchPrimes() {
 		String fname=Data.findPath("?primes.txt.gz");
 		
@@ -208,7 +177,6 @@ public class Primes {
 		return list.toArray();
 	}
 	
-	/** Preloaded array of prime numbers from the BBTools data file */
 	public static final long[] primes=fetchPrimes();
 	
 }

@@ -23,13 +23,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Filters sequences according to their taxonomy,
- * as determined by the sequence name.  Sequences should
- * be labeled with a gi number or NCBI taxID.
- * 
+ * Filters sequences and prints taxonomy information based on sequence identifiers.
+ * Accepts FASTA/FASTQ/SAM/text inputs labeled with gi numbers or NCBI taxIDs and can emit either entire hierarchies or a specific taxonomic level.
+ * Supports column-based translation, direct name lists, or streamed reads while tracking per-node counts.
  * @author Brian Bushnell
  * @date November 23, 2015
- *
  */
 public class PrintTaxonomy {
 	
@@ -37,10 +35,8 @@ public class PrintTaxonomy {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that constructs PrintTaxonomy, runs process(Timer), and closes shared streams.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		PrintTaxonomy x=new PrintTaxonomy(args);
@@ -51,8 +47,9 @@ public class PrintTaxonomy {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command-line arguments, loads taxonomy tables/trees, configures Parser overrides, and validates file formats.
+	 * Initializes optional gi/accession tables and builds the TaxTree used for lookups.
+	 * @param args Command-line arguments for configuration
 	 */
 	public PrintTaxonomy(String[] args){
 		
@@ -172,7 +169,11 @@ public class PrintTaxonomy {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates writers, dispatches to the appropriate processing path (reads, text input, or command-line names), and writes optional count summaries.
+	 * Closes writers, propagates error flags, and throws if any worker reported failure.
+	 * @param t Timer tracking the total execution time
+	 */
 	void process(Timer t){
 		
 		TextStreamWriter tsw=null;
@@ -212,7 +213,8 @@ public class PrintTaxonomy {
 		}
 	}
 	
-	/** Iterate through the names */
+	/** Iterates over the collected name/id list from the CLI, printing either the full taxonomy or a single level per entry.
+	 * @param tsw Output writer for taxonomy results (may be null when writing to stdout) */
 	void processNames(final TextStreamWriter tsw){
 		for(String name : names){
 			if(taxLevelExtended>0){
@@ -223,7 +225,11 @@ public class PrintTaxonomy {
 		}
 	}
 	
-	/** Iterate through the names */
+	/**
+	 * Streams a tab-delimited text file, translating the configured keyColumn or printing taxonomy/level information per line.
+	 * @param tf Input text file containing names or identifiers
+	 * @param tsw Output writer for taxonomy results
+	 */
 	void processFile(final TextFile tf, final TextStreamWriter tsw){
 		for(String name=tf.nextLine(); name!=null; name=tf.nextLine()){
 			
@@ -238,7 +244,8 @@ public class PrintTaxonomy {
 		}
 	}
 	
-	/** Iterate through the names */
+	/** Consumes sequence files through ConcurrentReadInputStream, resolves taxonomy from read headers, and prints hierarchy/level data per read.
+	 * @param tsw Output writer for taxonomy results */
 	void processReads(final TextStreamWriter tsw){
 		final ConcurrentReadInputStream cris;
 		{
@@ -275,13 +282,10 @@ public class PrintTaxonomy {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Translates a tab-delimited line by replacing taxonomy identifiers in a specific column.
-	 * Extracts taxonomy information from the specified column and generates taxonomy strings.
-	 * Marks entries as "NOT_FOUND" if taxonomy resolution fails.
-	 *
-	 * @param line Input line with tab-delimited columns
-	 * @param col Column index containing taxonomy identifier
-	 * @return Modified line with taxonomy information
+	 * Translates a tab-delimited line by replacing the specified column with formatted taxonomy text or appending NOT_FOUND markers.
+	 * @param line Input line containing tab-delimited tokens
+	 * @param col Column index that holds the sequence identifier
+	 * @return Line rebuilt with taxonomy strings in the requested column
 	 */
 	String translateLine(String line, int col){
 		StringBuilder sb=new StringBuilder();
@@ -320,12 +324,9 @@ public class PrintTaxonomy {
 	}
 	
 	/**
-	 * Prints complete taxonomic hierarchy for a given sequence name or identifier.
-	 * Strips header prefixes and resolves taxonomy through node lookup.
-	 * Handles multiple matches by printing all found taxonomies.
-	 *
-	 * @param name Sequence name or identifier to resolve
-	 * @param tsw Output writer for taxonomy results
+	 * Resolves a sequence name to one or more TaxNodes and prints the complete hierarchy for each hit, including optional name headers.
+	 * @param name Sequence name or identifier stripped of FASTA/FASTQ markers
+	 * @param tsw Output writer that receives the formatted taxonomy
 	 */
 	void printTaxonomy(String name, final TextStreamWriter tsw){
 		while(name.startsWith(">") || name.startsWith("@")){name=name.substring(1);}
@@ -352,9 +353,8 @@ public class PrintTaxonomy {
 	}
 	
 	/**
-	 * Prints taxonomy information at a specific taxonomic level for a sequence name.
-	 * Resolves taxonomy and prints only the requested level information.
-	 * @param name Sequence name or identifier to resolve
+	 * Emits only the target taxonomy level for a sequence name, expanding multiple matches when necessary.
+	 * @param name Sequence name or identifier stripped of FASTA/FASTQ markers
 	 * @param tsw Output writer for taxonomy results
 	 */
 	void printTaxLevel(String name, final TextStreamWriter tsw){
@@ -389,13 +389,9 @@ public class PrintTaxonomy {
 //	}
 	
 	/**
-	 * Prints complete taxonomic hierarchy for a resolved TaxNode.
-	 * Traverses up the taxonomy tree from the node to root level.
-	 * Filters nodes based on level constraints and canonical status.
-	 * Increments raw counts for nodes at or below the target tax level.
-	 *
-	 * @param tn Taxonomy node to print hierarchy for
-	 * @param tsw Output writer for taxonomy results
+	 * Traverses upward from a resolved TaxNode, printing each node between min/max level constraints and incrementing raw counts for nodes at or under the target level.
+	 * @param tn Taxonomy node to print
+	 * @param tsw Output writer for taxonomy rows
 	 */
 	void printTaxonomy(TaxNode tn, final TextStreamWriter tsw){
 //		assert(false) : tn.levelExtended+", "+taxLevelExtended+", "+minLevelExtended+", "+maxLevelExtended;
@@ -413,17 +409,14 @@ public class PrintTaxonomy {
 	}
 	
 	/**
-	 * Creates a formatted taxonomy line string from a taxonomy node.
-	 * Builds semicolon-separated taxonomy with level prefixes (k__, p__, etc.).
-	 * Supports both normal and reverse taxonomic ordering.
-	 *
-	 * @param tree Taxonomy tree for node traversal
+	 * Builds a semicolon-delimited taxonomy string with level prefixes (e.g., k__, p__) between the requested min/max levels, optionally reversing the order.
+	 * @param tree Taxonomy tree used for parent traversal
 	 * @param tn Starting taxonomy node
-	 * @param minLevelE Minimum taxonomy level (extended format)
-	 * @param maxLevelE Maximum taxonomy level (extended format)
-	 * @param skipNonCanonical Whether to skip non-canonical taxonomy names
-	 * @param reverseOrder Whether to reverse the taxonomic order
-	 * @return StringBuilder containing formatted taxonomy line
+	 * @param minLevelE Minimum extended taxonomy level to include
+	 * @param maxLevelE Maximum extended taxonomy level to include
+	 * @param skipNonCanonical If true, omit non-simple nodes
+	 * @param reverseOrder If true, emit levels from leaf to root
+	 * @return Mutable StringBuilder containing the taxonomy line
 	 */
 	public static StringBuilder makeTaxLine(TaxTree tree, TaxNode tn, int minLevelE, int maxLevelE, boolean skipNonCanonical, boolean reverseOrder){
 //		assert(false) : tn+", "+minLevelE+", "+maxLevelE;
@@ -482,15 +475,12 @@ public class PrintTaxonomy {
 //	}
 	
 	/**
-	 * Prints taxonomy hierarchy to a ByteBuilder with level and ID information.
-	 * Static utility method for appending formatted taxonomy data.
-	 * Filters cellular organisms and non-canonical names when requested.
-	 *
+	 * Appends a full taxonomy hierarchy to a ByteBuilder with tab-separated columns, honoring the maxLevel constraint and optional canonical filtering.
 	 * @param tn Starting taxonomy node
-	 * @param sb ByteBuilder to append taxonomy information to
-	 * @param tree Taxonomy tree for node traversal
-	 * @param maxLevel Maximum taxonomy level to include
-	 * @param skipNonCanonical Whether to skip non-canonical taxonomy names
+	 * @param sb Buffer to append level/id/name triples
+	 * @param tree TaxTree instance used for parent lookups
+	 * @param maxLevel Highest taxonomy level to include (negative uses extended levels)
+	 * @param skipNonCanonical Whether to skip non-simple nodes
 	 */
 	public static void printTaxonomy(TaxNode tn, final ByteBuilder sb, final TaxTree tree, final int maxLevel, boolean skipNonCanonical){
 		final int maxLevelE=maxLevel<0 ? maxLevel : TaxTree.levelToExtended(maxLevel);
@@ -517,12 +507,9 @@ public class PrintTaxonomy {
 //	}
 	
 	/**
-	 * Prints taxonomy information at a specific level for a resolved TaxNode.
-	 * Traverses up the tree to find the node at the target taxonomy level.
-	 * Increments raw count for the target level node.
-	 *
-	 * @param tn Taxonomy node to resolve level for
-	 * @param tsw Output writer for taxonomy results
+	 * Walks a taxonomy node up to the configured target level, prints the node name, and increments its raw count for downstream summaries.
+	 * @param tn Taxonomy node to resolve to the configured level (falls back to UNKNOWN)
+	 * @param tsw Destination writer for the selected level
 	 */
 	void printTaxLevel(TaxNode tn, final TextStreamWriter tsw){
 		if(tn==null){tn=unknown;}
@@ -539,10 +526,9 @@ public class PrintTaxonomy {
 //	}
 	
 	/**
-	 * Parses a taxonomy node from a sequence header string.
-	 * Delegates to the taxonomy tree's header parsing functionality.
-	 * @param header Sequence header containing taxonomy identifier
-	 * @return Resolved TaxNode or null if not found
+	 * Delegates to the TaxTree to parse gi/taxid/accession data from a header string, returning the matching TaxNode when available.
+	 * @param header Sequence header containing taxonomy identifiers
+	 * @return Matching TaxNode or null if no match is found
 	 */
 	public TaxNode parseNodeFromHeader(String header){
 		if(tree==null){return null;}
@@ -553,23 +539,23 @@ public class PrintTaxonomy {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Optional input file path */
+	/** Optional input file path for staged taxonomy translation */
 	private String in1=null;
 
-	/** Primary output file path */
+	/** Primary output file path (defaults to stdout.txt) */
 	private String out1="stdout.txt";
 	
-	/** Output file path for taxonomy count summary */
+	/** Optional output path for aggregated taxonomy counts */
 	private String countFile=null;
 
-	/** Path to GI to TaxID mapping table file */
+	/** Source file for gi-to-taxid mappings (auto uses TaxTree defaults) */
 	private String giTableFile=null;
-	/** Path to taxonomy tree file */
+	/** Raw taxonomy tree file to load when constructing the TaxTree */
 	private String taxTreeFile=null;
-	/** Path to accession to TaxID mapping file */
+	/** Source file for accession-to-taxid mappings (optional) */
 	private String accessionFile=null;
 	
-	/** Taxonomy tree for taxonomic lookups and traversal */
+	/** Taxonomy tree instance used for all lookups and traversals */
 	private final TaxTree tree;
 	
 //	/** Level to print */
@@ -583,21 +569,27 @@ public class PrintTaxonomy {
 	
 	private final int taxLevelExtended, minLevelExtended, maxLevelExtended;
 	
-	/** Reverse order for tax lines */
+	/** Whether taxonomy strings are emitted in reverse (leaf-to-root) order */
 	private boolean reverseOrder=true;
 	
-	/** List of sequence names or identifiers to process */
+	/**
+	 * Names or identifiers supplied via CLI to process when no input file is given
+	 */
 	private ArrayList<String> names=new ArrayList<String>();
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
+	/**
+	 * Maximum number of reads to process when streaming sequence files (-1 for unlimited)
+	 */
 	private long maxReads=-1;
 	
-	/** Whether to print sequence names in output */
+	/** Whether to echo the original sequence name ahead of taxonomy output */
 	boolean printName=true;
-	/** Whether to skip non-canonical taxonomy names in output */
+	/** Skip non-canonical (non-simple) taxonomy nodes when building hierarchies */
 	boolean skipNonCanonical=false;
 	
-	/** Column index for extracting taxonomy information from tab-delimited files */
+	/**
+	 * Zero-based column index for extracting taxonomy identifiers from tab-delimited inputs (-1 disables column mode)
+	 */
 	int keyColumn=-1;
 //	Deprecated.  Description from shellscript:
 //	column=-1       If set to a non-negative integer, parse the taxonomy
@@ -611,31 +603,33 @@ public class PrintTaxonomy {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Optional input file */
+	/** Input file descriptor (null when reading from CLI names) */
 	private final FileFormat ffin1;
 	
-	/** Primary output file */
+	/** Primary output file descriptor for taxonomy text */
 	private final FileFormat ffout1;
 	
-	/** Count output file format handler */
+	/** Writer descriptor for taxonomy count summaries (optional) */
 	private final FileFormat ffcount;
 	
-	/** Default taxonomy node for unresolvable sequences */
+	/**
+	 * Fallback TaxNode used when a sequence cannot be resolved to any taxonomy entry
+	 */
 	private final TaxNode unknown=new TaxNode(-99, -99, TaxTree.LIFE, TaxTree.LIFE_E, "UNKNOWN");
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status and logging messages */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose logging during processing */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Set to true if any worker thread or writer failed */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Overwrite behavior for output writers */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Whether to append to existing output files instead of truncating */
 	private boolean append=false;
 	
 }

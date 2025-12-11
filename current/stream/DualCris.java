@@ -8,18 +8,15 @@ import shared.Tools;
 import structures.ListNum;
 
 /**
- * @author Brian Bushnell
- * @date Apr 3, 2015
+ * Dual-stream read input handler that combines two separate ConcurrentReadInputStream
+ * objects into paired-end reads. Manages synchronization and pairing of reads from
+ * two independent input streams, automatically setting pair numbers and mate
+ * relationships for downstream processing.
  *
+ * @author Brian Bushnell
  */
 public class DualCris extends ConcurrentReadInputStream {
 	
-	/**
-	 * Test driver that demonstrates dual-stream read processing with basic validation.
-	 * Creates DualCris from command-line file arguments and processes read lists to
-	 * verify pairing functionality.
-	 * @param args Input file paths (first required, second optional)
-	 */
 	public static void main(String[] args){
 		String a=args[0];
 		String b=args.length>1 ? args[1] : null;
@@ -56,18 +53,6 @@ public class DualCris extends ConcurrentReadInputStream {
 		ReadWrite.closeStreams(cris);
 	}
 
-	/**
-	 * Factory method for creating DualCris instances from file formats and quality files.
-	 * Constructs underlying ConcurrentReadInputStream objects and wraps them in DualCris
-	 * for synchronized paired processing.
-	 * @param maxReads Maximum number of reads to process (-1 for unlimited)
-	 * @param keepSamHeader Whether to preserve SAM headers
-	 * @param ff1 Primary input file format
-	 * @param ff2 Secondary input file format (may be null for single-ended)
-	 * @param qf1 Quality file for primary input
-	 * @param qf2 Quality file for secondary input
-	 * @return Configured DualCris instance ready for processing
-	 */
 	public static DualCris getReadInputStream(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		ConcurrentReadInputStream cris1=(ff1==null ? null : ConcurrentReadInputStream.getReadInputStream(maxReads, keepSamHeader, ff1, null, qf1, null));
@@ -75,29 +60,17 @@ public class DualCris extends ConcurrentReadInputStream {
 		return new DualCris(cris1, cris2);
 	}
 	
-	/**
-	 * Constructs DualCris from two existing ConcurrentReadInputStream objects.
-	 * Sets up dual-stream processing with automatic filename concatenation for
-	 * identification purposes.
-	 * @param cris1_ Primary input stream (may be null)
-	 * @param cris2_ Secondary input stream (may be null)
-	 */
 	public DualCris(ConcurrentReadInputStream cris1_, ConcurrentReadInputStream cris2_){
 		super((cris1_==null ? "null" : cris1_.fname())+(cris2_==null ? "null" : ","+cris2_.fname()));
 		cris1=cris1_;
 		cris2=cris2_;
 	}
 
-	/** Primary input stream for R1 reads */
 	private final ConcurrentReadInputStream cris1;
-	/** Secondary input stream for R2 reads */
 	private final ConcurrentReadInputStream cris2;
 	/** Whether the secondary input stream is still producing data */
-	/** Whether the primary input stream is still producing data */
 	private boolean cris1Active, cris2Active;
-	/** Tracks error state from either input stream */
 	private boolean errorState=false;
-	/** Controls verbose output for debugging */
 	private boolean verbose=false;
 	
 	@Override
@@ -151,14 +124,6 @@ public class DualCris extends ConcurrentReadInputStream {
 		throw new RuntimeException("Unsupported.");
 	}
 	
-	/**
-	 * Returns a processed list to both underlying streams with read-specific feedback.
-	 * Deactivates streams when no reads of their type are found, enabling efficient
-	 * cleanup when one stream is exhausted before the other.
-	 * @param listNum List identifier to return
-	 * @param foundR1 Whether R1 reads were found in this list
-	 * @param foundR2 Whether R2 reads were found in this list
-	 */
 	public void returnList(long listNum, boolean foundR1, boolean foundR2) {
 		if(cris1!=null && cris1Active){
 			cris1.returnList(listNum, !foundR1);
@@ -232,6 +197,11 @@ public class DualCris extends ConcurrentReadInputStream {
 		return list.toArray();
 	}
 	
+	/**
+	 * Checks error state across both input streams.
+	 * Updates internal error tracking and returns combined error status.
+	 * @return True if either stream has encountered errors
+	 */
 	@Override
 	public boolean errorState() {
 		if(cris1!=null){errorState|=cris1.errorState();}
@@ -239,6 +209,12 @@ public class DualCris extends ConcurrentReadInputStream {
 		return errorState;
 	}
 	
+	/**
+	 * Sample rate setting is not supported in DualCris due to synchronization complexity.
+	 * @param rate Sampling rate (unused)
+	 * @param seed Random seed (unused)
+	 * @throws RuntimeException Always thrown as this method is invalid
+	 */
 	@Override
 	public void setSampleRate(float rate, long seed) {
 		throw new RuntimeException("Invalid.");
@@ -249,11 +225,15 @@ public class DualCris extends ConcurrentReadInputStream {
 		return (cris1==null ? 0 : cris1.basesIn())+(cris2==null ? 0 : cris2.basesIn());
 	}
 	
+	/** Returns total reads processed across both input streams.
+	 * @return Sum of reads from both streams */
 	@Override
 	public long readsIn() {
 		return (cris1==null ? 0 : cris1.readsIn())+(cris2==null ? 0 : cris2.readsIn());
 	}
 	
+	/** Returns current verbose setting for debugging output.
+	 * @return True if verbose mode is enabled */
 	@Override
 	public boolean verbose() {
 		return verbose;

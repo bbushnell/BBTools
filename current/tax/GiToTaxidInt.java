@@ -11,18 +11,13 @@ import shared.Tools;
 import structures.IntList;
 
 /**
+ * Utility class for converting GenBank identifier (GI) numbers to NCBI taxonomy IDs.
+ * Parses and maps GI numbers or NCBI taxonomy identifiers to corresponding taxonomy IDs using array-based lookup tables for efficient conversion.
  * @author Brian Bushnell
  * @date Mar 10, 2015
- *
  */
 public class GiToTaxidInt {
 	
-	/**
-	 * Program entry point for GI to TaxID conversion operations.
-	 * Configures compression settings and processes command-line arguments to initialize
-	 * mapping arrays and write output files.
-	 * @param args Command-line arguments containing input and output file paths
-	 */
 	public static void main(String[] args){
 		ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.USE_PIGZ=true;
@@ -45,12 +40,6 @@ public class GiToTaxidInt {
 		}
 	}
 	
-	/**
-	 * Test method for validating GI to TaxID conversion functionality.
-	 * Tests various GI numbers and sequence headers, optionally loading a taxonomy tree
-	 * for validation and demonstration purposes.
-	 * @param args Test arguments, with optional taxonomy tree file path
-	 */
 	public static void test(String[] args){
 		System.err.println(getID(1000));
 		System.err.println(getID(10000));
@@ -98,20 +87,7 @@ public class GiToTaxidInt {
 		}
 	}
 	
-	/**
-	 * Parses GI number from string and converts to taxonomy ID using default delimiter.
-	 * @param s String containing GI number
-	 * @return Taxonomy ID corresponding to the GI number, or -1 if invalid
-	 */
 	public static int parseGiToTaxid(String s){return parseGiToTaxid(s, '|');}
-	/**
-	 * Parses GI number from string and converts to taxonomy ID using specified delimiter.
-	 * Extracts GI number, validates array bounds, and returns corresponding taxonomy ID.
-	 *
-	 * @param s String containing GI number
-	 * @param delimiter Character used to separate fields in the string
-	 * @return Taxonomy ID corresponding to the GI number, or -1 if invalid
-	 */
 	public static int parseGiToTaxid(String s, char delimiter){
 		int x=parseGiNumber(s, delimiter);
 		assert(x>=0) : s;
@@ -125,20 +101,7 @@ public class GiToTaxidInt {
 	}
 	
 
-	/**
-	 * Parses GI number from byte array and converts to taxonomy ID using default delimiter.
-	 * @param s Byte array containing GI number
-	 * @return Taxonomy ID corresponding to the GI number, or -1 if invalid
-	 */
 	public static int parseGiToTaxid(byte[] s){return parseGiToTaxid(s, '|');}
-	/**
-	 * Parses GI number from byte array and converts to taxonomy ID using specified delimiter.
-	 * Handles large GI numbers and validates array bounds before lookup.
-	 *
-	 * @param s Byte array containing GI number
-	 * @param delimiter Character used to separate fields in the array
-	 * @return Taxonomy ID corresponding to the GI number, or -1 if invalid
-	 */
 	public static int parseGiToTaxid(byte[] s, char delimiter){
 		long x=parseGiNumber(s, delimiter);
 		if(x>=0 && x<array.length){return array[(int)x];}
@@ -147,7 +110,6 @@ public class GiToTaxidInt {
 		return -1;
 	}
 	
-	/** Parse a gi number, or return -1 if formatted incorrectly. */
 	static int parseGiNumber(String s, char delimiter){
 		if(s==null || s.length()<4){return -1;}
 //		System.err.println("a");
@@ -186,7 +148,6 @@ public class GiToTaxidInt {
 		return number;
 	}
 	
-	/** Parse a ncbi number, or return -1 if formatted incorrectly. */
 	public static int parseTaxidNumber(String s, char delimiter){
 		if(s==null || s.length()<5){return -1;}
 		if(s.charAt(0)=='>'){return parseTaxidNumber(s.substring(1), delimiter);}
@@ -210,13 +171,7 @@ public class GiToTaxidInt {
 	}
 	
 
-	/**
-	 * Gets taxonomy ID from sequence header using default delimiter.
-	 * @param s Header string containing taxonomy or GI identifier
-	 * @return Taxonomy ID, or -1 if not found
-	 */
 	public static int getID(String s){return getID(s, '|');}
-	/** Get the taxID from a header starting with a taxID or gi number */
 	public static int getID(String s, char delimiter){
 		int x=parseTaxidNumber(s, delimiter);
 		if(x>=0){return x;}
@@ -225,7 +180,6 @@ public class GiToTaxidInt {
 		return -1;
 	}
 	
-	/** Parse a gi number, or return -1 if formatted incorrectly. */
 	static int parseGiNumber(byte[] s, char delimiter){
 		if(s==null || s.length<4){return -1;}
 		if(!Tools.startsWith(s, "gi") && !Tools.startsWith(s, ">gi")){return -1;}
@@ -247,7 +201,6 @@ public class GiToTaxidInt {
 		return (int)number;
 	}
 	
-	/** Parse a gi number, or return -1 if formatted incorrectly. */
 	static int parseNcbiNumber(byte[] s, char delimiter){
 		if(s==null || s.length<3){return -1;}
 		if(!Tools.startsWith(s, "ncbi") && !Tools.startsWith(s, ">ncbi") && !Tools.startsWith(s, "tid") && !Tools.startsWith(s, ">tid")){return -1;}
@@ -269,20 +222,19 @@ public class GiToTaxidInt {
 		return number;
 	}
 
-	/**
-	 * Gets taxonomy ID from byte array header using default delimiter.
-	 * @param s Byte array containing header with taxonomy or GI identifier
-	 * @return Taxonomy ID, or -1 if not found
-	 */
 	public static int getID(byte[] s){return getID(s, '|');}
-	/** Get the taxID from a header starting with a taxID or gi number */
 	public static int getID(byte[] s, char delimiter){
 		int x=parseGiNumber(s, delimiter);
 		if(x>=0){return array[x];}
 		return parseNcbiNumber(s, delimiter);
 	}
 	
-	/** Get the taxID from a gi number */
+	/**
+	 * Get the taxID from a gi number.
+	 * Direct array lookup using GI number as index.
+	 * @param gi GI number to look up
+	 * @return Taxonomy ID from array lookup
+	 */
 	public static int getID(long gi){
 		assert(gi>=0) : gi;
 		assert(gi<Integer.MAX_VALUE) : gi+" > "+Integer.MAX_VALUE;
@@ -290,12 +242,6 @@ public class GiToTaxidInt {
 		return array[(int)gi];
 	}
 	
-	/**
-	 * Initializes the GI to taxonomy ID mapping array from specified file.
-	 * Thread-safe initialization that loads array from .int1d files or creates
-	 * from text files. Only initializes once per filename.
-	 * @param fname Path to mapping file (.int1d format or text file)
-	 */
 	public static void initialize(String fname){
 		assert(fname!=null);
 		if(fileString==null || !fileString.equals(fname)){
@@ -313,25 +259,14 @@ public class GiToTaxidInt {
 		}
 	}
 	
-	/** Returns whether the mapping array has been initialized */
 	public static boolean isInitialized(){return initialized;}
 	
-	/** Unloads the mapping array and resets initialization state.
-	 * Thread-safe method for releasing memory and allowing reinitialization. */
 	public static synchronized void unload(){
 		array=null;
 		fileString=null;
 		initialized=false;
 	}
 	
-	/**
-	 * Creates mapping array from one or more input files.
-	 * Supports single files, comma-separated lists, and wildcard patterns with '#'.
-	 * Uses IntList for dynamic sizing during construction.
-	 *
-	 * @param fnames File path(s) - single file, comma-separated, or wildcard pattern
-	 * @return Integer array mapping GI numbers to taxonomy IDs
-	 */
 	private static int[] makeArray(String fnames){
 		String[] split;
 		if(new File(fnames).exists()){split=new String[] {fnames};}
@@ -371,15 +306,6 @@ public class GiToTaxidInt {
 		return list.shrink().array;
 	}
 	
-	/**
-	 * Processes a single mapping file and adds entries to the IntList.
-	 * Parses tab-delimited lines containing taxonomy and GI information.
-	 * Validates entries and handles large GI numbers that exceed array limits.
-	 *
-	 * @param fname Input file path to process
-	 * @param list IntList to store GI-to-taxonomy mappings
-	 * @return Number of valid entries processed
-	 */
 	private static long addToList(String fname, IntList list){
 		boolean warned=false;
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
@@ -497,13 +423,9 @@ public class GiToTaxidInt {
 //		return count;
 //	}
 	
-	/** Mapping array from GI numbers to taxonomy IDs */
 	private static int[] array;
-	/** Path of currently loaded mapping file */
 	private static String fileString;
 	
-	/** Controls verbose output during processing */
 	public static boolean verbose=false;
-	/** Tracks whether mapping array has been loaded */
 	private static boolean initialized=false;
 }

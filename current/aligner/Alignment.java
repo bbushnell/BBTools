@@ -4,31 +4,33 @@ import prok.GeneCaller;
 import stream.Read;
 
 /**
- * Creates an Alignment wrapper for a Read object integrating with SingleStateAlignerFlat2
- * backend for high-level alignment operations with caching and sorting capabilities.
- * Stores alignment results including identity score, match string, and position coordinates.
+ * Alignment wrapper for a Read that uses SingleStateAlignerFlat2 for alignment
+ * while caching identity, match string, and start/stop coordinates for reuse
+ * and sorting. Intended for high-level alignment workflows.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
  */
 public class Alignment implements Comparable<Alignment>{
 	
-	/** Creates an Alignment wrapper for the specified Read object.
-	 * @param r_ The Read object to wrap for alignment operations */
 	public Alignment(Read r_){
 		r=r_;
 	}
 	
+	/**
+	 * Compares alignments by identity score first, then by read length so higher
+	 * quality alignments sort ahead of lower ones.
+	 * @param o The alignment to compare against
+	 * @return Negative if this alignment is lower quality, positive if higher, zero if equal
+	 */
 	@Override
 	public int compareTo(Alignment o) {
 		return id>o.id ? 1 : id<o.id ? -1 : r.length()>o.r.length() ? 1 : r.length()<o.r.length() ? -1 : 0;
 	}
 	
 	/**
-	 * Aligns the wrapped read against the reference sequence and caches results.
-	 * Uses SingleStateAlignerFlat2 for alignment computation and stores identity,
-	 * match string, and position coordinates in instance variables.
-	 *
+	 * Aligns the wrapped read against the reference sequence using SingleStateAlignerFlat2,
+	 * caching identity, match string, and position coordinates in this object.
 	 * @param ref Reference sequence to align against
 	 * @return Identity score between 0.0 and 1.0
 	 */
@@ -41,13 +43,13 @@ public class Alignment implements Comparable<Alignment>{
 	}
 	
 	/**
-	 * Static alignment method performing complete alignment pipeline using SingleStateAlignerFlat2.
-	 * Executes fillUnlimited matrix computation, score boundary calculation, and traceback
-	 * generation to compute precise identity and update Read position coordinates.
+	 * Performs the full alignment pipeline using SingleStateAlignerFlat2: fillUnlimited,
+	 * score calculation, and traceback to compute identity and update the read's
+	 * position coordinates.
 	 *
 	 * @param r Read object to align (position coordinates will be updated)
 	 * @param ref Reference sequence to align against
-	 * @return Identity score calculated from match string using Read.identity
+	 * @return Identity score calculated from the match string using Read.identity
 	 */
 	public static final float align(Read r, byte[] ref){
 		SingleStateAlignerFlat2 ssa=GeneCaller.getSSA();
@@ -72,15 +74,10 @@ public class Alignment implements Comparable<Alignment>{
 		return id;
 	}
 	
-	/** The Read object being aligned */
 	public final Read r;
-	/** Identity score from alignment, -1 if not yet computed */
 	public float id=-1;
-	/** Match string encoding alignment operations (matches, mismatches, gaps) */
 	public byte[] match;
-	/** Start position of alignment on reference sequence */
 	public int start;
-	/** Stop position of alignment on reference sequence */
 	public int stop;
 	
 }

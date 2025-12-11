@@ -6,14 +6,26 @@ import shared.Shared;
 import shared.Tools;
 import stream.Read;
 
+
 /**
+ * Comparator for sorting mapped reads by genomic position and mapping quality.
+ * Handles both single-end and paired-end reads with complex ordering logic
+ * that prioritizes mapped reads over unmapped ones and considers mate information.
+ *
  * @author Brian Bushnell
  * @date Oct 27, 2014
- *
  */
-
 public class ReadComparatorMapping implements Comparator<Read> {
 
+	/**
+	 * Compares two reads for sorting order based on mapping status and position.
+	 * For single-end reads, uses basic position comparison. For paired-end reads,
+	 * applies complex logic considering both mate mapping status and positions.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	@Override
 	public int compare(Read a, Read b) {
 		
@@ -73,16 +85,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		}
 	}
 	
-	/**
-	 * Compares reads by mapping status, chromosome, strand, and position.
-	 * Mapped reads are prioritized over unmapped ones. For mapped reads,
-	 * sorts by chromosome, then strand, then genomic position (start for plus
-	 * strand, stop for minus strand).
-	 *
-	 * @param a First read to compare
-	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	public int compare2(Read a, Read b) {//TODO: This could all be packed in a long (the ID).
 		if(a.mapped() && !b.mapped()){return -1;}
 		if(b.mapped() && !a.mapped()){return 1;}
@@ -100,16 +102,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
-	/**
-	 * Cross-comparison method for reads from different pairs.
-	 * Similar to compare2 but handles strand logic differently based on
-	 * SAME_STRAND_PAIRS setting. Used when comparing a read to a mate
-	 * from a different pair.
-	 *
-	 * @param a First read to compare
-	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	public int compareCross(Read a, Read b) {
 		if(a.mapped() && !b.mapped()){return -1;}
 		if(b.mapped() && !a.mapped()){return 1;}
@@ -128,15 +120,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
-	/**
-	 * Fine-grained comparison for reads with same basic mapping characteristics.
-	 * Orders by read length (longer first), perfect match status, match string
-	 * quality, genomic position, quality scores, and finally read identifiers.
-	 *
-	 * @param a First read to compare
-	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	public int compare3(Read a, Read b){
 		if(a.length()!=b.length()){
 			return b.length()-a.length(); //Preferentially puts longer reads first
@@ -165,14 +148,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return a.id.compareTo(b.id);
 	}
 	
-	/**
-	 * Compares two byte arrays element-wise for lexicographic ordering.
-	 * Used for comparing quality score arrays between reads.
-	 *
-	 * @param a First byte array (may be null)
-	 * @param b Second byte array (may be null)
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	public int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -187,16 +162,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
-	/**
-	 * Compares match strings using alignment-aware ordering.
-	 * Prioritizes certain alignment operations: insertions/substitutions (I,X,Y)
-	 * are considered worse than matches, and deletions (D) are worse than
-	 * insertions for sorting purposes.
-	 *
-	 * @param a First match string (may be null)
-	 * @param b Second match string (may be null)
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	public int compareMatchStrings(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -217,7 +182,6 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 
-	/** Whether paired reads are expected to align to the same strand */
 	public static boolean SAME_STRAND_PAIRS=false;
 	
 }

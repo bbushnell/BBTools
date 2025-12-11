@@ -5,11 +5,19 @@ import java.util.Arrays;
 import structures.IntList;
 
 /**
- * Implements a WaveFront alignment algorithm for global alignment.
+ * WaveFront alignment algorithm implementation with visualization support.
+ * Performs global alignment by processing diagonal wavefronts in increasing edit distance and tracking full traceback.
+ * Optionally produces visualization output and detailed debug traces of the alignment matrices.
+ * @author Brian Bushnell
  */
 public class WaveFrontAlignerViz implements IDAligner {
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for standardized testing.
+	 * Uses reflection to determine the actual aligner class type at runtime.
+	 * @param args Command-line arguments
+	 * @throws Exception If class reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -17,42 +25,71 @@ public class WaveFrontAlignerViz implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
-    /** Default constructor */
     public WaveFrontAlignerViz() {}
 
+	/** Returns the aligner name for identification. */
 	@Override
 	public final String name() {return "WaveFrontViz";}
+    /**
+     * Aligns two sequences without position tracking.
+     * @param a First sequence (query)
+     * @param b Second sequence (reference)
+     * @return Identity score as fraction of matching positions
+     */
     @Override
     public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+    /**
+     * Aligns two sequences with position tracking.
+     * @param a First sequence (query)
+     * @param b Second sequence (reference)
+     * @param pos Output array for alignment start/end positions
+     * @return Identity score as fraction of matching positions
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+    /**
+     * Aligns two sequences with position tracking and a minimum score threshold.
+     * @param a First sequence (query)
+     * @param b Second sequence (reference)
+     * @param pos Output array for alignment start/end positions
+     * @param minScore Minimum alignment score threshold (ignored in this implementation)
+     * @return Identity score as fraction of matching positions
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+    /**
+     * Aligns a query sequence to a specific region of the reference sequence.
+     * @param a Query sequence
+     * @param b Reference sequence
+     * @param pos Output array for alignment positions
+     * @param rStart Start position in reference sequence
+     * @param rStop End position in reference sequence
+     * @return Identity score as fraction of matching positions
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {
         return alignStatic(a, b, pos, rStart, rStop);
     }
     
+    /** Gets the number of alignment loop iterations performed. */
     @Override
     public long loops() {return loops;}
-	/** Sets the loop counter value.
-	 * @param x New loop counter value */
 	public void setLoops(long x) {loops=x;}
 
     // Operation types
-    /** Operation type: no operation recorded */
     private static final byte OP_NONE = 0;
-    /** Operation type: exact match between sequences */
     private static final byte OP_MATCH = 1;
-    /** Operation type: substitution (mismatch) */
     private static final byte OP_SUB = 2;
-    /** Operation type: insertion in query sequence */
     private static final byte OP_INS = 3;
-    /** Operation type: deletion from query sequence */
     private static final byte OP_DEL = 4;
 
     /**
-     * Global alignment using WaveFront algorithm with detailed traceback.
+     * Main WaveFront alignment algorithm with detailed traceback and optional visualization.
+     * Implements global alignment by processing diagonal wavefronts, extending exact matches, and recording operations for traceback.
+     * @param query Query sequence to align
+     * @param ref Reference sequence to align against
+     * @param posVector Output array for alignment start/end positions (may be null)
+     * @return Identity score as fraction of aligned positions that match
      */
     public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
         boolean swapped = false;
@@ -358,7 +395,14 @@ public class WaveFrontAlignerViz implements IDAligner {
     }
     
     /**
-     * Wrapper for aligning within a reference window.
+     * Aligns query to a specific region within the reference sequence.
+     * Extracts the requested reference window, calls the main alignStatic method, then adjusts coordinates for the region offset.
+     * @param query Query sequence to align
+     * @param ref Full reference sequence
+     * @param posVector Output array for alignment positions
+     * @param refStart Start position in reference (inclusive)
+     * @param refEnd End position in reference (inclusive)
+     * @return Identity score as fraction of aligned positions that match
      */
     public static final float alignStatic(final byte[] query, final byte[] ref, 
             final int[] posVector, int refStart, int refEnd) {
@@ -375,18 +419,13 @@ public class WaveFrontAlignerViz implements IDAligner {
     }
     
     // Debug mode - set to true for detailed alignment output
-    /** Debug flag for detailed alignment output to console */
     private static final boolean DEBUG_MODE = false;
-    /** Flag for printing step-by-step visualization during alignment */
     private static final boolean PRINT_STEPS = false;
     
     // Last alignment result for debugging
-    /** Stores the formatted alignment result string for debugging purposes */
     private static String lastAlignment = "";
     
     // For tracking cells processed
-    /** Counter for the number of alignment loop iterations performed */
     static long loops = 0;
-    /** Output file path for visualization data (null disables visualization) */
     public static String output = null;
 }

@@ -14,16 +14,15 @@ import structures.CoverageArray3A;
  * Handles coverage tracking, sequence storage, and variant-related calculations.
  * Supports optional strand-specific coverage tracking and lazy initialization
  * of coverage arrays for memory efficiency.
- * 
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla Winglet
  */
 public class Scaffold {
 	
 	/**
 	 * Constructs a Scaffold by parsing a SAM header line.
 	 * Expects SAM format: @SQ	SN:scaffold_0	LN:1785514	AS:build 9
-	 * 
 	 * @param line SAM header line as byte array
 	 * @param scafnum Scaffold number to assign
 	 */
@@ -55,13 +54,6 @@ public class Scaffold {
 		a=b;
 	}
 	
-	/**
-	 * Constructs a Scaffold with explicit parameters.
-	 * 
-	 * @param name_ Scaffold name
-	 * @param scafnum_ Scaffold number
-	 * @param len_ Scaffold length in bases
-	 */
 	public Scaffold(String name_, int scafnum_, int len_){
 		name=name_;
 		number=scafnum_;
@@ -71,7 +63,6 @@ public class Scaffold {
 	/**
 	 * Adds coverage information from a SAM alignment line.
 	 * Extracts alignment coordinates and updates coverage arrays.
-	 * 
 	 * @param sl SAM line containing alignment information
 	 */
 	public void add(SamLine sl){
@@ -84,7 +75,7 @@ public class Scaffold {
 	 * Increments coverage for a specified range, with optional strand tracking.
 	 * Uses lazy initialization to create coverage arrays only when needed.
 	 * Thread-safe through synchronized initialization block.
-	 * 
+	 *
 	 * @param from Start position (inclusive)
 	 * @param to End position (exclusive)
 	 * @param strand Strand information (+ or -)
@@ -114,7 +105,7 @@ public class Scaffold {
 	/**
 	 * Legacy synchronized version of increment method.
 	 * Less efficient than current implementation but provided for compatibility.
-	 * 
+	 *
 	 * @param from Start position (inclusive)
 	 * @param to End position (exclusive)
 	 * @param strand Strand information (+ or -)
@@ -132,25 +123,12 @@ public class Scaffold {
 		}
 	}
 	
-	/**
-	 * Extracts reference sequence covered by a SAM alignment.
-	 * 
-	 * @param sl SAM line defining the region
-	 * @return Reference sequence as String
-	 */
 	public String getSequence(SamLine sl) {
 		int start=sl.start(false, false);
 		int stop=sl.stop(start, false, false);
 		return getSequence(start, stop);
 	}
 	
-	/**
-	 * Extracts reference sequence for a specified coordinate range.
-	 * 
-	 * @param start Start position (inclusive)
-	 * @param stop Stop position (inclusive)
-	 * @return Reference sequence as String
-	 */
 	public String getSequence(int start, int stop) {
 		assert(bases!=null) : this;
 		start=Tools.max(0, start);
@@ -159,12 +137,6 @@ public class Scaffold {
 		return s;
 	}
 	
-	/**
-	 * Calculates total coverage at a variant position.
-	 * 
-	 * @param v Var object defining the position
-	 * @return Average coverage across the variant region
-	 */
 	public int calcCoverage(Var v){
 		return calcCoverage(v, ca);
 	}
@@ -172,7 +144,6 @@ public class Scaffold {
 	/**
 	 * Calculates minus-strand coverage at a variant position.
 	 * Only available when strand tracking is enabled.
-	 * 
 	 * @param v Var object defining the position
 	 * @return Average minus-strand coverage across the variant region
 	 */
@@ -184,7 +155,7 @@ public class Scaffold {
 	/**
 	 * Calculates coverage for a variant using the specified coverage array.
 	 * Handles different variant types with appropriate coverage calculation strategies.
-	 * 
+	 *
 	 * @param v Var object defining the position and type
 	 * @param ca Coverage array to query
 	 * @return Average coverage appropriate for the variant type
@@ -226,20 +197,13 @@ public class Scaffold {
 		return avg;
 	}
 	
-	/**
-	 * Returns SAM header representation of this scaffold.
-	 * 
-	 * @return SAM @SQ header line as String
-	 */
 	@Override
 	public String toString(){
 		return "@SQ\tSN:"+name+"\tLN:"+length+"\tID:"+number;
 	}
 	
-	/**
-	 * Clears coverage arrays to free memory.
-	 * Thread-safe operation.
-	 */
+	/** Clears coverage arrays to free memory.
+	 * Thread-safe operation. */
 	public synchronized void clearCoverage(){
 		ca=null;
 		caMinus=null;
@@ -250,51 +214,32 @@ public class Scaffold {
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Scaffold name (chromosome/contig identifier) */
 	public final String name;
-	/** Numeric scaffold identifier */
 	public final int number;
-	/** Length of scaffold in base pairs */
 	public final int length;
-	/** Primary coverage array for tracking read depth */
 	private CoverageArray ca;
-	/** Minus-strand coverage array (only used when strand tracking enabled) */
 	private CoverageArray caMinus;
-	/** Reference sequence bases (may be null if not loaded) */
 	public byte[] bases;
-	/** Returns whether coverage arrays have been initialized */
 	private boolean initialized(){return initialized;};
-	/** Initialization status flag */
 	private boolean initialized;
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Static Methods          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Sets whether to use CoverageArray3 implementation.
-	 * @param b true to use CoverageArray3, false for CoverageArray2 */
 	public static void setCA3(boolean b){useCA3=b;}
 	
-	/** Sets whether to use CoverageArray3A implementation.
-	 * @param b true to use CoverageArray3A */
 	public static void setCA3A(boolean b){useCA3A=b;}
 	
-	/** Enables or disables strand-specific coverage tracking.
-	 * @param b true to track strand-specific coverage */
 	public static void setTrackStrand(boolean b){trackStrand=b;}
 	
-	/** Returns whether strand-specific coverage tracking is enabled.
-	 * @return true if tracking strand-specific coverage */
 	public static boolean trackStrand(){return trackStrand;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Static Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Whether to use CoverageArray3 implementation */
 	private static boolean useCA3=false;
-	/** Whether to use CoverageArray3A implementation */
 	private static boolean useCA3A=true;
-	/** Whether to track strand-specific coverage */
 	private static boolean trackStrand=false;
 }

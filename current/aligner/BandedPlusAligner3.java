@@ -7,23 +7,23 @@ import shared.PreParser;
 import shared.Shared;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *Restricts alignment to a fixed band around the diagonal.
+ * Banded sequence aligner optimized for calculating Average Nucleotide Identity (ANI).
+ * Uses only 2 arrays and avoids traceback for memory efficiency.
+ * Restricts alignment to a fixed band around the diagonal for performance.
+ * Supports SIMD acceleration when available and handles sequences up to 2Mbp.
  *
- *Uses SIMD alignment.
- *Uses SIMD for wide-band padding detection.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 29, 2025
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 29, 2025
  */
 public class BandedPlusAligner3 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test framework for standardized testing.
+	 * Uses reflection to determine the calling class and pass it to Test.testAndPrint().
+	 * @param args Command-line arguments passed to the test framework
+	 * @throws Exception If reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 		args=new PreParser(args, System.err, null, false, true, false).args;
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
@@ -36,21 +36,27 @@ public class BandedPlusAligner3 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for BandedPlusAligner3 instances */
 	public BandedPlusAligner3() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the display name for this aligner implementation */
 	@Override
 	public final String name() {return "Banded+3";}
+	/** Aligns two sequences and returns identity without position information */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/** Aligns two sequences and returns identity with optional position tracking */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold (threshold ignored in this implementation)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/** Aligns query to a specified window of the reference sequence */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -58,7 +64,16 @@ public class BandedPlusAligner3 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Determines optimal bandwidth for banded alignment based on initial mismatch count.
+	 * Tests for high-identity alignments that need low bandwidth by counting substitutions
+	 * in the initial overlap region. Uses SIMD acceleration when available.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param pos Position array for coordinate tracking
+	 * @return Optimal bandwidth for the banded alignment
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref, int[] pos) {
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Math.min(60+(int)Math.sqrt(rLen), 4+Math.max(qLen, rLen)/8);
@@ -72,11 +87,15 @@ public class BandedPlusAligner3 implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Core static alignment method implementing banded dynamic programming.
+	 * Automatically swaps sequences to ensure query is not longer than reference.
+	 * Uses bit-packed scoring with position and deletion tracking in a single long value.
+	 * Employs SIMD acceleration when available for vector operations.
+	 *
+	 * @param query0 Query sequence to align
+	 * @param ref0 Reference sequence to align against
+	 * @param posVector Optional int[2] array for returning {rStart, rStop} coordinates
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -180,13 +199,16 @@ public class BandedPlusAligner3 implements IDAligner{
 	}
 
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param prev Most recent score row
-	 * @param qLen Query length
-	 * @param bandStart Beginning of score band for the previous row
-	 * @param bandEnd End of score band for the previous row
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Calculates final identity score from the completed alignment matrix.
+	 * Extracts position and deletion information from bit-packed scores,
+	 * then solves the system of equations to determine match/substitution/indel counts.
+	 *
+	 * @param prev Final row of the alignment matrix
+	 * @param qLen Query sequence length
+	 * @param bandStart Start position of the scoring band
+	 * @param bandEnd End position of the scoring band
+	 * @param posVector Array for returning reference start/stop coordinates
+	 * @return Final identity score from 0.0 to 1.0
 	 */
 	private static final float postprocess(long[] prev, int qLen, int bandStart, int bandEnd, int[] posVector) {
 		// Find best score outside of main loop
@@ -246,14 +268,15 @@ public class BandedPlusAligner3 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
+	 * Aligns query to a specified window of the reference sequence.
+	 * Creates a subarray of the reference and adjusts coordinates accordingly.
+	 *
+	 * @param query Query sequence to align
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Array for returning alignment coordinates
+	 * @param refStart Start position of reference window
+	 * @param refEnd End position of reference window
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -269,16 +292,9 @@ public class BandedPlusAligner3 implements IDAligner{
 		return id;
 	}
 
-	/**
-	 * Thread-safe counter for total alignment loop iterations across all instances
-	 */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Returns the total number of alignment loop iterations performed */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter to a specific value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -286,47 +302,26 @@ public class BandedPlusAligner3 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits allocated for position tracking in packed score values */
 	private static final int POSITION_BITS=21;
-	/**
-	 * Number of bits allocated for deletion count tracking in packed score values
-	 */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for extracting alignment scores from packed values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from packed score values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed score values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting alignment scores from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score value for nucleotide matches in the alignment matrix */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for nucleotide substitutions in the alignment matrix */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions in the alignment matrix */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions in the alignment matrix */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score value for alignments involving ambiguous nucleotides (N bases) */
 	private static final long N_SCORE=0L;
-	/** Sentinel value indicating invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/**
-	 * Combined increment value for deletion operations including position tracking
-	 */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
-	/** Debug flag for printing detailed alignment operation counts */
 	private static final boolean PRINT_OPS=false;
-	/**
-	 * Whether to use global alignment mode (true) or local alignment mode (false)
-	 */
 	public static boolean GLOBAL=false;
 
 }

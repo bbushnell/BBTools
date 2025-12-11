@@ -12,30 +12,19 @@ import stream.SiteScore;
  * Realigns reads using Multiple Sequence Alignment (MSA) to improve alignments
  * from non-affine-gap aligners. Particularly useful for reads with indels longer
  * than 1bp that were poorly aligned by simpler alignment algorithms.
- * 
+ *
  * Performs glocal alignment with padding around the original alignment region
  * and only retains realignments that improve the alignment score.
- * 
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla Winglet
  */
 public class Realigner {
 	
-	/**
-	 * Creates a Realigner with default parameters.
-	 */
 	public Realigner(){
 		this(defaultMaxrows, defaultColumns, defaultPadding, defaultMsaType);
 	}
 	
-	/**
-	 * Creates a Realigner with specified MSA parameters.
-	 * 
-	 * @param maxrows_ Maximum number of rows for MSA matrix
-	 * @param columns_ Maximum number of columns for MSA matrix  
-	 * @param padding_ Padding bases to add around alignment region
-	 * @param msaType_ MSA algorithm type string
-	 */
 	public Realigner(int maxrows_, int columns_, int padding_, String msaType_){
 		maxrows=maxrows_;
 		columns=columns_;
@@ -44,14 +33,6 @@ public class Realigner {
 		msa=MSA.makeMSA(maxrows, columns+2, msaType);
 	}
 	
-	/**
-	 * Attempts to realign a read using scaffold lookup from the static map.
-	 * 
-	 * @param r Read to realign
-	 * @param sl Corresponding SAM line
-	 * @param unclip Whether to attempt unclipping of terminal indels
-	 * @return true if realignment was successful and improved the alignment
-	 */
 	public boolean realign(Read r, SamLine sl, final boolean unclip){
 		if(!r.mapped() || sl.supplementary() || !sl.primary()){return false;}
 		Scaffold scaf=map.getScaffold(sl.rnameS());
@@ -59,15 +40,6 @@ public class Realigner {
 		return realign(r, sl, scaf, unclip);
 	}
 	
-	/**
-	 * Attempts to realign a read using the provided scaffold.
-	 * 
-	 * @param r Read to realign
-	 * @param sl Corresponding SAM line
-	 * @param scaf Scaffold containing reference sequence
-	 * @param unclip Whether to attempt unclipping of terminal indels
-	 * @return true if realignment was successful and improved the alignment
-	 */
 	public boolean realign(final Read r, final SamLine sl, final Scaffold scaf, final boolean unclip){
 		return realign(r, sl, scaf.bases, unclip);
 	}
@@ -75,10 +47,10 @@ public class Realigner {
 	/**
 	 * Core realignment method. Evaluates whether a read needs realignment based on
 	 * alignment quality indicators, then performs MSA-based realignment if beneficial.
-	 * 
+	 *
 	 * Only realigns reads with sufficient numbers of mismatches, clips, or indels.
 	 * Retains realignments only if they improve the alignment score.
-	 * 
+	 *
 	 * @param r Read to realign
 	 * @param sl Corresponding SAM line (will be modified if realignment succeeds)
 	 * @param ref Reference sequence bytes
@@ -198,10 +170,10 @@ public class Realigner {
 	/**
 	 * Creates a padded reference sequence segment for MSA alignment.
 	 * Extends the reference region with padding bases, using 'N' for out-of-bounds positions.
-	 * 
+	 *
 	 * @param bases Full reference sequence
 	 * @param start Original alignment start position
-	 * @param stop Original alignment stop position  
+	 * @param stop Original alignment stop position
 	 * @param padding Number of bases to pad on each side
 	 * @return Padded reference segment
 	 */
@@ -215,49 +187,30 @@ public class Realigner {
 		return out;
 	}
 	
-	/**
-	 * Returns the MSA object used for alignment.
-	 * 
-	 * @return MSA instance
-	 */
 	public MSA msa(){return msa;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of realignment attempts */
 	long realignmentsAttempted=0;
-	/** Number of successful MSA alignments */
 	long realignmentsSucceeded=0;
-	/** Number of realignments actually retained */
 	long realignmentsRetained=0;  
-	/** Number of realignments that improved scores */
 	long realignmentsImproved=0;
 	
-	/** Maximum rows for MSA matrix */
 	private int maxrows=602;
-	/** Maximum columns for MSA matrix */
 	private int columns=2000;
-	/** Padding bases around alignment region */
 	private int padding=100;
-	/** MSA algorithm type */
 	private String msaType;
-	/** MSA instance for performing alignments */
 	private MSA msa;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Static Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Default maximum rows for MSA matrix */
 	public static int defaultMaxrows=603;
-	/** Default maximum columns for MSA matrix */
 	public static int defaultColumns=2000;
-	/** Default padding around alignment region */
 	public static int defaultPadding=200;
-	/** Default MSA algorithm type */
 	public static String defaultMsaType="MultiStateAligner11ts";
-	/** Scaffold map for reference sequence lookup (initialized by CallVariants) */
 	public static ScafMap map=null;
 }

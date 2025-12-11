@@ -14,7 +14,12 @@ class Eh {
  */
 public class KswGgJava implements IDAligner {
 
-    /** Main() passes the args and class to Test to avoid redundant code */
+    /**
+     * Program entry point that delegates to Test class for alignment validation.
+     * Uses reflection to determine calling class and passes it to Test.testAndPrint().
+     * @param args Command-line arguments passed to Test framework
+     * @throws Exception If reflection fails or Test execution encounters errors
+     */
     public static <C extends IDAligner> void main(String[] args) throws Exception {
         StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
         @SuppressWarnings("unchecked")
@@ -23,46 +28,76 @@ public class KswGgJava implements IDAligner {
     }
 
 	// Scoring constants
-	/** Match score for identical bases */
 	static final int MATCH = 1;
-	/** Mismatch penalty for differing bases */
 	static final int MISMATCH = -1;
-	/** Insertion penalty for gaps in reference */
 	static final int INS = -1;
-	/** Deletion penalty for gaps in query */
 	static final int DEL = -1;
-	/**
-	 * Sentinel value representing negative infinity to prevent invalid alignment paths
-	 */
 	static final int KSW_NEG_INF = Integer.MIN_VALUE;
-	/** Gap opening penalty for starting new indel */
 	static final int GAPO = 1;
-	/** Gap extension penalty for continuing existing indel */
 	static final int GAPE = 1;
 
-	/** Counter tracking computational loops for performance analysis */
 	private long loops = 0;
 
+	/** Returns the algorithm name for identification.
+	 * @return String "KswGgJava" identifying this alignment implementation */
 	@Override
 	public String name() {
 		return "KswGgJava";
 	}
 
+	/**
+	 * Aligns two sequences and returns alignment identity.
+	 * Delegates to align(q, r, null) without position vector output.
+	 *
+	 * @param q Query sequence as byte array
+	 * @param r Reference sequence as byte array
+	 * @return Float identity score from alignment
+	 */
 	@Override
 	public float align(byte[] q, byte[] r) {
 		return align(q, r, null);
 	}
 
+	/**
+	 * Aligns two sequences with position vector output.
+	 * Delegates to align(q, r, posVector, 0, 0) with full reference length.
+	 *
+	 * @param q Query sequence as byte array
+	 * @param r Reference sequence as byte array
+	 * @param posVector Array to store alignment start/stop positions (may be null)
+	 * @return Float identity score from alignment
+	 */
 	@Override
 	public float align(byte[] q, byte[] r, int[] posVector) {
 		return align(q, r, posVector, 0, 0);
 	}
 
+	/**
+	 * Aligns two sequences within reference window.
+	 * Delegates to align(q, r, posVector, Integer.MIN_VALUE, rStart, rStop).
+	 *
+	 * @param q Query sequence as byte array
+	 * @param r Reference sequence as byte array
+	 * @param posVector Array to store alignment positions (may be null)
+	 * @param rStart Start position in reference sequence
+	 * @param rStop Stop position in reference sequence
+	 * @return Float identity score from alignment
+	 */
 	@Override
 	public float align(byte[] q, byte[] r, int[] posVector, int rStart, int rStop) {
 		return align(q, r, posVector, Integer.MIN_VALUE, rStart, rStop);
 	}
 
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * Delegates to align(q, r, posVector, minScore, 0, 0) with full reference.
+	 *
+	 * @param q Query sequence as byte array
+	 * @param r Reference sequence as byte array
+	 * @param posVector Array to store alignment positions (may be null)
+	 * @param minScore Minimum alignment score threshold
+	 * @return Float identity score from alignment
+	 */
 	@Override
 	public float align(byte[] q, byte[] r, int[] posVector, int minScore) {
 		return align(q, r, posVector, minScore, 0, 0);
@@ -134,11 +169,18 @@ public class KswGgJava implements IDAligner {
 	}
 
 
+	/** Returns the current loop count for performance tracking.
+	 * @return Long value representing number of computational loops performed */
 	@Override
 	public long loops() {
 		return loops;
 	}
 
+	/**
+	 * Sets the loop counter to specified value.
+	 * Used for performance analysis and benchmarking.
+	 * @param i New loop count value
+	 */
 	@Override
 	public void setLoops(long i) {
 		loops = i;

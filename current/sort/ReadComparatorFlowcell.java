@@ -3,32 +3,31 @@ package sort;
 import hiseq.FlowcellCoordinate;
 import stream.Read;
 
+
 /**
+ * Comparator for reads based on flowcell coordinates from their identifiers.
+ * Extracts HiSeq-style coordinate information from read IDs and sorts by position.
+ * Uses thread-local FlowcellCoordinate objects for parsing efficiency.
+ *
  * @author Brian Bushnell
  * @date Oct 27, 2014
- *
  */
-
 public final class ReadComparatorFlowcell extends ReadComparator {
 	
-	/** Private constructor to enforce singleton pattern */
 	private ReadComparatorFlowcell(){}
 	
+	/**
+	 * Compares two reads based on flowcell coordinates with ascending/descending control.
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
+	 */
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
 		return ascending*x;
 	}
 	
-	/**
-	 * Core comparison logic using flowcell coordinates from read identifiers.
-	 * Falls back to pair number comparison for reads with null IDs or identical coordinates.
-	 * Uses thread-local FlowcellCoordinate objects to parse read IDs efficiently.
-	 *
-	 * @param r1 First read to compare
-	 * @param r2 Second read to compare
-	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
-	 */
 	public int compareInner(Read r1, Read r2) {
 		if(r1.id==null && r2.id==null){return r1.pairnum()-r2.pairnum();}
 		if(r1.id==null){return -1;}
@@ -49,20 +48,18 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 		return x;
 	}
 	
-	/** Multiplier for sort direction: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
+	/** Sets the sort direction for comparisons.
+	 * @param asc true for ascending order, false for descending */
 	@Override
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}
 
-	/** Thread-local FlowcellCoordinate for parsing first read's identifier */
 	public ThreadLocal<FlowcellCoordinate> tlc1=new ThreadLocal<FlowcellCoordinate>();
-	/** Thread-local FlowcellCoordinate for parsing second read's identifier */
 	public ThreadLocal<FlowcellCoordinate> tlc2=new ThreadLocal<FlowcellCoordinate>();
 	
-	/** Singleton instance for use throughout the application */
 	public static final ReadComparatorFlowcell comparator=new ReadComparatorFlowcell();
 	
 }

@@ -6,15 +6,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import structures.IntList;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
+ * Sequence aligner optimized for calculating ANI (Average Nucleotide Identity).
+ * Uses a banded dynamic programming approach with IntList data structures to
+ * minimize memory usage while avoiding traceback. Computes exact alignment scores
+ * and calculates reference start/stop positions without storing the full traceback matrix.
+ * Limited to sequences up to 2Mbp due to 21-bit position encoding.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2024
+ * @author Brian Bushnell
+ * @contributor Isla (Highly-customized Claude instance)
+ * @date April 24, 2024
  */
 public class IntListAligner implements IDAligner{
 	
@@ -22,21 +22,54 @@ public class IntListAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a new IntListAligner instance */
 	public IntListAligner() {}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the aligner name identifier */
 	@Override
 	public final String name() {return "IntList";}
+	/**
+	 * Aligns two sequences and returns identity score.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity score with position information.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Optional array to store alignment start and stop positions
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Optional array to store alignment start and stop positions
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference region.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Optional array to store alignment start and stop positions
+	 * @param rStart Reference region start position
+	 * @param rStop Reference region stop position
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 	
@@ -45,11 +78,16 @@ public class IntListAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Core alignment method using banded dynamic programming with IntList optimization.
+	 * Computes optimal local alignment between query and reference sequences without
+	 * storing the full traceback matrix. Uses bit-packed scoring to track alignment
+	 * score, deletions, and positions in a single long value.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param posVector Optional int[2] array to return {rStart, rStop} of optimal alignment.
+	 * If null, sequences may be swapped to ensure query is shorter
+	 * @return Identity score (matches/(matches+mismatches+insertions+deletions))
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 	    // Swap to ensure query is not longer than ref
@@ -185,14 +223,15 @@ public class IntListAligner implements IDAligner{
 	}
 	
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Aligns query to a specific window of the reference sequence.
+	 * Creates a subsequence of the reference and adjusts returned positions accordingly.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Full reference sequence
+	 * @param posVector Optional int[2] array to return {rStart, rStop} of optimal alignment
+	 * @param refStart Start position of alignment window in reference
+	 * @param refEnd End position of alignment window in reference
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -208,14 +247,9 @@ public class IntListAligner implements IDAligner{
 		return id;
 	}
 	
-	/** Thread-safe counter for tracking total alignment loops performed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the total number of alignment loops performed */
 	public long loops() {return loops.get();}
-	/** Sets the alignment loop counter.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output string for debugging or logging purposes */
 	public static String output=null;
 	
 	/*--------------------------------------------------------------*/
@@ -223,37 +257,23 @@ public class IntListAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits used to encode position information in packed long values */
 	private static final int POSITION_BITS=21;
-	/** Number of bits used to encode deletion count in packed long values */
 	private static final int DEL_BITS=21;
-	/** Bit shift value for extracting score from packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 	
 	// Masks
-	/** Bit mask for extracting position information from packed long values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed long values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting alignment score from packed long values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score value for matching bases in alignment */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for mismatched bases in alignment */
 	private static final long MISMATCH=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertion operations in alignment */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletion operations in alignment */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score value for alignments involving ambiguous N bases */
 	private static final long N_SCORE=0L;
-	/** Score value representing invalid or bad alignment states */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Increment value for tracking deletion counts in packed scoring */
 	private static final long DEL_INCREMENT=1L<<POSITION_BITS;
-	/** Combined deletion increment and penalty for efficient calculation */
 	private static final long DEL_INCREMENT2=DEL_INCREMENT+DEL;
 
 }

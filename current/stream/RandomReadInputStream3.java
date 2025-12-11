@@ -8,19 +8,16 @@ import shared.Tools;
 import synth.RandomReads3;
 
 /**
+ * Generates random synthetic reads for testing using RandomReads3 with configurable errors, lengths, and pairing.
  * @author Brian Bushnell
  * @date Sep 10, 2014
- *
  */
 public class RandomReadInputStream3 extends ReadInputStream {
 	
 	/**
-	 * Creates a random read stream with default parameters.
-	 * Sets genome build, read count, and pairing mode while using standard
-	 * error rates and quality score ranges.
-	 *
-	 * @param number_ Total number of reads to generate
-	 * @param paired_ Whether to generate paired-end reads
+	 * Creates a random read stream with default error/quality settings.
+	 * @param number_ Total reads to generate
+	 * @param paired_ True to generate paired-end reads
 	 */
 	public RandomReadInputStream3(long number_, boolean paired_){
 		Data.setGenome(Data.GENOME_BUILD);
@@ -34,29 +31,28 @@ public class RandomReadInputStream3 extends ReadInputStream {
 	}
 	
 	/**
-	 * Creates a random read stream with fully customizable parameters.
-	 * Allows precise control over read lengths, error types and rates,
-	 * chromosome range, quality scores, and pairing mode.
+	 * Creates a fully parameterized random read generator.
+	 * Allows control over read lengths, error counts/rates, chrom range, quality scores, and pairing.
 	 *
-	 * @param number_ Total number of reads to generate
-	 * @param minreadlen_ Minimum read length in bases
-	 * @param maxreadlen_ Maximum read length in bases
-	 * @param maxSnps_ Maximum SNPs per read
-	 * @param maxInss_ Maximum insertions per read
-	 * @param maxDels_ Maximum deletions per read
-	 * @param maxSubs_ Maximum substitutions per read
-	 * @param snpRate_ Probability of SNPs occurring
-	 * @param insRate_ Probability of insertions occurring
-	 * @param delRate_ Probability of deletions occurring
-	 * @param subRate_ Probability of substitutions occurring
-	 * @param maxInsertionLen_ Maximum length of insertion events
-	 * @param maxDeletionLen_ Maximum length of deletion events
-	 * @param maxSubLen_ Maximum length of substitution events
-	 * @param minChrom_ Minimum chromosome number to sample from
-	 * @param maxChrom_ Maximum chromosome number to sample from
-	 * @param paired_ Whether to generate paired-end reads
+	 * @param number_ Total reads to generate
+	 * @param minreadlen_ Minimum read length
+	 * @param maxreadlen_ Maximum read length
+	 * @param maxSnps_ Max SNPs per read
+	 * @param maxInss_ Max insertions per read
+	 * @param maxDels_ Max deletions per read
+	 * @param maxSubs_ Max substitutions per read
+	 * @param snpRate_ SNP probability
+	 * @param insRate_ Insertion probability
+	 * @param delRate_ Deletion probability
+	 * @param subRate_ Substitution probability
+	 * @param maxInsertionLen_ Max insertion length
+	 * @param maxDeletionLen_ Max deletion length
+	 * @param maxSubLen_ Max substitution length
+	 * @param minChrom_ Minimum chromosome to sample
+	 * @param maxChrom_ Maximum chromosome to sample
+	 * @param paired_ Generate paired-end reads
 	 * @param minQual_ Minimum quality score
-	 * @param midQual_ Middle quality score for distribution
+	 * @param midQual_ Midpoint quality score
 	 * @param maxQual_ Maximum quality score
 	 */
 	public RandomReadInputStream3(long number_, int minreadlen_,  int maxreadlen_,
@@ -102,11 +98,14 @@ public class RandomReadInputStream3 extends ReadInputStream {
 		restart();
 	}
 	
+	/** Returns true while additional random reads remain to be generated. */
 	@Override
 	public boolean hasMore() {
 		return number>consumed;
 	}
 	
+	/** Generates and returns the next buffered batch of random reads.
+	 * @return List of generated reads, or null if exhausted */
 	@Override
 	public synchronized ArrayList<Read> nextList() {
 		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
@@ -120,11 +119,6 @@ public class RandomReadInputStream3 extends ReadInputStream {
 		return r;
 	}
 	
-	/**
-	 * Fills the internal buffer with randomly generated reads.
-	 * Calculates remaining reads needed and delegates generation to RandomReads3.
-	 * Buffer size is limited to BUF_LEN to control memory usage.
-	 */
 	private synchronized void fillBuffer(){
 		buffer=null;
 		next=0;
@@ -147,6 +141,9 @@ public class RandomReadInputStream3 extends ReadInputStream {
 //		assert(false) : reads.size()+", "+toMake;
 	}
 	
+	/**
+	 * Resets counters and regenerates the RandomReads3 generator for a fresh run.
+	 */
 	@Override
 	public synchronized void restart(){
 		next=0;
@@ -156,6 +153,8 @@ public class RandomReadInputStream3 extends ReadInputStream {
 		rr=new RandomReads3(1, paired);
 	}
 
+	/** No-op close for synthetic generation.
+	 * @return false (nothing to close) */
 	@Override
 	public boolean close() {return false;}
 
@@ -164,85 +163,54 @@ public class RandomReadInputStream3 extends ReadInputStream {
 		return paired;
 	}
 	
+	/** Returns an identifier for this synthetic stream ("random").
+	 * @return Stream name */
 	@Override
 	public String fname(){return "random";}
 	
-	/** Buffer for storing generated reads before consumption */
 	private ArrayList<Read> buffer=null;
-	/** Index of next read to return from buffer */
 	private int next=0;
 	
-	/** Buffer size limit from shared configuration */
 	private final int BUF_LEN=Shared.bufferLen();;
 
-	/** Total number of reads generated so far */
 	public long generated=0;
-	/** Total number of reads consumed by caller */
 	public long consumed=0;
 	
-	/** Target total number of reads to generate */
 	public long number=100000;
-	/** Minimum read length in bases */
 	public int minreadlen=100;
-	/** Maximum read length in bases */
 	public int maxreadlen=100;
 
-	/** Maximum length of insertion error events */
 	public int maxInsertionLen=6;
-	/** Maximum length of substitution error events */
 	public int maxSubLen=6;
-	/** Maximum length of deletion error events */
 	public int maxDeletionLen=100;
-	/** Maximum length of N-base (ambiguous) sequences */
 	public int maxNLen=6;
 
-	/** Minimum length of insertion error events */
 	public int minInsertionLen=1;
-	/** Minimum length of substitution error events */
 	public int minSubLen=1;
-	/** Minimum length of deletion error events */
 	public int minDeletionLen=1;
-	/** Minimum length of N-base (ambiguous) sequences */
 	public int minNLen=1;
 	
-	/** Minimum chromosome number to sample reads from */
 	public int minChrom=1;
-	/** Maximum chromosome number to sample reads from */
 	public int maxChrom=22;
 	
-	/** Maximum number of SNPs per read */
 	public int maxSnps=4;
-	/** Maximum number of insertions per read */
 	public int maxInss=2;
-	/** Maximum number of deletions per read */
 	public int maxDels=2;
-	/** Maximum number of substitutions per read */
 	public int maxSubs=2;
-	/** Maximum number of N-base regions per read */
 	public int maxNs=2;
 
-	/** Probability rate for SNP error generation */
 	public float snpRate=0.5f;
-	/** Probability rate for insertion error generation */
 	public float insRate=0.25f;
-	/** Probability rate for deletion error generation */
 	public float delRate=0.25f;
-	/** Probability rate for substitution error generation */
 	public float subRate=0.10f;
-	/** Probability rate for N-base (ambiguous) generation */
 	public float NRate=0.10f;
 	
-	/** Whether to generate paired-end reads (true) or single-end (false) */
 	public final boolean paired;
 
-	/** Minimum quality score for generated bases */
 	public final byte minQual;
-	/** Middle quality score used in quality distribution */
 	public final byte midQual;
-	/** Maximum quality score for generated bases */
 	public final byte maxQual;
 	
-	/** Generator instance for creating random reads */
 	private RandomReads3 rr;
 
 }

@@ -22,14 +22,14 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * This is intended to run simultaneously on all files from a demultiplexed lane,
- * labeling each read with the barcode of the input file, then printing them
- * to a single output file.
- * For example, all reads from input file 52866.4.475040.GAGGCCGCCA-TTATCTAGCT.filter-DNA.fastq.gz
+ * Processes demultiplexed sequencing files by tagging each read with its barcode.
+ * Runs simultaneously on all files from a demultiplexed lane, extracts barcodes from
+ * filenames, appends them to read headers, and merges all reads into a single output file.
+ * For example, reads from "52866.4.475040.GAGGCCGCCA-TTATCTAGCT.filter-DNA.fastq.gz"
  * would have "(tab)GAGGCCGCCA+TTATCTAGCT" appended to their headers.
+ *
  * @author Brian Bushnell
  * @date May 10, 2024
- *
  */
 public class TagAndMerge {
 
@@ -261,24 +261,14 @@ public class TagAndMerge {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** List of input filenames to process for barcode tagging */
 	private ArrayList<String> in=new ArrayList<String>();
-	/** Output filename for merged and tagged reads */
 	private String out1=null;
-	/** Optional output file to write list of discovered barcodes */
 	private String barcodesOutFile=null;
-	/** Set of unique barcodes discovered from input filenames */
 	private LinkedHashSet<String> barcodes=new LinkedHashSet<String>();
 	
-	/** Length to trim reads to (-1 for no trimming) */
 	private int trimLen=-1;
-	/** Whether to discard R2 reads and output only R1 */
 	private boolean dropR2=false;
-	/** Whether to use shortened read headers to save space */
 	private boolean shrinkHeader=false;
-	/**
-	 * Character remapping array for transforming barcodes (pairs of old/new chars)
-	 */
 	private char[] remap=new char[] {'-', '+'};
 	
 	private final FileFormat ffout1;
@@ -292,7 +282,6 @@ public class TagAndMerge {
 	private long readsOut=0, basesOut=0;
 	private final ByteBuilder bb=new ByteBuilder();
 //	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
-	/** Line parser for extracting specific fields from Illumina read headers */
 	private final LineParserS4 lp=new LineParserS4(":::::: ");
 	
 	/*--------------------------------------------------------------*/

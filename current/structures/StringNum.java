@@ -2,48 +2,23 @@ package structures;
 
 import java.io.Serializable;
 
-/**
- * Associates a string with a numeric value, providing comparison and counting functionality.
- * Implements natural ordering based on numeric value first, then string lexicographically.
- * Commonly used for counting occurrences of string keys in BBTools processing pipelines.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public class StringNum implements Comparable<StringNum>, Serializable {
 
 	private static final long serialVersionUID=1L;
 	
-	/**
-	 * Constructs a StringNum with the specified string and numeric value.
-	 * @param s_ The string component
-	 * @param n_ The numeric value component
-	 */
 	public StringNum(String s_, long n_){
 		s=s_;
 		n=n_;
 	}
 
-	/** Increments the numeric value by 1 and returns the new value.
-	 * @return The incremented numeric value */
 	public long increment(){
 		return (n=n+1);
 	}
 	
-	/**
-	 * Increments the numeric value by the specified amount and returns the new value.
-	 * @param x The amount to add to the numeric value
-	 * @return The incremented numeric value
-	 */
 	public long increment(long x){
 		return (n=n+x);
 	}
 	
-	/**
-	 * Adds another StringNum's numeric value to this object's numeric value.
-	 * The string component is unchanged.
-	 * @param sn The StringNum whose numeric value to add
-	 */
 	public void add(StringNum sn) {
 		n+=sn.n;
 	}
@@ -58,27 +33,36 @@ public class StringNum implements Comparable<StringNum>, Serializable {
 		return s.compareTo(o.s);
 	}
 
+	/**
+	 * Returns a tab-separated string representation of this StringNum.
+	 * Format: "string\tnumber"
+	 * @return Tab-delimited string and number
+	 */
 	@Override
 	public String toString(){
 		return s+"\t"+n;
 	}
 
+	/**
+	 * Returns a hash code combining the string hash and lower 31 bits of the number.
+	 * Uses XOR combination to distribute hash values effectively.
+	 * @return Combined hash code of string and numeric components
+	 */
 	@Override
 	public int hashCode(){
 		return ((int)(n&Integer.MAX_VALUE))^(s.hashCode());
 	}
 	
+	/**
+	 * Tests equality with another object by casting to StringNum.
+	 * @param other The object to compare with
+	 * @return true if objects are equal, false otherwise
+	 */
 	@Override
 	public boolean equals(Object other){
 		return equals((StringNum)other); //Possible bug: Unchecked cast may throw ClassCastException
 	}
 	
-	/**
-	 * Tests equality with another StringNum based on both string and numeric values.
-	 * Returns true only if both components match exactly.
-	 * @param other The StringNum to compare with
-	 * @return true if both string and numeric values are equal, false otherwise
-	 */
 	public boolean equals(StringNum other){
 		if(other==null){return false;}
 		if(n!=other.n){return false;}
@@ -89,9 +73,7 @@ public class StringNum implements Comparable<StringNum>, Serializable {
 	
 	/*--------------------------------------------------------------*/
 
-	/** The string component of this StringNum */
 	public final String s;
-	/** The numeric value component that can be modified via increment operations */
 	public long n;
 
 }

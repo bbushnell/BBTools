@@ -3,21 +3,15 @@ package driver;
 import fileIO.TextFile;
 
 /**
- * Summarizes match/sub/ins/del/N rates for consecutive BBMap runs
+ * Parses BBMap alignment output files to summarize match/substitution/insertion/deletion/N rates.
+ * Reads tab-delimited BBMap statistics and outputs consolidated counts for consecutive runs.
+ * Processes standard BBMap output format looking for rate statistics and timing markers.
+ *
  * @author Brian Bushnell
  * @date Jan 8, 2014
- *
  */
 public class SummarizeMSDIN {
 	
-	/**
-	 * Parses BBMap output file to extract and summarize alignment statistics.
-	 * Reads the specified file line by line, extracting match, substitution, insertion,
-	 * deletion, and N rates along with base counts. Outputs tab-delimited summary
-	 * when encountering "Total time:" markers indicating end of BBMap run.
-	 *
-	 * @param args Command line arguments where args[0] is the BBMap output file path
-	 */
 	public static void main(String[] args){
 		String fname=args[0];
 		boolean M=false;

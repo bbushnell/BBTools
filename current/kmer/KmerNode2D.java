@@ -10,10 +10,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Allows multiple values per kmer.
+ * A k-mer tree node that supports multiple values per k-mer.
+ * Extends KmerNode to allow storage of arrays of integers rather than single values.
+ * Uses dynamic array resizing and duplicate detection for efficient multi-value storage.
+ *
  * @author Brian Bushnell
  * @date Nov 7, 2014
- *
  */
 public class KmerNode2D extends KmerNode {
 	
@@ -21,17 +23,10 @@ public class KmerNode2D extends KmerNode {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Constructs a KmerNode2D with specified pivot k-mer.
-	 * @param pivot_ The k-mer value to use as pivot for tree balancing */
 	public KmerNode2D(long pivot_){
 		super(pivot_);
 	}
 	
-	/**
-	 * Constructs a KmerNode2D with pivot and single initial value.
-	 * @param pivot_ The k-mer value to use as pivot for tree balancing
-	 * @param value_ Initial value to store (must be >= 0 or -1 for empty)
-	 */
 	public KmerNode2D(long pivot_, int value_){
 		super(pivot_);
 		assert(value_>=0 || value_==-1);
@@ -39,12 +34,6 @@ public class KmerNode2D extends KmerNode {
 		numValues=1;
 	}
 	
-	/**
-	 * Constructs a KmerNode2D with pivot and array of initial values.
-	 * @param pivot_ The k-mer value to use as pivot for tree balancing
-	 * @param vals_ Array of values to store
-	 * @param vlen Number of valid values in the array
-	 */
 	public KmerNode2D(long pivot_, int[] vals_, int vlen){
 		super(pivot_);
 		values=vals_;
@@ -54,11 +43,24 @@ public class KmerNode2D extends KmerNode {
 //		assert(countValues(values)==vlen) : countValues(values)+", "+vlen; //TODO: Slow assertion //123
 	}
 	
+	/**
+	 * Factory method to create new KmerNode2D with single value.
+	 * @param pivot_ The k-mer value for the new node
+	 * @param value_ Initial value for the new node
+	 * @return New KmerNode2D instance
+	 */
 	@Override
 	public final KmerNode makeNode(long pivot_, int value_){
 		return new KmerNode2D(pivot_, value_);
 	}
 	
+	/**
+	 * Factory method to create new KmerNode2D with multiple values.
+	 * @param pivot_ The k-mer value for the new node
+	 * @param values_ Array of values for the new node
+	 * @param vlen Number of valid values in the array
+	 * @return New KmerNode2D instance
+	 */
 	@Override
 	public final KmerNode makeNode(long pivot_, int[] values_, int vlen){
 		return new KmerNode2D(pivot_, values_, vlen);
@@ -87,7 +89,14 @@ public class KmerNode2D extends KmerNode {
 //		return x;
 //	}
 	
-	/** Returns number of nodes added */
+	/**
+	 * Sets multiple values for a k-mer in the tree, creating nodes as needed.
+	 * Recursively traverses the tree to find the correct position.
+	 * @param kmer The k-mer to store values for
+	 * @param vals Array of values to store
+	 * @param vlen Number of valid values in the array
+	 * @return Number of new nodes added to the tree
+	 */
 	@Override
 	public int set(long kmer, int vals[], int vlen){
 		if(pivot<0){pivot=kmer; insertValue(vals, vlen); return 1;} //Allows initializing empty nodes to -1
@@ -107,20 +116,38 @@ public class KmerNode2D extends KmerNode {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the first value stored in this node.
+	 * @return First value in the values array, or 0 if no values stored */
 	@Override
 	protected int value(){return values==null ? 0 : values[0];}
 	
+	/**
+	 * Returns the values array for this node.
+	 * @param singleton Unused parameter for compatibility
+	 * @return The values array stored in this node
+	 */
 	@Override
 	protected int[] values(int[] singleton){
 		return values;
 	}
 	
+	/**
+	 * Adds a single value to this node.
+	 * @param value_ The value to add
+	 * @return The value that was added
+	 */
 	@Override
 	public int set(int value_){
 		insertValue(value_);
 		return value_;
 	}
 	
+	/**
+	 * Sets multiple values for this node.
+	 * @param values_ Array of values to store
+	 * @param vlen Number of valid values in the array
+	 * @return 1 if values were null before, 0 otherwise
+	 */
 	@Override
 	protected int set(int[] values_, int vlen){
 		int ret=(values==null ? 1 : 0);
@@ -128,6 +155,8 @@ public class KmerNode2D extends KmerNode {
 		return ret;
 	}
 	
+	/** Returns the number of values stored in this node.
+	 * @return Count of valid values in the values array */
 	@Override
 	int numValues(){
 //		assert(countValues(values)==numValues) : countValues(values)+", "+numValues; //TODO: Slow assertion //123
@@ -144,12 +173,22 @@ public class KmerNode2D extends KmerNode {
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts a single value into this node's value list.
+	 * @param v The value to insert
+	 * @return Number of values added (0 if duplicate, 1 if new)
+	 */
 	private int insertValue(int v){
 		return insertIntoList(v);
 	}
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts multiple values into this node's value list.
+	 * Skips duplicate values and stops at negative values.
+	 * @param vals Array of values to insert
+	 * @param vlen Number of valid values to process
+	 * @return 1 if values array was null before, 0 otherwise
+	 */
 	private int insertValue(int[] vals, int vlen){
 //		assert(countValues(vals)==vlen) : countValues(vals)+", "+vlen; //TODO: Slow assertion //123
 		assert(vals!=null || vlen==0);
@@ -166,11 +205,6 @@ public class KmerNode2D extends KmerNode {
 		return 0;
 	}
 	
-	/**
-	 * Counts the number of valid (non-negative) values in an array.
-	 * @param vals Array to count values in
-	 * @return Number of non-negative values before first negative value
-	 */
 	private final int countValues(int[] vals){
 		if(vals==null) {return 0;}
 		int count=0;
@@ -184,13 +218,6 @@ public class KmerNode2D extends KmerNode {
 		return count;
 	}
 	
-	/**
-	 * Inserts a value into the values array with duplicate checking and resizing.
-	 * Uses limited backward search for duplicates to avoid O(n) performance.
-	 * Automatically resizes array when full.
-	 * @param v The value to insert (must be >= 0)
-	 * @return 1 if value was added, 0 if it was a duplicate
-	 */
 	private final int insertIntoList(final int v){
 //		assert(countValues(values)==numValues) : countValues(values)+", "+numValues; //TODO: Slow assertion //123
 		assert(v>=0);
@@ -233,28 +260,41 @@ public class KmerNode2D extends KmerNode {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Indicates whether this node type supports resizing operations.
+	 * @return false - KmerNode2D does not support resizing */
 	@Override
 	boolean canResize() {
 		return false;
 	}
 	
+	/** Indicates whether this node type supports rebalancing operations.
+	 * @return true - KmerNode2D supports rebalancing */
 	@Override
 	public boolean canRebalance() {
 		return true;
 	}
 
+	/**
+	 * Deprecated method that throws RuntimeException.
+	 * @return Never returns - always throws exception
+	 * @throws RuntimeException Always thrown as method is unsupported
+	 */
 	@Deprecated
 	@Override
 	public int arrayLength() {
 		throw new RuntimeException("Unsupported.");
 	}
 
+	/** Deprecated method that throws RuntimeException.
+	 * @throws RuntimeException Always thrown as method is unsupported */
 	@Deprecated
 	@Override
 	void resize() {
 		throw new RuntimeException("Unsupported.");
 	}
 
+	/** Deprecated method that throws RuntimeException.
+	 * @throws RuntimeException Always thrown - use rebalance(ArrayList) instead */
 	@Deprecated
 	@Override
 	public void rebalance() {
@@ -265,6 +305,15 @@ public class KmerNode2D extends KmerNode {
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Outputs k-mer and values as bytes to a stream writer, recursively traversing subtrees.
+	 * @param bsw Stream writer for output
+	 * @param k Length of k-mer for formatting
+	 * @param mincount Minimum count threshold (unused in this implementation)
+	 * @param maxcount Maximum count threshold (unused in this implementation)
+	 * @param remaining Counter for remaining items to process
+	 * @return true if operation completed successfully
+	 */
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		if(values==null){return true;}
@@ -275,6 +324,17 @@ public class KmerNode2D extends KmerNode {
 		return true;
 	}
 	
+	/**
+	 * Multi-threaded version of k-mer dumping using ByteBuilder for buffering.
+	 * Flushes buffer to writer when it exceeds 16KB to maintain memory efficiency.
+	 * @param bsw Thread-safe stream writer for output
+	 * @param bb ByteBuilder for accumulating output before writing
+	 * @param k Length of k-mer for formatting
+	 * @param mincount Minimum count threshold (unused)
+	 * @param maxcount Maximum count threshold (unused)
+	 * @param remaining Counter for remaining items to process
+	 * @return true if operation completed successfully
+	 */
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		if(values==null){return true;}
@@ -291,6 +351,14 @@ public class KmerNode2D extends KmerNode {
 		return true;
 	}
 	
+	/**
+	 * Outputs k-mer and values as text to StringBuilder, recursively traversing subtrees.
+	 * @param sb StringBuilder to append output to (created if null)
+	 * @param k Length of k-mer for formatting
+	 * @param mincount Minimum count threshold (unused)
+	 * @param maxcount Maximum count threshold (unused)
+	 * @return StringBuilder containing formatted output
+	 */
 	@Override
 	protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(values==null){return sb;}
@@ -301,6 +369,14 @@ public class KmerNode2D extends KmerNode {
 		return sb;
 	}
 	
+	/**
+	 * Outputs k-mer and values as text to ByteBuilder, recursively traversing subtrees.
+	 * @param bb ByteBuilder to append output to (created if null)
+	 * @param k Length of k-mer for formatting
+	 * @param mincount Minimum count threshold (unused)
+	 * @param maxcount Maximum count threshold (unused)
+	 * @return ByteBuilder containing formatted output
+	 */
 	@Override
 	protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount){
 		if(values==null){return bb;}
@@ -311,6 +387,8 @@ public class KmerNode2D extends KmerNode {
 		return bb;
 	}
 	
+	/** Indicates this node type supports two-dimensional (multi-value) storage.
+	 * @return true - this is a 2D node type */
 	@Override
 	final boolean TWOD(){return true;}
 	
@@ -322,11 +400,8 @@ public class KmerNode2D extends KmerNode {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing multiple integer values for this k-mer */
 	int[] values;
-	/** Count of valid values currently stored in the values array */
 	private int numValues;
-	/** Maximum number of recent values to check for duplicates during insertion */
 	private static final int slowAddLimit=4;
 	
 }

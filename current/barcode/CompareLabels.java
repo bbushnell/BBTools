@@ -24,14 +24,14 @@ import structures.ListNum;
 import structures.LongList;
 
 /**
+ * Compares taxonomic labels between two classification sources for accuracy analysis.
+ * Processes reads with dual labels (typically reference vs predicted) to compute precision, recall, contamination rates, and yield statistics.
+ * Supports various delimiter formats and label filtering options.
  * @author Brian Bushnell
  * @date May 8, 2014
- *
  */
 public class CompareLabels {
 
-	/** Program entry point for label comparison analysis.
-	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -111,8 +111,7 @@ public class CompareLabels {
 	
 	/**
 	 * Main processing method that compares labels and generates statistics.
-	 * Reads input sequences with dual labels, computes agreement/disagreement rates,
-	 * and outputs summary statistics and per-label breakdown.
+	 * Reads input sequences with dual labels, computes agreement/disagreement rates, and outputs summary statistics and per-label breakdown.
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
@@ -260,8 +259,7 @@ public class CompareLabels {
 	
 	/**
 	 * Processes a single read's dual labels for comparison analysis.
-	 * Extracts two labels from read ID, categorizes agreement/disagreement,
-	 * and updates appropriate counters for statistical analysis.
+	 * Extracts two labels from read ID, categorizes agreement/disagreement, and updates appropriate counters for statistical analysis.
 	 * @param r Read containing dual labels in the sequence identifier
 	 */
 	private void processRead(Read r) {
@@ -329,31 +327,21 @@ public class CompareLabels {
 	
 	private static class Label implements Comparable<Label> {
 		
-		/** Constructs a Label for tracking comparison statistics.
-		 * @param s Label name/identifier */
 		Label(String s) {
 			name=s;
 			unknown="UNKNOWN".equalsIgnoreCase(name);
 		}
 		
-		/**
-		 * Returns total occurrence count for this label across all comparison categories
-		 */
 		final long count() {return aa+au+ua+ab+ba;}
 		
 		//aka refcount
-		/** Returns reference count (total occurrences as reference label) */
 		final long count1() {return aa+ab+(unknown ? ua : au);}
 		
 		//aka assigned count
-		/** Returns assigned count (total occurrences as predicted label) */
 		final long count2() {return aa+ba+(unknown ? au : ua);}
 
-		/** Returns true positive count (correctly identified instances) */
 		final long tp() {return aa;}
-		/** Returns false positive count (incorrectly assigned instances) */
 		final long fp() {return ba;}
-		/** Returns false negative count (missed instances) */
 		final long fn() {return au;}
 		
 		@Override
@@ -366,7 +354,6 @@ public class CompareLabels {
 			return name.compareTo(o.name);
 		}
 		
-		/** Returns header string for tabular output of Label statistics */
 		public static String header() {
 			ByteBuilder bb=new ByteBuilder();
 			bb.append("#Name").tab().append("Count").tab().append("Count1").tab().append("Count2");
@@ -402,84 +389,53 @@ public class CompareLabels {
 			return bb;
 		}
 		
-		/** Label name/identifier */
 		final String name;
-		/** Whether this label represents an "UNKNOWN" classification */
 		final boolean unknown;
-		/** Count of true positive assignments (both labels match this label) */
 		long aa=0;
-		/** Count where this label is reference but prediction is "UNKNOWN" */
 		long au=0;
-		/** Count where this label is predicted but reference is "UNKNOWN" */
 		long ua=0;
-		/** Count where this label is reference but prediction is different */
 		long ab=0;
-		/** Count where this label is predicted but reference is different */
 		long ba=0;
 		
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path containing reads with dual labels */
 	private String in1=null;
-	/** Output file path for summary statistics */
 	private String out1="stdout.txt";
 	
-	/** File format handler for input file */
 	private final FileFormat ffin1;
-	/** File format handler for output file */
 	private final FileFormat ffout1;
 	
-	/** Delimiter character for parsing labels from read IDs */
 	private char delimiter='\t';
-	/** Line parser for extracting label fields from delimited read IDs */
 	private final LineParserS1 lp;
 
-	/** Whether to swap the order of label extraction from read IDs */
 	private boolean swap=false;
-	/** Output file path for detailed per-label statistics */
 	private String labelStats=null;
-	/** File containing valid label names for filtering analysis */
 	private String quantSetFile=null;
 
-	/** Map storing per-label statistics objects for detailed analysis */
 	private final LinkedHashMap<String, Label> map;
-	/** Set of valid label names for filtering (null to include all labels) */
 	private final HashSet<String> quantSet;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
-	/** Total number of reads processed */
 	private long readsProcessed=0;
-	/** Total number of bases processed */
 	private long basesProcessed=0;
-	/** Total number of label pairs processed */
 	private long labelsProcessed=0;
 	
-	/** Histogram of term counts per read ID for parsing validation */
 	private LongList termCounts=new LongList();
-	/** Count of reads where both labels are "UNKNOWN" */
 	private long uuCount=0;
-	/** Count of reads where first label is "UNKNOWN" and second is assigned */
 	private long uaCount=0;
-	/** Count of reads where first label is assigned and second is "UNKNOWN" */
 	private long auCount=0;
-	/** Count of reads where both labels are assigned and identical */
 	private long aaCount=0;
-	/** Count of reads where both labels are assigned but different */
 	private long abCount=0;
-	/** Count of reads with invalid or insufficient label information */
 	private long invalidCount=0;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Print stream for program output and logging */
 	private java.io.PrintStream outstream=System.err;
-	/** Whether to print verbose processing information */
 	public static boolean verbose=false;
 	
 }

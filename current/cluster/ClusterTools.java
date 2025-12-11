@@ -8,36 +8,20 @@ import jgi.Dedupe;
 import shared.Tools;
 
 /**
+ * Utility methods for k-mer analysis and clustering operations in sequence processing.
+ * Provides k-mer conversion, canonical encoding, frequency analysis, and similarity
+ * scoring functions for bioinformatics clustering pipelines.
+ *
  * @author Brian Bushnell
  * @date Mar 24, 2014
- *
  */
 public class ClusterTools {
 	
-	/**
-	 * Converts DNA sequence to k-mer counts array.
-	 * Currently a stub implementation that returns null.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param object Unused parameter
-	 * @param k K-mer length
-	 * @return Null (stub implementation)
-	 */
 	public static int[] toKmerCounts(byte[] bases, Object object, int k) {
 		// TODO Auto-generated method stub
 		return null;
 	}
 
-	/**
-	 * Converts DNA sequence to sorted array of canonical k-mers.
-	 * Uses rolling hash to generate forward and reverse complement k-mers,
-	 * selecting the lexicographically smaller canonical form for each position.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param array_ Optional pre-allocated array to reuse
-	 * @param k K-mer length
-	 * @return Sorted array of canonical k-mers, or null if sequence too short
-	 */
 	public static int[] toKmers(final byte[] bases, int[] array_, final int k){
 		if(bases==null || bases.length<k){return null;}
 		final int alen=bases.length-k+1;
@@ -69,17 +53,6 @@ public class ClusterTools {
 		return array;
 	}
 	
-	/**
-	 * Converts DNA sequence to k-mer frequency counts array.
-	 * Generates canonical k-mers and increments counts in the provided array,
-	 * then sorts the array by frequency values.
-	 *
-	 * @param bases DNA sequence as byte array
-	 * @param array_ Optional pre-allocated count array to reuse
-	 * @param k K-mer length
-	 * @param alen Length of count array
-	 * @return Sorted k-mer count array
-	 */
 	public static int[] toKmerCounts(final byte[] bases, int[] array_, final int k, final int alen){
 		if(bases==null || bases.length<k){return null;}
 		final int[] array=(array_!=null && array_.length==alen ? array_ : new int[alen]);
@@ -109,14 +82,6 @@ public class ClusterTools {
 		return array;
 	}
 	
-	/**
-	 * Finds the maximum canonical k-mer value for given k-mer length.
-	 * Iterates through all possible k-mers, converts each to canonical form
-	 * using reverse complement comparison, and returns the highest value.
-	 *
-	 * @param k K-mer length in bases
-	 * @return Maximum canonical k-mer value
-	 */
 	public static int maxCanonicalKmer(int k){
 		final int bits=2*k;
 		final int max=(int)((1L<<bits)-1);
@@ -129,9 +94,13 @@ public class ClusterTools {
 	}
 	
 	/**
-	 * @param kmers Read kmers
-	 * @param counts Cluster kmer counts
-	 * @return Score
+	 * Calculates fraction of k-mers present in cluster counts.
+	 * Counts how many k-mers from the read have non-zero counts
+	 * in the cluster's atomic count array.
+	 *
+	 * @param kmers Read k-mers array
+	 * @param counts Cluster k-mer counts
+	 * @return Fraction of k-mers present (0.0 to 1.0)
 	 */
 	static final float andCount(int[] kmers, AtomicLongArray counts){
 		int sum=0;
@@ -144,9 +113,13 @@ public class ClusterTools {
 	}
 	
 	/**
-	 * @param kmers Read kmers
-	 * @param probs Cluster kmer frequencies
-	 * @return Score
+	 * Computes inner product between read k-mers and cluster probabilities.
+	 * Sums the probability values for each k-mer present in the read,
+	 * skipping negative k-mer values (invalid k-mers).
+	 *
+	 * @param kmers Read k-mers array
+	 * @param probs Cluster k-mer probability distribution
+	 * @return Sum of probabilities for matching k-mers
 	 */
 	static final float innerProduct(int[] kmers, float[] probs){
 		float sum=0;
@@ -159,9 +132,13 @@ public class ClusterTools {
 	}
 	
 	/**
-	 * @param a Read kmer frequencies
-	 * @param b Cluster kmer frequencies
-	 * @return Score
+	 * Calculates sum of absolute differences between two frequency arrays.
+	 * Compares corresponding elements and accumulates absolute differences
+	 * to measure dissimilarity between k-mer frequency distributions.
+	 *
+	 * @param a First k-mer frequency array
+	 * @param b Second k-mer frequency array
+	 * @return Sum of absolute differences between arrays
 	 */
 	static final float absDif(float[] a, float[] b){
 		assert(a.length==b.length);
@@ -174,9 +151,13 @@ public class ClusterTools {
 	}
 	
 	/**
-	 * @param a Read kmer frequencies
-	 * @param b Cluster kmer frequencies
-	 * @return Score
+	 * Calculates root mean square difference between two frequency arrays.
+	 * Computes squared differences, averages them, and returns the square root
+	 * to measure the magnitude of differences between distributions.
+	 *
+	 * @param a First k-mer frequency array
+	 * @param b Second k-mer frequency array
+	 * @return Root mean square difference between arrays
 	 */
 	static final float rmsDif(float[] a, float[] b){
 		assert(a.length==b.length);
@@ -191,9 +172,13 @@ public class ClusterTools {
 	}
 	
 	/**
-	 * @param a Read kmer frequencies
-	 * @param b Cluster kmer frequencies
-	 * @return Score
+	 * Computes Kullback-Leibler-like divergence between frequency distributions.
+	 * Calculates sum of a[i] * log(a[i]/b[i]) with small epsilon added to prevent
+	 * division by zero, measuring asymmetric difference between distributions.
+	 *
+	 * @param a First k-mer frequency array
+	 * @param b Second k-mer frequency array
+	 * @return KL-like divergence score
 	 */
 	static final float ksFunction(float[] a, float[] b){
 		assert(a.length==b.length);
@@ -208,7 +193,6 @@ public class ClusterTools {
 		return (float)sum;
 	}
 	
-	/** Enable verbose debug output for k-mer processing operations */
 	public static boolean verbose=false;
 	
 }

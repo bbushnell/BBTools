@@ -9,19 +9,23 @@ import structures.IntList;
 import structures.RingBuffer;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
+ * Fast sequence aligner using sparse dynamic programming for ANI calculation.
+ * Uses only two arrays and avoids traceback, calculating reference start and
+ * stop positions directly from packed scores. Limited to sequences up to
+ * 2Mbp with 21 position bits and tuned for high-identity alignments via
+ * adaptive bandwidth selection and bridge building.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date April 24, 2025
  */
 public class QuabbleAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to the Test harness.
+	 * Uses reflection to determine the calling aligner class and passes it to Test.
+	 * @param args Command-line arguments forwarded to Test.testAndPrint()
+	 * @throws Exception If class lookup or test execution fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 		args=new PreParser(args, System.err, null, false, true, false).args;
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
@@ -34,7 +38,6 @@ public class QuabbleAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for QuabbleAligner instance */
 	public QuabbleAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -56,7 +59,14 @@ public class QuabbleAligner implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Determines the bandwidth for alignment based on sequence lengths and an
+	 * early mismatch scan, choosing a narrow band for high-identity, low-indel
+	 * alignments.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Bandwidth for alignment, at least 2 plus a small safety margin
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int qLen=query.length, rLen=ref.length;
 		int maxLen=Math.max(qLen, rLen), minLen=Math.min(qLen, rLen);
@@ -70,11 +80,13 @@ public class QuabbleAligner implements IDAligner{
 	}
 
 	/**
+	 * Main static alignment method using sparse dynamic programming with packed
+	 * scores, optional dense initialization, and a ring buffer–based heuristic to
+	 * encourage recent improvements.
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional int[2+] for returning reference start/stop and stats
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -286,10 +298,9 @@ public class QuabbleAligner implements IDAligner{
 	
 	// Process the first topWidth rows using a dense approach
 	/**
-	 * Processes the first topWidth rows using dense dynamic programming approach.
-	 * Fills all cells in the top portion of the alignment matrix.
-	 * Used as initialization before switching to sparse algorithm.
-	 *
+	 * Processes the first topWidth rows using a dense dynamic programming
+	 * approach that fills all cells in the top portion of the alignment matrix
+	 * before switching to the sparse algorithm.
 	 * @param query Query sequence
 	 * @param ref Reference sequence
 	 * @param prev Previous row scores
@@ -348,13 +359,15 @@ public class QuabbleAligner implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Converts an encoded maxScore and position into identity and coordinates.
+	 * Decodes origin, deletions, and raw score from packed bits and solves for
+	 * matches, substitutions, insertions, and deletions.
+	 * @param maxScore Highest encoded score in the last row
+	 * @param maxPos Position of highest score in reference
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for returning reference coordinates and statistics
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -409,14 +422,16 @@ public class QuabbleAligner implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Lightweight wrapper for aligning to a window of the reference sequence.
+	 * Extracts the specified region, calls the core alignStatic, asserts a
+	 * successful alignment, and adjusts returned coordinates back to the full
+	 * reference.
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional array for returning reference coordinates
+	 * @param refStart Start position of alignment window (inclusive)
+	 * @param refEnd End position of alignment window (inclusive)
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -433,16 +448,9 @@ public class QuabbleAligner implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for total inner loop iterations across all alignments */
 	private static AtomicLong loops=new AtomicLong(0);
-	/**
-	 * Returns the total number of inner loop iterations performed across all alignments
-	 */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter to a specific value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for visualization debugging */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -450,55 +458,35 @@ public class QuabbleAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits allocated for position information in score encoding */
 	private static final int POSITION_BITS=21;
-	/** Number of bits allocated for deletion count in score encoding */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for score component in packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from packed scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed scores */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting raw alignment score from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score increment for sequence matches */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous bases (N characters) */
 	private static final long N_SCORE=0L;
-	/** Sentinel value indicating invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty and position increment for packed scoring */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Whether to extend alignment exploration from matching cells */
 	private static final boolean EXTEND_MATCH=true;
-	/** Whether to use loop-based or branchless version for position updates */
 	private static final boolean LOOP_VERSION=false;
-	/** Whether to build bridges across gaps to catch long deletions */
 	private static final boolean BUILD_BRIDGES=true;
-	/** Frequency of bridge building operations */
 	private static final int BRIDGE_PERIOD=16;
-	/** Whether to use dense alignment for top rows */
 	private static final boolean DENSE_TOP=false;
-	/** Whether to print detailed operation statistics for debugging */
 	private static final boolean PRINT_OPS=false;
 //	private static final boolean debug=false;
 	// This will force full-length alignment, but it will only be optimal
 	// if the global alignment is within the glocal bandwidth.
 	// Better to use Banded/Glocal for arbitrary global alignments.
-	/** Whether to force global alignment mode instead of glocal */
 	public static final boolean GLOBAL=false;
 
 }

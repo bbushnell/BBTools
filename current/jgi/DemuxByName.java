@@ -33,17 +33,15 @@ import tracker.ReadStats;
 
 
 /**
+ * Demultiplexes sequence reads by name patterns into separate output files.
+ * Separates reads based on prefixes, suffixes, or substrings in read identifiers.
+ * Supports delimiter-based parsing and flexible pattern matching modes.
+ *
  * @author Brian Bushnell
  * @date Oct 9, 2014
- *
  */
 public class DemuxByName {
 
-	/**
-	 * Program entry point for demultiplexing reads by name patterns.
-	 * Configures compression settings, creates DemuxByName instance, and processes data.
-	 * @param args Command-line arguments specifying input files and demux parameters
-	 */
 	public static void main(String[] args){
 		
 		final int oldCap=Shared.numBuffers(), oldZipThreads=ReadWrite.MAX_ZIP_THREADS(), oldZl=ReadWrite.ZIPLEVEL;
@@ -63,12 +61,6 @@ public class DemuxByName {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs DemuxByName instance and parses command-line arguments.
-	 * Configures demultiplexing parameters, output streams, and file formats.
-	 * Sets up name pattern matching and validates input/output file specifications.
-	 * @param args Command-line arguments containing input files, names, and options
-	 */
 	public DemuxByName(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -277,12 +269,6 @@ public class DemuxByName {
 		}
 	}
 	
-	/**
-	 * Main processing method that demultiplexes reads based on name patterns.
-	 * Reads input streams, matches read names against configured patterns,
-	 * and writes matched reads to appropriate output files.
-	 * @param t Timer for tracking processing performance
-	 */
 	void process(Timer t){
 		
 		
@@ -502,96 +488,58 @@ public class DemuxByName {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path for paired reads */
 	private String in2=null;
 	
-	/** Quality file path for primary input */
 	private String qfin1=null;
-	/** Quality file path for secondary input */
 	private String qfin2=null;
 
-	/**
-	 * Output file template for primary reads, must contain '%' for name substitution
-	 */
 	private String out1=null;
-	/**
-	 * Output file template for secondary reads, must contain '%' for name substitution
-	 */
 	private String out2=null;
 
-	/** Output file for unmatched primary reads */
 	private String outu1=null;
-	/** Output file for unmatched secondary reads */
 	private String outu2=null;
 
-	/** Quality file output template for primary reads */
 	private String qfout1=null;
-	/** Quality file output template for secondary reads */
 	private String qfout2=null;
 	
-	/** Extension for input files */
 	private String extin=null;
-	/** Extension for output files */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
 //	private boolean exclude=true;
 
-	/** Character used to split read names into fields */
 	private String delimiter=null;
-	/** When true, matches prefixes; when false, matches suffixes */
 	private boolean prefixMode=true;
-	/** When true, searches for names as substrings anywhere in read ID */
 	private boolean substringMode=false;
-	/** When true, creates separate output file for each unique read header */
 	private boolean perheader=false;
-	/**
-	 * Column number for delimiter-based parsing (0-based internally, 1-based for user)
-	 */
 	private int column=-1;
-	/** Flag to prevent repeated column mismatch warnings */
 	private boolean warned=false;
 //	private int affixLen=-1;
 	
-	/** Fixed length for prefix/suffix matching, overrides name lengths */
 	private int fixedAffixLength=-1;
 	
-	/** Array of affix lengths sorted in descending order for matching priority */
 	private int[] affixLengths;
 	
-	/** Set of name patterns to match against read identifiers */
 	private HashSet<String> names=new HashSet<String>();
-	/** Maps name patterns to lists of matching reads for batch processing */
 	private HashMap<String, ArrayList<Read>> nameToArray=new HashMap<String, ArrayList<Read>>();
-	/** Maps name patterns to their corresponding output streams */
 	private HashMap<String, ConcurrentReadOutputStream> nameToStream=new HashMap<String, ConcurrentReadOutputStream>();
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format for primary input file */
 	private final FileFormat ffin1;
-	/** File format for secondary input file */
 	private final FileFormat ffin2;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Enables verbose output for debugging and detailed progress information */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** Use shared header for SAM/BAM output files */
 	private boolean useSharedHeader=false;
 	
 }

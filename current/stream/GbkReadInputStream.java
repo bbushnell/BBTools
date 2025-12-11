@@ -10,18 +10,14 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Input stream for reading sequences from GenBank format (.gbk) files.
- * Parses GenBank files to extract sequence data from ORIGIN sections.
- * Extends ReadInputStream to provide buffered reading capabilities for GenBank format.
+ * Buffered GenBank (.gbk) reader that parses ORIGIN sequences into Read objects.
+ * Supports amino-acid mode flags and standard ReadInputStream operations.
  * @author Brian Bushnell
  */
 public class GbkReadInputStream extends ReadInputStream {
 	
-	/**
-	 * Test method for GbkReadInputStream functionality.
-	 * Creates a stream from the first command-line argument and prints the first read.
-	 * @param args Command-line arguments where args[0] is the input filename
-	 */
+	/** Simple test harness: opens the given file and prints the first read.
+	 * @param args Command-line arguments; args[0] is the input filename */
 	public static void main(String[] args){
 		
 		GbkReadInputStream fris=new GbkReadInputStream(args[0], true);
@@ -32,19 +28,18 @@ public class GbkReadInputStream extends ReadInputStream {
 	}
 	
 	/**
-	 * Creates a GbkReadInputStream from a filename.
-	 * @param fname Input filename for GenBank format file
-	 * @param allowSubprocess_ Whether to allow subprocess for decompression
+	 * Creates a GenBank reader from a filename, with optional subprocess support.
+	 * @param fname Input GenBank filename
+	 * @param allowSubprocess_ Allow subprocess decompression if needed
 	 */
 	public GbkReadInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.GBK, null, allowSubprocess_, false));
 	}
 	
 	/**
-	 * Creates a GbkReadInputStream from a FileFormat object.
-	 * Sets up buffering, amino acid flags, and validates the file format.
-	 * Issues warning if file extension doesn't match GenBank format.
-	 * @param ff FileFormat object containing file information and settings
+	 * Creates a GenBank reader from a FileFormat description.
+	 * Validates extension, sets flags, and opens the underlying ByteFile.
+	 * @param ff FileFormat describing the input source
 	 */
 	public GbkReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
@@ -57,6 +52,9 @@ public class GbkReadInputStream extends ReadInputStream {
 //		assert(false) : interleaved;
 	}
 	
+	/**
+	 * Returns true if additional reads are available, filling the buffer if needed.
+	 */
 	@Override
 	public boolean hasMore() {
 		if(buffer==null || next>=buffer.size()){
@@ -69,6 +67,8 @@ public class GbkReadInputStream extends ReadInputStream {
 		return (buffer!=null && next<buffer.size());
 	}
 	
+	/** Returns the next buffered block of reads; not compatible with next().
+	 * @return List of Read objects, or null when exhausted */
 	@Override
 	public synchronized ArrayList<Read> nextList() {
 		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
@@ -80,11 +80,6 @@ public class GbkReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
-	/**
-	 * Fills the internal buffer with reads from the GenBank file.
-	 * Parses GenBank format to extract sequences and creates Read objects.
-	 * Closes the file when fewer reads than buffer size are returned.
-	 */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -108,15 +103,14 @@ public class GbkReadInputStream extends ReadInputStream {
 
 	
 	/**
-	 * Parses GenBank format file and converts to Read objects.
-	 * Looks for ORIGIN sections and extracts sequence data, filtering out
-	 * non-letter characters and converting to uppercase.
+	 * Parses GenBank content, extracting ORIGIN sequences into reads with IDs.
+	 * Strips non-letter characters and uppercases bases.
 	 *
 	 * @param bf ByteFile to read from
-	 * @param maxReadsToReturn Maximum number of reads to return
-	 * @param numericID Starting numeric ID for reads
-	 * @param flag Read flags (e.g., amino acid mask)
-	 * @return ArrayList of Read objects parsed from GenBank format
+	 * @param maxReadsToReturn Maximum reads to emit
+	 * @param numericID Starting numeric ID
+	 * @param flag Read flags (e.g., amino mask)
+	 * @return List of parsed Read objects
 	 */
 	public static ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn, long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
@@ -156,6 +150,8 @@ public class GbkReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/** Closes the underlying file and returns the error state.
+	 * @return true if errors were encountered */
 	@Override
 	public boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+bf.name()+"; errorState="+errorState);}
@@ -164,6 +160,7 @@ public class GbkReadInputStream extends ReadInputStream {
 		return errorState;
 	}
 
+	/** Resets counters and buffer, then rewinds the ByteFile for rereading. */
 	@Override
 	public synchronized void restart() {
 		generated=0;
@@ -174,41 +171,35 @@ public class GbkReadInputStream extends ReadInputStream {
 		bf.reset();
 	}
 
+	/** Indicates whether reads are paired; always false for GenBank input.
+	 * @return false */
 	@Override
 	public boolean paired() {return false;}
 	
+	/** Returns the name of the underlying input file.
+	 * @return Input filename */
 	@Override
 	public String fname(){return bf.name();}
 	
-	/** Return true if this stream has detected an error */
+	/** Reports whether this stream or FASTQ parsing has encountered errors.
+	 * @return true if an error was detected */
 	@Override
 	public boolean errorState(){return errorState || FASTQ.errorState();}
 
-	/** Internal buffer holding parsed Read objects */
 	private ArrayList<Read> buffer=null;
-	/** Index of next read to return from buffer */
 	private int next=0;
 	
-	/** ByteFile for reading from the GenBank input file */
 	private final ByteFile bf;
-	/** Read flags such as amino acid mask */
 	private final int flag;
 
-	/** Buffer length for reads from shared buffer settings */
 	private final int BUF_LEN=Shared.bufferLen();;
-	/** Maximum data size from shared buffer settings */
 	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
 
-	/** Total number of reads generated from the file */
 	public long generated=0;
-	/** Total number of reads consumed by caller */
 	public long consumed=0;
-	/** Numeric ID for the next read to be created */
 	private long nextReadID=0;
 	
-	/** Whether input is from standard input */
 	public final boolean stdin;
-	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
 
 }

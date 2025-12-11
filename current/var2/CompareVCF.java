@@ -22,14 +22,16 @@ import stream.FastaReadInputStream;
 import structures.ByteBuilder;
 
 /**
+ * Performs set operations on multiple VCF (Variant Call Format) files.
+ * Supports difference, union, and intersection operations to compare genetic
+ * variants across multiple samples. Can filter variants by quality score and
+ * optionally split complex variants into components.
+ *
  * @author Brian Bushnell
  * @date January 14, 2017
- *
  */
 public class CompareVCF {
 	
-	/** Program entry point for VCF comparison operations.
-	 * @param args Command-line arguments specifying input files and operation mode */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CompareVCF x=new CompareVCF(args);
@@ -304,76 +306,49 @@ public class CompareVCF {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Total number of lines processed across all input files */
 	private long linesProcessed=0;
-	/** Number of header lines processed from input files */
 	private long headerLinesProcessed=0;
-	/** Number of variant lines processed from input files */
 	private long variantLinesProcessed=0;
-	/** Number of header lines written to output */
 	private long headerLinesOut=0;
-	/** Number of variant lines written to output */
 	private long variantLinesOut=0;
-	/** Total bytes processed from all input files */
 	private long bytesProcessed=0;
 	
-	/** Maximum number of lines to process (configurable limit) */
 	private long maxLines=Long.MAX_VALUE;
 
-	/** VCF header lines from input files */
 	public ArrayList<byte[]> header=null;
-	/** Sample names collected from VCF headers */
 	public ArrayList<String> samples=new ArrayList<String>();
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Array of input VCF file paths */
 	private String in1[]=null;
-	/** Output file path */
 	private String out1=null;
-	/** Reference genome file path */
 	private String ref=null;
 
-	/** FileFormat objects for input VCF files */
 	private final FileFormat ffin1[];
-	/** FileFormat object for output file */
 	private final FileFormat ffout1;
 	
-	/** Operation mode: DIFFERENCE, UNION, or INTERSECTION */
 	public final int mode;
 	
-	/** Whether to add sample information to output */
 	public boolean addSamples=true;
-	/** Whether to output in VAR format instead of VCF */
 	private boolean outputVar=false;
 
-	/** Whether to split multi-allelic variants into separate lines */
 	boolean splitAlleles=false;
-	/** Whether to split substitution variants */
 	boolean splitSubs=false;
-	/** Whether to split complex variants into components */
 	boolean splitComplex=false;
-	/** Minimum quality score for variants to include in comparison */
 	double minScore=-99999;
 	
 	/*--------------------------------------------------------------*/
 	
 	/** Constant for intersection operation mode (value 2) */
 	/** Constant for union operation mode (value 1) */
-	/** Constant for difference operation mode (value 0) */
 	public static int DIFFERENCE=0, UNION=1, INTERSECTION=2;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
-	/** Flag for verbose output and debugging information */
 	public static boolean verbose=false;
-	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

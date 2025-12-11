@@ -18,9 +18,12 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Decompresses compressed files using BBTools infrastructure.
+ * Supports gzip and bzip2 compressed files with streaming decompression.
+ * Provides command-line interface for batch file processing.
+ *
  * @author Brian Bushnell
  * @date May 9, 2016
- *
  */
 public class Unzip {
 	
@@ -29,8 +32,9 @@ public class Unzip {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for file decompression.
+	 * Creates Unzip instance, processes files, and handles cleanup.
+	 * @param args Command line arguments including input/output file paths
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -47,8 +51,10 @@ public class Unzip {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs Unzip processor with command-line arguments.
+	 * Parses arguments, validates file paths, and initializes file formats.
+	 * Configures compression settings and output streams.
+	 * @param args Command line arguments for decompression operation
 	 */
 	public Unzip(String[] args){
 		
@@ -85,7 +91,12 @@ public class Unzip {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments for decompression parameters.
+	 * Handles input/output file paths, line limits, and verbose settings.
+	 * @param args Array of command-line argument strings
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -119,13 +130,21 @@ public class Unzip {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adjusts file extensions for compressed formats.
+	 * Automatically detects and handles .gz and .bz2 extensions.
+	 * Validates that at least one input file is specified.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates input and output file accessibility.
+	 * Ensures input files exist and are readable, output files can be written.
+	 * Checks for duplicate file specifications in arguments.
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -144,7 +163,11 @@ public class Unzip {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Configures static file handling parameters.
+	 * Optimizes ByteFile mode selection based on available thread count.
+	 * Forces BF2 mode for multi-threaded operations when appropriate.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -161,12 +184,6 @@ public class Unzip {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that executes the decompression operation.
-	 * Opens input stream, creates output writer, and processes data.
-	 * Handles cleanup, error reporting, and performance statistics.
-	 * @param t Timer for tracking execution performance
-	 */
 	void process(Timer t){
 		
 		InputStream is=ReadWrite.getInputStream(ffin1.name(), false, true);
@@ -205,14 +222,6 @@ public class Unzip {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Core decompression loop that streams data from input to output.
-	 * Uses buffered reading for efficient processing of large files.
-	 * Tracks bytes processed and handles I/O exceptions.
-	 *
-	 * @param is Input stream containing compressed data
-	 * @param bsw Output writer for decompressed data
-	 */
 	private void processInner(InputStream is, ByteStreamWriter bsw){
 		final byte[] buffer=new byte[65536<<2];
 		
@@ -236,12 +245,6 @@ public class Unzip {
 		}
 	}
 	
-	/**
-	 * Creates and initializes a ByteStreamWriter for output.
-	 * Returns null if no file format is specified.
-	 * @param ff File format specification for output
-	 * @return Initialized ByteStreamWriter or null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -253,47 +256,33 @@ public class Unzip {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path for decompression */
 	private String in1=null;
-	/** Primary output file path for decompressed data */
 	private String out1=null;
-	/** Output file path for invalid or corrupted data */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of bytes processed during decompression */
 	private long bytesProcessed=0;
 	
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format configuration for primary input */
 	private final FileFormat ffin1;
-	/** File format configuration for primary output */
 	private final FileFormat ffout1;
-	/** File format configuration for invalid data output */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and error reporting */
 	private PrintStream outstream=System.err;
-	/** Enables verbose logging and detailed progress reporting */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Controls display of processing speed and performance statistics */
 	public boolean showSpeed=false;
-	/** Allows overwriting existing output files */
 	private boolean overwrite=true;
-	/** Appends output to existing files rather than overwriting */
 	private boolean append=false;
 	
 }

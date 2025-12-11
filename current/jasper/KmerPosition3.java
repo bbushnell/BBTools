@@ -19,22 +19,16 @@ import structures.LongHashSet;
 import structures.LongList;
 
 /**
- * Read in file of high-throughput reads sequences and a reference sequence file
- * report the positions in the reads that are the start of a matching kmer sequence
- * between the read and the reference sequence. 
- * This is useful for identifying over-representation of kmers at a particular position in reads. <br>
- * 
- * read = ACGTA <br>
- * reference = ATGTACC <br>
- * kmer length = 3 <br>
- * match = GTA, beginning in the read at position 2 (zero indexed). <br>
- * returned info = #positions, #number of kmers beginning at that position, 
- * #percentage of reads with kmers beginning at that positons. <br>
- * 
- * 
+ * Identifies k-mer sequence matches between reads and reference sequences.
+ * Processes high-throughput read files to find and report k-mer positions that match
+ * a reference sequence, tracking occurrence frequencies at each position.
+ * Uses 2-bit nucleotide encoding for memory-efficient k-mer comparison.
+ * Supports paired-end read analysis with position-specific statistics.
+ * Example: with read ACGTA, reference ATGTACC, and k=3 the shared k-mer GTA
+ * begins at read position 2 and the output reports counts and percentages for that position.
  * @author Jasper Toscani Field
+ * @author Brian Bushnell
  * @date Jun 4, 2020
- *
  */
 public class KmerPosition3 {
 	
@@ -42,12 +36,6 @@ public class KmerPosition3 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Program entry point for k-mer position analysis.
-	 * Initializes timer, creates KmerPosition3 instance, processes input files,
-	 * and handles output stream cleanup.
-	 * @param args Command-line arguments for input/output files and parameters
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -62,14 +50,6 @@ public class KmerPosition3 {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Handles pre-parsing and parsing of user flags.
-	 * Reads in the read file(s) and the reference files.
-	 * Sets the maximum number of reads to be processed.
-	 * 
-	 * @param args string of the arguments input at the commandline.
-	 * 
-	 */
 	public KmerPosition3(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -151,12 +131,11 @@ public class KmerPosition3 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Primary processing function. Begins the read stream on a thread, 
-	 * passes reads to kmer production and bit-shifting methods. 
-	 * Completes after writing kmer statistics to file, halting and 
-	 * reporting the timer and reporting any error states.
-	 * 
-	 * @param t Timer object for the program. The timer has already been started and is non-null.
+	 * Primary processing function for k-mer position analysis.
+	 * Loads reference k-mers, creates read input stream, processes all reads
+	 * to find matching k-mers at each position, validates paired vs single-end state,
+	 * returns processed read lists, writes tab-delimited statistics, and reports timing.
+	 * @param t Timer object for tracking program execution time
 	 */
 	void process(Timer t){
 		
@@ -255,14 +234,13 @@ public class KmerPosition3 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * This function converts the list of counts for kmers found at each position in both read sets and 
-	 * the positions that have reads of length reaching that position, to arrays.
-	 * The statistics of the analyses are written to the output file.
-	 * 
-	 * @param posCounts1 list of length of the reads, tracking the number of kmers found beginning at each position for readset 1.
-	 * @param readCounts1 list of max length of the reads, tracking the number of reads with nucleotides at that position for readset 1.
-	 * @param posCounts2 Same for readset 2.
-	 * @param readCounts2 Same for readset 2.
+	 * Converts k-mer count lists to arrays and writes analysis statistics to output file.
+	 * Outputs position-specific counts and percentages for both read sets in tabular format.
+	 * Handles cases where read sets have different lengths by using the maximum length.
+	 * @param posCounts1 List tracking k-mer counts at each position for read set 1
+	 * @param readCounts1 List tracking total reads with nucleotides at each position for read set 1
+	 * @param posCounts2 List tracking k-mer counts at each position for read set 2
+	 * @param readCounts2 List tracking total reads with nucleotides at each position for read set 2
 	 */
 	private void outputResults(LongList posCounts1, LongList readCounts1, LongList posCounts2, LongList readCounts2){
 		//Makes sure a valid output file name exists.
@@ -317,10 +295,10 @@ public class KmerPosition3 {
 	}
 	
 	/**
-	 * This method produces a LongHashSet containing all forward kmers of length k found in the reference file
-	 * reference kmers are converted to bytes for faster, memory efficient comparison to read kmers
-	 * 
-	 * @return A set of reference kmers
+	 * Creates a LongHashSet containing all forward k-mers of length k from reference file.
+	 * Reads reference sequences and converts k-mers to 2-bit binary representation
+	 * for memory-efficient storage and fast comparison with read k-mers.
+	 * @return Set of reference k-mers in binary format
 	 */
 	private LongHashSet loadReference(){
 		//Initialize empty LongHashSet to accept reference kmers.
@@ -339,12 +317,12 @@ public class KmerPosition3 {
 	}
 	
 	/**
-	 * This method separates the reference sequence into kmers before converting each kmer to bytes
-	 * The converted kmers are added to the hashset and returned to the main method for final comparison
-	 * 
-	 * @param hs hashset that will hold the kmers after conversion to bytes
-	 * @param r the reference sequence
-	 * @return Number of kmers added to hashset
+	 * Converts reference sequence k-mers to 2-bit binary representation and adds to hashset.
+	 * Uses sliding window approach with bit-shifting to generate consecutive k-mers.
+	 * Skips k-mers containing degenerate bases and optionally includes reverse complements.
+	 * @param hs HashSet to store the converted k-mer values
+	 * @param r Reference sequence read to process
+	 * @return Number of k-mers successfully added to the hashset
 	 */
 	private int addToSet(LongHashSet hs, Read r) {
 		int proccessedKmers=0;
@@ -407,14 +385,14 @@ public class KmerPosition3 {
 	}
 	
 	/**
-	 * This method performs byte shifting to perform very fast comparison of kmers from the reads and
-	 * compares read kmers to reference kmers. If identical byte-kmers are found, increment the appropriate counts.
-	 * Also, increment the count if a valid nucleotide is at that position in the read.
-	 * 
-	 * @param r read sequence
-	 * @param hs set of kmer sequences from the reference
-	 * @param matchCounts list of counts of the number of kmers found starting at each position
-	 * @param totalCounts list of counts of reads with nucleotides at each position
+	 * Processes individual read using 2-bit encoding for fast k-mer comparison.
+	 * Generates k-mers from read sequence, compares against reference k-mer set,
+	 * and increments position-specific counters for matches and total coverage.
+	 * Uses bit-shifting for efficient k-mer generation without string operations.
+	 * @param r Read sequence to analyze
+	 * @param hs Set of reference k-mers in binary format
+	 * @param matchCounts List to increment when k-mer matches are found at positions
+	 * @param totalCounts List to increment for total read coverage at each position
 	 */
 	private void processRead(Read r, LongHashSet hs, LongList matchCounts, LongList totalCounts) {
 		
@@ -521,67 +499,64 @@ public class KmerPosition3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**Primary input file for high-throughput read sequences.*/
+	/** Primary input file for high-throughput read sequences */
 	private String in1=null;
 	
-	/**Paired-end read input file. Only use if this file contains the mates of in1.*/
+	/** Paired-end read input file containing mates of in1 sequences */
 	private String in2=null;
 	
-	/**Output file name. This file will contain all output statistics of kmer positioning and counts.*/
+	/** Output file for k-mer positioning statistics and counts */
 	private String out1=null;
 	
-	/**Reference sequence file. This file should be .fasta format and 
-	 * contain reference sequences you wish to be identified in the read files. */
+	/** Reference sequence file in FASTA format for k-mer matching */
 	private String ref=null;
 	
-	/**File format structure FileFormat for in1. 
-	 * This is used to parse the input file type if possible and provide methods.*/
+	/** File format handler for primary input file parsing and validation */
 	private final FileFormat ffin1;
 	
-	/**File format structure FileFormat for in2. 
-	 * This is used to parse the input file type if possible and provide methods.*/
+	/** File format handler for paired-end input file parsing and validation */
 	private final FileFormat ffin2;
 	
-	/**File format structure FileFormat for out1. This provides methods and structure to the output.*/
+	/** File format handler for output file structure and writing methods */
 	private final FileFormat ffout1;
 	
-	/**File format structure of ref. 
-	 * This provides methods and structure for the reference file assuming its in FASTA format.*/
+	/** File format handler for reference file assuming FASTA format */
 	private final FileFormat ffref;
 	
 	/*--------------------------------------------------------------*/
 
-	/**Variable for the number of reads to analyze. If set to -1, all reads will be used. */
+	/** Maximum number of reads to analyze; -1 indicates process all reads */
 	private long maxReads=-1;
 	
-	/**Boolean variable that changes to true if an error has occurred. 
-	 * This will cause the program to exit with 1 status. */
+	/** Error flag that causes program to exit with status 1 when true */
 	private boolean errorState=false;
 	
-	/** Add reverse-complemented kmers to the hashset */
+	/** Flag to include reverse-complemented k-mers in the reference hashset */
 	private boolean rcomp=true;
 	
-	/**Variable for kmer length. Can be changed on the commandline with the k=# flag.*/
+	/**
+	 * K-mer length for sequence analysis; configurable via k=# command-line flag
+	 */
 	private int k=19;
 	
-	/**List of long containing counts of kmers starting at each nucleotide in a read for read set 1. */
+	/** Position-specific counts of matching k-mers found in read set 1 */
 	private LongList matchCounts1=new LongList();
 	
-	/**List of Long containing counts of reads that have nucleotides at a each position for read set 1. */
+	/** Position-specific counts of total reads with nucleotides for read set 1 */
 	private LongList totalCounts1=new LongList();
 	
-	/**List of Long containing counts of kmers starting at each nucleotide in a read for read set 2. */
+	/** Position-specific counts of matching k-mers found in read set 2 */
 	private LongList matchCounts2=new LongList();
 	
-	/**List of Long containing counts of reads that have nucleotides at a each position for read set 2. */
+	/** Position-specific counts of total reads with nucleotides for read set 2 */
 	private LongList totalCounts2=new LongList();
 	
 	/*--------------------------------------------------------------*/
 	
-	/**Output stream that output statistics are piped through to the output file. */
+	/** Output stream for piping program statistics to output destination */
 	private java.io.PrintStream outstream=System.err;
 	
-	/**Verbose commandline flag variable. If set to true, will print additional program information. */
+	/** Verbose mode flag for printing additional program execution information */
 	public static boolean verbose=false;
 	
 }

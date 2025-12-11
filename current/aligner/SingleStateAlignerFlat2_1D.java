@@ -5,15 +5,19 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Based on SSAFlat2, but reduced to a 1D array. */
+ * Single-state sequence aligner using a flat 1D array for dynamic programming.
+ * Optimized version of SSAFlat2 that reduces memory usage by using a 1D array instead of a 2D matrix for alignment calculations.
+ * Performs local sequence alignment with support for matches, substitutions, insertions, deletions, and ambiguous bases.
+ * @author Brian Bushnell
+ */
 public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 	
 	
-	/** Creates a new SingleStateAlignerFlat2_1D instance */
 	public SingleStateAlignerFlat2_1D(){}
 
 	@Override
 	public final String name() {return "SSAF2_1D";}
+	/** Returns -1 as this aligner does not track loop counts. */
 	@Override
 	public long loops() {return -1;}
 	@Override
@@ -28,9 +32,7 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 	public final float align(byte[] a, byte[] b, int[] pos, int from, int to) {return align(a, b, pos, from, to, -9999);}
 	/**
 	 * Main alignment method with full parameter control.
-	 * Performs local sequence alignment using dynamic programming and returns
-	 * identity score. Optionally fills position array with alignment boundaries.
-	 *
+	 * Performs local sequence alignment using dynamic programming and returns identity score, optionally filling position array with alignment boundaries.
 	 * @param q Query sequence
 	 * @param r Reference sequence
 	 * @param pos Output array for alignment start/stop positions (may be null)
@@ -59,11 +61,8 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return id;
 	}
 	
-	/**
-	 * Initializes the top row of the alignment matrix.
-	 * Sets up initial scores to prefer leftmost alignments by applying
-	 * penalties based on unconsumed query bases.
-	 */
+	/** Initializes the top row of the alignment matrix.
+	 * Sets up initial scores to prefer leftmost alignments by applying penalties based on unconsumed query bases. */
 	private void prefillTopRow(){
 		final int qlen=rows;
 		for(int i=0; i<=columns; i++){
@@ -92,32 +91,14 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		}
 	}
 	
-	/**
-	 * Converts 2D matrix coordinates to 1D array index.
-	 * @param row Row coordinate
-	 * @param col Column coordinate
-	 * @return 1D array index
-	 */
 	private final int index(int row, int col){
 		return col+row*rowMult;
 	}
 	
-	/**
-	 * Retrieves alignment score from matrix at specified coordinates.
-	 * @param row Row coordinate
-	 * @param col Column coordinate
-	 * @return Alignment score at position
-	 */
 	private final int get(int row, int col){
 		return matrix[col+row*rowMult];
 	}
 	
-	/**
-	 * Sets alignment score in matrix at specified coordinates.
-	 * @param row Row coordinate
-	 * @param col Column coordinate
-	 * @param value Score value to store
-	 */
 	private final void set(int row, int col, int value){
 		matrix[col+row*rowMult]=value;
 	}
@@ -144,20 +125,43 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		}
 	}
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Will not fill areas that cannot match minScore */
+	/**
+	 * Fills the alignment matrix with score limitations by delegating to fillUnlimited.
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param minScore Minimum score threshold
+	 * @return Array containing alignment results: {rows, maxCol, maxState, maxScore, maxStart}
+	 */
 	@Override
 	public final int[] fillLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		return fillUnlimited(read, ref, refStartLoc, refEndLoc, minScore);
 	}
 	
+	/**
+	 * Fills the alignment matrix without score limitations.
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @return Array containing alignment results: {rows, maxCol, maxState, maxScore, maxStart}
+	 */
 	@Override
 	public final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		return fillUnlimited(read, ref, refStartLoc, refEndLoc, -999999);
 	}
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Min score is optional */
+	/**
+	 * Core matrix filling method using dynamic programming.
+	 * Computes optimal local alignment scores for all positions in the matrix using scoring scheme: match=100, substitution=-50, insertion=-121, deletion=-111.
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param refStartLoc Start position in reference sequence
+	 * @param refEndLoc End position in reference sequence
+	 * @param minScore Minimum alignment score threshold
+	 * @return Array containing {rows, maxCol, maxState, maxScore, maxStart} or null if below threshold
+	 */
 	@Override
 	public final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		initialize(read.length, refEndLoc-refStartLoc+1);
@@ -225,16 +229,6 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return maxScore<minScore ? null : new int[] {rows, maxCol, maxState, maxScore, maxStart};
 	}
 	
-	/**
-	 * Determines the optimal alignment state (match/substitution/insertion/deletion)
-	 * at a specific matrix position by comparing scores from all possible transitions.
-	 *
-	 * @param row Row coordinate in matrix
-	 * @param col Column coordinate in matrix
-	 * @param q Query base at this position
-	 * @param r Reference base at this position
-	 * @return State constant (MODE_MATCH, MODE_SUB, MODE_INS, MODE_DEL, or MODE_N)
-	 */
 	int getState(int row, int col, byte q, byte r){//zxvzxcv TODO: Fix - needs to find max
 		final boolean match=(q==r);
 		final boolean defined=(q!='N' && r!='N');
@@ -265,7 +259,18 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 	}
 	
 	
-	/** Generates the match string */
+	/**
+	 * Traces back through the alignment matrix to generate a match string.
+	 * Follows the optimal path from end position to start, using 'm' for match, 'S' for substitution, 'I' for insertion, 'D' for deletion, 'N' for ambiguous, and 'C' for clip.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param row Starting row for traceback
+	 * @param col Starting column for traceback
+	 * @param state Starting state for traceback
+	 * @return Byte array representing alignment path
+	 */
 	@Override
 	public final byte[] traceback(byte[] query, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state){
 //		assert(false);
@@ -335,6 +340,19 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return out2;
 	}
 	
+	/**
+	 * Calculates sequence identity by tracing back through the optimal alignment.
+	 * Counts matches, substitutions, insertions, deletions, ambiguous bases, and clipped bases to compute identity score and optionally fills a statistics array.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param row Starting row for traceback
+	 * @param col Starting column for traceback
+	 * @param state Starting state for traceback
+	 * @param extra Optional array to fill with category counts (match, sub, del, ins, N, clip)
+	 * @return Identity score as fraction of matching bases
+	 */
 	@Override
 	/** Generates identity;
 	 * fills 'extra' with {match, sub, del, ins, N, clip} if present */
@@ -406,7 +424,18 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return id;
 	}
 	
-	/** @return {score, bestRefStart, bestRefStop} */
+	/**
+	 * Computes alignment score and determines best reference start/stop positions.
+	 * Traces back from the maximum scoring position to find alignment boundaries in the reference sequence.
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param maxRow Row of maximum score
+	 * @param maxCol Column of maximum score
+	 * @param maxState State at maximum score position
+	 * @return Array containing {score, bestRefStart, bestRefStop} with optional padding info
+	 */
 	@Override
 	public final int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState/*, final int maxScore, final int maxStart*/){
@@ -482,8 +511,15 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 	}
 	
 	
-	/** Will not fill areas that cannot match minScore.
-	 * @return {score, bestRefStart, bestRefStop}  */
+	/**
+	 * Performs matrix filling and scoring in one operation with score limitations by combining fillLimited and score.
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param minScore Minimum score threshold
+	 * @return Array containing {score, bestRefStart, bestRefStop} or null if below threshold
+	 */
 	@Override
 	public final int[] fillAndScoreLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		int a=Tools.max(0, refStartLoc);
@@ -506,14 +542,6 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return score;
 	}
 	
-	/**
-	 * Converts reference sequence region to string representation.
-	 *
-	 * @param ref Reference sequence byte array
-	 * @param startLoc Start position in reference
-	 * @param stopLoc Stop position in reference
-	 * @return String representation of sequence region
-	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -525,6 +553,12 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 //		return (int)(len*(identity*POINTS_MATCH+(1-identity)*POINTS_SUB));
 //	}
 	
+	/**
+	 * Calculates minimum alignment score for given sequence length and identity using the current scoring scheme.
+	 * @param len Sequence length
+	 * @param identity Target identity fraction (0.0 to 1.0)
+	 * @return Minimum possible alignment score for the given parameters
+	 */
 	@Override
 	public int minScoreByIdentity(int len, float identity){
 		assert(identity>=0 && identity<=1);
@@ -535,65 +569,45 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
-	/**
-	 * Calculates cumulative deletion penalty for given length.
-	 * @param len Number of deleted bases
-	 * @return Total deletion penalty score
-	 */
 	private static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL*len;
 		return score;
 	}
 	
+	/** Returns the number of rows in the current alignment matrix. */
 	@Override
 	public int rows(){return rows;}
+	/** Returns the number of columns in the current alignment matrix. */
 	@Override
 	public int columns(){return columns;}
 
-	/** 1D array storing alignment matrix scores */
 	private int[] matrix;
 	
-	/** Maximum allowed alignment score to prevent overflow */
 	public static final int MAX_SCORE=Integer.MAX_VALUE-2000;
-	/** Minimum allowed alignment score to prevent underflow */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
-	/** State constant representing deletion operation */
 	private static final byte MODE_DEL=1;
-	/** State constant representing insertion operation */
 	private static final byte MODE_INS=2;
-	/** State constant representing substitution operation */
 	private static final byte MODE_SUB=3;
-	/** State constant representing match operation */
 	private static final byte MODE_MATCH=4;
-	/** State constant representing ambiguous base alignment */
 	private static final byte MODE_N=5;
 	
-	/** Score penalty for aligning against ambiguous reference bases */
 	public static final int POINTS_NOREF=-15;
-	/** Score reward for exact base matches */
 	public static final int POINTS_MATCH=100;
-	/** Score penalty for base substitutions */
 	public static final int POINTS_SUB=-50;
-	/** Score penalty for base insertions */
 	public static final int POINTS_INS=-121;
-	/** Score penalty for base deletions */
 	public static final int POINTS_DEL=-111;
 	
 //	public static final int BAD=MIN_SCORE-1;
 	
-	/** Number of rows in current alignment matrix */
 	private int rows;
-	/** Number of columns in current alignment matrix */
 	private int columns;
-	/** columns+1 **/
+	/** Row multiplier for 1D array indexing (columns + 1). */
 	private int rowMult;
 
-	/** Flag to enable verbose debugging output */
 	public boolean verbose=false;
-	/** Flag to enable additional verbose debugging output */
 	public boolean verbose2=false;
 	
 }

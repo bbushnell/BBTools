@@ -23,18 +23,14 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Increased sensitivity to nearby adapters.
+ * Removes PacBio sequencing adapters from reads using multi-state alignment.
+ * Provides increased sensitivity to nearby adapters compared to the original RemoveAdapters.
+ * Uses a configurable adapter query, alignment mode, and optional read splitting at detected adapter sites.
  * @author Brian Bushnell
  * @date Nov 5, 2012
- *
  */
 public class RemoveAdapters2 {
 
-	/**
-	 * Program entry point for adapter removal.
-	 * Parses command-line arguments and executes the adapter removal process.
-	 * @param args Command-line arguments for input/output files and parameters
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -162,15 +158,6 @@ public class RemoveAdapters2 {
 		process(cris, ros, query, splitReads);
 	}
 	
-	/**
-	 * Main processing method that coordinates adapter removal across multiple threads.
-	 * Creates ProcessThread workers to scan reads for adapters using the specified query sequence.
-	 *
-	 * @param cris Input stream for reading sequences
-	 * @param ros Output stream for processed sequences (may be null)
-	 * @param query Adapter sequence to search for
-	 * @param split Whether to split reads at adapter locations
-	 */
 	public static void process(ConcurrentReadInputStream cris, ConcurrentReadOutputStream ros, String query, boolean split){
 
 		Timer t=new Timer();
@@ -219,11 +206,6 @@ public class RemoveAdapters2 {
 		
 	}
 	
-	/**
-	 * Aggregates and prints processing statistics from all worker threads.
-	 * Reports adapter counts, read counts, and accuracy metrics if available.
-	 * @param pts Array of ProcessThread instances to collect statistics from
-	 */
 	public static void printStatistics(ProcessThread[] pts){
 
 		long plusAdaptersFound=0;
@@ -281,23 +263,8 @@ public class RemoveAdapters2 {
 		
 	}
 	
-	/**
-	 * Worker thread that processes reads to detect and remove adapters.
-	 * Uses multi-state alignment with configurable scoring thresholds and locality awareness.
-	 * Maintains statistics about adapter detection and read processing.
-	 */
 	private static class ProcessThread extends Thread{
 		
-		/**
-		 * Creates a new ProcessThread with configured alignment parameters.
-		 * Initializes alignment matrices, scoring thresholds, and query sequences.
-		 *
-		 * @param cris_ Input stream for reading sequences
-		 * @param ros_ Output stream for processed sequences
-		 * @param minRatio_ Minimum alignment score ratio threshold
-		 * @param query_ Adapter sequence to search for
-		 * @param split_ Whether to split reads at adapter locations
-		 */
 		public ProcessThread(ConcurrentReadInputStream cris_,
 				ConcurrentReadOutputStream ros_, float minRatio_, String query_, boolean split_) {
 			cris=cris_;
@@ -324,6 +291,8 @@ public class RemoveAdapters2 {
 			suspectMidpoint=(minSwScoreSuspect+minSwScore)/2;
 		}
 		
+		/** Main thread execution method that processes read lists from the input stream.
+		 * For each read, detects adapters and optionally splits at adapter locations before writing output. */
 		@Override
 		public void run(){
 			ListNum<Read> ln=cris.nextList();
@@ -390,8 +359,10 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * @param readlist
-		 * @return
+		 * Splits all reads in a list that contain adapters at 'X' markers.
+		 * Processes both primary reads and mates and returns a new list combining split sections and unsplit reads.
+		 * @param in Input list of reads to potentially split
+		 * @return New list containing split read sections and unsplit reads
 		 */
 		private static ArrayList<Read> split(ArrayList<Read> in) {
 			ArrayList<Read> out=new ArrayList<Read>(in.size());
@@ -411,8 +382,10 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * @param r
-		 * @return
+		 * Splits a single read at 'X' markers (adapter locations) into multiple sections.
+		 * Only sections meeting the minimum contig length are emitted.
+		 * @param r Read to split at adapter markers
+		 * @return List of read sections created from splitting
 		 */
 		private static ArrayList<Read> split(Read r) {
 			ArrayList<Read> sections=new ArrayList<Read>();
@@ -440,7 +413,10 @@ public class RemoveAdapters2 {
 		}
 
 		/**
-		 * @param r
+		 * Processes a single read to detect and mark adapter sequences.
+		 * Aligns against the adapter query (and optionally its reverse complement), marks positions with 'X', and updates statistics.
+		 * @param r Read to process for adapter detection
+		 * @return Number of adapters found in the read
 		 */
 		private int processRead(Read r) {
 			
@@ -593,14 +569,6 @@ public class RemoveAdapters2 {
 			
 		}
 		
-		/**
-		 * Creates a padded copy of a sequence array with 'N' bases at both ends.
-		 * Uses thread-local buffer for memory efficiency and NUMA locality.
-		 *
-		 * @param array Original sequence array to pad
-		 * @param pad Number of 'N' bases to add at each end
-		 * @return New array with padding applied
-		 */
 		private byte[] npad(final byte[] array, final int pad){
 			final int len=array.length+2*pad;
 			if(padbuffer==null || padbuffer.length!=len){padbuffer=new byte[len];}
@@ -649,12 +617,6 @@ public class RemoveAdapters2 {
 		
 	}
 	
-	/**
-	 * Removes discarded reads from the read list.
-	 * A read is removed only if both it and its mate are discarded.
-	 * @param list List of reads to filter
-	 * @return Number of reads removed from the list
-	 */
 	private static int removeDiscarded(ArrayList<Read> list){
 		int removed=0;
 		for(int i=0; i<list.size(); i++){
@@ -669,41 +631,24 @@ public class RemoveAdapters2 {
 		return removed;
 	}
 
-	/** Whether to exclude reads containing adapters from output */
 	public static boolean DONT_OUTPUT_BROKEN_READS;
-	/** Permission to overwrite existing files */
 	private static boolean overwrite=true;
-	/** Permission to append to existing files */
 	private static boolean append=false;
-	/** Number of processing threads to use */
 	private static int THREADS=Shared.LOGICAL_PROCESSORS;
-	/** Whether to write processed reads to output files */
 	private static boolean OUTPUT_READS=false;
-	/** Whether to maintain read order in output */
 	private static boolean ordered=false;
 	private static boolean PERFECTMODE=false;
-	/** Minimum alignment score ratio for confident adapter detection */
 	private static float MINIMUM_ALIGNMENT_SCORE_RATIO=0.31f; //0.31f: At 250bp reads, approx 0.01% false-positive and 94% true-positive.
-	/** Score ratio threshold for suspect adapter matches requiring confirmation */
 	private static float SUSPECT_RATIO=0.85F;
-	/** Whether to use locality information for improved adapter detection */
 	public static boolean USE_LOCALITY=true;
-	/** Whether to use alternate multi-state aligner for confirmation */
 	public static boolean USE_ALT_MSA=true;
-	/** Whether to search for adapters on the forward strand */
 	public static boolean TRY_PLUS=true;
-	/** Whether to search for adapters on the reverse strand */
 	public static boolean TRY_MINUS=true;
-	/** Number of 'N' bases to pad sequences with during processing */
 	private static int npad=35;
-	/** Minimum length required for split read sections */
 	public static int minContig=50;
-	/** Maximum distance for locality-based suspect adapter confirmation */
 	public static int suspectDistance=100;
 	
-	/** Standard PacBio adapter sequence used as default query */
 	public static final String pacbioAdapter="ATCTCTCTCTTTTCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAT";
-	/** Full PacBio standard v1 adapter sequence with extended context */
 	public static final String pacbioStandard_v1="TCCTCCTCCTCCGTTGTTGTTGTTGAGAGAGAGAAGGCTGGGCAGGCTATGCACCCTGGTCCAGGTCAAA" +
 			"AGCTGCGGAACCCGCTAGCGGCCATCTTGGCCACTAGGGGTCCCGCAGATTCATATTGTCGTCTAGCATGCACAATGCTGCAAACCCAGCTTGCAATGCCCACAGCA" +
 			"AGCGGCCAATCTTTACGCCACGTTGAATTGTTTATTACCTGTGACTGGCTATGGCTTGCAACGCCACTCGTAAAACTAGTACTTTGCGGTTAGGGGAAGTAGACAAA" +

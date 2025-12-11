@@ -2,28 +2,10 @@ package icecream;
 
 import aligner.AlignmentResult;
 
-/**
- * Java implementation of sequence alignment for DNA/protein sequences using
- * dynamic programming. Performs forward and short-form alignments with
- * configurable scoring parameters and early exit optimizations for performance.
- * Uses Smith-Waterman-style local alignment with gap penalties.
- *
- * @author Brian Bushnell
- */
 public final class IceCreamAlignerJava extends IceCreamAligner {
 
-	/** Package-private constructor for factory instantiation */
 	IceCreamAlignerJava(){}
 	
-	/**
-	 * @param query
-	 * @param ref
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
-	 */
 	@Override
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio) {
@@ -113,16 +95,6 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 		return new AlignmentResult(maxScore, maxQpos, maxRpos, query.length, ref.length, rstart, rstop, ratio);
 	}
 
-	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
-	 */
 	@Override
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio) {
@@ -213,9 +185,13 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Returns the number of iterations performed in forward alignment operations
+	 */
 	@Override
 	long iters(){return iters;}
 
+	/** Returns the number of iterations performed in short alignment operations */
 	@Override
 	long itersShort(){return itersShort;}
 
@@ -223,22 +199,16 @@ public final class IceCreamAlignerJava extends IceCreamAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Counter tracking total iterations in forward alignment operations */
 	long iters = 0;
-	/** Counter tracking total iterations in short alignment operations */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Points awarded for matching bases in alignment scoring */
 	public static final int pointsMatch = 1;
-	/** Penalty points for base substitutions in alignment scoring */
 	public static final int pointsSub = -1;
-	/** Penalty points for deletions in alignment scoring */
 	public static final int pointsDel = -2;
-	/** Penalty points for insertions in alignment scoring */
 	public static final int pointsIns = -2;
 	
 }

@@ -5,21 +5,26 @@ import java.util.Arrays;
 import shared.KillSwitch;
 
 
-/** 
- * Similar to an ArrayList<long[]> but intended to hold sets.
- * Faster insert could be handled via binary search if sorted,
- * or binary search for the last filled position if 
- * all elements are unique. */
+/**
+ * Dynamic array-like data structure for holding sets of long values.
+ * Similar to ArrayList&lt;long[]&gt; but optimized for set operations.
+ * Each entry is a long array where leftmost values are valid and rightmost values are INVALID (-1).
+ * Provides fast insertion and automatic resizing capabilities.
+ *
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public final class LongList2{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Re-call with default initial size. */
+	/** Constructs a LongList2 with default initial size of 256 entries */
 	public LongList2(){this(256);}
 	
-	/** Construct an IntList3 with this initial size.*/
+	/** Constructs a LongList2 with specified initial capacity.
+	 * @param initialSize Initial number of entry slots to allocate */
 	public LongList2(int initialSize){
 		assert(initialSize>0);
 		entries=new long[initialSize][];
@@ -29,7 +34,11 @@ public final class LongList2{
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Add this entry to the end of the list */
+	/**
+	 * Adds an entry to the end of the list.
+	 * Automatically resizes the internal array if necessary.
+	 * @param entry The long array to add
+	 */
 	public final void add(long[] entry){
 		if(size>=entries.length){
 			resize(max(size*2, 1));
@@ -38,7 +47,12 @@ public final class LongList2{
 		size++;
 	}
 	
-	/** Added for better IntList3 compatibility */
+	/**
+	 * Adds an entry to the end of the list for IntList3 compatibility.
+	 * The len parameter is ignored but maintained for interface consistency.
+	 * @param entry The long array to add
+	 * @param len Length parameter (ignored)
+	 */
 	public final void add(long[] entry, int len){
 		if(size>=entries.length){
 			resize(max(size*2, 1));
@@ -47,7 +61,14 @@ public final class LongList2{
 		size++;
 	}
 	
-	/** Set this location to specified entry */
+	/**
+	 * Sets the entry at the specified location.
+	 * Automatically resizes if location exceeds current capacity.
+	 * Updates size to accommodate the new location.
+	 *
+	 * @param loc Index position to set
+	 * @param entry The long array to place at this position
+	 */
 	public final void set(int loc, long[] entry){
 		if(loc>=entries.length){
 			resize((loc+1)*2);
@@ -56,10 +77,16 @@ public final class LongList2{
 		size=max(size, loc+1);
 	}
 	
-	/** 
-	 * Add this value to the specified location. 
-	 * If an entry exists, insert the value, enlarging if necessary.
-	 * Otherwise, create a new entry. */
+	/**
+	 * Inserts a value into the set at the specified location.
+	 * If no entry exists at location, creates a new entry.
+	 * If entry exists, adds value if not already present, expanding entry if needed.
+	 * Uses INVALID (-1) as sentinel value for unused slots.
+	 *
+	 * @param v The long value to insert
+	 * @param loc The list location where the set resides
+	 * @return 1 if value was added, 0 if value already existed
+	 */
 	public final int insertIntoList(final long v, final int loc){
 		
 		if(loc>=size){
@@ -102,13 +129,17 @@ public final class LongList2{
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Resize the array of entries */
+	/**
+	 * Resizes the internal entries array to the specified size.
+	 * New size must be larger than current size.
+	 * @param size2 New array capacity
+	 */
 	public final void resize(int size2){
 		assert(size2>size);
 		entries=KillSwitch.copyOf(entries, size2);
 	}
 	
-	/** Compress the list by eliminating the unused trailing space */
+	/** Compresses the list by removing unused trailing capacity */
 	public final void shrink(){
 		if(size==entries.length){return;}
 		entries=KillSwitch.copyOf(entries, size);
@@ -118,12 +149,21 @@ public final class LongList2{
 	/*----------------           Reading            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Get the entry at the location */
+	/**
+	 * Retrieves the entry at the specified location.
+	 * @param loc Index position to retrieve
+	 * @return The long array at this position, or null if location is out of bounds
+	 */
 	public final long[] get(int loc){
 		return(loc>=size ? null : entries[loc]);
 	}
 	
-	/** Added for better IntList3 compatibility */
+	/**
+	 * Gets the length of the entry at specified index for IntList3 compatibility.
+	 * Returns 0 if index is out of bounds or entry is null, -1 if entry exists.
+	 * @param i Index to check
+	 * @return -1 if entry exists, 0 if out of bounds or null
+	 */
 	public int getLen(int i) {
 		return i>=size ? 0 : entries[i]==null ? 0 : -1;
 	}
@@ -132,6 +172,11 @@ public final class LongList2{
 	/*----------------           ToString           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Creates a string representation showing non-null entries with their indices.
+	 * Format: [(index, [array_contents]), ...]
+	 * @return String representation of the list
+	 */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -151,26 +196,21 @@ public final class LongList2{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns the smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns the larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Holds entries.  Each entry is a sets of numbers in an long[]. 
-	 * Leftmost values are valid, rightmost values are invalid. */
 	private long[][] entries;
-	/** Number of entries in the primary array. */
 	public int size=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This could be made mutable per instance, but it would be a lot of work. */
+	/** Sentinel value (-1) used to mark invalid/unused slots in entry arrays */
 	public static final int INVALID=-1;
 	
 }

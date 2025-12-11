@@ -4,9 +4,12 @@ import shared.Parser;
 import shared.Tools;
 
 /**
+ * Simplified LogLog-based cardinality tracker that estimates unique element counts
+ * by storing the maximum hash observed in each bucket. Optimized for low memory
+ * overhead while providing approximate distinct counts.
+ *
  * @author Brian Bushnell
  * @date Feb 20, 2020
- *
  */
 public final class BBLog_simple extends CardinalityTracker {
 	
@@ -14,25 +17,16 @@ public final class BBLog_simple extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
 	BBLog_simple(){
 		this(2048, 31, -1, 0f);
 	}
 	
-	/** Create a LogLog with parsed parameters */
 	BBLog_simple(Parser p){
 		super(p);
 		maxArray=new long[buckets];
 		counts=(trackCounts ? new int[buckets] : null);
 	}
 	
-	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
-	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
-	 */
 	BBLog_simple(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new long[buckets];
@@ -46,6 +40,11 @@ public final class BBLog_simple extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Estimates cardinality from bucket maxima using a LogLog-style mean difference
+	 * calculation, caches the result in lastCardinality, and returns the estimate.
+	 * @return Estimated number of unique elements
+	 */
 	@Override
 	public final long cardinality(){
 		double difSum=0;
@@ -69,22 +68,24 @@ public final class BBLog_simple extends CardinalityTracker {
 		return cardinality;
 	}
 
+	/** Returns the optional per-bucket count array if count tracking is enabled.
+	 * @return Count array, or null when counts are not tracked */
 	@Override
 	public int[] getCounts(){
 		return counts;
 	}
 	
+	/**
+	 * Merges another tracker of the same type into this one by delegating to the
+	 * type-specific add implementation.
+	 * @param log CardinalityTracker to merge (must be BBLog_simple)
+	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((BBLog_simple)log);
 	}
 	
-	/**
-	 * Merges another BBLog_simple by taking the maximum value for each bucket.
-	 * This combines the cardinality estimates from both trackers.
-	 * @param log BBLog_simple instance to merge
-	 */
 	public void add(BBLog_simple log){
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
@@ -93,6 +94,11 @@ public final class BBLog_simple extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Hashes the given number with Tools.hash64shift, selects a bucket, and stores the
+	 * maximum hash observed for that bucket.
+	 * @param number Value to hash and record
+	 */
 	@Override
 	public void hashAndStore(final long number){
 //		if(number%SKIPMOD!=0){return;}
@@ -107,6 +113,11 @@ public final class BBLog_simple extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Returns compensation factors for log buckets; this implementation performs no
+	 * compensation and returns null.
+	 * @return null (no compensation factors)
+	 */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return null;
@@ -116,9 +127,8 @@ public final class BBLog_simple extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maintains state.  These are the actual buckets. */
+	/** Buckets storing the maximum hash values used for cardinality estimation. */
 	private final long[] maxArray;
-	/** Counts associated with values in the buckets. */
 	private final int[] counts;
 	
 //	private static long minKey=(long)(0.75f*Long.MAX_VALUE); //non-atomic 15% faster without this

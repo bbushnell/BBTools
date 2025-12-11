@@ -18,17 +18,15 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Counts base composition and GC content in FASTA and FASTQ sequence files.
+ * Supports multiple output formats and provides overall statistics.
+ * Can process compressed files and standard input/output streams.
+ *
  * @author Brian Bushnell
  * @date Dec 13, 2012
- *
  */
 public class CountGC {
 	
-	/**
-	 * Program entry point for counting GC content in sequence files.
-	 * Parses command-line arguments, processes input files, and outputs statistics.
-	 * @param args Command-line arguments including input/output paths and format options
-	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -174,6 +172,16 @@ public class CountGC {
 		return sum;
 	}
 	
+	/**
+	 * Counts base composition in FASTA format sequences.
+	 * Processes sequences one at a time, tracking A, C, G, T, and N bases.
+	 * Outputs per-sequence statistics and returns overall counts.
+	 *
+	 * @param is Input stream containing FASTA sequences
+	 * @param out Output file path, or null for stdout/summary only
+	 * @return Array of overall base counts [A, C, G, T, N, other]
+	 * @throws IOException If stream reading or writing fails
+	 */
 	public static long[] countFasta(InputStream is, String out) throws IOException{
 		
 		long limsum=0;
@@ -243,6 +251,16 @@ public class CountGC {
 		return overall;
 	}
 	
+	/**
+	 * Counts base composition in FASTQ format sequences.
+	 * Parses four-line FASTQ records and processes only sequence lines.
+	 * Outputs per-sequence statistics and returns overall counts.
+	 *
+	 * @param is Input stream containing FASTQ sequences
+	 * @param out Output file path, or null for stdout/summary only
+	 * @return Array of overall base counts [A, C, G, T, N, other]
+	 * @throws IOException If stream reading or writing fails
+	 */
 	public static long[] countFastq(InputStream is, String out) throws IOException{
 //		assert(false) : "Fastq mode - TODO"; //TODO
 		long limsum=0;
@@ -343,14 +361,6 @@ public class CountGC {
 		return overall;
 	}
 	
-	/**
-	 * Formats base count statistics as tab-delimited string using int array.
-	 * Calculates fractions and GC content based on selected output format.
-	 *
-	 * @param sb StringBuilder containing sequence identifier
-	 * @param counts Array of base counts [A, C, G, T, N, other]
-	 * @return Formatted string with statistics according to FORMAT setting
-	 */
 	private static String toString2(StringBuilder sb, int[] counts){
 		final long sum1=(long)counts[0]+(long)counts[1]+(long)counts[2]+(long)counts[3];
 		final long sum2=sum1+counts[4];
@@ -368,14 +378,6 @@ public class CountGC {
 		}
 	}
 	
-	/**
-	 * Formats base count statistics as tab-delimited string using long array.
-	 * Calculates fractions and GC content based on selected output format.
-	 *
-	 * @param sb StringBuilder containing sequence identifier
-	 * @param counts Array of base counts [A, C, G, T, N, other]
-	 * @return Formatted string with statistics according to FORMAT setting
-	 */
 	private static String toString2(StringBuilder sb, long[] counts){
 		final long sum1=(long)counts[0]+(long)counts[1]+(long)counts[2]+(long)counts[3];
 		final long sum2=sum1+counts[4];
@@ -393,28 +395,22 @@ public class CountGC {
 		}
 	}
 	
-	/** Lookup table for converting ASCII characters to base type indices */
 	private static final byte[] charToNum=makeCharToNum();
-	/** Output format: 1=full stats, 2=GC only, 4=length+GC */
 	public static int FORMAT=1;
-	/**
-	 * When true, suppresses per-sequence output and shows only overall statistics
-	 */
 	public static boolean SUMMARY_ONLY=false;
-	/** Total bytes read from input stream for speed calculation */
 	private static long LIMSUM=0;
 
 	/** FASTQ header prefix character '@' */
 	/** FASTA header prefix character '>' */
 	/** Newline character constant */
-	/** Carriage return character constant */
 	final static byte slashr='\r', slashn='\n', carrot='>', at='@';
 	
-	/** Output stream for program messages and summary statistics */
 	static PrintStream outstream=System.err;
 	
 	/**
-	 * @return
+	 * Creates lookup table for converting ASCII characters to base indices.
+	 * Maps A/a=0, C/c=1, G/g=2, T/t=3, N/other=4, control chars=5.
+	 * @return Byte array mapping ASCII values to base type indices
 	 */
 	private static byte[] makeCharToNum() {
 		byte[] r=new byte[256];

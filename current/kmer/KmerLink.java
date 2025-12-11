@@ -10,9 +10,13 @@ import structures.ByteBuilder;
 import structures.SuperLongList;
 
 /**
+ * Linked list implementation of AbstractKmerTable for storing k-mer counts.
+ * Each node stores a single k-mer and its count, with overflow handled through
+ * chaining to the next node. Optimized for sparse k-mer distributions where
+ * most positions have zero or few k-mers.
+ *
  * @author Brian Bushnell
  * @date Oct 22, 2013
- *
  */
 public class KmerLink extends AbstractKmerTable {
 	
@@ -20,17 +24,10 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Constructs a KmerLink node with specified k-mer.
-	 * @param pivot_ The k-mer value for this node */
 	public KmerLink(long pivot_){
 		pivot=pivot_;
 	}
 	
-	/**
-	 * Constructs a KmerLink node with specified k-mer and count.
-	 * @param pivot_ The k-mer value for this node
-	 * @param value_ Initial count for this k-mer
-	 */
 	public KmerLink(long pivot_, int value_){
 		pivot=pivot_;
 		value=value_;
@@ -61,7 +58,12 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns number of nodes added */
+	/**
+	 * Sets count for specified k-mer, creating new node if necessary.
+	 * @param kmer The k-mer to set
+	 * @param value_ New count value
+	 * @return Number of nodes added (1 if new, 0 if existing)
+	 */
 	@Override
 	public int set(long kmer, int value_){
 		if(pivot<0){pivot=kmer; value=value_; return 1;} //Allows initializing empty nodes to -1
@@ -70,7 +72,12 @@ public class KmerLink extends AbstractKmerTable {
 		return next.set(kmer, value_);
 	}
 	
-	/** Returns number of nodes added */
+	/**
+	 * Sets count for k-mer only if not already present.
+	 * @param kmer The k-mer to set
+	 * @param value_ Count value to set if k-mer is new
+	 * @return Number of nodes added (1 if new, 0 if already present)
+	 */
 	@Override
 	public int setIfNotPresent(long kmer, int value_){
 		if(pivot<0){pivot=kmer; value=value_; return 1;} //Allows initializing empty nodes to -1
@@ -79,17 +86,17 @@ public class KmerLink extends AbstractKmerTable {
 		return next.setIfNotPresent(kmer, value_);
 	}
 	
+	/**
+	 * Retrieves the node containing specified k-mer.
+	 * @param kmer The k-mer to find
+	 * @return KmerLink node containing the k-mer, or null if not found
+	 */
 	@Override
 	KmerLink get(long kmer){
 		if(kmer==pivot){return this;}
 		return next==null ? null : next.get(kmer);
 	}
 	
-	/**
-	 * Inserts a KmerLink node into the chain.
-	 * @param n Node to insert
-	 * @return true if inserted, false if k-mer already exists
-	 */
 	boolean insert(KmerLink n){
 		assert(pivot!=-1);
 		if(pivot==n.pivot){return false;}
@@ -97,27 +104,22 @@ public class KmerLink extends AbstractKmerTable {
 		return next.insert(n);
 	}
 	
+	/**
+	 * Tests whether specified k-mer is present in the chain.
+	 * @param kmer The k-mer to test
+	 * @return true if k-mer is present
+	 */
 	@Override
 	public boolean contains(long kmer){
 		KmerLink node=get(kmer);
 		return node!=null;
 	}
 	
-	/**
-	 * Traverses chain in reverse order, adding nodes to list.
-	 * Recursively processes next node first, then adds current node.
-	 * @param list List to add nodes to
-	 */
 	void traversePrefix(ArrayList<KmerLink> list){
 		if(next!=null){next.traversePrefix(list);}
 		list.add(this);
 	}
 	
-	/**
-	 * Traverses chain in forward order, adding nodes to list.
-	 * Adds current node first, then recursively processes next node.
-	 * @param list List to add nodes to
-	 */
 	void traverseInfix(ArrayList<KmerLink> list){
 		list.add(this);
 		if(next!=null){next.traverseInfix(list);}
@@ -127,6 +129,8 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Indicates whether this structure supports resizing.
+	 * @return false - linked lists cannot be resized */
 	@Override
 	boolean canResize() {
 		return false;
@@ -137,6 +141,11 @@ public class KmerLink extends AbstractKmerTable {
 		return true;
 	}
 	
+	/**
+	 * Gets array length (unsupported for linked structure).
+	 * @return Never returns - throws RuntimeException
+	 * @deprecated Linked lists don't have array length
+	 */
 	@Deprecated
 	@Override
 	public int arrayLength() {
@@ -159,15 +168,26 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------          Ownership           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Initializes ownership flags for all nodes in chain.
+	 * Sets owner to -1 for this node and recursively for all linked nodes. */
 	@Override
 	public final void initializeOwnership(){
 		owner=-1;
 		if(next!=null){next.initializeOwnership();}
 	}
 	
+	/** Clears ownership flags for all nodes in chain.
+	 * Delegates to initializeOwnership(). */
 	@Override
 	public final void clearOwnership(){initializeOwnership();}
 	
+	/**
+	 * Sets owner for specified k-mer with thread-safe synchronization.
+	 * Only updates if new owner ID is greater than current owner.
+	 * @param kmer The k-mer to set owner for
+	 * @param newOwner New owner identifier
+	 * @return Final owner ID after update attempt
+	 */
 	@Override
 	public final int setOwner(final long kmer, final int newOwner){
 		KmerLink n=get(kmer);
@@ -182,6 +202,13 @@ public class KmerLink extends AbstractKmerTable {
 		return n.owner;
 	}
 	
+	/**
+	 * Clears owner for k-mer if current owner matches specified owner.
+	 * Uses synchronization to ensure atomic ownership changes.
+	 * @param kmer The k-mer to clear owner for
+	 * @param owner Expected current owner ID
+	 * @return true if owner was cleared, false if owner didn't match
+	 */
 	@Override
 	public final boolean clearOwner(final long kmer, final int owner){
 		KmerLink n=get(kmer);
@@ -195,6 +222,11 @@ public class KmerLink extends AbstractKmerTable {
 		return false;
 	}
 	
+	/**
+	 * Gets current owner ID for specified k-mer.
+	 * @param kmer The k-mer to get owner for
+	 * @return Owner ID, or -1 if no owner
+	 */
 	@Override
 	public final int getOwner(final long kmer){
 		KmerLink n=get(kmer);
@@ -204,17 +236,35 @@ public class KmerLink extends AbstractKmerTable {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets multiple values for k-mer (unimplemented).
+	 * @param kmer The k-mer
+	 * @param vals Array of values
+	 * @param vlen Length of values
+	 * @return Never returns - throws RuntimeException
+	 */
 	@Override
 	public int set(long kmer, int[] vals, int vlen) {
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Gets count value for specified k-mer.
+	 * @param kmer The k-mer to get count for
+	 * @return Count value, or -1 if k-mer not found
+	 */
 	@Override
 	public final int getValue(long kmer){
 		KmerLink n=get(kmer);
 		return n==null ? -1 : n.value;
 	}
 	
+	/**
+	 * Gets count value for k-mer as single-element array.
+	 * @param kmer The k-mer to get count for
+	 * @param singleton Pre-allocated single-element array to populate
+	 * @return singleton array with count, or null if k-mer not found
+	 */
 	@Override
 	public final int[] getValues(long kmer, int[] singleton){
 		KmerLink n=get(kmer);
@@ -223,6 +273,11 @@ public class KmerLink extends AbstractKmerTable {
 		return singleton;
 	}
 	
+	/**
+	 * Counts total number of valid k-mers in chain.
+	 * Recursively counts nodes with value >= 1.
+	 * @return Total count of stored k-mers
+	 */
 	@Override
 	public final long size() {
 		if(value<1){return 0;}
@@ -235,6 +290,16 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------         Info Dumping         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Writes k-mers and counts as binary data to stream.
+	 * Only outputs k-mers with counts >= mincount.
+	 * @param bsw Output stream writer
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold for output
+	 * @param maxcount Maximum count threshold (unused)
+	 * @param remaining Counter for remaining k-mers to output
+	 * @return Always true
+	 */
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
@@ -246,6 +311,17 @@ public class KmerLink extends AbstractKmerTable {
 		return true;
 	}
 	
+	/**
+	 * Multi-threaded version of binary k-mer output using ByteBuilder buffer.
+	 * Accumulates output in buffer and flushes when buffer reaches 16KB.
+	 * @param bsw Thread-safe output stream writer
+	 * @param bb Buffer for accumulating output
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold
+	 * @param maxcount Maximum count threshold (unused)
+	 * @param remaining Counter for remaining k-mers to output
+	 * @return Always true
+	 */
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
@@ -263,21 +339,20 @@ public class KmerLink extends AbstractKmerTable {
 		return true;
 	}
 	
+	/**
+	 * Writes k-mers and counts as text to stream.
+	 * @param tsw Text output stream writer
+	 * @param k K-mer length for formatting
+	 * @param mincount Minimum count threshold for output
+	 * @param maxcount Maximum count threshold (unused)
+	 * @return Always true
+	 */
 	@Override
 	public final boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount) {
 		tsw.print(dumpKmersAsText(new StringBuilder(32), k, mincount, maxcount));
 		return true;
 	}
 	
-	/**
-	 * Builds text representation of k-mers and counts in StringBuilder.
-	 * Recursively processes chain, appending qualifying k-mers.
-	 * @param sb StringBuilder to append to (created if null)
-	 * @param k K-mer length for formatting
-	 * @param mincount Minimum count threshold
-	 * @param maxcount Maximum count threshold (unused)
-	 * @return StringBuilder with accumulated text
-	 */
 	private final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(value<1){return sb;}
 		if(sb==null){sb=new StringBuilder(32);}
@@ -286,6 +361,12 @@ public class KmerLink extends AbstractKmerTable {
 		return sb;
 	}
 	
+	/**
+	 * Fills count histogram array with k-mer count frequencies.
+	 * Increments histogram bin corresponding to k-mer count value.
+	 * @param ca Histogram array to fill
+	 * @param max Maximum count value to include in histogram
+	 */
 	@Override
 	public final void fillHistogram(long[] ca, int max){
 		if(value<1){return;}
@@ -293,6 +374,11 @@ public class KmerLink extends AbstractKmerTable {
 		if(next!=null){next.fillHistogram(ca, max);}
 	}
 	
+	/**
+	 * Fills SuperLongList with individual k-mer count values.
+	 * Adds each valid k-mer's count to the growing list.
+	 * @param sll SuperLongList to add count values to
+	 */
 	@Override
 	public final void fillHistogram(SuperLongList sll){
 		if(value<1){return;}
@@ -300,6 +386,12 @@ public class KmerLink extends AbstractKmerTable {
 		if(next!=null){next.fillHistogram(sll);}
 	}
 	
+	/**
+	 * Counts GC content weighted by k-mer frequencies.
+	 * Adds GC count of each k-mer multiplied by its frequency to histogram.
+	 * @param gcCounts Array to accumulate GC counts
+	 * @param max Maximum count value to include
+	 */
 	@Override
 	public void countGC(long[] gcCounts, int max){
 		if(value<1){return;}
@@ -316,26 +408,20 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------       Invalid Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Rebalances linked list structure (unsupported).
-	 * @param list List of nodes to rebalance
-	 * @return Never returns - throws RuntimeException
-	 */
 	KmerLink rebalance(ArrayList<KmerLink> list){
 		throw new RuntimeException("Unsupported.");
 	}
 	
-	/**
-	 * Static rebalancing method (unsupported).
-	 * @param list List of nodes
-	 * @param a Start index
-	 * @param b End index
-	 * @return Never returns - throws RuntimeException
-	 */
 	private static KmerLink rebalance(ArrayList<KmerLink> list, int a, int b){
 		throw new RuntimeException("Unsupported.");
 	}
 	
+	/**
+	 * Regenerates structure removing zero-value links (unimplemented).
+	 * @param limit Regeneration limit
+	 * @return Never returns - throws RuntimeException
+	 * @deprecated Not yet implemented
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -346,12 +432,8 @@ public class KmerLink extends AbstractKmerTable {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** The k-mer value stored in this node */
 	long pivot;
-	/** Count value for this k-mer */
 	int value;
-	/** Thread ownership identifier for concurrent access control */
 	int owner=-1;
-	/** Reference to next node in the linked chain */
 	KmerLink next;
 }

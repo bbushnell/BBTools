@@ -4,11 +4,13 @@ import shared.LineParserS4Reverse;
 import structures.ByteBuilder;
 
 /**
- * Uses a reverse parser because BGI headers have an unknown prefix.
- * As a result, it does not support comments, but this could be preprocessed.
+ * Parser for BGI sequencing platform read headers with unknown prefix format.
+ * Uses reverse parsing strategy to handle variable prefix lengths in BGI headers.
+ * Does not support comment parsing by default due to reverse parsing approach.
+ * BGI headers follow format: prefixLlaneClusterRreadNumber/pairNumber
+ *
  * @author Brian Bushnell
  * @date May 6, 2024
- *
  */
 public class BGIHeaderParser2 extends ReadHeaderParser {
 	
@@ -16,11 +18,6 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Test harness for BGI header parsing functionality.
-	 * Creates parser instance, runs tests, and demonstrates format conversion.
-	 * @param args Command-line arguments; first argument used as test header
-	 */
 	public static void main(String[] args) {
 		BGIHeaderParser2 ihp=new BGIHeaderParser2();
 		ihp.test(args.length>0 ? args[0] : null);
@@ -42,14 +39,6 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Parses a BGI format read header into component fields.
-	 * Optionally extracts comment section when PARSE_EXTRA is enabled.
-	 * Sets up reverse parser with BGI-specific delimiter pattern.
-	 *
-	 * @param id_ The complete read header string to parse
-	 * @return This parser instance for method chaining
-	 */
 	public BGIHeaderParser2 parse(String id_) {
 		id=id_;
 		extra=null;
@@ -64,12 +53,6 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		return this;
 	}
 	
-	/**
-	 * Finds the index of the first whitespace character in a string.
-	 * Used to separate header ID from comment section.
-	 * @param s String to search for whitespace
-	 * @return Index of first whitespace character, or -1 if none found
-	 */
 	private static int firstWhitespace(String s) {
 		for(int i=0; i<s.length(); i++) {
 			if(Character.isWhitespace(s.charAt(i))){
@@ -80,14 +63,6 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	}
 
 	//@LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG (NovaseqX)
-	/**
-	 * Converts BGI header format to Illumina-compatible header format.
-	 * Constructs standard Illumina header with machine:run:flowcell:lane:tile:x:y
-	 * format followed by pair info and optional barcode.
-	 *
-	 * @param barcode Barcode sequence to append (may be null)
-	 * @return Illumina-formatted header string
-	 */
 	public String toIllumina(String barcode) {
 		bb.clear();
 		bb.append(machine()).colon();
@@ -129,32 +104,77 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		return s!=null ? s : "FC";
 	}
 
+	/**
+	 * Extracts lane number from BGI header.
+	 * Parses the third field (index 2) as lane identifier.
+	 * @return Lane number as integer
+	 */
 	@Override
 	public int lane() {return lp.parseInt(2);}
 
+	/**
+	 * Extracts tile number from BGI header using complex parsing.
+	 * Parses from field 4, starting at position 3, using base 10.
+	 * @return Tile number as integer
+	 */
 	@Override
 	public int tile() {return lp.parseInt(4, 3, 10);}
 
+	/**
+	 * Extracts X coordinate from BGI header.
+	 * Uses the fourth field (index 3) as X position.
+	 * @return X coordinate as integer
+	 */
 	@Override
 	public int xPos() {return lp.parseInt(3);}
 
+	/**
+	 * Extracts Y coordinate from BGI header using substring parsing.
+	 * Parses from field 4, positions 0-3 as Y coordinate.
+	 * @return Y coordinate as integer
+	 */
 	@Override
 	public int yPos() {return lp.parseInt(4, 0, 3);}
 
+	/**
+	 * Extracts pair number from BGI header.
+	 * Returns the first character of the sixth field (index 5).
+	 * @return Pair code character ('1' or '2')
+	 */
 	@Override
 	public char pairCode() {return lp.parseChar(5, 0);}
 
+	/**
+	 * Returns chastity filter status for BGI reads.
+	 * BGI format does not include chastity information, returns 'N'.
+	 * @return Always returns 'N' (not filtered)
+	 */
 	@Override
 	public char chastityCode() {return 'N';}
 
+	/**
+	 * Returns control bits value for BGI headers.
+	 * BGI format does not include control bits, returns 0.
+	 * @return Always returns 0
+	 */
 	@Override
 	public int controlBits() {return 0;}
 
+	/**
+	 * Returns barcode sequence from BGI header.
+	 * BGI format does not include inline barcodes, returns null.
+	 * @return Always returns null
+	 */
 	@Override
 	public String barcode() {
 		return null;
 	}
 
+	/**
+	 * Returns extra comment information from BGI header.
+	 * Returns the comment portion extracted during parsing if PARSE_EXTRA enabled.
+	 * @return Comment string or null if no comments or parsing disabled
+	 */
 	@Override
 	public String extra() {
 //		return lp.terms()<=6 ? null : lp.parseString(6);
@@ -165,20 +185,14 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Storage for comment/extra information extracted from header */
 	private String extra=null;
-	/** Reverse line parser configured for BGI delimiter pattern "_LCR/" */
 	private final LineParserS4Reverse lp=new LineParserS4Reverse("_LCR/");
-	/** StringBuilder for efficient header format conversion */
 	private final ByteBuilder bb=new ByteBuilder(64);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Controls whether to parse comment fields from headers (slower but complete)
-	 */
 	public static boolean PARSE_EXTRA=false;
 	
 }

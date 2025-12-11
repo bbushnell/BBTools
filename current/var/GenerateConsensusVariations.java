@@ -12,20 +12,15 @@ import shared.Tools;
 import structures.CoverageArray;
 
 /**
+ * Processes and filters genomic variations across chromosomes using coverage
+ * depth and consensus thresholds. Removes overlapping variations by selecting
+ * the higher quality variant and applies various quality control filters.
+ *
  * @author Brian Bushnell
  * @date Jul 23, 2012
- *
  */
 public class GenerateConsensusVariations {
 	
-	/**
-	 * Program entry point that processes variants across multiple chromosomes.
-	 * Parses command-line arguments for input/output patterns, coverage thresholds,
-	 * and processing parameters, then processes each chromosome in the specified range.
-	 *
-	 * @param args Command-line arguments including input variant pattern, coverage pattern,
-	 * output pattern, and optional parameters (mincov, consensus, genome, etc.)
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -100,7 +95,6 @@ public class GenerateConsensusVariations {
 		
 	}
 	
-	/** Now removes overlapping vars by retaining better quality one. */
 	public static void process(final String invars, final String incov, final String outfile, final int chrom, final int mincov){
 		TextFile tf=new TextFile(invars, true);
 		CoverageArray ca=ReadWrite.read(CoverageArray.class, incov, true);
@@ -176,9 +170,15 @@ public class GenerateConsensusVariations {
 	
 	
 	/**
-	 * @param v
-	 * @param ca
-	 * @return
+	 * Determines if a variant passes all quality control filters.
+	 * Checks minimum coverage depth, consensus ratio requirements,
+	 * strand representation, and special handling for NOREF variants.
+	 *
+	 * @param v The variant to evaluate
+	 * @param ca Coverage array for depth information
+	 * @param cha Chromosome array for reference sequence
+	 * @param minCoverageToPass Minimum coverage threshold
+	 * @return true if variant passes all filters, false otherwise
 	 */
 	private static boolean passesFilter(Varlet v, CoverageArray ca, ChromosomeArray cha, int minCoverageToPass) {
 		
@@ -243,27 +243,17 @@ public class GenerateConsensusVariations {
 	}
 
 
-	/** TODO */
+	/** Number of processing threads (currently unused) */
 	public static int THREADS=1;
-	/** Maximum distance for NOREF variant validation against reference sequence */
 	public static int NOREF_CAP=-1;
-	/** Minimum fraction of reads required to support a standard variant */
 	public static float consensusRatio=1f;
-	/** Minimum fraction of reads required to support a NOREF variant */
 	public static float consensusRatioNR=1f;
-	/** Count of input variants processed */
 	public static long VARS_IN=0;
-	/** Total length difference of input variants */
 	public static long VARLEN_IN=0;
-	/** Count of input NOREF variants processed */
 	public static long NOREFS_IN=0;
-	/** Count of variants written to output after filtering */
 	public static long VARS_OUT=0;
-	/** Total length difference of output variants after filtering */
 	public static long VARLEN_OUT=0;
-	/** Count of NOREF variants written to output after filtering */
 	public static long NOREFS_OUT=0;
-	/** Enable verbose output for debugging filter decisions */
 	public static boolean verbose=false;
 	
 }

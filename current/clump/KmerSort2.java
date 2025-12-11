@@ -20,9 +20,13 @@ import stream.Read;
 import tracker.ReadStats;
 
 /**
+ * K-mer based sequence sorting and clumping tool with multi-group processing support.
+ * Extends KmerSort to provide enhanced capabilities for large-scale sequence processing
+ * including deduplication, error correction, consensus generation, and paired-end repair.
+ * Supports splitting input into multiple groups for memory-efficient processing of large datasets.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class KmerSort2 extends KmerSort {
 	
@@ -31,8 +35,11 @@ public class KmerSort2 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for KmerSort2.
+	 * Configures compression settings, processes command-line arguments, and executes
+	 * the sorting pipeline.
+	 * Restores original compression settings after completion.
+	 * @param args Command-line arguments specifying input files, parameters, and processing options
 	 */
 	public static void main(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
@@ -53,8 +60,11 @@ public class KmerSort2 extends KmerSort {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a KmerSort2 instance with the specified command-line arguments.
+	 * Parses arguments to configure k-mer length, processing modes, input/output files,
+	 * and various filtering and correction options. Validates file paths and initializes
+	 * FileFormat objects for input and output streams.
+	 * @param args Command-line arguments containing configuration parameters
 	 */
 	public KmerSort2(String[] args){
 		
@@ -241,6 +251,12 @@ public class KmerSort2 extends KmerSort {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing pipeline that orchestrates the complete k-mer sorting workflow.
+	 * Performs preprocessing, creates output streams, processes reads through sorting
+	 * and clumping, and generates final statistics.
+	 * @param t Timer for tracking execution performance
+	 */
 	@Override
 	void process(Timer t){
 		
@@ -264,7 +280,13 @@ public class KmerSort2 extends KmerSort {
 		printStats(t);
 	}
 	
-	/** Collect and sort the reads */
+	/**
+	 * Core processing method that handles k-mer sorting, clumping, and optional corrections.
+	 * Creates k-mer comparator, processes reads in groups, performs sorting and clumping,
+	 * applies deduplication/condensing/correction as configured, and handles paired-end repair.
+	 * Supports multi-pass processing for enhanced error correction accuracy.
+	 * @param rosa Array of output streams for writing processed reads
+	 */
 	void processInner(final ConcurrentReadOutputStream rosa[]){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, addName, (rcomp || condense || correct));
@@ -404,16 +426,6 @@ public class KmerSort2 extends KmerSort {
 		if(verbose){outstream.println("Done!");}
 	}
 	
-	/**
-	 * Distributes reads to output streams, with optional hash-based splitting for multi-group output.
-	 * For single output stream, writes directly. For multiple streams, creates new comparator,
-	 * splits reads by hash values, and distributes to appropriate output streams.
-	 *
-	 * @param rosa Array of output streams to write to
-	 * @param list List of reads to distribute
-	 * @param t Timer for tracking split and write performance
-	 * @param old Previous k-mer comparator to base new comparator parameters on
-	 */
 	private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old){
 		if(rosa==null){return;}
 		assert(rosa.length>0);
@@ -461,12 +473,9 @@ public class KmerSort2 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array of input FileFormat objects for primary input files (read 1) */
 	private final FileFormat ffin1[];
-	/** Array of input FileFormat objects for secondary input files (read 2) */
 	private final FileFormat ffin2[];
 
-	/** Array of output FileFormat objects for writing processed reads */
 	private final FileFormat ffout1[];
 	
 }

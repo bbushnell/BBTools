@@ -12,13 +12,11 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Allows output of reads to multiple different output streams.
- * Each output stream is controlled by a buffer,
- * which stores reads until there is a sufficient quantity to dump.
- * 
+ * Abstract base class for buffered multi-stream output of reads to different files.
+ * Each output stream is controlled by a buffer that stores reads until sufficient quantity accumulates to dump efficiently.
+ * Supports threaded and non-threaded modes.
  * @author Brian Bushnell
  * @date May 14, 2019
- *
  */
 public abstract class BufferedMultiCros extends Thread {
 	
@@ -26,41 +24,12 @@ public abstract class BufferedMultiCros extends Thread {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Factory method to create BufferedMultiCros instance with default settings.
-	 *
-	 * @param out1 Output pattern for file 1 (must contain % symbol)
-	 * @param out2 Output pattern for file 2 (may be null)
-	 * @param overwrite Permission to overwrite existing files
-	 * @param append Permission to append to existing files
-	 * @param allowSubprocess Allow subprocesses like pigz, bgzip, or samtools
-	 * @param useSharedHeader Print stored header in all output SAM files
-	 * @param defaultFormat Assume files are in this format if extension is unclear
-	 * @return New BufferedMultiCros instance
-	 */
 	public static BufferedMultiCros make(String out1, String out2, boolean overwrite, boolean append, 
 			boolean allowSubprocess, boolean useSharedHeader, int defaultFormat) {
 		return make(out1, out2, overwrite, append, allowSubprocess, useSharedHeader, 
 				defaultFormat, defaultThreaded, defaultMcrosType, defaultMaxStreams);
 	}
 	
-	/**
-	 * Factory method to create BufferedMultiCros instance with full configuration.
-	 * Creates different implementation types based on mcrosType parameter.
-	 *
-	 * @param out1 Output pattern for file 1 (must contain % symbol)
-	 * @param out2 Output pattern for file 2 (may be null)
-	 * @param overwrite Permission to overwrite existing files
-	 * @param append Permission to append to existing files
-	 * @param allowSubprocess Allow subprocesses like pigz, bgzip, or samtools
-	 * @param useSharedHeader Print stored header in all output SAM files
-	 * @param defaultFormat Assume files are in this format if extension is unclear
-	 * @param threaded Run this mcros in its own thread
-	 * @param mcrosType Implementation type (2=sync, 3=async, 4=threaded, 5-6=timer-based)
-	 * @param maxStreams Maximum allowed number of concurrent open streams
-	 * @return New BufferedMultiCros instance of specified type
-	 * @throws RuntimeException if mcrosType is invalid
-	 */
 	public static BufferedMultiCros make(String out1, String out2, boolean overwrite, boolean append, 
 			boolean allowSubprocess, boolean useSharedHeader, int defaultFormat, boolean threaded,
 			int mcrosType, int maxStreams) {
@@ -82,18 +51,6 @@ public abstract class BufferedMultiCros extends Thread {
 		return mcros;
 	}
 	
-	/**
-	 * Primary constructor.
-	 * @param pattern1_ Name pattern for file 1; must contain % (required)
-	 * @param pattern2_ Name pattern for file 2; must contain % (optional)
-	 * @param overwrite_ Permission to overwrite
-	 * @param append_ Permission to append to existing files (this should generally be false)
-	 * @param allowSubprocess_ Allow subprocesses such as pigz, bgzip, or samtools
-	 * @param useSharedHeader_ Print the stored header (from an input sam file) in all output sam files 
-	 * @param defaultFormat_ Assume files are in this format if they don't have a valid extension
-	 * @param threaded_ Run this mcros in its own thread
-	 * @param maxStreams_ Max allowed number of concurrent open streams
-	 */
 	public BufferedMultiCros(String pattern1_, String pattern2_,
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, 
 			int defaultFormat_, boolean threaded_, int maxStreams_){
@@ -135,15 +92,6 @@ public abstract class BufferedMultiCros extends Thread {
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Parses static configuration parameters for BufferedMultiCros.
-	 * Handles mcrostype, threading, stream limits, buffer sizes, and memory multipliers.
-	 *
-	 * @param arg The full argument string (unused)
-	 * @param a Parameter name
-	 * @param b Parameter value
-	 * @return true if parameter was recognized and parsed, false otherwise
-	 */
 	public static boolean parseStatic(String arg, String a, String b){
 		if(a.equals("mcrostype")){
 			defaultMcrosType=Integer.parseInt(b);
@@ -175,72 +123,76 @@ public abstract class BufferedMultiCros extends Thread {
 	/*----------------       Abstract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** True if no errors were encountered */
 	public abstract boolean finishedSuccessfully();
 
-	/** 
-	 * Add a single read.  Should not be used in threaded mode.
-	 * Should only be used by this class.
-	 * @param r Read to add.
-	 * @param name Name of destination buffer.
+	/**
+	 * Adds a single read to the specified output buffer.
+	 * Should not be used in threaded mode and should only be called by this class.
+	 * @param r Read to add to buffer
+	 * @param name Name of destination buffer
 	 */
 	abstract void add(Read r, String name);
 	
-	/** 
-	 * Dump all buffered reads to disk, except when minReadsToDump forbids it.
-	 * @return Number of reads dumped.
-	 */
 	abstract long dumpAll();
 	
-	/** 
-	 * Dump all residual reads to this stream.
-	 * @param rosu Destination stream.
-	 * @return Number of residual reads dumped.
+	/**
+	 * Dumps all residual reads to the specified output stream.
+	 * @param rosu Destination stream for residual reads
+	 * @return Number of residual reads that were dumped
 	 */
 	public abstract long dumpResidual(ConcurrentReadOutputStream rosu);
 	
-	/** Dump everything and close any open streams. */
+	/** Dumps everything and closes any open streams.
+	 * @return Number of reads processed during shutdown */
 	abstract long closeInner();
 	
-	/** Generate a report on how many reads went to each file */
+	/** Generates a report on how many reads went to each output file.
+	 * @return ByteBuilder containing the formatted report */
 	public abstract ByteBuilder report();
 	
-	/** Time for shutting down output threads */
+	/**
+	 * Gets timing information for shutting down output threads.
+	 * Default implementation throws RuntimeException for unsupported subclasses.
+	 * @return Formatted timing information
+	 * @throws RuntimeException if not implemented by subclass
+	 */
 	public String printRetireTime() {
 		throw new RuntimeException("printRetireTime not available for "+getClass().getName());
 	}
 	
-	/** Time for shutting down output threads */
+	/**
+	 * Gets timing information for creating output threads.
+	 * Default implementation throws RuntimeException for unsupported subclasses.
+	 * @return Formatted timing information
+	 * @throws RuntimeException if not implemented by subclass
+	 */
 	public String printCreateTime() {
 		throw new RuntimeException("printRetireTime not available for "+getClass().getName());
 	}
 	
-	/** Gets the set of all output buffer names/keys.
-	 * @return Set of buffer identifiers */
 	public abstract Set<String> getKeys();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Final Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Shut this down and perform any cleanup needed. */
+	/** Shuts down the MultiCros and performs any needed cleanup.
+	 * Handles both threaded and non-threaded shutdown procedures. */
 	public final void close(){
 		if(threaded){poisonAndWait();}
 		else{closeInner();}
 	}
 	
-	/** Primary file pattern */
+	/** Gets the primary file pattern.
+	 * @return The pattern1 file pattern string */
 	public final String fname(){return pattern1;}
 	
-	/** Return true if this stream has detected an error */
+	/** Checks if this stream has detected an error condition.
+	 * @return true if an error state has been detected */
 	public final boolean errorState(){
 		return errorState;
 	}
 	
-	/** 
-	 * Send a list of reads to an output buffer.
-	 * The reads must have a name attached to the object field in order to be written. 
-	 */
 	public final void add(ArrayList<Read> list) {
 		if(threaded){//Send to the transfer queue
 			addToQueue(list);
@@ -249,7 +201,11 @@ public abstract class BufferedMultiCros extends Thread {
 		}
 	}
 	
-	/** Send individual reads to their designated buffer */
+	/**
+	 * Distributes individual reads to their designated buffers.
+	 * Only processes reads that have a name in their obj field.
+	 * @param list List of reads to add to buffers
+	 */
 	private final void addToBuffers(ArrayList<Read> list) {
 		for(Read r : list){
 			if(r.obj!=null){
@@ -261,7 +217,8 @@ public abstract class BufferedMultiCros extends Thread {
 		handleLoad0();
 	}
 	
-	/** Called to handle load after adding a list */
+	/** Called after adding a list of reads to handle load management.
+	 * Default implementation does nothing; subclasses may override. */
 	void handleLoad0() {
 		//Do nothing
 	}
@@ -270,6 +227,11 @@ public abstract class BufferedMultiCros extends Thread {
 	/*----------------       Threaded Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main execution method for threaded mode.
+	 * Continuously processes read lists from the transfer queue until poisoned.
+	 * Terminates JVM if interrupted during operation.
+	 */
 	@Override
 	/** For threaded mode */
 	public final void run(){
@@ -287,18 +249,13 @@ public abstract class BufferedMultiCros extends Thread {
 		closeInner();
 	}
 	
-	/** Indicate that no more reads will be sent, for threaded mode */
+	/** Signals that no more reads will be sent in threaded mode.
+	 * Adds the poison token to the transfer queue to terminate the thread. */
 	public final void poison(){
 		assert(threaded) : "This should only be called in threaded mode.";
 		addToQueue(poisonToken);
 	}
 	
-	/**
-	 * Adds a read list to the transfer queue with retry logic.
-	 * Attempts up to 10 times to add to queue before killing the process.
-	 * @param list List of reads to add to queue
-	 * @return true if successfully added, false otherwise
-	 */
 	boolean addToQueue(ArrayList<Read> list) {
 		boolean success=false;
 		for(int i=0; i<10 && !success; i++) {
@@ -316,14 +273,16 @@ public abstract class BufferedMultiCros extends Thread {
 		return success;
 	}
 	
-	/** Indicate that no more reads will be sent, for threaded mode */
+	/** Poisons the transfer queue and waits for thread termination.
+	 * Combines poison() and waitForFinish() for clean shutdown. */
 	public final void poisonAndWait(){
 		assert(threaded) : "This should only be called in threaded mode.";
 		poison();
 		waitForFinish();
 	}
 	
-	/** Wait for this object's thread to terminate */
+	/** Waits for this object's thread to terminate.
+	 * Repeatedly attempts to join with 1 second timeout until thread terminates. */
 	public final void waitForFinish(){
 		assert(threaded);
 		if(verbose){System.err.println("Waiting for finish.");}
@@ -341,100 +300,85 @@ public abstract class BufferedMultiCros extends Thread {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file patterns containing a % symbol */
 	public final String pattern1, pattern2;
 	
-	/** True if an error was encountered */
+	/** True if an error was encountered during processing */
 	boolean errorState=false;
 	
-	/** File overwrite permission */
 	final boolean overwrite;
 	
-	/** File append permission */
+	/** Permission to append to existing files */
 	final boolean append;
 	
-	/** Subprocess spawning permission (e.g., for pigz) */
+	/** Permission to spawn subprocesses (e.g., for pigz compression) */
 	final boolean allowSubprocess;
 	
-	/** Output file format, if unclear from file extension */
+	/** Default output file format when unclear from file extension */
 	final int defaultFormat;
 	
-	/** Buffers for each ReadStreamWriter */
+	/** Number of buffers for each ReadStreamWriter */
 	int rswBuffers=1;
 	
-	/** Print the shared header (for sam files) */
+	/** Whether to print the shared header in SAM output files */
 	final boolean useSharedHeader;
 	
-	/** Don't retire below this limit */
+	/** Lower memory threshold below which streams are not retired */
 	final long memLimitLower;
 	
-	/** Possibly take some action */
+	/** Middle memory threshold where some action may be taken */
 	final long memLimitMid;
 	
-	/** Dump everything if this limit is reached from buffered reads */
+	/** Upper memory threshold where everything is dumped if reached */
 	final long memLimitUpper;
 
-	/** Allow this many active streams, for MCros3+ */
+	/** Maximum number of active streams allowed for MCros3+ implementations */
 	public final int maxStreams;
 	
-	/** Retire this many streams at a time */
+	/** Number of streams to retire at a time for load balancing */
 	public final int streamsToRetire;
 	
-	/** Dump a buffer once it holds this many reads */
+	/** Trigger buffer dump when it contains this many reads */
 	public int readsPerBuffer=defaultReadsPerBuffer;
 	
-	/** Dump a buffer once it holds this many bytes (estimated) */
+	/** Trigger buffer dump when it contains this many estimated bytes */
 	public int bytesPerBuffer=defaultBytesPerBuffer;
 	
-	/** Never write files with fewer than this many reads */
 	public long minReadsToDump=0;
 
-	/** Number of reads encountered that were not written */
 	public long residualReads=0, residualBases=0;
 	
-	/** Total number of reads processed */
 	long readsInTotal=0;
 	
-	/** Current number of buffered reads */
+	/** Current number of reads held in buffers */
 	long readsInFlight=0;
 	
-	/** Current number of buffered bytes (estimated) */
+	/** Current number of estimated bytes held in buffers */
 	long bytesInFlight=0;
 	
-	/** Used when MultiCros is run in threaded mode */
+	/** Queue for transferring read lists when MultiCros runs in threaded mode */
 	private final ArrayBlockingQueue<ArrayList<Read>> transferQueue;
 	
-	/** Signal to terminate when in threaded mode */
+	/** Special empty list used to signal thread termination in threaded mode */
 	private final ArrayList<Read> poisonToken=new ArrayList<Read>(0);
 	
-	/** True if this object is intended to run in a separate thread */
 	public final boolean threaded;
 	
-	/** Use a LogLog to track cardinality for each output file */
+	/** Whether to use LogLog for tracking cardinality of each output file */
 	public boolean trackCardinality=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Multiplier for available memory to set lower memory limit (default 20%) */
 	private static float memLimitLowerMult=0.20f;
-	/** Multiplier for available memory to set middle memory limit (default 40%) */
 	private static float memLimitMidMult=0.40f;
-	/** Multiplier for available memory to set upper memory limit (default 60%) */
 	private static float memLimitUpperMult=0.60f;
-	/** Default setting for threaded operation mode */
 	public static boolean defaultThreaded=true;
-	/** Default maximum number of concurrent streams */
 	public static int defaultMaxStreams=12;
-	/** Default implementation type (6 for timer-based retirement) */
 	public static int defaultMcrosType=6;
-	/** Default number of reads per buffer before dumping */
 	public static int defaultReadsPerBuffer=32000;
-	/** Default number of estimated bytes per buffer before dumping */
 	public static int defaultBytesPerBuffer=16000000;
 	
-	/** Enable verbose output for debugging threaded operations */
 	public static boolean verbose=false;
 
 }

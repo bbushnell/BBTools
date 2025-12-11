@@ -8,16 +8,14 @@ import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
-/**
- * Java implementation of the diagonal-based SIMD alignment algorithm from ksw2.
- * Uses anti-diagonal traversal with a drifting window for efficient processing.
- * 
- * @author Isla (based on ksw2 by Heng Li)
- * @date May 2025
- */
 public class DiagonalAligner implements IDAligner {
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to the Test harness for generic IDAligner testing.
+	 * Uses reflection to determine the calling class and pass it to Test.testAndPrint.
+	 * @param args Command-line arguments passed to the testing framework
+	 * @throws Exception If reflection fails or testing encounters errors
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -25,13 +23,8 @@ public class DiagonalAligner implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
-    /** Vector species for 128-bit byte vectors used in SIMD operations */
     private static final VectorSpecies<Byte> BSPECIES = ByteVector.SPECIES_128;
-    /** Vector species for 128-bit integer vectors used in SIMD operations */
     private static final VectorSpecies<Integer> ISPECIES = IntVector.SPECIES_128;
-    /**
-     * Width of byte vector species in elements (should be 16 for 128-bit vectors)
-     */
     private static final int BWIDTH = BSPECIES.length(); // Should be 16
     
     @Override
@@ -92,9 +85,7 @@ public class DiagonalAligner implements IDAligner {
     // The main alignment function
     /**
      * Core diagonal alignment algorithm using SIMD vectorization.
-     * Implements anti-diagonal traversal similar to ksw2 with Java Vector API.
-     * Processes alignment matrix in 16-element chunks using byte vectors for efficiency.
-     *
+     * Implements anti-diagonal traversal similar to ksw2 with Java Vector API and processes the alignment matrix in 16-element chunks using byte vectors for efficiency.
      * @param qlen Query sequence length
      * @param query Query sequence bytes
      * @param tlen Target sequence length
@@ -393,8 +384,7 @@ public class DiagonalAligner implements IDAligner {
     // Z-drop heuristic
     /**
      * Applies Z-drop heuristic to terminate alignment early when score drops significantly.
-     * Updates maximum score position and checks if current score has dropped below threshold.
-     *
+     * Updates maximum score position and checks if the current score has dropped below the allowed threshold.
      * @param ez Result object containing maximum scores and positions
      * @param curH Current alignment score
      * @param r Current diagonal index (row + col)
@@ -427,24 +417,14 @@ public class DiagonalAligner implements IDAligner {
     }
     
     // Result class
-    /** Container for alignment results from diagonal algorithm.
-     * Stores maximum scores, optimal positions, and termination conditions. */
     static class ExtzResult {
-        /** Maximum alignment score achieved */
         int max = 0;
-        /** Maximum score when query end is reached */
         int mqe = 0, mqe_t = -1;
-        /** Maximum score when target end is reached */
         int mte = 0, mte_q = -1;
-        /** Final alignment score */
         int score = 0;
-        /** Target position of maximum score */
         int max_t = -1, max_q = -1;
-        /** Diagonal index where Z-drop occurred */
         int max_drop_r = -1, max_drop_q = -1, max_drop_t = -1;
-        /** Indicates if alignment terminated due to Z-drop heuristic */
         boolean zdropped = false;
-        /** Indicates if alignment reached the end of both sequences */
         boolean reach_end = false;
     }
 

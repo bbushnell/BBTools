@@ -5,38 +5,16 @@ import shared.KillSwitch;
 import shared.Tools;
 
 
-/**
- * 16-bit coverage array implementation using char values to track read coverage.
- * Provides efficient storage for moderate coverage depths up to 65,535x.
- * Automatically resizes as needed and caps values at Character.MAX_VALUE with overflow warnings.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public class CoverageArray2 extends CoverageArray {
 	
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = 8242586595591123194L;
 	
-	/**
-	 * Program entry point for speed testing and file conversion.
-	 * Loads a coverage array, converts it to .ca format, and measures I/O performance.
-	 * @param args Command-line arguments: [chromosome_number] [input_file]
-	 */
 	public static void main(String[] args){
 		runSpeedTest(args);
 		
 //		translateGenomeBuild(args);
 	}
 	
-	/**
-	 * Performs speed testing by loading, converting, and re-reading coverage arrays.
-	 * Measures time for file I/O operations and prints performance statistics.
-	 * Generates output filename based on chromosome and genome build.
-	 * @param args Command-line arguments containing chromosome number and input file
-	 */
 	public static void runSpeedTest(String[] args){
 		
 		long time1=System.nanoTime();
@@ -73,29 +51,22 @@ public class CoverageArray2 extends CoverageArray {
 		
 	}
 	
-	/**
-	 * Constructs a new coverage array for the specified chromosome.
-	 * Initializes with char array storage for 16-bit coverage values.
-	 * @param chrom Chromosome number identifier
-	 * @param len Initial length of the coverage array
-	 */
 	public CoverageArray2(int chrom, int len){
 		super(chrom, len);
 		array=KillSwitch.allocChar1D(len);
 	}
 	
 	/**
-	 * @param loc
-	 * @param amt
+	 * Increments coverage at the specified location by the given amount.
+	 * Delegates to set() method with current value plus increment amount.
+	 * @param loc Genomic position to increment
+	 * @param amt Amount to add to current coverage value
 	 */
 	@Override
 	public void increment(int loc, int amt) {
 		set(loc, get(loc)+amt);
 	}
 	
-	/**
-	 * @param loc
-	 */
 	@Override
 	public void increment(int loc) {
 		set(loc, get(loc)+1);
@@ -131,6 +102,15 @@ public class CoverageArray2 extends CoverageArray {
 	}
 	
 	
+	/**
+	 * Sets coverage value at the specified genomic position.
+	 * Automatically resizes array if position exceeds current length.
+	 * Caps values at Character.MAX_VALUE with overflow warning on first occurrence.
+	 * Updates minIndex and maxIndex bounds tracking.
+	 *
+	 * @param loc Genomic position to set (negative positions are ignored)
+	 * @param val Coverage value to set (capped at Character.MAX_VALUE)
+	 */
 	@Override
 	public void set(int loc, int val){
 		
@@ -154,11 +134,22 @@ public class CoverageArray2 extends CoverageArray {
 		maxIndex=max(loc, maxIndex);
 	}
 	
+	/**
+	 * Gets coverage value at the specified genomic position.
+	 * Returns 0 for out-of-bounds positions.
+	 * @param loc Genomic position to query
+	 * @return Coverage value at position, or 0 if out of bounds
+	 */
 	@Override
 	public int get(int loc){
 		return loc>=array.length || loc<0 ? 0 : array[loc];
 	}
 	
+	/**
+	 * Resizes the internal char array to accommodate larger genomic coordinates.
+	 * Preserves existing coverage data up to the minimum of old and new lengths.
+	 * @param newlen New array length (must be greater than maxIndex)
+	 */
 	@Override
 	public void resize(int newlen){
 //		System.err.println("Resized CoverageArray "+chromosome+" to "+newlen);
@@ -171,6 +162,11 @@ public class CoverageArray2 extends CoverageArray {
 		array=temp;
 	}
 	
+	/**
+	 * Returns string representation of coverage values from 0 to maxIndex.
+	 * Formats as comma-separated list enclosed in brackets.
+	 * @return String representation of coverage array contents
+	 */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -183,17 +179,22 @@ public class CoverageArray2 extends CoverageArray {
 		return sb.toString();
 	}
 	
+	/** Returns direct reference to the internal char array.
+	 * @return Internal char array containing coverage values */
 	@Override
 	public char[] toArray() {return array;}
 	
-	/** Internal char array storing 16-bit coverage values */
 	public char[] array;
 //	@Override
 //	public int length(){return maxIndex-minIndex+1;}
+	/**
+	 * Returns the current allocated length of the internal array.
+	 * May be larger than the actual data range.
+	 * @return Length of internal char array
+	 */
 	@Override
 	public int arrayLength(){return array.length;}
 	
-	/** Flag tracking whether any coverage value has exceeded Character.MAX_VALUE */
 	private static boolean OVERFLOWED=false;
 	/**
 	 * 

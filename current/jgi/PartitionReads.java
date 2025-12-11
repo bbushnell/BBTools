@@ -24,9 +24,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Partitions sequence reads into multiple output files for parallel processing.
+ * Supports round-robin distribution or balanced distribution by base pairs.
+ * Handles paired-end reads, PacBio subreads, and various sequence formats.
  * @author Brian Bushnell
  * @date June 1, 2016
- *
  */
 public class PartitionReads {
 	
@@ -35,8 +37,9 @@ public class PartitionReads {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point.
+	 * Creates PartitionReads instance and processes input files according to command-line parameters.
+	 * @param args Command-line arguments specifying input/output files and options
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -48,8 +51,10 @@ public class PartitionReads {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes processing parameters.
+	 * Sets up input/output file formats, validates file paths, and configures partitioning options including number of ways, PacBio mode, and BP balancing.
+	 * @param args Command-line arguments containing file paths and processing options
+	 * @throws RuntimeException If required parameters are missing or files are invalid
 	 */
 	public PartitionReads(String[] args){
 		
@@ -236,7 +241,12 @@ public class PartitionReads {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that partitions reads into multiple output files.
+	 * Creates input/output streams, processes reads using either round-robin or base pair balanced distribution, and reports timing statistics.
+	 * @param t Timer for measuring execution time
+	 * @throws RuntimeException If processing encounters errors
+	 */
 	void process(Timer t){
 		
 		//Create a read input stream
@@ -286,7 +296,13 @@ public class PartitionReads {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Processes reads using round-robin distribution across output files.
+	 * For PacBio mode, groups subreads by ZMW identifier into the same partition.
+	 * Otherwise distributes reads sequentially across available output streams.
+	 * @param cris Input stream for reading sequence data
+	 * @param ros Array of output streams for writing partitioned reads
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros[]){
 		
 		//Do anything necessary prior to processing
@@ -361,7 +377,12 @@ public class PartitionReads {
 		
 	}
 	
-	/** Iterate through the reads; outputs data trying to keep an equal number of bp per file. */
+	/**
+	 * Processes reads using base pair balanced distribution across output files.
+	 * Uses a priority queue to track the number of base pairs in each partition and assigns new reads to the partition with the fewest base pairs.
+	 * @param cris Input stream for reading sequence data
+	 * @param ros Array of output streams for writing partitioned reads
+	 */
 	void processInner_heap(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros[]){
 		
 		//Do anything necessary prior to processing
@@ -435,23 +456,21 @@ public class PartitionReads {
 		
 	}
 	
-	/**
-	 * Represents a single partition for base pair balanced distribution.
-	 * Tracks the partition identifier and accumulated base pairs for priority ordering.
-	 * Used by priority queue to select the partition with fewest base pairs.
-	 */
 	private static class Partition implements Comparable<Partition> {
-		/** Creates a new partition with the specified identifier.
-		 * @param id_ Unique identifier for this partition */
 		public Partition(final int id_) {id=id_;}
+		/**
+		 * Compares partitions by base pair count for priority queue ordering.
+		 * Partitions with fewer base pairs have higher priority.
+		 * Uses partition ID as tiebreaker for consistent ordering.
+		 * @param o The partition to compare against
+		 * @return Negative if this partition has fewer base pairs, positive if more, or ID difference if base pairs are equal
+		 */
 		@Override
 		public int compareTo(Partition o) {
 			long dif=bp-o.bp;
 			return (dif>0 ? 1 : dif<0 ? -1 : id-o.id);
 		}
-		/** Unique identifier for this partition */
 		public final int id;
-		/** Total number of base pairs accumulated in this partition */
 		public long bp=0;
 	}
 	
@@ -463,81 +482,76 @@ public class PartitionReads {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
+	/** Secondary input file path for paired-end reads */
 	private String in2=null;
 	
-	/** Primary quality file input path */
 	private String qfin1=null;
-	/** Secondary quality file input path */
 	private String qfin2=null;
 
-	/** Primary output file path */
+	/**
+	 * Primary output file path template with '%' placeholder for partition number
+	 */
 	private String out1=null;
-	/** Secondary output file path */
+	/**
+	 * Secondary output file path template with '%' placeholder for partition number
+	 */
 	private String out2=null;
 
-	/** Array of primary quality file output paths for each partition */
 	private String[] qfout1Array=null;
-	/** Array of secondary quality file output paths for each partition */
 	private String[] qfout2Array=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of reads processed so far */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Number of bases processed so far */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of input reads to process; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Split data into this many output files */
+	/** Number of output partitions to create */
 	private int ways=-1;
 	
-	/** Keep PacBio subreads together in the same file */
+	/** Keep PacBio subreads from the same ZMW together in the same partition */
 	private boolean pacBioMode=false;
 
-	/** Optimize for similar numbers of bp instead of sequences */
+	/** Balance partitions by base pairs instead of read count */
 	private boolean splitByBP=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format */
 	private final FileFormat ffin1;
-	/** Secondary input file */
+	/** Secondary input file format */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
+	/** Array of primary output file formats for each partition */
 	private final FileFormat[] ffout1;
-	/** Secondary output file */
+	/** Array of secondary output file formats for each partition */
 	private final FileFormat[] ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Use shared header for SAM/BAM output files */
 	private boolean useSharedHeader=false;
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** True if an error was encountered during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
+	/** Flag for ordered processing (no effect on this singlethreaded program) */
 	private final boolean ordered=false;
 	
 }

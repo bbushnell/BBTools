@@ -7,12 +7,12 @@ import shared.Tools;
  * Provides binomial probability analysis to evaluate the likelihood of observed
  * variant patterns occurring by chance, helping distinguish real variants from
  * sequencing artifacts or random noise.
- * 
+ *
  * Uses precomputed probability matrices for efficient calculation of binomial
  * event probabilities with bias adjustments for real-world sequencing data.
- * 
+ *
  * @author Brian Bushnell
- * @author Isla
+ * @author Isla Winglet
  * @date June 25, 2025
  */
 public class VarProb {
@@ -21,14 +21,14 @@ public class VarProb {
 	/*----------------    Probability Calculation   ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** 
+	/**
 	 * Calculates adjusted probability of a binomial event being at least this lopsided.
 	 * Accounts for expected sequencing bias and provides realistic probability estimates
 	 * for variant calling decisions. Used to assess whether observed allele ratios
 	 * are likely due to chance or represent genuine biological variation.
-	 * 
+	 *
 	 * @param a Count of first outcome (e.g., reference alleles)
-	 * @param b Count of second outcome (e.g., alternative alleles) 
+	 * @param b Count of second outcome (e.g., alternative alleles)
 	 * @return Probability that this outcome or more extreme could occur by chance
 	 */
 	public static double eventProb(int a, int b){
@@ -73,7 +73,6 @@ public class VarProb {
 	/**
 	 * Creates factorial lookup table for combinatorial calculations.
 	 * Precomputes n! for values 0 to len-1 to avoid repeated calculation.
-	 * 
 	 * @param len Maximum factorial to compute
 	 * @return Array where factorial[n] = n!
 	 */
@@ -90,7 +89,7 @@ public class VarProb {
 	 * Creates binomial coefficient matrix for "n choose k" calculations.
 	 * Precomputes combinations for efficient probability calculation.
 	 * Only stores values for k <= n/2 due to symmetry: C(n,k) = C(n,n-k)
-	 * 
+	 *
 	 * @param len Maximum n value to compute
 	 * @return Matrix where binomial[n][k] = C(n,k) = n!/(k!(n-k)!)
 	 */
@@ -111,11 +110,11 @@ public class VarProb {
 		return matrix;
 	}
 
-	/** 
+	/**
 	 * Calculates binomial coefficients for large values using iterative approach.
 	 * Used when values exceed precomputed matrix bounds.
 	 * Carefully manages numerical precision to avoid overflow.
-	 * 
+	 *
 	 * @param n Total items
 	 * @param k Items to choose
 	 * @return Binomial coefficient C(n,k)
@@ -149,7 +148,7 @@ public class VarProb {
 	 * Creates cumulative probability matrix for binomial events.
 	 * Calculates probability of observing k or fewer minority outcomes in n trials,
 	 * accounting for the decreasing probability as n increases (multiplying by 0.5^n).
-	 * 
+	 *
 	 * @param len Maximum n value to compute
 	 * @return Matrix where prob[n][k] = P(X <= k) for binomial(n, 0.5)
 	 */
@@ -181,15 +180,11 @@ public class VarProb {
 	/*----------------        Static Data           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maximum n value for precomputed probability matrices */
 	final static int PROBLEN=100;
 
-	/** Precomputed factorial values: factorial[n] = n! */
 	private static final double[] factorial=makeFactorialArray(PROBLEN+1);
 	
-	/** Precomputed binomial coefficients: binomial[n][k] = C(n,k) */
 	private static final double[][] binomial=makeBinomialMatrix(PROBLEN+1);
 	
-	/** Precomputed cumulative probabilities: prob[n][k] = P(X ≤ k) for binomial(n,0.5) */
 	static final double[][] prob=makeProbMatrix(PROBLEN+1);
 }

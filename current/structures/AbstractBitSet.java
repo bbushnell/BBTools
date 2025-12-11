@@ -1,20 +1,18 @@
 package structures;
 
 /**
- * Abstract base class for bit manipulation structures with variable bits per element.
- * Provides factory methods and common operations for bit set implementations.
- * Supports both single-bit (RawBitSet) and multi-bit (MultiBitSet) storage modes.
+ * Abstract base for bit sets with 1- or 2-bit elements.
+ * Provides factories and shared operations for RawBitSet and MultiBitSet implementations.
  * @author Brian Bushnell
  */
 public abstract class AbstractBitSet {
 	
 	/**
-	 * Factory method to create appropriate bit set implementation based on bits per element.
-	 * Creates RawBitSet for 1-bit elements or MultiBitSet for 2-bit elements.
+	 * Factory that creates a RawBitSet (1-bit) or MultiBitSet (2-bit) based on bitsPerElement.
 	 *
 	 * @param elements Number of elements to store
-	 * @param bitsPerElement Bits per element (must be 1 or 2)
-	 * @return RawBitSet for 1-bit elements, MultiBitSet for 2-bit elements
+	 * @param bitsPerElement Bits per element (1 or 2)
+	 * @return Concrete AbstractBitSet implementation
 	 * @throws RuntimeException if bitsPerElement is not 1 or 2
 	 */
 	public static AbstractBitSet make(int elements, int bitsPerElement){
@@ -32,13 +30,11 @@ public abstract class AbstractBitSet {
 	}
 	
 //	public final void set(int x){increment(x);}
-	/** Increments the count at position x by 1.
-	 * @param x Position to increment */
 	public final void increment(int x){increment(x, 1);}
 	/**
-	 * Increments the count at position x by the specified amount.
+	 * Increments the count at position x by a specified amount.
 	 * @param x Position to increment
-	 * @param incr Amount to increment by
+	 * @param incr Amount to add
 	 */
 	public abstract void increment(int x, int incr);
 	
@@ -46,18 +42,24 @@ public abstract class AbstractBitSet {
 	/**
 	 * Returns the count value at position x.
 	 * @param x Position to query
-	 * @return Count value at position x
+	 * @return Count at the position
 	 */
 	public abstract int getCount(int x);
 	
-	/** Clears the input BitSet */
+	/**
+	 * Adds values from another AbstractBitSet of the same size, dispatching by implementation.
+	 * Clears the input set after addition.
+	 * @param bs BitSet to add from (will be cleared)
+	 * @throws RuntimeException if the class is unsupported
+	 */
 	public final void add(AbstractBitSet bs){
 		if(bs.getClass()==RawBitSet.class){add((RawBitSet)bs);}
 		else if(bs.getClass()==MultiBitSet.class){add((MultiBitSet)bs);}
 		else{throw new RuntimeException("Bad class: "+bs.getClass());}
 	}
 	
-	/** Clears the input BitSet */
+	/** Bitwise-ORs values from a RawBitSet of the same capacity into this set, then clears the input.
+	 * @param bs RawBitSet to add and clear */
 	public final void add(RawBitSet bs){
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		RawBitSet bs2=(RawBitSet)this;
@@ -73,7 +75,8 @@ public abstract class AbstractBitSet {
 		}
 	}
 	
-	/** Clears the input BitSet */
+	/** Adds cell values from a MultiBitSet of matching shape into this set, then clears the input.
+	 * @param bs MultiBitSet to add and clear */
 	public final void add(MultiBitSet bs){
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		MultiBitSet bs2=(MultiBitSet)this;
@@ -88,32 +91,22 @@ public abstract class AbstractBitSet {
 		}
 	}
 	
-	/**
-	 * Sets each position to the maximum of this BitSet and the input BitSet.
-	 * Dispatches to type-specific setToMax methods based on input type.
-	 * @param bs BitSet to compare against for maximum values
-	 * @throws RuntimeException if bs is not a recognized BitSet type
-	 */
+	/** Sets each position to the maximum of this set and the input, dispatching by implementation type.
+	 * @param bs BitSet to compare against */
 	public final void setToMax(AbstractBitSet bs){
 		if(bs.getClass()==RawBitSet.class){setToMax((RawBitSet)bs);}
 		else if(bs.getClass()==MultiBitSet.class){setToMax((MultiBitSet)bs);}
 		else{throw new RuntimeException("Bad class: "+bs.getClass());}
 	}
 	
-	/**
-	 * Sets each position to the maximum of this BitSet and the RawBitSet.
-	 * For RawBitSet this is equivalent to the add operation.
-	 * @param bs RawBitSet to compare against for maximum values
-	 */
+	/** Sets each position to the maximum of this set and a RawBitSet (equivalent to add()).
+	 * @param bs RawBitSet to merge */
 	public void setToMax(RawBitSet bs) {
 		add(bs);
 	}
 	
-	/**
-	 * Sets each position to the maximum of this BitSet and the MultiBitSet.
-	 * Both BitSets must be the same type, have same bits per element, and same capacity.
-	 * @param bs MultiBitSet to compare against for maximum values
-	 */
+	/** Sets each position to the maximum of this set and a MultiBitSet of matching shape.
+	 * @param bs MultiBitSet to merge */
 	public void setToMax(MultiBitSet bs) {
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		assert(bits()==bs.bits());
@@ -127,39 +120,39 @@ public abstract class AbstractBitSet {
 	}
 
 	/**
-	 * Adds a masked value to a specific cell in the underlying storage array.
-	 * @param cell Cell index in the storage array
-	 * @param mask Masked value to add to the cell
+	 * Adds a masked value directly to a storage cell.
+	 * @param cell Cell index
+	 * @param mask Masked value to add
 	 */
 	public abstract void addToCell(final int cell, final int mask);
 	/**
-	 * Sets a cell to the maximum of its current value and the masked input value.
-	 * @param cell Cell index in the storage array
-	 * @param mask Masked value to compare against current cell value
+	 * Sets a storage cell to the maximum of its current value and the masked input.
+	 * @param cell Cell index
+	 * @param mask Masked value to compare
 	 */
 	public abstract void setToMax(final int cell, final int mask);
 	
-	/** Clears all values in the BitSet, resetting all positions to zero */
+	/** Clears all values, resetting the bit set to zero. */
 	public abstract void clear();
 	/**
-	 * Sets the capacity of the BitSet with optional extra space.
+	 * Sets the capacity with optional extra space, reallocating if necessary.
 	 * @param capacity Target capacity in elements
-	 * @param extra Additional elements to allocate beyond capacity
+	 * @param extra Additional elements to allocate
 	 */
 	public abstract void setCapacity(long capacity, int extra);
-	/** Returns the number of non-zero positions in the BitSet.
-	 * @return Count of positions with non-zero values */
+	/** Returns the number of positions with non-zero values.
+	 * @return Count of non-zero elements */
 	public abstract long cardinality();
-	/** Returns the maximum number of elements this BitSet can store.
-	 * @return Maximum element capacity */
+	/** Returns the maximum number of elements this bit set can store.
+	 * @return Element capacity */
 	public abstract long capacity();
-	/** Returns the length of the underlying storage array.
-	 * @return Storage array length */
 	public abstract int length();
-	/** Returns the number of bits used per element.
-	 * @return Bits per element (typically 1 or 2) */
+	/** Returns the number of bits used per element (1 or 2).
+	 * @return Bits per element */
 	public abstract int bits(); //per element
 	
+	/** Returns a string of non-zero positions and counts in the form {(pos,count), ...}.
+	 * @return String representation of non-zero elements */
 	@Override
 	public final String toString(){
 		

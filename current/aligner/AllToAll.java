@@ -26,10 +26,10 @@ import tracker.ReadStats;
 
 /**
  * Aligns all sequences to all sequences and produces an identity matrix.
- * 
+ * Performs pairwise sequence alignment between all input sequences using SketchObject.align()
+ * and writes identity scores to a similarity matrix with optional multithreading.
  * @author Brian Bushnell
  * @date January 27, 2020
- *
  */
 public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	
@@ -38,8 +38,9 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point.
+	 * Constructs an AllToAll instance, runs processing with a Timer, and closes output streams.
+	 * @param args Command line arguments for input/output files and parameters
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -56,8 +57,9 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command line arguments and initializes file formats.
+	 * Sets up input/output handlers, validates parameters, and prepares for sequence loading and alignment.
+	 * @param args Command line arguments containing file paths and options
 	 */
 	public AllToAll(String[] args){
 		
@@ -102,7 +104,12 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments using the standard BBTools Parser framework.
+	 * Processes verbose/ordered flags and standard parser fields.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser object with parsed parameters
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -140,13 +147,16 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes compression extensions (e.g., .gz or .bz2) as needed for input files.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		qfin1=Tools.fixExtension(qfin1);
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that input files exist, output files can be written, and no duplicate paths are specified.
+	 * Throws RuntimeException if file access requirements are not met. */
 	private void checkFileExistence(){
 		
 		//Ensure output files can be written
@@ -166,7 +176,9 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Adjusts static settings for optimal file I/O performance, including ByteFile mode selection.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -176,7 +188,12 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates that required parameters are set and within acceptable ranges.
+	 * Ensures at least one input file is specified and that extension overrides are consistent.
+	 * @return true if validation passes
+	 * @throws RuntimeException if required parameters are missing
+	 */
 	private boolean validateParams(){
 		//Ensure there is an input file
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
@@ -187,7 +204,11 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all reads */
+	/**
+	 * Main processing method that performs all-to-all sequence alignment.
+	 * Loads all sequences, spawns worker threads for pairwise alignments, mirrors the matrix, and writes results.
+	 * @param t Timer for tracking execution time and reporting performance
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -226,9 +247,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	}
 	
 	/**
-	 * Mirrors alignment matrix across the diagonal to fill upper triangle.
-	 * Sets diagonal elements to 1.0 (100% identity) and copies lower triangle
-	 * values to corresponding upper triangle positions.
+	 * Mirrors an alignment matrix across the diagonal to fill the upper triangle.
+	 * Sets diagonal elements to 1.0 and copies lower-triangle values to corresponding upper-triangle positions.
 	 * @param matrix Square similarity matrix with computed lower triangle values
 	 */
 	private static void mirrorMatrix(float[][] matrix){
@@ -240,11 +260,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		}
 	}
 	
-	/**
-	 * Outputs the similarity matrix to the specified output file.
-	 * Writes tab-separated values with sequence names as headers and
-	 * similarity scores as percentages with 2 decimal places.
-	 */
+	/** Outputs the similarity matrix to the specified output file.
+	 * Writes a header line of sequence names followed by tab-separated identity percentages with two decimal places. */
 	private void printResults(){
 		if(ffout1==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout1);
@@ -270,7 +287,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/** Creates and manages worker threads for parallel alignment processing.
+	 * Uses an AtomicInteger for work distribution and ThreadWaiter to start and join all ProcessThreads. */
 	private void spawnThreads(){
 		
 		//Do anything necessary prior to processing
@@ -294,6 +312,11 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		
 	}
 	
+	/**
+	 * Accumulates statistics from a completed worker thread.
+	 * Aggregates read counts, base counts, alignment counts, and error status.
+	 * @param pt Completed ProcessThread containing execution statistics
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		readsProcessed+=pt.readsProcessedT;
@@ -302,6 +325,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		errorState|=(!pt.success);
 	}
 	
+	/** Reports overall processing success status.
+	 * @return true if no errors occurred during processing */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -313,19 +338,11 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/** Worker thread for processing query sequences against all reference sequences.
+	 * Each thread claims query indices atomically and aligns each query against all earlier sequences to avoid redundant work. */
 	static class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a worker thread for alignment processing.
-		 *
-		 * @param reads_ List of sequences to align
-		 * @param results_ Shared matrix for storing alignment results
-		 * @param atom_ Atomic counter for claiming work units
-		 * @param tid_ Thread identifier
-		 */
 		ProcessThread(final ArrayList<Read> reads_, float[][] results_, final AtomicInteger atom_, final int tid_){
 			reads=reads_;
 			results=results_;
@@ -334,6 +351,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		}
 		
 		//Called by start()
+		/** Thread execution entry point.
+		 * Calls processInner() to perform alignment work and marks success status on completion. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -347,7 +366,8 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Claims and processes query sequences using atomic work distribution.
+		 * Continues until all sequences have been processed by some ProcessThread. */
 		void processInner(){
 			
 			for(int next=atom.getAndIncrement(); next<reads.size(); next=atom.getAndIncrement()){
@@ -356,14 +376,6 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 			
 		}
 		
-		/**
-		 * Processes a single query sequence against all preceding sequences.
-		 * Uses SketchObject.align() to compute pairwise sequence identity and
-		 * stores results in the shared matrix. Only aligns against earlier
-		 * sequences to avoid redundant computation.
-		 *
-		 * @param qnum Index of the query sequence to process
-		 */
 		void processQuery(final int qnum){
 			final Read query=reads.get(qnum);
 			final float[] scores=new float[reads.size()];
@@ -380,38 +392,24 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 			}
 		}
 		
-		/**
-		 * Process a read or a read pair.
-		 * @param r1 Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
-		 */
 		boolean processReadPair(final Read r1, final Read r2){
 			throw new RuntimeException("TODO: Implement this method."); //TODO
 //			return true;
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** Number of reads retained by this thread */
+		/** Number of alignments computed by this thread */
 		protected long alignmentsT=0;
-		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Thread ID */
 		final int tid;
 		
-		/** Reference to shared list of sequences */
 		final ArrayList<Read> reads;
-		/** Reference to shared results matrix */
 		final float[][] results;
-		/** Atomic counter for work distribution */
 		final AtomicInteger atom;
 	}
 	
@@ -419,66 +417,52 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 	
-	/** Quality file path for input sequences */
 	private String qfin1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 	
-	/** Override input file extension */
 	private String extin=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** List of all input sequences loaded into memory */
 	ArrayList<Read> reads;
-	/** Matrix storing pairwise alignment identity scores */
 	float[][] results;
 	
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Number of pairwise alignments computed */
 	protected long alignments=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file format handler */
 	private final FileFormat ffin1;
 	
-	/** Primary output file */
+	/** Primary output file format handler */
 	private final FileFormat ffout1;
 	
+	/** Returns the read-write lock for thread synchronization.
+	 * @return ReadWriteLock instance for coordinating access */
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
 	private boolean ordered=false;
 	
 }

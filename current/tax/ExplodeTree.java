@@ -18,12 +18,12 @@ import shared.Tools;
 import stream.FastaReadInputStream;
 
 /**
- * Constructs a directory and file tree of sequences
- * corresponding to a taxonomic tree.
- * 
+ * Constructs a directory and file tree of sequences corresponding to a taxonomic tree.
+ * Reads FASTA sequences with taxonomic headers and organizes them into directory
+ * structures matching the taxonomic hierarchy, with one file per taxonomic node.
+ *
  * @author Brian Bushnell
  * @date December 12, 2017
- *
  */
 public class ExplodeTree {
 	
@@ -32,8 +32,9 @@ public class ExplodeTree {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for command-line execution.
+	 * Creates ExplodeTree instance, processes arguments, and executes the tree explosion.
+	 * @param args Command line arguments for input/output paths and options
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -45,8 +46,9 @@ public class ExplodeTree {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes the ExplodeTree.
+	 * Sets up input/output paths, loads taxonomic tree, and validates file accessibility.
+	 * @param args Command-line arguments containing input files, output paths, and options
 	 */
 	public ExplodeTree(String[] args){
 		
@@ -149,14 +151,6 @@ public class ExplodeTree {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates directory structure matching the taxonomic hierarchy.
-	 * For each node in the taxonomic tree, creates corresponding directory
-	 * and optionally writes name files containing the full taxonomic name.
-	 *
-	 * @param root Root directory path where the taxonomic structure will be created
-	 * @param writeNames Whether to write .name files containing taxonomic names
-	 */
 	public void makeDirectoryTree(String root, boolean writeNames){
 		for(TaxNode node : tree.nodes){
 			if(node!=null){
@@ -179,7 +173,6 @@ public class ExplodeTree {
 		}
 	}
 	
-	/** Create read streams and process all data */
 	public void process(Timer t){
 		
 		Timer t2=new Timer();
@@ -249,7 +242,11 @@ public class ExplodeTree {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Iterate through the reads */
+	/**
+	 * Core sequence processing loop that reads FASTA input and distributes sequences.
+	 * Parses taxonomic information from headers, creates output files for each
+	 * taxonomic node, and writes sequences to appropriate directory locations.
+	 */
 	void processInner(){
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
 		TaxNode currentNode=null;
@@ -303,70 +300,61 @@ public class ExplodeTree {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
+	/** Primary input file path containing sequences to be distributed */
 	private String in1=null;
 
-	/** Primary output file path */
+	/** Root output directory path where taxonomic structure will be created */
 	private String outPath=null;
 	
-	/** Prefix to add to output filenames */
 	private String prefix;
 	
-	/** Override input file extension */
+	/** Override input file extension for format detection */
 	private String extin=null;
 	
-	/** For listing what is present in the output */
 	public String resultsFile=null;
 	
-	/** Path to taxonomic tree file or "auto" for default location */
 	public String taxTreeFile=null;
 	
-	/** Whether to create directory structure before processing sequences */
 	public boolean makeDirectories=true;
 	
-	/** Maps taxonomic nodes to sequence count for tracking distribution */
 	public LinkedHashMap<TaxNode, Long> nodes=new LinkedHashMap<TaxNode, Long>();
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of sequence reads processed from input */
 	protected long readsProcessed=0;
-	/** Number of lines processed */
+	/** Number of input lines processed including headers and sequences */
 	protected long linesProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads out */
 	public long readsOut=0;
-	/** Number of lines out */
 	public long linesOut=0;
-	/** Number of bases out */
+	/** Total number of sequence bases written to output files */
 	public long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of input reads to process; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** FileFormat object for the primary input file */
 	private final FileFormat ffin1;
 	
-	/** Taxonomic tree structure loaded from file for sequence classification */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and progress reports */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose output for debugging and detailed progress information */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag indicating whether an error was encountered during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
 	
 }

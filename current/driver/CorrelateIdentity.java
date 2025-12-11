@@ -15,9 +15,12 @@ import shared.Shared;
 import shared.Tools;
 
 /**
+ * Correlates identity values from two tab-separated matrix files.
+ * Reads corresponding entries from two identity matrices and outputs paired values
+ * for statistical analysis or correlation studies.
+ *
  * @author Brian Bushnell
  * @date Nov 21, 2014
- *
  */
 public class CorrelateIdentity {
 	
@@ -26,7 +29,8 @@ public class CorrelateIdentity {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point.
+	 * Creates a CorrelateIdentity instance and executes the correlation process.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -41,8 +45,9 @@ public class CorrelateIdentity {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and validates input/output files.
+	 * Sets up compression defaults and validates file accessibility.
+	 * @param args Command line arguments including input files (in1, in2) and output file (out)
 	 */
 	public CorrelateIdentity(String[] args){
 
@@ -110,11 +115,6 @@ public class CorrelateIdentity {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that correlates identity matrices.
-	 * Reads two tab-separated matrix files, extracts corresponding lower triangle values,
-	 * shuffles the pairs, and writes tab-separated output pairs.
-	 */
 	public void process(){
 		final String[][] matrix1, matrix2;
 		
@@ -153,32 +153,25 @@ public class CorrelateIdentity {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input files */
 	public String in1, in2;
-	/** Output file */
+	/** Output file for correlated value pairs */
 	public String out;
 	
 //	private Random randy=new Random();
 
-	/** Sampling rate for data selection (currently unused) */
 	private float samplerate=1;
-	/** Random seed for sampling (currently unused) */
 	private float sampleseed=-1;
-	/** Maximum column length limit (currently unused) */
 	private int columnLength=Integer.MAX_VALUE;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Verbose messages */
+	/** Controls verbose output messages */
 	public static final boolean verbose=false; //123
 	
-	/** Print messages to this stream */
 	private static PrintStream outstream=System.err;
 	
 }

@@ -11,14 +11,15 @@ import shared.Shared;
 import stream.Read;
 
 /**
+ * Wrapper class for executing multiple BBMap variants with batch processing capabilities.
+ * Parses input/output file lists and coordinates sequential execution of mapping jobs.
+ * Supports BBMap, BBMapPacBio, BBMapPacBioSkimmer, BBMap5, BBMapAcc, and BBSplitter.
+ *
  * @author Brian Bushnell
  * @date Mar 27, 2014
- *
  */
 public class BBWrap {
 	
-	/** Program entry point that creates a wrapper instance and executes batch processing.
-	 * @param args Command-line arguments containing file paths and mapper options */
 	public static void main(String[] args){
 		BBWrap wrapper=new BBWrap();
 		ArrayList<String> list=wrapper.parse(args);
@@ -235,46 +236,28 @@ public class BBWrap {
 		}
 	}
 
-	/** Reference genome file path for mapping */
 	private String ref;
-	/** Selected mapper variant (bbmap, bbmappacbio, etc.) */
 	private String mapper="bbmap";
 
-	/** List of BAM script output file paths */
 	private ArrayList<String> bsList=new ArrayList<String>();
-	/** List of quality histogram output file paths */
 	private ArrayList<String> qhistList=new ArrayList<String>();
-	/** List of match histogram output file paths */
 	private ArrayList<String> mhistList=new ArrayList<String>();
-	/** List of insert size histogram output file paths */
 	private ArrayList<String> ihistList=new ArrayList<String>();
 	
-	/** List of primary input file paths (mate 1 or single-end reads) */
 	private ArrayList<String> in1List=new ArrayList<String>();
-	/** List of primary output file paths (mate 1 or single-end reads) */
 	private ArrayList<String> out1List=new ArrayList<String>();
-	/** List of unmapped primary read output file paths */
 	private ArrayList<String> outu1List=new ArrayList<String>();
-	/** List of mapped primary read output file paths */
 	private ArrayList<String> outm1List=new ArrayList<String>();
-	/** List of blacklist primary read output file paths */
 	private ArrayList<String> outb1List=new ArrayList<String>();
 
-	/** List of secondary input file paths (mate 2 reads) */
 	private ArrayList<String> in2List=new ArrayList<String>();
-	/** List of secondary output file paths (mate 2 reads) */
 	private ArrayList<String> out2List=new ArrayList<String>();
-	/** List of unmapped secondary read output file paths */
 	private ArrayList<String> outu2List=new ArrayList<String>();
-	/** List of mapped secondary read output file paths */
 	private ArrayList<String> outm2List=new ArrayList<String>();
-	/** List of blacklist secondary read output file paths */
 	private ArrayList<String> outb2List=new ArrayList<String>();
 	
-	/** Whether to reuse single output files for multiple input files */
 	private boolean append=false;
 	
-	/** Output stream for status messages and logging */
 	static PrintStream outstream=System.err;
 	
 }

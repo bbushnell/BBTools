@@ -7,21 +7,21 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *
- * Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
+ * Aligns two sequences to compute ANI (Average Nucleotide Identity) using sparse dynamic programming with encoded long-array sequences.
+ * Uses only two arrays and avoids traceback while calculating rstart and rstop without traceback for alignments up to ~2Mbp (21 position bits).
+ * Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays and stores position and deletion information in packed bit fields for exact identity calculation.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date April 24, 2025
  */
 public class QuantumPlusAligner2 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to the shared Test harness for standardized alignment testing.
+	 * Uses reflection to determine the calling class and passes it with args to Test.testAndPrint.
+	 * @param args Command-line arguments passed to testing framework
+	 * @throws Exception If class reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -33,7 +33,6 @@ public class QuantumPlusAligner2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for QuantumPlusAligner2 */
 	public QuantumPlusAligner2() {}
 
 	/*--------------------------------------------------------------*/
@@ -55,7 +54,13 @@ public class QuantumPlusAligner2 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates an adaptive bandwidth for high-identity, low-indel alignments using encoded long-array sequences.
+	 * Tests early positions for substitutions to determine whether low-bandwidth alignment is appropriate, clamping the result between 1 and 12.
+	 * @param query Encoded query sequence
+	 * @param ref Encoded reference sequence
+	 * @return Bandwidth value for alignment matrix exploration
+	 */
 	private static int decideBandwidth(long[] query, long[] ref) {
 		int bandwidth=Tools.min(query.length/4+2, Math.max(query.length, ref.length)/32, 12);
 		bandwidth=Math.max(2, bandwidth);
@@ -67,11 +72,12 @@ public class QuantumPlusAligner2 implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Core static alignment method implementing sparse dynamic programming with match counting and quantum-style deletion jumps.
+	 * Swaps sequences if the query is longer than the reference (when posVector is null) and encodes them into long[] arrays for bit-packed scoring with position tracking.
+	 * @param query0 Query sequence bytes
+	 * @param ref0 Reference sequence bytes
+	 * @param posVector Optional output array for {rStart, rStop} coordinates; if null, sequences may be swapped
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -268,10 +274,8 @@ public class QuantumPlusAligner2 implements IDAligner{
 	
 	// Process the first topWidth rows using a dense approach
 	/**
-	 * Processes the first topWidth rows using dense alignment strategy.
-	 * Fills all cells in the top band of the alignment matrix before switching
-	 * to sparse processing for the remainder.
-	 *
+	 * Processes the first topWidth rows using a dense alignment strategy before switching to sparse processing for the remainder of the matrix.
+	 * Fills all cells in the top band using encoded long[] sequences and standard DP transitions.
 	 * @param query Encoded query sequence
 	 * @param ref Encoded reference sequence
 	 * @param prev Previous row array
@@ -332,13 +336,18 @@ public class QuantumPlusAligner2 implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Converts packed alignment score into identity percentage and coordinates using encoded position, deletion count, and raw score.
+	 * Solves the system of equations:
+	 * 1. M + S + I = qLen
+	 * 2. M + S + D = refAlnLength
+	 * 3. Score = M - S - I - D
+	 * to calculate matches, substitutions, insertions, and deletions, and optionally returns score statistics in posVector.
+	 * @param maxScore Bit-packed score containing position, deletions, and score
+	 * @param maxPos Ending position of best alignment
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Output array for start/stop coordinates and statistics (may include rawScore and deletions if length ≥4)
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -393,14 +402,14 @@ public class QuantumPlusAligner2 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Wrapper method for aligning to a window of the reference sequence.
+	 * Extracts the specified region, runs alignStatic on that window, then adjusts returned coordinates back to global positions.
+	 * @param query Query sequence bytes
+	 * @param ref Full reference sequence bytes
+	 * @param posVector Output array for alignment coordinates
+	 * @param refStart Window start position (inclusive)
+	 * @param refEnd Window end position (inclusive)
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -416,16 +425,9 @@ public class QuantumPlusAligner2 implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for tracking total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Returns the total number of alignment matrix cells processed */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter for performance tracking.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/**
-	 * Output file path for debugging visualization (null disables visualization)
-	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -433,53 +435,30 @@ public class QuantumPlusAligner2 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/**
-	 * Number of bits allocated for storing alignment position (21 bits = 2M positions)
-	 */
 	private static final int POSITION_BITS=21;
-	/** Number of bits allocated for storing deletion count (21 bits) */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for score field in packed long value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from packed score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting raw alignment score from packed value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score increment for nucleotide matches (+1 in score field) */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions (-1 in score field) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions (-1 in score field) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions (-1 in score field) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous nucleotides (N) - neutral score of 0 */
 	private static final long N_SCORE=0L;
-	/** Sentinel value for invalid/unprocessed alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty and position increment for quantum jumps */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Enables extension from matching cells to find deletions */
 	private static final boolean EXTEND_MATCH=true;
-	/**
-	 * Enables loop-based position addition (false uses faster branchless version)
-	 */
 	private static final boolean LOOP_VERSION=false;
-	/** Enables bridge building to catch up with long deletions */
 	private static final boolean BUILD_BRIDGES=true;
-	/** Enables dense processing strategy for top band of alignment matrix */
 	private static final boolean DENSE_TOP=true;
-	/** Enables debugging output of alignment operations and statistics */
 	private static final boolean PRINT_OPS=false;
-	/** Enables global alignment mode (false for local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

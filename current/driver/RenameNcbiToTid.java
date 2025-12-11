@@ -14,17 +14,15 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Renames NCBI sequence headers to TID format in FASTA files.
+ * Processes text files line by line, converting ">ncbi" headers to ">tid" format
+ * and inserting a pipe character between the identifier and description.
+ *
  * @author Brian Bushnell
  * @date Oct 17, 2014
- *
  */
 public class RenameNcbiToTid {
 	
-	/**
-	 * Program entry point for NCBI to TID header conversion.
-	 * Creates a RenameNcbiToTid instance and processes the input file.
-	 * @param args Command-line arguments containing input/output file paths
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameNcbiToTid x=new RenameNcbiToTid(args);
@@ -34,14 +32,6 @@ public class RenameNcbiToTid {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor that parses command-line arguments and initializes file formats.
-	 * Sets up input and output streams, validates file paths, and configures
-	 * processing parameters including overwrite settings and verbosity.
-	 *
-	 * @param args Command-line arguments containing file paths and options
-	 * @throws RuntimeException if input file is not specified or output cannot be written
-	 */
 	public RenameNcbiToTid(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -102,14 +92,6 @@ public class RenameNcbiToTid {
 		ffin1=FileFormat.testInput(in1, FileFormat.TEXT, null, true, true);
 	}
 	
-	/**
-	 * Main processing method that reads input file and writes converted output.
-	 * Processes each line through the header conversion function and tracks
-	 * statistics including lines processed and execution time.
-	 *
-	 * @param t Timer for tracking execution time
-	 * @throws RuntimeException if processing encounters errors or corruption
-	 */
 	void process(Timer t){
 		
 		final TextFile tf;
@@ -150,14 +132,6 @@ public class RenameNcbiToTid {
 	}
 	
 	
-	/**
-	 * Converts NCBI header format to TID format for a single line.
-	 * Changes ">ncbi" prefix to ">tid" and inserts pipe character between
-	 * identifier and description. Non-header lines pass through unchanged.
-	 *
-	 * @param line Input line to process
-	 * @return Converted line with TID format, or original line if not an NCBI header
-	 */
 	private static String processLine(String line){
 		if(line.startsWith(">ncbi")){
 			line=line.replaceFirst(">ncbi", ">tid");
@@ -172,35 +146,25 @@ public class RenameNcbiToTid {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path */
 	private String in1=null;
-	/** Output file path */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of lines to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** FileFormat for input file handling */
 	private final FileFormat ffin1;
-	/** FileFormat for output file handling */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Controls verbosity of status output during processing */
 	public static boolean verbose=false;
-	/** Tracks whether processing encountered errors */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

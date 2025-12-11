@@ -26,10 +26,11 @@ import tracker.ReadStats;
 
 /**
  * Generates a consensus from multiple error correction results.
- * 
+ * Takes an original sequence and multiple error-corrected versions,
+ * then creates a consensus where all error-corrected versions agree.
+ *
  * @author Brian Bushnell
  * @date October 25, 2016
- *
  */
 public class Consect {
 	
@@ -37,10 +38,8 @@ public class Consect {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Consect x=new Consect(args);
@@ -51,8 +50,10 @@ public class Consect {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes the consensus generator.
+	 * Requires at least three input files: one original and two error-corrected versions.
+	 * @param args Command-line arguments including input files and parameters
+	 * @throws RuntimeException If fewer than 3 input files are provided or file validation fails
 	 */
 	public Consect(String[] args){
 		
@@ -156,7 +157,11 @@ public class Consect {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that creates consensus sequences from multiple inputs.
+	 * Initializes input streams, processes reads in batches, and generates statistics.
+	 * @param t Timer for tracking execution time and reporting performance
+	 */
 	void process(Timer t){
 		
 		//Create a read input stream
@@ -220,7 +225,12 @@ public class Consect {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Core processing loop that reads batches of sequences and generates consensus.
+	 * Coordinates multiple input streams and processes reads in synchronized batches.
+	 * @param crisa Array of input streams containing original and corrected sequences
+	 * @param ros Output stream for consensus sequences (may be null)
+	 */
 	void processInner(final ConcurrentReadInputStream[] crisa, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -284,12 +294,6 @@ public class Consect {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Processes arrays of reads to generate consensus for each position.
-	 * Groups reads by position and calls consensus method for each row.
-	 * @param array Arrays of reads from different input sources
-	 * @return The first array containing consensus reads
-	 */
 	private ArrayList<Read> consensus(ArrayList<Read>[] array){
 		Read[] row=new Read[array.length];
 		for(int i=0, max=array[0].size(); i<max; i++){
@@ -301,7 +305,6 @@ public class Consect {
 		return array[0];
 	}
 	
-	/** The first read becomes the consensus of the other reads, where they all agree. */
 	private int consensus(Read[] reads){
 		Read original=reads[0];
 		byte[] obases=original.bases;
@@ -384,80 +387,57 @@ public class Consect {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Input file paths */
+	/** Input file paths containing original and error-corrected sequences */
 	private ArrayList<String> in=new ArrayList<String>();
 
-	/** Output file path */
+	/** Output file path for consensus sequences */
 	private String out=null;
 	
-	/** Quality file output path */
 	private String qfout=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** Whether to update quality scores in consensus sequences */
 	private boolean changeQuality=false;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of reads processed during consensus generation */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Number of reads where all disagreements were resolved by consensus */
 	private long readsFullyCorrected=0;
-	/** Number of reads with some corrections but remaining disagreements */
 	private long readsPartlyCorrected=0;
-	/** Number of reads with disagreements but no consensus corrections */
 	private long readsNotCorrected=0;
-	/** Number of reads with no corrections or disagreements needed */
 	private long readsErrorFree=0;
-	/**
-	 * Number of reads containing positions where error-corrected versions disagree
-	 */
 	private long readsWithDisagreements=0;
-	/** Number of reads that received at least one consensus correction */
 	private long readsWithCorrections=0;
 	
-	/**
-	 * Total number of base positions with disagreements between error-corrected versions
-	 */
 	private long disagreements=0;
-	/** Total number of base corrections made through consensus */
 	private long corrections=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Input file format objects for all input files */
 	private final FileFormat[] ffin;
 	
-	/** Primary output file */
+	/** Output file format object */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered=false;
 	
 }

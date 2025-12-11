@@ -9,10 +9,12 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Stores kmers in a long[] and values in an int[][], with a victim cache.
+ * Stores k-mers in a long[] and values in a 2D int[][] array, supporting multiple
+ * integer values per k-mer with dynamic array growth. Uses linear probing for
+ * collision resolution and a victim cache for overflow handling.
+ *
  * @author Brian Bushnell
  * @date Nov 7, 2014
- *
  */
 public final class HashArray2D extends HashArray {
 	
@@ -20,12 +22,6 @@ public final class HashArray2D extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a HashArray2D with specified resizing schedule and core mask.
-	 * Allocates the 2D integer value storage array based on prime table size.
-	 * @param schedule_ Resizing schedule for dynamic table growth
-	 * @param coreMask_ Bit mask for core k-mer processing
-	 */
 	public HashArray2D(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt2D(prime+extra);
@@ -40,12 +36,32 @@ public final class HashArray2D extends HashArray {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Deprecated increment operation; not supported for 2D value storage.
+	 * Always throws RuntimeException to prevent misuse.
+	 *
+	 * @param kmer K-mer key
+	 * @param incr Increment amount (ignored)
+	 * @return never returns
+	 * @throws RuntimeException always thrown
+	 * @deprecated Use insertValue instead of incrementing
+	 */
 	@Deprecated
 	@Override
 	public int increment(final long kmer, final int incr){
 		throw new RuntimeException("Unsupported.");
 	}
 	
+	/**
+	 * Deprecated increment operation; not supported for 2D value storage.
+	 * Always throws RuntimeException to prevent misuse.
+	 *
+	 * @param kmer K-mer key
+	 * @param incr Increment amount (ignored)
+	 * @return never returns
+	 * @throws RuntimeException always thrown
+	 * @deprecated Use insertValue instead of incrementing
+	 */
 	@Deprecated
 	@Override
 	public int incrementAndReturnNumCreated(final long kmer, final int incr){
@@ -56,18 +72,34 @@ public final class HashArray2D extends HashArray {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the first stored value for the given cell, or 0 if no values exist.
+	 * @param cell Array index
+	 * @return First integer value or 0 if empty
+	 */
 	@Override
 	protected final int readCellValue(int cell) {
 		int[] set=values[cell];
 		return set==null ? 0 : set[0];
 	}
 	
+	/**
+	 * Returns the full value array stored in the cell (may be null).
+	 * @param cell Array index
+	 * @param singleton Ignored placeholder to match superclass signature
+	 * @return Value array or null
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		return values[cell];
 	}
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts a single integer value into the specified cell, expanding storage as needed while avoiding duplicates.
+	 * @param kmer The k-mer key (must match array[cell])
+	 * @param v The integer value to insert
+	 * @param cell Array index where the k-mer is stored
+	 */
 	@Override
 	protected final void insertValue(final long kmer, final int v, final int cell){
 		assert(array[cell]==kmer);
@@ -91,7 +123,16 @@ public final class HashArray2D extends HashArray {
 		values[cell]=set;
 	}
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts multiple integer values into the specified cell for the given k-mer.
+	 * If cell is empty, directly assigns the values array. Otherwise, inserts
+	 * each valid value (non-negative) individually to prevent duplicates.
+	 *
+	 * @param kmer The k-mer key (must match array[cell])
+	 * @param vals Array of integer values to insert
+	 * @param cell Array index where the k-mer is stored
+	 * @param vlen Length of valid values in the array
+	 */
 	@Override
 	protected final void insertValue(final long kmer, final int[] vals, final int cell, final int vlen){
 		assert(array[cell]==kmer);
@@ -109,9 +150,16 @@ public final class HashArray2D extends HashArray {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns false as 2D arrays do not support rebalancing operations */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
+	/**
+	 * Resizes the hash table when load factor exceeds limits or memory pressure occurs.
+	 * Allocates new arrays with larger prime-sized capacity, then rehashes all k-mers
+	 * from both main array and victim cache. Uses schedule-based or multiplicative
+	 * growth depending on configuration. Kills process if maximum size exceeded.
+	 */
 	@Override
 	protected synchronized void resize(){
 //		assert(false);
@@ -197,12 +245,23 @@ public final class HashArray2D extends HashArray {
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
 	}
 	
+	/**
+	 * Deprecated rebalance method; unimplemented for 2D value storage and always throws.
+	 * @throws RuntimeException Always thrown
+	 * @deprecated Not supported for HashArray2D
+	 */
 	@Deprecated
 	@Override
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Deprecated rebalance operation - not implemented for 2D arrays.
+	 * 2D hash arrays do not support rebalancing due to complexity of value management.
+	 * @throws RuntimeException Always thrown as operation is unimplemented
+	 * @deprecated 2D arrays do not support rebalancing
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -238,9 +297,6 @@ public final class HashArray2D extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * 2D array storing integer values for each k-mer, with dynamic resizing per cell
-	 */
 	private int[][] values;
 	
 

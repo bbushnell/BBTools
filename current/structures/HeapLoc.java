@@ -3,16 +3,17 @@ package structures;
 import java.util.ArrayList;
 import java.util.Iterator;
 
-/** A heap that tracks element location */
+/**
+ * A binary heap that tracks element locations within the heap array.
+ * Elements must implement SetLoc to maintain their position information.
+ * Supports rollover mode where adding beyond capacity removes the smallest element.
+ *
+ * @author Brian Bushnell
+ * @param <T> Element type that can track its location in the heap
+ */
 public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 	
 	//A good value for maxSize would be (2^N)-1
-	/**
-	 * Constructs a new heap with specified capacity and rollover behavior.
-	 * Array size is adjusted to be even for implementation efficiency.
-	 * @param maxSize Maximum number of elements the heap can hold
-	 * @param rollover_ If true, adding beyond capacity removes smallest element
-	 */
 	@SuppressWarnings("unchecked")
 	public HeapLoc(int maxSize, boolean rollover_){
 		
@@ -25,14 +26,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 //		queue=new PriorityQueue<T>(maxSize);
 	}
 	
-	/**
-	 * Creates a new heap with different capacity and transfers all elements.
-	 * Elements are removed from this heap and added to the new one.
-	 * This heap is cleared after the transfer.
-	 *
-	 * @param newCapacity Capacity of the new heap
-	 * @return New heap containing all elements from this heap
-	 */
 	public HeapLoc<T> resizeNew(int newCapacity){
 		HeapLoc<T> heap=new HeapLoc<T>(newCapacity, rollover);
 		//Technically I could just do a limited array copy,
@@ -47,23 +40,10 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return heap;
 	}
 	
-	/**
-	 * Adds an element to the heap if there is room or rollover is enabled.
-	 * @param t Element to add (must have location set to -1)
-	 * @return true if element was added, false if heap is full and rollover disabled
-	 */
 	public boolean add(T t){
 		return addAndReturnLocation(t)>=0;
 	}
 	
-	/**
-	 * Adds an element to the heap and returns its final location.
-	 * In rollover mode, removes smallest element if heap is full and new element
-	 * is larger than the current minimum.
-	 *
-	 * @param t Element to add (must have location set to -1)
-	 * @return Final location of the added element, or -1 if not added
-	 */
 	public int addAndReturnLocation(T t){
 		assert(t.loc()<0);
 		assert(size==0 || array[size]!=null);
@@ -96,8 +76,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		//assert(testForDuplicates());
 	}
 	
-	/** Returns the minimum element without removing it from the heap.
-	 * @return Minimum element, or null if heap is empty */
 	public T peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -111,11 +89,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return array[1];
 	}
 	
-	/**
-	 * Removes and returns the minimum element from the heap.
-	 * Restructures the heap to maintain heap property after removal.
-	 * @return Minimum element, or null if heap is empty
-	 */
 	public T poll(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -136,7 +109,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return t;
 	}
 	
-	/** Returns the new location */
 	public int jiggle(T t){
 		final int loc=t.loc();
 		assert(array[loc]==t);
@@ -145,21 +117,18 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return percUp(loc);
 	}
 
-	/** Returns the new location */
 	public int jiggleDown(T t){
 		final int loc=t.loc();
 		assert(array[loc]==t);
 		return percDown(loc);
 	}
 
-	/** Returns the new location */
 	public int jiggleUp(T t){
 		final int loc=t.loc();
 		assert(array[loc]==t);
 		return percDown(loc); //Possible bug: should this call percUp() instead?
 	}
 
-	/** Returns the new location */
 	private int percDown(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0);
@@ -178,7 +147,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return loc;
 	}
 
-	/** Returns the new location */
 	private int percUp(int loc){
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
@@ -214,49 +182,30 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return loc;
 	}
 	
-	/** Checks if the heap contains no elements.
-	 * @return true if heap is empty, false otherwise */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
-	/** Checks if the heap can accept more elements without rollover.
-	 * @return true if size is less than capacity, false otherwise */
 	public boolean hasRoom(){
 		return size<CAPACITY;
 	}
 	
-	/** Removes all elements from the heap and resets size to zero.
-	 * Sets all array elements to null to prevent memory leaks. */
 	public void clear(){
 //		queue.clear();
 		for(int i=1; i<=size; i++){array[i]=null;}
 		size=0;
 	}
 	
-	/** Returns the number of elements currently in the heap.
-	 * @return Current number of elements */
 	public int size(){
 		return size;
 	}
 	
-	/**
-	 * Calculates the tier (binary log) of a number.
-	 * Returns 31 minus the number of leading zeros in the binary representation.
-	 * @param x Input number
-	 * @return Tier value (floor of log base 2)
-	 */
 	public static int tier(int x){
 		int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
 	
-	/**
-	 * Tests the heap integrity by checking for duplicate elements and verifying
-	 * that each element's stored location matches its actual array position.
-	 * @return true if no duplicates found and all locations are correct
-	 */
 	public boolean testForDuplicates(){
 		for(int i=0; i<array.length; i++){
 			for(int j=i+1; j<array.length; j++){
@@ -267,11 +216,6 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return true;
 	}
 	
-	/**
-	 * Converts the heap to a sorted ArrayList by polling all elements.
-	 * This empties the heap as a side effect.
-	 * @return ArrayList containing all elements in sorted order
-	 */
 	public ArrayList<T> toList(){
 		ArrayList<T> list=new ArrayList<T>(size);
 		for(int i=0, lim=size; i<lim; i++){
@@ -286,28 +230,25 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 		return new HeapIterator();
 	}
 	
-	/** Iterator implementation that traverses heap elements in array order.
-	 * Does not provide sorted traversal. */
 	private class HeapIterator implements Iterator<T> {
 
+		/** Checks if there are more elements to iterate over.
+		 * @return true if more elements remain, false otherwise */
 		@Override
 		public boolean hasNext() {return loc<=size;}
 
+		/** Returns the next element in iteration order and advances the iterator.
+		 * @return Next element in the heap array */
 		@Override
 		public T next() {return array[loc++];}
 		
-		/** Current position in the iteration (1-based indexing) */
 		int loc=1;
 		
 	}
 	
-	/** Internal array storing heap elements with 1-based indexing */
 	private final T[] array;
-	/** Maximum number of elements the heap can hold */
 	public final int CAPACITY;
-	/** Whether to remove smallest element when adding beyond capacity */
 	public final boolean rollover;
-	/** Current number of elements in the heap */
 	private int size=0;
 	
 //	private PriorityQueue<T> queue;

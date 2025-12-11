@@ -20,22 +20,12 @@ import shared.Tools;
 import stream.Read;
 import stream.ReadInputStream;
 
-/**
- * Single-threaded tool for extracting genomic features from FASTA sequences
- * using GFF annotations with attribute-based filtering and strand-specific processing.
- * Supports both feature extraction and region masking modes.
- * @author Brian Bushnell
- */
 public class CutGff_ST {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -51,8 +41,9 @@ public class CutGff_ST {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a new CutGff_ST instance with command-line configuration.
+	 * Initializes file processing parameters, output streams, and parsing options.
+	 * @param args Command line arguments for configuration
 	 */
 	public CutGff_ST(String[] args){
 		
@@ -88,7 +79,14 @@ public class CutGff_ST {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures processing parameters.
+	 * Supports input/output file specification, filtering criteria, and processing options.
+	 * Automatically matches GFF files to corresponding FASTA files if not explicitly provided.
+	 *
+	 * @param args Command line argument array
+	 * @return Configured Parser instance with file and processing settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -166,14 +164,16 @@ public class CutGff_ST {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adjusts file extensions for proper compression handling.
+	 * Ensures input files have correct .gz or .bz2 extensions when needed. */
 	private void fixExtensions(){
 		fnaList=Tools.fixExtension(fnaList);
 		gffList=Tools.fixExtension(gffList);
 		if(fnaList.isEmpty()){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that all input files can be read and output files can be written.
+	 * Verifies file permissions and prevents duplicate file specifications. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -196,7 +196,8 @@ public class CutGff_ST {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Configures static file processing settings based on available system resources.
+	 * Optimizes ByteFile threading mode for improved performance with multiple threads. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -208,11 +209,6 @@ public class CutGff_ST {
 	/*----------------         Actual Code          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that handles all input file pairs.
-	 * Processes each FASTA/GFF file pair sequentially using the configured parameters.
-	 * @param t Timer for execution time tracking
-	 */
 	public void process(Timer t){
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
 		bsw.start();
@@ -224,16 +220,6 @@ public class CutGff_ST {
 		bsw.poisonAndWait();
 	}
 	
-	/**
-	 * Processes a single FASTA/GFF file pair for feature extraction.
-	 * Loads GFF annotations and FASTA sequences, then processes both strands
-	 * for feature matching and extraction based on configured criteria.
-	 *
-	 * @param fna Path to input FASTA file
-	 * @param gff Path to input GFF file
-	 * @param types Comma-separated list of feature types to process
-	 * @param bsw Output writer for extracted sequences
-	 */
 	private void processFile(String fna, String gff, String types, ByteStreamWriter bsw){
 		ArrayList<GffLine> lines=GffLine.loadGffFile(gff, types, false);
 		
@@ -253,12 +239,6 @@ public class CutGff_ST {
 		}
 	}
 	
-	/**
-	 * Determines if a GFF line passes all configured attribute and length filters.
-	 * Checks feature length constraints, banned attributes, and required attributes.
-	 * @param gline GFF line to evaluate
-	 * @return true if the line passes all filters, false otherwise
-	 */
 	private boolean hasAttributes(GffLine gline){
 		int len=gline.length();
 		if(len<minLen || len>maxLen){return false;}
@@ -266,14 +246,6 @@ public class CutGff_ST {
 		return requiredAttributes==null || hasAttributes(gline, requiredAttributes);
 	}
 	
-	/**
-	 * Checks if a GFF line contains any of the specified attributes.
-	 * Used for both required and banned attribute filtering.
-	 *
-	 * @param gline GFF line to check
-	 * @param attributes Array of attributes to search for
-	 * @return true if any attribute is found in the line, false otherwise
-	 */
 	private boolean hasAttributes(GffLine gline, String[] attributes){
 		if(attributes==null){return false;}
 		for(String s : attributes){
@@ -284,17 +256,6 @@ public class CutGff_ST {
 		return false;
 	}
 	
-	/**
-	 * Processes GFF features for a specific strand orientation.
-	 * Extracts or masks genomic regions based on strand-specific coordinates
-	 * and configured filtering criteria.
-	 *
-	 * @param lines List of GFF lines to process
-	 * @param map Mapping from sequence IDs to Read objects
-	 * @param strand Strand orientation (0=forward, 1=reverse)
-	 * @param bsw Output writer for extracted sequences
-	 * @param invert If true, mask regions with 'N' instead of extracting
-	 */
 	private void processStrand(ArrayList<GffLine> lines, HashMap<String, Read> map, int strand, ByteStreamWriter bsw, boolean invert){
 		for(GffLine gline : lines){
 			if(gline.strand==strand && hasAttributes(gline)){
@@ -329,53 +290,36 @@ public class CutGff_ST {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** List of input FASTA file paths */
 	private ArrayList<String> fnaList=new ArrayList<String>();
-	/** List of input GFF file paths corresponding to FASTA files */
 	private ArrayList<String> gffList=new ArrayList<String>();
-	/** Output file path for extracted sequences */
 	private String out=null;
-	/** Comma-separated list of GFF feature types to process (default: "CDS") */
 	private String types="CDS";
-	/** If true, mask matching regions with 'N' instead of extracting them */
 	private boolean invert=false;
-	/** If true, exclude features marked as partial=true */
 	private boolean banPartial=true;
-	/** Minimum feature length to include in processing */
 	private int minLen=1;
-	/** Maximum feature length to include in processing */
 	private int maxLen=Integer.MAX_VALUE;
 
-	/** Array of attributes that must be present in GFF features for inclusion */
 	private String[] requiredAttributes;
-	/** Array of attributes that cause GFF features to be excluded */
 	private String[] bannedAttributes;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of bytes written to output (currently unused) */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file format configuration */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Stream for status and error messages */
 	private PrintStream outstream=System.err;
-	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** Indicates if an error occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append output to existing files instead of overwriting */
 	private boolean append=false;
 	
 }

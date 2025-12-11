@@ -21,15 +21,15 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * @author Brian Bushnell
- * @contributor Isla
- * @date Jan 3, 2013
+ * Generates random DNA or amino acid sequences with configurable properties.
+ * Creates synthetic genomes with specified GC content, length, chromosome count,
+ * and optional homopolymer filtering. Supports both nucleotide and amino acid modes.
  *
+ * @author Brian Bushnell
+ * @date Jan 3, 2013
  */
 public class RandomGenome {
 	
-	/** Program entry point for random genome generation.
-	 * @param args Command-line arguments specifying output parameters */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -44,12 +44,6 @@ public class RandomGenome {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs RandomGenome instance with parsed command-line arguments.
-	 * Parses parameters for chromosome count, length, GC content, padding,
-	 * and output options. Initializes random number generator with optional seed.
-	 * @param args Command-line arguments for configuration
-	 */
 	public RandomGenome(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -141,11 +135,6 @@ public class RandomGenome {
 		randy=Shared.threadLocalRandom(seed);
 	}
 	
-	/**
-	 * Main processing method that generates synthetic sequences.
-	 * Delegates to nucleotide or amino acid processing based on AMINO_IN setting.
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 		if(Shared.AMINO_IN){
 			processAmino(t);
@@ -154,12 +143,6 @@ public class RandomGenome {
 		}
 	}
 	
-	/**
-	 * Generates random nucleotide sequences with specified GC content.
-	 * Creates chromosomes with configurable length, padding with N's at ends,
-	 * and optional homopolymer filtering. Outputs in FASTA format.
-	 * @param t Timer for tracking execution time
-	 */
 	void processNucleotide(Timer t){
 		
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
@@ -244,12 +227,6 @@ public class RandomGenome {
 		bsw.poisonAndWait();
 	}
 	
-	/**
-	 * Generates random amino acid sequences for synthetic proteins.
-	 * Creates genes with random amino acid composition, padding with X's at ends,
-	 * and optional stop codon inclusion. Outputs in FASTA format.
-	 * @param t Timer for tracking execution time
-	 */
 	void processAmino(Timer t){
 		
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
@@ -284,12 +261,6 @@ public class RandomGenome {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Convert kmer counts to prefix probability matrix.
-	 * @param counts Array of kmer counts (may be folded/canonical form)
-	 * @param k Kmer length
-	 * @return float[4^(k-1)][4] where [prefix][base] = cumulative probability
-	 */
 	static float[][] countsToPrefixProb(long[] counts, int k){
 		final int prefixes=1<<(2*(k-1)); // 4^(k-1) possible (k-1)-mer prefixes
 		float[][] matrix=new float[prefixes][4];
@@ -323,13 +294,6 @@ public class RandomGenome {
 		return matrix;
 	}
 
-	/**
-	 * Choose next base based on prefix probabilities.
-	 * @param prefix The (k-1)-mer prefix as binary encoding
-	 * @param prefixMatrix Cumulative probability matrix
-	 * @param randy Random number generator
-	 * @return Next base (A/C/G/T)
-	 */
 	static byte nextBase(int prefix, float[][] prefixMatrix, Random randy){
 		float[] probs=prefixMatrix[prefix];
 		float r=randy.nextFloat();
@@ -340,13 +304,6 @@ public class RandomGenome {
 		return (byte)'T';
 	}
 
-	/**
-	 * Unfold canonical kmer counts to forward orientation.
-	 * Palindromes get doubled, non-palindromes get their count plus their RC's count.
-	 * @param counts Canonical (folded) counts
-	 * @param k Kmer length
-	 * @return Unfolded counts array
-	 */
 	static long[] unfold(long[] counts, int k){
 		
 		final int[] remap=CladeObject.remapMatrix[k];
@@ -377,23 +334,14 @@ public class RandomGenome {
 	private String in=null;
 	private String out=null;
 	
-	/** Number of chromosomes/contigs to generate */
 	int chroms=1;
-	/** Total length of all sequences combined in bases */
 	long totalLength=1000000;
-	/** GC content as fraction (0.0 to 1.0) for nucleotide sequences */
 	float gc=0.5f;
-	/** Length of each individual chromosome in bases */
 	final int chromLength;
-	/** Line wrap length for FASTA output formatting */
 	final int wrap;
-	/** Number of N's or X's to pad at chromosome ends */
 	int pad=0;
-	/** Whether to prevent consecutive identical bases (homopolymers) */
 	boolean noPoly=false;
-	/** Whether to include stop codons in amino acid sequences */
 	boolean includeStop=false;
-	/** Random number generator seed for reproducible output */
 	long seed=-1;
 	
 	int k=5;
@@ -401,7 +349,6 @@ public class RandomGenome {
 	
 	/*--------------------------------------------------------------*/
 
-	/** Random number generator instance for sequence generation */
 	final Random randy;
 	
 	private long linesOut=0;
@@ -415,7 +362,6 @@ public class RandomGenome {
 	/*--------------------------------------------------------------*/
 	
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose=false;
 	public boolean errorState=false;
 	private boolean overwrite=true;

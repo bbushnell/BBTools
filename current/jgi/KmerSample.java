@@ -3,21 +3,23 @@ package jgi;
 import fileIO.TextFile;
 
 /**
+ * K-mer sampling and storage using bit arrays for memory-efficient representation.
+ * Reads sequences from FASTA files and stores k-mer presence information in compact bit arrays.
+ * Each k-mer is represented by a single bit, allowing storage of large k-mer sets
+ * in minimal memory.
+ *
  * @author Brian Bushnell
  * @date Oct 10, 2012
- *
  */
 public class KmerSample {
 	
 	
 	/**
-	 * Creates a bit array representing all k-mers found in a FASTA file.
-	 * Each k-mer is encoded as a 2K-bit integer and stored as a single bit in the array.
-	 * Processes sequences line by line, handling FASTA headers and resetting k-mers on ambiguous bases.
-	 *
-	 * @param K Length of k-mers to extract (must be ≤31 for 64-bit encoding)
-	 * @param filename Path to FASTA file to process
-	 * @return Bit array where each bit represents presence of one possible k-mer
+	 * Builds a bit array marking presence of all k-mers (length K) found in a FASTA file.
+	 * Each k-mer maps to a single bit in the returned array; ambiguous bases reset the rolling k-mer.
+	 * @param K K-mer length (<=31)
+	 * @param filename FASTA file path
+	 * @return Bit array marking observed k-mers
 	 */
 	public static int[] makeKmerSet(int K, String filename){
 		
@@ -111,12 +113,10 @@ public class KmerSample {
 	}
 	
 	/**
-	 * Tests whether a specific k-mer is present in the bit array.
-	 * Uses bit manipulation to check the appropriate bit position for the k-mer.
-	 *
-	 * @param kmer The k-mer to search for, encoded as a long integer
-	 * @param array Bit array created by makeKmerSet containing k-mer presence data
-	 * @return true if the k-mer is present in the array, false otherwise
+	 * Tests whether a specific k-mer (encoded as a long) is present in the bit array produced by makeKmerSet.
+	 * @param kmer Encoded k-mer
+	 * @param array Bit array from makeKmerSet
+	 * @return true if the k-mer bit is set
 	 */
 	public static boolean containsKmer(long kmer, int[] array){
 		

@@ -8,21 +8,15 @@ import fileIO.TextStreamWriter;
 import jgi.CovStatsLine;
 
 /**
+ * Merges coverage statistics for Operational Taxonomic Units (OTUs).
+ * Reads a coverage statistics file, consolidates duplicate OTU entries by
+ * summing their statistics, and writes the merged results to an output file.
+ *
  * @author Brian Bushnell
  * @date Oct 13, 2014
- *
  */
 public class MergeCoverageOTU {
 	
-	/**
-	 * Program entry point for merging OTU coverage statistics.
-	 * Parses input and output file paths from command-line arguments, reads
-	 * coverage statistics, merges duplicate OTU entries by summing their values,
-	 * and writes consolidated results to the output file.
-	 *
-	 * @param args Command-line arguments containing input and output file paths.
-	 * Accepts formats: "in=file out=file", "out=file in=file", or "infile outfile"
-	 */
 	public static void main(String[] args){
 		String a=args[0];
 		String b=args[1];

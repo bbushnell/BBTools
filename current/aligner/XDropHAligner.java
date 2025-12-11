@@ -9,19 +9,23 @@ import structures.ByteBuilder;
 import structures.IntList;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 30, 2025
+ * X-drop heuristic aligner for calculating Average Nucleotide Identity (ANI).
+ * Uses a sparse dynamic programming approach with only two arrays to avoid traceback.
+ * Calculates exact alignment identity and reference start/stop positions without full traceback.
+ * Limited to sequences up to 2Mbp due to 21-bit position encoding.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 30, 2025
  */
 public class XDropHAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for standardized testing.
+	 * Uses reflection to determine the actual class type from stack trace.
+	 * @param <C> Class type extending IDAligner
+	 * @param args Command-line arguments passed to testing framework
+	 * @throws Exception If class reflection or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 		args=new PreParser(args, System.err, null, false, true, false).args;
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
@@ -34,21 +38,51 @@ public class XDropHAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for XDropHAligner */
 	public XDropHAligner() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the aligner name identifier */
 	@Override
 	public final String name() {return "XDrop-H";}
+	/**
+	 * Aligns two sequences and returns identity.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity with position information.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Array to store reference start/stop positions
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Array to store reference start/stop positions
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference window.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Array to store reference start/stop positions
+	 * @param rStart Reference window start position
+	 * @param rStop Reference window stop position
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -56,7 +90,14 @@ public class XDropHAligner implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates optimal bandwidth for alignment based on sequence characteristics.
+	 * Tests for high-identity indel-free alignments requiring minimal bandwidth.
+	 * Uses adaptive bandwidth based on sequence length and observed differences.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Bandwidth value (minimum 1)
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int bandwidth=Tools.min(query.length/4+2, Math.max(query.length, ref.length)/32, 12);
 		bandwidth=Math.max(2, bandwidth)+3;
@@ -68,11 +109,14 @@ public class XDropHAligner implements IDAligner{
 	}
 
 	/**
+	 * Core static alignment method using X-drop heuristic with sparse DP matrix.
+	 * Swaps sequences if query is longer than reference when position vector is null.
+	 * Uses bit-packed scoring to track alignment score, position, and deletion count.
+	 * Implements adaptive bandwidth and X-drop termination for efficiency.
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional array for returning reference start/stop coordinates
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -246,13 +290,15 @@ public class XDropHAligner implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Converts alignment score to identity and extracts position information.
+	 * Solves system of equations to determine match/substitution/indel counts.
+	 * Handles global alignment adjustments if GLOBAL mode is enabled.
+	 * @param maxScore Highest score from final alignment row
+	 * @param maxPos Position of highest score in reference
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for storing reference coordinates and statistics
+	 * @return Final identity score from 0.0 to 1.0
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -324,14 +370,14 @@ public class XDropHAligner implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Wrapper method for aligning to a specific window of the reference sequence.
+	 * Extracts reference region and adjusts returned coordinates accordingly.
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Array for storing alignment coordinates
+	 * @param refStart Alignment window start position (inclusive)
+	 * @param refEnd Alignment window end position (exclusive)
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -348,14 +394,9 @@ public class XDropHAligner implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for tracking total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the current loop counter value for performance monitoring */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New counter value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -363,49 +404,32 @@ public class XDropHAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits used for encoding position information in score values */
 	private static final int POSITION_BITS=21;
-	/** Number of bits used for encoding deletion count in score values */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for score portion of packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from packed score values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed score values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting score portion from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score value for matching bases in alignment */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions in alignment */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions in alignment */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions in alignment */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous bases (N) in alignment - treated neutrally */
 	private static final long N_SCORE=0L;
-	/** Sentinel value for invalid or pruned alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty with position increment for gap tracking */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Whether to extend matches in alignment matrix exploration */
 	private static final boolean EXTEND_MATCH=true;
-	/** Toggle between loop-based and branchless matrix position management */
 	private static final boolean LOOP_VERSION=false;
-	/** Debug flag for printing alignment operation statistics */
 	private static final boolean PRINT_OPS=false;
 //	private static final boolean debug=false;
 	// This will force full-length alignment, but it will only be optimal
 	// if the global alignment is within the glocal bandwidth.
 	// Better to use Banded/Glocal for arbitrary global alignments.
-	/** Whether to perform global alignment instead of local alignment */
 	public static final boolean GLOBAL=false;
 
 }

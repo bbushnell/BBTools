@@ -9,21 +9,6 @@ import fileIO.ByteFile;
 import structures.ByteBuilder;
 import structures.IntList;
 
-/**
- * Finds delimiters of a text line efficiently, to allow for parsing.
- * For example:<br>
- * Integer.parseInt("a b c 22 jan".split(" ")[3])<br>
- * 
- * could be redone as:<br>
- * LineParser lp=new LineParser(' ')<br>
- * lp.set("a b c 22 jan".toBytes()).parseInt(3)<br>
- * 
- * Uses memory proportional to 4*(# delimiters per line); for constant memory, use LineParser2.
- * 
- * @author Brian Bushnell
- * @date May 24, 2023
- *
- */
 public final class LineParser1 implements LineParser {
 	
 	/*--------------------------------------------------------------*/
@@ -32,11 +17,6 @@ public final class LineParser1 implements LineParser {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
-	/**
-	 * Test program for LineParser1 functionality.
-	 * Takes a filename/literal string and delimiter as arguments.
-	 * @param args Command-line arguments: [filename/literal] [delimiter]
-	 */
 	public static void main(String[] args) {
 		assert(args.length==2 || args.length==3 || args.length==4);
 		String fname=args[0];
@@ -74,12 +54,8 @@ public final class LineParser1 implements LineParser {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a LineParser1 with the specified byte delimiter.
-	 * @param delimiter_ The delimiter byte to use for splitting lines */
 	public LineParser1(byte delimiter_) {delimiter=delimiter_;}
 
-	/** Creates a LineParser1 with the specified ASCII delimiter.
-	 * @param delimiter_ The delimiter character as ASCII value (0-127) */
 	public LineParser1(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=127);
 		delimiter=(byte)delimiter_;
@@ -122,6 +98,11 @@ public final class LineParser1 implements LineParser {
 		return this;
 	}
 	
+	/**
+	 * Reset method - no operation for this implementation.
+	 * Included for interface compatibility.
+	 * @return this LineParser instance for method chaining
+	 */
 	@Override
 	public LineParser reset() {
 		//Does nothing for this class
@@ -132,60 +113,45 @@ public final class LineParser1 implements LineParser {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Gets the number of terms found in the current line.
-	 * @return Number of delimited terms in the line */
 	public int terms() {return bounds.size();}
 	
+	/**
+	 * Parses the specified term as an integer.
+	 * @param term Zero-based term index
+	 * @return The parsed integer value
+	 */
 	@Override
 	public int parseInt(int term) {
 		setBounds(term);
 		return Parse.parseInt(line, a, b);
 	}
 	
-	/**
-	 * Parses the specified term as an integer starting from an offset.
-	 * @param term Zero-based term index
-	 * @param offset Character offset within the term
-	 * @return The parsed integer value
-	 */
 	public int parseInt(int term, int offset) {
 		setBounds(term);
 		return Parse.parseInt(line, a+offset, b);
 	}
 	
+	/**
+	 * Parses the specified term as a long integer.
+	 * @param term Zero-based term index
+	 * @return The parsed long value
+	 */
 	@Override
 	public long parseLong(int term) {
 		setBounds(term);
 		return Parse.parseLong(line, a, b);
 	}
 	
-	/**
-	 * Parses the specified term as a long integer using ASCII 48 offset.
-	 * @param term Zero-based term index
-	 * @return The parsed long value
-	 */
 	public long parseLongA48(int term) {
 		setBounds(term);
 		return Parse.parseLongA48(line, a, b);
 	}
 	
-	/**
-	 * Parses all terms starting from the specified index as long integers.
-	 * Creates an array sized to contain all remaining terms.
-	 * @param term Starting zero-based term index
-	 * @return Array of parsed long values
-	 */
 	public long[] parseLongArray(int term) {
 		long[] array=new long[terms()-term];
 		return parseLongArray(term, array);
 	}
 	
-	/**
-	 * Parses terms starting from the specified index into provided array.
-	 * @param term Starting zero-based term index
-	 * @param array Pre-allocated array to fill with parsed values
-	 * @return The filled array
-	 */
 	public long[] parseLongArray(int term, long[] array) {
 		for(int i=0; i<array.length; i++) {
 			array[i]=parseLong(term+i);
@@ -193,12 +159,6 @@ public final class LineParser1 implements LineParser {
 		return array;
 	}
 	
-	/**
-	 * Parses terms into array using ASCII 48 offset long parsing.
-	 * @param term Starting zero-based term index
-	 * @param array Pre-allocated array to fill with parsed values
-	 * @return The filled array
-	 */
 	public long[] parseLongArrayA48(int term, long[] array) {
 		for(int i=0; i<array.length; i++) {
 			array[i]=parseLongA48(term+i);
@@ -206,6 +166,11 @@ public final class LineParser1 implements LineParser {
 		return array;
 	}
 	
+	/**
+	 * Parses the specified term as a float.
+	 * @param term Zero-based term index
+	 * @return The parsed float value
+	 */
 	@Override
 	public float parseFloat(int term) {
 		setBounds(term);
@@ -218,6 +183,12 @@ public final class LineParser1 implements LineParser {
 		return Parse.parseDouble(line, a, b);
 	}
 	
+	/**
+	 * Gets the byte at the specified offset within a term.
+	 * @param term Zero-based term index
+	 * @param offset Character offset within the term
+	 * @return The byte value at the position
+	 */
 	@Override
 	public byte parseByte(int term, int offset) {
 		setBounds(term);
@@ -242,6 +213,11 @@ public final class LineParser1 implements LineParser {
 		return Arrays.copyOfRange(line, a+offset, b);
 	}
 	
+	/**
+	 * Gets the current field as a byte array copy.
+	 * Uses the current field bounds set by setBounds().
+	 * @return Copy of current field as byte array
+	 */
 	@Override
 	public byte[] parseByteArrayFromCurrentField() {
 		return Arrays.copyOfRange(line, a, b);
@@ -276,21 +252,42 @@ public final class LineParser1 implements LineParser {
 	/*----------------         Query Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Tests if the line starts with the specified String.
+	 * @param s The prefix string to test
+	 * @return true if line starts with the string
+	 */
 	@Override
 	public boolean startsWith(String s) {
 		return Tools.startsWith(line, s);
 	}
 	
+	/**
+	 * Tests if the line starts with the specified character.
+	 * @param c The prefix character to test
+	 * @return true if line starts with the character
+	 */
 	@Override
 	public boolean startsWith(char c) {
 		return Tools.startsWith(line, c);
 	}
 	
+	/**
+	 * Tests if the line starts with the specified byte.
+	 * @param b The prefix byte to test
+	 * @return true if line starts with the byte
+	 */
 	@Override
 	public boolean startsWith(byte b) {
 		return Tools.startsWith(line, b);
 	}
 	
+	/**
+	 * Tests if the specified term starts with the given string.
+	 * @param s The prefix string to test
+	 * @param term Zero-based term index
+	 * @return true if term starts with the string
+	 */
 	@Override
 	public boolean termStartsWith(String s, int term) {
 		final int len=setBounds(term);
@@ -302,6 +299,12 @@ public final class LineParser1 implements LineParser {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified term exactly equals the given string.
+	 * @param s The string to compare
+	 * @param term Zero-based term index
+	 * @return true if term equals the string
+	 */
 	@Override
 	public boolean termEquals(String s, int term) {
 		final int len=setBounds(term);
@@ -313,12 +316,24 @@ public final class LineParser1 implements LineParser {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified term exactly equals the given character.
+	 * @param c The character to compare
+	 * @param term Zero-based term index
+	 * @return true if term equals the character
+	 */
 	@Override
 	public boolean termEquals(char c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line[a]==c;
 	}
 	
+	/**
+	 * Tests if the specified term exactly equals the given byte.
+	 * @param c The byte to compare
+	 * @param term Zero-based term index
+	 * @return true if term equals the byte
+	 */
 	@Override
 	public boolean termEquals(byte c, int term) {
 		final int len=setBounds(term);
@@ -329,44 +344,75 @@ public final class LineParser1 implements LineParser {
 		return b-a==1 && line[a]==c;
 	}
 
+	/**
+	 * Gets the length of the specified term in characters.
+	 * @param term Zero-based term index
+	 * @return Length of the term
+	 */
 	@Override
 	public int length(int term) {
 		return setBounds(term);
 	}
 
+	/**
+	 * Gets the length of the current field.
+	 * Uses current field bounds set by setBounds().
+	 * @return Length of current field in characters
+	 */
 	@Override
 	public int currentFieldLength() {
 		return b-a;
 	}
 	
+	/**
+	 * Increments the start position of current field by the specified amount.
+	 * @param amt Amount to increment start position
+	 * @return New length of current field
+	 */
 	@Override
 	public int incrementA(int amt) {
 		a+=amt;
 		return b-a;
 	}
 	
+	/**
+	 * Increments the start position by the specified amount.
+	 * Note: Implementation appears to increment 'a' instead of 'b'.
+	 * @param amt Amount to increment position
+	 * @return New length of current field
+	 */
 	@Override
 	public int incrementB(int amt) {
 		a+=amt;
 		return b-a;
 	}
 
+	/** Tests if there are more characters to process in the line.
+	 * @return true if current position is before end of line */
 	@Override
 	public boolean hasMore() {
 		return b<line.length;
 	}
 
+	/** Gets the total length of the current line.
+	 * @return Length of line in characters */
 	@Override
 	public int lineLength() {
 		return line.length;
 	}
 
+	/** Gets reference to the current line byte array.
+	 * @return The current line as byte array */
 	@Override
 	public byte[] line() {return line;}
 	
+	/** Gets the current field start position.
+	 * @return Start index of current field */
 	@Override
 	public int a() {return a;}
 	
+	/** Gets the current field end position.
+	 * @return End index of current field */
 	@Override
 	public int b() {return b;}
 	
@@ -374,6 +420,12 @@ public final class LineParser1 implements LineParser {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets the current field boundaries for the specified term.
+	 * Updates internal start (a) and end (b) positions from pre-computed bounds.
+	 * @param term Zero-based term index
+	 * @return Length of the term
+	 */
 	@Override
 	public int setBounds(int term){
 		a=(term==0 ? 0 : bounds.get(term-1)+1);
@@ -381,10 +433,11 @@ public final class LineParser1 implements LineParser {
 		return b-a;
 	}
 	
-	/** 
-	 * Do not make public.  This is for internal use making the bounds list,
-	 * not for advancing to a new term like in LineParser2.
-	 * @return Length of new field.
+	/**
+	 * Advances to the next delimiter position during bounds computation.
+	 * Internal method used during line parsing to build the bounds list.
+	 * Should not be made public as it's for internal bounds construction only.
+	 * @return Length of the found field
 	 */
 	private int advance() {
 		b++;
@@ -397,11 +450,15 @@ public final class LineParser1 implements LineParser {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns a string representation of all parsed terms.
+	 * @return String representation of the parsed terms */
 	@Override
 	public String toString() {
 		return toList().toString();
 	}
 	
+	/** Converts all parsed terms to a list of strings.
+	 * @return ArrayList containing all terms as strings */
 	@Override
 	public ArrayList<String> toList(){
 		ArrayList<String> list=new ArrayList<String>(bounds.size);
@@ -415,16 +472,11 @@ public final class LineParser1 implements LineParser {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** List storing the end positions of each delimited term */
 	private final IntList bounds=new IntList();
 	
-	/** Start position of current field being processed */
 	private int a=-1;
-	/** End position of current field being processed */
 	private int b=-1;
-	/** Current line being parsed as byte array */
 	private byte[] line;
 	
-	/** Delimiter byte used to split the line into terms */
 	public final byte delimiter;
 }

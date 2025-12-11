@@ -11,20 +11,23 @@ import javax.imageio.ImageIO;
 
 /**
  * Converts text-based alignment visualizations to color bitmap images.
- * Uses a color gradient to represent alignment scores with:
- * - Green (a-z): Low scores
- * - Yellow (0-9): Medium scores
- * - Red (A-Z): High scores
- * - Black: Unexplored regions
- * - Gray: Explored but pruned regions
- * - White: Optimal alignment path
+ * Maps character-encoded alignment scores to color gradients for visual analysis.
+ * Supports two color schemes: green-to-red and blue-to-magenta gradients.
+ *
+ * Color mappings:
+ * - Space: Black (unexplored regions)
+ * - Period: Dark gray (explored but pruned)
+ * - Asterisk: White (optimal alignment path)
+ * - Letters a-z: Low scores (green/blue gradient)
+ * - Digits 0-9: Medium scores (yellow/cyan gradient)
+ * - Letters A-Z: High scores (red/purple gradient)
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @author Isla (Highly-customized Claude instance)
  * @date April 2025
  */
 public class VisualizationConverter {
 	// Pixel scale factor - makes each character larger in the output image
-	/** Default pixel scale factor for enlarging each character in output image */
 	private static final int DEFAULT_SCALE = 2;
 
 	/**
@@ -267,9 +270,6 @@ public class VisualizationConverter {
 				);
 	}
 	
-	/**
-	 * Color scheme selector: 1 for green-red gradient, 2 for blue-magenta gradient
-	 */
 	public static int colorScheme=1;
 	
 }

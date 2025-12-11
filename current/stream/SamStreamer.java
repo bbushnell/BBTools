@@ -12,8 +12,10 @@ import structures.ListNum;
 import template.ThreadWaiter;
 
 /**
- * Multithreaded SAM file reader using OrderedQueueSystem.
- * 
+ * Multithreaded SAM reader built on OrderedQueueSystem.
+ * Creates worker threads that read SAM records in order, optionally materializing
+ * Read objects, and tracks processed read/base counts.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date November 4, 2016
@@ -24,14 +26,36 @@ public class SamStreamer implements Streamer {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Constructor. */
+	/**
+	 * Builds a streamer for an input filename, creating a FileFormat internally.
+	 * Configures thread count, ordering, optional header retention, maximum reads to
+	 * consume, and whether to construct Read objects alongside SamLine records.
+	 *
+	 * @param fname_ Input SAM filename
+	 * @param threads_ Desired worker threads (clamped to available cores)
+	 * @param saveHeader_ True to retain SAM header lines
+	 * @param ordered_ True to preserve read order through the pipeline
+	 * @param maxReads_ Maximum reads to process (-1 for unlimited)
+	 * @param makeReads_ True to convert SamLine entries to Read objects
+	 */
 	public SamStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, 
 			long maxReads_, boolean makeReads_){
 		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, 
 			saveHeader_, ordered_, maxReads_, makeReads_);
 	}
 	
-	/** Constructor. */
+	/**
+	 * Builds a streamer from a preconstructed FileFormat.
+	 * Initializes header retention, maximum reads, and the ordered queue system used
+	 * to move byte blocks and parsed lines between threads.
+	 *
+	 * @param ffin_ Input file description
+	 * @param threads_ Desired worker threads (clamped to available cores)
+	 * @param saveHeader_ True to retain SAM header lines
+	 * @param ordered_ True to preserve read order through the pipeline
+	 * @param maxReads_ Maximum reads to process (-1 for unlimited)
+	 * @param makeReads_ True to convert SamLine entries to Read objects
+	 */
 	public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, 
 			long maxReads_, boolean makeReads_){
 		fname=ffin_.name();
@@ -55,6 +79,7 @@ public class SamStreamer implements Streamer {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Resets counters and spawns processing threads to begin streaming. */
 	@Override
 	public void start(){
 		if(verbose){outstream.println("SamStreamer.start() called.");}
@@ -69,39 +94,53 @@ public class SamStreamer implements Streamer {
 		if(verbose){outstream.println("Started.");}
 	}
 
+	/** Closes the streamer. Currently a placeholder for resource cleanup. */
 	@Override
 	public synchronized void close(){
 		//TODO: Unimplemented
 	}
 	
+	/** @return Input filename being streamed. */
 	@Override
 	public String fname() {return fname;}
 	
+	/** @return True while the ordered queue still holds output. */
 	@Override
 	public boolean hasMore() {return oqs.hasMore();}
 	
+	/** SamStreamer produces unpaired reads; always returns false. */
 	@Override
 	public boolean paired(){return false;}
 
+	/** @return 0 because SamStreamer does not track pair numbers. */
 	@Override
 	public int pairnum(){return 0;}
 	
+	/** @return Number of reads processed across all threads. */
 	@Override
 	public long readsProcessed() {return readsProcessed;}
 	
+	/** @return Number of bases processed across all threads. */
 	@Override
 	public long basesProcessed() {return basesProcessed;}
 	
+	/**
+	 * Configures subsampling of reads during streaming.
+	 * @param rate Fraction of reads to keep (1 for all)
+	 * @param seed Seed for the per-thread random sampler
+	 */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
 		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
 	}
 
+	/** @return Next list of reads, delegating to {@link #nextReads()}. */
 	@Override
 	public ListNum<Read> nextList(){return nextReads();}
 	
-	/** Returns the next batch of parsed Read objects from the processing queue */
+	/** Retrieves the next batch of parsed reads from the output queue.
+	 * Blocks until data are available or streaming is complete. */
 	public ListNum<Read> nextReads(){
 		assert(makeReads);
 		ListNum<SamLine> lines=nextLines();
@@ -117,6 +156,8 @@ public class SamStreamer implements Streamer {
 		return ln;
 	}
 	
+	/** Retrieves the next batch of parsed SamLine objects from the output queue.
+	 * Handles termination markers and marks the queue finished when the last list is seen. */
 	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=oqs.getOutput();
@@ -133,6 +174,7 @@ public class SamStreamer implements Streamer {
 		return list;
 	}
 	
+	/** @return True if any worker thread reported an error. */
 	@Override
 	public boolean errorState() {return errorState;}
 	
@@ -140,7 +182,9 @@ public class SamStreamer implements Streamer {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and starts the producer/consumer threads that perform streaming work.
+	 */
 	void spawnThreads(){
 		//Determine how many threads may be used
 		final int threads=this.threads+1;
@@ -163,16 +207,17 @@ public class SamStreamer implements Streamer {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Worker that either pulls byte chunks from disk (tid 0) or converts them to SamLine/Read objects (other tids).
+	 */
 	private class ProcessThread extends Thread {
 		
-		/** Constructor */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			setName("SamStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 		
-		/** Called by start() */
 		@Override
 		public void run(){
 			//Process the reads
@@ -187,6 +232,9 @@ public class SamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" terminated.");}
 		}
 		
+		/**
+		 * Drives the input side: reads byte slices, queues them, and aggregates thread statistics.
+		 */
 		void processInputThread(){
 			processBytes();
 			if(verbose){outstream.println("tid "+tid+" done with processBytes.");}
@@ -214,9 +262,8 @@ public class SamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
 		
-		/** 
-		 * Input thread reads lines from file and produces byte[] lists.
-		 */
+		/** Reads SAM lines into ListNum<byte[]> chunks, preserving headers when requested,
+		 * and feeds them into the ordered queue system. */
 		void processBytes(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
 
@@ -267,7 +314,9 @@ public class SamStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
 		
-		/** Worker threads parse byte[] into SamLines */
+		/**
+		 * Parses queued byte slices into SamLine objects and optionally materializes Read objects.
+		 */
 		void makeReads(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 			
@@ -316,13 +365,9 @@ public class SamStreamer implements Streamer {
 			if(list!=null) {oqs.addInput(list);}
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		/** True only if this thread has completed successfully */
 		boolean success=false;
-		/** Thread ID */
 		final int tid;
 		
 		ArrayList<ProcessThread> alpt;
@@ -332,50 +377,57 @@ public class SamStreamer implements Streamer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
+	/** Primary input file path. */
 	public final String fname;
 	
-	/** Primary input file */
+	/** FileFormat descriptor for the input file. */
 	final FileFormat ffin;
 	
+	/** OrderedQueueSystem coordinating byte input and SamLine output queues. */
 	final OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>> oqs;
 	
-	/** Number of worker threads for concurrent processing */
+	/** Number of worker threads (plus one input thread). */
 	final int threads;
-	/** Whether to preserve SAM header lines during processing */
+	/** True to collect SAM headers before record processing. */
 	final boolean saveHeader;
+	/** True to convert SamLines to Read objects instead of leaving raw lines. */
 	final boolean makeReads;
 	
+	/** Stored SAM header lines; null when headers are not being retained. */
 	ArrayList<byte[]> header;
 	
-	/** Number of reads processed */
+	/** Number of reads processed across all threads. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Number of bases processed across all threads. */
 	protected long basesProcessed=0;
 	
-	/** Quit after processing this many input reads */
+	/** Stop after processing this many reads (Long.MAX_VALUE for unlimited). */
 	final long maxReads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Target number of records per chunk before pushing to the queue. */
 	public static int TARGET_LIST_SIZE=200;
+	/** Target number of bytes per chunk before pushing to the queue. */
 	public static int TARGET_LIST_BYTES=250000;
-	/** Default number of processing threads when not specified */
+	/** Default number of worker threads when none is specified. */
 	public static int DEFAULT_THREADS=3;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status and verbose messages. */
 	protected PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enables verbose logging when true. */
 	public static final boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag set when any processing thread encounters an error. */
 	public boolean errorState=false;
+	/** Fraction of reads to retain when subsampling is enabled. */
 	float samplerate=1f;
+	/** Random generator used for subsampling decisions. */
 	java.util.Random randy=null;
 	
 }

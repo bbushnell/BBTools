@@ -5,9 +5,13 @@ import shared.Tools;
 import structures.LongList;
 
 /**
+ * An 8-bit implementation of the LogLog cardinality estimation algorithm for
+ * memory-efficient probabilistic counting of unique elements.
+ * Uses byte arrays to track maximum leading zero counts across buckets,
+ * providing space-efficient cardinality estimation with O(log log n) complexity.
+ *
  * @author Brian Bushnell
  * @date Mar 6, 2020
- *
  */
 public final class LogLog8 extends CardinalityTracker {
 	
@@ -15,23 +19,27 @@ public final class LogLog8 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/**
+	 * Creates a LogLog8 with default parameters (2048 buckets, k=31, random seed)
+	 */
 	LogLog8(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/** Creates a LogLog8 with parameters parsed from command line arguments.
+	 * @param p Parser containing configuration parameters */
 	LogLog8(Parser p){
 		super(p);
 		maxArray=new byte[buckets];
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
-	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * Creates a LogLog8 with specified cardinality tracking parameters.
+	 *
+	 * @param buckets_ Number of buckets for cardinality estimation
+	 * @param k_ K-mer length for hashing
+	 * @param seed Random number generator seed; -1 for random seed
+	 * @param minProb_ Minimum probability threshold for element inclusion
 	 */
 	LogLog8(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -55,7 +63,14 @@ public final class LogLog8 extends CardinalityTracker {
 //		return original;
 //	}
 	
-	/** Restores floating point to integer */
+	/**
+	 * Restores the original hash value from a leading zero count.
+	 * Converts the stored leading zero score back to an approximate original value
+	 * using bit manipulation to reconstruct the mantissa and shift operations.
+	 *
+	 * @param score Number of leading zeros in the original hash
+	 * @return Reconstructed approximate original hash value
+	 */
 	private long restore(int score){
 		int leading=score;
 		long mantissa=1;
@@ -64,6 +79,14 @@ public final class LogLog8 extends CardinalityTracker {
 		return original;
 	}
 	
+	/**
+	 * Estimates the total number of unique elements seen by this tracker.
+	 * Uses statistical analysis of leading zero counts across all buckets
+	 * to calculate cardinality. Applies conversion factor and bucket occupancy
+	 * adjustments for improved accuracy.
+	 *
+	 * @return Estimated cardinality of unique elements
+	 */
 	@Override
 	public final long cardinality(){
 		double difSum=0;
@@ -124,18 +147,14 @@ public final class LogLog8 extends CardinalityTracker {
 		return cardinality;
 	}
 	
+	/** Merges another cardinality tracker into this one by taking maximum values.
+	 * @param log The cardinality tracker to merge (must be LogLog8) */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog8)log);
 	}
 	
-	/**
-	 * Merges another LogLog8 tracker by taking the maximum leading zero count
-	 * for each bucket position. This combines the cardinality estimates while
-	 * preserving the probabilistic properties of the LogLog algorithm.
-	 * @param log The LogLog8 tracker to merge with this one
-	 */
 	public void add(LogLog8 log){
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
@@ -164,6 +183,12 @@ public final class LogLog8 extends CardinalityTracker {
 		maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
 	}
 	
+	/**
+	 * Returns null as LogLog8 does not use compensation factors.
+	 * This implementation relies on the conversion factor in cardinality()
+	 * rather than bucket-specific compensation.
+	 * @return null (no compensation factors used)
+	 */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return null;
@@ -173,7 +198,7 @@ public final class LogLog8 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Maintains state.  These are the actual buckets. */
+	/** Array storing maximum leading zero counts for each bucket */
 	private final byte[] maxArray;
 
 }

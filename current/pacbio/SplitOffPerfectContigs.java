@@ -19,18 +19,16 @@ import structures.CoverageArray2;
 import structures.Range;
 
 /**
+ * Splits assemblies into perfect and imperfect contigs based on coverage data.
+ * Identifies high-coverage regions that represent perfect assemblies and separates them
+ * from lower-coverage regions that may contain errors. Perfect contigs are written to
+ * FASTA output while imperfect regions are kept in chromosome arrays for reference.
+ *
  * @author Brian Bushnell
  * @date Jul 26, 2012
- *
  */
 public class SplitOffPerfectContigs {
 	
-	/**
-	 * Program entry point that processes command-line arguments and splits contigs.
-	 * Reads coverage data and assembly files, identifies perfect contigs based on
-	 * coverage thresholds, and writes output in FASTA format.
-	 * @param args Command-line arguments including genome build, coverage files, and thresholds
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -178,23 +176,6 @@ public class SplitOffPerfectContigs {
 		System.out.println("Time:\t"+t);
 	}
 	
-	/**
-	 * Processes a chromosome to identify and split perfect contigs from imperfect ones.
-	 * Evaluates coverage across contigs to determine which regions meet quality thresholds.
-	 * Perfect contigs are written to FASTA output while imperfect regions are retained
-	 * in modified chromosome arrays with N-padding between segments.
-	 *
-	 * @param cha Chromosome array containing sequence data
-	 * @param ca Coverage array with per-base coverage values
-	 * @param contig Starting contig number for FASTA headers
-	 * @param trigger Minimum N-run length to split contigs initially
-	 * @param minAcceptableCoverage Minimum coverage required for perfect contigs
-	 * @param fastaBlocklen Line length for FASTA output formatting
-	 * @param tsw Text stream writer for FASTA output
-	 * @param buildout Target genome build number for output
-	 * @param tipbuffer Buffer length to exclude from coverage evaluation at contig ends
-	 * @return Next available contig number after processing
-	 */
 	public static long writeContigs(ChromosomeArray cha, CoverageArray ca, long contig, int trigger, int minAcceptableCoverage, int fastaBlocklen,
 			TextStreamWriter tsw, int buildout, int tipbuffer){
 		
@@ -351,14 +332,6 @@ public class SplitOffPerfectContigs {
 		return contig;
 	}
 	
-	/**
-	 * Writes a contig sequence to output with specified line length formatting.
-	 * Breaks long sequences into multiple lines for standard FASTA format compliance.
-	 *
-	 * @param sb Sequence to write as CharSequence
-	 * @param tsw Text stream writer for output
-	 * @param blocklen Maximum characters per line in output
-	 */
 	public static void writeContig(CharSequence sb, TextStreamWriter tsw, int blocklen){
 		for(int i=0; i<sb.length(); i+=blocklen){
 			int max=Tools.min(i+blocklen, sb.length());
@@ -367,15 +340,6 @@ public class SplitOffPerfectContigs {
 	}
 	
 	
-	/**
-	 * Converts site score files to coverage arrays for each chromosome.
-	 * Reads perfect and semiperfect alignment sites and increments coverage
-	 * in the specified region minus padding at each end.
-	 *
-	 * @param sitesfile Comma-separated list of site files to process
-	 * @param padding Number of bases to exclude from each end of sites
-	 * @return ArrayList of CoverageArray objects, one per chromosome
-	 */
 	public static ArrayList<CoverageArray> toCoverage(String sitesfile, int padding){
 		ArrayList<CoverageArray> pcov=new ArrayList<CoverageArray>(8);
 		pcov.add(new CoverageArray2(0,1000));
@@ -414,37 +378,20 @@ public class SplitOffPerfectContigs {
 	}
 	
 
-	/** Total number of bases written to perfect contig output */
 	public static long basesWritten=0;
-	/** Total number of bases kept in imperfect reference contigs */
 	public static long basesKept=0;
-	/** Total number of bases dropped due to insufficient length */
 	public static long basesDropped=0;
-	/** Total number of bases converted to X due to low coverage in bad contigs */
 	public static long basesX=0;
-	/** Total number of perfect contigs written to output */
 	public static long contigsWritten=0;
-	/** Total number of imperfect contigs kept in reference */
 	public static long contigsKept=0;
-	/** Total number of contigs dropped due to insufficient length */
 	public static long contigsDropped=0;
-	/** Total number of contigs that had bases converted to X due to low coverage */
 	public static long contigsX=0;
 	
-	/** Length of N-padding between retained contigs */
 	public static int N_PAD_LENGTH=MergeFastaContigs.N_PAD_LENGTH;
-	/** Length of N-padding at chromosome ends */
 	public static int N_PAD_LENGTH2=MergeFastaContigs.N_PAD_LENGTH2; //for ends
-	/** Minimum contig length required for inclusion in output */
 	public static int MIN_CONTIG_TO_ADD=50;
-	/**
-	 * Whether to break contigs at low-coverage positions by converting bases to X
-	 */
 	public static boolean BREAK_BAD_CONTIGS=false;
 	
-	/**
-	 * Whether to print detailed coverage and sequence information during processing
-	 */
 	public static boolean verbose=false;
 	
 }

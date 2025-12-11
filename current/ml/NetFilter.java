@@ -29,11 +29,13 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
- * Filters sequences based on matching a neural network.
- * 
+ * Filters genomic sequences using neural network-based scoring and classification.
+ * Processes input sequence files through a pre-trained neural network, scoring and
+ * optionally filtering sequences based on network predictions with support for
+ * both single-end and paired-end sequence processing.
+ *
  * @author Brian Bushnell
  * @date November 1, 2023
- *
  */
 public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	
@@ -42,8 +44,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for neural network-based sequence filtering.
+	 * Initializes timer, creates NetFilter instance, processes data, and closes output streams.
+	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -60,8 +63,10 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs NetFilter with command-line arguments.
+	 * Parses arguments, validates parameters, configures file I/O, loads neural network,
+	 * and initializes processing parameters including width, cutoff, and step size.
+	 * @param args Command line arguments for configuration
 	 */
 	public NetFilter(String[] args){
 		
@@ -127,7 +132,14 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into configuration parameters.
+	 * Handles neural network file, scoring parameters, filtering options,
+	 * and standard file I/O arguments.
+	 *
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser object with standard settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -208,7 +220,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/**
+	 * Replaces # symbols with 1 and 2 in file paths for paired-end processing.
+	 * Handles input files, output files, and unmatched output files.
+	 * Validates that required input file is specified.
+	 */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -235,7 +251,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 extensions as needed for all input and quality files
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -243,7 +261,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		qfin2=Tools.fixExtension(qfin2);
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files exist and output files can be written.
+	 * Ensures no duplicate file specifications across input and output paths.
+	 * Throws RuntimeException if file access requirements are not met.
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
@@ -262,7 +284,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/** Make sure interleaving agrees with number of input and output files */
+	/**
+	 * Adjusts interleaving settings based on input and output file configuration.
+	 * Sets FASTQ interleaved flags based on whether paired input/output files are specified.
+	 * Ensures consistency between file pairing and interleaving modes.
+	 */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -286,7 +312,8 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file processing settings for optimal performance.
+	 * Forces BF2 mode for multi-threaded environments and validates FASTA settings. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -296,7 +323,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates that processing parameters are within acceptable ranges.
+	 * Ensures step size is greater than 0 for sliding window processing.
+	 * @return true if all parameters are valid
+	 */
 	private boolean validateParams(){
 		assert(stepsize>0) : "stepsize must be greater than 0: s="+stepsize+", o="+overlap+", w="+width;
 		return true;
@@ -306,7 +337,12 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes neural network-based sequence filtering.
+	 * Creates input/output streams, spawns processing threads, accumulates results,
+	 * and reports comprehensive statistics including true/false positive rates.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -368,11 +404,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/**
-	 * Creates and starts concurrent read input stream for sequence processing.
-	 * Configures stream for paired or single-end processing based on input files.
-	 * @return Started ConcurrentReadInputStream ready for processing
-	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -382,17 +413,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return cris;
 	}
 	
-	/**
-	 * Creates concurrent read output stream with appropriate buffering.
-	 * Configures buffer size based on ordering requirements and thread count.
-	 *
-	 * @param pairedInput Whether input is paired-end
-	 * @param ff1 Primary output file format
-	 * @param ff2 Secondary output file format (may be null)
-	 * @param qf1 Primary quality file path
-	 * @param qf2 Secondary quality file path
-	 * @return Started ConcurrentReadOutputStream or null if no output specified
-	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput, FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		if(ff1==null){return null;}
 
@@ -413,7 +433,14 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/**
+	 * Spawns and manages processing threads for parallel sequence filtering.
+	 * Creates one ProcessThread per available CPU thread and waits for completion.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param ros Output stream for passed sequences
+	 * @param rosu Output stream for failed sequences
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros, 
 			final ConcurrentReadOutputStream rosu){
 		
@@ -436,6 +463,12 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		
 	}
 	
+	/**
+	 * Accumulates processing statistics from completed threads.
+	 * Thread-safe aggregation of read counts, scores, and classification metrics
+	 * including true/false positive rates and score distributions.
+	 * @param pt ProcessThread containing results to accumulate
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		synchronized(pt) {
@@ -467,6 +500,7 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
+	/** Returns whether processing completed without errors */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -480,22 +514,9 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	
 //	/** This class is static to prevent accidental writing to shared variables.
 //	 * It is safe to remove the static modifier. */
-	/**
-	 * Worker thread for neural network-based sequence processing.
-	 * Maintains thread-local neural network copy and processes sequence batches,
-	 * computing scores and applying filtering criteria.
-	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs ProcessThread with I/O streams and thread ID.
-		 *
-		 * @param cris_ Input stream for reading sequences
-		 * @param ros_ Output stream for passed sequences
-		 * @param rosu_ Output stream for failed sequences
-		 * @param tid_ Thread identifier
-		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, 
 				final ConcurrentReadOutputStream rosu_, final int tid_){
 			cris=cris_;
@@ -505,6 +526,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 		
 		//Called by start()
+		/**
+		 * Main thread execution method.
+		 * Creates thread-local neural network copy and input vector,
+		 * processes sequences, and sets success flag.
+		 */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -520,7 +546,11 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Core sequence processing loop.
+		 * Iterates through read lists from input stream, processes each list,
+		 * and returns lists to input stream for memory management.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -552,12 +582,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			}
 		}
 		
-		/**
-		 * Processes a list of reads through neural network scoring.
-		 * Validates reads, computes neural network scores, applies filtering,
-		 * and routes sequences to appropriate output streams.
-		 * @param ln ListNum containing reads to process
-		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -601,10 +625,13 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r1 Read 1
-		 * @param r2 Read 2 (may be null)
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Processes a read pair through neural network scoring and filtering.
+		 * Computes scores for both reads, combines based on pair mode,
+		 * and determines whether pair passes filtering criteria.
+		 *
+		 * @param r1 First read in pair
+		 * @param r2 Second read in pair (may be null for single-end)
+		 * @return true if read pair should be retained, false to discard
 		 */
 		boolean processReadPair(final Read r1, final Read r2){
 			float score1=processRead(r1, vec);
@@ -617,15 +644,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			return pass;
 		}
 		
-		/**
-		 * Processes single read through neural network scoring.
-		 * Extracts ground truth from header if available, computes neural network score,
-		 * updates statistics, and optionally annotates read with score.
-		 *
-		 * @param r Read to process
-		 * @param vec Reusable input vector for neural network
-		 * @return Neural network score for the read
-		 */
 		private float processRead(Read r, float[] vec) {
 			if(r==null) {return -1;}
 			float result=(parseHeader ? Parse.parseFloat(r.id, "result=", '\t') : 0);
@@ -664,82 +682,44 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 			return score;
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** Number of reads retained by this thread */
 		protected long readsOutT=0;
-		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 
-		/** Sum of all neural network scores computed by this thread */
 		double scoreSumT=0;
-		/** Sum of scores for positive labeled sequences */
 		double scoreSumPositiveT=0;
-		/** Sum of scores for negative labeled sequences */
 		double scoreSumNegativeT=0;
-		/** Sum of scores for sequences passing filter criteria */
 		double scoreSumPassT=0;
-		/** Sum of scores for sequences failing filter criteria */
 		double scoreSumFailT=0;
-		/** Total number of sequences scored by this thread */
 		long scoreCountT=0;
-		/** Number of positive labeled sequences processed */
 		long scoreCountPositiveT=0;
-		/** Number of negative labeled sequences processed */
 		long scoreCountNegativeT=0;
-		/** Number of sequences passing filter criteria */
 		long scoreCountPassT=0;
-		/** Number of sequences failing filter criteria */
 		long scoreCountFailT=0;
 		
-		/** False positive count for classification accuracy tracking */
 		long fpCountT=0;
-		/** False negative count for classification accuracy tracking */
 		long fnCountT=0;
-		/** True positive count for classification accuracy tracking */
 		long tpCountT=0;
-		/** True negative count for classification accuracy tracking */
 		long tnCountT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 
-		/** Histogram of scores for positive labeled sequences (0-100 range) */
 		private LongList phistT=new LongList(101);
-		/** Histogram of scores for negative labeled sequences (0-100 range) */
 		private LongList mhistT=new LongList(101);
 		
-		/** Thread-local copy of neural network for sequence scoring */
 		private CellNet net;
-		/** Reusable input vector for neural network processing */
 		private float[] vec;
 		
-		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Shared output stream */
 		private final ConcurrentReadOutputStream ros;
-		/** Shared unmatched output stream */
 		private final ConcurrentReadOutputStream rosu;
-		/** Thread ID */
 		final int tid;
 	}
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Computes neural network score for sequence with optional reverse complement.
-	 * If reverse complement is enabled, scores both orientations and returns maximum.
-	 *
-	 * @param bases Sequence to score
-	 * @param vec Input vector for neural network
-	 * @param k K-mer size for sequence encoding
-	 * @param net Neural network for scoring
-	 * @param rcomp Whether to score reverse complement
-	 * @return Maximum score from forward and reverse orientations
-	 */
 	float score(byte[] bases, float[] vec, int k, CellNet net, boolean rcomp) {
 		final float f=score(bases, vec, k, net), r;
 		if(rcomp) {
@@ -750,16 +730,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return Tools.max(r, f);
 	}
 	
-	/**
-	 * Scores sequence using configured scoring mode.
-	 * Routes to single position or sliding window scoring based on SCORE_MODE.
-	 *
-	 * @param bases Sequence to score
-	 * @param vec Input vector for neural network
-	 * @param k K-mer size for sequence encoding
-	 * @param net Neural network for scoring
-	 * @return Neural network score for sequence
-	 */
 	float score(byte[] bases, float[] vec, int k, CellNet net) {
 		if(SCORE_MODE==SINGLE) {
 			return scoreSingle(bases, vec, k, net);
@@ -768,16 +738,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		}
 	}
 	
-	/**
-	 * Scores entire sequence as single input to neural network.
-	 * Converts sequence to vector representation and applies neural network.
-	 *
-	 * @param bases Sequence to score
-	 * @param vec Input vector for neural network
-	 * @param k K-mer size for sequence encoding
-	 * @param net Neural network for scoring
-	 * @return Neural network score for entire sequence
-	 */
 	public static float scoreSingle(byte[] bases, float[] vec, int k, CellNet net) {
 		assert(vec!=null);
 		SequenceToVector.fillVector(bases, vec, k);
@@ -786,19 +746,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return f;
 	}
 	
-	/**
-	 * Scores sequence using sliding window approach with configurable aggregation.
-	 * Moves window across sequence computing scores and combines using specified mode.
-	 *
-	 * @param bases Sequence to score
-	 * @param vec Input vector for neural network
-	 * @param k K-mer size for sequence encoding
-	 * @param net Neural network for scoring
-	 * @param SCORE_MODE Aggregation method (AVERAGE, MIN, or MAX)
-	 * @param stepsize Distance between window positions
-	 * @param width Window width in bases
-	 * @return Aggregated score across all windows
-	 */
 	public static float scoreFrames(byte[] bases, float[] vec, int k, CellNet net, int SCORE_MODE, int stepsize, int width) {
 		assert(vec!=null);
 		assert(SCORE_MODE>=0 && SCORE_MODE!=SINGLE) : SCORE_MODE;
@@ -820,17 +767,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return SCORE_MODE==AVERAGE ? (float)(sum/frames) : SCORE_MODE==MIN ? min : max;
 	}
 	
-	/**
-	 * Scores specific region of sequence through neural network.
-	 *
-	 * @param bases Sequence containing region to score
-	 * @param vec Input vector for neural network
-	 * @param k K-mer size for sequence encoding
-	 * @param net Neural network for scoring
-	 * @param from Start position in sequence (inclusive)
-	 * @param to End position in sequence (exclusive)
-	 * @return Neural network score for specified region
-	 */
 	public static float score(byte[] bases, float[] vec, int k, CellNet net, int from, int to) {
 		SequenceToVector.fillVector(bases, vec, k, from, to);
 		net.applyInput(vec);
@@ -838,12 +774,6 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 		return f;
 	}
 	
-	/**
-	 * Parses scoring mode string into integer constant.
-	 * @param b Mode string to parse
-	 * @return Mode constant (SINGLE, AVERAGE, MAX, or MIN)
-	 * @throws RuntimeException if mode string is not recognized
-	 */
 	private static int parseMode(String b) {
 		int x=Tools.find(b.toLowerCase(), MODES);
 		if(x<0) {throw new RuntimeException("Unknown mode "+b+"; must be one of "+Arrays.toString(MODES));}
@@ -854,179 +784,116 @@ public class NetFilter implements Accumulator<NetFilter.ProcessThread> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 	
-	/** Primary input quality file path */
 	private String qfin1=null;
-	/** Secondary input quality file path */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 
-	/** Primary unmatched output file path */
 	private String outu1=null;
-	/** Secondary unmatched output file path */
 	private String outu2=null;
 
-	/** Primary output quality file path */
 	private String qfout1=null;
-	/** Secondary output quality file path */
 	private String qfout2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** Whether interleaved was explicitly set. */
+	/** Whether interleaved mode was explicitly set on the command line */
 	private boolean setInterleaved=false;
 	
-	/** Neural network configuration file path */
 	private String netFile=null;
-	/** Score histogram output file path */
 	private String histFile=null;
-	/** Neural network file format configuration */
 	private final FileFormat ffnet;
 
-	/** Histogram of scores for positive sequences (0-100 bins) */
 	private LongList phist=new LongList(101);
-	/** Histogram of scores for negative sequences (0-100 bins) */
 	private LongList mhist=new LongList(101);
 	
 	/*--------------------------------------------------------------*/
 	
 
-	/** Whether to parse ground truth labels from sequence headers */
 	private boolean parseHeader=false;
-	/** Master neural network instance loaded from file */
 	private final CellNet net0;
 	
-	/** For raw sequence classification */
+	/** Whether to score reverse complement of sequences */
 	private boolean rcomp=false;
-	/** Sliding window width for sequence scoring */
 	private int width=-1;
 	
-	/** For kmer spectrum classification */
+	/** K-mer size for sequence encoding */
 	private int k=0;
-	/** Number of input dimensions for neural network */
 	private int dims; //asdf//TODO
 	
-	/** Whether to apply filtering based on neural network scores */
 	private boolean filter=true;
-	/** Whether to use high-pass filtering (keep scores above cutoff) */
 	private boolean highpass=true;
-	/** Whether to annotate sequence headers with neural network scores */
 	private boolean annotate=false;
-	/** Score threshold for sequence filtering decisions */
 	private float cutoff=0.5f;
-	/** Whether to use neural network's built-in cutoff value */
 	private boolean autoCutoff=true;
-	/** Step size between sliding window positions */
 	private int stepsize=1;
-	/** Overlap between adjacent sliding windows */
 	private int overlap=Integer.MIN_VALUE;
 
-	/** Method for aggregating scores across sequence (SINGLE, AVERAGE, MAX, MIN) */
 	private int SCORE_MODE=SINGLE;
-	/** Method for combining paired-end read scores (AVERAGE, MAX, MIN) */
 	private int PAIR_MODE=AVERAGE;
 	/** Constant for minimum aggregation mode */
 	/** Constant for maximum aggregation mode */
 	/** Constant for average aggregation mode */
-	/** Constant for single position scoring mode */
 	private static final int SINGLE=0, AVERAGE=1, MAX=2, MIN=3;
-	/** String representations of scoring modes */
 	private static final String[] MODES= {"single", "average", "max", "min"};
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
 	protected long readsOut=0;
-	/** Number of bases retained */
 	protected long basesOut=0;
 	
-	/** Sum of all neural network scores */
 	double scoreSum=0;
-	/** Sum of scores for positive labeled sequences */
 	double scoreSumPositive=0;
-	/** Sum of scores for negative labeled sequences */
 	double scoreSumNegative=0;
-	/** Sum of scores for sequences passing filter criteria */
 	double scoreSumPass=0;
-	/** Sum of scores for sequences failing filter criteria */
 	double scoreSumFail=0;
-	/** Total number of sequences scored */
 	long scoreCount=0;
-	/** Number of positive labeled sequences processed */
 	long scoreCountPositive=0;
-	/** Number of negative labeled sequences processed */
 	long scoreCountNegative=0;
-	/** Number of sequences passing filter criteria */
 	long scoreCountPass=0;
-	/** Number of sequences failing filter criteria */
 	long scoreCountFail=0;
-	/** False positive count for classification accuracy */
 	long fpCount=0;
-	/** False negative count for classification accuracy */
 	long fnCount=0;
-	/** True positive count for classification accuracy */
 	long tpCount=0;
-	/** True negative count for classification accuracy */
 	long tnCount=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Unmatched output file */
 	private final FileFormat ffoutu1;
-	/** Secondary unmatched output file */
 	private final FileFormat ffoutu2;
 	
+	/** Returns the internal read/write lock used to coordinate threaded output */
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
 	private boolean ordered=true;
 	
 }

@@ -20,9 +20,11 @@ import stream.Read;
 import tracker.ReadStats;
 
 /**
+ * K-mer based read sorting and clustering tool for sequencing data preprocessing.
+ * Extends KmerSort to provide concrete implementation of k-mer based read processing including deduplication, error correction, and consensus generation.
+ * Supports multi-pass processing with configurable comparison strategies.
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class KmerSort1 extends KmerSort {
 	
@@ -31,8 +33,9 @@ public class KmerSort1 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Command line entry point for the k-mer sorting tool.
+	 * Preserves compression settings and initializes processing timer.
+	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
@@ -53,8 +56,10 @@ public class KmerSort1 extends KmerSort {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs KmerSort1 instance with command line argument parsing.
+	 * Configures k-mer parameters, processing modes, I/O settings, and validation.
+	 * Sets up file formats for input and output streams with group handling.
+	 * @param args Command line arguments containing processing parameters
 	 */
 	public KmerSort1(String[] args){
 		
@@ -266,6 +271,12 @@ public class KmerSort1 extends KmerSort {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing pipeline that orchestrates read sorting and clustering.
+	 * Executes preprocessing, creates output streams, and delegates to processInner.
+	 * Prints final statistics upon completion.
+	 * @param t Timer for tracking execution performance
+	 */
 	@Override
 	void process(Timer t){
 		
@@ -288,7 +299,12 @@ public class KmerSort1 extends KmerSort {
 		printStats(t);
 	}
 	
-	/** Collect and sort the reads */
+	/**
+	 * Core processing logic for k-mer based read manipulation.
+	 * Creates k-mer comparator, fetches and sorts reads, forms clumps, and applies processing modes (deduplication, condensing, error correction).
+	 * Supports multi-pass processing with adaptive parameters and optional read reordering.
+	 * @param ros Output stream for processed reads (may be null)
+	 */
 	void processInner(final ConcurrentReadOutputStream ros){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, addName, (rcomp || condense || correct));
@@ -488,14 +504,10 @@ public class KmerSort1 extends KmerSort {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Input file formats for first reads in each processing group */
 	private final FileFormat ffin1[];
-	/** Input file formats for second reads in each processing group (paired-end) */
 	private final FileFormat ffin2[];
 
-	/** Output file format for first reads */
 	private final FileFormat ffout1;
-	/** Output file format for second reads (paired-end) */
 	private final FileFormat ffout2;
 	
 }

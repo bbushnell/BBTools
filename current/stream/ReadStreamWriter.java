@@ -14,10 +14,9 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Abstract base class for writing read data to various file formats in a separate thread.
- * Supports output to FASTQ, FASTA, SAM/BAM, and other formats with buffered writing.
- * Uses a producer-consumer pattern with a blocking queue for thread-safe operation.
- * @author Brian Bushnell
+ * Base class for threaded read writers.
+ * Wraps a blocking queue of write jobs and supports multiple output formats
+ * (FASTQ/FASTA/SAM/BAM) with optional header emission and subsampling hooks.
  */
 public abstract class ReadStreamWriter extends Thread {
 	
@@ -27,6 +26,18 @@ public abstract class ReadStreamWriter extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	
+	/**
+	 * Builds a writer for the requested format and initializes output streams, headers,
+	 * and the job queue.
+	 *
+	 * @param ff Output file format
+	 * @param qfname_ Optional quality filename
+	 * @param read1_ True if this writer handles read1
+	 * @param bufferSize Queue capacity for pending write jobs
+	 * @param header Optional header text to emit
+	 * @param buffered True to buffer output streams
+	 * @param useSharedHeader True to reuse a shared SAM header when present
+	 */
 	protected ReadStreamWriter(FileFormat ff, String qfname_, boolean read1_, int bufferSize, 
 			CharSequence header, boolean buffered, boolean useSharedHeader){
 //		assert(false) : useSharedHeader+", "+header;
@@ -155,15 +166,18 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Entry point for the writer thread; implemented by concrete subclasses. */
 	@Override
 	public abstract void run();
 
-	/** Sends a poison pill to shutdown the writer thread gracefully.
-	 * Creates a job that signals the thread to terminate and close streams. */
+	/** Enqueues a poison job to signal shutdown and close streams. */
 	public final synchronized void poison(){
 		addJob(new Job(null, false, true, nextID++));
 	}
 
+	/**
+	 * Adds a list of reads from a ListNum wrapper, preserving ordering metadata.
+	 */
 	public final synchronized void addList(ListNum<Read> ln){
 		assert(ln.id==nextID) : ln.id+", "+nextID;
 		Job j=new Job(ln.list, ln.last(), ln.poison(), ln.id);
@@ -171,18 +185,13 @@ public abstract class ReadStreamWriter extends Thread {
 		addJob(j);
 	}
 
-	/** Adds a list of reads to the write queue using default output streams.
-	 * @param list List of reads to write */
+	/** Adds a list of reads to the queue using default output streams. */
 	public final synchronized void addList(ArrayList<Read> list){
 		Job j=new Job(list, false, false, nextID++);
 		addJob(j);
 	}
 	
-	/**
-	 * Adds a job to the write queue, blocking until space is available.
-	 * Handles InterruptedException by retrying the operation.
-	 * @param j Job containing read list and output configuration
-	 */
+	/** Adds a job to the blocking queue, retrying on interruption. */
 	private final synchronized void addJob(Job j){
 //		System.err.println("Got job "+(j.list==null ? "null" : j.list.size()));
 		boolean success=false;
@@ -203,16 +212,7 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Converts quality scores to string representation in a ByteBuilder.
-	 * Supports both numeric and ASCII quality score formats with optional wrapping.
-	 *
-	 * @param quals Quality score array (may be null)
-	 * @param len Length of sequence
-	 * @param wrap Line wrap length for formatting
-	 * @param bb ByteBuilder to append quality string
-	 * @return The ByteBuilder with quality scores appended
-	 */
+	/** Renders quality scores into a ByteBuilder in numeric or ASCII form. */
 	protected static final ByteBuilder toQualityB(final byte[] quals, final int len, 
 			final int wrap, final ByteBuilder bb){
 		if(quals==null){return fakeQualityB(30, len, wrap, bb);}
@@ -265,16 +265,16 @@ public abstract class ReadStreamWriter extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	
-	/** Returns the output file name */
+	/** @return Output filename (may be null for stdout). */
 	public String fname(){return fname;}
-	/** Returns the number of reads written to output */
+	/** @return Number of reads written so far. */
 	public long readsWritten(){return readsWritten;}
-	/** Returns the number of bases written to output */
+	/** @return Number of bases written so far. */
 	public long basesWritten(){return basesWritten;}
 
-	/** Return true if this stream has detected an error */
+	/** @return True if the writer encountered an error. */
 	public final boolean errorState(){return errorState;}
-	/** Return true if this stream has finished */
+	/** @return True when the writer finished without errors. */
 	public final boolean finishedSuccessfully(){return finishedSuccessfully;}
 	
 	
@@ -282,57 +282,58 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** TODO */
+	/** True if an error was encountered while writing. */
 	protected boolean errorState=false;
-	/** Flag indicating if writing finished without errors */
+	/** True if writing completed without errors. */
 	protected boolean finishedSuccessfully=false;
 	
-	/** True if output format is SAM */
+	/** True if the writer is emitting SAM format. */
 	public final boolean OUTPUT_SAM;
-	/** True if output format is BAM */
+	/** True if the writer is emitting BAM format. */
 	public final boolean OUTPUT_BAM;
-	/** True if output format is FASTQ */
+	/** True if the writer is emitting FASTQ format. */
 	public final boolean OUTPUT_FASTQ;
-	/** True if output format is FASTA */
+	/** True if the writer is emitting FASTA format. */
 	public final boolean OUTPUT_FASTA;
-	/** True if output format is FASTR */
+	/** True if the writer is emitting FASTR format. */
 	public final boolean OUTPUT_FASTR;
-	/** True if output format includes header information */
+	/** True if the output includes header records. */
 	public final boolean OUTPUT_HEADER;
-	/** True if output format supports attachments */
+	/** True if the output includes attachment data. */
 	public final boolean OUTPUT_ATTACHMENT;
-	/** True if output format uses single-line format */
+	/** True if the output uses single-line formatting. */
 	public final boolean OUTPUT_ONELINE;
-	/** True if writing to standard output */
+	/** True if writing to standard output instead of a file. */
 	public final boolean OUTPUT_STANDARD_OUT;
-	/** True if outputting sites information only */
+	/** True if only site information is being written. */
 	public final boolean SITES_ONLY;
-	/** True if output format is interleaved */
+	/** True if interleaving read pairs in a single output stream. */
 	public boolean OUTPUT_INTERLEAVED=false;
 	
-	/** Line wrap length for FASTA format output */
+	/** Line wrap length for FASTA output. */
 	protected final int FASTA_WRAP;
 	
-	/** Whether to allow spawning external processes like samtools */
+	/** True if subprocess-based compression is permitted. */
 	protected final boolean allowSubprocess;
 	
-	/** True if processing first reads in pairs */
+	/** True if this writer handles first-of-pair reads. */
 	protected final boolean read1;
-	/** Output file name */
+	/** Output filename for the primary stream. */
 	protected final String fname;
-	/** Quality output file name */
+	/** Output filename for qualities (when applicable). */
 	protected final String qfname;
-	/** Primary output stream */
+	/** Primary output stream for reads. */
 	protected final OutputStream myOutstream;
-	/** Quality output stream */
+	/** Output stream for quality data when separate files are used. */
 	protected final OutputStream myQOutstream;
-	/** Thread-safe queue for write jobs */
+	/** Thread-safe queue of write jobs. */
 	protected final ArrayBlockingQueue<Job> queue;
 	
-	/** Count of reads written to output */
+	/** Count of reads written to output so far. */
 	protected long readsWritten=0;
-	/** Count of bases written to output */
+	/** Count of bases written to output so far. */
 	protected long basesWritten=0;
+	/** Identifier for the next queued job to preserve ordering. */
 	protected long nextID=0;
 	
 	
@@ -340,24 +341,24 @@ public abstract class ReadStreamWriter extends Thread {
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Minimum chromosome number for SAM header generation */
+	/** Minimum chromosome number used for SAM header generation. */
 	public static int MINCHROM=-1; //For generating sam header
-	/** Maximum chromosome number for SAM header generation */
+	/** Maximum chromosome number used for SAM header generation. */
 	public static int MAXCHROM=-1; //For generating sam header
-	/** True to output quality scores in numeric format instead of ASCII */
+	/** Output qualities in numeric form when true; otherwise ASCII. */
 	public static boolean NUMERIC_QUAL=true;
-	/** True to output secondary alignments in SAM format */
+	/** Emit secondary alignments in SAM output when true. */
 	public static boolean OUTPUT_SAM_SECONDARY_ALIGNMENTS=false;
 	
-	/** True to ignore assertions about read pairing */
+	/** Relax pairing assertions when writing reads. */
 	public static boolean ignorePairAssertions=false;
-	/** True to enable CIGAR string validation assertions */
+	/** Enable assertions that validate CIGAR strings. */
 	public static boolean ASSERT_CIGAR=false;
-	/** True to suppress header output */
+	/** Suppress header output when true. */
 	public static boolean NO_HEADER=false;
-	/** True to suppress sequence information in headers */
+	/** Suppress sequence lines in headers when true. */
 	public static boolean NO_HEADER_SEQUENCES=false;
-	/** True to use attached SAM line information */
+	/** Use attached SamLine data when emitting SAM records. */
 	public static boolean USE_ATTACHED_SAMLINE=false;
 	
 	
@@ -366,6 +367,9 @@ public abstract class ReadStreamWriter extends Thread {
 	/*--------------------------------------------------------------*/
 	
 	//TODO: Should be replaced with ListNum
+	/**
+	 * Write job holding a read list plus control flags for shutdown/order preservation.
+	 */
 	protected static class Job implements HasID{
 		
 		public Job(ArrayList<Read> list_, boolean closeWhenDone_,
@@ -378,14 +382,9 @@ public abstract class ReadStreamWriter extends Thread {
 		
 		/*--------------------------------------------------------------*/
 		
-		/** Checks if this job has no reads to process.
-		 * @return true if read list is null or empty */
 		public boolean isEmpty(){return list==null || list.isEmpty();}
-		/** List of reads to write */
 		public final ArrayList<Read> list;
-		/** Whether to close streams after processing this job */
 		public final boolean close;
-		/** Whether this job should shutdown the writer thread */
 		public final boolean poison;
 		public final long id;
 		@Override

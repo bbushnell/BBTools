@@ -8,9 +8,14 @@ import structures.ByteBuilder;
 import structures.LongList;
 
 /**
+ * Abstract base class providing essential infrastructure for parallel De Bruijn
+ * graph construction in Tadpole assembler. Implements thread-safe k-mer
+ * processing and contig building operations with shared data structures,
+ * performance monitoring, and resource management for multithreaded assembly
+ * workers.
+ *
  * @author Brian Bushnell
  * @date Jul 18, 2015
- *
  */
 abstract class AbstractBuildThread extends Thread {
 	
@@ -29,51 +34,27 @@ abstract class AbstractBuildThread extends Thread {
 		mode=mode_;
 	}
 	
-	/** Input read stream */
+	/**
+	 * Array of concurrent input streams enabling thread-safe read access across workers
+	 */
 	final ConcurrentReadInputStream[] crisa;
 	
-	/**
-	 * Assembly mode configuration encoding processing flags and behavior settings
-	 */
 	final int mode;
-	/**
-	 * Current minimum k-mer coverage threshold for seed selection during assembly
-	 */
 	int minCountSeedCurrent;
 
-	/**
-	 * Memory-tracked array for left-side nucleotide frequency counting (A,C,G,T)
-	 */
 	final int[] leftCounts=KillSwitch.allocInt1D(4);
-	/**
-	 * Memory-tracked array for right-side nucleotide frequency counting (A,C,G,T)
-	 */
 	final int[] rightCounts=KillSwitch.allocInt1D(4);
-	/**
-	 * Thread-local sequence builder for dynamic contig construction with automatic capacity management
-	 */
 	final ByteBuilder builderT=new ByteBuilder();
 //	final Contig tempContig=new Contig(null);
 	
-	/**
-	 * Dynamic collection tracking insert size statistics during paired-read processing
-	 */
 	final LongList insertSizes=new LongList();
 	
-	/** Thread-local contig storage for assembled sequences before aggregation */
 	ArrayList<Contig> contigs=new ArrayList<Contig>();
 	
-	/** Thread-local counter tracking total reads processed by this worker */
 	long readsInT=0;
-	/** Thread-local counter for total nucleotides processed */
 	long basesInT=0;
-	/** Counter for reads failing quality thresholds */
 	long lowqReadsT=0;
-	/** Counter for individual bases below quality cutoffs */
 	long lowqBasesT=0;
-	/**
-	 * Unique thread identifier for coordination, debugging, and performance tracking
-	 */
 	final int id;
 	
 }

@@ -13,15 +13,15 @@ import shared.Tools;
 import shared.Vector;
 
 /**
+ * Hash map implementation with integer keys and integer values.
+ * Uses open addressing with linear probing for collision resolution.
+ * Provides better memory efficiency than HashMap<Integer,Integer> for integer mappings.
+ *
  * @author Brian Bushnell
  * @date June 7, 2017
- *
  */
 public final class IntHashMap extends AbstractIntHashMap implements Serializable {
 	
-	/**
-	 * 
-	 */
 	private static final long serialVersionUID = 5525726007591609843L;
 
 	public static void main(String[] args){
@@ -31,11 +31,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		bench(size);
 	}
 	
-	/**
-	 * Benchmarks IntHashMap performance against HashMap<Integer,Integer>.
-	 * Creates maps, populates them with sequential key-value pairs, and measures timing.
-	 * @param size Number of key-value pairs to insert during benchmark
-	 */
 	private static void bench(int size){
 		System.gc();
 		Timer t=new Timer();
@@ -75,23 +70,14 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates an IntHashMap with default initial size of 256 */
 	public IntHashMap(){
 		this(256);
 	}
 	
-	/** Creates an IntHashMap with specified initial size and default load factor.
-	 * @param initialSize Initial capacity for the hash table */
 	public IntHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
-	/**
-	 * Creates an IntHashMap with specified initial size and load factor.
-	 * Load factor is clamped to the range [0.25, 0.90] for performance.
-	 * @param initialSize Initial capacity for the hash table
-	 * @param loadFactor_ Target load factor (ratio of occupied to total slots)
-	 */
 	public IntHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
@@ -122,8 +108,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	@Override
 	public int put(int key, int value){return set(key, value);}
 	
-	/** Copies all key-value mappings from the specified map to this map.
-	 * @param map IntHashMap whose mappings are to be copied */
 	public void putAll(IntHashMap map) {
 		for(int i=0; i<map.keys.length; i++) {
 			if(map.keys[i]!=map.invalid) {
@@ -169,11 +153,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return value;
 	}
 	
-	/**
-	 * Increments all keys in this map by the corresponding values from another map.
-	 * For each key-value pair in the source map, adds that value to the current value.
-	 * @param map IntHashMap containing increment values for each key
-	 */
 	public void incrementAll(IntHashMap map) {
 		for(int i=0; i<map.keys.length; i++) {
 			if(map.keys[i]!=map.invalid) {
@@ -182,11 +161,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		}
 	}
 	
-	/**
-	 * Sets each key to the maximum of its current value and the value from another map.
-	 * Only updates keys that exist in the source map.
-	 * @param map IntHashMap containing values to compare against
-	 */
 	public void setToMax(IntHashMap map) {
 		for(int i=0; i<map.keys.length; i++) {
 			final int key=map.keys[i];
@@ -214,11 +188,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Rehashes all entries following a deletion to maintain clustering properties.
-	 * Scans from the deletion point forward, then wraps around to maintain probe sequences.
-	 * @param initial Cell position where rehashing should begin
-	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -234,12 +203,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		}
 	}
 	
-	/**
-	 * Attempts to move a key-value pair to its optimal position in the hash table.
-	 * Used during deletion cleanup to maintain efficient probe sequences.
-	 * @param cell Index of the cell to rehash
-	 * @return true if the cell was moved to a different position, false otherwise
-	 */
 	private boolean rehashCell(final int cell){
 		final int key=keys[cell];
 		final int value=values[cell];
@@ -256,11 +219,6 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return true;
 	}
 	
-	/**
-	 * Generates a new invalid marker value when the current one conflicts with a key.
-	 * Scans existing keys to ensure the new invalid value doesn't collide.
-	 * Updates all empty cells to use the new invalid marker.
-	 */
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -270,6 +228,12 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		Vector.changeAll(keys, old, x);
 	}
 
+	/**
+	 * Locates the cell containing the specified key using linear probing.
+	 * Searches from the hash position forward, then wraps to the beginning if needed.
+	 * @param key The key to search for
+	 * @return Cell index if found, -1 if not present
+	 */
 	@Override
 	int findCell(final int key){
 //		if(key==invalid){return -1;}
@@ -283,19 +247,11 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		return Vector.findKeyOrInvalid(keys, key, initial, invalid);
 	}
 	
-	/**
-	 * Doubles the hash table capacity when the load factor threshold is exceeded
-	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
-	/**
-	 * Resizes the hash table to accommodate more entries.
-	 * Finds the next suitable prime number and rehashes all existing entries.
-	 * @param size2 Target minimum capacity for the new hash table
-	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);
@@ -363,22 +319,15 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing hash table keys; empty slots contain the invalid marker */
 	private int[] keys;
-	/** Array storing hash table values corresponding to keys array */
 	private int[] values;
-	/** Number of key-value pairs currently stored in the map */
 	private int size=0;
-	/** Value for empty cells */
+	/** Sentinel value marking empty cells in the keys array */
 	private int invalid;
-	/** Prime number used for hash function modulo operation */
 	private int modulus;
-	/** Maximum entries before triggering a resize (capacity * loadFactor) */
 	private int sizeLimit;
-	/** Target ratio of occupied to total slots for resize triggering */
 	private final float loadFactor;
 	
-	/** Random number generator for creating invalid marker values */
 	private static final Random randy=new Random(1);
 	
 }

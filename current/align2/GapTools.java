@@ -104,12 +104,26 @@ public class GapTools {
 		return fixGaps2(a, b, gaps, minGap);
 	}
 	
-	/** This may have some off-by-one errors... */
+	/**
+	 * Calculates genome reference length accounting for gaps in a SiteScore.
+	 * Delegates to coordinate-based calculation method.
+	 * @param ss SiteScore containing alignment coordinates and gaps
+	 * @return Reference length adjusted for gap compression
+	 */
 	public static final int calcGrefLen(SiteScore ss){
 		return calcGrefLen(ss.start(), ss.stop(), ss.gaps);
 	}
 	
-	/** This may have some off-by-one errors... */
+	/**
+	 * Calculates genome reference length accounting for gap compression.
+	 * Computes total length minus gap symbol savings based on GAPLEN compression ratio.
+	 * May have off-by-one errors as noted in source comments.
+	 *
+	 * @param a Start coordinate
+	 * @param b End coordinate
+	 * @param gaps Gap array with alternating coordinates
+	 * @return Reference length adjusted for gap compression
+	 */
 	public static final int calcGrefLen(int a, int b, int[] gaps){
 		int total=b-a+1;
 		if(gaps==null){return total;}
@@ -123,7 +137,16 @@ public class GapTools {
 		return total;
 	}
 	
-	/** TODO: Verify. */
+	/**
+	 * Calculates buffer space needed for alignment with gaps.
+	 * Accounts for gap compression savings and required buffer padding.
+	 * Includes GAPBUFFER2 padding for each gap region.
+	 *
+	 * @param a Start coordinate
+	 * @param b End coordinate
+	 * @param gaps Gap array with alternating coordinates
+	 * @return Buffer size needed including gap compression and padding
+	 */
 	public static final int calcBufferNeeded(int a, int b, int[] gaps){
 		int total=b-a+1;
 		if(gaps==null){return total;}
@@ -137,7 +160,15 @@ public class GapTools {
 		return total;
 	}
 	
-	/** TODO: Verify. */
+	/**
+	 * Calculates compressed gap length between two coordinates.
+	 * Uses GAPLEN compression for gaps exceeding MINGAP threshold.
+	 * Includes GAPBUFFER2 padding plus compressed representation.
+	 *
+	 * @param a Start coordinate
+	 * @param b End coordinate (must be greater than a)
+	 * @return Compressed gap length including buffer and symbol compression
+	 */
 	public static int calcGapLen(int a, int b){
 		assert(b>a);
 		int gap=b-a;
@@ -257,6 +288,12 @@ public class GapTools {
 			b=b_;
 		}
 		
+		/**
+		 * Compares this Range to another Range for ordering.
+		 * Primary sort by start coordinate, secondary sort by end coordinate.
+		 * @param r Range to compare against
+		 * @return Negative if this < r, positive if this > r, zero if equal
+		 */
 		@Override
 		public int compareTo(Range r){
 			int x;
@@ -265,33 +302,38 @@ public class GapTools {
 			return b-r.b;
 		}
 		
+		/** Returns string representation of Range as (start,end).
+		 * @return String in format "(a,b)" where a and b are coordinates */
 		@Override
 		public String toString(){
 			return "("+a+","+b+")";
 		}
 
-		@Override
-		public boolean equals(Object other){return equals((Range)other);}
 		/**
-		 * Tests equality with another Range using compareTo.
-		 * @param other Range to compare against
+		 * Tests equality with another object by delegating to Range-specific equals.
+		 * Casts other object to Range before comparison.
+		 * @param other Object to compare against
 		 * @return true if ranges have identical coordinates, false otherwise
 		 */
+		@Override
+		public boolean equals(Object other){return equals((Range)other);}
 		public boolean equals(Range other){return compareTo(other)==0;}
 		
+		/**
+		 * Hash code method that should not be used.
+		 * Throws assertion error to prevent Range objects from being hashed.
+		 * @return Never returns; always throws AssertionError
+		 */
 		@Override
 		public int hashCode() {
 			assert(false) : "This class should not be hashed.";
 			return super.hashCode();
 		}
 
-		/** Start coordinate of the range */
 		public int a;
-		/** End coordinate of the range */
 		public int b;
 	}
 	
-	/** Controls debug output verbosity for gap processing operations */
 	public static boolean verbose=false;
 	
 }

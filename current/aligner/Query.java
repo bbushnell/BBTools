@@ -7,20 +7,13 @@ import shared.Tools;
  * Represents a query sequence for alignment with k-mer indexing.
  * Optimized for scenarios with small query sets and large reference databases.
  * Pre-computes forward and reverse k-mer indices plus metadata for efficient alignment.
- * 
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date June 3, 2025
  */
 public class Query {
 
-	/**
-	 * Constructs a Query with sequence data and pre-computed indices.
-	 * @param name_ Query sequence identifier
-	 * @param nid Numeric ID for the query
-	 * @param bases_ Forward sequence bases
-	 * @param quals_ Quality scores (may be null)
-	 */
 	public Query(String name_, long nid, byte[] bases_, byte[] quals_) {
 		name=name_; numericID=nid; bases=bases_; quals=quals_;
 		rbases=AminoAcid.reverseComplementBases(bases); // Pre-compute reverse complement
@@ -31,7 +24,6 @@ public class Query {
 		maxClips=(maxClip<1 ? (int)(maxClip*bases.length) : (int)maxClip); // Max clipping allowed
 	}
 	
-	/** Returns the length of the query sequence */
 	public int length() {return bases.length;}
 
 	/**
@@ -67,12 +59,6 @@ public class Query {
 		return kmerCount<1 ? blankIndex : ret;
 	}
 
-	/**
-	 * Creates a mask that zeros out middle bases of k-mers for fuzzy matching.
-	 * @param k K-mer length
-	 * @param maskLen Number of middle bases to mask
-	 * @return Bit mask for k-mer filtering
-	 */
 	public static int makeMidMask(int k, int maskLen) {
 		if(maskLen<1) {return -1;}
 		int bitsPerBase=2;
@@ -82,59 +68,38 @@ public class Query {
 		return middleMask;
 	}
 	
-	/** Sets all indexing parameters for Query creation */
 	public static void setMode(int k_, int midMaskLen_, boolean indexKmers_) {
 		setK(k_); setMidMaskLen(midMaskLen_); indexKmers=indexKmers_;
 		assert(!indexKmers || (k>0 && k<16 && midMaskLen<k+1));
 	}
 	
-	/** Sets k-mer length for indexing */
 	private static void setK(int x) {
 		k=Math.max(x, 0); assert(k<16); indexKmers=k>0;
 	}
 	
-	/** Sets middle masking length for fuzzy k-mer matching */
 	private static void setMidMaskLen(int x) {
 		midMaskLen=Math.max(x, 0);
 		assert(midMaskLen>=0 && (midMaskLen<1 || midMaskLen<k-1));
 		midMask=makeMidMask(k, midMaskLen); // Recompute mask
 	}
 
-	/** Query sequence name/identifier */
 	public final String name;
-	/** Numeric identifier for the query */
 	public final long numericID;
-	/** Forward sequence bases */
 	public final byte[] bases;
-	/** Reverse complement sequence bases */
 	public final byte[] rbases;
-	/** Quality scores (may be null) */
 	public final byte[] quals;
-	/** Forward k-mer index array */
 	public final int[] kmers;
-	/** Reverse k-mer index array */
 	public final int[] rkmers;
-	/** Number of valid (non-masked) k-mers */
 	public final int validKmers;
-	/** Minimum hits required for alignment consideration */
 	public final int minHits;
-	/** Maximum bases that can be clipped */
 	public final int maxClips;
 
-	/** K-mer length for indexing */
 	private static int k=11;
-	/** Length of middle region to mask in k-mers */
 	private static int midMaskLen=1;
-	/** Bit mask for middle-masking k-mers */
 	public static int midMask=makeMidMask(k, midMaskLen);
-	/** Whether to create k-mer indices */
 	public static boolean indexKmers=true;
-	/** Maximum homopolymer length before blacklisting */
 	public static int blacklistRepeatLength=2;
-	/** Empty index for sequences too short to index */
 	private static final int[][] blankIndex=new int[2][];
-	/** Calculator for minimum hits based on query length */
 	public static MinHitsCalculator mhc;
-	/** Maximum fraction/count of bases that can be clipped */
 	public static float maxClip=0.25f;
 }

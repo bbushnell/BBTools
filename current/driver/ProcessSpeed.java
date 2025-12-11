@@ -4,21 +4,15 @@ import fileIO.TextFile;
 import shared.Tools;
 
 /**
- * For BBMerge comparison data collation
+ * Utility for processing BBMerge comparison data and timing measurements.
+ * Parses timing and accuracy statistics from BBMerge output files and formats
+ * them into tab-separated values for analysis and comparison.
+ *
  * @author Brian Bushnell
  * @date Feb 28, 2016
- *
  */
 public class ProcessSpeed {
 	
-	/**
-	 * Program entry point that processes BBMerge timing and accuracy data.
-	 * Reads input file containing timing measurements and accuracy statistics,
-	 * then outputs formatted tab-separated values including real/user/sys times,
-	 * correct/incorrect percentages, and SNR values.
-	 *
-	 * @param args Command-line arguments, expects input file as args[0] with optional "in=" prefix
-	 */
 	public static void main(String[] args){
 		
 		System.out.println("#real\tuser\tsys\tcorrect\tincorrect\tSNR");
@@ -59,12 +53,6 @@ public class ProcessSpeed {
 		
 	}
 	
-	/**
-	 * Converts time string in minutes:seconds format to total seconds.
-	 * Parses time strings like "2m45.123s" and converts to decimal seconds.
-	 * @param s Time string in format "XmY.Zs" where X is minutes, Y.Z is seconds
-	 * @return Total time in seconds as double
-	 */
 	public static double toSeconds(String s){
 		s=s.replaceAll("s", "");
 		String[] split=s.split("m");

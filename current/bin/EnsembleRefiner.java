@@ -7,31 +7,12 @@ import java.util.Random;
 
 import structures.IntHashSet;
 
-/**
- * Ensemble-based bin refinement combining multiple clustering strategies.
- * Applies CrystalChamber, GraphRefiner, and EvidenceRefiner in parallel,
- * then uses consensus voting to make robust refinement decisions.
- * 
- * "Like a scientific peer review - get multiple expert opinions,
- * then trust only the decisions supported by consensus." - EnsembleRefiner Philosophy
- * 
- * @author UMP45
- */
 class EnsembleRefiner extends AbstractRefiner {
     
-    /**
-     * Creates an EnsembleRefiner with specified Oracle for similarity calculations.
-     * @param oracle_ Oracle instance for contig similarity evaluation
-     */
     public EnsembleRefiner(Oracle oracle_) {
         this(oracle_, new AbstractRefiner.EnsembleRefinerParams());
     }
     
-    /**
-     * Creates an EnsembleRefiner with specified Oracle and parameters.
-     * @param oracle_ Oracle instance for contig similarity evaluation
-     * @param params EnsembleRefiner-specific parameters
-     */
     public EnsembleRefiner(Oracle oracle_, AbstractRefiner.EnsembleRefinerParams params) {
         oracle = oracle_;
         
@@ -119,9 +100,6 @@ class EnsembleRefiner extends AbstractRefiner {
         return refinedBins;
     }
     
-    /**
-     * Applies all available refinement methods to the input cluster.
-     */
     private ArrayList<RefinerResult> applyAllRefiners(Bin input, ArrayList<Contig> contigs) {
         ArrayList<RefinerResult> results = new ArrayList<>();
         
@@ -158,9 +136,6 @@ class EnsembleRefiner extends AbstractRefiner {
         return results;
     }
     
-    /**
-     * Converts Bin results to IntHashSet format for consensus building.
-     */
     private ArrayList<IntHashSet> convertToIntHashSets(ArrayList<Bin> bins, ArrayList<Contig> contigs) {
         ArrayList<IntHashSet> result = new ArrayList<>();
         
@@ -191,10 +166,6 @@ class EnsembleRefiner extends AbstractRefiner {
         return result;
     }
     
-    /**
-     * Builds consensus clustering from multiple refiner results.
-     * Uses co-occurrence counting to identify robust cluster boundaries.
-     */
     private ConsensusResult buildConsensus(ArrayList<RefinerResult> results, ArrayList<Contig> contigs) {
         if(results.size() < minMethodsAgreeing) return null;
         
@@ -258,9 +229,6 @@ class EnsembleRefiner extends AbstractRefiner {
         return new ConsensusResult(consensusClusters, averageConfidence);
     }
     
-    /**
-     * Grows a consensus cluster using connectivity threshold.
-     */
     private void growConsensusCluster(int seed, IntHashSet cluster, boolean[] assigned, 
                                     float[][] coOccurrence, float threshold) {
         
@@ -288,9 +256,6 @@ class EnsembleRefiner extends AbstractRefiner {
         }
     }
     
-    /**
-     * Converts IntHashSet consensus clusters to Cluster objects.
-     */
     private ArrayList<Bin> convertToCluster(ArrayList<IntHashSet> clusterSets, ArrayList<Contig> contigs) {
         ArrayList<Bin> result = new ArrayList<>();
         
@@ -316,33 +281,19 @@ class EnsembleRefiner extends AbstractRefiner {
         return result;
     }
     
-    /**
-     * Restores original cluster references when refinement fails or is rejected.
-     * Prevents cluster reference corruption similar to CrystalChamber fix.
-     */
     private void restoreOriginalCluster(Cluster originalCluster) {
         for(Contig contig : originalCluster.contigs) {
             contig.cluster = originalCluster;
         }
     }
     
-    /**
-     * Container for individual refiner results.
-     */
+    /** Container for individual refiner results with method identification and confidence.
+     * Stores clustering output from a single refinement algorithm along with metadata. */
     private static class RefinerResult {
-        /** Name identifying the refinement algorithm used */
         final String method;
-        /** List of contig index clusters from refinement */
         final ArrayList<IntHashSet> clusters;
-        /** Confidence score for this refinement result */
         final float confidence;
         
-        /**
-         * Creates a RefinerResult with method name, clusters, and confidence score.
-         * @param method Name identifying the refinement algorithm used
-         * @param clusters List of contig index clusters from refinement
-         * @param confidence Confidence score for this refinement result
-         */
         RefinerResult(String method, ArrayList<IntHashSet> clusters, float confidence) {
             this.method = method;
             this.clusters = clusters;
@@ -350,45 +301,25 @@ class EnsembleRefiner extends AbstractRefiner {
         }
     }
     
-    /**
-     * Container for consensus clustering result.
-     */
     private static class ConsensusResult {
-        /** Final consensus clustering of contig indices */
         final ArrayList<IntHashSet> clusters;
-        /** Average confidence score across all cluster pairs */
         final float confidence;
         
-        /**
-         * Creates a ConsensusResult with final clusters and confidence score.
-         * @param clusters Final consensus clustering of contig indices
-         * @param confidence Average confidence score across all cluster pairs
-         */
         ConsensusResult(ArrayList<IntHashSet> clusters, float confidence) {
             this.clusters = clusters;
             this.confidence = confidence;
         }
     }
     
-    /** Oracle instance for contig similarity calculations */
     private final Oracle oracle;
-    /** Individual refiner instances */
     private final CrystalChamber crystalRefiner;
-    /** GraphRefiner instance for ensemble consensus */
     private final GraphRefiner graphRefiner;  
-    /** EvidenceRefiner instance for ensemble consensus */
     private final EvidenceRefiner evidenceRefiner;
-    /** Consensus threshold for co-occurrence decisions */
     private final float consensusThreshold;
-    /** Minimum number of methods that must agree */
     private final int minMethodsAgreeing;
-    /** Random number generator for deterministic consensus tie-breaking */
     private final Random random;
     
-    /** Enable debugging output */
     private final boolean debug;
-    /** Split attempt counter */
     private int splitAttempts;
-    /** Successful split counter */
     private int successfulSplits;
 }

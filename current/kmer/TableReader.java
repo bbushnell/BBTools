@@ -13,9 +13,12 @@ import stream.Read;
 import structures.IntList;
 
 /**
+ * Reads and processes k-mer tables for sequence matching and masking.
+ * Performs k-mer based read processing, including matching, counting, and masking
+ * operations with support for forward and reverse complement k-mer matching.
+ *
  * @author Brian Bushnell
  * @date Mar 5, 2015
- *
  */
 public class TableReader {
 	
@@ -24,7 +27,8 @@ public class TableReader {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Code entrance from the command line for testing TableReader functionality.
+	 * Initializes k-mer tables, loads reference data, and demonstrates basic usage.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -78,24 +82,10 @@ public class TableReader {
 		Shared.closeStream(outstream);
 	}
 	
-	/** Constructs a TableReader with default parameters for the specified k-mer length.
-	 * @param k_ K-mer length for sequence processing */
 	public TableReader(int k_){
 		this(k_, 0, 0, 0, 0, true, false);
 	}
 	
-	/**
-	 * Constructs a TableReader with specified processing parameters.
-	 * Sets up k-mer processing configuration including length, speed, and matching parameters.
-	 *
-	 * @param k_ K-mer length for primary matching
-	 * @param mink_ Minimum k-mer length for short k-mer matching
-	 * @param speed_ Speed setting (0-15) for k-mer subsampling
-	 * @param qskip_ Number of k-mers to skip during query processing
-	 * @param qhdist_ Maximum Hamming distance for fuzzy k-mer matching
-	 * @param rcomp_ Whether to consider reverse complement k-mers
-	 * @param maskMiddle_ Whether to mask middle bases in k-mers for fuzzy matching
-	 */
 	public TableReader(int k_, int mink_, int speed_, int qskip_, int qhdist_, boolean rcomp_, boolean maskMiddle_){
 		k=k_;
 		k2=k-1;
@@ -118,10 +108,12 @@ public class TableReader {
 	
 	
 	/**
-	 * Mask a read to cover matching kmers.
-	 * @param r Read to process
-	 * @param sets Kmer tables
-	 * @return Number of bases masked
+	 * Masks bases in a read that correspond to matching k-mers in the reference tables.
+	 * Identified bases are replaced with the trim symbol or converted to lowercase.
+	 *
+	 * @param r Read to process and mask
+	 * @param sets K-mer hash tables containing reference k-mers
+	 * @return Number of bases masked in the read
 	 */
 	public final int kMask(final Read r, final AbstractKmerTable[] sets){
 		if(r==null){return 0;}
@@ -151,10 +143,12 @@ public class TableReader {
 	
 	
 	/**
-	 * Counts the number of kmer hits for a read.
-	 * @param r Read to process
-	 * @param sets Kmer tables
-	 * @return Number of hits
+	 * Counts the number of k-mer matches between a read and reference k-mer tables.
+	 * Scans through read k-mers and counts hits against the provided tables.
+	 *
+	 * @param r Read to analyze for k-mer matches
+	 * @param sets K-mer hash tables to search against
+	 * @return Number of k-mer hits found
 	 */
 	public final int countKmerHits(final Read r, final AbstractKmerTable[] sets){
 		if(r==null || r.length()<k){return 0;}
@@ -199,10 +193,12 @@ public class TableReader {
 	}
 	
 	/**
-	 * Returns the id of the sequence with the most kmer matches to this read, or -1 if none are at least minHits.
-	 * @param r Read to process
-	 * @param sets Kmer tables
-	 * @return id of best match
+	 * Finds the reference sequence ID with the most k-mer matches to the given read.
+	 * Returns the ID of the best matching sequence, or -1 if no matches meet the minimum threshold.
+	 *
+	 * @param r Read to find matches for
+	 * @param sets K-mer hash tables containing reference sequences
+	 * @return ID of best matching reference sequence, or -1 if insufficient matches
 	 */
 	public final int findBestMatch(final Read r, final AbstractKmerTable[] sets){
 		idList.size=0;
@@ -262,10 +258,12 @@ public class TableReader {
 	
 	
 	/**
-	 * Mask a read to cover matching kmers.
-	 * @param r Read to process
-	 * @param sets Kmer tables
-	 * @return Number of bases masked
+	 * Creates a BitSet marking all bases in the read that should be masked based on k-mer matches.
+	 * Handles both normal k-mers and short k-mers at read ends when configured.
+	 *
+	 * @param r Read to analyze and mark
+	 * @param sets K-mer hash tables to search against
+	 * @return BitSet with positions to mask, or null if no matches found
 	 */
 	public final BitSet markBits(final Read r, final AbstractKmerTable[] sets){
 		if(r==null || r.length()<Tools.max(1, (useShortKmers ? Tools.min(k, mink) : k))){
@@ -410,15 +408,16 @@ public class TableReader {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	/**
-	 * Transforms a kmer into all canonical values for a given Hamming distance.
-	 * Returns the related id stored in the tables.
-	 * @param kmer Forward kmer
-	 * @param rkmer Reverse kmer
-	 * @param len kmer length
-	 * @param qHDist Hamming distance
-	 * @param qPos Position of kmer in query
-	 * @param sets Kmer hash tables
-	 * @return Value stored in table, or -1
+	 * Retrieves the stored value for a k-mer from hash tables, considering query position skipping.
+	 * Delegates to Hamming distance-aware search if configured.
+	 *
+	 * @param kmer Forward k-mer sequence
+	 * @param rkmer Reverse complement k-mer sequence
+	 * @param len Length of the k-mer
+	 * @param qHDist Maximum Hamming distance for fuzzy matching
+	 * @param qPos Position of k-mer in query sequence
+	 * @param sets K-mer hash tables to search
+	 * @return Stored value for the k-mer, or -1 if not found
 	 */
 	public final int getValue(final long kmer, final long rkmer, final int len, final int qHDist, final int qPos, final AbstractKmerTable[] sets){
 		if(qSkip>1 && (qPos%qSkip!=0)){return -1;}
@@ -426,14 +425,15 @@ public class TableReader {
 	}
 	
 	/**
-	 * Transforms a kmer into all canonical values for a given Hamming distance.
-	 * Returns the related id stored in the tables.
-	 * @param kmer Forward kmer
-	 * @param rkmer Reverse kmer
-	 * @param len kmer length
-	 * @param qHDist Hamming distance
-	 * @param sets Kmer hash tables
-	 * @return Value stored in table, or -1
+	 * Searches for k-mer value with Hamming distance tolerance.
+	 * First searches for exact match, then generates variants with single substitutions if needed.
+	 *
+	 * @param kmer Forward k-mer sequence
+	 * @param rkmer Reverse complement k-mer sequence
+	 * @param len Length of the k-mer
+	 * @param qHDist Maximum Hamming distance for fuzzy matching
+	 * @param sets K-mer hash tables to search
+	 * @return Stored value for the k-mer or variant, or -1 if not found
 	 */
 	public final int getValue(final long kmer, final long rkmer, final int len, final int qHDist, final AbstractKmerTable[] sets){
 		int id=getValue(kmer, rkmer, len, sets);
@@ -455,24 +455,27 @@ public class TableReader {
 	}
 	
 	/**
-	 * Transforms a kmer into a canonical value stored in the table and search.
-	 * @param kmer Forward kmer
-	 * @param rkmer Reverse kmer
-	 * @param len kmer length
-	 * @param sets Kmer hash tables
-	 * @return Value stored in table
+	 * Retrieves stored value for a k-mer from hash tables using exact matching.
+	 *
+	 * @param kmer Forward k-mer sequence
+	 * @param rkmer Reverse complement k-mer sequence
+	 * @param len Length of the k-mer
+	 * @param sets K-mer hash tables to search
+	 * @return Stored value for the k-mer, or -1 if not found
 	 */
 	public final int getValue(final long kmer, final long rkmer, final int len, final AbstractKmerTable[] sets){
 		return getValueWithMask(kmer, rkmer, lengthMasks[len], sets);
 	}
 	
 	/**
-	 * Transforms a kmer into a canonical value stored in the table and search.
-	 * @param kmer Forward kmer
-	 * @param rkmer Reverse kmer
-	 * @param lengthMask Bitmask with single '1' set to left of kmer
-	 * @param sets Kmer hash tables
-	 * @return Value stored in table
+	 * Searches hash tables for a canonical k-mer value using the provided length mask.
+	 * Applies speed filtering and middle masking before table lookup.
+	 *
+	 * @param kmer Forward k-mer sequence
+	 * @param rkmer Reverse complement k-mer sequence
+	 * @param lengthMask Bitmask indicating k-mer length
+	 * @param sets K-mer hash tables to search
+	 * @return Stored value for the k-mer, or -1 if not found
 	 */
 	public final int getValueWithMask(final long kmer, final long rkmer, final long lengthMask, final AbstractKmerTable[] sets){
 		assert(lengthMask==0 || (kmer<lengthMask && rkmer<lengthMask)) : lengthMask+", "+kmer+", "+rkmer;
@@ -493,11 +496,13 @@ public class TableReader {
 	
 	
 	/**
-	 * Transforms a kmer into a canonical value stored in the table.  Expected to be inlined.
-	 * @param kmer Forward kmer
-	 * @param rkmer Reverse kmer
-	 * @param lengthMask Bitmask with single '1' set to left of kmer
-	 * @return Canonical value
+	 * Converts k-mer pair to canonical representation for hash table storage.
+	 * Selects larger of forward/reverse k-mer, applies middle masking, and adds length marker.
+	 *
+	 * @param kmer Forward k-mer sequence
+	 * @param rkmer Reverse complement k-mer sequence
+	 * @param lengthMask Bitmask marking k-mer length
+	 * @return Canonical k-mer value for hash table lookup
 	 */
 	private final long toValue(long kmer, long rkmer, long lengthMask){
 		assert(lengthMask==0 || (kmer<lengthMask && rkmer<lengthMask)) : lengthMask+", "+kmer+", "+rkmer;
@@ -506,11 +511,13 @@ public class TableReader {
 	}
 	
 	/**
-	 * Pack a list of counts from an array to an IntList.
-	 * @param loose Counter array
-	 * @param packed Unique values
-	 * @param counts Counts of values
-	 * @return Highest observed count
+	 * Transfers counts from a sparse array to compact IntLists and resets the array.
+	 * Used to consolidate k-mer hit counts from array-based tracking.
+	 *
+	 * @param loose Sparse counter array to read from
+	 * @param packed List of unique sequence IDs
+	 * @param counts List to store corresponding counts
+	 * @return Maximum count observed
 	 */
 	public static int condenseLoose(int[] loose, IntList packed, IntList counts){
 		counts.size=0;
@@ -527,11 +534,6 @@ public class TableReader {
 		return max;
 	}
 	
-	/**
-	 * Maps a k-mer to a hash table partition using modular arithmetic.
-	 * @param kmer K-mer to map
-	 * @return Hash table index (0 to WAYS-1)
-	 */
 	public final int kmerToWay(final long kmer){
 //		final int way=(int)((kmer&coreMask)%WAYS);
 //		return way;
@@ -542,41 +544,42 @@ public class TableReader {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Has this class encountered errors while processing? */
+	/** Tracks whether this TableReader has encountered processing errors */
 	public boolean errorState=false;
 	
-	/** Make the middle base in a kmer a wildcard to improve sensitivity */
+	/** Whether to mask middle bases in k-mers for fuzzy matching (always false) */
 	public final boolean maskMiddle=false;
 	
-	/** Search for query kmers with up to this many substitutions */
+	/** Maximum Hamming distance allowed for query k-mer matching */
 	private final int qHammingDistance;
-	/** Search for short query kmers with up to this many substitutions */
+	/** Maximum Hamming distance for short k-mer matching at read ends */
 	public int qHammingDistance2=-1;
 	
-	/** Trim this much extra around matched kmers */
+	/** Additional bases to mask around k-mer matches */
 	public int trimPad=0;
 	
-	/** If positive, only look for kmer matches in the leftmost X bases */
+	/** If positive, only search for k-mers in leftmost X bases of read */
 	public int restrictLeft=0;
-	/** If positive, only look for kmer matches the rightmost X bases */
+	/** If positive, only search for k-mers in rightmost X bases of read */
 	public int restrictRight=0;
 	
-	/** Don't allow a read 'N' to match a reference 'A'.
-	 * Reduces sensitivity when hdist>0 or edist>0.  Default: false. */
+	/** Whether to prevent ambiguous bases ('N') from matching reference bases */
 	public boolean forbidNs=false;
 	
-	/** Replace bases covered by matched kmers with this symbol */
+	/** Character used to replace bases covered by matched k-mers */
 	public byte trimSymbol='N';
 	
-	/** Convert masked bases to lowercase */
+	/**
+	 * Whether to convert masked bases to lowercase instead of replacing with trimSymbol
+	 */
 	public boolean kmaskLowercase=false;
 	
-	/** Don't look for kmers in read 1 */
+	/** Whether to skip k-mer processing for read 1 in paired reads */
 	public boolean skipR1=false;
-	/** Don't look for kmers in read 2 */
+	/** Whether to skip k-mer processing for read 2 in paired reads */
 	public boolean skipR2=false;
 
-	/** A read must contain at least this many kmer hits before being considered a match.  Default: 1 */
+	/** Minimum number of k-mer hits required to consider a read a match */
 	public int minHits=1;
 	
 	/*--------------------------------------------------------------*/
@@ -589,63 +592,63 @@ public class TableReader {
 	/*----------------      Per-Thread Fields       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array for tracking k-mer hit counts per sequence during processing */
 	public int[] countArray;
 	
-	/** List of unique sequence IDs encountered during k-mer matching */
 	private final IntList idList=new IntList();
-	/** List of k-mer hit counts corresponding to sequence IDs in idList */
 	private final IntList countList=new IntList();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Look for reverse-complements as well as forward kmers.  Default: true */
+	/**
+	 * Whether to search for reverse complement k-mers in addition to forward k-mers
+	 */
 	private final boolean rcomp;
-	/** AND bitmask with 0's at the middle base */
+	/** Bitmask with zeros at middle base positions for fuzzy k-mer matching */
 	private final long middleMask;
 	
-	/** Normal kmer length */
+	/** Primary k-mer length for sequence processing */
 	private final int k;
-	/** k-1; used in some expressions */
+	/** K-mer length minus 1, used in various calculations */
 	private final int k2;
-	/** Shortest kmer to use for trimming */
+	/** Minimum k-mer length for short k-mer matching at read ends */
 	private final int mink;
-	/** Attempt to match kmers shorter than normal k on read ends when doing kTrimming. */
+	/** Whether to attempt matching k-mers shorter than k at read ends */
 	private final boolean useShortKmers;
 	
-	/** Fraction of kmers to skip, 0 to 15 out of 16 */
+	/** Speed setting (0-15) controlling fraction of k-mers to process */
 	private final int speed;
 	
-	/** Skip this many kmers when examining the read.  Default 1.
-	 * 1 means every kmer is used, 2 means every other, etc. */
+	/**
+	 * Number of k-mers to skip when scanning reads (1=every k-mer, 2=every other, etc.)
+	 */
 	private final int qSkip;
 	
-	/** noAccel is true if speed and qSkip are disabled, accel is the opposite. */
+	/** True when speed and qSkip acceleration are disabled */
 	private final boolean noAccel, accel;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of tables (and threads, during loading) */
+	/** Number of hash table partitions for parallel processing */
 	private static final int WAYS=7; //123
-	/** Verbose messages */
+	/** Whether to print verbose debugging messages */
 	public static final boolean verbose=false; //123
 	
-	/** Print messages to this stream */
+	/** Output stream for printing messages and results */
 	private static PrintStream outstream=System.err;
 	
-	/** x&clearMasks[i] will clear base i */
+	/** Bitmasks for clearing individual bases in k-mers (position i) */
 	private static final long[] clearMasks;
-	/** x|setMasks[i][j] will set base i to j */
+	/** Bitmasks for setting base i to nucleotide j in k-mer manipulation */
 	private static final long[][] setMasks;
-	/** x&leftMasks[i] will clear all bases to the right of i (exclusive) */
+	/** Bitmasks for clearing all bases to the right of position i */
 	private static final long[] leftMasks;
-	/** x&rightMasks[i] will clear all bases to the left of i (inclusive) */
+	/** Bitmasks for clearing all bases to the left of position i */
 	private static final long[] rightMasks;
-	/** x|kMasks[i] will set the bit to the left of the leftmost base */
+	/** Bitmasks marking k-mer lengths with single bit set to left of k-mer */
 	private static final long[] lengthMasks;
 	
 	/*--------------------------------------------------------------*/

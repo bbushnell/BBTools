@@ -11,10 +11,12 @@ import structures.ListNum;
 
 /**
  * Abstract superclass of all ConcurrentReadStreamInterface implementations.
- * ConcurrentReadInputStreams allow paired reads from twin files to be treated as a single stream.
+ * Provides factory methods for creating appropriate concurrent read stream instances
+ * based on input file formats. Supports paired reads from twin files treated as
+ * a single stream, with concurrent processing capabilities and MPI support.
+ *
  * @author Brian Bushnell
  * @date Nov 26, 2014
- *
  */
 public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamInterface {
 	
@@ -22,15 +24,8 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Protected constructor for subclasses.
-	 * @param fname_ Input file name or identifier */
 	protected ConcurrentReadInputStream(String fname_){fname=fname_;}
 	
-	/**
-	 * Special method for testing, handles some parsing.
-	 * Used by MultiCros.
-	 * Not really necessary; safe to remove.
-	 */
 	protected static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, boolean allowSubprocess, String...args){
 		assert(args.length>0) : Arrays.toString(args);
 		for(int i=0; i<args.length; i++){
@@ -50,12 +45,30 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		return getReadInputStream(maxReads, keepSamHeader, ff1, ff2, qf1, qf2);
 	}
 	
-	/** @See primary method */
+	/**
+	 * Factory method using default MPI settings.
+	 *
+	 * @param maxReads Maximum number of reads or pairs to process
+	 * @param keepSamHeader If input is SAM format, store header in shared object
+	 * @param ff1 Primary input file format (required)
+	 * @param ff2 Secondary input file format (optional, for paired reads)
+	 * @return Appropriate ConcurrentReadInputStream implementation
+	 */
 	public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2){
 		return getReadInputStream(maxReads, keepSamHeader, ff1, ff2, (String)null, (String)null, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 	}
 	
-	/** @See primary method */
+	/**
+	 * Factory method with explicit MPI configuration.
+	 *
+	 * @param maxReads Maximum number of reads or pairs to process
+	 * @param keepSamHeader If input is SAM format, store header in shared object
+	 * @param ff1 Primary input file format (required)
+	 * @param ff2 Secondary input file format (optional, for paired reads)
+	 * @param mpi True if MPI will be used for distributed processing
+	 * @param keepAll In MPI mode, tells stream to keep all reads vs fraction
+	 * @return Appropriate ConcurrentReadInputStream implementation
+	 */
 	public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader, FileFormat ff1, FileFormat ff2,
 			final boolean mpi, final boolean keepAll){
 		return getReadInputStream(maxReads, keepSamHeader, ff1, ff2, (String)null, (String)null, mpi, keepAll);
@@ -66,22 +79,37 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 //		return getReadInputStream(maxReads, keepSamHeader, ff1, null, qf1, null, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 //	}
 	
-	/** @See primary method */
+	/**
+	 * Factory method with quality file support using default MPI settings.
+	 *
+	 * @param maxReads Maximum number of reads or pairs to process
+	 * @param keepSamHeader If input is SAM format, store header in shared object
+	 * @param ff1 Primary input file format (required)
+	 * @param ff2 Secondary input file format (optional, for paired reads)
+	 * @param qf1 Primary quality file path (optional)
+	 * @param qf2 Secondary quality file path (optional)
+	 * @return Appropriate ConcurrentReadInputStream implementation
+	 */
 	public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		return getReadInputStream(maxReads, keepSamHeader, ff1, ff2, qf1, qf2, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 	}
 	
 	/**
-	 * @param maxReads Quit producing after this many reads (or pairs)
-	 * @param keepSamHeader If the input is sam, store the header in the static shared header object 
-	 * @param ff1 Read 1 file (required)
-	 * @param ff2 Read 2 file (optional)
-	 * @param qf1 Qual file 1 (optional)
-	 * @param qf2 Qual file 2 (optional)
-	 * @param mpi True if MPI will be used
-	 * @param keepAll In MPI mode, tells this stream to keep all reads instead of just a fraction
-	 * @return
+	 * Primary factory method for creating concurrent read input streams.
+	 * Automatically selects appropriate implementation based on file format.
+	 * Supports FASTQ, FASTA, SAM/BAM, SCARF, EMBL, GenBank, and other formats.
+	 * Handles MPI distribution, quality files, and paired-end configurations.
+	 *
+	 * @param maxReads Maximum number of reads or pairs to process
+	 * @param keepSamHeader If input is SAM format, store header in shared object
+	 * @param ff1 Primary input file format (required)
+	 * @param ff2 Secondary input file format (optional, for paired reads)
+	 * @param qf1 Primary quality file path (optional, for FASTA+QUAL)
+	 * @param qf2 Secondary quality file path (optional, for FASTA+QUAL)
+	 * @param mpi True if MPI will be used for distributed processing
+	 * @param keepAll In MPI mode, tells stream to keep all reads vs fraction
+	 * @return Appropriate ConcurrentReadInputStream implementation
 	 */
 	public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2, final boolean mpi, final boolean keepAll){
@@ -216,18 +244,6 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Convenience method to read all reads from files into memory.
-	 * Creates stream, starts processing, and collects all reads.
-	 *
-	 * @param maxReads Maximum number of reads or pairs to process
-	 * @param keepSamHeader If input is SAM format, store header in shared object
-	 * @param ff1 Primary input file format (required)
-	 * @param ff2 Secondary input file format (optional, for paired reads)
-	 * @param qf1 Primary quality file path (optional)
-	 * @param qf2 Secondary quality file path (optional)
-	 * @return ArrayList containing all reads from the input files
-	 */
 	public static ArrayList<Read> getReads(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2){
 		ConcurrentReadInputStream cris=getReadInputStream(maxReads, keepSamHeader, ff1, ff2, qf1, qf2, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
@@ -235,12 +251,6 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		return cris.getReads();
 	}
 	
-	/**
-	 * Reads all remaining reads from this stream into memory.
-	 * Processes lists sequentially, collecting reads and properly
-	 * returning list containers to avoid memory leaks.
-	 * @return ArrayList containing all reads from this stream
-	 */
 	public ArrayList<Read> getReads(){
 		
 		ListNum<Read> ln=nextList();
@@ -264,6 +274,11 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		return out;
 	}
 	
+	/**
+	 * Starts the concurrent read input stream in a new thread.
+	 * Prevents strange deadlocks in ConcurrentCollectionReadInputStream.
+	 * Sets started flag to true.
+	 */
 	@Override
 	public void start(){
 //		System.err.println("Starting "+this);
@@ -271,7 +286,6 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		started=true;
 	}
 	
-	/** Returns true if the stream has been started */
 	public final boolean started(){return started;}
 
 	
@@ -287,42 +301,91 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		if(ln!=null){returnList(ln.id, ln.isEmpty());}
 	}
 	
+	/**
+	 * Returns a list container to the stream for reuse.
+	 * Implementation depends on concrete subclass.
+	 * @param listNum List identifier number
+	 * @param poison True if this is a poison/termination signal
+	 */
 	@Override
 	public abstract void returnList(long listNum, boolean poison);
 	
 	@Override
 	public abstract void run();
 	
+	/** Shuts down the stream and releases resources.
+	 * Implementation depends on concrete subclass. */
 	@Override
 	public abstract void shutdown();
 	
+	/** Restarts the stream for reuse.
+	 * Implementation depends on concrete subclass. */
 	@Override
 	public abstract void restart();
 	
+	/** Closes the stream and releases all resources.
+	 * Implementation depends on concrete subclass. */
 	@Override
 	public abstract void close();
 
+	/**
+	 * Returns true if this stream processes paired-end reads.
+	 * Implementation depends on concrete subclass.
+	 * @return true if stream handles paired reads
+	 */
 	@Override
 	public abstract boolean paired();
 
+	/** Returns the filename or identifier for this stream */
 	@Override
 	public String fname(){return fname;}
 	
+	/**
+	 * Returns array of producer objects for this stream.
+	 * Implementation depends on concrete subclass.
+	 * @return Array of producer objects
+	 */
 	@Override
 	public abstract Object[] producers();
 	
+	/**
+	 * Returns true if the stream is in an error state.
+	 * Implementation depends on concrete subclass.
+	 * @return true if errors occurred during processing
+	 */
 	@Override
 	public abstract boolean errorState();
 	
+	/**
+	 * Sets sampling rate for subsampling reads during processing.
+	 * Implementation depends on concrete subclass.
+	 * @param rate Sampling rate between 0.0 and 1.0
+	 * @param seed Random seed for reproducible sampling
+	 */
 	@Override
 	public abstract void setSampleRate(float rate, long seed);
 	
+	/**
+	 * Returns total number of bases processed by this stream.
+	 * Implementation depends on concrete subclass.
+	 * @return Total bases processed
+	 */
 	@Override
 	public abstract long basesIn();
 	
+	/**
+	 * Returns total number of reads processed by this stream.
+	 * Implementation depends on concrete subclass.
+	 * @return Total reads processed
+	 */
 	@Override
 	public abstract long readsIn();
 	
+	/**
+	 * Returns true if verbose output is enabled.
+	 * Implementation depends on concrete subclass.
+	 * @return true if verbose mode is active
+	 */
 	@Override
 	public abstract boolean verbose();
 	
@@ -330,30 +393,20 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Buffer length for read processing, from shared configuration */
 	final int BUF_LEN=Shared.bufferLen();;
-	/** Number of buffers for concurrent processing, from shared configuration */
 	final int NUM_BUFFS=Shared.numBuffers();
-	/** Maximum data size per buffer, from shared configuration */
 	final long MAX_DATA=Shared.bufferData();
-	/** Input filename or stream identifier */
 	public final String fname;
-	/** Whether to allow reads of unequal lengths in paired files */
 	public boolean ALLOW_UNEQUAL_LENGTHS=false;
-	/** Whether the stream has been started */
 	boolean started=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Whether to show progress indicators during processing */
 	public static boolean SHOW_PROGRESS=false;
-	/** Whether to show detailed progress with time intervals */
 	public static boolean SHOW_PROGRESS2=false; //Indicate time in seconds between dots.
-	/** Number of reads between progress updates */
 	public static long PROGRESS_INCR=1000000;
-	/** Whether to remove discarded reads from memory immediately */
 	public static boolean REMOVE_DISCARDED_READS=false;
 	
 }

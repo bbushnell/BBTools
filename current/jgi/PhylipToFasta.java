@@ -15,16 +15,17 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Converts Phylip format sequence files to FASTA format.
+ * Reads interleaved or sequential Phylip files and outputs standard FASTA.
+ * Parses sequence names and concatenates sequence data across multiple lines.
+ *
  * @author Brian Bushnell
  * @date Oct 3, 2014
- *
  */
 public class PhylipToFasta {
 	
 
 
-	/** Program entry point for Phylip to FASTA conversion.
-	 * @param args Command-line arguments specifying input and output files */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		PhylipToFasta x=new PhylipToFasta(args);
@@ -34,11 +35,6 @@ public class PhylipToFasta {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs PhylipToFasta converter and parses command-line arguments.
-	 * Sets up input/output file formats and validates file paths.
-	 * @param args Command-line arguments for input file, output file, and options
-	 */
 	public PhylipToFasta(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -98,14 +94,6 @@ public class PhylipToFasta {
 		ffin1=FileFormat.testInput(in1, FileFormat.PHYLIP, ".phylip", true, true);
 	}
 	
-	/**
-	 * Processes Phylip input file and converts to FASTA format.
-	 * Reads sequence names from first occurrence of each sequence,
-	 * then concatenates sequence data from subsequent interleaved blocks.
-	 * Skips the header line containing sequence count and length.
-	 *
-	 * @param t Timer for tracking processing time and statistics
-	 */
 	void process(Timer t){
 		
 		ArrayList<StringBuilder> data=new ArrayList<StringBuilder>();
@@ -179,30 +167,21 @@ public class PhylipToFasta {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file format handler for Phylip files */
 	private final FileFormat ffin1;
-	/** Output file format handler for FASTA files */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Controls verbosity of status output during processing */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }
