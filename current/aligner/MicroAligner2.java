@@ -12,12 +12,13 @@ import stream.Read;
 import structures.LongHashMap;
 
 /**
- * Similar to MicroAligner, but designed to only test whether something matches,
- * not generate match strings.
- * 
+ * Lightweight aligner designed for identity testing without generating match strings.
+ * Uses k-mer indexing of reference sequence to quickly identify potential matches
+ * and determine alignment identity. Optimized for boolean matching rather than
+ * full alignment output.
+ *
  * @author Brian Bushnell
  * @date May 24, 2024
- *
  */
 public class MicroAligner2 implements MicroAligner {
 	
@@ -25,34 +26,14 @@ public class MicroAligner2 implements MicroAligner {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Constructs MicroAligner2 by loading reference from file path.
-	 * @param k_ K-mer length for indexing
-	 * @param minIdentity_ Minimum identity threshold for matches
-	 * @param path Path to reference sequence file
-	 */
 	public MicroAligner2(int k_, float minIdentity_, String path) {
 		this(k_, minIdentity_, loadRef(path));
 	}
 
-	/**
-	 * Constructs MicroAligner2 with reference sequence and creates k-mer index.
-	 * @param k_ K-mer length for indexing
-	 * @param minIdentity_ Minimum identity threshold for matches
-	 * @param ref_ Reference sequence bases
-	 */
 	public MicroAligner2(int k_, float minIdentity_, byte[] ref_) {
 		this(k_, minIdentity_, ref_, indexRef(k_, ref_));
 	}
 
-	/**
-	 * Constructs MicroAligner2 with pre-computed k-mer index.
-	 *
-	 * @param k_ K-mer length for indexing
-	 * @param minIdentity_ Minimum identity threshold for matches
-	 * @param ref_ Reference sequence bases
-	 * @param map_ Pre-computed k-mer hash map
-	 */
 	public MicroAligner2(int k_, float minIdentity_, byte[] ref_, LongHashMap map_) {
 		k=k_;
 		k2=k-1;
@@ -132,12 +113,26 @@ public class MicroAligner2 implements MicroAligner {
 	/*----------------          Alignment           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns identity */
+	/**
+	 * Maps read to reference and returns alignment identity.
+	 * Uses default minimum identity threshold.
+	 * @param r Read to align
+	 * @return Identity score (0.0-1.0) or 0 if no alignment found
+	 */
 	public float map(Read r) {
 		return map(r, minIdentity);
 	}
 	
-	/** Returns identity */
+	/**
+	 * Maps read to reference and returns alignment identity.
+	 * First finds seed match using k-mer lookup, then performs alignment
+	 * in correct orientation. Uses quick alignment if possible, falls back
+	 * to dynamic programming if needed.
+	 *
+	 * @param r Read to align
+	 * @param minid Minimum identity threshold
+	 * @return Identity score (0.0-1.0) or 0 if no alignment found
+	 */
 	public float map(Read r, float minid) {
 		if(r==null || r.length()<k) {return 0;}
 		mapCount++;
@@ -277,33 +272,20 @@ public class MicroAligner2 implements MicroAligner {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Minimum identity threshold for considering alignments valid */
 	final float minIdentity;
-	/** Maximum fraction of substitutions allowed (1 - minIdentity) */
 	final float maxSubFraction;
-	/** K-mer length used for indexing and seed finding */
 	final int k;
-	/** K-mer length minus 1, used for position calculations */
 	final int k2;
-	/** Reference sequence bases */
 	final byte[] ref;
-	/** K-mer index mapping canonical k-mers to encoded positions */
 	final LongHashMap map;
-	/** Bitmask for skipping k-mer positions during seed search */
 	public int skipmask=0;
 
-	/** Total number of reads processed for alignment */
 	public long mapCount=0;
-	/** Number of alignments attempted using quick ungapped method */
 	public long quickAligns=0;
-	/** Number of alignments requiring dynamic programming fallback */
 	public long slowAligns=0;
-	/** Number of alignments meeting minimum identity threshold */
 	public long metCutoff=0;
-	/** Sum of identity scores for alignments meeting threshold */
 	public double idSum=0;
 	
 	//Indicates the position is on the minus strand
-	/** Constant added to positions to indicate minus strand orientation */
 	private static final int MINUS_CODE=1000000000;
 }

@@ -24,10 +24,12 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Reduces reads to their feature kmer.
+ * Reduces reads to their feature k-mer for clumping analysis.
+ * Creates a k-mer count array from input sequences to identify pivot k-mers
+ * that can be used for sequence clustering and deduplication operations.
+ *
  * @author Brian Bushnell
  * @date August 19, 2016
- *
  */
 public class PivotSet {
 
@@ -35,20 +37,12 @@ public class PivotSet {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that creates a k-mer count array from input reads.
+	 * @param args Command line arguments for input files and parameters */
 	public static void main(String[] args){
 		makeSet(args);
 	}
 	
-	/**
-	 * Creates a k-mer count array from input sequences with specified parameters.
-	 * Preserves original pigz settings and handles stream cleanup automatically.
-	 * @param args Command line arguments for configuration
-	 * @return KCountArray containing k-mer counts for pivot identification
-	 */
 	public static KCountArray makeSet(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		Timer t=new Timer();
@@ -67,10 +61,6 @@ public class PivotSet {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructor.
-	 * @param args Command line arguments
-	 */
 	public PivotSet(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -159,14 +149,6 @@ public class PivotSet {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Calculates optimal number of cells for k-mer count array based on available memory.
-	 * Uses a fraction of usable memory accounting for system overhead and bit requirements.
-	 *
-	 * @param fraction Fraction of usable memory to allocate for the array
-	 * @param cbits Number of bits per counter cell
-	 * @return Number of cells that can fit in the allocated memory
-	 */
 	private static long getCells(double fraction, int cbits){
 		final long memory=Runtime.getRuntime().maxMemory();
 		final long usable=(long)Tools.max(((memory-96000000)*.73), memory*0.45);
@@ -174,7 +156,15 @@ public class PivotSet {
 		return (long)((filterMem*8)/cbits);
 	}
 	
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams and processes all data to generate k-mer count array.
+	 * Configures memory allocation, initializes concurrent processing threads,
+	 * and returns statistics about pivot k-mer identification.
+	 *
+	 * @param t Timer for tracking processing duration
+	 * @param amino Whether to process amino acid sequences instead of nucleotides
+	 * @return KCountArray containing k-mer counts from all processed reads
+	 */
 	public KCountArray process(Timer t, boolean amino){
 		int cbits=2;
 		while((1L<<cbits)<=minCount){cbits*=2;}
@@ -217,7 +207,6 @@ public class PivotSet {
 		return kca;
 	}
 	
-	/** Manage threads */
 	public static KCountArray makeKcaStatic(final ConcurrentReadInputStream cris, int k, int minCount, boolean amino){
 
 		KmerComparator kc=new KmerComparator(k, false, false);
@@ -254,7 +243,12 @@ public class PivotSet {
 		return kca;
 	}
 	
-	/** Manage threads */
+	/**
+	 * Manages thread creation and coordination for k-mer processing.
+	 * Creates hash threads, starts them, waits for completion, and aggregates results.
+	 * @param cris Input stream providing reads for processing
+	 * @param kca K-mer count array to populate with frequency data
+	 */
 	public void processInner(final ConcurrentReadInputStream cris, KCountArray kca){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, false, false);
@@ -289,21 +283,8 @@ public class PivotSet {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread that processes reads and increments k-mer counts concurrently.
-	 * Handles read pairs, applies error correction if enabled, and hashes sequences
-	 * into the shared k-mer count array.
-	 */
 	private static class HashThread extends Thread{
 
-		/**
-		 * Constructor for hash processing thread.
-		 *
-		 * @param cris_ Input stream for reading sequences
-		 * @param kc_ K-mer comparator for hashing operations
-		 * @param kca_ K-mer count array to increment
-		 * @param ecco_ Whether to apply error correction via overlap detection
-		 */
 		HashThread(ConcurrentReadInputStream cris_, KmerComparator kc_, KCountArray kca_, boolean ecco_){
 			cris=cris_;
 			kc=kc_;
@@ -311,6 +292,11 @@ public class PivotSet {
 			ecco=ecco_;
 		}
 
+		/**
+		 * Main thread execution method that processes reads and updates k-mer counts.
+		 * Retrieves read lists, processes each read pair, optionally applies error correction,
+		 * hashes sequences, and increments corresponding k-mer counters.
+		 */
 		@Override
 		public void run(){
 			
@@ -347,18 +333,12 @@ public class PivotSet {
 			}
 		}
 		
-		/** Input stream for concurrent read access */
 		final ConcurrentReadInputStream cris;
-		/** K-mer comparator for sequence hashing operations */
 		final KmerComparator kc;
-		/** K-mer count array for storing frequency data */
 		final KCountArray kca;
-		/** Whether error correction is enabled for this thread */
 		final boolean ecco;
 		
-		/** Number of reads processed by this individual thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this individual thread */
 		protected long basesProcessedT=0;
 	}
 	
@@ -370,53 +350,39 @@ public class PivotSet {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** K-mer length for sequence hashing (default 31) */
 	private int k=31;
-	/** Minimum k-mer count threshold for retention (default 2) */
 	private int minCount=2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Path to first input file */
 	private String in1=null;
-	/** Path to second input file for paired reads */
 	private String in2=null;
 	
-	/** Input file extension override */
 	private String extin=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of reads processed across all threads */
 	protected long readsProcessed=0;
-	/** Total number of bases processed across all threads */
 	protected long basesProcessed=0;
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
-	/** Whether to enable error correction via read overlap detection */
 	private boolean ecco=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format handler for first input file */
 	private final FileFormat ffin1;
-	/** File format handler for second input file */
 	private final FileFormat ffin2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for progress messages and results */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose=false;
-	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
 	
 }

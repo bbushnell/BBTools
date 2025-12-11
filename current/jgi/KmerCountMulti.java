@@ -24,12 +24,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Counts unique kmers in a file.
- * Tracks multiple kmer lengths independently.
- * 
+ * Counts unique k-mers in a file using probabilistic cardinality estimators.
+ * Tracks multiple k-mer lengths independently using MultiLogLog data structures.
+ * Supports multiple hash functions for improved accuracy and statistical analysis.
  * @author Brian Bushnell
  * @date December 30, 2016
- *
  */
 public class KmerCountMulti {
 	
@@ -38,8 +37,9 @@ public class KmerCountMulti {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point.
+	 * Creates a KmerCountMulti instance and executes the k-mer counting process.
+	 * @param args Command-line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -56,8 +56,10 @@ public class KmerCountMulti {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes the k-mer counter.
+	 * Sets up input/output files, creates MultiLogLog arrays, and configures processing parameters.
+	 * Validates file accessibility and creates FileFormat objects for I/O operations.
+	 * @param args Command-line arguments containing input files, k-mer lengths, and options
 	 */
 	public KmerCountMulti(String[] args){
 		
@@ -202,7 +204,12 @@ public class KmerCountMulti {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes k-mer counting on input sequences.
+	 * Creates read input streams, spawns processing threads, and handles I/O operations.
+	 * Reports timing statistics and manages error states across all threads.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -244,7 +251,12 @@ public class KmerCountMulti {
 		}
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and manages worker threads for parallel k-mer counting.
+	 * Distributes sequence processing across multiple threads and collects results.
+	 * Waits for thread completion and accumulates per-thread statistics.
+	 * @param cris Input stream providing sequences to process
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris){
 		
 		//Do anything necessary prior to processing
@@ -297,11 +309,6 @@ public class KmerCountMulti {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Writes basic k-mer count output without statistical analysis.
-	 * Outputs k-mer length and average count across all hash functions.
-	 * This is a simplified version of writeOutput() method.
-	 */
 	private void writeOutput0(){
 		TextStreamWriter tsw=new TextStreamWriter(ffout);
 		tsw.start();
@@ -319,11 +326,6 @@ public class KmerCountMulti {
 		errorState|=tsw.poisonAndWait();
 	}
 	
-	/**
-	 * Writes comprehensive k-mer count results with optional statistical analysis.
-	 * Calculates averages, weighted averages, and standard deviations across hash functions.
-	 * Formats output with alignment and includes statistical measures when enabled.
-	 */
 	private void writeOutput(){
 		TextStreamWriter tsw=new TextStreamWriter(ffout);
 		tsw.start();
@@ -364,22 +366,17 @@ public class KmerCountMulti {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a ProcessThread for k-mer counting.
-		 * @param cris_ Input stream for reading sequences
-		 * @param tid_ Thread identifier
-		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;
 		}
 		
 		//Called by start()
+		/** Main thread execution method.
+		 * Processes sequences by calling processInner() and sets success status. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -393,7 +390,11 @@ public class KmerCountMulti {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Core processing loop that reads sequences and counts k-mers.
+		 * Iterates through batches of reads from the input stream and processes each read pair.
+		 * Handles read validation and manages input stream lifecycle.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -444,9 +445,10 @@ public class KmerCountMulti {
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r1 Read 1
-		 * @param r2 Read 2 (may be null)
+		 * Processes a single read or read pair for k-mer counting.
+		 * Applies k-mer hashing using all configured MultiLogLog estimators.
+		 * @param r1 Primary read
+		 * @param r2 Mate read (may be null for single-end reads)
 		 */
 		void processReadPair(final Read r1, final Read r2){
 			for(MultiLogLog mlog : mlogArray){
@@ -454,17 +456,12 @@ public class KmerCountMulti {
 			}
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Thread ID */
 		final int tid;
 	}
 	
@@ -472,68 +469,47 @@ public class KmerCountMulti {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 	
-	/** Quality file path for first input file */
 	private String qfin1=null;
-	/** Quality file path for second input file */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out=null;
 	
-	/** Override input file extension */
 	private String extin=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Number of hash functions to use */
 	int ways=1;
 	
-	/** Whether to display standard deviation in output */
 	boolean showStdev=false;
-	/** Whether to use weighted average instead of simple average */
 	boolean useWavg=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
 	private final FileFormat ffout;
 	
-	/** Array of MultiLogLog cardinality estimators for k-mer counting */
 	private final MultiLogLog[] mlogArray;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

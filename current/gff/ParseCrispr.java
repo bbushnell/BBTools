@@ -17,9 +17,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * @author Brian Bushnell
- * @date Nov 3, 2023
+ * Command-line utility for parsing and extracting CRISPR annotation sequences
+ * from GFF files. Processes input GFF files to extract direct repeat CRISPR
+ * sequences, converting them into FASTA format with sequential identifiers.
+ * Supports filtering valid CRISPR annotations and handling file compression.
  *
+ * @author Brian Bushnell
  */
 public class ParseCrispr {
 	
@@ -28,8 +31,9 @@ public class ParseCrispr {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point that initializes a ParseCrispr instance and processes
+	 * the specified input files.
+	 * @param args Command line arguments including input/output file paths
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -46,8 +50,10 @@ public class ParseCrispr {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command line arguments, validates parameters,
+	 * and initializes file format objects for input and output processing.
+	 * Sets up compression settings and prepares file streams.
+	 * @param args Command line arguments for configuration
 	 */
 	public ParseCrispr(String[] args){
 		
@@ -85,7 +91,14 @@ public class ParseCrispr {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments into configuration parameters.
+	 * Supports parameters for input files, output files, maximum line limits,
+	 * verbose mode, and invalid entry handling.
+	 *
+	 * @param args Array of command line arguments in key=value format
+	 * @return Configured Parser object with processed arguments
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -130,13 +143,15 @@ public class ParseCrispr {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adjusts file extensions for compression formats (.gz, .bz2) and validates
+	 * that required input files are specified. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that input files can be read and output files can be written.
+	 * Checks for duplicate file specifications to prevent data corruption. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -155,7 +170,11 @@ public class ParseCrispr {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Configures static file processing settings based on available thread count.
+	 * Forces ByteFile2 mode for multi-threaded processing when more than 2 threads
+	 * are available.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -168,7 +187,11 @@ public class ParseCrispr {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates parameter ranges and ensures required parameters are set.
+	 * Currently contains a TODO marker for future parameter validation logic.
+	 * @return true if parameters are valid
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
@@ -179,7 +202,14 @@ public class ParseCrispr {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Main processing method that creates input/output streams and processes
+	 * all CRISPR data. Handles file I/O setup, calls inner processing method,
+	 * and reports statistics including processing time, lines processed,
+	 * and valid/invalid line counts.
+	 *
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -220,16 +250,6 @@ public class ParseCrispr {
 	//inference=COORDINATES: alignment:pilercr:v1.02;rpt_family=CRISPR;
 	//rpt_type=direct;rpt_unit_range=1135453..1135473;rpt_unit_seq=gcccctacgagggatcgcaac
 	
-	/**
-	 * Core processing logic that reads GFF lines and extracts CRISPR sequences.
-	 * Validates entries for CRISPR direct repeat annotations, extracts sequence
-	 * data from rpt_unit_seq attributes, and writes FASTA-formatted output
-	 * with sequential numbering.
-	 *
-	 * @param bf Input file reader
-	 * @param bsw Output writer for valid CRISPR sequences
-	 * @param bswInvalid Optional writer for invalid entries
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -273,11 +293,6 @@ public class ParseCrispr {
 		}
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the specified file format.
-	 * @param ff FileFormat object describing output format, may be null
-	 * @return Initialized and started ByteStreamWriter, or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -289,53 +304,41 @@ public class ParseCrispr {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Junk output file path */
+	/** Optional output file path for invalid GFF entries */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of total lines processed from input file */
 	private long linesProcessed=0;
-	/** Count of valid output lines written to result file */
 	private long linesOut=0;
-	/** Total bytes read from input during processing */
 	private long bytesProcessed=0;
-	/** Total bytes written to output during processing */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process, defaults to Long.MAX_VALUE */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
+	/** Input file format configuration for primary input file */
 	private final FileFormat ffin1;
-	/** Output File */
+	/** Output file format configuration for primary output file */
 	private final FileFormat ffout1;
-	/** Optional Output File for Junk */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Controls whether to append to existing output files */
 	private boolean append=false;
 	
 }

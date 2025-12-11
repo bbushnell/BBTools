@@ -23,9 +23,9 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Renames sequencing reads by their file of origin and multiplexes multiple input files into a single output stream.
+ * Processes input files concurrently while preserving mate pair relationships and tracking aggregate read/base counts.
  * @author Brian Bushnell
- * @date June 1, 2016
- *
  */
 public class RenameAndMux {
 	
@@ -33,10 +33,6 @@ public class RenameAndMux {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameAndMux x=new RenameAndMux(args);
@@ -46,10 +42,6 @@ public class RenameAndMux {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor.
-	 * @param args Command line arguments
-	 */
 	public RenameAndMux(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -146,7 +138,11 @@ public class RenameAndMux {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Create read streams and process all data using a multithreaded approach.
+	 * Resets counters, invokes renameAndMerge_MT, reports timing statistics, and throws if any worker thread reports an error.
+	 * @param t Timer to measure processing duration
+	 */
 	void process(Timer t){
 		
 		//Reset counters
@@ -297,11 +293,6 @@ public class RenameAndMux {
 //		basesProcessedA.addAndGet(basesProcessed);
 //	}
 	
-	/**
-	 * Multithreaded implementation for processing input files.
-	 * Creates worker threads that process files concurrently and merge
-	 * results into shared output streams.
-	 */
 	private void renameAndMerge_MT(){
 		FileFormat ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, false, ordered);
 		FileFormat ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, false, ordered);
@@ -340,12 +331,6 @@ public class RenameAndMux {
 		errorState|=ReadWrite.closeStream(ros);
 	}
 	
-	/**
-	 * Processes a single input file by renaming reads and writing to output stream.
-	 * Handles paired/unpaired data and formats read IDs with core filename prefix.
-	 * @param path Input file path to process
-	 * @param ros Output stream for writing processed reads
-	 */
 	void renameAndMergeOneFile(final String path, final ConcurrentReadOutputStream ros){
 
 		long readsProcessed=0;
@@ -464,12 +449,8 @@ public class RenameAndMux {
 	/*----------------        Nested Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread that processes input files concurrently.
-	 * Each thread claims files atomically and processes them independently. */
 	private class MuxThread extends Thread{
 		
-		/** Constructs worker thread with output stream reference.
-		 * @param ros_ Output stream for writing processed reads */
 		MuxThread(ConcurrentReadOutputStream ros_){
 			ros=ros_;
 		}
@@ -481,7 +462,6 @@ public class RenameAndMux {
 			}
 		}
 		
-		/** Output stream reference for this worker thread */
 		final ConcurrentReadOutputStream ros;
 	}
 	
@@ -493,49 +473,34 @@ public class RenameAndMux {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** List of input file paths to process */
 	protected ArrayList<String> readPaths=new ArrayList<String>();
 	
 	protected String out1, out2;
 	
-	/** Input file extension override */
 	protected String extin;
-	/** Output file extension override */
 	protected String extout;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected AtomicLong readsProcessedA=new AtomicLong(0);
-	/** Number of bases processed */
 	protected AtomicLong basesProcessedA=new AtomicLong(0);
 	
-	/** Atomic counter for list numbering (unused in current implementation) */
 	protected AtomicLong nextListNumber=new AtomicLong(0);
 	
-	/** Atomic counter for thread-safe file path assignment */
 	protected AtomicInteger nextPathNumber=new AtomicInteger(0);
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered=false;
-	/** Whether interleaved was explicitly set. */
 	private boolean setInterleaved=false;
 	
-	/** Tracks whether interleaved status message has been printed */
 	private boolean printedInterleavedMessage=false;
 }

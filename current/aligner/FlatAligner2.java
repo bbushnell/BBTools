@@ -1,21 +1,29 @@
 package aligner;
 
 
-/** FlatAligner with flatter weights */
+/**
+ * Sequence aligner using flatter scoring weights compared to standard aligners.
+ * Implements dynamic programming alignment with optimized scoring constants
+ * designed to reduce bias towards matches over gaps.
+ * @author Brian Bushnell
+ */
 public final class FlatAligner2 {
 
-	/** Default constructor for FlatAligner2 */
+	/** Default constructor for FlatAligner2. */
 	public FlatAligner2(){}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Performs forward alignment of query sequence against reference using dynamic programming.
+	 * Uses stack-allocated arrays for improved performance and implements early termination
+	 * when alignment score drops below minimum thresholds.
+	 *
+	 * @param query Query sequence bytes to align
+	 * @param ref Reference sequence bytes
+	 * @param rstart Starting position in reference sequence
+	 * @param rstop Ending position in reference sequence
+	 * @param minScore Minimum score threshold for early termination
+	 * @param minRatio Minimum ratio of actual score to maximum possible score
+	 * @return AlignmentResult containing score and positions, or null if thresholds not met
 	 */
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio) {
@@ -124,14 +132,16 @@ public final class FlatAligner2 {
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Optimized alignment method for shorter sequences.
+	 * Uses query length as array dimension rather than reference span for efficiency.
+	 * Continues processing until minimum passing score is achieved.
+	 *
+	 * @param query Query sequence bytes to align
+	 * @param ref Reference sequence bytes
+	 * @param rstart Starting position in reference sequence
+	 * @param rstop Ending position in reference sequence
+	 * @param minRatio Minimum ratio of actual score to maximum possible score
+	 * @return AlignmentResult containing score and positions, or null if ratio threshold not met
 	 */
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop,
 			final float minRatio) {
@@ -227,31 +237,23 @@ public final class FlatAligner2 {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the number of iterations performed by alignForward method */
 	long iters(){return iters;}
-	/** Gets the number of iterations performed by alignForwardShort method */
 	long itersShort(){return itersShort;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Counter for alignment iterations in alignForward method */
 	long iters = 0;
-	/** Counter for alignment iterations in alignForwardShort method */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Score awarded for matching bases in alignment (10 points) */
 	public static final int pointsMatch = 10;
-	/** Score penalty for substituted bases in alignment (-9 points) */
 	public static final int pointsSub = -9;
-	/** Score penalty for deleted bases in alignment (-11 points) */
 	public static final int pointsDel = -11;
-	/** Score penalty for inserted bases in alignment (-11 points) */
 	public static final int pointsIns = -11;
 	
 }

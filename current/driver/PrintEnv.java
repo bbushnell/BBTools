@@ -8,18 +8,15 @@ import java.util.Map;
 import shared.Shared;
 
 /**
+ * Utility class for displaying system environment information.
+ * Prints all environment variables in sorted order along with current timestamp
+ * and local hostname.
+ *
  * @author Brian Bushnell
  * @date Apr 4, 2013
- *
  */
 public class PrintEnv {
 	
-	/**
-	 * Program entry point that displays system environment information.
-	 * Prints current timestamp, all environment variables in sorted order,
-	 * and the local machine hostname.
-	 * @param args Command-line arguments (unused)
-	 */
 	public static void main(String[] args){
 		
 		Date d=new Date();

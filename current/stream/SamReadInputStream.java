@@ -9,25 +9,19 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Multithreaded SAM/BAM input stream using Streamer.
- * 
- * Provides ReadInputStream interface for SAM and BAM files with automatic format detection
- * and multithreaded parsing. Delegates to Streamer for efficient parallel processing
- * while maintaining the familiar ReadInputStream API.
- * 
- * Supports both single-read and interleaved paired-read modes.
- * 
+ * Multithreaded SAM/BAM reader built on Streamer.
+ * Provides the ReadInputStream API for alignment files with automatic format detection,
+ * optional header sharing, and streaming-friendly block iteration.
+ * Supports single-read and interleaved paired-read inputs via the underlying streamer.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date Original, refactored October 23, 2025
  */
 public class SamReadInputStream extends ReadInputStream {
 	
-	/**
-	 * Test method demonstrating SamReadInputStream usage.
-	 * Reads the first SAM record and prints both text and object representations.
-	 * @param args Command-line arguments; expects filename as first argument
-	 */
+	/** Demonstration entry point that iterates through a SAM/BAM file and reports throughput.
+	 * @param args Command-line arguments; expects the input filename in args[0] */
 	public static void main(String[] args){
 		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, -1, -1);
 		
@@ -42,20 +36,45 @@ public class SamReadInputStream extends ReadInputStream {
 		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
 	
-	/** Constructor with default thread count. */
+	/**
+	 * Creates a SamReadInputStream for the given filename with default thread count.
+	 * Delegates to the threaded constructor and optionally loads the SAM/BAM header.
+	 *
+	 * @param fname Input SAM/BAM filename
+	 * @param loadHeader_ Whether to parse and share the header
+	 * @param allowSubprocess_ Allow use of subprocess for compressed input
+	 * @param maxReads_ Maximum reads to stream (-1 for all)
+	 */
 	public SamReadInputStream(String fname, boolean loadHeader_, 
 			boolean allowSubprocess_, long maxReads_){
 		this(fname, loadHeader_, allowSubprocess_, -1, maxReads_);
 	}
 	
-	/** Constructor with explicit thread count. */
+	/**
+	 * Creates a SamReadInputStream with an explicit thread count.
+	 * Initializes format detection, header loading, and streamer construction.
+	 *
+	 * @param fname Input SAM/BAM filename
+	 * @param loadHeader_ Whether to parse and share the header
+	 * @param allowSubprocess_ Allow use of subprocess for compressed input
+	 * @param threads_ Number of threads for the Streamer (-1 for automatic)
+	 * @param maxReads_ Maximum reads to stream (-1 for all)
+	 */
 	public SamReadInputStream(String fname, boolean loadHeader_, 
 			boolean allowSubprocess_, int threads_, long maxReads_){
 		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false), 
 			loadHeader_, threads_, maxReads_);
 	}
 	
-	/** Main constructor - creates and starts Streamer. */
+	/**
+	 * Creates a SamReadInputStream from a FileFormat description.
+	 * Sets stdin flag, warns on unexpected extensions, and starts a multithreaded streamer.
+	 *
+	 * @param ff FileFormat describing the input source
+	 * @param loadHeader_ Whether to parse and share the header
+	 * @param threads_ Number of threads for the Streamer (-1 for automatic)
+	 * @param maxReads_ Maximum reads to stream (-1 for all)
+	 */
 	public SamReadInputStream(FileFormat ff, boolean loadHeader_, 
 			int threads_, long maxReads_){
 		loadHeader=loadHeader_;
@@ -77,29 +96,43 @@ public class SamReadInputStream extends ReadInputStream {
 		streamer.start();
 	}
 	
+	/** Returns whether additional reads are available from the streamer. */
 	@Override
 	public boolean hasMore(){
 		return streamer.hasMore();
 	}
 	
+	/**
+	 * Retrieves the next block of reads from the streamer.
+	 * Returns null when the stream is exhausted.
+	 * @return List of Read objects for the next chunk, or null if no data remains
+	 */
 	@Override
 	public ArrayList<Read> nextList(){
 		ListNum<Read> ln=streamer.nextList();
 		return ln==null || ln.isEmpty() ? null : ln.list;
 	}
 
+	/** Closes the underlying streamer and returns the error state.
+	 * @return true if any errors were detected, false otherwise */
 	@Override
 	public boolean close(){
 		streamer.close();
 		return errorState;
 	}
 	
+	/** Unsupported operation for SamReadInputStream.
+	 * Always throws RuntimeException because restarting is not implemented. */
 	@Override
 	public synchronized void restart(){
 		throw new RuntimeException("SamReadInputStream does not support restart.");
 	}
 	
-	/** Get shared header, optionally waiting for it to be read. */
+	/**
+	 * Returns the globally shared SAM/BAM header, optionally waiting until it becomes available.
+	 * @param wait Whether to block until the header is populated
+	 * @return Shared header lines as byte arrays, or null if unavailable and wait is false
+	 */
 	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
 		if(printHeaderWait) {System.err.println("Waiting on header to be read from a sam file.");}
@@ -113,13 +146,19 @@ public class SamReadInputStream extends ReadInputStream {
 		return SHARED_HEADER;
 	}
 	
-	/** Set shared header for all SamReadInputStream instances. */
+	/** Sets the globally shared header for all SamReadInputStream instances and notifies waiters.
+	 * @param list Header lines to share across instances */
 	public static synchronized void setSharedHeader(ArrayList<byte[]> list){
 		SHARED_HEADER=list;
 		SamReadInputStream.class.notifyAll();
 	}
 	
-	/** Trim whitespace and annotations from SQ header reference names. */
+	/**
+	 * Normalizes an @SQ header line by stripping whitespace from the reference name.
+	 * Leaves non-@SQ lines unchanged.
+	 * @param line Header line to normalize
+	 * @return New byte array with trimmed reference name, or the original line if unchanged
+	 */
 	public static byte[] trimHeaderSQ(byte[] line){
 		if(line==null || !Tools.startsWith(line, "@SQ")){return line;}
 		
@@ -153,9 +192,16 @@ public class SamReadInputStream extends ReadInputStream {
 		return bb.array;
 	}
 	
+	/** Returns the input filename reported by the underlying streamer.
+	 * @return Input filename */
 	@Override
 	public String fname(){return streamer.fname();}
 	
+	/**
+	 * Indicates whether this stream reports paired reads.
+	 * Always false; pairing is handled by the streamer rather than this interface.
+	 * @return false
+	 */
 	@Override
 	public boolean paired(){return false;}
 
@@ -163,19 +209,22 @@ public class SamReadInputStream extends ReadInputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Shared header across all SamReadInputStream instances */
+	/**
+	 * Globally shared header lines available to all SamReadInputStream instances.
+	 */
 	private static volatile ArrayList<byte[]> SHARED_HEADER;
+	/** Controls diagnostic logging while waiting for a shared header. */
 	public static boolean printHeaderWait=false;
 	
-	/** Header lines from SAM/BAM file */
+	/** Header lines read from the current SAM/BAM stream, if loaded. */
 	private ArrayList<byte[]> header=null;
 	
-	/** Underlying multithreaded streamer */
+	/** Multithreaded Streamer providing buffered SAM/BAM reads. */
 	private final Streamer streamer;
-	/** True if header should be loaded and shared */
+	/** Whether this stream should parse and retain the SAM/BAM header. */
 	private final boolean loadHeader;
 	
-	/** True if reading from stdin */
+	/** True if input is sourced from standard input rather than a file. */
 	public final boolean stdin;
 
 }

@@ -13,19 +13,16 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Generates some stats from multiple files.
- * Uses the new Assembly class.
+ * Generates statistical metrics for assembly files using the Assembly class.
+ * Processes multiple assembly files to extract key metrics like total length,
+ * contig count, GC content, and contig length distributions.
+ * Supports tabular output with customizable headers and formatting.
+ *
  * @author Brian Bushnell
  * @date January 21, 2025
- *
  */
 public class AssemblyStats3 {
 
-	/**
-	 * Program entry point. Creates AssemblyStats3 instance and executes processing.
-	 * Manages timer initialization and output stream cleanup.
-	 * @param args Command-line arguments for assembly statistics generation
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -40,12 +37,6 @@ public class AssemblyStats3 {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs AssemblyStats3 instance with command-line argument parsing.
-	 * Processes input files, output configuration, and parser settings.
-	 * Supports single files or comma-separated file lists as input.
-	 * @param args Command-line arguments including input files and parameters
-	 */
 	public AssemblyStats3(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -89,12 +80,6 @@ public class AssemblyStats3 {
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);
 	}
 	
-	/**
-	 * Main processing method that generates assembly statistics for all input files.
-	 * Creates output writer, processes each input file, and writes tabular results.
-	 * Tracks processing statistics and execution timing.
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 
 		final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout1);
@@ -111,12 +96,6 @@ public class AssemblyStats3 {
 		Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 12);
 	}
 	
-	/**
-	 * Creates tab-delimited header row for assembly statistics output.
-	 * Includes columns for filename, size, contigs, GC content, max contig,
-	 * and length thresholds (5k+, 10k+, 25k+, 50k+).
-	 * @return Formatted header string with tab separators
-	 */
 	public static String makeHeader() {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("fname");
@@ -131,15 +110,6 @@ public class AssemblyStats3 {
 		return bb.toString();
 	}
 	
-	/**
-	 * Processes a single assembly file and writes statistics to output stream.
-	 * Creates Assembly object, extracts metrics, and formats results as
-	 * tab-delimited row with filename, size, contig count, GC content,
-	 * maximum contig length, and length distribution statistics.
-	 *
-	 * @param fname Assembly filename to process
-	 * @param bsw Output stream writer for results
-	 */
 	void processInner(String fname, ByteStreamWriter bsw) {
 		Assembly a=new Assembly(fname);
 		if(bsw==null) {return;}
@@ -157,27 +127,20 @@ public class AssemblyStats3 {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** List of input assembly filenames to process */
 	private ArrayList<String> in=new ArrayList<String>();
-	/** Output filename for assembly statistics results */
 	private String out1="stdout.txt";
 	
-	/** File format handler for output file configuration */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	/** Counter for total bytes processed across all input files */
-	/** Counter for total lines processed across all input files */
 	private long linesProcessed=0, bytesProcessed=0;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output print stream for status messages and logging */
 	private java.io.PrintStream outstream=System.err;
-	/** Flag to enable verbose output and detailed logging */
 	public static boolean verbose=false;
 	
 }

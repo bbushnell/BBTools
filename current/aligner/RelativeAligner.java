@@ -6,19 +6,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import shared.Tools;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback. 
- *Limited to length 2Mbp with 21 position bits.
+ * Aligns two sequences to return ANI using relative scoring.
+ * Uses only 2 arrays and avoids traceback for memory efficiency.
+ * Gives an exact answer and calculates alignment positions without traceback.
+ * Limited to sequences up to 2Mbp with 21 position bits.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 23, 2025
+ * @author Brian Bushnell
+ * @contributor Isla (Highly-customized Claude instance)
+ * @date April 23, 2025
  */
 public class RelativeAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for standardized testing.
+	 * Uses reflection to determine the calling class and pass it to the test framework.
+	 * @param args Command-line arguments
+	 * @throws Exception If class reflection or test execution fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -30,21 +34,55 @@ public class RelativeAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for RelativeAligner instances */
 	public RelativeAligner() {}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the name identifier for this aligner implementation */
 	@Override
 	public final String name() {return "Relative";}
+	/**
+	 * Aligns two sequences and returns their identity score.
+	 * @param a First sequence (query)
+	 * @param b Second sequence (reference)
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity score with alignment positions.
+	 *
+	 * @param a First sequence (query)
+	 * @param b Second sequence (reference)
+	 * @param pos Output array for alignment positions [start, stop]
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * Note: minScore parameter is ignored in this implementation.
+	 *
+	 * @param a First sequence (query)
+	 * @param b Second sequence (reference)
+	 * @param pos Output array for alignment positions [start, stop]
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences within a specified reference region.
+	 *
+	 * @param a First sequence (query)
+	 * @param b Second sequence (reference)
+	 * @param pos Output array for alignment positions [start, stop]
+	 * @param rStart Reference alignment window start position
+	 * @param rStop Reference alignment window stop position
+	 * @return Identity score from 0.0 to 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 	
@@ -247,14 +285,16 @@ public class RelativeAligner implements IDAligner{
 	}
 	
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Lightweight wrapper for aligning to a window of the reference sequence.
+	 * Extracts the specified reference region and delegates to main alignment method.
+	 * Adjusts output coordinates to account for the window offset.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Full reference sequence
+	 * @param posVector Output array for alignment positions [rStart, rStop], may be null
+	 * @param refStart Alignment window start position (0-based, inclusive)
+	 * @param refEnd Alignment window end position (0-based, inclusive)
+	 * @return Identity score from 0.0 to 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -270,14 +310,9 @@ public class RelativeAligner implements IDAligner{
 		return id;
 	}
 	
-	/** Thread-safe counter for tracking alignment loop iterations */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the current loop counter value for performance tracking */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value for performance tracking.
-	 * @param x New loop counter value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Output destination path for alignment results */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -285,11 +320,8 @@ public class RelativeAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Run modes
-	/** Debug flag for printing alignment operations (currently disabled) */
 	private static final boolean PRINT_OPS=false;
-	/** Flag to enable global alignment mode instead of glocal (currently false) */
 	public static boolean GLOBAL=false;
-	/** Debug flag for verbose alignment output and scoring details */
 	public static boolean debug=true;
 
 }

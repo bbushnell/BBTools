@@ -8,15 +8,12 @@ import structures.ByteBuilder;
 import structures.IntList;
 
 /**
- * Uses multiple ordered delimiters, e.g. ",. ,,".
- * Parses the line right-to-left, but the delimiter string
- * and public functions are still left-to-right.
- * For situations where the end of the line is known but the
- * prefix is unknown.
- * 
+ * Parses lines right-to-left using multiple ordered delimiters.
+ * Processes lines from end to start while maintaining left-to-right delimiter interpretation.
+ * Designed for situations where the end structure is known but the prefix is uncertain.
+ *
  * @author Brian Bushnell
  * @date May 6, 2024
- *
  */
 public final class LineParserS4Reverse implements LineParserS {
 	
@@ -26,11 +23,6 @@ public final class LineParserS4Reverse implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
-	/**
-	 * Test entry point for the line parser.
-	 * Accepts a filename/literal and delimiter string for parsing demonstration.
-	 * @param args Command-line arguments: [filename/literal] [delimiter_string]
-	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -56,11 +48,6 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Constructs a reverse line parser with specified delimiters.
-	 * Reverses the delimiter string internally for right-to-left parsing.
-	 * @param delimiters_ Delimiter string to use for parsing (will be reversed internally)
-	 */
 	public LineParserS4Reverse(String delimiters_) {
 		delimiters=new String(Tools.reverseAndCopy(delimiters_.toCharArray()));
 		maxDPos=delimiters.length()-1;
@@ -82,6 +69,12 @@ public final class LineParserS4Reverse implements LineParserS {
 		return set(new String(line_), maxTerm);
 	}
 	
+	/**
+	 * Sets the line to parse and computes term boundaries.
+	 * Parses from right to left, building bounds array in reverse order.
+	 * @param line_ String containing the line to parse
+	 * @return This parser instance for chaining
+	 */
 	@Override
 	public LineParserS4Reverse set(String line_) {
 		clear();
@@ -96,11 +89,25 @@ public final class LineParserS4Reverse implements LineParserS {
 		return this;
 	}
 	
+	/**
+	 * Sets the line to parse with maximum term limit.
+	 * Not implemented for this reverse parser.
+	 *
+	 * @param line_ String containing the line to parse
+	 * @param maxTerm Maximum number of terms to parse
+	 * @return This parser instance for chaining
+	 * @throws RuntimeException Always thrown as this method is not valid for reverse parsing
+	 */
 	@Override
 	public LineParserS4Reverse set(String line_, int maxTerm) {
 		throw new RuntimeException("Not valid.");
 	}
 	
+	/**
+	 * Clears the parser state and resets all fields.
+	 * Prepares the parser for a new line.
+	 * @return This parser instance for chaining
+	 */
 	@Override
 	public LineParserS4Reverse clear() {
 		delimiterPos=0;
@@ -110,6 +117,11 @@ public final class LineParserS4Reverse implements LineParserS {
 		return this;
 	}
 	
+	/**
+	 * Resets the parser to initial parsing position.
+	 * Does nothing for this reverse parser implementation.
+	 * @return This parser instance for chaining
+	 */
 	@Override
 	public LineParserS4Reverse reset() {
 		//Does nothing for this class
@@ -120,29 +132,30 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns the number of parsed terms in the current line */
 	public int terms() {return bounds.size();}
 	
+	/**
+	 * Parses the specified term as an integer.
+	 * @param term Zero-based term index to parse
+	 * @return Integer value of the term
+	 */
 	@Override
 	public int parseInt(int term) {
 		setBounds(term);
 		return Parse.parseInt(line, a, b);
 	}
 	
-	/**
-	 * Parses a substring of the specified term as an integer.
-	 *
-	 * @param term Zero-based term index to parse
-	 * @param from Starting offset within the term
-	 * @param to Ending offset within the term
-	 * @return Integer value of the substring
-	 */
 	public int parseInt(int term, int from, int to) {
 		setBounds(term);
 		return Parse.parseInt(line, a+from, Tools.min(line.length(), a+to));
 //		return Parse.parseInt(line, a+from, Tools.min(b, a+to));
 	}
 	
+	/**
+	 * Parses the specified term as a long integer.
+	 * @param term Zero-based term index to parse
+	 * @return Long value of the term
+	 */
 	@Override
 	public long parseLong(int term) {
 		setBounds(term);
@@ -155,6 +168,11 @@ public final class LineParserS4Reverse implements LineParserS {
 		return Parse.parseFloat(line, a, b);
 	}
 	
+	/**
+	 * Parses the specified term as a double.
+	 * @param term Zero-based term index to parse
+	 * @return Double value of the term
+	 */
 	@Override
 	public double parseDouble(int term) {
 		setBounds(term);
@@ -166,6 +184,12 @@ public final class LineParserS4Reverse implements LineParserS {
 		return (byte)parseChar(term, offset);
 	}
 	
+	/**
+	 * Parses a character from the specified term at given offset.
+	 * @param term Zero-based term index
+	 * @param offset Character offset within the term
+	 * @return Character at the specified position
+	 */
 	@Override
 	public char parseChar(int term, int offset) {
 		setBounds(term);
@@ -174,6 +198,11 @@ public final class LineParserS4Reverse implements LineParserS {
 		return line.charAt(index);
 	}
 	
+	/**
+	 * Parses the specified term as a byte array.
+	 * @param term Zero-based term index to parse
+	 * @return Byte array representation of the term
+	 */
 	@Override
 	public byte[] parseByteArray(int term) {
 		final int len=setBounds(term);
@@ -182,6 +211,7 @@ public final class LineParserS4Reverse implements LineParserS {
 		return ret;
 	}
 	
+	/** Returns the current field as a byte array */
 	@Override
 	public byte[] parseByteArrayFromCurrentField() {
 		int len=b-a;
@@ -190,12 +220,23 @@ public final class LineParserS4Reverse implements LineParserS {
 		return ret;
 	}
 	
+	/**
+	 * Parses the specified term as a string.
+	 * @param term Zero-based term index to parse
+	 * @return String value of the term, or null if empty
+	 */
 	@Override
 	public String parseString(int term) {
 		final int len=setBounds(term);
 		return a>=b ? null : line.substring(a, b);
 	}
 
+	/**
+	 * Appends the specified term to a ByteBuilder.
+	 * @param bb ByteBuilder to append to
+	 * @param term Zero-based term index to append
+	 * @return The modified ByteBuilder for chaining
+	 */
 	@Override
 	public ByteBuilder appendTerm(ByteBuilder bb, int term) {
 		final int len=setBounds(term);
@@ -205,11 +246,13 @@ public final class LineParserS4Reverse implements LineParserS {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Parses the current field as an integer */
 	@Override
 	public int parseIntFromCurrentField() {
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/** Parses the current field as a string */
 	@Override
 	public String parseStringFromCurrentField() {
 		return line.substring(a, b);
@@ -219,21 +262,42 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------         Query Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Checks if the line starts with the specified string.
+	 * @param s String to check for
+	 * @return true if line starts with the string
+	 */
 	@Override
 	public boolean startsWith(String s) {
 		return line.startsWith(s);
 	}
 	
+	/**
+	 * Checks if the line starts with the specified character.
+	 * @param c Character to check for
+	 * @return true if line starts with the character
+	 */
 	@Override
 	public boolean startsWith(char c) {
 		return Tools.startsWith(line, c);
 	}
 	
+	/**
+	 * Checks if the line starts with the specified byte.
+	 * @param b Byte to check for
+	 * @return true if line starts with the byte
+	 */
 	@Override
 	public boolean startsWith(byte b) {
 		return Tools.startsWith(line, b);
 	}
 	
+	/**
+	 * Checks if the specified term starts with the given string.
+	 * @param s String to check for
+	 * @param term Zero-based term index
+	 * @return true if the term starts with the string
+	 */
 	@Override
 	public boolean termStartsWith(String s, int term) {
 		final int len=setBounds(term);
@@ -245,6 +309,12 @@ public final class LineParserS4Reverse implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Checks if the specified term equals the given string.
+	 * @param s String to compare against
+	 * @param term Zero-based term index
+	 * @return true if the term equals the string
+	 */
 	@Override
 	public boolean termEquals(String s, int term) {
 		final int len=setBounds(term);
@@ -256,56 +326,90 @@ public final class LineParserS4Reverse implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Checks if the specified term equals the given character.
+	 * @param c Character to compare against
+	 * @param term Zero-based term index
+	 * @return true if the term equals the character
+	 */
 	@Override
 	public boolean termEquals(char c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Checks if the specified term equals the given byte.
+	 * @param c Byte to compare against
+	 * @param term Zero-based term index
+	 * @return true if the term equals the byte
+	 */
 	@Override
 	public boolean termEquals(byte c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Increments the start boundary of the current field.
+	 * @param amt Amount to increment by
+	 * @return New length of the current field
+	 */
 	@Override
 	public int incrementA(int amt) {
 		a+=amt;
 		return b-a;
 	}
 	
+	/**
+	 * Increments the start boundary of the current field.
+	 * Note: This appears to be a bug as it increments 'a' instead of 'b'.
+	 * @param amt Amount to increment by
+	 * @return New length of the current field
+	 */
 	@Override
 	public int incrementB(int amt) {
 		a+=amt;
 		return b-a;
 	}
 
+	/**
+	 * Returns the length of the specified term.
+	 * @param term Zero-based term index
+	 * @return Length of the term in characters
+	 */
 	@Override
 	public int length(int term) {
 		return setBounds(term);
 	}
 
+	/** Returns the length of the current field */
 	@Override
 	public int currentFieldLength() {
 		return b-a;
 	}
 
+	/** Returns true if there are more characters to parse */
 	@Override
 	public boolean hasMore() {
 		return a>=0;
 	}
 
+	/** Returns the length of the entire line */
 	@Override
 	public int lineLength() {
 		return line.length();
 	}
 
+	/** Returns the current line being parsed */
 	@Override
 	public String line() {return line;}
 	
+	/** Returns the start position of the current field */
 	@Override
 	public int a() {return a;}
 	
+	/** Returns the end position of the current field */
 	@Override
 	public int b() {return b;}
 	
@@ -313,6 +417,12 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Sets the parsing boundaries for the specified term.
+	 * Updates internal position markers a and b.
+	 * @param term Zero-based term index
+	 * @return Length of the term
+	 */
 	@Override
 	public int setBounds(int term){
 		a=(term==0 ? 0 : bounds.get(term-1)+1);
@@ -320,11 +430,6 @@ public final class LineParserS4Reverse implements LineParserS {
 		return b-a;
 	}
 	
-	/**
-	 * Advances the parser to find the next delimiter boundary.
-	 * Searches backwards through the line for the current delimiter.
-	 * @return Length of the current segment
-	 */
 	private int advance() {
 		char delimiter=(delimiterPos<delimiters.length() ? delimiters.charAt(delimiterPos) : 0);
 		delimiterPos++;
@@ -339,11 +444,14 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns string representation of all parsed terms */
 	@Override
 	public String toString() {
 		return toList().toString();
 	}
 	
+	/** Converts all parsed terms to a list of strings.
+	 * @return ArrayList containing all terms as strings */
 	@Override
 	public ArrayList<String> toList(){
 		ArrayList<String> list=new ArrayList<String>(bounds.size);
@@ -357,22 +465,15 @@ public final class LineParserS4Reverse implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** List storing the boundary positions of all terms */
 	private final IntList bounds=new IntList();
 	
-	/** Start position of the current field being parsed */
 	private int a=-1;
-	/** End position of the current field being parsed */
 	private int b=-1;
-	/** The current line being parsed */
 	private String line;
 	
 	//This is already reversed
-	/** Delimiter string in reversed order for right-to-left parsing */
 	public final String delimiters;
-	/** Maximum delimiter position (length - 1 of delimiter string) */
 	private final int maxDPos;
-	/** Current position in the delimiter string during parsing */
 	private int delimiterPos=0;
 	
 }

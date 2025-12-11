@@ -6,23 +6,27 @@ import java.util.concurrent.atomic.AtomicLong;
 import shared.Tools;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *Center of band drifts toward highest score.
- *Band starts wide and narrows to allow glocal alignments.
- *Band dynamically widens and narrows in response to sequence identity.
- *Like Wobble but trades the ring buffer for scalars
+ * Aligns two sequences to return ANI using dynamic banded alignment.
+ * Uses only 2 arrays and avoids traceback for memory efficiency.
+ * Calculates rstart and rstop without traceback.
+ * Limited to length 2Mbp with 21 position bits.
+ * Center of band drifts toward highest score.
+ * Band starts wide and narrows to allow glocal alignments.
+ * Band dynamically widens and narrows in response to sequence identity.
+ * Like Wobble but trades the ring buffer for scalars.
  *
- *@author Brian Bushnell
- *@contributor Opus
- *@date May 31, 2025
+ * @author Brian Bushnell
+ * @contributor Opus
+ * @date May 31, 2025
  */
 public class ScrabbleAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class to avoid redundant code.
+	 * @param <C> Type parameter extending IDAligner
+	 * @param args Command-line arguments
+	 * @throws Exception If testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -34,21 +38,54 @@ public class ScrabbleAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for ScrabbleAligner */
 	public ScrabbleAligner() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the name of this aligner implementation */
 	@Override
 	public final String name() {return "Scrabble";}
+	/**
+	 * Aligns two sequences and returns identity percentage.
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @return Identity as a float between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity percentage with position information.
+	 *
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @param pos Optional array to store alignment positions
+	 * @return Identity as a float between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 *
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @param pos Optional array to store alignment positions
+	 * @param minScore Minimum alignment score threshold (unused in current implementation)
+	 * @return Identity as a float between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference window.
+	 *
+	 * @param a Query sequence to align
+	 * @param b Reference sequence
+	 * @param pos Optional array to store alignment positions
+	 * @param rStart Start position in reference sequence
+	 * @param rStop Stop position in reference sequence
+	 * @return Identity as a float between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -56,7 +93,15 @@ public class ScrabbleAligner implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Determines optimal bandwidth for banded alignment by testing for high-identity
+	 * indel-free alignments. Calculates bandwidth based on sequence lengths and
+	 * early substitution counts.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Optimal bandwidth for alignment
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Tools.mid(7, 1+Math.max(qLen, rLen)/32, 20+(int)Math.sqrt(rLen)/8);
@@ -66,11 +111,15 @@ public class ScrabbleAligner implements IDAligner{
 	}
 
 	/**
+	 * Static alignment method that performs banded dynamic programming alignment.
+	 * May swap sequences to ensure query is not longer than reference if posVector is null.
+	 * Uses adaptive banding that widens and narrows based on alignment quality.
+	 *
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment.
+	 * If null, sequences may be swapped for efficiency.
+	 * @return Identity (0.0-1.0)
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -187,13 +236,15 @@ public class ScrabbleAligner implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
+	 * Processes alignment results to calculate identity and extract alignment coordinates.
+	 * Solves system of equations to determine matches, substitutions, insertions, and deletions.
+	 *
+	 * @param maxScore Highest score in last row of alignment matrix
 	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for returning reference start/stop coordinates
+	 * @return Identity percentage as float
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -248,14 +299,15 @@ public class ScrabbleAligner implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Lightweight wrapper for aligning to a window of the reference sequence.
+	 * Extracts reference region and adjusts coordinates in result.
+	 *
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment
+	 * @param refStart Alignment window start position
+	 * @param refEnd Alignment window end position
+	 * @return Identity (0.0-1.0)
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -272,18 +324,9 @@ public class ScrabbleAligner implements IDAligner{
 		return id;
 	}
 
-	/**
-	 * Thread-safe counter for tracking total alignment loops across all instances
-	 */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the total number of alignment loops performed */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/**
-	 * Output file path for alignment visualization (null disables visualization)
-	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -291,45 +334,26 @@ public class ScrabbleAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/**
-	 * Number of bits allocated for storing position information in score encoding
-	 */
 	private static final int POSITION_BITS=21;
-	/** Number of bits allocated for storing deletion count in score encoding */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for extracting score from encoded value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from encoded score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from encoded score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting raw alignment score from encoded value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score value for sequence matches in alignment matrix */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions in alignment matrix */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions in alignment matrix */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions in alignment matrix */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous base (N) matches in alignment */
 	private static final long N_SCORE=0L;
-	/** Sentinel value representing invalid or uninitialized alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty and position increment for alignment scoring */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Debug flag for printing alignment operation details */
 	private static final boolean PRINT_OPS=false;
-	/**
-	 * Flag indicating whether to perform global (true) or local (false) alignment
-	 */
 	public static final boolean GLOBAL=false;
 
 }

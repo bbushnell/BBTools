@@ -12,17 +12,15 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Hash map implementation optimized for long-to-long mappings.
+ * Uses open addressing with linear probing for collision resolution.
+ * Maintains a sentinel value system to distinguish empty cells from occupied ones.
+ * Designed for high-performance operations on large datasets with minimal memory overhead.
  * @author Brian Bushnell
  * @date December 12, 2017
- *
  */
 public final class LongLongHashMap{
 	
-	/**
-	 * Test harness and benchmark for LongLongHashMap performance.
-	 * Compares against Java's HashMap for correctness and timing.
-	 * @param args Command-line arguments (unused)
-	 */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		LongLongHashMap map=new LongLongHashMap(20, 0.7f);
@@ -132,23 +130,14 @@ public final class LongLongHashMap{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates a LongLongHashMap with default initial capacity of 256. */
 	public LongLongHashMap(){
 		this(256);
 	}
 	
-	/** Creates a LongLongHashMap with specified initial capacity and default load factor.
-	 * @param initialSize Initial capacity for the hash table */
 	public LongLongHashMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
-	/**
-	 * Creates a LongLongHashMap with specified capacity and load factor.
-	 * Load factor is clamped between 0.25 and 0.90 for performance.
-	 * @param initialSize Initial capacity for the hash table
-	 * @param loadFactor_ Target load factor before resizing (0.25-0.90)
-	 */
 	public LongLongHashMap(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -162,8 +151,6 @@ public final class LongLongHashMap{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Removes all key-value mappings from the map.
-	 * Resets all keys to the invalid sentinel value and values to zero. */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(keys, invalid);
@@ -172,32 +159,15 @@ public final class LongLongHashMap{
 //		assert(verify()); //123
 	}
 	
-	/**
-	 * Returns true if this map contains the specified key.
-	 * @param key Key whose presence is to be tested
-	 * @return true if this map contains the key, false otherwise
-	 */
 	public boolean contains(long key){
 //		assert(verify()); //123
 		return key==invalid ? false : findCell(key)>=0;
 	}
 	
-	/**
-	 * Returns true if this map contains the specified key.
-	 * Alias for contains() method for consistency with Java Collections.
-	 * @param key Key whose presence is to be tested
-	 * @return true if this map contains the key, false otherwise
-	 */
 	public boolean containsKey(long key){
 		return contains(key);
 	}
 	
-	/**
-	 * Returns the value to which the specified key is mapped.
-	 * Returns -1 if the key is not present in the map.
-	 * @param key The key whose associated value is to be returned
-	 * @return The value to which the key is mapped, or -1 if not present
-	 */
 	public long get(long key){
 //		assert(verify()); //123
 		long value=-1;
@@ -209,19 +179,21 @@ public final class LongLongHashMap{
 	}
 	
 	/**
-	 * Increment this key's value by 1.
-	 * @param key
-	 * @return New value
+	 * Increments the value associated with the key by 1.
+	 * If the key is not present, adds it with value 1.
+	 * @param key The key to increment
+	 * @return The new value after incrementing
 	 */
 	public long add(long key){
 		return increment(key, 1);
 	}
 	
 	/**
-	 * Increment this key's value by incr.
-	 * @param key
-	 * @param incr
-	 * @return New value
+	 * Increments the value associated with the key by the specified amount.
+	 * If the key is not present, adds it with the increment value.
+	 * @param key The key to increment
+	 * @param incr The amount to increment by
+	 * @return The new value after incrementing
 	 */
 	public long increment(long key, long incr){
 //		assert(verify()); //123
@@ -243,10 +215,11 @@ public final class LongLongHashMap{
 	}
 	
 	/**
-	 * Map this key to value.
-	 * @param key
-	 * @param value
-	 * @return true if the key was added, false if it was already contained.
+	 * Associates the specified value with the specified key.
+	 * If the key already exists, the mapping is not changed.
+	 * @param key Key with which the value is to be associated
+	 * @param value Value to be associated with the key
+	 * @return true if the key was added (new mapping), false if key already existed
 	 */
 	public boolean put(long key, long value){
 //		assert(verify()); //123
@@ -266,9 +239,10 @@ public final class LongLongHashMap{
 	}
 	
 	/**
-	 * Remove this key from the map.
-	 * @param key
-	 * @return Old value.
+	 * Removes the mapping for the specified key from this map.
+	 * Performs rehashing to maintain hash table integrity after removal.
+	 * @param key Key whose mapping is to be removed
+	 * @return The previous value associated with key, or -1 if no mapping existed
 	 */
 	public long remove(long key){
 //		assert(verify()); //123
@@ -286,26 +260,24 @@ public final class LongLongHashMap{
 		return value;
 	}
 	
-	/** Returns the number of key-value mappings in this map */
 	public int size(){return size;}
 	
-	/** Returns true if this map contains no key-value mappings */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Returns a string representation of this map showing only the keys.
+	 * Uses the list view format for compact display.
+	 * @return String representation in list format
+	 */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
 	
-	/**
-	 * Returns a detailed string representation showing array indices, keys, and values.
-	 * Useful for debugging hash table internal structure.
-	 * @return Detailed string showing (index, key, value) tuples
-	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -320,8 +292,6 @@ public final class LongLongHashMap{
 		return sb.toString();
 	}
 	
-	/** Returns a compact string representation showing only the keys.
-	 * @return String representation as comma-separated list of keys */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -336,11 +306,6 @@ public final class LongLongHashMap{
 		return sb.toString();
 	}
 	
-	/**
-	 * Returns an array containing all keys in this map.
-	 * The order is not guaranteed to be consistent.
-	 * @return Array of all keys currently in the map
-	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		int i=0;
@@ -353,12 +318,6 @@ public final class LongLongHashMap{
 		return x;
 	}
 	
-	/**
-	 * Returns an array containing keys whose values meet or exceed the threshold.
-	 * Includes validation to ensure returned keys are non-negative.
-	 * @param thresh Minimum value threshold for inclusion
-	 * @return Array of keys with values >= thresh
-	 */
 	public long[] toArray(long thresh){
 		int len=0;
 //		assert(verify());
@@ -385,12 +344,6 @@ public final class LongLongHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Validates the internal consistency of the hash table.
-	 * Checks that all occupied cells have valid keys and positive values,
-	 * empty cells have zero values, and all keys can be found at their expected positions.
-	 * @return true if the hash table is internally consistent, false otherwise
-	 */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -424,12 +377,6 @@ public final class LongLongHashMap{
 		return pass;
 	}
 	
-	/**
-	 * Rehashes all entries starting from the specified position.
-	 * Used after removal to maintain hash table clustering properties.
-	 * Processes entries in circular order to avoid gaps.
-	 * @param initial Starting position for rehashing
-	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -445,12 +392,6 @@ public final class LongLongHashMap{
 		}
 	}
 	
-	/**
-	 * Attempts to rehash a single cell to its optimal position.
-	 * Moves the key-value pair if a better position is available.
-	 * @param cell The cell index to rehash
-	 * @return true if the cell was moved, false if it stayed in place
-	 */
 	private boolean rehashCell(final int cell){
 		final long key=keys[cell];
 		final long value=values[cell];
@@ -466,11 +407,6 @@ public final class LongLongHashMap{
 		return true;
 	}
 	
-	/**
-	 * Generates a new sentinel value for marking empty cells.
-	 * Called when a collision occurs with the current invalid value.
-	 * Updates all empty cells to use the new sentinel value.
-	 */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -485,12 +421,6 @@ public final class LongLongHashMap{
 		}
 	}
 	
-	/**
-	 * Finds the cell containing the specified key using linear probing.
-	 * Returns -1 if the key is not found.
-	 * @param key The key to search for
-	 * @return Cell index containing the key, or -1 if not found
-	 */
 	private int findCell(final long key){
 		if(key==invalid){return -1;}
 		
@@ -508,14 +438,6 @@ public final class LongLongHashMap{
 		return -1;
 	}
 	
-	/**
-	 * Finds the cell containing the key or the first empty cell available.
-	 * Used for insertion operations. Throws exception if no empty cells exist.
-	 *
-	 * @param key The key to search for
-	 * @return Cell index containing the key or first empty cell
-	 * @throws RuntimeException If no empty cells are available
-	 */
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -531,19 +453,11 @@ public final class LongLongHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
-	/** Doubles the hash table size and rehashes all entries.
-	 * Called automatically when the size limit is exceeded. */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
 	}
 	
-	/**
-	 * Resizes the hash table to accommodate the specified size.
-	 * Finds the next prime number >= size2 and rehashes all existing entries.
-	 * Handles integer overflow by using the largest available prime.
-	 * @param size2 Target minimum size for the new hash table
-	 */
 	private final void resize(final long size2){
 //		assert(verify()); //123
 		assert(size2>size) : size+", "+size2;
@@ -580,42 +494,29 @@ public final class LongLongHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns the internal key array (includes empty cells marked with invalid) */
 	public long[] keys() {return keys;}
 
-	/** Returns the internal value array (includes zeros for empty cells) */
 	public long[] values() {return values;}
 
-	/** Returns the current sentinel value used to mark empty cells */
 	public long invalid() {return invalid;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array storing hash table keys, with empty cells marked by invalid value */
 	private long[] keys;
-	/** Array storing hash table values, with empty cells containing zero */
 	private long[] values;
-	/** Number of occupied key-value pairs currently in the map */
 	private int size=0;
-	/** Value for empty cells */
+	/** Sentinel value for marking empty cells in the key array */
 	private long invalid;
-	/** Prime number used as modulus for hash function calculations */
 	private int modulus;
-	/** Maximum entries before triggering automatic resize operation */
 	private int sizeLimit;
-	/** Target ratio of occupied cells to total capacity */
 	private final float loadFactor;
 	
-	/** Random number generator for creating sentinel invalid values */
 	private static final Random randy=new Random(1);
-	/** Bit mask (Long.MAX_VALUE) used in hash calculations */
 	private static final long MASK=Long.MAX_VALUE;
-	/** Bit mask (Long.MIN_VALUE) ensuring generated invalid values are negative */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
-	/** Extra capacity added beyond the prime modulus for hash table size */
 	private static final int extra=10;
 	
 }

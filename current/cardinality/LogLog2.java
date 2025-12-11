@@ -7,9 +7,12 @@ import shared.Tools;
 import structures.LongList;
 
 /**
+ * LogLog cardinality estimation algorithm for counting unique k-mers.
+ * Uses floating-point compression to store maximum leading zero counts in buckets.
+ * Provides probabilistic cardinality estimates with configurable precision.
+ *
  * @author Brian Bushnell
  * @date Feb 20, 2020
- *
  */
 public final class LogLog2 extends CardinalityTracker {
 	
@@ -17,12 +20,18 @@ public final class LogLog2 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/**
+	 * Creates a LogLog2 with default parameters: 2048 buckets, k=31, random seed, minProb=0
+	 */
 	LogLog2(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/**
+	 * Creates a LogLog2 with parameters parsed from command-line arguments.
+	 * Initializes appropriate array type based on atomic threading mode.
+	 * @param p Parser containing configuration parameters
+	 */
 	LogLog2(Parser p){
 		super(p);
 		//assert(atomic);
@@ -31,11 +40,13 @@ public final class LogLog2 extends CardinalityTracker {
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
-	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * Creates a LogLog2 with specified parameters.
+	 * Initializes bucket arrays for storing compressed maximum values.
+	 *
+	 * @param buckets_ Number of buckets (counters) for hash distribution
+	 * @param k_ K-mer length for sequence processing
+	 * @param seed Random number generator seed; -1 for random seed
+	 * @param minProb_ Minimum probability threshold for k-mer inclusion
 	 */
 	LogLog2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -52,12 +63,6 @@ public final class LogLog2 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	//Restores floating point to integer
-	/**
-	 * Converts compressed floating-point score back to original long value.
-	 * Reconstructs mantissa and applies appropriate bit shifts based on leading zeros.
-	 * @param score Compressed score containing leading zeros and truncated mantissa
-	 * @return Restored original long value
-	 */
 	private long restore(int score){
 		long lowbits=(~score)&mask;
 		int leading=(int)(score>>>mantissabits);
@@ -167,11 +172,6 @@ public final class LogLog2 extends CardinalityTracker {
 //		return cardinality;
 //	}
 	
-	/**
-	 * Alternative cardinality calculation using harmonic mean approach.
-	 * Computes harmonic mean of bucket values and applies LogLog formula.
-	 * @return Cardinality estimate based on harmonic mean
-	 */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArrayA.length(); i++){
@@ -182,17 +182,17 @@ public final class LogLog2 extends CardinalityTracker {
 		return (long)((Math.pow(2, mean)*buckets*SKIPMOD));
 	}
 	
+	/**
+	 * Merges another CardinalityTracker into this LogLog2.
+	 * Delegates to type-specific add method after class verification.
+	 * @param log CardinalityTracker to merge (must be LogLog2 instance)
+	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog2)log);
 	}
 	
-	/**
-	 * Merges another LogLog2 by taking maximum values from each bucket.
-	 * Handles both atomic and non-atomic array implementations.
-	 * @param log LogLog2 instance to merge with this one
-	 */
 	public void add(LogLog2 log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -245,6 +245,11 @@ public final class LogLog2 extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Returns compensation factor array for bucket corrections.
+	 * LogLog2 does not use compensation factors, so returns null.
+	 * @return null (no compensation factors used)
+	 */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return null;
@@ -254,21 +259,14 @@ public final class LogLog2 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maintains state.  These are the actual buckets. */
 	private final int[] maxArray;
-	/** Atomic version of maxArray. */
+	/** Atomic array storing maximum compressed values for thread-safe operations */
 	private final AtomicIntegerArray maxArrayA;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Sets the number of mantissa bits for floating-point compression.
-	 * Updates mask value accordingly. Must be less than 25 bits and allow
-	 * room for 6 additional bits within 32-bit integer constraint.
-	 * @param x Number of mantissa bits (0-24, with x+6<32)
-	 */
 	public static void setMantissaBits(int x){
 		assert(x>=0 && x<25);
 		assert(x+6<32);
@@ -276,15 +274,9 @@ public final class LogLog2 extends CardinalityTracker {
 		mask=(1<<mantissabits)-1;
 	}
 
-	/** Bit width of long values (64 bits) used in hash processing */
 	private static final int wordlen=64;
-	/** Precision or mantissa bits.
-	 * This should not be changed.  As long as it is >10 the result will be accurate.
-	 * At low values like 2 the cardinality estimate becomes too high due to a loss of precision,
-	 * and would need a fixed multiplier.  
-	 */
+	/** Number of mantissa bits for floating-point compression (default 20) */
 	private static int mantissabits=20;
-	/** Bit mask for extracting mantissa bits from compressed values */
 	private static int mask=(1<<mantissabits)-1;
 //	private static final int shift=wordlen-leading-mantissabits-1;
 	

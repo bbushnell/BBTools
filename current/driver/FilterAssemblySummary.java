@@ -15,17 +15,16 @@ import shared.Tools;
 import tax.TaxFilter;
 
 /**
+ * Filters assembly summary files based on taxonomic criteria.
+ * Processes tab-delimited assembly summary files and retains only lines
+ * matching configured taxonomic filters. Designed for filtering NCBI-style
+ * assembly summaries by taxonomic identifiers.
+ *
  * @author Brian Bushnell
  * @date May 1, 2016
- *
  */
 public class FilterAssemblySummary {
 	
-	/**
-	 * Program entry point.
-	 * Creates FilterAssemblySummary instance, processes input, and handles cleanup.
-	 * @param args Command-line arguments
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FilterAssemblySummary x=new FilterAssemblySummary(args);
@@ -35,12 +34,6 @@ public class FilterAssemblySummary {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs FilterAssemblySummary and parses command-line arguments.
-	 * Sets up input/output file formats, configures taxonomic filter,
-	 * and validates file access permissions.
-	 * @param args Command-line arguments for configuration
-	 */
 	public FilterAssemblySummary(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -106,12 +99,6 @@ public class FilterAssemblySummary {
 		filter=TaxFilter.makeFilter(args);
 	}
 	
-	/**
-	 * Main processing method that filters assembly summary lines.
-	 * Reads input file line by line, applies taxonomic filter via processLine(),
-	 * and writes retained lines to output. Tracks processing statistics.
-	 * @param t Timer for tracking execution time and reporting performance
-	 */
 	void process(Timer t){
 		
 		final TextFile tf;
@@ -162,14 +149,6 @@ public class FilterAssemblySummary {
 	}
 	
 	
-	/**
-	 * Processes individual assembly summary line through taxonomic filter.
-	 * Skips comment lines starting with '#'. Extracts taxonomic ID from
-	 * column 7 (index 6) and tests against configured TaxFilter.
-	 *
-	 * @param line Tab-delimited assembly summary line to process
-	 * @return Original line if it passes filter, null if filtered out
-	 */
 	private String processLine(String line){
 //		System.out.println("Processing line "+line);
 		if(line.startsWith("#")){return null;}
@@ -188,38 +167,27 @@ public class FilterAssemblySummary {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input assembly summary file path */
 	private String in1=null;
-	/** Output filtered assembly summary file path */
 	private String out1=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of lines to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format handler for input assembly summary file */
 	private final FileFormat ffin1;
-	/** File format handler for output filtered file */
 	private final FileFormat ffout1;
 	
-	/** The actual filter */
 	private final TaxFilter filter;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** Tracks whether processing encountered errors */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

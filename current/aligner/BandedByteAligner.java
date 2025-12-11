@@ -7,19 +7,17 @@ import shared.PreParser;
 import shared.Shared;
 
 /**
- *Aligns two sequences to return approximate ANI.
- *Uses only 2 arrays.
- *Requires traceback.
- *Limited to length 2Mbp with 21 position bits.
- *Restricts alignment to a fixed band around the diagonal.
+ * Performs banded sequence alignment for approximate ANI calculation.
+ * Uses dynamic programming within a fixed bandwidth around the diagonal to reduce
+ * computational complexity. Limited to sequences up to 2Mbp with 21 position bits.
+ * Employs only 2 arrays and requires traceback for optimal memory efficiency.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 4, 2025
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 4, 2025
  */
 public class BandedByteAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 		args=new PreParser(args, System.err, null, false, true, false).args;
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
@@ -32,7 +30,6 @@ public class BandedByteAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a new BandedByteAligner instance */
 	public BandedByteAligner() {}
 
 	/*--------------------------------------------------------------*/
@@ -54,7 +51,15 @@ public class BandedByteAligner implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Determines optimal bandwidth for banded alignment based on sequence similarity.
+	 * Tests for high-identity indel-free alignments that require minimal bandwidth.
+	 * Calculates bandwidth as minimum of length-based formula and actual differences.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @return Optimal bandwidth for the alignment
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Math.min(60+(int)Math.sqrt(rLen), 4+Math.max(qLen, rLen)/8);
@@ -64,11 +69,15 @@ public class BandedByteAligner implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Performs banded alignment between two sequences to calculate identity.
+	 * Uses dynamic programming within a fixed band around the diagonal.
+	 * May swap sequences to ensure query is not longer than reference.
+	 *
+	 * @param query0 Query sequence to align
+	 * @param ref0 Reference sequence to align against
+	 * @param posVector Optional int[2] array for returning {rStart, rStop} coordinates.
+	 * If null, sequences may be swapped for optimization
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -220,13 +229,17 @@ public class BandedByteAligner implements IDAligner{
 	}
 
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param prev Most recent score row
-	 * @param qLen Query length
-	 * @param bandStart Beginning of score band for the previous row
-	 * @param bandEnd End of score band for the previous row
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Calculates final identity and alignment coordinates from score matrix.
+	 * Finds optimal alignment position and converts scores to identity percentage.
+	 * Optionally returns reference start/stop coordinates in posVector.
+	 *
+	 * @param prev Final score row from alignment matrix
+	 * @param qLen Length of query sequence
+	 * @param bandStart Beginning of score band for the final row
+	 * @param bandEnd End of score band for the final row
+	 * @param posVector Optional array for returning reference coordinates
+	 * @param absScore Absolute maximum score from alignment
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	private static final float postprocess(byte[] prev, int qLen, 
 			int bandStart, int bandEnd, int[] posVector, int absScore) {
@@ -263,14 +276,16 @@ public class BandedByteAligner implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Performs banded alignment within a specified reference window.
+	 * Extracts reference region and delegates to main alignment method.
+	 * Adjusts returned coordinates to account for window offset.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param posVector Optional array for returning alignment coordinates
+	 * @param refStart Start position of alignment window in reference
+	 * @param refEnd End position of alignment window in reference
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -286,14 +301,9 @@ public class BandedByteAligner implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for total alignment loop iterations */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Returns the total number of alignment loop iterations performed */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter for alignment statistics.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -301,23 +311,15 @@ public class BandedByteAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Scoring constants
-	/** Score bonus for matching bases */
 	private static final byte MATCH=1;
-	/** Score penalty for substitutions */
 	private static final byte SUB=-1;
-	/** Score penalty for insertions */
 	private static final byte INS=-1;
-	/** Score penalty for deletions */
 	private static final byte DEL=-1;
-	/** Score for aligning ambiguous bases (N characters) */
 	private static final byte N_SCORE=0;
-	/** Score representing invalid or uncomputable alignment cells */
 	private static final byte BAD=Byte.MIN_VALUE/2;
 
 	// Run modes
-	/** Debug flag for printing alignment operations */
 	private static final boolean PRINT_OPS=false;
-	/** Global debug flag for detailed alignment tracing */
 	public static final boolean debug=false;
 //	public static boolean GLOBAL=false; //Cannot handle global alignments
 

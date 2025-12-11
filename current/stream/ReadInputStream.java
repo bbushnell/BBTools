@@ -7,21 +7,18 @@ import fileIO.ReadWrite;
 import structures.ListNum;
 
 /**
- * Abstract base class for reading biological sequence data from various input sources.
- * Provides unified interface for reading sequences with support for both single-read
- * and batch processing. Implementations handle different file formats and sources.
+ * Abstract base for reading sequence data from various sources (single/batch).
+ * Provides static helpers to load all reads and instance methods for streaming access.
  * @author Brian Bushnell
  */
 public abstract class ReadInputStream {
 	
 	/**
-	 * Reads all sequences from a file into an ArrayList.
-	 * Auto-detects file format and creates appropriate input stream.
-	 *
-	 * @param fname Input filename, or null to return null
+	 * Loads all reads from a filename (auto-detect format) into an ArrayList.
+	 * @param fname Input filename (nullable)
 	 * @param defaultFormat Default format code if detection fails
-	 * @param maxReads Maximum number of reads to load
-	 * @return ArrayList of Read objects, or null if fname is null
+	 * @param maxReads Max reads to load
+	 * @return List of reads or null if fname is null
 	 */
 	public static final ArrayList<Read> toReads(String fname, int defaultFormat, long maxReads){
 		if(fname==null){return null;}
@@ -30,10 +27,10 @@ public abstract class ReadInputStream {
 	}
 	
 	/**
-	 * Reads all sequences from a FileFormat into an array.
-	 * @param ff FileFormat object specifying input source and format
-	 * @param maxReads Maximum number of reads to load
-	 * @return Array of Read objects, or null if no reads loaded
+	 * Loads all reads from a FileFormat into an array.
+	 * @param ff FileFormat describing input
+	 * @param maxReads Max reads to load
+	 * @return Array of reads or null if none
 	 */
 	public static final Read[] toReadArray(FileFormat ff, long maxReads){
 		ArrayList<Read> list=toReads(ff, maxReads);
@@ -41,12 +38,10 @@ public abstract class ReadInputStream {
 	}
 	
 	/**
-	 * Reads all sequences from a FileFormat into an ArrayList.
-	 * Uses ConcurrentReadInputStream for efficient batch processing.
-	 *
-	 * @param ff FileFormat object specifying input source and format
-	 * @param maxReads Maximum number of reads to load
-	 * @return ArrayList containing all loaded reads
+	 * Loads all reads from a FileFormat via ConcurrentReadInputStream.
+	 * @param ff FileFormat describing input
+	 * @param maxReads Max reads to load
+	 * @return List of reads
 	 */
 	public static final ArrayList<Read> toReads(FileFormat ff, long maxReads){
 		ArrayList<Read> list=new ArrayList<Read>();
@@ -79,26 +74,20 @@ public abstract class ReadInputStream {
 	 */
 	public abstract ArrayList<Read> nextList();
 	
-	/** Checks if more sequences are available for reading.
-	 * @return true if more reads can be obtained, false otherwise */
+	/** Returns true if additional reads are available from the stream. */
 	public abstract boolean hasMore();
 
-	/** Resets the input stream to the beginning.
-	 * Allows re-reading the same input source from the start. */
+	/** Resets the stream to the beginning to reread input. */
 	public abstract void restart();
 	
-	/** Returns true if there was an error, false otherwise */
+	/** Closes the input stream and releases associated resources.
+	 * @return true if there was an error during closing, false otherwise */
 	public abstract boolean close();
 
-	/** Indicates whether this stream contains paired-end reads.
-	 * @return true if reads are paired-end, false for single-end */
+	/** Indicates whether the stream supplies paired-end reads.
+	 * @return true if paired, false otherwise */
 	public abstract boolean paired();
 
-	/**
-	 * Converts a Read array to an ArrayList.
-	 * @param array Array of Read objects to convert
-	 * @return ArrayList containing the same reads, or null for empty/null input
-	 */
 	protected static final ArrayList<Read> toList(Read[] array){
 		if(array==null || array.length==0){return null;}
 		ArrayList<Read> list=new ArrayList<Read>(array.length);
@@ -106,13 +95,13 @@ public abstract class ReadInputStream {
 		return list;
 	}
 	
-	/** Return true if this stream has detected an error */
+	/** Returns true if this stream has detected an error */
 	public boolean errorState(){return errorState;}
-	/** TODO */
+	/** Error state flag; true if stream encountered an error */
 	protected boolean errorState=false;
 	
-	/** Returns the filename or source identifier for this input stream.
-	 * @return Source filename/identifier, or null if not applicable */
+	/** Returns the source identifier (e.g., filename) for this stream.
+	 * @return Source name or null */
 	public abstract String fname();
 	
 }

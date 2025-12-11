@@ -27,10 +27,10 @@ import var2.ScafMap;
 
 /**
  * Sorts reads by name, potentially from multiple input files.
- * 
+ * Performs recursive merging to handle large numbers of input files efficiently.
+ * Supports various sorting criteria including name, length, quality, position, taxa, flowcell, and random order.
  * @author Brian Bushnell
  * @date September 21, 2016
- *
  */
 public class MergeSorted {
 	
@@ -38,10 +38,6 @@ public class MergeSorted {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		final boolean oldFI=FASTQ.FORCE_INTERLEAVED, oldTI=FASTQ.TEST_INTERLEAVED;
@@ -55,8 +51,9 @@ public class MergeSorted {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command-line arguments and configures the sorting operation.
+	 * Sets up input/output files, comparator selection, taxonomy tables, reference mappings, and interleaving behavior.
+	 * @param args Command line arguments including input files, output files, and options
 	 */
 	public MergeSorted(String[] args){
 		
@@ -273,7 +270,11 @@ public class MergeSorted {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams and processes all data.
+	 * Performs recursive merging of input files if needed, then runs a final merge to output and reports timing.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Reset counters
@@ -295,14 +296,6 @@ public class MergeSorted {
 		}
 	}
 	
-	/**
-	 * Recursively merges input files when the number exceeds maxFiles limit.
-	 * Groups input files into batches, creates temporary sorted files, and repeats
-	 * until the number of files is manageable for final merge.
-	 *
-	 * @param inList List of input file paths to merge
-	 * @return List of temporary files containing merged data
-	 */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList){
 		assert(maxFiles>1);
 		ArrayList<String> currentList=inList;
@@ -332,11 +325,6 @@ public class MergeSorted {
 		return currentList;
 	}
 	
-	/**
-	 * Creates a temporary file for intermediate merge results.
-	 * Uses the appropriate file extension based on input/output formats.
-	 * @return Path to a new temporary file
-	 */
 	public String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -352,14 +340,6 @@ public class MergeSorted {
 		return temp;
 	}
 	
-	/**
-	 * Merges a list of sorted input files into output files.
-	 * Delegates to SortByName.mergeAndDump for the actual merging operation.
-	 *
-	 * @param inList List of input file paths to merge
-	 * @param ff1 Primary output file format
-	 * @param ff2 Secondary output file format (may be null)
-	 */
 	public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2){
 		errorState|=SortByName.mergeAndDump(inList, /*null, */ff1, ff2, delete, useSharedHeader, allowInputSubprocess, outstream, SortByName.maxSizeObservedStatic());
 	}
@@ -368,82 +348,55 @@ public class MergeSorted {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private ArrayList<String> in1=new ArrayList<String>();
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 
-	/** Path to GI to taxonomy ID mapping table */
 	private String giTableFile=null;;
-	/** Path to taxonomic tree file */
 	private String taxTreeFile=null;
-	/** Path to accession to taxonomy ID mapping file */
 	private String accessionFile=null;
 	
 	/*--------------------------------------------------------------*/
 
 //	long maxLengthObserved=0;
 	
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 	
-	/**
-	 * Maximum number of files to merge simultaneously before creating temp files
-	 */
 	private int maxFiles=16;
 	
-	/** Whether to delete temporary files after merging */
 	private boolean delete=true;
 	
-	/** Whether to use a shared header for all output files */
 	private boolean useSharedHeader=false;
 	
-	/** Whether to allow subprocess execution for input processing */
 	private boolean allowInputSubprocess=true;
 	
-	/** File extension to use for temporary files */
 	private String tempExt=null;
 	
-	/** Whether to generate k-mer data for topological sorting */
 	private boolean genKmer=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Comparator used for sorting reads */
 	private static ReadComparator comparator=ReadComparatorName.comparator;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** Print verbose messages */
 	public static final boolean verbose2=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

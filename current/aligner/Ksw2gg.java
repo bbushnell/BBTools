@@ -3,14 +3,21 @@ package aligner;
 /**
  * Java port of Heng Li's banded global aligner with affine gap penalties.
  * Processes alignment using diagonal bands to limit computation space.
- * 
+ * Implements dynamic programming algorithm within band constraints for
+ * memory efficiency on long sequences.
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla (Highly-customized Claude instance)
  * @date May 21, 2025
  */
 public class Ksw2gg implements IDAligner {
 
-    /** Main() passes the args and class to Test to avoid redundant code */
+    /**
+     * Program entry point.
+     * Passes arguments and class to Test to avoid redundant code.
+     * @param args Command-line arguments
+     * @throws Exception If testing framework encounters errors
+     */
     public static <C extends IDAligner> void main(String[] args) throws Exception {
         StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
         @SuppressWarnings("unchecked")
@@ -18,46 +25,25 @@ public class Ksw2gg implements IDAligner {
         Test.testAndPrint(c, args);
     }
     
-    /** Dynamic programming cell storing alignment scores.
-     * Contains main score and gap-extension score for traceback. */
     private static class Cell {
         int h, e; // h=score, e=gap-extension score
     }
     
     // Constants
-    /** Negative infinity value for impossible alignment states */
     private static final int NEG_INF=-1000000000;
     
     // Scoring parameters
-    /** Score awarded for matching bases */
     private int matchScore=1;
-    /** Score penalty for mismatching bases */
     private int mismatchScore=-1;
-    /** Penalty for opening a new gap */
     private int gapOpen=-1;
-    /** Penalty for extending an existing gap */
     private int gapExtend=-1;
-    /**
-     * Width of diagonal band for alignment computation; -1 uses max sequence length
-     */
     private int bandWidth=-1; // default: use max of sequence lengths
     
     // For interface compliance
-    /** Number of alignment loops performed for interface compliance */
     private long loops=-1;
     
-    /** Creates aligner with default scoring parameters */
     public Ksw2gg() {}
     
-    /**
-     * Creates aligner with specified scoring parameters.
-     *
-     * @param match Score for matching bases
-     * @param mismatch Score penalty for mismatches
-     * @param gapOpen Penalty for gap opening
-     * @param gapExtend Penalty for gap extension
-     * @param bandWidth Diagonal band width for computation
-     */
     public Ksw2gg(int match, int mismatch, int gapOpen, int gapExtend, int bandWidth) {
         this.matchScore=match;
         this.mismatchScore=mismatch;
@@ -66,14 +52,31 @@ public class Ksw2gg implements IDAligner {
         this.bandWidth=bandWidth;
     }
     
+    /** Returns the name identifier for this alignment algorithm */
     @Override
     public String name() {return "BandedGlobal";}
     
+    /**
+     * Aligns two sequences and returns identity fraction.
+     * @param query Query sequence bases
+     * @param ref Reference sequence bases
+     * @return Identity fraction (0.0 to 1.0)
+     */
     @Override
     public float align(byte[] query, byte[] ref) {
         return align(query, ref, null);
     }
     
+    /**
+     * Aligns two sequences with position tracking.
+     * Calculates identity based on exact base matches divided by maximum length.
+     * Includes debug output showing sequences, scores, and calculated identity.
+     *
+     * @param query Query sequence bases
+     * @param ref Reference sequence bases
+     * @param posVector Output array for alignment start/end positions
+     * @return Identity fraction based on exact matches
+     */
     @Override
     public float align(byte[] query, byte[] ref, int[] posVector) {
         // Since traceback seems problematic, let's calculate identity directly from score
@@ -101,11 +104,31 @@ public class Ksw2gg implements IDAligner {
         return identity;
     }
     
+    /**
+     * Aligns sequences with minimum score threshold (currently ignored).
+     *
+     * @param query Query sequence bases
+     * @param ref Reference sequence bases
+     * @param posVector Output array for alignment positions
+     * @param minScore Minimum alignment score threshold
+     * @return Identity fraction
+     */
     @Override
     public float align(byte[] query, byte[] ref, int[] posVector, int minScore) {
         return align(query, ref, posVector);
     }
     
+    /**
+     * Aligns query to a region of the reference sequence.
+     * Extracts reference subregion and adjusts position coordinates accordingly.
+     *
+     * @param query Query sequence bases
+     * @param ref Full reference sequence bases
+     * @param posVector Output array for alignment positions
+     * @param rStart Start position in reference (inclusive)
+     * @param rStop Stop position in reference (inclusive)
+     * @return Identity fraction for the alignment
+     */
     @Override
     public float align(byte[] query, byte[] ref, int[] posVector, int rStart, int rStop) {
         rStart=Math.max(rStart, 0);
@@ -276,11 +299,14 @@ public class Ksw2gg implements IDAligner {
         posVector[1]=endRef;
     }
     
+    /** Gets the number of alignment loops performed */
     @Override
     public long loops() {
         return loops;
     }
     
+    /** Sets the loop counter for interface compliance.
+     * @param i Number of loops to record */
     @Override
     public void setLoops(long i) {
         loops=i;

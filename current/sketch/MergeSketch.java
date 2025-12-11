@@ -19,11 +19,13 @@ import structures.ByteBuilder;
 import tracker.ReadStats;
 
 /**
- * Combines multiple sketches into a single sketch.
- * 
+ * Combines multiple sketch files into a single merged sketch.
+ * Loads individual sketches from input files and creates a union sketch
+ * containing the top-K kmers from all inputs. Supports metadata override
+ * and output customization for the merged result.
+ *
  * @author Brian Bushnell
  * @date July 23, 2018
- *
  */
 public class MergeSketch extends SketchObject {
 	
@@ -32,7 +34,9 @@ public class MergeSketch extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point for sketch merging.
+	 * Sets up processing environment, creates MergeSketch instance, and
+	 * executes the merge operation.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -58,7 +62,9 @@ public class MergeSketch extends SketchObject {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructs a MergeSketch with command line arguments.
+	 * Parses input files, output settings, metadata overrides, and
+	 * sketch parameters from the argument array.
 	 * @param args Command line arguments
 	 */
 	public MergeSketch(String[] args){
@@ -189,12 +195,6 @@ public class MergeSketch extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that performs sketch merging.
-	 * Loads input sketches, creates a SketchHeap union of specified size,
-	 * applies metadata overrides, and writes the merged sketch to output.
-	 * @param t Timer for tracking execution time
-	 */
 	private void process(Timer t){
 		Timer ttotal=new Timer();
 		
@@ -259,14 +259,6 @@ public class MergeSketch extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Adds file paths to a collection, parsing comma-separated values.
-	 * Handles both single files and comma-delimited file lists.
-	 *
-	 * @param a File path or comma-separated file list
-	 * @param list Collection to add file paths to
-	 * @return true if any files were added to the collection
-	 */
 	private static boolean addFiles(String a, Collection<String> list){
 		int initial=list.size();
 		if(a==null){return false;}
@@ -286,61 +278,43 @@ public class MergeSketch extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** List of input sketch file paths */
 	private ArrayList<String> in=new ArrayList<String>();
 	
-	/** Output file path for merged sketch */
 	private String outSketch=null;
 	
-	/** Sketch processing tool for loading and manipulating sketches */
 	private final SketchTool tool;
 	
-	/** Loaded input sketches to be merged */
 	private ArrayList<Sketch> inSketches;
 	
 	/*Override metadata */
-	/** Override taxonomic name for merged sketch metadata */
 	private String outTaxName=null;
-	/** Override filename for merged sketch metadata */
 	private String outFname=null;
-	/** Override primary name for merged sketch metadata */
 	private String outName0=null;
-	/** Override taxonomic ID for merged sketch metadata */
 	private int outTaxID=-1;
-	/** Override species ID for merged sketch metadata */
 	private long outSpid=-1;
-	/** Override IMG ID for merged sketch metadata */
 	private long outImgID=-1;
-	/** Additional metadata entries for merged sketch */
 	private ArrayList<String> outMeta=null;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary output file */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Don't print caught exceptions */
 	public static boolean suppressErrors=false;
 	
 }

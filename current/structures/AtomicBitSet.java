@@ -2,31 +2,12 @@ package structures;
 
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
-/**
- * Thread-safe bit set implementation using atomic operations for concurrent access.
- * Extends AbstractBitSet to provide lock-free bit manipulation operations
- * suitable for high-performance multi-threaded applications.
- * Each bit position represents a boolean value with atomic read/write guarantees.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public class AtomicBitSet extends AbstractBitSet {
 
-	/** Constructs an AtomicBitSet with the specified capacity.
-	 * @param capacity_ The number of bits this set can hold */
 	public AtomicBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
-	/**
-	 * Constructs an AtomicBitSet with specified capacity plus extra space.
-	 * The extra parameter allows pre-allocation of additional cells to avoid
-	 * reallocation during growth.
-	 *
-	 * @param capacity_ The number of bits this set can hold
-	 * @param extra Additional cells to pre-allocate beyond minimum required
-	 */
 	public AtomicBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -61,6 +42,11 @@ public class AtomicBitSet extends AbstractBitSet {
 		}
 	}
 
+	/**
+	 * Returns the value of the bit at position x.
+	 * @param x The bit position to check (0-based)
+	 * @return 1 if the bit is set, 0 if clear
+	 */
 	@Override
 	public int getCount(int x) {
 		assert(x>=0 && x<=capacity);
@@ -71,6 +57,8 @@ public class AtomicBitSet extends AbstractBitSet {
 		return (value&mask)==mask ? 1 : 0;
 	}
 
+	/** Atomically clears all bits in the set to zero.
+	 * Sets each cell in the underlying array to 0. */
 	@Override
 	public void clear(){
 		for(int i=0; i<length; i++){
@@ -78,6 +66,11 @@ public class AtomicBitSet extends AbstractBitSet {
 		}
 	}
 
+	/**
+	 * Returns the number of bits set to 1 in this bit set.
+	 * Counts set bits across all cells using Integer.bitCount().
+	 * @return The count of set bits in the entire bit set
+	 */
 	@Override
 	public long cardinality(){
 		long sum=0;
@@ -88,6 +81,14 @@ public class AtomicBitSet extends AbstractBitSet {
 		return sum;
 	}
 	
+	/**
+	 * Sets the capacity of the bit set and reallocates array if needed.
+	 * Calculates required array length as (capacity+31)/32 to accommodate all bits.
+	 * Only reallocates if new capacity exceeds current maximum capacity.
+	 *
+	 * @param capacity_ The new bit capacity
+	 * @param extra Additional cells to allocate beyond minimum required
+	 */
 	@Override
 	public void setCapacity(long capacity_, int extra){
 		capacity=capacity_;
@@ -99,27 +100,24 @@ public class AtomicBitSet extends AbstractBitSet {
 		}
 	}
 
+	/** Returns the maximum number of bits this set can hold */
 	@Override
 	public long capacity(){return capacity;}
 
+	/** Returns the length of the underlying integer array */
 	@Override
 	public int length(){return length;}
 
+	/** Returns the number of bits per element (always 1 for bit sets) */
 	@Override
 	public final int bits(){return 1;}
 	
-	/** Returns the underlying AtomicIntegerArray for direct access */
 	public AtomicIntegerArray array(){return array;}
 	
-	/** Maximum capacity allocated in the underlying array */
 	private long maxCapacity=0;
-	/** Current capacity (number of bits this set can hold) */
 	private long capacity=0;
-	/** Maximum length allocated in the underlying array */
 	private int maxLength=0;
-	/** Current length of the underlying array */
 	private int length=0;
-	/** Underlying atomic integer array storing the bit data */
 	private AtomicIntegerArray array;
 
 }

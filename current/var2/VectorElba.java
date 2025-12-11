@@ -13,13 +13,13 @@ public class VectorElba {
 	/**
 	 * Elba's feature vector for quality score prediction.
 	 * Focus on quality metrics and statistical measures.
-	 * 
+	 *
 	 * @param v Variant to convert
 	 * @param pairingRate Overall proper pairing rate
 	 * @param totalQualityAvg Average base quality from dataset
-	 * @param totalMapqAvg Average mapping quality from dataset 
-	 * @param readLengthAvg Average read length 
-	 * @param ploidy Sample ploidy 
+	 * @param totalMapqAvg Average mapping quality from dataset
+	 * @param readLengthAvg Average read length
+	 * @param ploidy Sample ploidy
 	 * @param map Scaffold mapping
 	 * @return Feature vector for Elba's quality prediction model
 	 */
@@ -79,25 +79,18 @@ public class VectorElba {
 	 * Contains predefined bounds for scaling variant metrics to [0,1] range. */
 	private static class ElbaMinMaxValues {
 		/** Maximum average mapping quality for normalization */
-		/** Minimum average mapping quality for normalization */
 		public float min_avg_mapq = 0.0f, max_avg_mapq = 45.0f;    
 		/** Maximum average base quality for normalization */
-		/** Minimum average base quality for normalization */
 		public float min_avg_baseq = 0.0f, max_avg_baseq = 45.0f;       
 		/** Maximum average end distance for normalization */
-		/** Minimum average end distance for normalization */
 		public float min_avg_enddist = 0.0f, max_avg_enddist = 75.0f;  
 		/** Maximum transformed average depth per allele for normalization */
-		/** Minimum transformed average depth per allele for normalization */
 		public float min_transformed_avg_depth_per_allele = 0.0f, max_transformed_avg_depth_per_allele = 3.1f;  
 		/** Maximum transformed average read length for normalization */
-		/** Minimum transformed average read length for normalization */
 		public float min_transformed_avg_read_length = 0.0f, max_transformed_avg_read_length = 2.5e21f;       
 		/** Maximum transformed average identity for normalization */
-		/** Minimum transformed average identity for normalization */
 		public float min_transformed_avg_identity = 0.0f, max_transformed_avg_identity = 9.5e29f;    
 		/** Maximum transformed strand bias for normalization */
-		/** Minimum transformed strand bias for normalization */
 		public float min_transformed_sb = 0.0f, max_transformed_sb = 1.0f;               
 
 	}
@@ -172,11 +165,6 @@ public class VectorElba {
 	}
 
 
-	/**
-	 * Calculates variant length as absolute difference between read and reference.
-	 * @param v Variant to measure
-	 * @return Absolute difference between read length and reference length
-	 */
 	private static int elbaCalculateLen(Var v) {
 		return Math.abs(v.readlen() - v.reflen());
 	} 

@@ -6,12 +6,10 @@ import fileIO.FileFormat;
 import shared.Shared;
 
 /**
- * Abstract superclass for ConcurrentReadOutputStream implementations.
- * These manage ReadStreamWriters, which write reads to a file in their own thread.
- * ConcurrentReadOutputStreams allow paired reads output to twin files to be treated as a single stream.
+ * Abstract base for concurrent read output streams that wrap ReadStreamWriters.
+ * Supports single/paired outputs, shared headers, ordered writing, and MPI passthrough.
  * @author Brian Bushnell
  * @date Jan 26, 2015
- *
  */
 public abstract class ConcurrentReadOutputStream {
 	
@@ -19,34 +17,63 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------           Factory            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** @See primary method */
+	/**
+	 * Creates a single-file output stream with shared-header option.
+	 *
+	 * @param ff1 Primary output format
+	 * @param rswBuffers Max buffered lists per writer
+	 * @param header Header text to prepend
+	 * @param useSharedHeader Whether to write the shared header
+	 * @return ConcurrentReadOutputStream instance
+	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, int rswBuffers, CharSequence header, boolean useSharedHeader){
 		return getStream(ff1, null, null, null, rswBuffers, header, useSharedHeader, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 	}
 	
-	/** @See primary method */
+	/**
+	 * Creates a paired-file output stream.
+	 *
+	 * @param ff1 Read 1 format
+	 * @param ff2 Read 2 format (optional)
+	 * @param rswBuffers Max buffered lists per writer
+	 * @param header Header text to prepend
+	 * @param useSharedHeader Whether to write the shared header
+	 * @return ConcurrentReadOutputStream instance
+	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, int rswBuffers, CharSequence header, boolean useSharedHeader){
 		return getStream(ff1, ff2, null, null, rswBuffers, header, useSharedHeader, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 	}
 	
-	/** @See primary method */
+	/**
+	 * Creates an output stream with optional quality files for paired output.
+	 *
+	 * @param ff1 Read 1 format
+	 * @param ff2 Read 2 format (optional)
+	 * @param qf1 Quality file 1 (optional)
+	 * @param qf2 Quality file 2 (optional)
+	 * @param rswBuffers Max buffered lists per writer
+	 * @param header Header text to prepend
+	 * @param useSharedHeader Whether to write the shared header
+	 * @return ConcurrentReadOutputStream instance
+	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2,
 			int rswBuffers, CharSequence header, boolean useSharedHeader){
 		return getStream(ff1, ff2, qf1, qf2, rswBuffers, header, useSharedHeader, Shared.USE_MPI, Shared.MPI_KEEP_ALL);
 	}
 	
 	/**
-	 * Create a ConcurrentReadOutputStream.
-	 * @param ff1 Read 1 file (required)
-	 * @param ff2 Read 2 file (optional)
-	 * @param qf1 Qual file 1 (optional)
-	 * @param qf2 Qual file 2 (optional)
-	 * @param rswBuffers Maximum number of lists to buffer for each ReadStreamWriter
-	 * @param header A header to write to each output file before anything else
-	 * @param useSharedHeader Write the shared header to each output file (mainly for sam output)
-	 * @param mpi True if MPI will be used
-	 * @param keepAll In MPI mode, tells this stream to keep all reads instead of just a fraction
-	 * @return
+	 * Primary factory creating standard or MPI-backed concurrent output streams.
+	 *
+	 * @param ff1 Read 1 format (required)
+	 * @param ff2 Read 2 format (optional)
+	 * @param qf1 Quality file 1 (optional)
+	 * @param qf2 Quality file 2 (optional)
+	 * @param rswBuffers Max buffered lists per writer
+	 * @param header Header text to prepend
+	 * @param useSharedHeader Write shared header (SAM)
+	 * @param mpi Use MPI-backed stream
+	 * @param keepAll In MPI mode, keep all reads instead of a fraction
+	 * @return ConcurrentReadOutputStream implementation
 	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2,
 			int rswBuffers, CharSequence header, boolean useSharedHeader, final boolean mpi, final boolean keepAll){
@@ -78,10 +105,9 @@ public abstract class ConcurrentReadOutputStream {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Protected constructor for subclasses.
-	 * Initializes file formats and determines if output should be ordered.
-	 * @param ff1_ Primary file format
-	 * @param ff2_ Secondary file format (may be null)
+	 * Protected base constructor setting formats and ordered flag.
+	 * @param ff1_ Primary output format
+	 * @param ff2_ Secondary output format (may be null)
 	 */
 	ConcurrentReadOutputStream(FileFormat ff1_, FileFormat ff2_){
 		ff1=ff1_;
@@ -89,39 +115,43 @@ public abstract class ConcurrentReadOutputStream {
 		ordered=(ff1==null ? true : ff1.ordered());
 	}
 	
-	/** Must be called before writing to the stream */
+	/** Starts underlying writers/threads; must be called before adding reads. */
 	public abstract void start();
 	
-	/** Returns whether the stream has been started */
+	/** Indicates whether the stream has been started.
+	 * @return true if start() was called */
 	public final boolean started(){return started;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * Enqueue this list to be written.
-	 * @param list List of reads
-	 * @param listnum A number, starting at 0.  In ordered mode, lists will only be written in numeric order, regardless of adding order.
+	/**
+	 * Enqueues a list of reads to be written; ordered streams enforce listnum order.
+	 * @param list Reads to write
+	 * @param listnum Sequential list number starting at 0
 	 */
 	public abstract void add(ArrayList<Read> list, long listnum);
 	
-	/** Closes the output stream and releases resources */
+	/** Closes the output stream and releases resources. */
 	public abstract void close();
 	
-	/** Waits for all writing threads to complete */
+	/** Waits for all writer threads to finish. */
 	public abstract void join();
 	
-	/** Resets the next list ID counter for ordered output */
+	/** Resets ordered output list numbering back to zero. */
 	public abstract void resetNextListID();
 	
-	/** Returns the filename of the primary output file */
+	/** Returns the primary output filename.
+	 * @return Output filename */
 	public abstract String fname();
 	
-	/** Return true if this stream has detected an error */
+	/** Indicates whether an error has been detected.
+	 * @return true if error occurred */
 	public abstract boolean errorState();
 
-	/** Returns true if the stream finished successfully without errors */
+	/** Indicates whether the stream completed without errors.
+	 * @return true if finished cleanly */
 	public abstract boolean finishedSuccessfully();
 	
 	/*--------------------------------------------------------------*/
@@ -132,11 +162,8 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Returns the total number of bases written across all output streams.
-	 * Sums bases from both primary and secondary ReadStreamWriters.
-	 * @return Total bases written
-	 */
+	/** Returns total bases written across all writers.
+	 * @return Base count written */
 	public long basesWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -146,11 +173,8 @@ public abstract class ConcurrentReadOutputStream {
 		return x;
 	}
 	
-	/**
-	 * Returns the total number of reads written across all output streams.
-	 * Sums reads from both primary and secondary ReadStreamWriters.
-	 * @return Total reads written
-	 */
+	/** Returns total reads written across all writers.
+	 * @return Read count written */
 	public long readsWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -160,31 +184,35 @@ public abstract class ConcurrentReadOutputStream {
 		return x;
 	}
 	
-	/** Returns the primary ReadStreamWriter */
+	/** Returns the primary ReadStreamWriter.
+	 * @return Primary writer or null */
 	public abstract ReadStreamWriter getRS1();
-	/** Returns the secondary ReadStreamWriter (may be null) */
+	/** Returns the secondary ReadStreamWriter, if any.
+	 * @return Secondary writer or null */
 	public abstract ReadStreamWriter getRS2();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Secondary output file format (may be null). */
+	/** Primary output file format. */
 	public final FileFormat ff1, ff2;
-	/** Whether output should maintain input order */
+	/** Whether output must preserve list order. */
 	public final boolean ordered;
 	
-	/** Tracks whether an error has occurred in the stream */
+	/** Tracks whether an error was encountered. */
 	boolean errorState=false;
-	/** Tracks whether the stream finished successfully */
+	/** Tracks whether writing completed successfully. */
 	boolean finishedSuccessfully=false;
-	/** Tracks whether the stream has been started */
+	/** Tracks whether start() has been called. */
 	boolean started=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Global flag for verbose output during stream operations */
+	/** Enables verbose logging for stream operations. */
 	public static boolean verbose=false;
 	
 }

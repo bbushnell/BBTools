@@ -6,9 +6,13 @@ import fileIO.TextFile;
 import stream.Read;
 
 /**
+ * Manages scaffold name filtering using blacklist and whitelist mechanisms.
+ * Provides read filtering based on scaffold names to include/exclude specific
+ * reference sequences during alignment processing. Supports both FASTA and
+ * plain text formatted filter files.
+ *
  * @author Brian Bushnell
  * @date Mar 14, 2013
- *
  */
 public class Blacklist {
 	
@@ -135,19 +139,17 @@ public class Blacklist {
 		return added-overwritten;
 	}
 
-	/** Returns true if blacklist exists and contains entries */
+	/** Returns true if a blacklist exists and contains entries. */
 	public static boolean hasBlacklist(){return blacklist!=null && !blacklist.isEmpty();}
-	/** Returns true if whitelist exists and contains entries */
+	/** Returns true if a whitelist exists and contains entries. */
 	public static boolean hasWhitelist(){return whitelist!=null && !whitelist.isEmpty();}
 
-	/** Clears the blacklist by setting it to null */
+	/** Clears the blacklist (sets it to null). */
 	public static void clearBlacklist(){blacklist=null;}
-	/** Clears the whitelist by setting it to null */
+	/** Clears the whitelist (sets it to null). */
 	public static void clearWhitelist(){whitelist=null;}
 	
-	/** Set of scaffold names to exclude from processing */
 	private static HashSet<String> blacklist=null;
-	/** Set of scaffold names to exclusively include in processing */
 	private static HashSet<String> whitelist=null;
 	
 }

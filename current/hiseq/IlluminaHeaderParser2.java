@@ -5,10 +5,18 @@ import shared.LineParserS3;
 import structures.ByteBuilder;
 
 /**
- * Faster version of IlluminaHeaderParser using LineParser.
+ * Fast parsing of Illumina sequencing read headers using LineParser for efficient
+ * tokenization. Supports multiple Illumina platforms including NovaSeq, HiSeq,
+ * MiSeq, and NextSeq by extracting structured metadata from complex header formats.
+ *
+ * Handles header formats like:
+ * - @VP2-06:112:H7LNDMCVY:2:2437:14181:20134 (NovaSeq6k)
+ * - @MISEQ08:172:000000000-ABYD0:1:1101:18147:1925 1:N:0:TGGATATGCGCCAATT
+ * - @A00178:38:H5NYYDSXX:2:1101:3007:1000 1:N:0:CAACCTA+CTAGGTT (NovaSeq)
+ * - @LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG
+ *
  * @author Brian Bushnell
  * @date April 3, 2024
- *
  */
 public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	
@@ -48,8 +56,6 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Test method for header parsing functionality.
-	 * @param args Command-line arguments, first argument used as test header */
 	public static void main(String[] args) {
 		IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 		ihp.test(args.length>0 ? args[0] : null);
@@ -59,12 +65,6 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Parses an Illumina sequencing read header and initializes internal state.
-	 * Tokenizes the header using colon delimiter and locates whitespace separator.
-	 * @param id_ The complete read header string to parse
-	 * @return This parser instance for method chaining
-	 */
 	public IlluminaHeaderParser2 parse(String id_) {
 		id=id_;
 		lp.set(id_);
@@ -72,29 +72,14 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 		return this;
 	}
 	
-	/**
-	 * Determines if this header can be shortened by removing redundant information.
-	 * A header can be shrunk if it looks valid but is not already in shrunk format.
-	 * @return true if header can be compressed to save space
-	 */
 	public boolean canShrink() {
 		return looksValid() && !looksShrunk();
 	}
 	
-	/**
-	 * Validates header structure by checking term count and whitespace position.
-	 * Valid headers have 8+ terms with whitespace at position 6 or 7.
-	 * @return true if header appears to be valid Illumina format
-	 */
 	public boolean looksValid() {
 		return(lp.terms()>=8 && whitespaceIndex>=6 && whitespaceIndex<=7);
 	}
 	
-	/**
-	 * Checks if header is already in compressed format.
-	 * Shrunk headers have >3 terms with the third term starting at position 2.
-	 * @return true if header is already compressed
-	 */
 	public boolean looksShrunk() {
 		return(lp.terms()>3 && lp.bounds().get(2)==2);
 	}
@@ -122,73 +107,91 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	@Override
 	public int lane() {return lp.parseInt(3);}
 
+	/** Returns the tile number within the lane */
 	@Override
 	public int tile() {return lp.parseInt(4);}
 
+	/** Returns the x-coordinate position on the tile */
 	@Override
 	public int xPos() {return lp.parseInt(5);}
 
+	/** Returns the y-coordinate position on the tile */
 	@Override
 	public int yPos() {return lp.parseInt(6);}
 
+	/**
+	 * Returns the pair number character (1 or 2 for paired-end reads).
+	 * Extracts from position after whitespace separator.
+	 * @return Character indicating read pair number
+	 */
 	@Override
 	public char pairCode() {return lp.parseChar(whitespaceIndex+1, 0);}
 
+	/**
+	 * Returns the chastity filter code (Y for passed, N for failed).
+	 * Indicates whether the read passed Illumina's chastity filter.
+	 * @return Y if passed chastity filter, N if failed
+	 */
 	@Override
 	public char chastityCode() {return lp.parseChar(whitespaceIndex+2, 0);}
 
+	/**
+	 * Returns control bits indicating various read flags.
+	 * Typically 0 for most reads, higher values indicate special conditions.
+	 * @return Integer representing control bit flags
+	 */
 	@Override
 	public int controlBits() {return lp.parseInt(whitespaceIndex+3);}
 
+	/**
+	 * Returns the barcode sequence if present in the header.
+	 * May contain single index or dual indices separated by '+'.
+	 * @return Barcode string or null if not present
+	 */
 	@Override
 	public String barcode() {
 		return lp.terms()<=whitespaceIndex+4 ? null : lp.parseString(whitespaceIndex+4);
 	}
 
+	/**
+	 * Returns additional index information from extended header format.
+	 * Available when whitespace separator is at position 7.
+	 * @return Third index string or null if not available
+	 */
 	@Override
 	public String index3() {
 		return whitespaceIndex<7 ? null : lp.parseString(7);
 	}
 
+	/**
+	 * Returns the position of the whitespace separator in the header.
+	 * Used to determine where coordinate information ends and metadata begins.
+	 * @return Index of whitespace character in tokenized header
+	 */
 	@Override
 	public int whitespaceIndex() {
 		return whitespaceIndex;
 	}
 
+	/**
+	 * Returns any additional information beyond standard header fields.
+	 * Contains platform-specific or extended metadata.
+	 * @return Extra information string or null if not present
+	 */
 	@Override
 	public String extra() {
 		return lp.terms()<=whitespaceIndex+5 ? null : lp.parseString(whitespaceIndex+5);
 	}
 	
-	/**
-	 * Appends a specific term from the parsed header to a ByteBuilder.
-	 * Provides efficient access to individual header components.
-	 *
-	 * @param bb ByteBuilder to append to
-	 * @param term Term index to append
-	 * @return The modified ByteBuilder for method chaining
-	 */
 	public ByteBuilder appendTerm(ByteBuilder bb, int term) {
 		return lp.appendTerm(bb, term);
 	}
 	
-	/**
-	 * Appends coordinate information in lane:tile:x:y format to ByteBuilder.
-	 * Creates standardized coordinate string representation.
-	 * @param bb ByteBuilder to append coordinates to
-	 * @return The modified ByteBuilder with coordinate information
-	 */
 	public ByteBuilder appendCoordinates(ByteBuilder bb) {
 		return bb.append(lane()).colon().append(tile()).colon()
 		.append(xPos()).colon().append(yPos());
 	}
 	
-	/**
-	 * Encodes coordinate information into a single long value using bit shifting.
-	 * Packs lane (upper bits), tile (17 bits), x-position (20 bits),
-	 * and y-position (20 bits) for efficient storage and comparison.
-	 * @return Encoded coordinate value as long integer
-	 */
 	public long encodeCoordinates() {
 		long x=lane();
 		x=(x<<17)^tile();
@@ -201,11 +204,8 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Line parser configured with colon delimiter for header tokenization */
 	private final LineParserS3 lp=new LineParserS3(':');
-	/** Returns the internal line parser for direct access */
 	public LineParser lp() {return lp;}
-	/** Index position of whitespace separator in tokenized header, -1 if unset */
 	int whitespaceIndex=-1;
 	
 }

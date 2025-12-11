@@ -9,15 +9,18 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 
 /**
+ * Simple file I/O example class that reads a text file line by line and writes
+ * each line to an output file. Demonstrates basic BufferedReader and PrintWriter usage
+ * for text file processing in BBTools.
  * @author Brian Bushnell
- * @date Oct 13, 2015
- *
- * This class will read a file and write it to another file.
- *
  */
 public class Sample {
 	
-	/** Primary method, called by java */
+	/**
+	 * Primary entry point for the Sample program. Reads command line arguments for input
+	 * and output file names, creates readers/writers, and processes the data.
+	 * @param args Command line arguments: args[0] = input filename, args[1] = output filename
+	 */
 	public static void main(String[] args){
 
 		String fnameIn=args[0];
@@ -36,7 +39,13 @@ public class Sample {
 		
 	}
 	
-	/** Do stuff */
+	/**
+	 * Processes data by reading lines from input BufferedReader and writing each line
+	 * to output PrintWriter. Currently performs a simple line-by-line copy operation.
+	 * @param br BufferedReader for input file
+	 * @param pw PrintWriter for output file
+	 * @throws IOException if file reading or writing fails
+	 */
 	static void processData(BufferedReader br, PrintWriter pw) throws IOException{
 		for(String s=br.readLine(); s!=null; s=br.readLine()){
 			//Parsing goes here
@@ -44,7 +53,12 @@ public class Sample {
 		}
 	}
 	
-	/** Fetches a BufferedReader, which allows line-by-line String iteration over text files */
+	/**
+	 * Creates a BufferedReader for line-by-line text file reading. Handles FileInputStream
+	 * creation and wraps with InputStreamReader for character encoding.
+	 * @param fname Input filename
+	 * @return BufferedReader for the specified file
+	 */
 	static BufferedReader getReader(String fname){
 		FileInputStream fis=null;
 		try {
@@ -58,7 +72,12 @@ public class Sample {
 		return br;
 	}
 	
-	/** Fetches a PrintWriter, which transforms Strings into a byte stream. */
+	/**
+	 * Creates a PrintWriter for text output with buffering. Uses FileOutputStream wrapped
+	 * with BufferedOutputStream for efficient writing.
+	 * @param fname Output filename
+	 * @return PrintWriter for the specified file
+	 */
 	static PrintWriter getWriter(String fname){
 		FileOutputStream fos=null;
 		try {

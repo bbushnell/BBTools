@@ -23,10 +23,12 @@ import template.ThreadWaiter;
 
 /**
  * Handles sketches and taxonomic assignments for contigs and clusters.
- * 
+ * Creates MinHash sketches for genomic sequences and queries them against
+ * taxonomic databases to determine taxonomic identity. Supports both individual
+ * and bulk processing modes with multi-threading.
+ *
  * @author Brian Bushnell
  * @date December 11, 2024
- *
  */
 public class BinSketcher extends BinObject implements Accumulator<BinSketcher.ProcessThread> {
 	
@@ -34,12 +36,6 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a BinSketcher with specified threading and size parameters.
-	 * Initializes sketch parameters and creates SketchTool if sketching is enabled.
-	 * @param threads_ Maximum number of threads to use for processing
-	 * @param minSize_ Minimum size threshold for objects to be sketched
-	 */
 	public BinSketcher(int threads_, int minSize_){
 		
 		threads=Tools.min(threads_, Shared.threads());
@@ -74,14 +70,6 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		sketch(input, force);
 //	}
 	
-	/**
-	 * Sketches a list of Sketchable objects that meet size requirements.
-	 * Updates sketches only for objects whose size has grown significantly
-	 * since last sketching, unless force is true.
-	 *
-	 * @param input List of Sketchable objects to potentially sketch
-	 * @param force Sketch all objects if true; otherwise only sketch objects that have doubled
-	 */
 	public void sketch(ArrayList<? extends Sketchable> input, boolean force) {
 		ArrayList<Sketchable> updateList=new ArrayList<Sketchable>();
 		float mult=(force ? 1 : 2);
@@ -103,7 +91,12 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/**
+	 * Spawns and manages ProcessThreads for sketching operations.
+	 * Determines optimal thread count based on data size and system resources,
+	 * then coordinates parallel processing of sketch generation.
+	 * @param list List of Sketchable objects to process
+	 */
 	private void spawnThreads(ArrayList<? extends Sketchable> list){
 		Timer t=new Timer(outstream, true);
 		outstream.print("Sketching "+list.size()+" elements: \t");
@@ -130,6 +123,11 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 		t.stopAndPrint();
 	}
 	
+	/**
+	 * Accumulates results from a completed ProcessThread.
+	 * Updates error state based on thread completion status.
+	 * @param pt The ProcessThread whose results should be accumulated
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
 //		linesProcessed+=pt.linesProcessedT;
@@ -140,6 +138,8 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 		errorState|=(pt.errorStateT);
 	}
 	
+	/** Returns whether all processing completed successfully.
+	 * @return true if no errors occurred during processing, false otherwise */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -151,19 +151,14 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/**
+	 * Worker thread for processing sketches of Sketchable objects.
+	 * Handles either individual or bulk sketch generation and taxonomic
+	 * assignment via remote database queries.
+	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Creates a ProcessThread for sketch generation.
-		 * Initializes display parameters for JSON output and creates SketchMakerMini.
-		 *
-		 * @param contigs_ List of Sketchable objects to process
-		 * @param tid_ Thread ID for this worker
-		 * @param threads_ Total number of threads in the pool
-		 */
 		ProcessThread(final ArrayList<? extends Sketchable> contigs_, final int tid_, final int threads_){
 			contigs=contigs_;
 			tid=tid_;
@@ -175,6 +170,11 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 		}
 		
 		//Called by start()
+		/**
+		 * Main thread execution method.
+		 * Chooses between bulk or individual processing modes based on
+		 * data size and configuration, then processes assigned sketches.
+		 */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -192,7 +192,11 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 			success=true;
 		}
 		
-		/** Iterate through the lines */
+		/**
+		 * Processes sketches individually, one at a time.
+		 * Creates sketch for each assigned object, sends to taxonomic database,
+		 * and updates object with taxonomic assignment results.
+		 */
 		void processInner_oneByOne(){
 //			Timer t=new Timer();
 			for(int i=tid; i<contigs.size(); i+=threads) {
@@ -212,13 +216,24 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //			t.stop("Thread "+tid+" time: ");
 		}
 		
-		/** Iterate through the lines */
+		/**
+		 * Processes sketches in bulk sections for efficiency.
+		 * Divides assigned work into sections and processes each section
+		 * as a batch to reduce network overhead.
+		 */
 		void processInner_bulk(){
 			final int incr=sectionSize*threads;
 			for(int i=tid; i<contigs.size(); i+=incr) {processSection(i, i+incr);}
 		}
 		
-		/** Iterate through the lines */
+		/**
+		 * Processes a section of sketches as a batch.
+		 * Creates all sketches in the range, sends them together to the
+		 * taxonomic database, then updates objects with results.
+		 *
+		 * @param from Starting index for this section (inclusive)
+		 * @param to Ending index for this section (exclusive)
+		 */
 		void processSection(final int from, int to){
 			ArrayList<Sketch> sketches=new ArrayList<Sketch>(1+contigs.size()/threads);
 			for(int i=from; i<contigs.size() && i<to; i+=threads) {
@@ -254,28 +269,23 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		protected long bytesOutT=0;
 		
 
-		/** Dummy Read object used for sketch generation */
 		final Read dummy=new Read(null, null, null, 0);
-		/** JSON parser for processing taxonomic assignment results */
 		final JsonParser jp=new JsonParser();
-		/** Display parameters configured for JSON output format */
 		final DisplayParams params;
 		
-		/** Thread-local error state flag */
+		/** True only if this thread has completed successfully */
 		protected boolean errorStateT=false;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Input */
+		/** Input list of Sketchable objects to process */
 		private final ArrayList<? extends Sketchable> contigs;
-		/** Thread ID */
+		/** Thread ID for this worker */
 		final int tid;
-		/** Thread ID */
+		/** Total number of threads in the processing pool */
 		final int threads;
 		
 
-		/** Sketch generator for creating MinHash sketches */
 		final SketchMakerMini smm;
 	}
 	
@@ -283,49 +293,42 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of lines processed */
 	long linesProcessed=0;
-	/** Total number of output lines produced */
 	long linesOut=0;
-	/** Total number of bytes processed */
 	long bytesProcessed=0;
-	/** Total number of output bytes produced */
 	long bytesOut=0;
 
 	
-	/** Sketch tool for generating and comparing sketches */
 	private final SketchTool tool;
 //	private final SketchMakerMini smm;
-	/** Maximum number of threads available for processing */
 	private final int threads;
-	/** Minimum size threshold for objects to be sketched */
 	final int minSize;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Size of sections for bulk processing mode */
 	static int sectionSize=100;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the read-write lock for thread-safe access.
+	 * @return ReadWriteLock for synchronization */
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread-safe access to shared resources */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Flag to enable verbose output messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** True if an error was encountered during processing */
 	public boolean errorState=false;
 	
 	public static boolean send=true;

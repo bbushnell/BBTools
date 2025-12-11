@@ -7,9 +7,9 @@ import structures.ByteBuilder;
  * Performs soft-clipping operations on sequence alignments by identifying
  * poorly aligned terminal regions and converting them to clipped sequences.
  * Uses a scoring system to determine optimal clipping boundaries.
- * 
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla Winglet
  */
 public class SoftClipper {
 
@@ -17,7 +17,7 @@ public class SoftClipper {
 	 * Applies soft clipping to a match string by identifying poorly aligned regions
 	 * at the ends and converting them to clipped bases. Uses dynamic scoring to
 	 * find the optimal alignment region and clips everything outside it.
-	 * 
+	 *
 	 * @param match Original match string representing alignment operations
 	 * @param minClipLength Minimum number of bases required to perform clipping
 	 * @param allowMutation Whether to modify the original match array or create a copy

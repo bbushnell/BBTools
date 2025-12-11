@@ -13,30 +13,12 @@ import shared.Shared;
 import shared.Tools;
 
 
-/**
- * Abstract base class for storing coverage depth data across genomic positions.
- * Provides common functionality for tracking read depth at each base position
- * with various concrete implementations optimized for different use cases.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public abstract class CoverageArray implements Serializable {
 
-	/**
-	 * 
-	 */
+	/** Serialization version identifier */
 	private static final long serialVersionUID = -7175422489330746676L;
 	
 	
-	/**
-	 * Reads a serialized CoverageArray from file.
-	 * Supports compressed .ca format files.
-	 *
-	 * @param fname Input filename with .ca extension
-	 * @return Deserialized CoverageArray instance
-	 * @throws RuntimeException if filename lacks .ca extension
-	 */
 	public static final CoverageArray read(String fname){
 		
 		if(!fname.contains(".ca")){
@@ -56,15 +38,6 @@ public abstract class CoverageArray implements Serializable {
 //		else{return ReadWrite.read(CoverageArray.class, fname);}
 	}
 	
-	/**
-	 * Returns the appropriate CoverageArray implementation class based on requirements.
-	 * Selects between atomic/non-atomic and 32-bit/16-bit variants.
-	 *
-	 * @param atomic Whether atomic operations are required for thread safety
-	 * @param bits32 Whether to use 32-bit (true) or 16-bit (false) storage
-	 * @return Class object for the appropriate CoverageArray subclass
-	 * @throws RuntimeException if no matching type exists
-	 */
 	public static final Class<? extends CoverageArray> getType(boolean atomic, boolean bits32){
 		if(atomic && bits32) {return CoverageArray3A.class;}
 		else if(!atomic && bits32) {return CoverageArray3.class;}
@@ -73,54 +46,26 @@ public abstract class CoverageArray implements Serializable {
 		throw new RuntimeException("No type.");
 	}
 	
-	/**
-	 * Constructs a CoverageArray with specified chromosome and length.
-	 * @param chrom Chromosome identifier
-	 * @param len Length of the coverage array
-	 */
 	public CoverageArray(int chrom, int len){
 		chromosome=chrom;
 		length=len;
 	}
 	
 	/**
-	 * @param loc
-	 * @param amt
+	 * Increments coverage at specified location by given amount.
+	 * @param loc Position to increment
+	 * @param amt Amount to add to coverage
 	 */
 	public abstract void increment(int loc, int amt);
 	
-	/**
-	 * @param loc
-	 */
+	/** Increments coverage at specified location by 1.
+	 * @param loc Position to increment */
 	public abstract void increment(int loc);
 
-	/**
-	 * Increments coverage by 1 across a range of positions.
-	 * @param min Start position (inclusive)
-	 * @param max End position (inclusive)
-	 */
 	public final void incrementRange(int min, int max){incrementRange(min, max, 1);}
-	/**
-	 * Increments coverage by specified amount across a range of positions.
-	 * @param min Start position (inclusive)
-	 * @param max End position (inclusive)
-	 * @param amt Amount to add to each position
-	 */
 	public abstract void incrementRange(int min, int max, int amt);
-	/**
-	 * Thread-safe version of incrementRange for concurrent access.
-	 * @param min Start position (inclusive)
-	 * @param max End position (inclusive)
-	 * @param amt Amount to add to each position
-	 */
 	public abstract void incrementRangeSynchronized(int min, int max, int amt);
 	
-	/**
-	 * Increments coverage across multiple ranges specified in an IntList.
-	 * Ranges are stored as pairs: start1, end1, start2, end2, etc.
-	 * @param ranges IntList containing alternating start/end positions
-	 * @param amt Amount to add to each position in the ranges
-	 */
 	public void incrementRanges(IntList ranges, int amt){
 		for(int i=0; i<ranges.size; i+=2){
 			int a=ranges.get(i), b=ranges.get(i+1);
@@ -128,35 +73,13 @@ public abstract class CoverageArray implements Serializable {
 		}
 	}
 	
-	/**
-	 * Sets coverage value at specified location.
-	 * @param loc Position to set
-	 * @param val Coverage value to assign
-	 */
 	public abstract void set(int loc, int val);
 	
-	/**
-	 * Gets coverage value at specified location.
-	 * @param loc Position to query
-	 * @return Coverage depth at the position
-	 */
 	public abstract int get(int loc);
 	
-	/** Resizes the coverage array to new length.
-	 * @param newlen New array length */
 	public abstract void resize(int newlen);
 	
 	
-	/**
-	 * Converts coverage data to graph format suitable for visualization.
-	 * Averages coverage values within blocks and returns position/coverage pairs.
-	 * Uses default block size of ~31500 positions if blocksize <= 0.
-	 *
-	 * @param blocksize Size of averaging blocks, or <=0 for automatic sizing
-	 * @param min Start position for graph data
-	 * @param max End position for graph data
-	 * @return 2D array where each row contains [position, average_coverage]
-	 */
 	public final double[][] toGraph(int blocksize, int min, int max){
 		
 		min=max(min, minIndex);
@@ -200,11 +123,6 @@ public abstract class CoverageArray implements Serializable {
 	}
 	
 	
-	/**
-	 * Prints graph data in tab-delimited format.
-	 * Currently disabled due to removed Smoother dependency.
-	 * @param data 2D array of position/coverage data to print
-	 */
 	public static final void print(double[][] data){
 		
 //		data=stats.Smoother.weightedAveragePlank(data, 24);
@@ -216,15 +134,6 @@ public abstract class CoverageArray implements Serializable {
 		System.out.print(sb);
 	}
 	
-	/**
-	 * Factory method to create CoverageArray instances of specified type.
-	 *
-	 * @param num Chromosome/array identifier
-	 * @param size Initial array size
-	 * @param c Class of CoverageArray implementation to instantiate
-	 * @return New CoverageArray instance of specified type
-	 * @throws RuntimeException if class type is not handled
-	 */
 	public static CoverageArray makeArray(int num, int size, Class<? extends CoverageArray> c){
 		if(c==CoverageArray2.class){
 			return new CoverageArray2(num, size);
@@ -240,15 +149,6 @@ public abstract class CoverageArray implements Serializable {
 	
 	//TODO: Was extremely slow due to string processing. Now, should be fast, but needs verification that LineParser change is correct.
 	//This has been modified to allow concise cov files missing fields in lines when they are expected to be the same (or +1).
-	/**
-	 * Loads coverage depth data from tab-delimited file into CoverageArray map.
-	 * Supports concise format where missing fields repeat previous values.
-	 * File format: chromosome_name, position, depth per line.
-	 *
-	 * @param ffdepth Input file format containing depth data
-	 * @param c CoverageArray implementation class to use
-	 * @return Map from chromosome names to CoverageArray objects
-	 */
 	public static HashMap<String, CoverageArray> loadDepth(FileFormat ffdepth, Class<? extends CoverageArray> c) {
 		ByteFile bf=ByteFile.makeByteFile(ffdepth);
 		HashMap<String, CoverageArray> map=new HashMap<String, CoverageArray>();
@@ -287,15 +187,6 @@ public abstract class CoverageArray implements Serializable {
 		return map;
 	}
 	
-	/**
-	 * Counts bases in regions where sliding window average is below threshold.
-	 * Uses a sliding window of specified size to calculate average coverage
-	 * and counts bases in regions falling below the threshold.
-	 *
-	 * @param avg Minimum average coverage threshold
-	 * @param window Size of sliding window for averaging
-	 * @return Number of bases in under-covered regions
-	 */
 	public final int basesUnderAverageCoverage(final double avg, final int window){
 		if(underWindowAverage>-1) {return underWindowAverage;}
 		
@@ -339,11 +230,6 @@ public abstract class CoverageArray implements Serializable {
 		return underWindowAverage=baseCount;
 	}
 	
-	/**
-	 * Calculates total coverage across all positions in the used range.
-	 * Cached after first calculation.
-	 * @return Sum of all coverage values from minIndex to maxIndex
-	 */
 	public final long sum() {
 		if(sum>=0) {return sum;}
 		sum=0;
@@ -353,23 +239,12 @@ public abstract class CoverageArray implements Serializable {
 		return sum;
 	}
 	
-	/**
-	 * Counts positions with coverage at or above minimum depth.
-	 * @param minDepth Minimum coverage threshold
-	 * @return Number of positions meeting depth requirement
-	 */
 	public final int covered(int minDepth) {
 		if(covered>=0) {return covered;}
 		calcSumAndCovered(minDepth);
 		return covered;
 	}
 	
-	/**
-	 * Calculates both total coverage sum and count of covered positions.
-	 * More efficient than calling sum() and covered() separately.
-	 * @param minDepth Minimum coverage threshold for counting covered positions
-	 * @return Total coverage sum across all positions
-	 */
 	public final long calcSumAndCovered(int minDepth) {
 		if(sum>=0 && covered>=0) {return sum;}
 		sum=0;
@@ -385,11 +260,6 @@ public abstract class CoverageArray implements Serializable {
 	}
 	
 	//Don't use devSum() here!
-	/**
-	 * Calculates standard deviation of coverage values.
-	 * Uses population standard deviation formula across all positions.
-	 * @return Standard deviation of coverage depths
-	 */
 	public final double standardDeviation(){
 		if(stdev>=0) {return stdev;}
 		int length=length();
@@ -407,12 +277,6 @@ public abstract class CoverageArray implements Serializable {
 		return stdev=Math.sqrt(sumdev2/length);
 	}
 	
-	/**
-	 * Calculates sum of squared deviations from a global mean.
-	 * Used for variance calculations across multiple arrays.
-	 * @param globalMean Mean value to calculate deviations from
-	 * @return Sum of squared deviations from the global mean
-	 */
 	public final double devSum(double globalMean){
 		if(devSum>=0) {return devSum;}
 		final int length=length();
@@ -430,11 +294,6 @@ public abstract class CoverageArray implements Serializable {
 	
 	//Note that empty arrays have a median of zero and do not need sorting
 	//Also note that sorting will mess up minIndex and maxIndex
-	/**
-	 * Calculates median coverage value by sorting all non-zero positions.
-	 * Note: This method modifies minIndex and maxIndex after sorting.
-	 * @return Median coverage depth across all positions
-	 */
 	public final int median(){
 		if(median>=0) {return median;}
 		final int usedDif=maxIndex-minIndex;
@@ -457,64 +316,41 @@ public abstract class CoverageArray implements Serializable {
 		return median;
 	}
 	
-	/** Converts coverage data to native array format.
-	 * @return int[] or char[] array containing coverage values */
 	public abstract Object toArray();
 	
+	/** Returns string representation of the coverage array.
+	 * @return String describing the coverage data */
 	@Override
 	public abstract String toString();
 	
-	/** Returns minimum of two long values */
 	static final long min(long x, long y){return x<y ? x : y;}
-	/** Returns maximum of two long values */
 	static final long max(long x, long y){return x>y ? x : y;}
-	/** Returns minimum of two int values */
 	static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns maximum of two int values */
 	static final int max(int x, int y){return x>y ? x : y;}
 	
-	/** Highest index with non-zero coverage data */
 	public int maxIndex=-1;
-	/** Lowest index with non-zero coverage data */
 	public int minIndex=Integer.MAX_VALUE;
-	/** Fixed length of the coverage array */
 	private final int length;//Note: This is arbitrary if resizing is allowed, as used in old classes...
-	/** Gets the fixed length of the coverage array */
 	public int length(){return length;}
-	/** Gets the current length of the underlying storage array.
-	 * @return Length of internal array (may differ from logical length) */
 	public abstract int arrayLength();
 
-	/** Sets cached value for bases under window average */
 	public void setUnderWindowAverage(int x) {underWindowAverage=x;}
-	/** Sets cached median value */
 	public void setMedian(int x) {median=x;}
-	/** Sets cached count of covered positions */
 	public void setCovered(int x) {covered=x;}
-	/** Sets cached sum of all coverage values */
 	public void setSum(long x) {sum=x;}
-	/** Sets cached standard deviation value */
 	public void setStdev(double x) {stdev=x;}
-	/** Sets cached sum of squared deviations */
 	public void setDevSum(double x) {devSum=x;}
 	
-	/** Cached count of bases under window average coverage */
 	private int underWindowAverage=-1;
-	/** Cached median coverage value */
 	private int median=-1;
-	/** Cached count of positions meeting minimum depth */
 	private int covered=-1;
-	/** Cached sum of all coverage values */
 	private long sum=-1;
-	/** Cached standard deviation of coverage values */
 	private double stdev=-1;
-	/** Cached sum of squared deviations from global mean */
 	private double devSum=-1;
 	
-	/** Optional */
+	/** Optional chromosome identifier for this coverage array */
 	public int chromosome;
 	
-	/** Static flag indicating if any coverage array has overflowed */
 	private static boolean OVERFLOWED=false;
 	
 }

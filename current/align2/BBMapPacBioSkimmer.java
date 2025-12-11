@@ -17,11 +17,13 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * Based on TestIndex11f
- * Designed to skim and retain all sites above a threshold.
+ * PacBio long-read mapper that skims and retains alignment sites above threshold.
+ * Specialized for PacBio sequencing technology with optimized parameters for
+ * long reads with higher error rates. Extends AbstractMapper with PacBio-specific
+ * configuration and alignment strategies.
+ *
  * @author Brian Bushnell
  * @date Jul 10, 2012
- *
  */
 public final class BBMapPacBioSkimmer extends AbstractMapper  {
 	
@@ -45,12 +47,16 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		clearStatics();
 	}
 	
-	/** Constructs BBMapPacBioSkimmer with command-line arguments.
-	 * @param args Command-line arguments for mapper configuration */
 	public BBMapPacBioSkimmer(String[] args){
 		super(args);
 	}
 	
+	/**
+	 * Sets PacBio-specific default parameters for optimal long-read alignment.
+	 * Configures compression settings, key density, alignment scoring thresholds,
+	 * and specialized parameters for PacBio error characteristics including
+	 * lower minimum alignment score ratio and adjusted key sampling.
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -80,6 +86,14 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		ambiguousAll=true;
 	}
 	
+	/**
+	 * Preprocesses arguments and adjusts parameters based on speed mode.
+	 * Handles fast, slow, and vslow modes with corresponding parameter adjustments
+	 * for key density, rescue parameters, and index exclusion fractions.
+	 *
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with speed-specific parameters added
+	 */
 	@Override
 	public String[] preparse(String[] args){
 		if(fast){
@@ -146,6 +160,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		return args;
 	}
 	
+	/**
+	 * Performs post-parsing configuration and validation.
+	 * Adjusts alignment parameters based on bandwidth settings, configures
+	 * indel limits, sets expected site counts, and handles input file validation.
+	 * @param args Parsed command-line arguments for final configuration
+	 */
 	@Override
 	void postparse(String[] args){
 		
@@ -227,6 +247,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		
 	}
 	
+	/**
+	 * Initializes mapper components and validates configuration.
+	 * Sets up minimum alignment score ratios, output streams, blacklists,
+	 * reference indexing, and validates all required parameters before
+	 * beginning alignment operations.
+	 */
 	@Override
 	public void setup(){
 		
@@ -273,6 +299,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Configures handling of reads mapping to multiple references.
+	 * Processes ambiguous mapping modes including split output, first reference
+	 * selection, random assignment, or discarding ambiguous alignments.
+	 * Only called when multiple reference scaffolds are present.
+	 */
 	@Override
 	void processAmbig2(){
 		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
@@ -300,6 +332,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		}
 	}
 	
+	/**
+	 * Loads genome index and configures alignment parameters.
+	 * Sets genome build, loads chromosome data, generates BBIndex structure,
+	 * adjusts parameters based on genome size, creates coverage tracking
+	 * structures, and optionally generates Bloom filter for contamination detection.
+	 */
 	@Override
 	void loadIndex(){
 		Timer t=new Timer();
@@ -439,6 +477,14 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		}
 	}
 		
+	/**
+	 * Executes main read processing pipeline with performance monitoring.
+	 * Opens input/output streams, creates mapping threads, processes reads
+	 * in parallel, collects statistics, and generates comprehensive output
+	 * including alignment results and performance metrics.
+	 *
+	 * @param args Command-line arguments for stream configuration
+	 */
 	@Override
 	public void testSpeed(String[] args){
 		
@@ -499,6 +545,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
 	
+	/**
+	 * Configures mapper for semi-perfect alignment mode.
+	 * Reduces key density and sampling, adjusts minimum key density to 1.1,
+	 * and lowers alignment score ratio to 0.45 to allow semi-perfect reads
+	 * with minor mismatches or indels.
+	 */
 	@Override
 	void setSemiperfectMode() {
 		assert(SEMIPERFECTMODE);
@@ -513,6 +565,12 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 		}
 	}
 
+	/**
+	 * Configures mapper for perfect alignment mode.
+	 * Reduces key density and sampling, sets minimum alignment score ratio
+	 * to 1.0 requiring exact matches, and adjusts index parameters for
+	 * perfect read alignment without allowing any mismatches.
+	 */
 	@Override
 	void setPerfectMode() {
 		assert(PERFECTMODE);
@@ -528,6 +586,14 @@ public final class BBMapPacBioSkimmer extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Outputs current mapper configuration settings.
+	 * Displays key parameters including k-mer length, indel limits, alignment
+	 * scores, key density settings, and various index configuration parameters
+	 * based on verbosity level.
+	 *
+	 * @param k K-mer length used for indexing and alignment
+	 */
 	@Override
 	void printSettings(int k){
 		

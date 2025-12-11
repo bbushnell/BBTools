@@ -17,16 +17,17 @@ import tax.TaxNode;
 import tax.TaxTree;
 
 /**
+ * Summarizes sketch comparison statistics from sketch tools output files.
+ * Parses sketch result files and generates consolidated summaries with
+ * contamination analysis and taxonomic filtering capabilities.
+ *
  * @author Brian Bushnell
  * @date June 28, 2017
- *
  */
 public class SummarizeSketchStats {
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Entry point for command line execution.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Create a new SummarizeSketchStats instance
 		SummarizeSketchStats x=new SummarizeSketchStats(args);
@@ -38,12 +39,6 @@ public class SummarizeSketchStats {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs SummarizeSketchStats with argument parsing.
-	 * Parses command line arguments for input files, taxonomic filters,
-	 * and output configuration options.
-	 * @param args Command line arguments
-	 */
 	public SummarizeSketchStats(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -116,8 +111,6 @@ public class SummarizeSketchStats {
 		if(taxTreeFile!=null){setTaxtree(taxTreeFile);}
 	}
 	
-	/** Loads taxonomic tree from specified file.
-	 * @param taxTreeFile Path to taxonomic tree file, or null to skip loading */
 	void setTaxtree(String taxTreeFile){
 		if(taxTreeFile==null){
 			return;
@@ -125,11 +118,6 @@ public class SummarizeSketchStats {
 		tree=TaxTree.loadTaxTree(taxTreeFile, outstream, false, false);
 	}
 	
-	/**
-	 * Processes all input files and generates summary output.
-	 * Reads sketch result files, creates summaries, and writes
-	 * consolidated output with optional header.
-	 */
 	public void summarize(){
 		ArrayList<SketchResultsSummary> list=new ArrayList<SketchResultsSummary>();
 		for(String fname : in){
@@ -153,13 +141,6 @@ public class SummarizeSketchStats {
 //	WKID	KID	ANI	Complt	Contam	Matches	Unique	noHit	TaxID	gSize	gSeqs	taxName
 //	99.89%	50.73%	100.00%	50.77%	0.02%	5683	5683	5	0	4719674	1	.	Troseus
 	
-	/**
-	 * Parses a single sketch results file into summary objects.
-	 * Processes file line by line, extracting query headers and
-	 * associated result lines into SketchResultsSummary objects.
-	 * @param fname Path to sketch results file
-	 * @return List of summary objects from the file
-	 */
 	private ArrayList<SketchResultsSummary> summarize(String fname){
 		TextFile tf=new TextFile(fname);
 		ArrayList<SketchResultsSummary> list=new ArrayList<SketchResultsSummary>();
@@ -183,8 +164,6 @@ public class SummarizeSketchStats {
 		return list;
 	}
 	
-	/** Generates tab-delimited header line for output format.
-	 * @return Header string with column names for summary output */
 	public static String header(){
 		StringBuilder sb=new StringBuilder();
 		
@@ -214,25 +193,12 @@ public class SummarizeSketchStats {
 		return sb.toString();
 	}
 	
-	/**
-	 * Represents summary data for a single query's sketch results.
-	 * Contains query metadata and list of result lines with methods
-	 * for parsing headers and generating formatted output.
-	 */
 	private class SketchResultsSummary {
 		
-		/** Constructs summary from query header line.
-		 * @param line Query header line containing metadata */
 		SketchResultsSummary(String line){
 			parseHeader(line);
 		}
 
-		/**
-		 * Parses query header line to extract metadata fields.
-		 * Processes tab-delimited key:value pairs for query name,
-		 * sequence count, bases, genome size, and sketch length.
-		 * @param line Header line to parse
-		 */
 		void parseHeader(String line){
 			String[] split=line.split("\t");
 			for(String s : split){
@@ -260,8 +226,6 @@ public class SummarizeSketchStats {
 			}
 		}
 		
-		/** Adds a result line to this summary.
-		 * @param line Result line containing match statistics */
 		public void add(String line) {
 			SketchResultsLine srl=new SketchResultsLine(line);
 			list.add(srl);
@@ -346,14 +310,6 @@ public class SummarizeSketchStats {
 			return sb.toString();
 		}
 		
-		/**
-		 * Tests if two taxonomic IDs fail the level filter.
-		 * Finds common ancestor and checks if its taxonomic level
-		 * is at or above the configured filter level.
-		 * @param a First taxonomic ID
-		 * @param b Second taxonomic ID
-		 * @return True if the taxa are too closely related
-		 */
 		private boolean failsLevelFilter(int a, int b) {
 			if(a<1 || b<1 || tree==null){return false;}
 			int c=tree.commonAncestor(a, b);
@@ -363,41 +319,21 @@ public class SummarizeSketchStats {
 			return tn.levelExtended<=taxLevel;
 		}
 
-		/** Query sequence name or file path */
 		String query;
-		/** Input file name */
 		String fname;
-		/** Number of sequences in query */
 		int seqs;
-		/** Total bases in query sequences */
 		long bases;
-		/** Estimated genome size */
 		long gSize;
-		/** Length of sketch (number of hashes) */
 		int sketchLen;
-		/** NCBI taxonomic identifier */
 		int taxID;
-		/** IMG identifier */
 		long img;
 		
-		/** List of result lines for this query */
 		ArrayList<SketchResultsLine> list=new ArrayList<SketchResultsLine>();
 		
 	}
 	
-	/**
-	 * Represents a single result line from sketch comparison.
-	 * Contains match statistics, taxonomic information, and
-	 * similarity metrics for one database match.
-	 */
 	private class SketchResultsLine{
 		
-		/**
-		 * Parses result line into component fields.
-		 * Strips ANSI color codes and parses tab-delimited values
-		 * for similarity metrics and match statistics.
-		 * @param line Tab-delimited result line
-		 */
 		SketchResultsLine(String line){
 			//Handle colors
 			if(line.startsWith(Colors.esc)){
@@ -425,60 +361,35 @@ public class SummarizeSketchStats {
 			}
 		}
 		
-		/** Weighted k-mer identity percentage */
 		float wkid;
-		/** K-mer identity percentage */
 		float kid;
-		/** Average nucleotide identity percentage */
 		float ani;
-		/** Completeness percentage */
 		float complt;
-		/** Contamination percentage */
 		float contam;
-		/** Number of matching k-mers */
 		int matches;
-		/** Number of unique matching k-mers */
 		int unique;
-		/** Number of k-mers with no database hit */
 		int noHit;
-		/** NCBI taxonomic identifier for match */
 		int taxID;
-		/** Genome size of database match */
 		int gSize;
-		/** Number of sequences in database match genome */
 		int gSeqs;
-		/** Taxonomic name of database match */
 		String name;
 	}
 	
-	/** Input file paths */
 	final ArrayList<String> in;
-	/** Output file path */
 	final String out;
 	
-	/** Taxonomic tree for filtering related taxa */
 	TaxTree tree=null;
-	/** Minimum taxonomic level for contamination detection */
 	int taxLevel=TaxTree.GENUS_E;
-	/** Whether to select second hit based on unique k-mers */
 	boolean uniqueHitsForSecond=false;
-	/** Minimum unique hits required for second match consideration */
 	int minUniqueHits=3;
-	/** Whether to include header line in output */
 	boolean printHeader=true;
 	
-	/** Legacy code from SealStats */
 	boolean ignoreSameTaxa=false;
-	/** Legacy parameter for ignoring same barcode matches */
 	boolean ignoreSameBarcode=false;
-	/** Legacy parameter for ignoring same location matches */
 	boolean ignoreSameLocation=false;
-	/** Legacy parameter for using total as denominator */
 	boolean totalDenominator=false;
-	/** Legacy parameter for printing total statistics */
 	boolean printTotal=true;
 	
-	/** Output stream for messages */
 	PrintStream outstream=System.err;
 	
 }

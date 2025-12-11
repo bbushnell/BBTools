@@ -26,9 +26,13 @@ import structures.Quantizer;
 import tracker.ReadStats;
 
 /**
+ * Implements a parallel k-mer based read splitting and distribution utility
+ * for bioinformatics sequencing data processing. Splits input sequencing reads
+ * into multiple groups based on k-mer hash values, enabling parallel processing
+ * and data partitioning of large genomic datasets.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class KmerSplit {
 	
@@ -37,7 +41,8 @@ public class KmerSplit {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Code entrance from the command line. Initializes KmerSplit instance,
+	 * processes input data, and restores system settings after completion.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -63,7 +68,9 @@ public class KmerSplit {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructor that parses command line arguments and configures the KmerSplit
+	 * instance. Sets up input/output streams, k-mer parameters, grouping options,
+	 * and file format handlers.
 	 * @param args Command line arguments
 	 */
 	public KmerSplit(String[] args){
@@ -269,14 +276,20 @@ public class KmerSplit {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Count kmers */
+	/** Count kmers by building a k-mer count table if minCount is greater than 1.
+	 * Uses ClumpTools to generate the table from input files. */
 	void preprocess(){
 		if(minCount>1){
 			table=ClumpTools.getTable(in1, in2, k, minCount);
 		}
 	}
 
-	/** Create read streams and process all data */
+	/**
+	 * Create read streams and process all data. Main processing method that
+	 * preprocesses k-mers, creates input/output streams, and distributes reads
+	 * across multiple output groups based on k-mer hashing.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		preprocess();
@@ -325,7 +338,12 @@ public class KmerSplit {
 		}
 	}
 	
-	/** Collect and sort the reads */
+	/**
+	 * Collect and sort the reads using k-mer comparator and distribute them
+	 * to output streams through multi-threaded splitting.
+	 * @param cris Concurrent read input stream
+	 * @param ros Array of concurrent read output streams
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream[] ros){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, false, false);
@@ -338,15 +356,6 @@ public class KmerSplit {
 		if(verbose){outstream.println("Done!");}
 	}
 	
-	/**
-	 * Splits reads into multiple output groups using parallel hash threads.
-	 * Creates HashThread instances for each available CPU thread and distributes
-	 * reads based on k-mer hash values computed by the KmerComparator.
-	 *
-	 * @param cris Concurrent read input stream
-	 * @param ros Array of concurrent read output streams
-	 * @param kc K-mer comparator for hashing reads
-	 */
 	public void splitReads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream[] ros, final KmerComparator kc){
 		Timer t=new Timer();
 		if(verbose){t.start("Making hash threads.");}
@@ -389,21 +398,8 @@ public class KmerSplit {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread that processes reads by computing k-mer hashes and distributing
-	 * reads to appropriate output groups. Handles read validation, name processing,
-	 * and optional error correction overlap detection.
-	 */
 	private class HashThread extends Thread{
 
-		/**
-		 * Constructor for HashThread worker.
-		 *
-		 * @param id_ Thread identifier
-		 * @param cris_ Concurrent read input stream
-		 * @param ros_ Array of concurrent read output streams
-		 * @param kc_ K-mer comparator for hashing
-		 */
 		HashThread(int id_, ConcurrentReadInputStream cris_, ConcurrentReadOutputStream[] ros_, KmerComparator kc_){
 			id=id_;
 			cris=cris_;
@@ -411,6 +407,11 @@ public class KmerSplit {
 			kc=kc_;
 		}
 
+		/**
+		 * Main execution method for HashThread. Processes read batches by validating
+		 * reads, applying name transformations, computing k-mer hashes, and distributing
+		 * reads to output groups based on hash codes modulo group count.
+		 */
 		@Override
 		public void run(){
 
@@ -491,24 +492,15 @@ public class KmerSplit {
 			}
 		}
 
-		/** Thread identifier for this HashThread instance */
 		final int id;
-		/** Concurrent read input stream for this thread */
 		final ConcurrentReadInputStream cris;
-		/** Array of concurrent read output streams for distributing reads */
 		final ConcurrentReadOutputStream[] ros;
-		/** K-mer comparator for computing hash values of reads */
 		final KmerComparator kc;
-		/** Buffer size for read batching before writing to output streams */
 		static final int buffer=200;
 		
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		/** Number of bytes processed from disk by this thread */
 		protected long diskProcessedT=0;
-		/** Number of bytes processed in memory by this thread */
 		protected long memProcessedT=0;
 	}
 	
@@ -516,92 +508,62 @@ public class KmerSplit {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** K-mer length for hashing (default 31) */
 	private int k=31;
-	/** Number of output groups to split reads into (default 16) */
 	int groups=16;
-	/** Minimum k-mer count threshold for filtering (default 0) */
 	int minCount=0;
 	
-	/** K-mer count table for filtering low-frequency k-mers */
 	KCountArray table=null;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path for paired-end reads */
 	private String in2=null;
 
-	/** Output file pattern containing % placeholder for group numbers */
 	private String out1=null;
-	/** Array of actual output file paths generated from out1 pattern */
 	private String[] outArray=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of reads processed across all threads */
 	protected long readsProcessed=0;
-	/** Total number of bases processed across all threads */
 	protected long basesProcessed=0;
-	/** Total number of bytes processed from disk across all threads */
 	protected long diskProcessed=0;
-	/** Total number of bytes processed in memory across all threads */
 	protected long memProcessed=0;
 	
-	/** Memory processed in the last operation for tracking purposes */
 	protected static long lastMemProcessed=0;
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 //	private boolean addName=false;
-	/** Whether to shorten read names during processing */
 	boolean shortName=false;
-	/** Whether to shrink read names to minimal form during processing */
 	boolean shrinkName=false;
-	/** Whether to perform error correction overlap detection on paired reads */
 	boolean ecco=false;
-	/** Whether to unpair paired-end reads for independent processing */
 	boolean unpair=false;
 	
-	/** Maximum compression level for output files */
 	static int maxZipLevel=2;
 
-	/** Whether to quantize quality scores during processing */
 	static boolean quantizeQuality=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format handler for primary input file */
 	private final FileFormat ffin1;
-	/** File format handler for secondary input file */
 	private final FileFormat ffin2;
 	
-	/** Array of file format handlers for output files */
 	private final FileFormat[] ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for logging and status messages */
 	private PrintStream outstream=System.err;
-	/** Whether to print verbose output during processing */
 	public static boolean verbose=false;
-	/** Whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

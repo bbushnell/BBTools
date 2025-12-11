@@ -23,11 +23,10 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Replaces read headers with other headers.
- * 
+ * Replaces read headers with headers from a separate file.
+ * Supports paired-end reads and can either replace headers completely or prepend new headers to existing ones.
  * @author Brian Bushnell
  * @date May 23, 2016
- *
  */
 public class ReplaceHeaders {
 	
@@ -35,10 +34,8 @@ public class ReplaceHeaders {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that constructs ReplaceHeaders and runs processing.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReplaceHeaders x=new ReplaceHeaders(args);
@@ -49,8 +46,9 @@ public class ReplaceHeaders {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command line arguments and initializes file formats.
+	 * Sets up input/output streams for sequence reads and header files, validates paths, and enforces pairing configuration.
+	 * @param args Command line arguments specifying input/output files and options
 	 */
 	public ReplaceHeaders(String[] args){
 		
@@ -210,7 +208,11 @@ public class ReplaceHeaders {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that coordinates the header replacement pipeline.
+	 * Creates concurrent input streams for reads and headers, validates pairing, and processes all data through processInner.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Create a read input stream
@@ -273,7 +275,13 @@ public class ReplaceHeaders {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Iterates through read and header streams synchronously.
+	 * Validates that header count matches read count for each batch, processes each read pair with corresponding headers, and writes output.
+	 * @param cris Input stream for sequence reads
+	 * @param hcris Input stream for replacement headers
+	 * @param ros Output stream for modified reads (may be null)
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadInputStream hcris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -368,10 +376,13 @@ public class ReplaceHeaders {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Process a single read pair.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
+	 * Replaces headers for a single read pair.
+	 * If prefix mode is enabled, prepends new header to existing header; otherwise completely replaces the existing header.
+	 * @param r1 First read in the pair
+	 * @param r2 Second read in the pair (may be null for unpaired)
+	 * @param h1 Replacement header for first read
+	 * @param h2 Replacement header for second read (may be null for unpaired)
+	 * @return Always returns true (reads are always kept)
 	 */
 	boolean processReadPair(final Read r1, final Read r2, final Read h1, final Read h2){
 		if(prefix){
@@ -388,81 +399,54 @@ public class ReplaceHeaders {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 
-	/** Primary header input file path */
 	private String hin1=null;
-	/** Secondary header input file path */
 	private String hin2=null;
 	
-	/** Primary quality file input path */
 	private String qfin1=null;
-	/** Secondary quality file input path */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 
-	/** Primary quality file output path */
 	private String qfout1=null;
-	/** Secondary quality file output path */
 	private String qfout2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** Prepend the new name to the old name */
 	private boolean prefix=false;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 
-	/** Primary header input file */
 	private final FileFormat ffhin1;
-	/** Secondary header input file */
 	private final FileFormat ffhin2;
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
 	private final FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

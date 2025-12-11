@@ -19,18 +19,16 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Merges FASTA or FASTQ contigs into synthetic chromosomes with N-padding.
+ * Combines multiple input contigs into fewer output sequences to improve assembly contiguity.
+ * Filters contigs by minimum length and splits output when size limits are reached.
+ *
  * @author Brian Bushnell
  * @date Jul 10, 2012
- *
  */
 public class MergeFastaContigs {
 	
 	
-	/**
-	 * Program entry point for merging contigs.
-	 * Parses command-line arguments and delegates to appropriate merge method.
-	 * @param args Command-line arguments including input/output files and parameters
-	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -129,11 +127,6 @@ public class MergeFastaContigs {
 	
 	
 	
-	/**
-	 * @param infile
-	 * @param outfile
-	 * @param outindex
-	 */
 	public static void merge(String infile, String outfile, String outindex) {
 		StringBuilder temp=new StringBuilder(MIN_CONTIG_TO_ADD);
 		TextFile tf=new TextFile(infile, false);
@@ -197,9 +190,11 @@ public class MergeFastaContigs {
 	}
 	
 	/**
-	 * @param infiles
-	 * @param outfile
-	 * @param outindex
+	 * Merges FASTA contigs from multiple input files into synthetic chromosomes.
+	 * Filters contigs by minimum length, adds N-padding between contigs, and splits into multiple chromosomes when size limits are exceeded while recording contig locations in an index file.
+	 * @param infiles Array of input FASTA file paths
+	 * @param outfile Output FASTA file path
+	 * @param outindex Output index file path mapping contig locations
 	 */
 	public static void mergeFasta(String infiles[], String outfile, String outindex) {
 		
@@ -331,9 +326,11 @@ public class MergeFastaContigs {
 	
 	
 	/**
-	 * @param in1
-	 * @param outfile
-	 * @param outindex
+	 * Merges FASTQ reads into synthetic chromosomes with N-padding.
+	 * Converts FASTQ format to FASTA while preserving sequence data, treating each read as a contig and recording its chromosomal position in the index file.
+	 * @param in1 Input FASTQ file path
+	 * @param outfile Output FASTA file path
+	 * @param outindex Output index file path mapping read locations
 	 */
 	public static void mergeFastq(String in1, String outfile, String outindex) {
 		StringBuilder temp=new StringBuilder(MIN_CONTIG_TO_ADD);
@@ -435,12 +432,6 @@ public class MergeFastaContigs {
 		iout.poison();
 	}
 	
-	/**
-	 * Prints sequence data to stdout with line breaks at fixed intervals.
-	 * Handles wrapping and proper line formatting for FASTA output.
-	 * @param sb The sequence to print
-	 * @param mod Starting column offset for line wrapping
-	 */
 	private static void printAsLines(CharSequence sb, int mod){
 		dataOut+=sb.length();
 		assert(mod<lineBreak);
@@ -463,14 +454,6 @@ public class MergeFastaContigs {
 			}
 		}
 	}
-	/**
-	 * Prints sequence data to a TextStreamWriter with line breaks at fixed intervals.
-	 * Handles wrapping and proper line formatting for FASTA output.
-	 *
-	 * @param sb The sequence to print
-	 * @param mod Starting column offset for line wrapping
-	 * @param cout The output writer to use
-	 */
 	private static void printAsLines(CharSequence sb, int mod, TextStreamWriter cout){
 		dataOut+=sb.length();
 		assert(mod<lineBreak);
@@ -501,12 +484,6 @@ public class MergeFastaContigs {
 		}
 	}
 
-	/**
-	 * Creates a string of N characters for padding between contigs.
-	 * Caches the result for reuse when length hasn't changed.
-	 * @param N_PAD_LENGTH Number of N characters in the padding string
-	 * @return String containing N_PAD_LENGTH 'N' characters
-	 */
 	public static String npad(int N_PAD_LENGTH){
 		if(npad==null || npad.length()!=N_PAD_LENGTH){
 			StringBuilder sb=new StringBuilder(N_PAD_LENGTH);
@@ -518,12 +495,6 @@ public class MergeFastaContigs {
 		return npad;
 	}
 
-	/**
-	 * Creates a string of N characters for padding at chromosome ends.
-	 * Caches the result for reuse when length hasn't changed.
-	 * @param N_PAD_LENGTH Number of N characters in the padding string
-	 * @return String containing N_PAD_LENGTH 'N' characters
-	 */
 	public static String npad2(int N_PAD_LENGTH){
 		if(npad2==null || npad2.length()!=N_PAD_LENGTH){
 			StringBuilder sb=new StringBuilder(N_PAD_LENGTH);
@@ -535,51 +506,30 @@ public class MergeFastaContigs {
 		return npad2;
 	}
 	
-	/** Returns the smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns the larger of two integers */
 	@SuppressWarnings("unused")
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
-	/** Total number of defined (non-N) bases read from input files */
 	static long definedBasesIn=0;
-	/** Total number of input contigs processed */
 	static long contigsIn=0;
-	/** Total number of defined (non-N) bases written to output */
 	static long definedBasesOut=0;
-	/** Total number of contigs included in output (after filtering) */
 	static long contigsOut=0;
-	/** Total number of output chromosomes created */
 	static long chromsOut=0;
 	
-	/** Number of characters per line in FASTA output */
 	public static int lineBreak=80;
-	/** Line break modulo value for formatting calculations */
 	public static int modulo=lineBreak+1;
-	/** Number of N characters to insert between contigs */
 	public static int N_PAD_LENGTH=300;
-	/** Number of N characters to insert at chromosome ends */
 	public static int N_PAD_LENGTH2=2000; //for ends
-	/** Minimum contig length required for inclusion in output */
 	public static int MIN_CONTIG_TO_ADD=150;
-	/** Maximum length of each output chromosome before splitting */
 	public static int MAX_OUTPUT_LEN=220000000; //200M allows expansion to 262M
-	/** Maximum number of output chromosomes to create */
 	public static int maxChromsOut=60000;
-	/** Maximum total amount of data to output */
 	public static long maxDataOut=Long.MAX_VALUE;
-	/** Running total of data written to output */
 	private static long dataOut=0;
 	/** Cached N-padding string for chromosome ends */
-	/** Cached N-padding string for inter-contig spacing */
 	public static String npad, npad2;
-	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
-	/** Whether to append to existing output files */
 	public static boolean append=false;
-	/** Whether to add N-padding at the beginning of each chromosome */
 	public static boolean PAD_START=true; //Set to true to add padding to beginning.
-	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
 	
 }

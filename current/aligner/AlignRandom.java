@@ -130,16 +130,6 @@ public class AlignRandom {
 		return bb;
 	}
 	
-	/**
-	 * Runs multi-threaded alignment benchmark for sequences of specified length.
-	 * Distributes alignment tasks across thread pool using atomic counters for thread safety.
-	 * Each thread generates its own random sequences and updates shared histogram.
-	 *
-	 * @param len Length of random sequences to generate
-	 * @param iters Number of alignment iterations to perform
-	 * @param buckets Number of histogram buckets for identity scores
-	 * @return Histogram array of alignment identity frequencies
-	 */
 	static int[] runMT(final int len, final int iters, final int buckets) {
 		ExecutorService executor = Executors.newFixedThreadPool(Shared.threads());
 		final AtomicIntegerArray atomicHist = new AtomicIntegerArray(buckets + 1);

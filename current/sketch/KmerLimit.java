@@ -24,10 +24,13 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * 
+ * Limits k-mer processing to a specified target count for memory-efficient sketching.
+ * Processes sequencing reads and builds k-mer sketches while monitoring memory usage
+ * and stopping when the target k-mer limit is reached. Uses a shared heap across
+ * multiple threads to accumulate k-mers until the specified limit.
+ *
  * @author Brian Bushnell
  * @date July 25, 2018
- *
  */
 public class KmerLimit extends SketchObject {
 	
@@ -35,10 +38,6 @@ public class KmerLimit extends SketchObject {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -53,10 +52,6 @@ public class KmerLimit extends SketchObject {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor.
-	 * @param args Command line arguments
-	 */
 	public KmerLimit(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -242,7 +237,12 @@ public class KmerLimit extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams, processes all input data, and reports results.
+	 * Sets up concurrent input/output streams, spawns worker threads to process
+	 * reads and extract k-mers, then reports timing and k-mer statistics.
+	 * @param t Timer for measuring execution time
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -307,7 +307,14 @@ public class KmerLimit extends SketchObject {
 		}
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and manages worker threads for parallel read processing.
+	 * Spawns up to 8 threads to process reads concurrently, waits for completion,
+	 * and accumulates per-thread statistics.
+	 *
+	 * @param cris Input stream for reading sequences
+	 * @param ros Output stream for writing processed sequences (may be null)
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -365,8 +372,11 @@ public class KmerLimit extends SketchObject {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/**
+	 * Worker thread for processing reads and extracting k-mers.
+	 * Each thread maintains a local sketch heap and periodically merges
+	 * with the shared heap when the target k-mer limit is not yet reached.
+	 */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
@@ -391,7 +401,11 @@ public class KmerLimit extends SketchObject {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Main processing loop that reads sequences and extracts k-mers.
+		 * Continues processing until input is exhausted or target k-mer limit
+		 * is reached, dumping local heap to shared heap periodically.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -458,21 +472,15 @@ public class KmerLimit extends SketchObject {
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @param r1 Read 1
-		 * @param r2 Read 2 (may be null)
+		 * Processes a read pair to extract k-mers for sketching.
+		 * @param r1 First read in the pair
+		 * @param r2 Second read in the pair (may be null for unpaired reads)
 		 */
 		void processReadPair(final Read r1, final Read r2){
 			processReadNucleotide(r1);
 			if(r2!=null){processReadNucleotide(r2);}
 		}
 		
-		/**
-		 * Extracts k-mers from a single nucleotide read.
-		 * Processes each base to build rolling k-mers, applying quality filtering
-		 * when quality scores are available, and adds qualifying k-mers to the local heap.
-		 * @param r The read to process for k-mer extraction
-		 */
 		void processReadNucleotide(final Read r){
 			final byte[] bases=r.bases;
 			final byte[] quals=r.quality;
@@ -538,12 +546,6 @@ public class KmerLimit extends SketchObject {
 			}
 		}
 		
-		/**
-		 * Merges local heap with shared heap if target limit not yet reached.
-		 * Thread-safe operation that checks the current k-mer count estimate
-		 * and transfers local k-mers to the shared heap when appropriate.
-		 * @return Current estimate of unique k-mers in the shared heap
-		 */
 		private long dumpHeap(){
 			long count=0;
 			synchronized(sharedHeap){
@@ -556,27 +558,18 @@ public class KmerLimit extends SketchObject {
 			return count;
 		}
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** Number of reads retained by this thread */
 		protected long readsOutT=0;
-		/** Number of bases retained by this thread */
 		protected long basesOutT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Shared output stream */
 		private final ConcurrentReadOutputStream ros;
-		/** Thread ID */
 		final int tid;
 		
-		/** Thread-local heap for collecting k-mers before merging with shared heap */
 		final SketchHeap localHeap;
 	}
 	
@@ -584,94 +577,67 @@ public class KmerLimit extends SketchObject {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 	
 	private String qfin1=null;
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 
 	private String qfout1=null;
 	private String qfout2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Total number of reads processed across all threads */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Total number of bases processed across all threads */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Total number of reads written to output */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Total number of bases written to output */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Shared heap for accumulating k-mers across all worker threads */
 	private final SketchHeap sharedHeap;
-	/** Size of the sketch heap in number of k-mers */
 	private final int heapSize;
-	/** Target number of k-mers to process before stopping */
 	private final long targetKmers;
-	/** Minimum count threshold for k-mers to be retained */
 	private final int minCount;
 
-	/** Bit shift value for k-mer encoding (2*k bits) */
 	final int shift;
-	/** Secondary bit shift value for reverse complement k-mer encoding */
 	final int shift2;
-	/** Bit mask for extracting k-mer values during rolling hash */
 	final long mask;
 	
-	/** Minimum probability threshold for quality-based k-mer filtering */
 	final float minProb;
-	/** Minimum quality score threshold for individual bases */
 	final byte minQual;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order (not enabled) */
 	private boolean ordered=false;
-	/** Shuffle input */
 	private boolean shuffle=false;
 	
 }

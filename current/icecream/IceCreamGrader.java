@@ -24,17 +24,18 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * @author Brian Bushnell
- * @date June 11, 2019
+ * Read quality classifier for identifying PacBio sequencing reads with
+ * "ice cream" contamination markers. Processes FASTQ files and generates
+ * statistics on good versus contaminated reads based on subread analysis.
  *
+ * Ice cream reads are defined as those with multiple subreads (subreads > 1),
+ * indicating potential chimeric sequences or adapter contamination issues
+ * in PacBio sequencing data.
+ *
+ * @author Brian Bushnell
  */
 public class IceCreamGrader {
 	
-	/**
-	 * Main entry point for the IceCreamGrader program.
-	 * Creates an instance and processes input files with timer tracking.
-	 * @param args Command line arguments including input/output specifications
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -49,11 +50,6 @@ public class IceCreamGrader {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs IceCreamGrader with command line argument parsing.
-	 * Initializes file formats, threading parameters, and processing options.
-	 * @param args Command line arguments for configuration
-	 */
 	public IceCreamGrader(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -124,12 +120,6 @@ public class IceCreamGrader {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
-	/**
-	 * Processes input reads to classify them as good or ice cream contaminated.
-	 * Reads are processed sequentially and statistics are accumulated for
-	 * final reporting. Uses concurrent read streaming for efficiency.
-	 * @param t Timer for tracking processing duration
-	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -201,13 +191,6 @@ public class IceCreamGrader {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Classifies individual read as good or ice cream contaminated.
-	 * Uses ReadBuilder.isIceCream() to detect reads with multiple subreads
-	 * and updates appropriate counters for reads and bases.
-	 * @param r Read to classify
-	 * @return Always true (all reads are retained for counting)
-	 */
 	private boolean process(Read r){
 		boolean iceCream=ReadBuilder.isIceCream(r.id);
 		if(iceCream){
@@ -222,43 +205,30 @@ public class IceCreamGrader {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
 	private String in1=null;
 	
-	/** Input file extension override */
 	private String extin=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 
-	/** Count of reads without ice cream contamination */
 	private long goodReads=0;
-	/** Total bases in good (non-contaminated) reads */
 	private long goodBases=0;
-	/** Count of reads with ice cream contamination */
 	private long badReads=0;
-	/** Total bases in bad (ice cream contaminated) reads */
 	private long badBases=0;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format for primary input file */
 	private final FileFormat ffin1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for program messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
-	/** Tracks whether an error has occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting of existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

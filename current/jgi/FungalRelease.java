@@ -25,11 +25,13 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Reformats a fungal assembly for release. Also creates contig and agp files.
- * 
+ * Reformats a fungal assembly for release and creates contig and AGP files.
+ * Processes scaffolds by breaking them at gaps, filtering by length, and optionally
+ * renaming sequences with standardized identifiers. Generates AGP files for genome
+ * assembly metadata and legend files for sequence name mapping.
+ *
  * @author Brian Bushnell
  * @date December 9, 2015
- *
  */
 public class FungalRelease {
 
@@ -37,12 +39,8 @@ public class FungalRelease {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Code entrance from the command line.
-	 * 
-	 * @param args
-	 *            Command line arguments
-	 */
+	/** Program entry point. Creates FungalRelease instance and executes processing.
+	 * @param args Command-line arguments for configuration */
 	public static void main(String[] args) {
 		Timer t = new Timer();
 		FungalRelease x = new FungalRelease(args);
@@ -53,10 +51,11 @@ public class FungalRelease {
 	}
 
 	/**
-	 * Constructor.
-	 * 
-	 * @param args
-	 *            Command line arguments
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams, validates file paths, and configures processing
+	 * parameters including gap thresholds, length filters, and naming options.
+	 * @param args Command-line arguments containing file paths and parameters
+	 * @throws RuntimeException If required input files are missing or inaccessible
 	 */
 	public FungalRelease(String[] args) {
 
@@ -192,7 +191,13 @@ public class FungalRelease {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that creates input/output streams and processes all data.
+	 * Coordinates the complete workflow: reading scaffolds, optionally creating legend
+	 * files, generating contigs and AGP files, and writing all outputs.
+	 * @param t Timer for tracking execution performance
+	 * @throws RuntimeException If processing encounters errors or output is corrupted
+	 */
 	void process(Timer t) {
 
 		// Create a read input stream
@@ -251,7 +256,14 @@ public class FungalRelease {
 		}
 	}
 
-	/** Iterate through the reads */
+	/**
+	 * Core processing logic that handles scaffolds and generates contigs.
+	 * Reads all scaffolds, optionally sorts and renames them, creates legend mapping,
+	 * breaks scaffolds at gaps to generate contigs, and writes AGP metadata.
+	 * @param cris Input stream for reading scaffold sequences
+	 * @param ros Output stream for processed scaffolds (may be null)
+	 * @param rosc Output stream for generated contigs (may be null)
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros,
 			final ConcurrentReadOutputStream rosc) {
 
@@ -319,7 +331,13 @@ public class FungalRelease {
 
 	}
 
-	/** Iterate through the reads */
+	/**
+	 * Reads and processes all input sequences from the stream.
+	 * Filters scaffolds by length and processes each one through gap inflation
+	 * and validation. Accumulates all passing sequences into a single list.
+	 * @param cris Input stream containing scaffold sequences
+	 * @return List of all processed scaffolds that pass length filters
+	 */
 	private ArrayList<Read> getReads(final ConcurrentReadInputStream cris) {
 
 		ArrayList<Read> all = new ArrayList<Read>(10000);
@@ -394,12 +412,12 @@ public class FungalRelease {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Process a single read pair.
-	 * 
-	 * @param r1
-	 *            Read 1
-	 * @return True if the reads should be kept, false if they should be
-	 *         discarded.
+	 * Processes a single scaffold sequence through validation and gap handling.
+	 * Checks for non-ACGTN bases if IUPAC codes are banned, inflates gaps to
+	 * minimum thresholds, and applies length filtering.
+	 * @param r1 Scaffold sequence to process
+	 * @return true if scaffold passes all filters and should be retained
+	 * @throws RuntimeException If non-ACGTN bases found when banIupac is true
 	 */
 	boolean processRead(final Read r1) {
 		//assert (!banIupac || !r1.containsNonACGTN()) : "Non-ACGTN base found in scaffold " + r1.id;
@@ -416,104 +434,69 @@ public class FungalRelease {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Minimum gap size in input scaffolds to be considered for inflation */
 	private int minGapIn = 1;
-	/** Target minimum gap size after inflation in output scaffolds */
 	private int minGapOut = 10;
-	/** Minimum scaffold length to retain in final output */
 	private int minScaf = 1;
-	/** Minimum contig length when breaking scaffolds at gaps */
 	private int minContig = 1;
-	/** Counter for generating sequential scaffold names when renaming */
 	private long scafNum = 1;
-	/** Counter for generating sequential contig names when renaming */
 	private long contigNum = 1;
 
-	/** Whether to sort scaffolds by length before output */
 	private boolean sortScaffolds = true;
-	/** Whether to sort contigs by length before output */
 	private boolean sortContigs = false;
-	/** Whether to reject scaffolds containing non-ACGTN bases */
 	private boolean banIupac = true;
-	/** Whether to rename scaffolds with standardized identifiers */
 	private boolean renameScaffolds = true;
-	/** Whether to rename contigs with standardized identifiers */
 	private boolean renameContigs = false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1 = null;
 
-	/** Quality file path for input sequences (may be null) */
 	private String qfin1 = null;
 
-	/** Primary output file path */
 	private String out1 = null;
-	/** Output file path for generated contigs */
 	private String outC = null;
 
-	/** Quality output file path for scaffolds (may be null) */
 	private String qfout1 = null;
-	/** Quality output file path for contigs (may be null) */
 	private String qfoutC = null;
 
-	/** Output path for AGP (A Golden Path) assembly metadata file */
 	private String agpFile = null;
-	/**
-	 * Output path for legend file mapping original to renamed sequence identifiers
-	 */
 	private String legendFile = null;
 
-	/** Override input file extension */
 	private String extin = null;
-	/** Override output file extension */
 	private String extout = null;
 
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed = 0;
-	/** Number of bases processed */
 	protected long basesProcessed = 0;
 
-	/** Number of reads processed */
 	protected long readsOut = 0;
-	/** Number of bases processed */
 	protected long basesOut = 0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads = -1;
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
 
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** File format handler for contig output file */
 	private final FileFormat ffoutC;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Print status messages to this output stream */
+	/** Output stream for status and error messages */
 	private PrintStream outstream = System.err;
-	/** Print verbose messages */
 	public static boolean verbose = false;
-	/** True if an error was encountered */
+	/** Flag indicating whether processing encountered errors */
 	public boolean errorState = false;
-	/** Overwrite existing output files */
 	private boolean overwrite = false;
-	/** Append to existing output files */
 	private boolean append = false;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered = false;
 
 }

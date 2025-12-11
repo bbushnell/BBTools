@@ -1,23 +1,21 @@
 package ukmer;
 
-/**
- * Abstract iterator for traversing k-mer hash tables and data structures.
- * Provides unified iteration interface for k-mer table traversal and data extraction.
- * Supports sequential access to k-mer entries with key-value pair retrieval.
- * @author Brian Bushnell
- */
 public abstract class WalkerU {
 	
-	/** 
-	 * Allows iteration through a hash map.
-	 * Concurrent modification is not recommended.
-	 */
 	public abstract boolean next();
 	
-	/** Current object kmer (key) for ukmer package */
+	/**
+	 * Returns the current k-mer object (key) at the iterator position.
+	 * Must be called after a successful next() call.
+	 * @return Current k-mer object serving as the key
+	 */
 	public abstract Kmer kmer();
 	
-	/** Current value */
+	/**
+	 * Returns the current value associated with the k-mer at the iterator position.
+	 * Must be called after a successful next() call.
+	 * @return Current integer value associated with the k-mer
+	 */
 	public abstract int value();
 	
 }

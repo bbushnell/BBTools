@@ -5,12 +5,28 @@ import java.util.Comparator;
 import stream.Read;
 
 /**
+ * Comparator for sorting Read objects by error rates and quality metrics.
+ * Orders reads from lowest to highest error count, with secondary sorting
+ * by length (longest first), expected errors, numeric ID, and string ID.
+ * Handles both single reads and paired-end reads with mates.
+ *
  * @author Brian Bushnell
  * @date May 30, 2013
- *
  */
 public final class ReadErrorComparator implements Comparator<Read>{
 	
+	/**
+	 * Compares two reads using hierarchical sorting criteria.
+	 * Primary sort: total error count (read + mate) ascending
+	 * Secondary sort: total length (read + mate) descending
+	 * Tertiary sort: expected errors (read + mate) ascending
+	 * Quaternary sort: numeric ID ascending
+	 * Final sort: string ID lexicographically
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return negative if r1 < r2, positive if r1 > r2, zero if equal
+	 */
 	@Override
 	public int compare(Read r1, Read r2) {
 
@@ -33,7 +49,6 @@ public final class ReadErrorComparator implements Comparator<Read>{
 		return 0;
 	}
 	
-	/** Singleton instance of ReadErrorComparator for reuse */
 	public static final ReadErrorComparator comparator=new ReadErrorComparator();
 	
 }

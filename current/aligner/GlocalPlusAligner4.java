@@ -6,21 +6,26 @@ import java.util.concurrent.atomic.AtomicLong;
 import shared.Shared;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback. 
- *Limited to length 2Mbp with 21 position bits.
+ * Glocal alignment implementation that returns Average Nucleotide Identity (ANI).
+ * Uses dynamic programming with only 2 arrays to avoid traceback overhead.
+ * Calculates alignment start and end positions without full traceback reconstruction.
+ * Limited to sequences of 2MB with 21-bit position encoding.
  *
- *Padded to array length bounds.
+ * Uses bit-packed score fields to track position, deletions, and score in single long values.
+ * Supports both global and local alignment modes via GLOBAL flag.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 5, 2025
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 5, 2025
  */
 public class GlocalPlusAligner4 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for standardized testing.
+	 * Uses reflection to determine the actual class type and passes it to Test framework.
+	 * @param args Command-line arguments passed to Test.testAndPrint
+	 * @throws Exception If class reflection fails or Test execution throws
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -32,21 +37,55 @@ public class GlocalPlusAligner4 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for creating aligner instances */
 	public GlocalPlusAligner4() {}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns the display name "Glocal+4" for this aligner implementation */
 	@Override
 	public final String name() {return "Glocal+4";}
+	/**
+	 * Aligns two sequences and returns identity score.
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity score with alignment positions.
+	 *
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @param pos Output array for alignment start/end positions [start, end]
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * Note: minScore parameter is currently ignored in this implementation.
+	 *
+	 * @param a First sequence to align
+	 * @param b Second sequence to align
+	 * @param pos Output array for alignment start/end positions [start, end]
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference window.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Output array for alignment start/end positions [start, end]
+	 * @param rStart Reference window start position
+	 * @param rStop Reference window end position
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -55,11 +94,21 @@ public class GlocalPlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Main alignment algorithm using dynamic programming with bit-packed scoring.
+	 * Encodes sequences into long arrays for efficient comparison.
+	 * Uses 2-array approach to minimize memory usage.
+	 * Optionally swaps query/reference to ensure query is shorter for efficiency.
+	 *
+	 * Bit packing format in score values:
+	 * - Lower 21 bits: alignment start position
+	 * - Next 21 bits: deletion count
+	 * - Upper bits: alignment score
+	 *
+	 * @param query0 Query sequence bytes
+	 * @param ref0 Reference sequence bytes
+	 * @param posVector Optional output array for alignment positions [start, end].
+	 * If null, sequences may be swapped for optimization.
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -226,14 +275,16 @@ public class GlocalPlusAligner4 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Aligns query to a window of the reference sequence.
+	 * Extracts reference subsequence and delegates to main alignment method.
+	 * Adjusts returned positions to account for window offset.
+	 *
 	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param ref Full reference sequence
+	 * @param posVector Output array for alignment positions [start, end]
+	 * @param refStart Window start position (inclusive)
+	 * @param refEnd Window end position (inclusive)
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -249,14 +300,9 @@ public class GlocalPlusAligner4 implements IDAligner{
 		return id;
 	}
 	
-	/** Thread-safe counter for total DP matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Returns total number of DP matrix cells processed across all alignments */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter to specified value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Output file path for visualization data (null disables visualization) */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -264,43 +310,26 @@ public class GlocalPlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/**
-	 * Number of bits used for encoding alignment start position (21 bits = 2MB limit)
-	 */
 	private static final int POSITION_BITS=21;
-	/** Number of bits used for encoding deletion count in score field */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount to access score portion of packed long value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position bits from packed score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting score portion from packed value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score increment for matching bases (+1 in upper bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions (-1 in upper bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions (-1 in upper bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions (-1 in upper bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous base matches (neutral, no penalty) */
 	private static final long N_SCORE=0L;
-	/** Sentinel value for invalid/uninitialized DP matrix cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined score penalty and position increment for deletions */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
-	/** Debug flag to print detailed alignment operation counts */
 	private static final boolean PRINT_OPS=false;
-	/** Mode flag: true for global alignment, false for local alignment */
 	public static boolean GLOBAL=false;
 
 }

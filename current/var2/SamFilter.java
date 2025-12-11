@@ -8,23 +8,15 @@ import shared.Tools;
 import stream.SamLine;
 
 /**
- * Filters SAM/BAM alignments, VCF variants, and other genomic data based on 
- * configurable criteria including mapping quality, position ranges, alignment 
+ * Filters SAM/BAM alignments, VCF variants, and other genomic data based on
+ * configurable criteria including mapping quality, position ranges, alignment
  * identity, and SAM flags. Supports both inclusive and exclusive filtering modes.
- * 
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla Winglet
  */
 public class SamFilter {
 	
-	/**
-	 * Parses command-line arguments to configure filter parameters.
-	 * 
-	 * @param arg Original argument string
-	 * @param a Argument key (lowercase)
-	 * @param b Argument value
-	 * @return true if argument was recognized and parsed
-	 */
 	public boolean parse(String arg, String a, String b){
 
 		if(a.equals("min") || a.equals("minpos")){
@@ -80,7 +72,6 @@ public class SamFilter {
 	/**
 	 * Adds contig names to the filter whitelist. Handles comma-separated lists
 	 * and automatically adds common name variants (underscore/space conversion).
-	 * 
 	 * @param s Contig name or comma-separated list of names
 	 */
 	void addContig(String s){
@@ -97,12 +88,6 @@ public class SamFilter {
 		if(split.length>0 && !split[0].equals(s)){contigs.add(split[0]);}
 	}
 	
-	/**
-	 * Tests whether a SAM line passes all filter criteria.
-	 * 
-	 * @param sl SAM line to test
-	 * @return true if line passes filters (accounting for invert flag)
-	 */
 	public boolean passesFilter(SamLine sl){
 		if(sl==null){return false;}
 		return invert^matchesFilter(sl);
@@ -111,7 +96,6 @@ public class SamFilter {
 	/**
 	 * Internal filter logic for SAM lines. Tests all configured criteria
 	 * including position, mapping quality, SAM flags, and alignment identity.
-	 * 
 	 * @param sl SAM line to test
 	 * @return true if line matches filter criteria (before inversion)
 	 */
@@ -150,12 +134,6 @@ public class SamFilter {
 		return true;
 	}
 	
-	/**
-	 * Tests whether a VCF line passes position and contig filters.
-	 * 
-	 * @param vl VCF line to test
-	 * @return true if line passes filters (accounting for invert flag)
-	 */
 	public boolean passesFilter(VCFLine vl){
 		if(vl==null){return false;}
 		return invert^matchesFilter(vl);
@@ -164,7 +142,6 @@ public class SamFilter {
 	/**
 	 * Internal filter logic for VCF lines. Only position and contig
 	 * filters are applicable to VCF data.
-	 * 
 	 * @param vl VCF line to test
 	 * @return true if line matches filter criteria (before inversion)
 	 */
@@ -186,13 +163,6 @@ public class SamFilter {
 		return true;
 	}
 	
-	/**
-	 * Tests whether a Var object passes position and contig filters.
-	 * 
-	 * @param v Var object to test
-	 * @param map ScafMap for contig name resolution
-	 * @return true if variant passes filters (accounting for invert flag)
-	 */
 	public boolean passesFilter(Var v, ScafMap map){
 		if(v==null){return false;}
 		return invert^matchesFilter(v, map);
@@ -201,7 +171,7 @@ public class SamFilter {
 	/**
 	 * Internal filter logic for Var objects. Only position and contig
 	 * filters are applicable to variant data.
-	 * 
+	 *
 	 * @param v Var object to test
 	 * @param map ScafMap for contig name resolution
 	 * @return true if variant matches filter criteria (before inversion)
@@ -224,23 +194,11 @@ public class SamFilter {
 		return true;
 	}
 	
-	/**
-	 * Tests whether a contig name passes the contig filter.
-	 * 
-	 * @param name Contig name to test
-	 * @return true if name passes filter (accounting for invert flag)
-	 */
 	public boolean passesFilter(String name){
 		if(name==null){return false;}
 		return invert^matchesFilter(name);
 	}
 	
-	/**
-	 * Internal filter logic for contig names.
-	 * 
-	 * @param name Contig name to test
-	 * @return true if name matches filter criteria (before inversion)
-	 */
 	boolean matchesFilter(String name){
 		if(name==null){return false;}
 		if(contigs!=null){
@@ -249,9 +207,6 @@ public class SamFilter {
 		return true;
 	}
 	
-	/**
-	 * Resets mapping quality filters to default (no filtering).
-	 */
 	public void clear() {
 		minMapq=Integer.MIN_VALUE;
 		maxMapq=Integer.MAX_VALUE;
@@ -261,41 +216,24 @@ public class SamFilter {
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Minimum position for coordinate filtering */
 	public int minPos=Integer.MIN_VALUE;
-	/** Maximum position for coordinate filtering */
 	public int maxPos=Integer.MAX_VALUE;
-	/** Minimum mapping quality threshold */
 	public int minMapq=Integer.MIN_VALUE;
-	/** Maximum mapping quality threshold */
 	public int maxMapq=Integer.MAX_VALUE;
-	/** Minimum alignment identity (0.0-1.0) */
 	public float minId=Integer.MIN_VALUE;
-	/** Maximum alignment identity (0.0-1.0) */
 	public float maxId=Integer.MAX_VALUE;
-	/** Whether to include unmapped reads */
 	public boolean includeUnmapped=true;
-	/** Whether to include mapped reads */
 	public boolean includeMapped=true;
-	/** Whether to include supplementary alignments */
 	public boolean includeSupplementary=true;
-	/** Whether to include reads that failed quality checks */
 	public boolean includeQfail=false;
-	/** Whether to include duplicate reads */
 	public boolean includeDuplicate=true;
-	/** Whether to include non-primary (secondary) alignments */
 	public boolean includeNonPrimary=false;
-	/** Whether to include zero-length alignments */
 	public boolean includeLengthZero=false;
-	/** Set of allowed contig names (null means all allowed) */
 	public HashSet<String> contigs=null;
-	/** Whether to invert all filter results */
 	public boolean invert=false;
 
-	/**
-	 * Configures samtools filtering flags based on current filter settings.
-	 * Sets ReadWrite.SAMTOOLS_IGNORE_FLAG to exclude unwanted alignment types.
-	 */
+	/** Configures samtools filtering flags based on current filter settings.
+	 * Sets ReadWrite.SAMTOOLS_IGNORE_FLAG to exclude unwanted alignment types. */
 	public void setSamtoolsFilter(){
 		ReadWrite.SAMTOOLS_IGNORE_FLAG=0;
 		if(!includeUnmapped){ReadWrite.SAMTOOLS_IGNORE_FLAG|=ReadWrite.SAM_UNMAPPED;}

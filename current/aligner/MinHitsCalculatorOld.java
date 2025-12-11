@@ -6,21 +6,18 @@ import java.util.Random;
 import shared.Shared;
 import structures.IntHashMap;
 
-/** 
- * Calculates the minimum number of seed hits needed
- * to ensure all valid indel-free alignments are found
- * with a specified probability threshold.
- * Uses Monte Carlo simulation to account for wildcard
- * masking and error patterns.
- * 
+/**
+ * Calculates the minimum number of seed hits needed to ensure all valid
+ * indel-free alignments are found with a specified probability threshold.
+ * Uses Monte Carlo simulation to account for wildcard masking and error patterns.
  * @author Brian Bushnell
- * @contributor Isla
- * @date June 4, 2025
  */
 public class MinHitsCalculatorOld {
 
 	/**
 	 * Constructor for minimum hits calculator.
+	 * Initializes parameters and pre-computes wildcard patterns for simulation.
+	 *
 	 * @param k_ K-mer length
 	 * @param maxSubs_ Maximum allowed substitutions in alignment
 	 * @param midMaskLen_ Number of wildcard bases in middle of k-mer
@@ -47,7 +44,9 @@ public class MinHitsCalculatorOld {
 
 	/**
 	 * Creates a boolean array indicating which k-mer positions are wildcarded.
-	 * Wildcard positions are set to true for efficient short-circuiting.
+	 * Wildcard positions are set to true for efficient short-circuiting during
+	 * error simulation.
+	 *
 	 * @param k K-mer length
 	 * @param midMaskLen Number of consecutive wildcard bases in middle
 	 * @return Boolean array where true indicates wildcard position
@@ -67,8 +66,10 @@ public class MinHitsCalculatorOld {
 	/**
 	 * Counts k-mers that would still match despite errors, accounting for wildcards.
 	 * A k-mer is considered error-free if no errors fall on non-wildcard positions.
+	 *
 	 * @param errors BitSet indicating error positions in query sequence
 	 * @param wildcards Boolean array indicating wildcard positions in k-mer
+	 * @param queryLen Length of the query sequence
 	 * @return Number of k-mers that remain matchable
 	 */
 	private int countErrorFreeKmers(BitSet errors, boolean[] wildcards, int queryLen){
@@ -90,8 +91,9 @@ public class MinHitsCalculatorOld {
 
 	/**
 	 * Simulates random error patterns to determine minimum seed hits needed.
-	 * Uses Monte Carlo simulation to find the threshold that ensures
-	 * the specified probability of detecting valid alignments.
+	 * Uses Monte Carlo simulation to find the threshold that ensures the specified
+	 * probability of detecting valid alignments.
+	 *
 	 * @param validKmers Number of valid k-mers in query sequence
 	 * @return Minimum number of seed hits needed
 	 */
@@ -139,8 +141,8 @@ public class MinHitsCalculatorOld {
 	}
 
 	/**
-	 * Gets the minimum number of seed hits required for a query with
-	 * the specified number of valid k-mers. Results are cached.
+	 * Gets the minimum number of seed hits required for a query with the specified
+	 * number of valid k-mers. Results are cached for efficiency.
 	 * @param validKmers Number of valid k-mers in query sequence
 	 * @return Minimum seed hits needed to ensure detection probability
 	 */
@@ -156,33 +158,23 @@ public class MinHitsCalculatorOld {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** K-mer length */
 	private final int k;
 
-	/** Maximum allowed substitutions in alignment */
 	private final int maxSubs;
 
-	/** Number of wildcard bases in middle of k-mer */
 	private final int midMaskLen;
 
-	/** Bit mask for k-mer (may not be needed) */
 	private final int kMask;
 
-	/** Bit mask for middle wildcard positions (may not be needed) */
 	private final int midMask;
 
-	/** Minimum probability of detecting valid alignments (0.0-1.0) */
 	private final float minProb;
 
-	/** Boolean array indicating wildcard positions in k-mer */
 	private final boolean[] wildcards;
 
-	/** Cache mapping valid k-mer count to minimum required hits */
 	private final IntHashMap validKmerToMinHits=new IntHashMap();
 
-	/** Random number generator for simulation */
 	private final Random randy=Shared.threadLocalRandom(1);
 
-	/** Number of Monte Carlo iterations for simulation */
 	public static int iterations=100000;
 }

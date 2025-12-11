@@ -12,19 +12,16 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * TODO
+ * Skeleton implementation for counting k-mer uniqueness in sequencing data.
+ * Currently incomplete with TODO markers and placeholder methods.
+ * Intended to analyze sequence uniqueness patterns using matrix-based tracking.
+ *
  * @author Brian Bushnell
  * @date Jan 14, 2014
- *
  */
 public class CountUniqueness {
 
 	
-	/**
-	 * Main processing method that iterates through input files and measures timing.
-	 * Processes all input files and reports performance statistics including
-	 * reads/bases processed per second.
-	 */
 	public void process(){
 		Timer t=new Timer();
 		for(String s : in){
@@ -51,14 +48,6 @@ public class CountUniqueness {
 		}
 	}
 	
-	/**
-	 * Processes a paired-end read pair for uniqueness analysis.
-	 * Currently contains placeholder implementation with TODO assertion.
-	 * Updates read and base counters.
-	 *
-	 * @param r1 First read of the pair
-	 * @param r2 Second read of the pair (mate)
-	 */
 	private void process(Read r1, Read r2){
 		if(r1==null || r2==null){return;}
 		readsProcessed++;
@@ -68,12 +57,6 @@ public class CountUniqueness {
 		assert(false) : "TODO";
 	}
 	
-	/**
-	 * Processes reads from a single input file.
-	 * Creates concurrent read input stream, iterates through read lists,
-	 * and processes each read pair through the analysis pipeline.
-	 * @param fname Input filename to process
-	 */
 	public void process(String fname){
 		
 		final ConcurrentReadInputStream cris;
@@ -109,34 +92,20 @@ public class CountUniqueness {
 	
 	}
 
-	/** Maximum value for matrix dimensions, set to 41 */
 	private static final int MAX=41;
-	/** Maximum value plus one for matrix bounds checking */
 	private static final int MAX2=MAX+1;
-	/** Three-dimensional matrix for tracking good/valid uniqueness patterns */
 	private long[][][] goodMatrix=new long[MAX2][MAX2][MAX2];
-	/** Three-dimensional matrix for tracking bad/invalid uniqueness patterns */
 	private long[][][] badMatrix=new long[MAX2][MAX2][MAX2];
 	
-	/** Output stream for writing results and statistics */
 	private PrintStream outstream=System.err;
-	/** Flag to enable verbose output during processing */
 	private boolean verbose=false;
-	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
-	/** Array of input filenames to process */
 	private String in[];
-	/** Output filename for results */
 	private String out;
-	/** Flag to allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Flag to append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** Counter for total number of reads processed */
 	private long readsProcessed=0;
-	/** Counter for total number of bases processed */
 	private long basesProcessed=0;
-	/** Flag indicating whether an error occurred during processing */
 	private boolean errorState=false;
 	
 	

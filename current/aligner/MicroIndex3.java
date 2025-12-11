@@ -12,11 +12,12 @@ import stream.SamHeader;
 import structures.LongHashMap;
 
 /**
- * Index for a MicroAligner.
- * 
+ * K-mer index for MicroAligner providing fast sequence mapping.
+ * Builds a hash map from reference sequences using canonical k-mers with middle-masking
+ * for approximate matching. Optimized for single reference alignment scenarios.
+ *
  * @author Brian Bushnell
  * @date November 15, 2024
- *
  */
 public class MicroIndex3 {
 	
@@ -24,14 +25,6 @@ public class MicroIndex3 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Constructs a MicroIndex3 by loading reference from file.
-	 *
-	 * @param k_ K-mer length for indexing
-	 * @param midMaskLen_ Number of middle bases to mask in k-mers
-	 * @param path File path to reference sequence
-	 * @param setSamStatics Whether to initialize SAM header and genome data structures
-	 */
 	public MicroIndex3(int k_, int midMaskLen_, String path, boolean setSamStatics) {
 		this(k_, midMaskLen_, loadRef(path, setSamStatics));
 	}
@@ -104,7 +97,6 @@ public class MicroIndex3 {
 		return r;
 	}
 	
-	/** Builds the k-mer index from the reference sequence */
 	public void index() {indexRef(k, middleMask, ref, map);}
 	
 	/**
@@ -163,9 +155,12 @@ public class MicroIndex3 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Returns first hit location.
-	 * @param r Read to map.
-	 * @return (offset<<1)|strand
+	 * Maps a read to the reference using k-mer lookup.
+	 * Returns first matching position found by scanning read k-mers against the index.
+	 * Sets read alignment fields (chrom, strand, start, stop) if mapping succeeds.
+	 *
+	 * @param r Read to map against the reference
+	 * @return Encoded position and strand ((offset<<1)|strand) or NO_HIT if no match
 	 */
 	public long map(Read r) {
 		assert(!r.mapped() && r.match==null && r.samline==null);
@@ -245,27 +240,17 @@ public class MicroIndex3 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Gets the k-mer index hash map */
 	public LongHashMap getMap() {return map;}
 	
-	/** K-mer length used for indexing */
 	final int k;
-	/** K-mer length minus 1 (k-1) for offset calculations */
 	final int k2;
-	/** Number of middle bases masked in k-mers for approximate matching */
 	final int midMaskLen;
-	/** Bit mask for zeroing middle bases in k-mers */
 	final long middleMask;
-	/** Reference sequence name/identifier */
 	final private String refname;
-	/** Reference sequence bases */
 	final byte[] ref;
-	/** Hash map storing canonical k-mers to reference positions */
 	final LongHashMap map;
 	
 	//Indicates the position is on the minus strand
-	/** Code added to positions on minus strand (1000000000) */
 	static final int MINUS_CODE=1000000000;
-	/** Return value indicating no mapping found (Integer.MIN_VALUE) */
 	static final int NO_HIT=Integer.MIN_VALUE;
 }

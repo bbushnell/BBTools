@@ -7,18 +7,15 @@ import shared.Parse;
 import shared.PreParser;
 
 /**
- * Tests to see if a summary file matches a reference fasta file, based on date, size, and name
+ * Parses and validates genome summary files, extracting critical metadata about
+ * genome builds and file characteristics. Tests summary file compatibility with
+ * reference FASTA files based on date, size, and source path matching.
+ *
  * @author Brian Bushnell
  * @date Mar 11, 2013
- *
  */
 public class SummaryFile {
 	
-	/**
-	 * Program entry point for command-line summary file validation.
-	 * Parses arguments to extract summary file and reference FASTA paths.
-	 * @param args Command-line arguments including summary and reference files
-	 */
 	public static void main(String[] args){
 		if(args.length==0){
 			System.out.println("Usage: SummaryFile <summary file> <reference fasta>");
@@ -72,14 +69,6 @@ public class SummaryFile {
 		}
 	}
 	
-	/**
-	 * Validates summary file metadata against a reference FASTA file.
-	 * Checks source path, file size, and last modified timestamp for exact matches.
-	 * Returns false for stdin inputs or when any validation check fails.
-	 *
-	 * @param refName Path to reference FASTA file to validate against
-	 * @return true if summary matches reference file exactly, false otherwise
-	 */
 	public boolean compare(final String refName){
 		try {
 			File ref=new File(refName);
@@ -117,14 +106,6 @@ public class SummaryFile {
 		return true;
 	}
 	
-	/**
-	 * Static comparison method that creates a SummaryFile instance and validates
-	 * it against a reference file. Returns false if summary file doesn't exist.
-	 *
-	 * @param summaryName Path to summary file to load and validate
-	 * @param refName Path to reference FASTA file for validation
-	 * @return true if summary matches reference file, false otherwise
-	 */
 	public static boolean compare(final String summaryName, final String refName){
 		assert(refName!=null) : "Null reference file name.";
 		if(!new File(summaryName).exists()){
@@ -135,30 +116,14 @@ public class SummaryFile {
 		return sf.compare(refName);
 	}
 	
-	/** Generates default summary file path using current genome build from Data.
-	 * @return Standard summary file path for current genome build */
 	public static String getName(){
 		return getName(Data.GENOME_BUILD);
 	}
 	
-	/**
-	 * Generates summary file path for specified genome build number.
-	 * Constructs path using Data.ROOT_GENOME + build + "/summary.txt" format.
-	 * @param build Genome build number for path generation
-	 * @return Summary file path for specified build
-	 */
 	public static String getName(int build){
 		return Data.ROOT_GENOME+build+"/summary.txt";
 	}
 	
-	/**
-	 * Constructs SummaryFile by parsing tab-delimited summary text file.
-	 * Reads file line-by-line, extracting metadata values including chromosome
-	 * counts, base counts, version info, and file characteristics. Handles both
-	 * comment lines (#Version) and data lines (key\tvalue format).
-	 *
-	 * @param path Path to summary file to parse and load
-	 */
 	public SummaryFile(String path){
 		summaryFname=path;
 		String s;
@@ -192,34 +157,20 @@ public class SummaryFile {
 		tf.close();
 	}
 
-	/** Path to the summary file that was parsed */
 	public final String summaryFname;
 
-	/** Number of chromosomes in the genome build */
 	public int chroms;
-	/** Number of contigs in the genome assembly */
 	public long contigs;
-	/** Number of scaffolds in the genome assembly */
 	public long scaffolds;
-	/** Inter-scaffold padding length used in assembly */
 	public int interpad;
-	/** Total number of bases in the genome including undefined bases */
 	public long bases;
-	/** Number of defined bases (A, T, G, C) excluding N's and gaps */
 	public long definedBases;
-	/** Number of undefined bases (N's, gaps, and ambiguous bases) */
 	public long undefinedBases;
-	/** Name identifier for the genome build */
 	public String name;
-	/** Source file path that the summary was generated from */
 	public String source;
-	/** Version number of the genome build or summary format */
 	public int version;
-	/** File size in bytes of the original reference file */
 	public long bytes;
-	/** Last modified timestamp of the original reference file */
 	public long modified;
-	/** Whether scaffold names include standard prefixes in the assembly */
 	public boolean scafprefixes;
 	
 }

@@ -30,13 +30,13 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
- * Picks one ribosomal (16S) sequence per taxID.
- * This is the old version that does not make a consensus per taxID.
- * Instead it just picks whatever aligns best to the global consensus.
- * 
+ * Picks one ribosomal 16S sequence per taxID from input files using a global
+ * consensus sequence. This legacy implementation does not build per-taxID
+ * consensus sequences; it simply retains the read with the best identity to
+ * the global consensus for each taxonomic identifier, using multi-threaded
+ * processing for speed.
  * @author Brian Bushnell
  * @date November 19, 2015
- *
  */
 public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread> {
 	
@@ -44,10 +44,8 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Command-line entry point.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -63,8 +61,9 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Parses command line arguments, initializes IO formats, validates parameters,
+	 * and configures processing options for a MergeRibo_Fast run.
+	 * @param args Command line arguments containing file paths and options
 	 */
 	public MergeRibo_Fast(String[] args){
 		
@@ -113,7 +112,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments into a Parser configuration.
+	 * Handles input files, output paths, and basic processing flags.
+	 * @param args Array of command line arguments
+	 * @return Configured Parser with parsed parameters
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -156,7 +160,8 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		return parser;
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that input files exist and are readable and that output files can
+	 * be written, throwing a runtime exception if any check fails. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -175,12 +180,14 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 //		}
 	}
 	
-	/** Make sure interleaving agrees with number of input and output files */
+	/** Configures interleaving settings for FASTQ input and disables forced
+	 * interleaving since this tool processes single-ended ribosomal reads. */
 	private void adjustInterleaving(){
 		FASTQ.FORCE_INTERLEAVED=FASTQ.TEST_INTERLEAVED=false;
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file-handling settings for this program, enabling BF2 mode
+	 * for multi-threaded file reading when appropriate. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -190,7 +197,11 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates configuration parameters and serves as an extension point for
+	 * future checks; currently always returns true.
+	 * @return true if parameters are considered valid
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
@@ -201,7 +212,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing pipeline that loads the global 16S (and optional 18S)
+	 * consensus sequences, processes input files in parallel threads, and writes
+	 * the best ribosomal sequence per taxID.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 
 		if(process16S){
@@ -267,12 +283,6 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		}
 	}
 	
-	/**
-	 * Creates and starts a concurrent read input stream for the given file format.
-	 * Validates that input is not paired since ribosomal sequences are single-ended.
-	 * @param ff File format specification for the input file
-	 * @return Started concurrent read input stream
-	 */
 	private ConcurrentReadInputStream makeCris(FileFormat ff){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
 		cris.start(); //Start the stream
@@ -282,12 +292,6 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		return cris;
 	}
 	
-	/**
-	 * Creates and starts a concurrent read output stream if output is configured.
-	 * Determines appropriate buffer size based on ordering requirements.
-	 * @param pairedInput Whether input is paired (unused for this application)
-	 * @return Started concurrent read output stream, or null if no output configured
-	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -303,7 +307,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and runs worker threads to process reads from the input stream.
+	 * Spawns one ProcessThread per available worker thread, starts them, waits
+	 * for completion, and records any error state.
+	 * @param cris Input stream to be processed by worker threads
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris){
 		
 		//Do anything necessary prior to processing
@@ -322,6 +331,11 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		errorState&=!success;
 	}
 	
+	/**
+	 * Accumulates statistics from a completed worker thread by updating global
+	 * read and base counters and aggregating error status.
+	 * @param pt Completed ProcessThread containing statistics
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		readsProcessed+=pt.readsProcessedT;
@@ -340,22 +354,22 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/**
+	 * Worker thread that processes ribosomal sequences from the shared input
+	 * stream, aligns each read to consensus sequences, extracts taxonomic IDs,
+	 * and tracks the best-scoring sequence per taxID.
+	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a ProcessThread for handling sequence alignment and filtering.
-		 * @param cris_ Input stream to read sequences from
-		 * @param tid_ Thread identifier for this worker
-		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final int tid_){
 			cris=cris_;
 			tid=tid_;
 		}
 		
 		//Called by start()
+		/** Main thread body that repeatedly fetches lists of reads from the input
+		 * stream, delegates to processInner(), and marks completion status. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -369,7 +383,11 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Core processing loop that fetches read lists from the input stream, calls
+		 * processList(...) on each list, and returns lists to the stream until no
+		 * more reads are available.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -401,11 +419,6 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			}
 		}
 		
-		/**
-		 * Processes a list of reads by validating each read and calling processRead().
-		 * Tracks per-thread statistics for reads and bases processed.
-		 * @param ln List container holding reads to process
-		 */
 		void processList(ListNum<Read> ln){
 
 			//Grab the actual read list from the ListNum
@@ -430,8 +443,10 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		}
 		
 		/**
-		 * Process a read or a read pair.
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Processes a single ribosomal read by extracting its taxonomic ID, aligning
+		 * it to the consensus sequence(s), and updating the best sequence map.
+		 * @param r Ribosomal sequence read to process
+		 * @return true if this read becomes the current best for its taxID
 		 */
 		boolean processRead(final Read r){
 			Integer key=GiToTaxid.parseTaxidNumber(r.id, '|');
@@ -451,47 +466,24 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			return false;
 		}
 		
-		/**
-		 * Aligns a read against available consensus sequences (16S and/or 18S).
-		 * Returns the best alignment identity score from all attempted alignments.
-		 * @param r Read to align against consensus sequences
-		 * @return Maximum alignment identity score (0.0 to 1.0)
-		 */
 		float align(Read r){
 			float a=(process16S ? ssa.align(r.bases, consensus16S) : 0);
 			float b=(process18S ? ssa.align(r.bases, consensus18S) : 0);
 			return Tools.max(a, b);
 		}
 		
-		/** Per-thread sequence aligner for computing alignment identity scores */
 		IDAligner ssa=aligner.Factory.makeIDAligner();
 
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Thread ID */
 		final int tid;
 	}
 	
-	/**
-	 * Container for a ribosomal sequence with its metadata and alignment score.
-	 * Implements comparison based on alignment quality and sequence length.
-	 * Used to track the best representative sequence per taxonomic ID.
-	 */
 	private static class Ribo implements Comparable<Ribo>{
-		/**
-		 * Creates a Ribo container with sequence data and alignment metrics.
-		 * @param r_ The ribosomal sequence read
-		 * @param tid_ Taxonomic ID for this sequence
-		 * @param identity_ Alignment identity score (0.0 to 1.0)
-		 */
 		Ribo(Read r_, int tid_, float identity_){
 			r=r_;
 			tid=tid_;
@@ -499,6 +491,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			product=r.length()*identity;
 		}
 		
+		/**
+		 * Compares Ribo objects for sorting by quality metrics, first by product
+		 * (length × identity) and then by sequence length.
+		 * @param o Other Ribo object to compare against
+		 * @return Negative if this is better, positive if other is better, 0 if equal
+		 */
 		@Override
 		public int compareTo(Ribo o) {
 			if(o.product>product){return -1;}
@@ -508,13 +506,9 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			return 0;
 		}
 		
-		/** The ribosomal sequence read */
 		Read r;
-		/** Taxonomic ID for this sequence */
 		int tid;
-		/** Alignment identity score (0.0 to 1.0) */
 		float identity;
-		/** Quality metric combining sequence length and alignment identity */
 		float product;
 	}
 	
@@ -522,82 +516,59 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
+	/** Primary input file paths. */
 	private ArrayList<String> in=new ArrayList<String>();
 	
-	/** Alternate input file path */
 	private String alt=null;
 	
-	/** Primary output file path */
 	private String out1=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 
-	/** Map of taxonomic ID to best representative sequence */
 	HashMap<Integer, Ribo> bestMap=new HashMap<Integer, Ribo>(10000000);
-	/** Map of taxonomic ID to all sequences (currently unused) */
 	HashMap<Integer, ArrayList<Ribo>> listMap=new HashMap<Integer, ArrayList<Ribo>>(10000000);
 	
-	/** Global 16S ribosomal RNA consensus sequence for alignment */
 	static byte[] consensus16S;
-	/** Global 18S ribosomal RNA consensus sequence for alignment */
 	byte[] consensus18S;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
 	protected long readsOut=0;
-	/** Number of bases retained */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
-	/** Whether to process 16S ribosomal sequences */
 	private boolean process16S=true;
-	/** Whether to process 18S ribosomal sequences */
 	private boolean process18S=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** Primary input file formats. */
 	private final ArrayList<FileFormat> ffin;
-	/** Alternate input file format */
 	private final FileFormat ffalt;
 	
-	/** Primary output file */
+	/** Primary output file format. */
 	private final FileFormat ffout1;
 	
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
 	private boolean ordered=false;
 	
 }

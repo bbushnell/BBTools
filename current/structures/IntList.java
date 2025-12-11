@@ -11,38 +11,26 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
-/**
- * High-performance integer list implementation optimized for memory efficiency.
- * Uses primitive int arrays instead of boxed Integer objects, providing significant
- * performance and memory benefits for large datasets.
- * 
- * Key advantages over ArrayList<Integer>:
- * - No boxing/unboxing overhead
- * - Lower memory footprint (4 bytes vs ~16 bytes per element)
- * - Reduced garbage collection pressure
- * - Specialized operations for sorted data
- * 
- * @author Brian Bushnell
- * @contributor Isla
- * @date Sep 20, 2014
- */
 public final class IntList{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
+	/**
 	 * Benchmark comparing IntList vs ArrayList vs LinkedList performance.
-	 * Accepts an optional argument for list length. 
+	 * Tests creation, shuffling, and sorting operations with timing measurements.
+	 * @param args Optional array length argument (default: 100,000,000)
 	 */
 	public static void main(String[] args){
 		int length=args.length>0 ? Integer.parseInt(args[0]) : 100000000;
 		benchmark(length);
 	}
 	
-	/** 
-	 * Performance benchmark testing add, shuffle, and sort operations.
+	/**
+	 * Executes comprehensive performance comparison between list implementations.
+	 * Tests IntList, ArrayList, and LinkedList with add, shuffle, sort operations.
+	 * Measures execution time and memory usage for each implementation.
 	 * @param length Number of elements to test with
 	 */
 	private static void benchmark(final int length){
@@ -168,12 +156,13 @@ public final class IntList{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Default constructor with initial capacity of 256 */
+	/** Creates IntList with default initial capacity of 256 elements */
 	public IntList(){this(256);}
 	
-	/** 
-	 * Constructor with specified initial capacity.
-	 * @param initial Initial array size (minimum 1)
+	/**
+	 * Creates IntList with specified initial capacity.
+	 * Minimum capacity is enforced to be at least 1.
+	 * @param initial Initial array size (will be at least 1)
 	 */
 	public IntList(int initial){
 		initial=Tools.max(initial, 1);
@@ -185,9 +174,10 @@ public final class IntList{
 		array=Arrays.copyOf(x.array, size);
 	}
 	
-	/** 
-	 * Creates a deep copy of this IntList.
-	 * @return New IntList with identical contents
+	/**
+	 * Creates a deep copy of this IntList with identical contents.
+	 * The new IntList has the same size and element values.
+	 * @return New IntList containing copies of all elements
 	 */
 	public IntList copy() {
 		return new IntList(this);
@@ -197,10 +187,15 @@ public final class IntList{
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Clears the list (sets size to 0) */
+	/**
+	 * Clears the list by setting size to 0.
+	 * Does not modify array contents for performance.
+	 * @return This IntList for method chaining
+	 */
 	public IntList clear(){size=0; return this;}
 	
-	/** Clears list and zeros all array elements */
+	/** Clears list and zeros all array elements for security.
+	 * More thorough than clear() but slower performance. */
 	public void clearFull(){
 		Arrays.fill(array, 0);
 		size=0;
@@ -210,10 +205,11 @@ public final class IntList{
 		Arrays.fill(array, 0, size, value);
 	}
 	
-	/** 
-	 * Sets value at specified location, expanding array if necessary.
-	 * @param loc Index to set
-	 * @param value Value to store
+	/**
+	 * Sets value at specified index, expanding array if necessary.
+	 * Updates list size to include the set position.
+	 * @param loc Index to set (will expand array if needed)
+	 * @param value Value to store at location
 	 */
 	public final void set(int loc, int value){
 		if(loc>=array.length){
@@ -223,22 +219,25 @@ public final class IntList{
 		size=max(size, loc+1);
 	}
 	
-	/** 
+	/**
 	 * Sets the last element to specified value.
-	 * @param value New value for last element
+	 * Requires list to be non-empty.
+	 * @param value New value for the last element
 	 */
 	public final void setLast(int value){
 		assert(size>0);
 		array[size-1]=value;
 	}
 	
-	/** Increments value at location by 1 */
+	/** Increments value at location by 1, expanding array if necessary.
+	 * @param loc Index to increment */
 	public final void increment(int loc){increment(loc, 1);}
 	
-	/** 
+	/**
 	 * Increments value at location by specified amount.
+	 * Expands array and updates size as needed.
 	 * @param loc Index to increment
-	 * @param value Amount to add
+	 * @param value Amount to add to existing value
 	 */
 	public final void increment(int loc, int value){
 		if(loc>=array.length){
@@ -248,8 +247,9 @@ public final class IntList{
 		size=max(size, loc+1);
 	}
 	
-	/** 
+	/**
 	 * Subtracts all elements from specified value (value - element).
+	 * Modifies elements in-place using formula: array[i] = value - array[i].
 	 * @param value Value to subtract elements from
 	 */
 	public void subtractFrom(int value){
@@ -258,9 +258,10 @@ public final class IntList{
 		}
 	}
 	
-	/** 
-	 * Adds element to end of list, expanding if necessary.
-	 * @param x Value to add
+	/**
+	 * Appends element to end of list, expanding capacity if needed.
+	 * Doubles array size when expansion is required.
+	 * @param x Value to add to the list
 	 */
 	public final void add(int x){
 		if(size>=array.length){
@@ -270,17 +271,19 @@ public final class IntList{
 		size++;
 	}
 	
-	/** 
-	 * Adds element only if different from last element (pseudo-set behavior).
+	/**
+	 * Adds element only if different from last element in list.
+	 * Provides pseudo-set behavior to avoid consecutive duplicates.
 	 * @param x Value to conditionally add
 	 */
 	public void addIfNotEqualToLast(int x) {
 		if(size<1 || x!=array[size-1]) {add(x);}
 	}
 	
-	/** 
-	 * Adds element without bounds checking (for performance).
-	 * @param x Value to add
+	/**
+	 * Adds element without bounds checking for maximum performance.
+	 * Caller must ensure sufficient capacity exists.
+	 * @param x Value to add to the list
 	 */
 	public final void addUnchecked(int x){
 		array[size]=x;
@@ -291,9 +294,10 @@ public final class IntList{
 	/*----------------        Bulk Operations       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * Adds all elements from another IntList.
-	 * @param counts Source IntList to copy from
+	/**
+	 * Appends all elements from another IntList to this list.
+	 * Elements are added in order from the source list.
+	 * @param counts Source IntList to copy elements from
 	 */
 	public void addAll(IntList counts) {
 		final int[] array2=counts.array;
@@ -301,12 +305,12 @@ public final class IntList{
 		for(int i=0; i<size2; i++){add(array2[i]);}
 	}
 	
-	/** Sorts the list in ascending order */
+	/** Sorts elements in ascending order using an efficient algorithm */
 	public void sort() {
 		if(size>1){Shared.sort(array, 0, size);}
 	}
 	
-	/** Randomly shuffles the list elements */
+	/** Randomly shuffles all elements using Fisher-Yates algorithm */
 	public void shuffle() {
 		if(size<2){return;}
 		Random randy=Shared.threadLocalRandom();
@@ -318,7 +322,7 @@ public final class IntList{
 		}
 	}
 	
-	/** Reverses the order of elements */
+	/** Reverses the order of all elements in-place */
 	public void reverse() {
 		if(size>1){Tools.reverseInPlace(array, 0, size);}
 	}
@@ -327,9 +331,10 @@ public final class IntList{
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * Expands internal array to accommodate more elements.
-	 * @param size2 New minimum capacity
+	/**
+	 * Expands internal array to accommodate at least size2 elements.
+	 * Ensures new capacity is within maximum array length limits.
+	 * @param size2 New minimum capacity required
 	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
@@ -338,18 +343,20 @@ public final class IntList{
 		array=KillSwitch.copyOf(array, size3);
 	}
 	
-	/** 
-	 * Sets the logical size of the list.
-	 * @param size2 New size
+	/**
+	 * Sets the logical size of the list, expanding array if necessary.
+	 * Does not initialize new elements to any particular value.
+	 * @param size2 New logical size of the list
 	 */
 	public final void setSize(final int size2) {
 		if(size2>array.length){resize(size2);}
 		size=size2;
 	}
 	
-	/** 
-	 * Shrinks internal array to match current size.
-	 * @return This IntList for chaining
+	/**
+	 * Shrinks internal array to match current size exactly.
+	 * Reduces memory usage by eliminating unused capacity.
+	 * @return This IntList for method chaining
 	 */
 	public final IntList shrink(){
 		if(size==array.length){return this;}
@@ -400,14 +407,12 @@ public final class IntList{
 		return size<1 ? 0 : sum()/size;
 	}
 	
-	/** Assumes list is sorted */
 	public final double median(){
 		if(size<1){return 0;}
 		int idx=percentileIndex(0.5f);
 		return array[idx];
 	}
 	
-	/** Assumes list is sorted */
 	public final int mode(){
 		assert(sorted());
 		return mode(array, size);
@@ -419,7 +424,6 @@ public final class IntList{
 		return mode(copy, copy.length);
 	}
 	
-	/** Assumes list is sorted */
 	public static final int mode(int[] array, int size){
 		if(size<1){return 0;}
 		int streak=1, bestStreak=0;
@@ -444,9 +448,10 @@ public final class IntList{
 		return best;
 	}
 	
-	/** 
-	 * Calculates sum of all elements as long to prevent overflow.
-	 * @return Sum of all elements
+	/**
+	 * Calculates sum of all elements as long to prevent integer overflow.
+	 * Uses long arithmetic for large sums that exceed int range.
+	 * @return Sum of all elements as long
 	 */
 	public final long sumLong(){
 		long sum=0;
@@ -456,9 +461,10 @@ public final class IntList{
 		return sum;
 	}
 	
-	/** 
+	/**
 	 * Calculates sum of all elements as double.
-	 * @return Sum of all elements
+	 * Provides floating-point precision for calculations.
+	 * @return Sum of all elements as double
 	 */
 	public final double sum(){
 		double sum=0;
@@ -468,8 +474,9 @@ public final class IntList{
 		return sum;
 	}
 	
-	/** 
-	 * Finds percentile value (assumes sorted data).
+	/**
+	 * Finds percentile value assuming list is sorted by value frequency.
+	 * Uses cumulative sum approach rather than position-based percentile.
 	 * @param fraction Percentile as fraction (0.0 to 1.0)
 	 * @return Value at specified percentile
 	 */
@@ -479,10 +486,11 @@ public final class IntList{
 		return array[idx];
 	}
 	
-	/** 
-	 * Finds index of percentile position.
+	/**
+	 * Finds index where cumulative sum reaches target percentile.
+	 * Assumes sorted data and uses value-weighted percentile calculation.
 	 * @param fraction Percentile as fraction (0.0 to 1.0)
-	 * @return Index of percentile position
+	 * @return Index where percentile threshold is reached
 	 */
 	public int percentileIndex(double fraction){
 		if(size<2){return size-1;}
@@ -498,15 +506,16 @@ public final class IntList{
 		return size-1;
 	}
 	
-	/** Removes duplicates and shrinks to fit */
+	/** Removes duplicate elements and shrinks array to fit exactly */
 	public final void shrinkToUnique(){
 		condense();
 		shrink();
 	}
 	
-	/** 
-	 * Removes duplicate elements in-place (assumes sorted input).
+	/**
+	 * Removes duplicate elements in-place from sorted list.
 	 * Maintains sorted order while keeping only unique values.
+	 * Optimized algorithm skips initial ascending sequence.
 	 */
 	public final void condense(){
 		if(size<=1){return;}
@@ -532,9 +541,10 @@ public final class IntList{
 		size=i+1;
 	}
 	
-	/** 
-	 * Keeps only values that appear at least minCopies times.
-	 * Clever algorithm that keeps the Nth copy, not the first copy.
+	/**
+	 * Keeps only values appearing at least minCopies times in sorted list.
+	 * Clever algorithm retains the Nth copy when threshold is reached.
+	 * More efficient than first-copy retention for large datasets.
 	 * @param minCopies Minimum occurrences required to retain value
 	 */
 	public final void condenseMinCopies(int minCopies){
@@ -562,44 +572,49 @@ public final class IntList{
 	/*----------------           Reading            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * Gets value at specified location.
+	/**
+	 * Gets value at specified index with bounds checking.
+	 * Returns 0 for out-of-bounds access instead of throwing exception.
 	 * @param loc Index to retrieve
-	 * @return Value at index, or 0 if out of bounds
+	 * @return Value at index, or 0 if index >= size
 	 */
 	public final int get(int loc){
 		return(loc>=size ? 0 : array[loc]);
 	}
 	
-	/** 
-	 * Removes and returns last element.
-	 * @return Last element value
+	/**
+	 * Removes and returns the last element from the list.
+	 * Decreases list size by 1.
+	 * @return Value of the removed last element
 	 */
 	public final int pop() {
 		size--;
 		return array[size];
 	}
 	
-	/** 
+	/**
 	 * Returns last element value without removing it.
-	 * @return Last element value
+	 * Requires list to be non-empty.
+	 * @return Value of the last element
 	 */
 	public int lastElement() {
 		assert(size>0);
 		return array[size-1];
 	}
 	
-	/** 
-	 * Returns last element without bounds checking.
-	 * @return Last element value
+	/**
+	 * Returns last element without bounds checking for performance.
+	 * Caller must ensure list is non-empty.
+	 * @return Value of the last element
 	 */
 	public final int lastElementUnchecked() {
 		return array[size-1];
 	}
 	
-	/** 
-	 * Checks for duplicate values (slow O(n²) algorithm).
-	 * @return True if duplicates exist
+	/**
+	 * Checks if list contains any duplicate values using O(n²) algorithm.
+	 * Inefficient for large lists - consider sorting first for better performance.
+	 * @return true if any duplicate values exist, false otherwise
 	 */
 	public boolean containsDuplicates(){
 		for(int i=0; i<size; i++){
@@ -610,10 +625,10 @@ public final class IntList{
 		return false;
 	}
 	
-	/** 
-	 * Checks if list contains specified value.
+	/**
+	 * Checks if list contains specified value using linear search.
 	 * @param x Value to search for
-	 * @return True if value is found
+	 * @return true if value is found, false otherwise
 	 */
 	public boolean contains(int x) {
 		for(int i=0; i<size; i++){
@@ -622,18 +637,20 @@ public final class IntList{
 		return false;
 	}
 	
-	/** 
-	 * Creates array copy of current contents.
-	 * @return New array with list contents
+	/**
+	 * Creates new array containing copy of all list elements.
+	 * Returned array length equals list size, not capacity.
+	 * @return New int array with copies of all elements
 	 */
 	public int[] toArray(){
 		return KillSwitch.copyOf(array, size);
 	}
 	
-	/** 
-	 * Extracts unique values and their occurrence counts.
-	 * Assumes this list is sorted. Modifies this list to contain only unique values.
-	 * @param counts Output list to store occurrence counts
+	/**
+	 * Extracts unique values and their occurrence counts from sorted list.
+	 * Modifies this list to contain only unique values in-place.
+	 * Populates counts list with occurrence frequency for each unique value.
+	 * @param counts Output list to receive occurrence counts for each unique value
 	 */
 	public void getUniqueCounts(IntList counts) {
 		counts.size=0;
@@ -660,10 +677,8 @@ public final class IntList{
 		assert(counts.size==size);
 	}
 	
-	/** 
-	 * Checks if list is sorted in ascending order (slow).
-	 * @return True if sorted
-	 */
+	/** Checks if list is sorted in ascending order using O(n) scan.
+	 * @return true if elements are in non-decreasing order, false otherwise */
 	public boolean sorted(){
 		for(int i=1; i<size; i++){
 			if(array[i]<array[i-1]){return false;}
@@ -671,9 +686,10 @@ public final class IntList{
 		return true;
 	}
 	
-	/** 
-	 * Checks if all elements are unique (slow).
-	 * @return True if no duplicates exist
+	/**
+	 * Checks if all elements are unique using hash set for O(n) performance.
+	 * More efficient than containsDuplicates() for large lists.
+	 * @return true if no duplicate values exist, false otherwise
 	 */
 	public boolean unique(){
 		if(size<2) {return true;}
@@ -685,22 +701,22 @@ public final class IntList{
 		return true;
 	}
 	
-	/** Returns current number of elements */
+	/** Returns current number of elements in the list */
 	public int size() {
 		return size;
 	}
 	
-	/** Returns true if list is empty */
+	/** Returns true if list contains no elements */
 	public boolean isEmpty() {
 		return size<1;
 	}
 	
-	/** Returns current array capacity */
+	/** Returns current internal array capacity (total allocated space) */
 	public int capacity() {
 		return array.length;
 	}
 	
-	/** Returns unused array capacity */
+	/** Returns unused array capacity (capacity - size) */
 	public int freeSpace() {
 		return array.length-size;
 	}
@@ -709,14 +725,16 @@ public final class IntList{
 	/*----------------           ToString           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns string representation showing all elements in list format */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
 	
-	/** 
+	/**
 	 * Returns string showing non-zero elements as (index, value) pairs.
-	 * @return String representation as set view
+	 * Useful for sparse data visualization.
+	 * @return String representation as set view with index-value pairs
 	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
@@ -732,9 +750,10 @@ public final class IntList{
 		return sb.toString();
 	}
 	
-	/** 
-	 * Returns string showing all elements in order.
-	 * @return String representation as list view
+	/**
+	 * Returns string showing all elements in sequential order.
+	 * Standard list representation format: [elem1, elem2, elem3].
+	 * @return String representation as ordered list
 	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
@@ -752,17 +771,17 @@ public final class IntList{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns minimum of two integers */
+	/** Returns smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns maximum of two integers */
+	/** Returns larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Backing array for element storage */
+	/** Backing array for element storage, may have unused capacity */
 	public int[] array;
-	/** Current number of elements in the list */
+	/** Current number of elements in the list (logical size) */
 	public int size=0;
 }

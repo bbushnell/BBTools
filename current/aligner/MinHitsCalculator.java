@@ -7,25 +7,24 @@ import shared.Shared;
 import shared.Tools;
 import structures.IntHashMap;
 
-/** 
- * Calculates the minimum number of seed hits needed
- * to ensure all valid indel-free alignments are found
- * with a specified probability threshold.
- * Uses Monte Carlo simulation to account for wildcard
- * masking, error patterns, and clipping allowances.
- * 
+/**
+ * Calculates the minimum seed hits required to detect indel-free alignments at a target probability.
+ * Uses Monte Carlo simulation to model wildcards, error patterns, and clipping limits.
+ *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla SOS
  * @date June 4, 2025
  */
 public class MinHitsCalculator {
 
 	/**
-	 * Constructor for minimum hits calculator.
+	 * Constructs the calculator and precomputes wildcard masks.
+	 *
 	 * @param k_ K-mer length
-	 * @param maxSubs_ Maximum allowed substitutions in alignment
-	 * @param midMaskLen_ Number of wildcard bases in middle of k-mer
-	 * @param minProb_ Minimum probability of detecting valid alignments (0.0-1.0)
+	 * @param maxSubs_ Maximum allowed substitutions
+	 * @param minid_ Minimum identity allowed
+	 * @param midMaskLen_ Number of wildcard bases in the middle of the k-mer
+	 * @param minProb_ Minimum detection probability (0.0-1.0)
 	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
 	 */
 	public MinHitsCalculator(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_){
@@ -50,11 +49,10 @@ public class MinHitsCalculator {
 	}
 
 	/**
-	 * Creates a boolean array indicating which k-mer positions are wildcarded.
-	 * Wildcard positions are set to true for efficient short-circuiting.
+	 * Builds a boolean array marking wildcard positions within a k-mer.
 	 * @param k K-mer length
-	 * @param midMaskLen Number of consecutive wildcard bases in middle
-	 * @return Boolean array where true indicates wildcard position
+	 * @param midMaskLen Count of wildcard bases
+	 * @return Boolean array with true for wildcard positions
 	 */
 	private boolean[] makeWildcardPattern(int k, int midMaskLen){
 		boolean[] wildcards=new boolean[k];
@@ -69,12 +67,12 @@ public class MinHitsCalculator {
 	}
 
 	/**
-	 * Counts k-mers that would still match despite errors, accounting for wildcards.
-	 * A k-mer is considered error-free if no errors fall on non-wildcard positions.
-	 * @param errors BitSet indicating error positions in query sequence
-	 * @param wildcards Boolean array indicating wildcard positions in k-mer
-	 * @param queryLen Length of query sequence
-	 * @return Number of k-mers that remain matchable
+	 * Counts k-mers unaffected by errors, honoring wildcard positions.
+	 *
+	 * @param errors BitSet of error positions
+	 * @param wildcards Wildcard position map
+	 * @param queryLen Query length
+	 * @return Number of error-free k-mers
 	 */
 	private int countErrorFreeKmers(BitSet errors, boolean[] wildcards, int queryLen){
 		int count=0;
@@ -93,11 +91,9 @@ public class MinHitsCalculator {
 	}
 
 	/**
-	 * Simulates random error patterns to determine minimum seed hits needed.
-	 * Uses Monte Carlo simulation to find the threshold that ensures
-	 * the specified probability of detecting valid alignments.
-	 * @param validKmers Number of valid k-mers in query sequence
-	 * @return Minimum number of seed hits needed
+	 * Runs Monte Carlo simulation to find the minimum hits satisfying the probability target.
+	 * @param validKmers Number of valid k-mers in the query
+	 * @return Minimum hits needed
 	 */
 	private int simulate(int validKmers){
 		// Calculate effective clipping limit for this query length
@@ -151,10 +147,9 @@ public class MinHitsCalculator {
 	}
 
 	/**
-	 * Gets the minimum number of seed hits required for a query with
-	 * the specified number of valid k-mers. Results are cached.
-	 * @param validKmers Number of valid k-mers in query sequence
-	 * @return Minimum seed hits needed to ensure detection probability
+	 * Returns the minimum seed hits for the given valid k-mer count, caching results.
+	 * @param validKmers Valid k-mer count
+	 * @return Minimum hits needed
 	 */
 	public int minHits(int validKmers){
 		int minHits=validKmerToMinHits.get(validKmers);
@@ -175,28 +170,16 @@ public class MinHitsCalculator {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** K-mer length */
 	private final int k;
-	/** Maximum allowed substitutions in alignment */
 	private final int maxSubs0;
-	/** Minimum allowed identity */
 	private final float minid;
-	/** Number of wildcard bases in middle of k-mer */
 	private final int midMaskLen;
-	/** Maximum clipping allowed as fraction or absolute value */
 	private final float maxClipFraction;
-	/** Bit mask for k-mer (may not be needed) */
 	private final int kMask;
-	/** Bit mask for middle wildcard positions (may not be needed) */
 	private final int midMask;
-	/** Minimum probability of detecting valid alignments (0.0-1.0) */
 	private final float minProb;
-	/** Boolean array indicating wildcard positions in k-mer */
 	private final boolean[] wildcards;
-	/** Cache mapping valid k-mer count to minimum required hits */
 	private final IntHashMap validKmerToMinHits=new IntHashMap();
-	/** Random number generator for simulation */
 	private final Random randy=Shared.threadLocalRandom(1);
-	/** Number of Monte Carlo iterations for simulation */
 	public static int iterations=100000;
 }

@@ -28,14 +28,13 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Filters sequences based on coverage statistics from alignment data.
+ * Separates sequences into clean and contaminated categories using coverage thresholds, read counts, covered percentages, and ratio analysis.
  * @author Brian Bushnell
  * @date October 8, 2014
- *
  */
 public class FilterByCoverage {
 
-	/** Program entry point for coverage-based sequence filtering.
-	 * @param args Command-line arguments including input files and filter parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		FilterByCoverage x=new FilterByCoverage(args);
@@ -45,11 +44,6 @@ public class FilterByCoverage {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs FilterByCoverage instance and parses command-line arguments.
-	 * Initializes file formats, validates parameters, and prepares I/O streams.
-	 * @param args Command-line arguments for filtering configuration
-	 */
 	public FilterByCoverage(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -178,12 +172,6 @@ public class FilterByCoverage {
 		assert(covStatsAfter!=null) : "No coverage file specified.";
 	}
 	
-	/**
-	 * Main processing method that executes coverage-based filtering.
-	 * Loads coverage statistics, reads input sequences, applies filters,
-	 * and writes clean/contaminated sequences to separate output files.
-	 * @param t Timer for tracking execution performance
-	 */
 	void process(Timer t){
 
 		final HashMap<String, CovStatsLine> cslMap0=new HashMap<String, CovStatsLine>(1024);
@@ -408,88 +396,55 @@ public class FilterByCoverage {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path for sequences to filter */
 	private String in1=null;
-	/** Coverage statistics file from before decontamination (optional) */
 	private String covStatsBefore=null;
-	/** Coverage statistics file from after decontamination (required) */
 	private String covStatsAfter=null;
-	/** Base name derived from input file for logging purposes */
 	private String name=null;
 	
-	/** Quality file for input sequences (optional) */
 	private String qfin1=null;
 
-	/** Output file path for sequences passing contamination filters */
 	private String outclean=null;
-	/** Output file path for sequences flagged as contaminated */
 	private String outdirty=null;
 
-	/** Quality file output path for clean sequences (optional) */
 	private String qfoutclean=null;
-	/** Quality file output path for contaminated sequences (optional) */
 	private String qfoutdirty=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 
-	/** Scaffolds shorter than this will be discarded. */
 	private int minLength=0;
-	/** Scaffolds with fewer mapped reads will be discarded. */
 	private long minReads=0;
-	/** Scaffolds with lower average coverage will be discarded. */
 	private double minCoverage=5;
-	/** Scaffolds with a lower percent of covered bases will be discarded. */
 	private double minCoveredPercent=40;
-	/** Scaffolds will NOT be discarded based on low coverage unless the coverage dropped by at least this factor. */
 	private double minRatio=0;
-	/** Scaffolds will be discarded if there are at least this many bases in windows below a coverage cutoff. */
 	private int basesUnderMin=-1;
 	
-	/** Trim this much from sequence ends */
 	private int trimEnds=0;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format for primary input sequences */
 	private final FileFormat ffin1;
-	/** File format for before-decontamination coverage statistics */
 	private final FileFormat ffCov0;
-	/** File format for after-decontamination coverage statistics */
 	private final FileFormat ffCov1;
 
-	/** File format for clean sequences output */
 	private final FileFormat ffoutclean;
-	/** File format for contaminated sequences output */
 	private final FileFormat ffoutdirty;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status and error messages */
 	private PrintStream outstream=System.err;
-	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** Tracks whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** Append to existing log file instead of overwriting */
 	private boolean logappend=false;
-	/** Path to detailed results log file */
 	private String logfile=null;
-	/** Include header line in log file output */
 	private boolean logheader=true;
-	/** Include results for contigs shorter than minimum length in log output */
 	private static boolean PRINT_SHORT_CONTIG_RESULTS=false;
 	
 }

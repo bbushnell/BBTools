@@ -23,18 +23,17 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Evaluates the accuracy of merged reads by comparing expected insert sizes
+ * with actual merged read lengths. Analyzes merged reads to determine if they
+ * were merged to the correct length based on synthetic or embedded insert size
+ * information in read headers.
+ *
  * @author Brian Bushnell
  * @date May 20, 2014
- *
  */
 public class GradeMergedReads {
 
 
-	/**
-	 * Program entry point. Initializes timer, processes arguments, executes
-	 * grading analysis, and closes output streams.
-	 * @param args Command-line arguments for input files and parameters
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		GradeMergedReads x=new GradeMergedReads(args);
@@ -44,11 +43,6 @@ public class GradeMergedReads {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructor that parses command-line arguments and initializes the grading
-	 * tool. Sets up file formats, buffer configurations, and validates inputs.
-	 * @param args Command-line arguments containing input files and options
-	 */
 	public GradeMergedReads(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -118,14 +112,6 @@ public class GradeMergedReads {
 		ffin=FileFormat.testInput(in, FileFormat.FASTQ, extin, true, true);
 	}
 	
-	/**
-	 * Main processing method that analyzes merged reads for accuracy.
-	 * Compares actual merged read lengths against expected insert sizes
-	 * from read headers. Calculates statistics including correct merges,
-	 * reads that are too short/long, and signal-to-noise ratio.
-	 *
-	 * @param t Timer for tracking execution time and throughput
-	 */
 	void process(Timer t){
 		
 		long mergeable=0, total=0;
@@ -240,14 +226,6 @@ public class GradeMergedReads {
 		}
 	}
 	
-	/**
-	 * Parses insert size from read header string. Handles synthetic headers
-	 * starting with "SYN" using CustomHeader parser, or extracts insert size
-	 * from "insert=" format headers.
-	 *
-	 * @param s Read header string containing insert size information
-	 * @return Insert size in base pairs, or parsed value from header
-	 */
 	public static int parseInsert(String s){
 		if(s.startsWith("SYN")){
 			CustomHeader h=new CustomHeader(s, 0);
@@ -274,35 +252,26 @@ public class GradeMergedReads {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path for merged reads to be evaluated */
 	private String in=null;
 	
-	/** File extension for input format detection */
 	private String extin=null;
 	
-	/** Path to first raw read file for overlap analysis */
 	private String raw1=null;
-	/** Path to second raw read file for overlap analysis */
 	private String raw2=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process; -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format object for the input merged reads file */
 	private final FileFormat ffin;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for writing grading results and statistics */
 	private PrintStream outstream=System.err;
-	/** Enables verbose output for debugging and detailed progress information */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
 	
 

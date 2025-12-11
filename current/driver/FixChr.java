@@ -3,15 +3,14 @@ package driver;
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
 
-/** One-off program for converting grch38 sam files to hg19 */
+/**
+ * One-off utility program for converting GRCH38 SAM files to hg19 format.
+ * Adds "chr" prefix to chromosome names in SAM headers and data lines.
+ * Specifically handles contig headers and non-comment lines in SAM files.
+ * @author Brian Bushnell
+ */
 public class FixChr {
 	
-	/**
-	 * Program entry point for chromosome name conversion.
-	 * Reads input SAM file line by line and adds "chr" prefix to chromosome names.
-	 * Processes both data lines and contig header lines appropriately.
-	 * @param args Command-line arguments: [0] input file path, [1] output file path
-	 */
 	public static void main(String[] args){
 		
 		String in=args[0];

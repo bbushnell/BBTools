@@ -6,16 +6,27 @@ import assemble.Contig;
 import shared.Tools;
 
 /**
- * Sorts longest contig first
+ * Comparator for sorting contigs by length with secondary tie-breaking criteria.
+ * Sorts longest contig first by default (descending order), with options for ascending order.
+ * Uses multiple comparison levels: length, coverage, sequence content, and ID.
+ *
  * @author Brian Bushnell
  * @date Jul 12, 2018
- *
  */
 public final class ContigLengthComparator implements Comparator<Contig> {
 	
-	/** Private constructor to prevent external instantiation */
+	/** Private constructor to enforce singleton usage. */
 	private ContigLengthComparator(){}
 	
+	/**
+	 * Compares two contigs using multi-level sorting criteria.
+	 * Primary: length difference, Secondary: coverage, Tertiary: sequence content, Quaternary: ID.
+	 * Result is multiplied by ascending flag to control sort direction.
+	 *
+	 * @param a First contig to compare
+	 * @param b Second contig to compare
+	 * @return Negative/zero/positive as first contig is less/equal/greater than second
+	 */
 	@Override
 	public int compare(Contig a, Contig b) {
 		int x=compareInner(a, b);
@@ -26,12 +37,10 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 	}
 	
 	/**
-	 * Performs primary length-based comparison with null safety.
-	 * Handles null values by treating null as greater than non-null contigs.
-	 *
-	 * @param a First contig to compare (may be null)
-	 * @param b Second contig to compare (may be null)
-	 * @return Length difference: a.length() - b.length()
+	 * Primary length-based comparison with null safety; treats null contigs as greater than non-null.
+	 * @param a First contig (may be null)
+	 * @param b Second contig (may be null)
+	 * @return Length difference (a.length - b.length) or null ordering
 	 */
 	private static int compareInner(Contig a, Contig b) {
 		if(a==b){return 0;}
@@ -42,13 +51,10 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 	}
 	
 	/**
-	 * Lexicographically compares two byte arrays representing sequences.
-	 * Used as tertiary comparison criterion when length and coverage are equal.
-	 * Handles null arrays by treating null as greater than non-null.
-	 *
-	 * @param a First byte array to compare (may be null)
-	 * @param b Second byte array to compare (may be null)
-	 * @return Negative, zero, or positive for lexicographic ordering
+	 * Lexicographic comparison of sequence byte arrays; treats null as greater than non-null.
+	 * @param a First byte array (may be null)
+	 * @param b Second byte array (may be null)
+	 * @return Negative, zero, or positive for ordering
 	 */
 	private static int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
@@ -64,16 +70,16 @@ public final class ContigLengthComparator implements Comparator<Contig> {
 		return 0;
 	}
 	
-	/** Singleton instance of the comparator for reuse across the application */
+	/** Singleton instance for contig length comparison. */
 	public static final ContigLengthComparator comparator=new ContigLengthComparator();
 	
 	/**
-	 * Sort direction multiplier: -1 for descending (longest first), 1 for ascending
+	 * Sort direction multiplier: -1 for descending (longest first), 1 for ascending.
 	 */
 	private int ascending=-1;
 	
-	/** Sets the sort direction for length comparison.
-	 * @param asc true for ascending order (shortest first), false for descending (longest first) */
+	/** Sets the sort direction: true for ascending (shortest first), false for descending (longest first).
+	 * @param asc Whether to sort ascending */
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}

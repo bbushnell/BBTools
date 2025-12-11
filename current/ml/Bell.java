@@ -1,12 +1,8 @@
 package ml;
 
 /**
- * Bell curve (Gaussian) activation function for neural networks.
- * Implements the mathematical function f(x) = e^(-x²) which produces
- * a symmetric bell-shaped curve with maximum value of 1 at x=0.
- * Output values range from 0 to 1, making it suitable for normalized
- * activation in neural network architectures.
- *
+ * Bell curve (Gaussian) activation function f(x)=e^(-x^2) with outputs in [0,1] and peak at x=0.
+ * Singleton implementation used in neural nets requiring smooth, normalized activations.
  * @author Brian Bushnell
  * @date June 3, 2025
  */
@@ -16,26 +12,49 @@ public class Bell extends Function {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Private constructor prevents direct instantiation. Use Bell.instance instead.
-	 */
+	/** Private constructor to enforce singleton usage via the static instance. */
 	private Bell() {}
 
+	/**
+	 * Computes bell curve activation: e^(-x^2).
+	 * @param x Input value
+	 * @return Activation output in range (0,1]
+	 */
 	@Override
 	public double activate(double x) {return Functions.bell(x);}
 
+	/**
+	 * Computes derivative with respect to x: -2x * e^(-x^2).
+	 * @param x Input value
+	 * @return Derivative of bell activation at x
+	 */
 	@Override
 	public double derivativeX(double x) {return Functions.bellDerivativeX(x);}
 
+	/**
+	 * Computes derivative using function output.
+	 * @param fx Output of bell activation
+	 * @return Derivative corresponding to fx
+	 */
 	@Override
 	public double derivativeFX(double fx) {return Functions.bellDerivativeFX(fx);}
 
+	/**
+	 * Computes derivative using both x and function output: -2x * fx.
+	 * @param x Input value
+	 * @param fx Output of bell activation
+	 * @return Derivative of bell activation at x
+	 */
 	@Override
 	public double derivativeXFX(double x, double fx) {return Functions.bellDerivativeXFX(x, fx);}
 
+	/** Returns the numeric type identifier for this function.
+	 * @return Type constant for Bell */
 	@Override
 	public int type() {return type;}
 
+	/** Returns the string name identifier for this function.
+	 * @return \"BELL\" */
 	@Override
 	public String name() {return name;}
 	
@@ -43,11 +62,8 @@ public class Bell extends Function {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** String identifier for the Bell activation function. */
 	static final String name="BELL";
-	/** Numeric type identifier derived from the string name. */
 	static final int type=Function.toType(name, true);
-	/** Singleton instance of the Bell activation function. */
 	static final Bell instance=new Bell();
 
 }

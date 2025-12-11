@@ -11,19 +11,16 @@ import shared.Tools;
 
 /**
  * Counts k-mers from indexed reference data using multi-threaded chromosome processing.
- * Optimized for processing large genomic reference databases by parallelizing across
- * chromosome segments. Supports canonical and non-canonical k-mer counting modes.
- *
+ * Supports canonical and non-canonical counting and is optimized for large reference datasets.
  * @author Brian Bushnell
  * @date December 2, 2014
  */
 public class IndexCounter extends KmerCountAbstract {
 	
 	/**
-	 * Constructs an IndexCounter with specified k-mer parameters.
-	 * Initializes bit manipulation constants for efficient k-mer encoding.
-	 * @param k_ K-mer length (must be 1-32)
-	 * @param rcomp_ True to use canonical k-mers (max of forward/reverse)
+	 * Constructs an IndexCounter and initializes k-mer bit masks.
+	 * @param k_ K-mer length (1-32)
+	 * @param rcomp_ True to use canonical (max of forward/reverse) k-mers
 	 */
 	public IndexCounter(final int k_, final boolean rcomp_){
 		k=k_;
@@ -37,12 +34,11 @@ public class IndexCounter extends KmerCountAbstract {
 	}
 	
 	/**
-	 * Creates a new KCountArray and populates it by counting k-mers from the reference index.
-	 * Convenience method that creates, populates, and finalizes the counting array.
+	 * Creates and populates a new KCountArray by counting all reference chromosomes.
 	 *
 	 * @param cells Number of cells in the counting array
-	 * @param cbits Bits per cell for count storage
-	 * @param hashes Number of hash functions to use
+	 * @param cbits Bits per cell
+	 * @param hashes Number of hash functions
 	 * @return Populated and finalized KCountArray
 	 */
 	public KCountArray makeKcaFromIndex(long cells, int cbits, int hashes){
@@ -57,6 +53,12 @@ public class IndexCounter extends KmerCountAbstract {
 		return kca;
 	}
 
+	/**
+	 * Populates an existing KCountArray by counting k-mers from all reference chromosomes in parallel.
+	 * @param counts KCountArray to populate
+	 * @return The populated KCountArray
+	 * @throws Exception if worker threads fail
+	 */
 	public KCountArray countFromIndex(KCountArray counts) throws Exception{
 		
 		final CountThread[] cta=new CountThread[Tools.min(Data.numChroms*THREADS_PER_CHROM, Shared.threads())];
@@ -87,17 +89,12 @@ public class IndexCounter extends KmerCountAbstract {
 		return counts;
 	}
 	
-	/**
-	 * Worker thread for parallel k-mer counting from reference chromosomes.
-	 * Each thread processes multiple chromosome segments and maintains local counters
-	 * before synchronizing with global statistics.
-	 */
 	private class CountThread extends Thread{
 		
 		/**
-		 * Constructs a CountThread with shared counting array and chromosome coordinator.
-		 * @param counts_ Shared KCountArray for k-mer counting
-		 * @param nextChrom_ Atomic counter for thread-safe chromosome assignment
+		 * Creates a counting thread with shared counting array and chromosome coordinator.
+		 * @param counts_ Shared KCountArray
+		 * @param nextChrom_ Atomic counter for assigning chromosome segments
 		 */
 		CountThread(final KCountArray counts_, AtomicInteger nextChrom_){
 			counts=counts_;
@@ -117,12 +114,8 @@ public class IndexCounter extends KmerCountAbstract {
 			}
 		}
 		
-		/**
-		 * Main counting logic that processes chromosomes assigned to this thread.
-		 * Uses atomic counter to get next chromosome segment and processes it.
-		 * Continues until all chromosome segments have been processed.
-		 * @param counts KCountArray to increment with discovered k-mers
-		 */
+		/** Processes assigned chromosome segments, counting k-mers into the shared array.
+		 * @param counts Shared counting array */
 		private final void count(KCountArray counts){
 			assert(k>=1 && counts!=null);
 			final int maxCount=THREADS_PER_CHROM*Data.numChroms;
@@ -133,12 +126,9 @@ public class IndexCounter extends KmerCountAbstract {
 		}
 		
 		/**
-		 * Processes a specific segment of a chromosome for k-mer counting.
-		 * Uses rolling hash to efficiently generate k-mers and their reverse complements.
-		 * Handles canonical k-mer selection and increments the counting array.
-		 *
-		 * @param ca ChromosomeArray containing the sequence data
-		 * @param segNum Segment number within the chromosome (0-3)
+		 * Counts k-mers for a chromosome segment using rolling hash and reverse complements.
+		 * @param ca Chromosome data
+		 * @param segNum Segment number (0-3) within the chromosome
 		 */
 		private final void processChrom(ChromosomeArray ca, int segNum){
 			assert(k<=maxShortKmerLength);
@@ -174,29 +164,19 @@ public class IndexCounter extends KmerCountAbstract {
 				}
 			}
 		}
-		/** Shared counting array for accumulating k-mer frequencies */
 		private final KCountArray counts;
-		/** Thread-safe counter for assigning chromosome segments to workers */
 		private final AtomicInteger nextChrom;
-		/** Thread-local counter for unique k-mers processed by this thread */
 		private long keysCountedLocal=0;
-		/** Thread-local counter for total k-mer instances processed by this thread */
 		private long readsProcessedLocal=0;
 	}
 	
-	/** K-mer length for counting operations */
 	private final int k;
 //	private final int cbits;
-	/** Bit shift value for rolling hash operations (2 * k) */
 	private final int shift;
-	/** Bit shift value for reverse complement operations (shift - 2) */
 	private final int shift2;
-	/** Bit mask for k-mer extraction (handles k up to 32) */
 	private final long mask;
-	/** True to use canonical k-mers (maximum of forward and reverse complement) */
 	private final boolean rcomp;
 	
-	/** Number of worker threads to assign per chromosome for parallel processing */
 	private static final int THREADS_PER_CHROM=4;
 	
 }

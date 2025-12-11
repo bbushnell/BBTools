@@ -19,12 +19,11 @@ import structures.ByteBuilder;
 import structures.IntList;
 
 /**
- * This class is designed to analyze paired prokaryotic fna and gff files
- * to calculate the patterns in coding and noncoding frames, start and stop sites.
- * It outputs a pgm file.
+ * Analyzes paired prokaryotic fna and gff files to calculate patterns in coding and noncoding frames, start and stop sites.
+ * Processes FASTA and GFF genomic files to extract k-mer frequency statistics for training prokaryotic gene prediction models.
+ * Supports parallel processing of multiple genome files and generates PGM (Probabilistic Gene Model) output files.
  * @author Brian Bushnell
  * @date Sep 27, 2018
- *
  */
 public class AnalyzeGenes {
 	
@@ -32,10 +31,6 @@ public class AnalyzeGenes {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -51,8 +46,9 @@ public class AnalyzeGenes {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs an AnalyzeGenes instance from command-line arguments.
+	 * Parses input files, output settings, and processing parameters.
+	 * @param args Command-line arguments containing input/output paths and options
 	 */
 	public AnalyzeGenes(String[] args){
 		
@@ -93,7 +89,13 @@ public class AnalyzeGenes {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures processing parameters.
+	 * Handles input file specification, output settings, and processing flags.
+	 * Automatically pairs FNA files with corresponding GFF files if not explicitly specified.
+	 * @param args Command-line arguments to parse
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -154,14 +156,19 @@ public class AnalyzeGenes {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adds or removes .gz or .bz2 extensions as needed for input files.
+	 * Ensures proper file extension handling for compressed input files. */
 	private void fixExtensions(){
 		fnaList=Tools.fixExtension(fnaList);
 		gffList=Tools.fixExtension(gffList);
 		if(fnaList.isEmpty()){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that all input files can be read and output files can be written.
+	 * Checks for duplicate file specifications and file accessibility.
+	 * @throws RuntimeException If files cannot be accessed or duplicates are found
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -184,7 +191,8 @@ public class AnalyzeGenes {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts file-related static fields as needed for this program.
+	 * Optimizes ByteFile threading mode based on available processors. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -196,12 +204,6 @@ public class AnalyzeGenes {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that executes the gene analysis pipeline.
-	 * Creates gene models either single-threaded or multi-threaded based on configuration.
-	 * Outputs results to PGM file format and reports processing statistics.
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 		
 		final GeneModel pgm;
@@ -236,33 +238,10 @@ public class AnalyzeGenes {
 		}
 	}
 	
-	/**
-	 * Formats timing and processing statistics into a readable string.
-	 *
-	 * @param t Timer containing elapsed execution time
-	 * @param readsProcessed Number of sequences processed
-	 * @param basesProcessed Number of bases processed
-	 * @param genesProcessed Number of genes processed
-	 * @param filesProcessed Number of files processed
-	 * @param pad Padding width for numeric formatting
-	 * @return Formatted statistics string
-	 */
 	private static String timeReadsBasesGenesProcessed(Timer t, long readsProcessed, long basesProcessed, long genesProcessed, long filesProcessed, int pad){
 		return ("Time:                         \t"+t+"\n"+readsBasesGenesProcessed(t.elapsed, readsProcessed, basesProcessed, genesProcessed, filesProcessed, pad));
 	}
 	
-	/**
-	 * Formats processing statistics with throughput rates.
-	 * Calculates processing rates in files/sec, sequences/sec, genes/sec, and bases/sec.
-	 *
-	 * @param elapsed Elapsed time in nanoseconds
-	 * @param reads Number of sequences processed
-	 * @param bases Number of bases processed
-	 * @param genes Number of genes processed
-	 * @param files Number of files processed
-	 * @param pad Padding width for numeric formatting
-	 * @return Formatted statistics string with throughput rates
-	 */
 	private static String readsBasesGenesProcessed(long elapsed, long reads, long bases, long genes, long files, int pad){
 		double rpnano=reads/(double)elapsed;
 		double bpnano=bases/(double)elapsed;
@@ -281,12 +260,6 @@ public class AnalyzeGenes {
 		return sb.toString();
 	}
 	
-	/**
-	 * Formats gene type statistics showing counts for each feature type.
-	 * @param pgm GeneModel containing processed gene statistics
-	 * @param pad Padding width for numeric formatting
-	 * @return Formatted string showing counts for CDS, tRNA, 16S, 23S, 5S, and 18S features
-	 */
 	private static String typesProcessed(GeneModel pgm, int pad){
 		
 		ByteBuilder sb=new ByteBuilder();
@@ -304,11 +277,6 @@ public class AnalyzeGenes {
 	/*--------------------------------------------------------------*/
 	
 	//TODO: Process each file in a thread.
-	/**
-	 * Creates gene model using single-threaded processing.
-	 * Processes each FNA/GFF file pair sequentially.
-	 * @return Combined GeneModel from all processed files
-	 */
 	private GeneModel makeModelST(){
 		GeneModel pgmSum=new GeneModel(true);
 		
@@ -324,7 +292,6 @@ public class AnalyzeGenes {
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
 	private GeneModel spawnThreads(){
 		
 		//Do anything necessary prior to processing
@@ -349,12 +316,6 @@ public class AnalyzeGenes {
 		return pgm;
 	}
 	
-	/**
-	 * Waits for all processing threads to complete and aggregates results.
-	 * Collects gene models from each thread and combines statistics.
-	 * @param alpt List of FileThread instances to wait for
-	 * @return Combined GeneModel from all threads
-	 */
 	private GeneModel waitForThreads(ArrayList<FileThread> alpt){
 		
 		GeneModel pgm=new GeneModel(false);
@@ -390,12 +351,8 @@ public class AnalyzeGenes {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread for processing FNA/GFF file pairs in parallel.
-	 * Each thread claims files from shared counter and processes them independently. */
 	private class FileThread extends Thread {
 		
-		/** Constructs a FileThread with shared file counter.
-		 * @param fnum_ Atomic counter for claiming files to process */
 		FileThread(AtomicInteger fnum_){
 			fnum=fnum_;
 			pgm=new GeneModel(true);
@@ -412,13 +369,9 @@ public class AnalyzeGenes {
 			success=true;
 		}
 		
-		/** Atomic counter for claiming files in multi-threaded processing */
 		private final AtomicInteger fnum;
-		/** Thread-local gene model for accumulating statistics */
 		private final GeneModel pgm;
-		/** Thread-local error state tracking */
 		boolean errorStateT=false;
-		/** Thread-local success flag indicating completion status */
 		boolean success=false;
 	}
 	
@@ -426,46 +379,32 @@ public class AnalyzeGenes {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** List of input FASTA (.fna) files to process */
 	private ArrayList<String> fnaList=new ArrayList<String>();
-	/** List of input GFF annotation files paired with FASTA files */
 	private ArrayList<String> gffList=new ArrayList<String>();
-	/** List of taxonomic IDs (unused in current implementation) */
 	private IntList taxList=new IntList();
-	/** Output file path for PGM results */
 	private String out=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Counter for total bytes written to output */
 	private long bytesOut=0;
-	/** Whether to align ribosomal sequences during processing */
 	static boolean alignRibo=true;
-	/** Whether to adjust gene endpoints during processing */
 	static boolean adjustEndpoints=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file format specification for PGM files */
 	private final FileFormat ffout;
-	/** Number of processing threads to use */
 	private final int threads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status and error messages */
 	private PrintStream outstream=System.err;
-	/** Whether to enable verbose output during processing */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

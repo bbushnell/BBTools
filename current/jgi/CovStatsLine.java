@@ -6,22 +6,19 @@ import java.util.HashMap;
 import shared.Tools;
 
 /**
+ * Represents a single line of coverage statistics for a sequence.
+ * Parses tab-delimited coverage data with flexible column ordering.
+ * Contains metrics like fold coverage, GC content, read counts, and length information.
+ *
  * @author Brian Bushnell
  * @date Oct 10, 2014
- *
  */
 public class CovStatsLine {
 	
-	/** Constructs a CovStatsLine by parsing a tab-delimited string.
-	 * @param s Tab-separated string containing coverage statistics */
 	public CovStatsLine(String s){
 		this(s.split("\t"));
 	}
 
-	/**
-	 * ID	Avg_fold	Length	Ref_GC	Covered_percent	Covered_bases	Plus_reads	Minus_reads	(optional.... Read_GC)
-	 * @param split
-	 */
 	public CovStatsLine(String[] split) {
 		assert(split.length>=8) : Arrays.toString(split);
 		assert(!split[0].startsWith("#")) : Arrays.toString(split);
@@ -67,18 +64,17 @@ public class CovStatsLine {
 //		}
 	}
 	
-	/** Calculates the percentage of bases covered by reads.
-	 * @return Percentage (0-100) of sequence length covered by reads */
 	public final double coveredPercent(){
 		return (100.0*coveredBases)/Tools.max(1, length);
 	}
 	
-	/** Gets the total number of reads mapping to this sequence.
-	 * @return Sum of plus and minus strand reads */
 	public final long reads(){return plusReads+minusReads;}
 	
 	/**
-	 * @param csl
+	 * Merges coverage statistics from another CovStatsLine into this one.
+	 * Combines length-weighted averages for fold coverage, GC content.
+	 * Sums read counts, covered bases, and other additive metrics.
+	 * @param csl The CovStatsLine to merge into this one
 	 */
 	public void add(CovStatsLine csl) {
 		double invlen2=1d/Tools.max(1, length+csl.length);
@@ -100,12 +96,6 @@ public class CovStatsLine {
 				refGC, coveredPercent(), coveredBases, plusReads, minusReads, median, underMin, readGC, stdDev);
 	}
 	
-	/**
-	 * Initializes column field number mappings from header line.
-	 * Parses tab-delimited header to determine field positions for flexible format.
-	 * Must be called before constructing CovStatsLine objects from data.
-	 * @param header Tab-delimited header line (with or without # prefix)
-	 */
 	public static void initializeHeader(String header){
 		while(header.startsWith("#")){header=header.substring(1);}
 		String[] split=header.split("\t");
@@ -133,49 +123,27 @@ public class CovStatsLine {
 //	public static final String header1="#ID\tAvg_fold\tLength\tRef_GC\tCovered_percent\tCovered_bases\tPlus_reads\tMinus_reads\tMedian_fold\tUnder_min\tRead_GC";
 //	public static final String header2="#ID\tAvg_fold\tLength\tRef_GC\tCovered_percent\tCovered_bases\tPlus_reads\tMinus_reads\tRead_GC";
 	
-	/** Sequence identifier */
 	public String id;
-	/** Total sequence length in bases */
 	public int length;
-	/** Number of bases covered by at least one read */
 	public int coveredBases;
-	/** Number of reads mapping to plus strand */
 	public long plusReads;
-	/** Number of reads mapping to minus strand */
 	public long minusReads;
-	/** Average fold coverage across the sequence */
 	public double avgFold;
-	/** GC content percentage of reference sequence */
 	public double refGC;
-	/** Median fold coverage across the sequence */
 	public long median;
-	/** Number of positions with coverage below minimum threshold */
 	public int underMin;
-	/** GC content percentage of reads mapping to this sequence */
 	public double readGC;
-	/** Standard deviation of coverage across the sequence */
 	public double stdDev;
 	
-	/** Column number for sequence ID field */
 	private static int id_FNUM=-1;
-	/** Column number for sequence length field */
 	private static int length_FNUM=-1;
-	/** Column number for covered bases field */
 	private static int coveredBases_FNUM=-1;
-	/** Column number for plus strand reads field */
 	private static int plusReads_FNUM=-1;
-	/** Column number for minus strand reads field */
 	private static int minusReads_FNUM=-1;
-	/** Column number for average fold coverage field */
 	private static int avgFold_FNUM=-1;
-	/** Column number for reference GC content field */
 	private static int refGC_FNUM=-1;
-	/** Column number for median coverage field */
 	private static int median_FNUM=-1;
-	/** Column number for under minimum coverage field */
 	private static int underMin_FNUM=-1;
-	/** Column number for read GC content field */
 	private static int readGC_FNUM=-1;
-	/** Column number for standard deviation field */
 	private static int stdDev_FNUM=-1;
 }

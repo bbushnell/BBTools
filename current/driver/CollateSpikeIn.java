@@ -3,20 +3,15 @@ package driver;
 import fileIO.TextFile;
 
 /**
+ * Utility for parsing BBMap log files to extract PacBio alignment statistics.
+ * Processes log output to generate tabulated mapping accuracy and control percentages.
+ * Specifically designed to parse BBMapPacBio execution logs from batch processing jobs.
+ *
  * @author Brian Bushnell
  * @date Oct 10, 2013
- *
  */
 public class CollateSpikeIn {
 	
-	/**
-	 * Parses BBMap log files and outputs tabulated alignment statistics.
-	 * Reads log files line by line looking for mapping percentages, accuracy rates,
-	 * and job identifiers, then outputs formatted results to stdout.
-	 * Expected output format: "jobID\t%Control (BBMap)\t%Accuracy (BBMap)"
-	 *
-	 * @param args Command-line arguments where args[0] is the log file path to parse
-	 */
 	public static void main(String[] args){
 //		Executing align2.BBMapPacBio [minratio=0.40, fastareadlen=500, out=null, in=/projectb/shared/pacbio/jobs/026/026437/data/filtered_subreads.fasta]
 

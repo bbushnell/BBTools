@@ -14,14 +14,33 @@ import tracker.ReadStats;
 import var2.VCFLine;
 
 /**
- * Stripped out of GffLine into independent class.
- * @author Brian Bushnell
- * @date Sep 12, 2018
+ * Converts Variant Call Format (VCF) files to Gene Feature Format (GFF) files.
+ * A command-line utility that parses input VCF files and transforms variant
+ * information into GFF format, preserving metadata and generating a standard
+ * GFF3 output with genomic feature annotations.
  *
+ * Key features:
+ * - Translates VCF variant records to GFF3 format
+ * - Preserves VCF metadata by selectively copying header comments
+ * - Supports input/output file specification via command-line arguments
+ * - Generates a standard GFF3 header with version 3
+ * - Implements robust file handling with overwrite and append options
+ * - Uses byte-level file processing for memory efficiency
+ *
+ * @author Brian Bushnell
  */
 public class VcfToGff {
 
-	/** Translates VCF to GFF */
+	/**
+	 * Main entry point for VCF to GFF conversion.
+	 * Parses command-line arguments, validates input/output files, and initiates
+	 * the translation process. Supports flexible argument parsing with input
+	 * and output file specification.
+	 *
+	 * @param args Command-line arguments including:
+	 * in/vcf=input.vcf - Input VCF file
+	 * out/gff=output.gff - Output GFF file
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		PrintStream outstream=System.err;
@@ -87,7 +106,17 @@ public class VcfToGff {
 		t.stop("Time: \t");
 	}
 	
-	/** Translates VCF to GFF */
+	/**
+	 * Performs the actual VCF to GFF conversion process.
+	 * Reads VCF file line-by-line, converts VCFLine objects to GffLine objects,
+	 * and writes the result to the output file. Preserves relevant VCF header
+	 * information while filtering out format-specific headers.
+	 *
+	 * @param in Input VCF file path
+	 * @param out Output GFF file path
+	 * @param overwrite Whether to overwrite existing output files
+	 * @param append Whether to append to existing output files
+	 */
 	private static void translate(String in, String out, boolean overwrite, boolean append){
 		//Create output FileFormat objects
 		FileFormat ffout=FileFormat.testOutput(out, FileFormat.GFF, "gff", true, overwrite, append, false);

@@ -9,32 +9,18 @@ import shared.Parse;
 import shared.Shared;
 
 /**
+ * Generates shell scripts for error-correcting PacBio reads using Illumina reads.
+ * Creates customized scripts from templates by substituting parameters like file paths, memory settings, thread counts, and organism names.
+ * Supports multiple input modes including PacBio correction, assembly correction, and CCS processing.
  * @author Brian Bushnell
  * @date Oct 2, 2012
- *
  */
 public class MakePacBioScript {
 	
 	/**
-		Be sure to replace:
-		@BUILDNUM with a number
-		@DIRTY_INPUT with the PacBio file
-		@CLEAN_INPUT_1 with the Illumina file
-		@ORGANISM with the name of the organism (or whatever)
-		@NUMSLOTS with the number of slots requested
-		@TARGET_SIZE with an estimate of the genome size, in bases.  Examples:  160000000 or 160m or 0.16g are equivalent.
-		@RAM with e.g. Xmx31g
-		@MAXRAM with e.g. Xmx220g
-		@SCRIPT with the output file, e.g. run.sh
-		@MERGEREF with a list of reference files, e.g. chrom1.fa,chrom2.fa,chrom3.fa
-		@MERGEDIRTY with a list of dirty files, e.g. subreads1.fa,subreads2.fa,subreads3.fa
-		@MERGECLEAN with a list of clean files, e.g. illumina1.fq,illumina2.fq,illumina3.fq
-		@EXTRA with extra files for Illumina error correction.  e.g. extra=a.fq,b.fq,c.fq
-		
-		Optional:
-		@MAXREADS with the max number of clean reads to use in phase 1 (the slowest phase)
-		@REFERENCE with a reference file (optional)
-		@REFBUILD with a number
+	 * Program entry point that processes command-line arguments and generates the script.
+	 * Parses input parameters, validates required values, reads the template file, performs parameter substitution, and writes the final script to disk.
+	 * @param args Command-line arguments containing file paths and processing parameters
 	 */
 	public static void main(String[] args){
 		

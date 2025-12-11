@@ -3,14 +3,17 @@ package template;
 import java.util.concurrent.locks.ReadWriteLock;
 
 /**
- * Utility class for managing and synchronizing thread operations.
- * Provides static methods to start, wait for, and synchronize thread execution
- * with optional result accumulation and thread-safe locking mechanisms.
+ * Utility helpers for starting, waiting on, and aggregating thread results (with optional locks).
+ * Provides thread lifecycle helpers and accumulation via an Accumulator.
  * @author Brian Bushnell
  */
 public class ThreadWaiter {
 	
-	/** Wait for all threads to start running */
+	/**
+	 * Spins until all threads in the iterable leave the NEW state.
+	 * @param iter Threads to monitor
+	 * @return true (success)
+	 */
 	public static final <T extends Thread> boolean waitForThreadsToStart(Iterable<T> iter){
 
 		//Wait for all threads to start running
@@ -25,7 +28,12 @@ public class ThreadWaiter {
 		return success;
 	}
 	
-	/** Wait for completion of all threads except self */
+	/**
+	 * Waits for completion of all threads by monitoring their termination state.
+	 * Uses join() operations with exception handling for interrupted threads.
+	 * @param iter Collection of threads to wait for completion
+	 * @return true (always returns success)
+	 */
 	public static final <T extends Thread> boolean waitForThreadsToFinish(Iterable<T> iter){
 
 		//Wait for completion of all threads
@@ -48,7 +56,6 @@ public class ThreadWaiter {
 		return success;
 	}
 	
-	/** Wait for completion of all threads except self */
 	public static final <T extends Thread> boolean waitForThreadsToFinish(T[] iter){
 
 		//Wait for completion of all threads
@@ -71,15 +78,17 @@ public class ThreadWaiter {
 		return success;
 	}
 	
-	/** Starts all threads in the provided collection.
+	/** Starts all threads in the provided iterable.
 	 * @param iter Collection of threads to start */
 	public static final <T extends Thread> void startThreads(Iterable<T> iter){
 		for(Thread t : iter){t.start();}
 	}
 	
 	/**
-	 * @param iter List of Threads.
-	 * @return success
+	 * Starts all threads and waits for them to complete.
+	 * Combines thread startup and completion synchronization in a single operation.
+	 * @param iter Collection of threads to start and wait for
+	 * @return true if both starting and finishing operations succeed, false otherwise
 	 */
 	public static final <T extends Thread> boolean startAndWait(Iterable<T> iter){
 		startThreads(iter);
@@ -89,8 +98,10 @@ public class ThreadWaiter {
 	}
 	
 	/**
-	 * @param iter List of Threads.
-	 * @return success
+	 * Starts threads, waits for completion, and accumulates results using the provided Accumulator (with optional locks).
+	 * @param iter Threads to start and wait for
+	 * @param acc Accumulator for results
+	 * @return true if start, wait, and accumulate all succeed
 	 */
 	public static final <T extends Thread> boolean startAndWait(Iterable<T> iter, 
 			Accumulator<T> acc){
@@ -117,7 +128,15 @@ public class ThreadWaiter {
 		return fr && sr && ar;
 	}
 	
-	/** Wait for completion of all threads, and accumulate results */
+	/**
+	 * Waits for thread completion and accumulates results with thread synchronization.
+	 * Uses read-write locks to coordinate between thread execution and result accumulation.
+	 * Similar to startAndWait but assumes threads are already started.
+	 *
+	 * @param iter Collection of threads to wait for completion
+	 * @param acc Accumulator for collecting thread results
+	 * @return true if waiting, finishing, and accumulation all succeed, false otherwise
+	 */
 	public static final <T extends Thread> boolean waitForThreadsToFinish(Iterable<T> iter, 
 			Accumulator<T> acc){
 		final ReadWriteLock rwlock=acc.rwlock();
@@ -143,7 +162,14 @@ public class ThreadWaiter {
 		return fr && sr && ar;
 	}
 	
-	/** Accumulate results from all threads */
+	/**
+	 * Accumulates results from all threads using the provided accumulator.
+	 * Iterates through all threads and delegates result accumulation to the accumulator.
+	 *
+	 * @param iter Collection of threads to accumulate results from
+	 * @param acc Accumulator interface for collecting thread results
+	 * @return success status from the accumulator
+	 */
 	private static final <T> boolean accumulate(Iterable<T> iter, Accumulator<T> acc){
 
 		//Wait for completion of all threads

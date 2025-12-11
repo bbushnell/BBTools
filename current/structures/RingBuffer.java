@@ -5,20 +5,16 @@ import java.util.Arrays;
 import shared.Timer;
 
 /**
- * A circular buffer of fixed size for storing long values using modulo arithmetic.
- * Uses masks for speed, but allows arbitrary logical buffer size.
- * The physical buffer size is rounded up to the next power of two.
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 8, 2025
+ * Fixed-size circular buffer for longs using power-of-two physical storage and bit masking.
+ * Supports arbitrary logical sizes with fast add/get operations.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 8, 2025
  */
 public final class RingBuffer {
 	
-	/**
-	 * Test method demonstrating buffer performance.
-	 * Creates a buffer and measures throughput of add/get operations.
-	 * @param args Command-line arguments: [buffer_size] [iteration_count]
-	 */
+	/** Benchmark entry point measuring add/get throughput.
+	 * Args: [buffer_size] [iteration_count] */
 	public static void main(String[] args) {
 		int size=Integer.parseInt(args[0]);
 		long iters=Long.parseLong(args[1]), sum=0;
@@ -35,10 +31,8 @@ public final class RingBuffer {
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Creates a buffer of specified size.
-	 * @param size The fixed capacity of the buffer.
-	 */
+	/** Creates a buffer of specified logical size; physical array is rounded to next power of two.
+	 * @param size_ Logical capacity of the buffer */
 	public RingBuffer(int size_) {
 		size=size_;
 		int bits=1;
@@ -53,7 +47,8 @@ public final class RingBuffer {
 	
 	/**
 	 * Adds a value to the buffer, overwriting the oldest value if full.
-	 * @param value The value to add.
+	 * Uses bit masking for fast circular wraparound.
+	 * @param value The value to store in the buffer
 	 */
 	public final void add(long value) {
 		count++;
@@ -63,7 +58,8 @@ public final class RingBuffer {
 
 	/**
 	 * Gets the value at the current insertion position.
-	 * @return The value at the current position.
+	 * Returns the value that would be overwritten by the next add().
+	 * @return The value at the current write position
 	 */
 	public final long getCurrent() {
 		return array[pos];
@@ -71,7 +67,8 @@ public final class RingBuffer {
 
 	/**
 	 * Gets the most recently added value.
-	 * @return The most recent value.
+	 * Uses bit masking to wrap around buffer boundaries.
+	 * @return The most recently stored value
 	 */
 	public final long getPrev() {
 		return array[(pos-1)&mask];
@@ -80,7 +77,8 @@ public final class RingBuffer {
 	/**
 	 * Gets the oldest value in the buffer with bounds checking.
 	 * Returns the first element if the buffer isn't yet full.
-	 * @return The oldest value.
+	 * Safe version of getOldestUnchecked().
+	 * @return The oldest value in the buffer
 	 */
 	public final long getOldest() {
 		return array[(count<size) ? 0 : (pos-size)&mask];
@@ -89,7 +87,8 @@ public final class RingBuffer {
 	/**
 	 * Gets the oldest value without bounds checking.
 	 * Assumes the buffer has been pre-filled with safe values.
-	 * @return The oldest value.
+	 * Faster than getOldest() but requires careful initialization.
+	 * @return The oldest value in the buffer
 	 */
 	public final long getOldestUnchecked() {
 		return array[(pos-size)&mask];//Faster; be sure to pre-fill with a safe value
@@ -97,29 +96,33 @@ public final class RingBuffer {
 
 	/**
 	 * Gets a value at a specified offset from the most recent value.
-	 * @param offset The number of positions back from the most recent value (0=most recent).
-	 * @return The value at the specified offset.
+	 * Offset 0 returns the most recent value, 1 returns the previous, etc.
+	 * @param offset The number of positions back from the most recent value
+	 * @return The value at the specified offset
 	 */
 	public final long get(int offset) {
 		return array[(pos-offset-1)&mask];
 	}
 
 	/**
-	 * Fills the entire buffer with a specified value.
-	 * @param value The value to fill the buffer with.
+	 * Fills the entire physical buffer with a specified value.
+	 * Useful for initializing buffer to safe values for getOldestUnchecked().
+	 * @param value The value to fill all buffer positions with
 	 */
 	public final void fill(long value) {
 		Arrays.fill(array, value);
 	}
 	
 	/**
-	 * Returns the number of valid elements in the buffer.
-	 * @return The number of elements, limited by buffer capacity.
+	 * Returns the number of valid elements currently in the buffer.
+	 * Limited by the logical buffer capacity specified in constructor.
+	 * @return The number of elements, capped at buffer capacity
 	 */
 	public final int size() {
 		return (int)Math.min(count, size);
 	}
 	
+	/** Clears buffer state (resets position; contents left as-is). */
 	public void clear() {
 		pos=0;
 		//fill(0); //Not needed
@@ -129,16 +132,11 @@ public final class RingBuffer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Physical storage array, size is power of two for bit masking */
 	private final long[] array;
-	/** Bit mask for fast modulo operation (array.length - 1) */
 	private final int mask;
-	/** Logical buffer size specified by user */
 	private final int size;
 	
-	/** Current write position in the circular buffer */
 	private int pos=0;
-	/** Total number of elements ever added to the buffer */
 	private long count=0;//Optional
 	
 }

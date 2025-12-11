@@ -4,23 +4,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import shared.Tools;
 
-/**
- * Legacy implementation of local sequence alignment using dynamic programming.
- * Implements Smith-Waterman-style algorithm for computing sequence identity.
- * Uses dual-direction alignment (query-to-ref and ref-to-query) for optimal results.
- * @author Brian Bushnell
- */
+/** Legacy Smith-Waterman-style local aligner that scores both query→ref and ref→query and returns the best identity.
+ * @author Brian Bushnell */
 public final class GlocalAlignerOld implements IDAligner {
 	
-	/** Creates a new GlocalAlignerOld instance */
+	/** Creates a new GlocalAlignerOld instance. */
 	public GlocalAlignerOld() {}
 
-    /**
-     * Entry point for command-line alignment testing.
-     * With 2 args: aligns the provided sequences.
-     * With no args: runs demo alignment on 3 hardcoded test sequences.
-     * @param args Command-line arguments (0 or 2 sequences expected)
-     */
+    /** Demo entry point that aligns provided sequences or runs built-in test cases.
+     * @param args Two sequences to align (optional) */
     public static void main(String[] args) {
 	    
 	    if (args.length == 2) {
@@ -40,24 +32,57 @@ public final class GlocalAlignerOld implements IDAligner {
 	    }
 	}
 
+	/** Returns the aligner name identifier ("GlocalOld").
+	 * @return Aligner name */
 	@Override
 	public final String name() {return "GlocalOld";}
+	/**
+	 * Aligns two sequences and returns identity.
+	 * @param a Query bases
+	 * @param b Reference bases
+	 * @return Identity score
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignForward(a, b);}
+	/**
+	 * Aligns two sequences (positions unsupported in this legacy implementation).
+	 *
+	 * @param a Query bases
+	 * @param b Reference bases
+	 * @param pos Position array (ignored)
+	 * @return Identity score
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignForward(a, b);}//not supported
+	/**
+	 * Aligns two sequences with an optional minimum score (ignored).
+	 *
+	 * @param a Query bases
+	 * @param b Reference bases
+	 * @param pos Position array (ignored)
+	 * @param minScore Minimum score threshold (ignored)
+	 * @return Identity score
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignForward(a, b);}//not supported
+	/**
+	 * Not supported in this legacy aligner; always throws RuntimeException.
+	 *
+	 * @param a Query bases
+	 * @param b Reference bases
+	 * @param pos Position array
+	 * @param rStart Reference start
+	 * @param rStop Reference stop
+	 * @return Never returns (throws)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {throw new RuntimeException();}
     
 	/**
-	 * Performs bidirectional alignment between query and reference sequences.
-	 * Aligns query-to-ref and ref-to-query, returning the maximum identity score.
-	 *
-	 * @param query Query sequence as byte array
-	 * @param ref Reference sequence as byte array
-	 * @return Maximum identity score from both alignment directions
+	 * Performs bidirectional alignment and returns the higher identity score.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Maximum identity from both orientations
 	 */
 	public static final float alignForward(final byte[] query, final byte[] ref){
 		float a=alignForwardInner(query, ref);
@@ -65,20 +90,22 @@ public final class GlocalAlignerOld implements IDAligner {
 		return Tools.max(a, b);
 	}
 	
-	/** Thread-safe counter for tracking alignment loop iterations */
+	/** Thread-safe counter tracking alignment iterations. */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the current loop counter value */
+	/** Returns the current loop counter value.
+	 * @return Alignment loop count */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter to specified value.
-	 * @param x New loop counter value */
+	/** Sets the loop counter to a specific value.
+	 * @param x New loop count */
 	public void setLoops(long x) {loops.set(x);}
-	/** Output string for debugging or result storage */
+	/** Optional output string for debugging or result storage. */
 	public static String output=null;
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @return Identity
+	 * Single-direction local alignment using dynamic programming; returns identity ratio.
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Identity score for this orientation
 	 */
 	public static final float alignForwardInner(final byte[] query, final byte[] ref){
 //		if(ref.length<query.length){return alignForward(ref, query);}
@@ -194,13 +221,11 @@ public final class GlocalAlignerOld implements IDAligner {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Score awarded for matching bases in alignment */
+	/** Score awarded for matching bases in alignment. */
 	public static final short pointsMatch = 1;
-	/** Score penalty for substitution (mismatch) in alignment */
+	/** Score penalty for substitutions (mismatches). */
 	public static final short pointsSub = -1;
-	/** Score penalty for deletion in alignment */
 	public static final short pointsDel = -1;
-	/** Score penalty for insertion in alignment */
 	public static final short pointsIns = -1;
 	
 }

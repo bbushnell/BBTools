@@ -22,13 +22,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * This class does nothing.
- * It serves as a template for generating reads,
- * potentially based on some input sequence.
- * 
+ * Template class for generating synthetic DNA/RNA reads.
+ * Serves as a framework for read generation tools with multithreaded processing.
+ * Provides standard BBTools infrastructure for file I/O, parameter parsing, and threading.
  * @author Brian Bushnell
  * @date June 8, 2019
- *
  */
 public class A_Sample_Generator {
 	
@@ -37,8 +35,9 @@ public class A_Sample_Generator {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point.
+	 * Creates instance, processes data, and handles cleanup.
+	 * @param args Command-line arguments
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -55,8 +54,9 @@ public class A_Sample_Generator {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses arguments and initializes file formats.
+	 * Sets up input/output streams, validates parameters, and configures threading.
+	 * @param args Command-line arguments for configuration
 	 */
 	public A_Sample_Generator(String[] args){
 		
@@ -107,7 +107,12 @@ public class A_Sample_Generator {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into configuration settings.
+	 * Processes verbose flag and delegates standard parsing to Parser class.
+	 * @param args Array of command-line arguments to parse
+	 * @return Configured Parser instance with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -142,7 +147,11 @@ public class A_Sample_Generator {
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/**
+	 * Replaces # symbols with 1 and 2 in paired output filenames.
+	 * Converts single filename with # into paired filenames for paired-end output.
+	 * Validates that required input files are specified.
+	 */
 	private void doPoundReplacement(){
 
 		//Do output file # replacement
@@ -159,12 +168,18 @@ public class A_Sample_Generator {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 extensions as needed for proper file handling.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files can be read and output files can be written.
+	 * Checks for file accessibility and prevents duplicate file specifications.
+	 * @throws RuntimeException If files cannot be accessed or names are duplicated
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
@@ -183,7 +198,8 @@ public class A_Sample_Generator {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static settings for optimal file I/O performance.
+	 * Enables multi-threaded file reading when appropriate number of threads available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -193,7 +209,8 @@ public class A_Sample_Generator {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/** Validates parameter ranges and required settings.
+	 * @return true if all parameters are valid */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
@@ -204,7 +221,12 @@ public class A_Sample_Generator {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that coordinates read generation and output.
+	 * Creates input/output streams, loads input data, spawns worker threads, and reports final statistics.
+	 * @param t Timer for tracking execution time
+	 * @throws RuntimeException If processing encounters errors
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -248,7 +270,8 @@ public class A_Sample_Generator {
 		}
 	}
 	
-	/** Create a Read Input Stream */
+	/** Creates and starts a concurrent read input stream.
+	 * @return Started ConcurrentReadInputStream for reading input sequences */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, null);
 		cris.start(); //Start the stream
@@ -256,7 +279,12 @@ public class A_Sample_Generator {
 		return cris;
 	}
 	
-	/** Create a Read Output Stream */
+	/**
+	 * Creates and starts a concurrent read output stream.
+	 * Configures output format and buffer size for optimal performance.
+	 * @param pairedInput Whether input data is paired-end
+	 * @return Started ConcurrentReadOutputStream, or null if no output specified
+	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -274,7 +302,12 @@ public class A_Sample_Generator {
 		return ros;
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Creates and manages worker threads for parallel read generation.
+	 * Spawns ProcessThread instances, waits for completion, and aggregates results.
+	 * @param cris Input stream for reading template sequences (may be null)
+	 * @param ros Output stream for writing generated reads
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -300,7 +333,11 @@ public class A_Sample_Generator {
 		
 	}
 	
-	/** Wait until all worker threads are finished, then return */
+	/**
+	 * Waits for all worker threads to complete and aggregates their statistics.
+	 * Handles thread joining and accumulates per-thread counters.
+	 * @param alpt List of ProcessThread instances to wait for
+	 */
 	private void waitForThreads(ArrayList<ProcessThread> alpt){
 		
 		//Wait for completion of all threads
@@ -332,12 +369,6 @@ public class A_Sample_Generator {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Loads all input reads into memory for use as templates or references.
-	 * Processes reads from input stream and maintains processing counters.
-	 * @param cris Input stream to read from
-	 * @return ArrayList containing all loaded reads
-	 */
 	private ArrayList<Read> loadData(ConcurrentReadInputStream cris){
 		
 		ArrayList<Read> input=new ArrayList<Read>();
@@ -381,19 +412,11 @@ public class A_Sample_Generator {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/** Worker thread for generating reads in parallel.
+	 * Static class to prevent accidental access to shared variables during threading. */
 	private static class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a ProcessThread with required parameters.
-		 *
-		 * @param ros_ Output stream for generated reads
-		 * @param tid_ Thread ID for identification
-		 * @param maxReads_ Maximum number of reads to generate across all threads
-		 * @param nextReadID_ Atomic counter for assigning sequential read IDs
-		 */
 		ProcessThread(final ConcurrentReadOutputStream ros_, final int tid_, 
 				final long maxReads_, final AtomicLong nextReadID_){
 			ros=ros_;
@@ -403,6 +426,8 @@ public class A_Sample_Generator {
 		}
 		
 		//Called by start()
+		/** Main thread execution method.
+		 * Calls processInner() to generate reads and marks successful completion. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -416,7 +441,8 @@ public class A_Sample_Generator {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Core read generation loop for this thread.
+		 * Generates reads in batches until maxReads limit is reached, using atomic counter to coordinate with other threads. */
 		void processInner(){
 
 			//As long as there is a nonempty read list...
@@ -433,7 +459,13 @@ public class A_Sample_Generator {
 			}
 		}
 		
-		/** Generate the next list of reads */
+		/**
+		 * Generates a batch of reads with sequential IDs.
+		 * Creates specified number of reads and updates thread statistics.
+		 * @param toGenerate Number of reads to generate in this batch
+		 * @param nextID Starting ID for read numbering
+		 * @return ArrayList containing generated reads
+		 */
 		private ArrayList<Read> generateList(int toGenerate, long nextID){
 
 			//Grab the actual read list from the ListNum
@@ -451,31 +483,31 @@ public class A_Sample_Generator {
 		}
 		
 		/**
-		 * Generate a single read.
+		 * Generates a single read with the specified ID.
+		 * @param nextID Sequential ID to assign to the generated read
+		 * @return Generated Read object
+		 * @throws RuntimeException Method not yet implemented
 		 */
 		private Read generateRead(final long nextID){
 //			Read r=new Read(null, null, nextID);
 			throw new RuntimeException("TODO: Implement this method."); //TODO
 		}
 		
-		/** Number of reads retained by this thread */
+		/** Number of reads generated by this thread */
 		protected long readsOutT=0;
-		/** Number of bases retained by this thread */
+		/** Number of bases generated by this thread */
 		protected long basesOutT=0;
 		
-		/** True only if this thread has completed successfully */
+		/** True only if this thread completed successfully without errors */
 		boolean success=false;
 		
-		/** Shared atomic counter for assigning sequential read IDs across threads */
 		private final AtomicLong atomicReadID;
-		/** Maximum total reads to generate across all threads */
 		private final long maxReads;
-		/** Number of reads to generate per batch for optimal buffer utilization */
 		private final int readsPerList=Shared.bufferLen();
 		
-		/** Shared output stream */
+		/** Output stream for writing generated reads */
 		private final ConcurrentReadOutputStream ros;
-		/** Thread ID */
+		/** Thread identifier for debugging and logging */
 		final int tid;
 	}
 	
@@ -483,70 +515,67 @@ public class A_Sample_Generator {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path */
+	/** Primary input file path for template sequences */
 	private String in1=null;
 
-	/** Primary output file path */
+	/** Primary output file path for generated reads */
 	private String out1=null;
-	/** Secondary output file path */
+	/** Secondary output file path for paired-end reads */
 	private String out2=null;
 
-	/** Quality scores output file path for first reads */
 	private String qfout1=null;
-	/** Quality scores output file path for second reads */
 	private String qfout2=null;
 	
-	/** Override input file extension */
+	/** Override extension for input file format detection */
 	private String extin=null;
-	/** Override output file extension */
+	/** Override extension for output file format */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Total number of input reads processed from template files */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Total number of input bases processed from template files */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Total number of reads generated and written to output */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Total number of bases generated and written to output */
 	protected long basesOut=0;
 
-	/** Quit after generating this many OUTPUT reads */
+	/** Maximum number of reads to generate; -1 for unlimited */
 	private long maxReads=-1;
 	
-	/** Input read storage, if needed */
+	/** Storage for input template reads loaded into memory */
 	private ArrayList<Read> data=new ArrayList<Read>();
 	
-	/** Atomic counter for assigning sequential IDs to generated reads */
 	private AtomicLong nextReadID=new AtomicLong(0);
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** File format specification for primary input file */
 	private final FileFormat ffin1;
 	
-	/** Primary output file */
+	/** File format specification for primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
+	/** File format specification for secondary output file */
 	private final FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** True if an error occurred during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

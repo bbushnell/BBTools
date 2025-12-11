@@ -3,27 +3,36 @@ package sort;
 import shared.Tools;
 import stream.Read;
 
+
+
 /**
+ * Comparator for Read objects that performs hierarchical topological ordering of
+ * bases, mates, lengths, qualities, and identifiers. Supports ascending or
+ * descending order and exposes a singleton comparator instance.
+ *
  * @author Brian Bushnell
  * @date Oct 27, 2014
- *
  */
-
-
 public class ReadComparatorTopological extends ReadComparator{
 	
-	/** Private constructor to prevent instantiation */
 	private ReadComparatorTopological(){}
 	
+	/**
+	 * Overrides the base comparator to apply the current ascending/descending
+	 * direction while comparing two reads.
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
+	 */
 	@Override
 	public int compare(Read r1, Read r2) {
 		return ascending*compare(r1, r2, true);
 	}
 	
 	/**
-	 * Performs hierarchical comparison of two reads in topological order.
-	 * Comparison hierarchy: sequence bases, mate bases, sequence lengths,
-	 * mate lengths, quality scores (inverted), numeric ID, then string ID.
+	 * Performs the full hierarchical comparison: primary bases, mate bases (optional),
+	 * lengths, mate lengths, quality scores (inverted), numeric ID, then string ID.
 	 *
 	 * @param r1 First read to compare
 	 * @param r2 Second read to compare
@@ -57,6 +66,14 @@ public class ReadComparatorTopological extends ReadComparator{
 		return r1.id.compareTo(r2.id);
 	}
 	
+	/**
+	 * Lexicographically compares two byte arrays representing read bases or qualities.
+	 * Handles null arrays by treating null as greater than non-null.
+	 *
+	 * @param a First byte array to compare
+	 * @param b Second byte array to compare
+	 * @return Negative if a < b, zero if equal up to minimum length, positive if a > b
+	 */
 	public int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -72,9 +89,8 @@ public class ReadComparatorTopological extends ReadComparator{
 	}
 	
 	/**
-	 * Compares two byte arrays with special handling for 'N' characters.
-	 * 'N' characters are treated as greater than non-'N' characters.
-	 * Otherwise performs lexicographic comparison like compareVectors.
+	 * Lexicographically compares two byte arrays, treating 'N' as greater than other
+	 * bases before falling back to standard comparison.
 	 *
 	 * @param a First byte array to compare
 	 * @param b Second byte array to compare
@@ -96,14 +112,14 @@ public class ReadComparatorTopological extends ReadComparator{
 		return 0;
 	}
 
+	/** Sets the sort direction multiplier.
+	 * @param asc true for ascending order, false for descending order */
 	@Override
 	public void setAscending(boolean asc) {
 		ascending=(asc ? 1 : -1);
 	}
 	
-	/** Singleton instance of the topological read comparator */
 	public static final ReadComparatorTopological comparator=new ReadComparatorTopological();
 	
-	/** Direction multiplier: 1 for ascending order, -1 for descending order */
 	int ascending=1;
 }

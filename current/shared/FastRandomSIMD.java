@@ -7,20 +7,20 @@ import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
 /**
- * Uses SIMD, but ends up slower.
- * May be useful for filling large arrays.
- * 
+ * SIMD-accelerated pseudorandom number generator extending java.util.Random.
+ * Uses vectorized operations to generate multiple random values in parallel,
+ * though benchmarks show it performs slower than non-SIMD implementations.
+ * May be useful for filling large arrays where parallelism can be leveraged.
+ * Based on xoroshiro128+ algorithm with vector operations.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date May 21, 2025
  */
 public final class FastRandomSIMD extends java.util.Random {
 	
-    /** Serialization version identifier for Random compatibility */
     private static final long serialVersionUID = 1L;
-    /** Vector species defining 256-bit SIMD operations for long values */
     private static final VectorSpecies<Long> SPECIES = LongVector.SPECIES_256;
-    /** Vector length: number of long values per SIMD vector (4 for 256-bit) */
     private static final int VLEN = 4;//SPECIES.length(); // 4 longs per vector
     
     @Override
@@ -29,19 +29,11 @@ public final class FastRandomSIMD extends java.util.Random {
     }
     
  // State array: first 4 elements are seed0, last 4 are seed1
-    /** PRNG state array: first 4 elements are seed0, last 4 elements are seed1 */
     private final long[] seedState = new long[8]; 
     // Output buffer
-    /** Output buffer storing pre-computed random values for fast retrieval */
     private final long[] buffer = new long[64];
-    /** Current position in output buffer; starts at 64 to trigger initial fill */
     private int bufferPos = 64; // Start empty
     
-    /**
-     * Refills the output buffer with new random values using SIMD operations.
-     * Implements vectorized xoroshiro128+ algorithm across 4 parallel streams.
-     * Updates internal PRNG state and resets buffer position to start.
-     */
     private void refillBuffer() {
         // Load seed state
         LongVector s0Vec = LongVector.fromArray(SPECIES, seedState, 0); // First 4 elements
@@ -73,24 +65,14 @@ public final class FastRandomSIMD extends java.util.Random {
         bufferPos = 0;
     }
     
-    /**
-     * Creates a new FastRandom with a random seed derived from system time.
-     */
     public FastRandomSIMD() {
         this(System.nanoTime());
     }
     
-    /**
-     * Creates a new FastRandom with the specified seed.
-     * @param seed The initial seed
-     */
     public FastRandomSIMD(long seed) {
         setSeed(seed);
     }
     
-    /**
-     * Mixes a seed value using SplitMix64 algorithm.
-     */
     private static long mixSeed(long x) {
         x += 0x9E3779B97F4A7C15L;
         x = (x ^ (x >>> 30)) * 0xBF58476D1CE4E5B9L;
@@ -98,26 +80,17 @@ public final class FastRandomSIMD extends java.util.Random {
         return x ^ (x >>> 31);
     }
     
-    /**
-     * Returns the next pseudorandom long value.
-     */
     @Override
     public long nextLong() {
         if(bufferPos>=buffer.length) {refillBuffer();}
         return buffer[bufferPos++];
     }
     
-    /**
-     * Returns a pseudorandom int value.
-     */
     @Override
     public int nextInt() {
         return (int)nextLong();
     }
     
-    /**
-     * Returns a pseudorandom int value between 0 (inclusive) and bound (exclusive).
-     */
     @Override
     public int nextInt(int bound) {
         if(bound<=0) {
@@ -139,9 +112,6 @@ public final class FastRandomSIMD extends java.util.Random {
         return val;
     }
     
-    /**
-     * Returns a pseudorandom int value between origin (inclusive) and bound (exclusive).
-     */
     @Override
     public int nextInt(int origin, int bound) {
         if(origin>=bound) {
@@ -150,9 +120,6 @@ public final class FastRandomSIMD extends java.util.Random {
         return origin + nextInt(bound-origin);
     }
     
-    /**
-     * Returns a pseudorandom long value between 0 (inclusive) and bound (exclusive).
-     */
     @Override
     public long nextLong(long bound) {
         if(bound<=0) {
@@ -174,17 +141,11 @@ public final class FastRandomSIMD extends java.util.Random {
         return val;
     }
     
-    /**
-     * Returns a pseudorandom boolean value.
-     */
     @Override
     public boolean nextBoolean() {
         return (nextLong() & 1)!=0;
     }
     
-    /**
-     * Returns a pseudorandom float value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public float nextFloat() {
         return (nextLong() >>> 40) * 0x1.0p-24f;
@@ -195,17 +156,11 @@ public final class FastRandomSIMD extends java.util.Random {
 //        return Float.intBitsToFloat((int)(0x3f800000 | (nextLong() & 0x7fffff))) - 1.0f;
 //    }
     
-    /**
-     * Returns a pseudorandom double value between 0.0 (inclusive) and 1.0 (exclusive).
-     */
     @Override
     public double nextDouble() {
         return (nextLong() >>> 11) * 0x1.0p-53d;
     }
     
-    /**
-     * Fills the given array with random bytes.
-     */
     @Override
     public void nextBytes(byte[] bytes) {
         int i=0;
@@ -236,6 +191,9 @@ public final class FastRandomSIMD extends java.util.Random {
     
     /**
      * Sets the seed of this random number generator.
+     * Uses SplitMix64 to generate 8 distinct seed values for parallel PRNG streams.
+     * Performs warm-up generation to ensure proper state initialization.
+     * @param seed The initial seed value
      */
     @Override
     public void setSeed(long seed) {
@@ -262,7 +220,9 @@ public final class FastRandomSIMD extends java.util.Random {
     }
     
     /**
-     * Main method for benchmarking against other PRNGs.
+     * Main method for benchmarking FastRandomSIMD against other PRNG implementations.
+     * Compares performance with FastRandom, java.util.Random, and ThreadLocalRandom.
+     * @param args Command-line arguments; first argument sets iteration count (default 100M)
      */
     public static void main(String[] args) {
         int iterations=args.length>0 ? Integer.parseInt(args[0]) : 100_000_000;

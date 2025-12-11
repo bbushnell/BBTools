@@ -6,21 +6,17 @@ import java.util.ArrayList;
 import shared.Tools;
 
 /**
+ * Wrapper for processing multiple assembly statistics files with customizable
+ * input handling. Dynamically processes input files through AssemblyStats2,
+ * managing file parsing, garbage collection, and output generation.
+ * Supports single and multiple input file processing with comma-separated
+ * file lists and manages memory by forcing garbage collection between large files.
+ *
  * @author Brian Bushnell
  * @date Apr 17, 2013
- *
  */
 public class AssemblyStatsWrapper {
 	
-	/**
-	 * Main entry point for the assembly statistics wrapper.
-	 * Processes command-line arguments to separate input files from parameters,
-	 * then iteratively runs AssemblyStats2 on each input file with consistent
-	 * parameter configuration. Handles comma-separated file lists and manages
-	 * output headers and appending for multi-file processing.
-	 *
-	 * @param args Command-line arguments containing file paths and parameters
-	 */
 	public static void main(String[] args){
 		ArrayList<String> alist=new ArrayList<String>();
 		ArrayList<String> ilist=new ArrayList<String>();

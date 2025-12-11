@@ -10,18 +10,14 @@ import shared.Parse;
 import shared.Tools;
 import template.ThreadWaiter;
 
-/** Crawls ncbi's ftp site to download genomes and annotations */
+/**
+ * Crawler for NCBI's bacterial RefSeq FTP site to download genomes and annotations with phylogenetic sampling.
+ * Implements parallel processing to retrieve genomes by genus with configurable per-genus limits and optional best-assembly selection based on quality metrics.
+ * @author Brian Bushnell
+ * @date 2013
+ */
 public class FetchProks {
 	
-	/**
-	 * Program entry point for bacterial genome downloading.
-	 * Parses command-line arguments for base address, output file, species limits,
-	 * and quality selection.
-	 * Creates multiple processing threads to handle genus-based parallel crawling
-	 * of NCBI FTP directories.
-	 *
-	 * @param args Command-line arguments: [baseAddress] [output] [maxSpeciesPerGenus] [findBest]
-	 */
 	public static void main(String[] args){
 		//ftp://ftp.ncbi.nih.gov:21/genomes/refseq/bacteria/
 		
@@ -62,22 +58,8 @@ public class FetchProks {
 		assert(success);
 	}
 	
-	/**
-	 * Worker thread for processing bacterial species directories from NCBI FTP site.
-	 * Each thread handles complete genera to avoid synchronization issues and maintains
-	 * separate tracking of processed species and genomes.
-	 * @author Brian Bushnell
-	 */
 	static class ProcessThread extends Thread {
 		
-		/**
-		 * Constructs a processing thread for bacterial genome crawling.
-		 *
-		 * @param speciesList_ List of species directories to process
-		 * @param tsw_ Output writer for generating download commands
-		 * @param tid_ Thread identifier for work distribution
-		 * @param threads_ Total number of processing threads
-		 */
 		ProcessThread(ArrayList<String> speciesList_, TextStreamWriter tsw_, int tid_, int threads_){
 			speciesList=speciesList_;
 			tsw=tsw_;
@@ -108,12 +90,6 @@ public class FetchProks {
 			}
 		}
 		
-		/**
-		 * Processes a single bacterial species directory for genome downloading.
-		 * Checks genus limits and delegates to examineSpecies for actual file discovery.
-		 * Updates thread-local counters for species, genera, and genomes processed.
-		 * @param species Path to the species directory on NCBI FTP
-		 */
 		void processSpecies(String species){
 			String genus=getGenus(species);
 			if(genus!=null){
@@ -135,32 +111,18 @@ public class FetchProks {
 			}
 		}
 		
-		/** List of species directories assigned to this thread for processing */
 		final ArrayList<String> speciesList;
-		/** Thread identifier for work distribution hashing */
 		final int tid;
-		/** Total number of processing threads for modulo distribution */
 		final int threads;
 		//This is OK now that threads work on a per-genus basis
-		/** Thread-local map tracking species count per genus to enforce limits */
 		HashMap<String, Integer> seen=new HashMap<String, Integer>();
-		/** Output writer for generating download commands */
 		final TextStreamWriter tsw;
 		
-		/** Thread-local counter of successfully processed species */
 		int totalSpeciesT=0;
-		/** Thread-local counter of distinct genera processed */
 		int totalGenusT=0;
-		/** Thread-local counter of genome files discovered for download */
 		int totalGenomesT=0;
 	}
 	
-	/**
-	 * Extracts genus name from NCBI species directory path.
-	 * Handles Candidatus organism naming conventions by removing the prefix.
-	 * @param path Full path to species directory
-	 * @return Genus name extracted from path, or null if parsing fails
-	 */
 	static String getGenus(String path){
 		//Candidatus_Hamiltonella
 		String name=path.substring(path.lastIndexOf('/')+1);
@@ -173,12 +135,6 @@ public class FetchProks {
 		}
 	}
 	
-	/**
-	 * Extracts species name from NCBI directory path.
-	 * Handles Candidatus organism naming by removing the prefix.
-	 * @param path Full path to species directory
-	 * @return Species name extracted from directory path
-	 */
 	static String getSpecies(String path){
 		//Candidatus_Hamiltonella
 		String name=path.substring(path.lastIndexOf('/')+1);
@@ -186,15 +142,6 @@ public class FetchProks {
 		return name;
 	}
 	
-	/**
-	 * Examines a bacterial species directory for genome assemblies.
-	 * Searches in priority order: reference genomes, latest assemblies, then all assemblies.
-	 * Stops after finding the first suitable assembly to avoid duplicates.
-	 *
-	 * @param baseAddress Base FTP address for the species
-	 * @param tsw Output writer for download commands
-	 * @return Number of genomes found and processed
-	 */
 	static int examineSpecies(String baseAddress, TextStreamWriter tsw){
 		if(verbose){System.err.println("examineSpecies: "+baseAddress);}
 		String speciesName=getSpecies(baseAddress);
@@ -227,15 +174,6 @@ public class FetchProks {
 		return found;
 	}
 	
-	/**
-	 * Examines assembly directory for downloadable genome files.
-	 * Optionally finds best assembly by quality metrics, otherwise processes first suitable assembly.
-	 *
-	 * @param baseAddress FTP address of assembly directory
-	 * @param tsw Output writer for generating download commands
-	 * @param speciesName Species name for file naming
-	 * @return Number of assemblies processed (0 or 1)
-	 */
 	static int examineAssemblies(String baseAddress, TextStreamWriter tsw, String speciesName){
 		if(verbose){System.err.println("examineAssemblies: "+baseAddress);}
 		Stats stats=null;
@@ -263,7 +201,6 @@ public class FetchProks {
 		return found;
 	}
 	
-	/** Tries to find the assembly with the longest contig */
 	static Stats findBestAssembly(String baseAddress){
 		if(verbose){System.err.println("findBestAssembly: "+baseAddress);}
 		ArrayList<String> contents=ServerTools.listDirectory(baseAddress, retries);
@@ -281,14 +218,6 @@ public class FetchProks {
 		return best;
 	}
 	
-	/**
-	 * Calculates assembly statistics by parsing NCBI assembly report.
-	 * Extracts contig count, genome size, longest contig, and taxonomic ID
-	 * from the assembly_report.txt file.
-	 *
-	 * @param baseAddress FTP path to assembly directory
-	 * @return Stats object with assembly metrics, or null if report unavailable
-	 */
 	static Stats calcStats(String baseAddress){
 		if(verbose){System.err.println("calcStats: "+baseAddress);}
 		ArrayList<String> contents=ServerTools.listDirectory(baseAddress, retries);
@@ -353,16 +282,6 @@ public class FetchProks {
 		return new Stats(baseAddress, max, size, contigs, taxid);
 	}
 	
-	/**
-	 * Examines individual assembly for downloadable genomic and annotation files.
-	 * Generates wget commands for both .fna.gz (genomic sequence) and .gff.gz (annotation) files.
-	 * Supports optional file renaming and sequence ID standardization.
-	 *
-	 * @param stats Assembly statistics and path information
-	 * @param tsw Output writer for download commands
-	 * @param speciesName Species name for output file naming
-	 * @return 1 if both files found and processed, 0 otherwise
-	 */
 	static int examineAssembly(Stats stats, TextStreamWriter tsw, String speciesName){
 		if(verbose){System.err.println("examineAssembly: "+stats.path);}
 		ArrayList<String> contents=ServerTools.listDirectory(stats.path, retries);
@@ -400,38 +319,18 @@ public class FetchProks {
 		return 0;
 	}
 	
-	/**
-	 * Constructs FTP sub-address by combining base address with extension path.
-	 * @param baseAddress Base FTP directory address
-	 * @param extension Path extension to append
-	 * @return Complete FTP address for subdirectory
-	 */
 	static String makeSubAddress(String baseAddress, String extension){
 		if(!baseAddress.endsWith("/")){baseAddress=baseAddress+"/";}
 		String subAddress=baseAddress+extension.substring(extension.indexOf('/')+1);
 		return subAddress;
 	}
 	
-	/**
-	 * Gets count of previously processed items for the given key.
-	 * @param s Key to look up in the tracking map
-	 * @param map HashMap containing processing counts
-	 * @return Count of previous occurrences, or 0 if not seen
-	 */
 	static int seen(String s, HashMap<String, Integer> map){
 //		synchronized(map){
 			Integer x=map.get(s);
 			return x==null ? 0 : x.intValue();
 //		}
 	}
-	/**
-	 * Increments the count for a key in the tracking map.
-	 * Adds the found count to any existing value for the key.
-	 *
-	 * @param s Key to update in the map
-	 * @param found Number to add to existing count
-	 * @param map HashMap containing processing counts
-	 */
 	static void put(String s, int found, HashMap<String, Integer> map){
 //		synchronized(map){
 			int present=seen(s, map);
@@ -439,23 +338,8 @@ public class FetchProks {
 //		}
 	}
 	
-	/**
-	 * Assembly statistics container for comparing genome quality.
-	 * Implements comparison logic prioritizing assemblies with valid taxonomy,
-	 * larger genome size, longer contigs, and fewer fragments.
-	 * @author Brian Bushnell
-	 */
 	static class Stats implements Comparable<Stats>{
 		
-		/**
-		 * Constructs assembly statistics from parsed assembly report data.
-		 *
-		 * @param path_ FTP path to the assembly directory
-		 * @param maxContig_ Length of longest contig in the assembly
-		 * @param size_ Total genome size in bases
-		 * @param contigs_ Number of contigs in the assembly
-		 * @param taxID_ NCBI taxonomic identifier
-		 */
 		public Stats(String path_, long maxContig_, long size_, int contigs_, int taxID_){
 			path=path_;
 			maxContig=maxContig_;
@@ -479,49 +363,30 @@ public class FetchProks {
 			return b.contigs-contigs;
 		}
 		
-		/** FTP path to the assembly directory */
 		String path;
-		/** Species name assigned for output file naming */
 		String name;
-		/** Length of the longest contig in this assembly */
 		long maxContig;
-		/** Total genome size in bases */
 		long size;
-		/** Total number of contigs in the assembly */
 		int contigs;
-		/** NCBI taxonomic identifier for this organism */
 		int taxID;
 	}
 	
-	/** Enable verbose output during processing */
 	static boolean verbose=true;
 //	static boolean allowSameGenus=false;
-	/** Maximum number of species to download per genus for balanced sampling */
 	static int maxSpeciesPerGenus=1;
-	/** Whether to rename downloaded files using species names */
 	static boolean renameFiles=true;
-	/** Whether to standardize sequence headers using gi2taxid tool */
 	static boolean renameSequences=true;
-	/** Number of retry attempts for failed FTP operations */
 	static int retries=40;
-	/**
-	 * Whether to search for best assembly by quality metrics rather than first found
-	 */
 	static boolean findBest=false;
 	
-	/** Whether to include taxonomic ID prefix in output filenames */
 	static boolean tidInFilename=true;
 	
 //	private static HashMap<String, Integer> seen=new HashMap<String, Integer>();
 	
-	/** Global counter of successfully processed species across all threads */
 	static int totalSpecies=0;
-	/** Global counter of distinct genera processed across all threads */
 	static int totalGenus=0;
-	/** Global counter of genome files discovered for download across all threads */
 	static int totalGenomes=0;
 
-	/** Cached Integer object for the value 1 */
 	private static final Integer one=1;
 	
 }

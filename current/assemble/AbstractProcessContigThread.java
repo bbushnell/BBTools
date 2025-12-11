@@ -7,18 +7,16 @@ import shared.KillSwitch;
 import structures.ByteBuilder;
 
 /**
- * Thread for exploring connectivity graph between contigs.
+ * Abstract base class for multithreaded contig processing during assembly.
+ * Each thread processes contigs from a shared list using atomic indexing
+ * for thread-safe work distribution. Subclasses implement specific
+ * processing logic for left and right contig ends.
+ *
  * @author Brian Bushnell
  * @date July 12, 2018
- *
  */
 public abstract class AbstractProcessContigThread extends Thread {
 
-	/**
-	 * Constructs a thread for processing contigs.
-	 * @param contigs_ List of contigs to process
-	 * @param next_ Atomic counter for thread-safe work distribution
-	 */
 	AbstractProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_){
 		contigs=contigs_;
 		next=next_;
@@ -67,29 +65,18 @@ public abstract class AbstractProcessContigThread extends Thread {
 	 */
 	abstract void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb);
 
-	/** Array for counting base occurrences at left contig ends */
 	final int[] leftCounts=KillSwitch.allocInt1D(4);
-	/** Array for counting base occurrences at right contig ends */
 	final int[] rightCounts=KillSwitch.allocInt1D(4);
-	/** Array for additional counting operations during contig processing */
 	final int[] extraCounts=KillSwitch.allocInt1D(4);
 
-	/** List of contigs assigned to this thread for processing */
 	final ArrayList<Contig> contigs;
-	/** Atomic counter for thread-safe distribution of work across threads */
 	final AtomicInteger next;
 
-	/** Length from the last processed contig or operation */
 	int lastLength=-1;
-	/** Target identifier from the last processed contig or operation */
 	int lastTarget=-1;
-	/** Exit condition code from the last processed contig or operation */
 	int lastExitCondition=-1;
-	/** Orientation value from the last processed contig or operation */
 	int lastOrientation=-1;
-	/** ByteBuilder for efficient sequence manipulation during contig processing */
 	ByteBuilder bb=new ByteBuilder();
-	/** Count of edges created by this thread during contig processing */
 	long edgesMadeT=0;
 
 }

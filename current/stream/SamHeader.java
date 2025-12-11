@@ -14,18 +14,15 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
+ * Generates SAM/BAM file headers with format version and reference sequence information.
+ * Creates header lines for file format version (@HD), sequence dictionary (@SQ), read groups (@RG),
+ * and program information (@PG) according to SAM specification standards.
+ *
  * @author Brian Bushnell
  * @date Jul 7, 2014
- *
  */
 public class SamHeader {
 
-	/**
-	 * Appends SAM header line (@HD) to a ByteBuilder with version and sort order information.
-	 * Sets version to 1.3 or 1.4 based on SamLine.VERSION and sort order to unsorted.
-	 * @param bb ByteBuilder to append header information to
-	 * @return The same ByteBuilder with header line appended
-	 */
 	public static ByteBuilder header0B(ByteBuilder bb){
 		//		if(MAKE_TOPHAT_TAGS){
 		//			return new ByteBuilder("@HD\tVN:"+(VERSION<1.4f ? "1.0" : "1.4")+"\tSO:unsorted");
@@ -36,11 +33,6 @@ public class SamHeader {
 		return bb;
 	}
 
-	/**
-	 * Creates SAM header line (@HD) with version and sort order information.
-	 * Sets version to 1.3 or 1.4 based on SamLine.VERSION and sort order to unsorted.
-	 * @return StringBuilder containing the formatted header line
-	 */
 	public static StringBuilder header0(){
 		//		if(MAKE_TOPHAT_TAGS){
 		//			return new StringBuilder("@HD\tVN:"+(SamLine.VERSION<1.4f ? "1.0" : "1.4")+"\tSO:unsorted");
@@ -76,14 +68,6 @@ public class SamHeader {
 		return list;
 	}
 
-	/**
-	 * Creates sequence dictionary header section with @SQ lines for specified chromosome range.
-	 * Handles scaffold sorting if SamLine.SORT_SCAFFOLDS enabled, otherwise maintains order.
-	 *
-	 * @param minChrom Minimum chromosome number to include
-	 * @param maxChrom Maximum chromosome number to include
-	 * @return StringBuilder containing all @SQ header lines
-	 */
 	public static StringBuilder header1(int minChrom, int maxChrom){
 		StringBuilder sb=new StringBuilder(20000);
 		if(SamLine.SORT_SCAFFOLDS){
@@ -118,14 +102,6 @@ public class SamHeader {
 		return sb;
 	}
 
-	/**
-	 * Prints sequence dictionary header section to a PrintWriter.
-	 * Outputs @SQ lines for scaffolds in the specified chromosome range, with optional sorting.
-	 *
-	 * @param minChrom Minimum chromosome number to include
-	 * @param maxChrom Maximum chromosome number to include
-	 * @param pw PrintWriter to output header lines to
-	 */
 	public static void printHeader1(int minChrom, int maxChrom, PrintWriter pw){
 		if(SamLine.SORT_SCAFFOLDS){
 			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
@@ -160,15 +136,6 @@ public class SamHeader {
 		}
 	}
 
-	/**
-	 * Prints sequence dictionary header section using ByteBuilder for efficient memory usage.
-	 * Flushes buffer to OutputStream when it reaches 32KB to manage memory for large references.
-	 *
-	 * @param minChrom Minimum chromosome number to include
-	 * @param maxChrom Maximum chromosome number to include
-	 * @param bb ByteBuilder for constructing header lines
-	 * @param os OutputStream to write buffered data to
-	 */
 	public static void printHeader1B(int minChrom, int maxChrom, ByteBuilder bb, OutputStream os){
 		if(verbose){System.err.println("printHeader1B("+minChrom+", "+maxChrom+")");}
 
@@ -228,14 +195,6 @@ public class SamHeader {
 		}
 	}
 
-	/**
-	 * Prints sequence dictionary header section to a TextStreamWriter.
-	 * Outputs @SQ lines for scaffolds in the specified chromosome range, with optional sorting.
-	 *
-	 * @param minChrom Minimum chromosome number to include
-	 * @param maxChrom Maximum chromosome number to include
-	 * @param tsw TextStreamWriter to output header lines to
-	 */
 	public static void printHeader1(int minChrom, int maxChrom, TextStreamWriter tsw){
 		if(SamLine.SORT_SCAFFOLDS){
 			ArrayList<String> scaffolds=scaffolds(minChrom, maxChrom, true, true);
@@ -270,12 +229,6 @@ public class SamHeader {
 		}
 	}
 
-	/**
-	 * Appends scaffold name to StringBuilder, handling prefix removal if configured.
-	 * When Data.scaffoldPrefixes is true, extracts name portion after '$' delimiter.
-	 * @param sb StringBuilder to append scaffold name to
-	 * @param scn Byte array containing the scaffold name
-	 */
 	static void appendScafName(StringBuilder sb, byte[] scn){
 		if(Data.scaffoldPrefixes){
 			int k=0;
@@ -292,12 +245,6 @@ public class SamHeader {
 		}
 	}
 
-	/**
-	 * Appends scaffold name to ByteBuilder, handling prefix removal if configured.
-	 * When Data.scaffoldPrefixes is true, extracts name portion after '$' delimiter.
-	 * @param sb ByteBuilder to append scaffold name to
-	 * @param scn Byte array containing the scaffold name
-	 */
 	static void appendScafName(ByteBuilder sb, byte[] scn){
 		if(Data.scaffoldPrefixes){
 			int k=0;
@@ -312,12 +259,6 @@ public class SamHeader {
 		}
 	}
 
-	/**
-	 * Creates read group (@RG) and program (@PG) header sections.
-	 * Includes read group information if SamLine.READGROUP_ID is set, and program information
-	 * with BBMap version, command line arguments, and JVM parameters.
-	 * @return StringBuilder containing @RG and @PG header lines
-	 */
 	public static StringBuilder header2(){
 		StringBuilder sb=new StringBuilder(1000);
 		//		sb.append("@RG\tID:unknownRG\tSM:unknownSM\tPL:ILLUMINA\n"); //Can cause problems.  If RG is in the header, reads may need extra fields.
@@ -372,14 +313,6 @@ public class SamHeader {
 		return sb;
 	}
 
-	/**
-	 * Appends read group (@RG) and program (@PG) header sections to ByteBuilder.
-	 * Includes read group information if SamLine.READGROUP_ID is set, and program information
-	 * with BBMap version, command line arguments, and JVM parameters.
-	 *
-	 * @param sb ByteBuilder to append header information to
-	 * @return The same ByteBuilder with header sections appended
-	 */
 	public static ByteBuilder header2B(ByteBuilder sb){
 
 		if(SamLine.READGROUP_ID!=null){
@@ -489,9 +422,7 @@ public class SamHeader {
 		return list;
 	}
 	
-	/** Program name identifier used in @PG header lines */
 	public static String PN="BBMap";
-	/** Debug flag for verbose output during header generation */
 	private static final boolean verbose=false;
 
 }

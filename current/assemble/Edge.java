@@ -13,16 +13,6 @@ import structures.ByteBuilder;
  */
 public class Edge {
 	
-	/**
-	 * Constructs an edge connecting two contigs in the assembly graph.
-	 *
-	 * @param origin_ Source contig ID
-	 * @param destination_ Target contig ID
-	 * @param length_ Overlap length in bases between connected contigs
-	 * @param orientation_ 2-bit encoding: bit 0 = source side, bit 1 = dest side
-	 * @param depth_ Coverage depth representing support evidence from reads
-	 * @param bases_ Optional sequence data for the overlap region (may be null)
-	 */
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_){
 		origin=origin_;
 		destination=destination_;
@@ -32,6 +22,11 @@ public class Edge {
 		bases=bases_;
 	}
 	
+	/**
+	 * Returns string representation of this edge for debugging.
+	 * Delegates to appendTo method for efficient string construction.
+	 * @return Formatted string showing edge properties
+	 */
 	@Override
 	public String toString(){
 		return appendTo(new ByteBuilder()).toString();
@@ -122,21 +117,13 @@ public class Edge {
 		}
 	}
 	
-	/** Optional sequence data for the overlap region between contigs */
 	byte[] bases;
-	/** Source contig ID in the assembly graph */
 	int origin;
-	/** Target contig ID in the assembly graph */
 	int destination;
-	/** Overlap length in bases between connected contigs */
 	int length;
-	/**
-	 * 2-bit orientation encoding: 0=left-to-left, 1=right-to-left, 2=left-to-right, 3=right-to-right
-	 */
 	int orientation; //left source to left dest; 1 right source to left dest; 2 left source to right dest; 3 right source to right dest
 //	int orientation; //0 left kmer, 1 left rkmer, 2 right kmer, 3 right rkmer (of dest)
 //	final int direction; //0 forward, 1 backward //They are all forward edges now
-	/** Coverage depth representing support evidence from read data */
 	int depth;
 	
 }

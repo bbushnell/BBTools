@@ -4,9 +4,13 @@ import shared.Parser;
 import shared.Tools;
 
 /**
+ * Simple LogLog cardinality estimator using 8-bit buckets for memory efficiency.
+ * Implements basic LogLog algorithm without mantissa tracking, storing only
+ * the number of leading zeros (exponent) in each bucket. This reduces memory
+ * usage compared to full LogLog implementations but may sacrifice some accuracy.
+ *
  * @author Brian Bushnell
  * @date Mar 10, 2020
- *
  */
 public final class LogLog8_simple extends CardinalityTracker {
 	
@@ -14,19 +18,20 @@ public final class LogLog8_simple extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/** Creates a LogLog with default parameters: 2048 buckets, k=31 */
 	LogLog8_simple(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/** Creates a LogLog with parameters parsed from command line arguments */
 	LogLog8_simple(Parser p){
 		super(p);
 		maxArray=new byte[buckets];
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
+	 * Creates a LogLog with specified parameters.
+	 *
 	 * @param buckets_ Number of buckets (counters)
 	 * @param k_ Kmer length
 	 * @param seed Random number generator seed; -1 for a random seed
@@ -44,8 +49,14 @@ public final class LogLog8_simple extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Restores floating point to integer.
-	 * This subclass has no mantissa so only the exponent is restored. */
+	/**
+	 * Restores the approximate original value from the stored leading zeros count.
+	 * Since this implementation has no mantissa, assumes mantissa = 1.0000...
+	 * and reconstructs the original number by left-shifting 1 by (64-leadingZeros-1).
+	 *
+	 * @param value Number of leading zeros stored in bucket
+	 * @return Approximate original value that produced this leading zeros count
+	 */
 	private long restore(int value){
 		final int leading=value; //Number of leading zeros
 		long mantissa=1; //1.xxxx but in this case the X's are all zero
@@ -54,6 +65,14 @@ public final class LogLog8_simple extends CardinalityTracker {
 		return original;
 	}
 	
+	/**
+	 * Calculates cardinality estimate using harmonic mean of restored bucket values.
+	 * Applies empirically-derived correction factors for mantissa approximation
+	 * and empty bucket compensation. Uses mean of non-zero buckets rather than
+	 * all buckets to reduce bias from uninitialized counters.
+	 *
+	 * @return Estimated number of unique elements added to this tracker
+	 */
 	@Override
 	public final long cardinality(){
 		double sum=0;
@@ -84,13 +103,20 @@ public final class LogLog8_simple extends CardinalityTracker {
 		return cardinality;
 	}
 	
+	/** Merges another tracker into this one by taking maximum of each bucket.
+	 * @param log Tracker to merge (must be LogLog8_simple) */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog8_simple)log);
 	}
 	
-	/** @See add(CardinalityTracker) */
+	/**
+	 * Merges another LogLog8_simple tracker by taking element-wise maximum
+	 * of bucket arrays. This preserves the maximum leading zeros count
+	 * seen for each bucket across both trackers.
+	 * @param log LogLog8_simple tracker to merge
+	 */
 	public void add(LogLog8_simple log){
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
@@ -99,6 +125,12 @@ public final class LogLog8_simple extends CardinalityTracker {
 		}
 	}
 	
+	/**
+	 * Hashes a number and updates the corresponding bucket with leading zeros count.
+	 * Uses Tools.hash64shift for hashing, extracts bucket from low bits, and
+	 * stores the maximum leading zeros count seen for this bucket.
+	 * @param number Value to hash and track
+	 */
 	@Override
 	public void hashAndStore(final long number){
 		final long key=Tools.hash64shift(number);
@@ -107,6 +139,11 @@ public final class LogLog8_simple extends CardinalityTracker {
 		maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
 	}
 	
+	/**
+	 * Returns compensation factors for bucket count bias correction.
+	 * This implementation returns null, indicating no special compensation.
+	 * @return null (no compensation array)
+	 */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return null;
@@ -116,7 +153,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Maintains state.  These are the actual buckets. */
+	/** Bucket array storing maximum leading zeros count for each hash bucket */
 	private final byte[] maxArray;
 
 }

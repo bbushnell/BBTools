@@ -16,13 +16,16 @@ import shared.Shared;
 import shared.Tools;
 
 /**
+ * Utility class for creating and managing reference genome indices.
+ * Handles conversion of FASTA reference files to indexed chromosome arrays
+ * and manages associated metadata files for the BBTools suite.
+ *
  * @author Brian Bushnell
  * @date Sep 25, 2013
- *
  */
 public class RefToIndex {
 	
-	/** Clears the cached chromosome list to free memory */
+	/** Clears cached chromosome arrays from the last index build to free memory. */
 	public static final void clear(){
 		chromlist=null;
 	}
@@ -43,9 +46,9 @@ public class RefToIndex {
 	}
 	
 	/**
-	 * Constructs the file path for the Bloom filter file.
-	 * @param build The genome build number
-	 * @return Path to the bloom.serial file for this build
+	 * Constructs the file path for the bloom.serial file for a given genome build.
+	 * @param build Genome build number
+	 * @return Path to the bloom filter file
 	 */
 	public static String bloomLoc(int build){
 		return Data.ROOT_INDEX+build+"/bloom.serial";
@@ -175,37 +178,26 @@ public class RefToIndex {
 
 	}
 
-	/** Automatically determine chromosome bit allocation based on reference size */
 	public static boolean AUTO_CHROMBITS=true;
-	/** Enable logging of index creation operations to log files */
 	public static boolean LOG=false;
-	/** Skip writing index files to disk (memory-only mode) */
 	public static boolean NODISK=false;
-	/** Force read-only mode, preventing any index creation or modification */
 	public static boolean FORCE_READ_ONLY=false;
-	/** Allow overwriting existing reference and index files */
 	public static boolean overwrite=true;
-	/** Append to existing files rather than overwriting */
 	public static boolean append=false;
-	/** Generate scaffold information metadata during index creation */
 	public static boolean genScaffoldInfo=true;
 	
-	/** Maximum chromosome length allowed before splitting (-1 for auto) */
 	public static long maxChromLen=-1;
 	
 	/** Padding bases added at chromosome starts (-1 for default) */
 	/** Padding bases added at chromosome ends (-1 for default) */
 	/** Padding bases inserted between joined scaffolds (-1 for default) */
-	/** Minimum scaffold length to include in index (-1 for default) */
 	public static int minScaf=-1, midPad=-1, stopPad=-1, startPad=-1;
-	/** Number of bits allocated for chromosome addressing (-1 for auto) */
 	public static int chrombits=-1;
 //	public static int minScaf=FastaToChromArrays2.MIN_SCAFFOLD;
 //	public static int midPad=FastaToChromArrays2.MID_PADDING;
 //	public static int startPad=FastaToChromArrays2.START_PADDING;
 //	public static int stopPad=FastaToChromArrays2.END_PADDING;
 	
-	/** Cached list of chromosome arrays from the most recent index creation */
 	public static ArrayList<ChromosomeArray> chromlist=null;
 	
 }

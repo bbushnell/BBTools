@@ -4,16 +4,22 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Implements a WaveFront alignment algorithm for global alignment.
- * This version is actually fast.
- * 
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 30, 2025
+ * Implements a WaveFront alignment algorithm for efficient global sequence alignment.
+ * Uses wavefront-based dynamic programming to find optimal edit distances between sequences.
+ * Designed for speed with rolling buffer optimization and diagonal wavefront propagation.
+ *
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date April 30, 2025
  */
 public class WaveFrontAligner implements IDAligner {
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point for testing and benchmarking.
+	 * Delegates to Test class to avoid code duplication across aligner implementations.
+	 * @param args Command-line arguments for testing
+	 * @throws Exception If test execution fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -21,32 +27,58 @@ public class WaveFrontAligner implements IDAligner {
 		Test.testAndPrint(c, args);
 	}
 
-    /** Creates a new WaveFrontAligner instance */
     public WaveFrontAligner() {}
 
+	/** Returns the name of this alignment algorithm */
 	@Override
 	public final String name() {return "WaveFront";}
+    /**
+     * Aligns two sequences and returns identity score.
+     * @param a First sequence to align
+     * @param b Second sequence to align
+     * @return Identity score between 0.0 and 1.0
+     */
     @Override
     public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+    /**
+     * Aligns two sequences and returns identity score with position information.
+     *
+     * @param a First sequence to align
+     * @param b Second sequence to align
+     * @param pos Output array for alignment positions (start, end)
+     * @return Identity score between 0.0 and 1.0
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+    /**
+     * Aligns two sequences with minimum score threshold.
+     *
+     * @param a First sequence to align
+     * @param b Second sequence to align
+     * @param pos Output array for alignment positions (start, end)
+     * @param minScore Minimum score threshold (currently unused in this implementation)
+     * @return Identity score between 0.0 and 1.0
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+    /**
+     * Aligns sequences within specified reference window.
+     *
+     * @param a Query sequence to align
+     * @param b Reference sequence
+     * @param pos Output array for alignment positions
+     * @param rStart Start position in reference sequence
+     * @param rStop Stop position in reference sequence
+     * @return Identity score between 0.0 and 1.0
+     */
     @Override
     public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {
         return alignStatic(a, b, pos, rStart, rStop);
     }
     
-	/**
-	 * Thread-safe counter for tracking total loop iterations across all alignments
-	 */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the current loop counter value for performance tracking */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New loop counter value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output string for debugging or result storage */
 	public static String output=null;
 	
 	/**
@@ -197,7 +229,15 @@ public class WaveFrontAligner implements IDAligner {
 	}
     
     /**
-     * Wrapper for aligning within a reference window.
+     * Aligns query against a window of the reference sequence.
+     * Extracts reference subsequence and adjusts position coordinates accordingly.
+     *
+     * @param query Query sequence to align
+     * @param ref Full reference sequence
+     * @param posVector Output positions adjusted for reference window
+     * @param refStart Start position in reference (inclusive)
+     * @param refEnd End position in reference (inclusive)
+     * @return Identity score between 0.0 and 1.0
      */
     public static final float alignStatic(final byte[] query, final byte[] ref, 
             final int[] posVector, int refStart, int refEnd) {

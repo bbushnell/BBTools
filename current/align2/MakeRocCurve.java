@@ -14,19 +14,14 @@ import stream.Read;
 import stream.SamLine;
 
 /**
- * Generates ROC (Receiver Operating Characteristic) curves for evaluating
- * alignment accuracy by comparing mapped reads against known true positions.
- * Analyzes SAM files to calculate true positives, false positives, and false negatives
- * at different mapping quality thresholds.
- *
+ * Generates ROC (Receiver Operating Characteristic) curves for evaluating alignment accuracy against known true positions.
+ * Analyzes SAM files to calculate true positives, false positives, and false negatives at different mapping quality thresholds.
  * @author Brian Bushnell
  * @date 2013
  */
 public class MakeRocCurve {
 	
 	
-	/** Program entry point for generating ROC curves from SAM alignment files.
-	 * @param args Command-line arguments including input file and read count */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -94,8 +89,7 @@ public class MakeRocCurve {
 	
 	/**
 	 * Processes a SAM file to collect alignment statistics for ROC analysis.
-	 * Reads each SAM line, converts to Read objects, and calculates statistics
-	 * for primary alignments while avoiding duplicate counting.
+	 * Reads each SAM line, converts to Read objects, and calculates statistics for primary alignments while avoiding duplicate counting.
 	 * @param samfile Path to the SAM format alignment file
 	 */
 	public static void process(String samfile){
@@ -124,17 +118,14 @@ public class MakeRocCurve {
 		tf.close();
 	}
 	
-	/** Returns the tab-delimited header line for ROC curve output.
-	 * @return Header string with column names for ROC statistics */
 	public static String header(){
 		return "minScore\tmapped\tretained\ttruePositiveStrict\tfalsePositiveStrict\ttruePositiveLoose" +
 				"\tfalsePositiveLoose\tfalseNegative\tdiscarded\tambiguous";
 	}
 	
 	/**
-	 * Generates and prints the ROC curve data by iterating through quality scores
-	 * from highest to lowest. Calculates cumulative statistics including true/false
-	 * positives and sensitivity/specificity metrics as percentages.
+	 * Generates and prints the ROC curve data by iterating through quality scores from highest to lowest.
+	 * Calculates cumulative statistics including true/false positives and outputs mapped/retained/ambiguous percentages.
 	 * @param reads Total number of reads for percentage calculations
 	 */
 	public static void gradeList(long reads){
@@ -212,14 +203,6 @@ public class MakeRocCurve {
 		}
 	}
 	
-	/**
-	 * Calculates alignment statistics for a single read and updates
-	 * the appropriate counters based on mapping quality and correctness.
-	 * Handles unmapped, ambiguous, and discarded reads appropriately.
-	 *
-	 * @param r The read to analyze
-	 * @param sl Corresponding SAM line with alignment details
-	 */
 	public static void calcStatistics1(final Read r, SamLine sl){
 
 		int q=r.mapScore;
@@ -300,10 +283,8 @@ public class MakeRocCurve {
 	}
 	
 	/**
-	 * Determines if an alignment is a strict true positive by comparing
-	 * the mapped position against the known true position from custom headers.
-	 * Requires exact match of chromosome, strand, start, and stop positions.
-	 *
+	 * Determines if an alignment is a strict true positive by comparing the mapped position to the true position in custom headers.
+	 * Requires exact match of reference name, strand, start, and stop positions.
 	 * @param sl SAM line with alignment information
 	 * @param h Custom header containing true position information
 	 * @return true if alignment exactly matches the true position
@@ -320,10 +301,8 @@ public class MakeRocCurve {
 	}
 	
 	/**
-	 * Determines if an alignment is a loose true positive by allowing
-	 * some positional tolerance defined by THRESH2. More permissive than
-	 * strict matching for evaluating alignment accuracy.
-	 *
+	 * Determines if an alignment is a loose true positive by allowing positional tolerance defined by THRESH2.
+	 * More permissive than strict matching for evaluating alignment accuracy while still requiring the correct reference and strand.
 	 * @param sl SAM line with alignment information
 	 * @param h Custom header containing true position information
 	 * @return true if alignment is within acceptable distance of true position
@@ -383,53 +362,31 @@ public class MakeRocCurve {
 //		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
 //	}
 	
-	/**
-	 * Calculates the absolute difference between two integers.
-	 * @param a First integer
-	 * @param b Second integer
-	 * @return Absolute difference between a and b
-	 */
 	private static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
 
-	/** Array counting strict true positives by mapping quality score */
 	public static int truePositiveStrictA[]=new int[1000];
-	/** Array counting strict false positives by mapping quality score */
 	public static int falsePositiveStrictA[]=new int[1000];
 	
-	/** Array counting loose true positives by mapping quality score */
 	public static int truePositiveLooseA[]=new int[1000];
-	/** Array counting loose false positives by mapping quality score */
 	public static int falsePositiveLooseA[]=new int[1000];
 
-	/** Array counting total mapped reads by mapping quality score */
 	public static int mappedA[]=new int[1000];
-	/** Array counting retained mapped reads by mapping quality score */
 	public static int mappedRetainedA[]=new int[1000];
-	/** Array counting unmapped reads by mapping quality score */
 	public static int unmappedA[]=new int[1000];
 	
-	/** Array counting discarded reads by mapping quality score */
 	public static int discardedA[]=new int[1000];
-	/** Array counting ambiguous reads by mapping quality score */
 	public static int ambiguousA[]=new int[1000];
 	
-	/** Array counting primary alignment reads by mapping quality score */
 	public static int primaryA[]=new int[1000];
 	
-	/** Whether to parse custom headers for true position information */
 	public static boolean parsecustom=true;
 	
-	/** Position tolerance threshold for loose true positive matching */
 	public static int THRESH2=20;
-	/** Whether input alignments are from BLASR aligner format */
 	public static boolean BLASR=false;
-	/** Whether to use BitSet for tracking seen reads to prevent duplicates */
 	public static boolean USE_BITSET=true;
-	/** BitSet for tracking processed read IDs to avoid duplicate counting */
 	public static BitSet seen=null;
-	/** Whether to allow space/slash character handling in contig names */
 	public static boolean allowSpaceslash=true;
 	
 }

@@ -17,11 +17,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Reads a text file.
- * Prints it to another text file.
+ * Template class demonstrating basic file input/output operations.
+ * Reads a text file line by line and extracts content before the first tab
+ * character, writing the processed output to another file.
+ *
  * @author Brian Bushnell
  * @date April 9, 2020
- *
  */
 public class A_SampleBasic {
 	
@@ -30,7 +31,9 @@ public class A_SampleBasic {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point that initializes the application and processes files.
+	 * Creates an instance of A_SampleBasic, runs the processing pipeline,
+	 * and properly closes output streams.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -50,8 +53,10 @@ public class A_SampleBasic {
 	 //hmmsearch --domtblout out.txt --cut_ga mito_pfams.hmm mito4.faa
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes file formats.
+	 * Handles argument preprocessing, file validation, and sets up input/output
+	 * file formats for the processing pipeline.
+	 * @param args Command line arguments containing input/output file paths
 	 */
 	public A_SampleBasic(String[] args){
 		
@@ -86,7 +91,12 @@ public class A_SampleBasic {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures program settings.
+	 * Processes key=value pairs and sets verbose mode for file operations.
+	 * @param args Array of command-line arguments
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -114,13 +124,18 @@ public class A_SampleBasic {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adjusts file extensions by adding or removing compression suffixes.
+	 * Ensures input file path is valid and throws exception if no input specified. */
 	private void fixExtensions(){
 		in=Tools.fixExtension(in);
 		if(in==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files can be read and output files can be written.
+	 * Also ensures no file paths are specified multiple times to prevent conflicts.
+	 * @throws RuntimeException If files cannot be accessed or duplicate paths exist
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -139,7 +154,8 @@ public class A_SampleBasic {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file processing settings based on available threads.
+	 * Forces ByteFile2 mode when multiple threads are available for better performance. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -151,14 +167,6 @@ public class A_SampleBasic {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that handles file reading, processing, and writing.
-	 * Creates input and output streams, processes file content, and reports
-	 * processing statistics including timing and line counts.
-	 *
-	 * @param t Timer object for tracking execution time
-	 * @throws RuntimeException If processing encounters errors
-	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -191,14 +199,6 @@ public class A_SampleBasic {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Core processing logic that reads lines and extracts content before tabs.
-	 * Reads each line from input file, extracts characters before the first tab
-	 * character, and writes the processed content to the output stream.
-	 *
-	 * @param bf Input ByteFile for reading data
-	 * @param bsw Output ByteStreamWriter for writing processed data
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder();
@@ -223,11 +223,6 @@ public class A_SampleBasic {
 		}
 	}
 	
-	/**
-	 * Creates and initializes a ByteStreamWriter for the specified file format.
-	 * @param ff FileFormat specifying output file details, may be null
-	 * @return Initialized ByteStreamWriter or null if no output format specified
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -239,44 +234,31 @@ public class A_SampleBasic {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path */
 	private String in=null;
-	/** Output file path */
 	private String out=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of input lines processed */
 	private long linesProcessed=0;
-	/** Number of valid output lines written */
 	private long linesOut=0;
-	/** Total number of input bytes processed */
 	private long bytesProcessed=0;
-	/** Total number of output bytes written */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input file format specification */
 	private final FileFormat ffin;
-	/** Output file format specification */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print stream for status and error messages */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output mode for debugging */
 	public static boolean verbose=false;
-	/** Indicates whether processing encountered errors */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

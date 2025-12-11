@@ -9,7 +9,11 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Stores frame-relative kmer counts for a type of genomic feature, such as a coding start site.
+ * Stores frame-relative k-mer counts for analyzing genomic features such as coding start sites.
+ * Maintains separate count matrices for valid and invalid k-mer occurrences across multiple frames
+ * relative to a reference point. Used for statistical analysis and scoring of genomic positions
+ * based on k-mer frequency patterns.
+ *
  * @author Brian Bushnell
  * @date Sep 24, 2018
  */
@@ -19,15 +23,6 @@ public class FrameStats {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs FrameStats for analyzing k-mer patterns around genomic features.
-	 * Initializes count matrices for tracking k-mer frequencies in multiple frames.
-	 *
-	 * @param name_ Identifier for this statistics object
-	 * @param k_ Length of k-mers to analyze
-	 * @param frames_ Number of frames to analyze relative to reference points
-	 * @param leftOffset_ Offset to the left of the reference point where analysis begins
-	 */
 	public FrameStats(String name_, int k_, int frames_, int leftOffset_){
 		name=name_;
 		k=k_;
@@ -47,51 +42,26 @@ public class FrameStats {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Increments the count for a specific k-mer in a given frame.
-	 * @param kmer The k-mer value (encoded as integer)
-	 * @param frame Frame index relative to reference point
-	 * @param valid 1 for valid features, 0 for invalid/background
-	 */
 	public void add(int kmer, int frame, int valid){
 		counts[valid][frame][kmer]++;
 		validSums[valid]++;
 	}
 	
-	/**
-	 * Checks if this FrameStats is compatible with another for merging operations.
-	 * Compatibility requires matching name, leftOffset, k-mer length, and frame count.
-	 * @param fs FrameStats to compare with
-	 * @return true if compatible for merging, false otherwise
-	 */
 	public boolean compatibleWith(FrameStats fs) {
 		return fs.name.equals(name) && fs.leftOffset==leftOffset && fs.k==k && fs.frames==frames;
 	}
 	
-	/** Resets all count matrices and sums to zero.
-	 * Used to reinitialize the statistics object for new data. */
 	public void clear() {
 		Tools.fill(counts, 0);
 		Arrays.fill(validSums, 0);
 	}
 	
-	/**
-	 * Clears current data and copies all counts from another FrameStats.
-	 * Both objects must be compatible as verified by compatibleWith().
-	 * @param fs Source FrameStats to copy data from
-	 */
 	public void setFrom(FrameStats fs) {
 		assert(compatibleWith(fs)) : name+", "+frames+", "+fs.name+", "+fs.frames;
 		clear();
 		add(fs);
 	}
 	
-	/**
-	 * Merges counts from another FrameStats into this one.
-	 * Adds corresponding count values across all frames and validity states.
-	 * Both objects must have matching parameters.
-	 * @param fs FrameStats to merge with this one
-	 */
 	public void add(FrameStats fs){
 		assert(fs.name.equals(name));
 		assert(fs.leftOffset==leftOffset);
@@ -119,21 +89,11 @@ public class FrameStats {
 //		calculate();
 	}
 	
-	/**
-	 * Scales all counts and sums by a multiplication factor.
-	 * Used for normalizing or weighting statistics.
-	 * @param mult Multiplication factor to apply to all counts
-	 */
 	public void multiplyBy(double mult) {
 		Tools.multiplyBy(counts, mult);
 		Tools.multiplyBy(validSums, mult);
 	}
 	
-	/**
-	 * Calculates probability scores from accumulated k-mer counts.
-	 * Computes the overall average probability and frame-specific k-mer probabilities
-	 * normalized by the inverse average for scoring purposes.
-	 */
 	void calculate(){
 		average=(float)((validSums[1]+1.0)/(validSums[0]+validSums[1]+1.0));
 		invAvg=1.0f/average;
@@ -147,15 +107,6 @@ public class FrameStats {
 		}
 	}
 	
-	/**
-	 * Calculates a statistical score for a genomic position based on k-mer patterns.
-	 * Analyzes k-mers in multiple frames around the specified point and computes
-	 * a cumulative score based on learned probability patterns.
-	 *
-	 * @param point Reference position in the sequence to score
-	 * @param bases DNA sequence as byte array
-	 * @return Statistical score indicating likelihood of feature at this position
-	 */
 	public float scorePoint(int point, byte[] bases){
 		final int mask=~((-1)<<(2*k));
 		
@@ -193,14 +144,6 @@ public class FrameStats {
 		return score*invFrames;
 	}
 	
-	/**
-	 * Processes a sequence to accumulate k-mer counts for CDS frame analysis.
-	 * Uses a validFrames array to indicate which frames contain valid coding sequences.
-	 * Only processes when ProkObject.callCDS is enabled.
-	 *
-	 * @param bases DNA sequence to process
-	 * @param validFrames Bit array indicating valid coding frames at each position
-	 */
 	void processCDSFrames(byte[] bases, byte[] validFrames){
 		if(!ProkObject.callCDS){return;}
 		int kmer=0;
@@ -226,15 +169,6 @@ public class FrameStats {
 		}
 	}
 	
-	/**
-	 * Processes k-mers around a specific genomic feature point.
-	 * Accumulates counts across multiple frames relative to the specified point.
-	 * Skips positions too close to sequence ends to avoid truncated data.
-	 *
-	 * @param bases DNA sequence containing the point
-	 * @param point Position of the genomic feature (0-based)
-	 * @param valid 1 if this is a true feature, 0 for background/negative example
-	 */
 	void processPoint(byte[] bases, int point, int valid){
 		
 		//Degenerate cases where the point is at the end, possibly from a truncated gene.
@@ -271,12 +205,6 @@ public class FrameStats {
 	/*----------------         Text Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Parses a tab-delimited line of count data to populate the count matrices.
-	 * Expected format: valid\tframe\tkmer_count_0\tkmer_count_1\t...
-	 * Updates both the count matrix and validity sums.
-	 * @param line Tab-delimited byte array containing count data
-	 */
 	public void parseData(byte[] line) {
 		int a=0, b=0;
 		final int valid, frame;
@@ -319,12 +247,6 @@ public class FrameStats {
 		return appendTo(new ByteBuilder()).toString();
 	}
 	
-	/**
-	 * Appends formatted count data to a ByteBuilder for output.
-	 * Includes header information and full count matrix in tab-delimited format.
-	 * @param bb ByteBuilder to append data to
-	 * @return The same ByteBuilder for method chaining
-	 */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append("#name\t").append(name).nl();
 		bb.append("#k\t").append(k).nl();
@@ -346,12 +268,6 @@ public class FrameStats {
 		return bb;
 	}
 	
-	/**
-	 * Appends formatted template with zero counts to a ByteBuilder.
-	 * Creates the same structure as appendTo() but with all counts set to zero.
-	 * @param bb ByteBuilder to append template to
-	 * @return The same ByteBuilder for method chaining
-	 */
 	public ByteBuilder append0(ByteBuilder bb){
 		bb.append("#name\t").append(name).nl();
 		bb.append("#k\t").append(k).nl();
@@ -377,41 +293,22 @@ public class FrameStats {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Identifier name for this FrameStats object */
 	public final String name;
-	/** Length of k-mers analyzed by this object */
 	public final int k;
-	/** Bit mask for k-mer encoding, computed as ~((-1)<<(2*k)) */
 	public final int mask;
-	/** Total number of frames analyzed relative to reference points */
 	public final int frames;
-	/** Maximum possible k-mer value, computed as 1<<(2*k) */
 	public final int kMax;
-	/** Inverse of frame count (1.0/frames) for score normalization */
 	public final float invFrames;
-	/** Number of positions to the left of reference point where analysis begins */
 	public final int leftOffset;
-	/**
-	 * Calculates the right offset from the reference point based on total frames and left offset
-	 */
 	public int rightOffset() {return frames-leftOffset-1;}
 	
-	/** Probability matrix [frames][kmers] computed from count ratios */
 	public final float[][] probs;
-	/** Count matrix [frames][kmers] for valid/true feature examples */
 	public final long[][] countsTrue;
-	/** Count matrix [frames][kmers] for invalid/false background examples */
 	public final long[][] countsFalse;
-	/**
-	 * Combined count matrix [valid][frames][kmers] containing both true and false counts
-	 */
 	public final long[][][] counts;
 
-	/** Sum of all counts for each validity state [false_sum, true_sum] */
 	public final long[] validSums=KillSwitch.allocLong1D(2);
-	/** Overall average probability of valid features, computed from validSums */
 	private float average=-1;
-	/** Inverse of average probability (1.0/average) for score normalization */
 	private float invAvg=-1;
 	
 }

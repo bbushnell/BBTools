@@ -15,15 +15,8 @@ import shared.PreParser;
 import shared.Timer;
 import tracker.ReadStats;
 
-/**
- * Utility for concatenating multiple text files into a single output file.
- * Supports both individual files and directory processing with buffered I/O.
- * Uses multi-threaded writing to handle large file operations efficiently.
- * @author Brian Bushnell
- */
 public class ConcatenateTextFiles {
 	
-	/** Format: infile1,infile2,...infileN,outfile */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -58,11 +51,6 @@ public class ConcatenateTextFiles {
 		System.out.println("Time: \t"+t);
 	}
 
-	/**
-	 * Concatenates input files into a single output file using buffered processing.
-	 * Creates a write thread for output and processes each input file sequentially.
-	 * @param split Array of file paths where last element is the output file
-	 */
 	private static void concatenate(String[] split) {
 		String outname=split[split.length-1];
 		assert(overwrite || !new File(outname).exists()) : outname+" exists.";
@@ -89,15 +77,6 @@ public class ConcatenateTextFiles {
 			
 	}
 	
-	/**
-	 * Processes a single input term (file or directory) for concatenation.
-	 * If term is a file, reads lines into buffer. If directory, recursively processes contents.
-	 * Sends full buffers to the write thread to maintain memory efficiency.
-	 *
-	 * @param term File path or directory path to process
-	 * @param bufferptr Array containing current buffer reference
-	 * @param wt WriteThread instance for output handling
-	 */
 	private static void processTerm(String term, ArrayList<String>[] bufferptr, WriteThread wt){
 		
 		System.out.println("Processing term "+term);
@@ -140,18 +119,8 @@ public class ConcatenateTextFiles {
 		}
 	}
 	
-	/**
-	 * Dedicated thread for writing concatenated text data to output file.
-	 * Uses blocking queue to receive string buffers from processing threads.
-	 * Handles file I/O operations asynchronously for better performance.
-	 */
 	private static class WriteThread extends Thread{
 		
-		/**
-		 * Creates a WriteThread for the specified output file.
-		 * Initializes output stream and print writer for file operations.
-		 * @param fname_ Output file path
-		 */
 		public WriteThread(String fname_){
 			String temp=fname_;
 			try {
@@ -165,11 +134,6 @@ public class ConcatenateTextFiles {
 			writer=new PrintWriter(os);
 		}
 		
-		/**
-		 * Adds a string buffer to the write queue for output processing.
-		 * Blocks until queue space is available to prevent memory overflow.
-		 * @param list Buffer containing text lines to write
-		 */
 		public void add(ArrayList<String> list){
 			assert(list!=null);
 			while(list!=null){
@@ -184,6 +148,11 @@ public class ConcatenateTextFiles {
 			}
 		}
 		
+		/**
+		 * Main execution loop for the write thread.
+		 * Continuously takes string buffers from queue and writes them to output file.
+		 * Terminates when empty buffer is received, indicating completion.
+		 */
 		@Override
 		public void run(){
 			
@@ -210,28 +179,17 @@ public class ConcatenateTextFiles {
 			}
 		}
 		
-		/** Output stream for writing to the target file */
 		private final OutputStream os;
-		/** Print writer for formatted text output */
 		private final PrintWriter writer;
-		/**
-		 * Blocking queue for thread-safe buffer transfer between processing and writing
-		 */
 		private final ArrayBlockingQueue<ArrayList<String>> queue=new ArrayBlockingQueue<ArrayList<String>>(MAX_LISTS);
-		/** Canonical path of the output file */
 		final String fname;
 		
 	}
 
-	/** Maximum number of string buffers allowed in the write queue */
 	public static final int MAX_LISTS=8;
-	/** Number of text lines stored in each buffer before sending to write thread */
 	public static final int LIST_SIZE=100;
-	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	public static boolean append=false;
-	/** Whether to allow subprocess execution for file operations */
 	public static boolean allowSubprocess=true;
 	
 }

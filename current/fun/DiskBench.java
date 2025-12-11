@@ -24,17 +24,18 @@ import stream.FastaReadInputStream;
 import structures.ByteBuilder;
 
 /**
- * @author Brian Bushnell
- * @date December 6, 2017
+ * Disk I/O performance benchmarking utility for testing different file access
+ * methods and read/write patterns. Supports multi-threaded testing with
+ * configurable data sizes, buffer lengths, and file access strategies.
  *
+ * Tests various file I/O approaches including ByteFile, TextFile, QuickFile,
+ * and direct stream access. Measures throughput in MB/s across multiple passes
+ * to evaluate sustained performance characteristics.
+ *
+ * @author Brian Bushnell
  */
 public class DiskBench {
 	
-	/**
-	 * Main entry point for disk benchmarking. Creates DiskBench instance,
-	 * runs benchmarking process with timing, and closes output streams.
-	 * @param args Command-line arguments for benchmark configuration
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -49,13 +50,6 @@ public class DiskBench {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs DiskBench with command-line argument parsing. Sets up
-	 * benchmark parameters including path, data size, passes, threading mode,
-	 * and file access method. Configures compression settings and creates
-	 * output directory if needed.
-	 * @param args Command-line arguments for benchmark configuration
-	 */
 	public DiskBench(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -159,15 +153,8 @@ public class DiskBench {
 		if(!pfile.exists()){pfile.mkdirs();}
 	}
 	
-	/** Worker thread for writing random data to disk during benchmarks.
-	 * Generates specified amount of data and measures write performance. */
 	class WriteThread extends Thread{
 		
-		/**
-		 * Constructs write thread for specific file and data size.
-		 * @param fname_ Output filename for random data
-		 * @param size_ Number of bytes to write
-		 */
 		public WriteThread(String fname_, long size_){
 			fname=fname_;
 			size=size_;
@@ -179,27 +166,13 @@ public class DiskBench {
 			written=writeRandomData(fname, size, t, overwrite);
 		}
 		
-		/** Target filename for write operations */
 		String fname;
-		/** Number of bytes to write to file */
 		long size;
-		/** Actual bytes written during operation */
 		long written=0;
-		/** Timer for measuring write operation duration */
 		Timer t;
 		
 	}
 	
-	/**
-	 * Generates and writes random ASCII data to file using ByteStreamWriter.
-	 * Creates pseudo-random text with characters in range 33-96 (printable ASCII).
-	 * Uses efficient bit-shifting to generate multiple characters per random int.
-	 * @param fname Output filename
-	 * @param size Target number of bytes to write
-	 * @param t Timer for operation measurement (may be null)
-	 * @param overwrite Whether to overwrite existing files
-	 * @return Actual file size written to disk
-	 */
 	public static long writeRandomData(final String fname, final long size, final Timer t, final boolean overwrite){
 		if(t!=null){t.start();}
 		long written=0;
@@ -249,20 +222,15 @@ public class DiskBench {
 		return diskSize;
 	}
 	
-	/** Worker thread for reading data from disk using specified access method.
-	 * Supports multiple file reading strategies for performance comparison. */
 	class ReadThread extends Thread{
 		
-		/**
-		 * Constructs read thread for specific file and thread ID.
-		 * @param fname_ Input filename to read
-		 * @param tid_ Thread identifier for debugging output
-		 */
 		public ReadThread(String fname_, int tid_){
 			fname=fname_;
 			tid=tid_;
 		}
 		
+		/** Executes timed random data writing to assigned file.
+		 * Records elapsed time and bytes written for throughput calculation. */
 		@Override
 		public void run(){
 			t=new Timer();
@@ -287,11 +255,6 @@ public class DiskBench {
 			t.stop();
 		}
 		
-		/**
-		 * Reads file using ByteFile line-by-line access.
-		 * Counts bytes read including newline characters.
-		 * @param ffin Input file format configuration
-		 */
 		private void runBf(FileFormat ffin){
 			ByteFile bf=ByteFile.makeByteFile(ffin);
 			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
@@ -299,11 +262,6 @@ public class DiskBench {
 			}
 		}
 		
-		/**
-		 * Reads file using QuickFile line-by-line access.
-		 * Counts bytes read including newline characters.
-		 * @param ffin Input file format configuration
-		 */
 		private void runQf(FileFormat ffin){
 			QuickFile qf=new QuickFile(ffin);
 			for(byte[] line=qf.nextLine(); line!=null; line=qf.nextLine()){
@@ -311,11 +269,6 @@ public class DiskBench {
 			}
 		}
 		
-		/**
-		 * Reads file using TextFile string-based line access.
-		 * Counts characters read including newline characters.
-		 * @param ffin Input file format configuration
-		 */
 		private void runTf(FileFormat ffin){
 			TextFile tf=new TextFile(ffin);
 			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
@@ -323,13 +276,6 @@ public class DiskBench {
 			}
 		}
 		
-		/**
-		 * Reads file using direct InputStream access with configurable buffering.
-		 * Optionally processes data to find line boundaries during reading.
-		 * Tests raw stream performance vs. higher-level abstractions.
-		 * @param ffin Input file format configuration
-		 * @param bufferedStream Whether to use BufferedInputStream vs FileInputStream
-		 */
 		private void runBis(FileFormat ffin, boolean bufferedStream){
 			
 			final byte[] buffer=new byte[bufferlen];
@@ -365,13 +311,6 @@ public class DiskBench {
 			}
 		}
 		
-		/**
-		 * Enhanced stream reading that stores line data in ArrayList for processing.
-		 * Tests memory allocation overhead during high-throughput reading.
-		 * Recreates ArrayList every 800 lines to simulate batch processing.
-		 * @param ffin Input file format configuration
-		 * @param bufferedStream Whether to use BufferedInputStream vs FileInputStream
-		 */
 		private void runBis2(FileFormat ffin, boolean bufferedStream){
 			
 			final byte[] buffer=new byte[bufferlen];
@@ -412,29 +351,16 @@ public class DiskBench {
 			}
 		}
 
-		/** Temporary storage for line data during stream processing */
 		byte[] cache;
-		/** Collection for storing line data during enhanced stream processing */
 		ArrayList<byte[]> list;
-		/** Input filename for read operations */
 		String fname;
-		/** Total bytes read during operation */
 		long read=0;
-		/** Number of lines processed during read operation */
 		long lines=0;
-		/** Timer for measuring read operation duration */
 		Timer t;
-		/** Thread identifier for debugging and output correlation */
 		final int tid;
 		
 	}
 	
-	/**
-	 * Generates unique filenames for benchmark pass using timestamp and
-	 * random components. Creates one filename per thread to avoid conflicts.
-	 * @param pass Benchmark pass number for filename uniqueness
-	 * @return Array of unique filenames for thread use
-	 */
 	String[] makeFnames(int pass){
 		String[] fnames=new String[threads];
 		Random randy=new Random();
@@ -444,14 +370,6 @@ public class DiskBench {
 		return fnames;
 	}
 	
-	/**
-	 * Executes concurrent read/write benchmark pass. Starts all write threads
-	 * followed by read threads, then waits for completion. Measures combined
-	 * read/write performance under concurrent load.
-	 * @param fnamesW Filenames for write operations
-	 * @param fnamesR Filenames for read operations
-	 * @return Timer with elapsed time for combined operations
-	 */
 	Timer readWrite(String[] fnamesW, String[] fnamesR){
 		Timer t=new Timer();
 		
@@ -498,12 +416,6 @@ public class DiskBench {
 		return t;
 	}
 	
-	/**
-	 * Executes multi-threaded write benchmark. Distributes data size evenly
-	 * across threads and measures time to completion for all writers.
-	 * @param fnames Output filenames for each write thread
-	 * @return Timer with elapsed time for write completion
-	 */
 	Timer write(String[] fnames){
 		Timer t=new Timer();
 		WriteThread[] wta=new WriteThread[threads];
@@ -528,13 +440,6 @@ public class DiskBench {
 		return t;
 	}
 	
-	/**
-	 * Executes multi-threaded read benchmark with optional pre-read warmup.
-	 * If preRead enabled, performs single-threaded read first to warm disk cache.
-	 * Then runs concurrent readers and measures completion time.
-	 * @param fnames Input filenames for each read thread
-	 * @return Timer with elapsed time for read completion
-	 */
 	Timer read(String[] fnames){
 		
 		Timer t=new Timer();
@@ -574,11 +479,6 @@ public class DiskBench {
 		return t;
 	}
 	
-	/**
-	 * Cleans up benchmark files by deleting all specified filenames.
-	 * Checks for file existence before deletion to avoid errors.
-	 * @param fnames Array of filenames to delete
-	 */
 	void delete(String[] fnames){
 		for(String s : fnames){
 			File f=new File(s);
@@ -588,13 +488,6 @@ public class DiskBench {
 		}
 	}
 	
-	/**
-	 * Main benchmark execution logic. Performs initial write, then runs
-	 * specified number of passes in chosen mode (read/write/readwrite).
-	 * Reports throughput in MB/s for each pass and overall performance.
-	 * Cleans up files after completion.
-	 * @param t0 Overall timer started at program entry
-	 */
 	void process(Timer t0){
 		
 		t0.start();
@@ -641,69 +534,45 @@ public class DiskBench {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Base directory path for benchmark file creation */
 	private String path="";
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Buffer size for stream-based reading operations */
 	private int bufferlen=4096;
-	/** Total bytes of data to write per benchmark pass */
 	private long data=8000000000L;
-	/** Number of benchmark passes to execute */
 	private int passes=2;
 	
-	/** Internal line count for benchmark statistics */
 	public int linesInternal;
 	
-	/** Number of concurrent threads for benchmark operations */
 	private int threads;
 	
-	/** Maximum number of lines to process (currently unused) */
 	private long maxLines=Long.MAX_VALUE;
 	
-	/** Benchmark mode: READWRITE, READ, or WRITE operations */
 	int mode=READWRITE;
 	/** Mode constant for write-only benchmarking */
 	/** Mode constant for read-only benchmarking */
-	/** Mode constant for combined read/write benchmarking */
 	static final int READWRITE=1, READ=2, WRITE=3;
 
-	/** Whether to print thread IDs during execution for debugging */
 	boolean printTid=false;
-	/** Whether to process line boundaries during stream reading */
 	boolean processBis=false;
-	/** Whether to perform warmup read before main benchmark */
 	boolean preRead=false;
 	
-	/** File access method for read operations */
 	int method=BYTEFILE;
-	/** Method constant for ByteFile-based reading */
 	static final int BYTEFILE=1;
-	/** Method constant for TextFile-based reading */
 	static final int TEXTFILE=2;
-	/** Method constant for BufferedInputStream reading */
 	static final int BUFFEREDINPUTSTREAM=3;
-	/** Method constant for direct FileInputStream reading */
 	static final int FILEINPUTSTREAM=4;
-	/** Method constant for enhanced BufferedInputStream with line storage */
 	static final int BUFFEREDINPUTSTREAM2=5;
-	/** Method constant for enhanced FileInputStream with line storage */
 	static final int FILEINPUTSTREAM2=6;
-	/** Method constant for QuickFile-based reading */
 	static final int QUICKFILE=7;
 	
 	/*--------------------------------------------------------------*/
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for benchmark results and messages */
 	private PrintStream outstream=System.err;
-	/** Whether to enable verbose output during benchmarking */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during benchmark execution */
 	public boolean errorState=false;
-	/** Whether to overwrite existing benchmark files */
 	private boolean overwrite=true;
 	
 }

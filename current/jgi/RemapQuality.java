@@ -6,18 +6,17 @@ import stream.SamLine;
 import template.BBTool_ST;
 
 /**
- * Changes quality scores to other quality scores.
+ * Remaps quality scores from one encoding to another using configurable mapping.
+ * Supports reversing quality scores or custom mappings via semicolon-separated pairs.
+ * Default behavior reverses quality scores in the range 2-41 to create inverted quality.
+ *
  * @author Brian Bushnell
  * @date Apr 27, 2015
- *
  */
 public class RemapQuality extends BBTool_ST {
 	
-	/**
-	 * Code entrance from the command line.
-	 * Must be overridden; the commented body is an example.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point for quality score remapping.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Example:
 		Timer t=new Timer();
@@ -29,7 +28,10 @@ public class RemapQuality extends BBTool_ST {
 	protected void setDefaults(){}
 
 	/**
-	 * @param args
+	 * Constructs RemapQuality with command-line arguments and initializes mapping table.
+	 * Creates identity mapping by default, then applies reverse mapping (43-i for i=2-41)
+	 * unless custom mapping string is provided.
+	 * @param args Command-line arguments including optional map parameter
 	 */
 	public RemapQuality(String[] args) {
 		super(args);
@@ -56,6 +58,15 @@ public class RemapQuality extends BBTool_ST {
 
 	/* (non-Javadoc)
 	 * @see jgi.BBTool_ST#parseArgument(java.lang.String, java.lang.String, java.lang.String)
+	 */
+	/**
+	 * Parses tool-specific command-line arguments.
+	 * Recognizes 'map' parameter for custom quality score mapping.
+	 *
+	 * @param arg Full argument string
+	 * @param a Argument key (left side of =)
+	 * @param b Argument value (right side of =)
+	 * @return true if argument was recognized and parsed
 	 */
 	@Override
 	public boolean parseArgument(String arg, String a, String b){
@@ -101,6 +112,14 @@ public class RemapQuality extends BBTool_ST {
 	/* (non-Javadoc)
 	 * @see jgi.BBTool_ST#processReadPair(stream.Read, stream.Read)
 	 */
+	/**
+	 * Processes a read pair by remapping quality scores using the configured mapping table.
+	 * Applies the byte mapping to every quality score in both reads if quality arrays exist.
+	 *
+	 * @param r1 First read in the pair (may be null)
+	 * @param r2 Second read in the pair (may be null)
+	 * @return Always returns true to retain all reads
+	 */
 	@Override
 	protected boolean processReadPair(Read r1, Read r2) {
 		if(r1!=null && r1.quality!=null){
@@ -114,9 +133,7 @@ public class RemapQuality extends BBTool_ST {
 		return true;
 	}
 	
-	/** Custom mapping specification string in format "old1,new1;old2,new2;..." */
 	public String mapString;
-	/** 256-element lookup table for remapping quality score bytes */
 	public final byte[] map;
 
 }

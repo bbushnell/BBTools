@@ -12,15 +12,16 @@ import sketch.SketchIdComparator;
 import sketch.SketchObject;
 import sketch.SketchTool;
 
-/** Renames files with top sketch hit taxid */
+/**
+ * Renames files with top sketch hit taxid.
+ * Loads sequence files as sketches, compares them against RefSeq database,
+ * and renames each file by prepending the taxonomic ID of the best match.
+ *
+ * @author Brian Bushnell
+ * @date June 3, 2025
+ */
 public class FileRenamer {
 
-	/**
-	 * Program entry point that renames files based on their top taxonomic hits.
-	 * For each input file, creates a sketch, queries RefSeq database, identifies
-	 * the best taxonomic match, and renames the file to "tid_{taxid}_{originalname}".
-	 * @param args Input file paths to process and rename
-	 */
 	public static void main(String[] args) {
 		PreParser pp=new PreParser(args, null, false);
 		args=pp.args;

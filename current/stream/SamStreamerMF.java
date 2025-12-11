@@ -10,11 +10,12 @@ import shared.Tools;
 import structures.ListNum;
 
 /**
- * Loads multiple sam files rapidly with multiple threads.
- * 
+ * Multi-file SAM stream processor that loads multiple SAM files rapidly using multiple threads.
+ * Manages concurrent reading from multiple SAM files with dynamic load balancing,
+ * allowing efficient processing of large numbers of SAM files simultaneously.
+ *
  * @author Brian Bushnell
  * @date March 6, 2019
- *
  */
 public class SamStreamerMF {
 	
@@ -23,8 +24,9 @@ public class SamStreamerMF {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for command-line execution.
+	 * Creates a SamStreamerMF instance and runs a test processing loop.
+	 * @param args Command-line arguments: [comma-separated file paths] [optional thread count]
 	 */
 	public static final void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -43,14 +45,26 @@ public class SamStreamerMF {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructs a SamStreamerMF from file names.
+	 * Converts file names to FileFormat objects and delegates to primary constructor.
+	 *
+	 * @param fnames_ Array of SAM file names to process
+	 * @param threads_ Number of threads to use for processing
+	 * @param saveHeader_ Whether to save and propagate SAM headers
+	 * @param maxReads_ Maximum number of reads to process, or -1 for no limit
 	 */
 	public SamStreamerMF(String[] fnames_, int threads_, boolean saveHeader_, long maxReads_){
 		this(FileFormat.testInput(fnames_, FileFormat.SAM, null, true, false), threads_, saveHeader_, maxReads_);
 	}
 	
 	/**
-	 * Constructor.
+	 * Primary constructor for SamStreamerMF.
+	 * Initializes the multi-file SAM streaming system with specified parameters.
+	 *
+	 * @param ffin_ Array of FileFormat objects representing SAM files to process
+	 * @param threads_ Number of threads to use for processing
+	 * @param saveHeader_ Whether to save and propagate SAM headers
+	 * @param maxReads_ Maximum number of reads to process, or -1 for no limit
 	 */
 	public SamStreamerMF(FileFormat[] ffin_, int threads_, boolean saveHeader_, long maxReads_){
 		fname=ffin_[0].name();
@@ -64,8 +78,6 @@ public class SamStreamerMF {
 	/*--------------------------------------------------------------*/
 
 	
-	/** Test method that consumes all reads from the input files.
-	 * Iterates through all available read lists and optionally prints progress information. */
 	final void test(){
 		for(ListNum<Read> list=nextReads(); list!=null; list=nextReads()){
 			if(verbose){outstream.println("Got list of size "+list.size());}
@@ -73,7 +85,6 @@ public class SamStreamerMF {
 	}
 	
 	
-	/** Create read streams and process all data */
 	public final void start(){
 		//Reset counters
 		readsProcessed=0;
@@ -85,15 +96,7 @@ public class SamStreamerMF {
 		if(verbose){outstream.println("Finished; closing streams.");}
 	}
 
-	/** Alias for nextReads() method.
-	 * @return Next available list of reads, or null if no more reads available */
 	public final ListNum<Read> nextList(){return nextReads();}
-	/**
-	 * Retrieves the next batch of reads from active streamers using round-robin scheduling.
-	 * Manages dynamic activation of streamers as others complete, ensuring continuous processing.
-	 * Updates global counters and propagates SAM headers when streamers finish.
-	 * @return Next available list of reads, or null when all files are processed
-	 */
 	public final ListNum<Read> nextReads(){
 		ListNum<Read> list=null;
 		assert(activeStreamers!=null);
@@ -126,7 +129,8 @@ public class SamStreamerMF {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/** Initializes and starts the thread management system for concurrent SAM processing.
+	 * Creates streamer queues, calculates optimal active streamer count, and starts initial threads. */
 	void spawnThreads(){
 		final int maxActive=Tools.max(2, Tools.min((Shared.threads()+4)/5, ffin.length, MAX_FILES));
 		streamerSource=new ArrayDeque<Streamer>(ffin.length);
@@ -146,58 +150,48 @@ public class SamStreamerMF {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	protected String fname;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum reads to process before stopping; -1 means no limit */
 	protected long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Whether to save and propagate SAM headers from input files */
 	final boolean saveHeader;
 
-	/** Primary input file */
+	/** Array of input file formats representing SAM files to process */
 	final FileFormat[] ffin;
 	
-	/** Readers */
 //	final Streamer[] streamers;
+	/** Queue of unstarted streamers waiting to be activated */
 	private ArrayDeque<Streamer> streamerSource;
-	/** Queue of currently active streamers processing files */
 	private ArrayDeque<Streamer> activeStreamers;
 	
-	/** Number of threads to use for concurrent processing */
 	final int threads;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Default number of threads for SAM processing operations */
 	public static int DEFAULT_THREADS=6;
-	/** Maximum number of files that can be processed simultaneously */
 	public static int MAX_FILES=8;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages */
 	protected PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static final boolean verbose=false;
-	/** Enable additional verbose output messages */
 	public static final boolean verbose2=false;
-	/** True if an error was encountered */
+	/** Indicates whether an error was encountered during processing */
 	public boolean errorState=false;
 	
 }

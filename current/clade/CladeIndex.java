@@ -9,22 +9,8 @@ import prok.GeneCaller;
 import shared.Parse;
 import shared.Shared;
 
-/**
- * Indexes Clade objects by GC content for efficient similarity searching.
- * Implements a GC-bucket based search strategy to quickly find the best matching reference 
- * for a query Clade using a two-stage comparison process.
- * 
- * @author Brian Bushnell
- * @date April 19, 2024
- */
 public class CladeIndex implements Cloneable {
 
-	/**
-	 * Creates a new CladeIndex containing the specified Clades.
-	 * Each Clade will be indexed by its GC content for fast retrieval.
-	 * 
-	 * @param coll Collection of Clades to index
-	 */
 	public CladeIndex(Collection<Clade> coll) {
 		for(Clade c : coll) {add(c);}
 		sort();
@@ -36,12 +22,6 @@ public class CladeIndex implements Cloneable {
 		}
 	}
 
-	/**
-	 * Creates a clone of this CladeIndex.
-	 * The clone shares the same indexed Clades but has zeroed comparison counters.
-	 * 
-	 * @return A clone of this CladeIndex
-	 */
 	public CladeIndex clone() {
 		CladeIndex ci=null;
 		try {
@@ -54,22 +34,10 @@ public class CladeIndex implements Cloneable {
 		return ci;
 	}
 
-	/**
-	 * Loads and indexes Clades from the specified reference files.
-	 * 
-	 * @param ref Array of reference file paths
-	 * @return A new CladeIndex containing Clades from the references
-	 */
 	public static CladeIndex loadIndex(String... ref) {
 		return loadIndex(Arrays.asList(ref));
 	}
 
-	/**
-	 * Loads and indexes Clades from the specified reference files.
-	 * 
-	 * @param ref Collection of reference file paths
-	 * @return A new CladeIndex containing Clades from the references
-	 */
 	public static CladeIndex loadIndex(Collection<String> ref) {
 		CladeLoader loader=new CladeLoader();
 		ConcurrentHashMap<Integer, Clade> map=loader.load(ref, null);
@@ -77,15 +45,6 @@ public class CladeIndex implements Cloneable {
 		return index;
 	}
 
-	/**
-	 * Parses a command-line parameter and sets the corresponding configuration.
-	 * Supports a wide range of tuning parameters for the search algorithm and comparison methods.
-	 * 
-	 * @param arg Original argument string (unused)
-	 * @param a Parameter name
-	 * @param b Parameter value
-	 * @return true if the parameter was recognized and processed, false otherwise
-	 */
 	public static boolean parse(String arg, String a, String b) {
 		if(a.equals("steps") || a.equals("maxsteps")){
 			maxSteps=Integer.parseInt(b);
@@ -154,12 +113,6 @@ public class CladeIndex implements Cloneable {
 		return true;
 	}
 
-	/**
-	 * Adds a Clade to the index.
-	 * The Clade is indexed by its GC content, rounded to the nearest percentage.
-	 * 
-	 * @param c The Clade to add
-	 */
 	public void add(Clade c) {
 		int idx=Math.round(c.gc*100);
 		ArrayList<Clade> list=gcDex[idx];
@@ -181,15 +134,6 @@ public class CladeIndex implements Cloneable {
 		return list==null || list.isEmpty() ? null : list.get(0);
 	}
 	
-	/**
-	 * Finds the best match for a given Clade in the index.
-	 * Uses a GC-bucket based search strategy that first checks Clades with similar GC content,
-	 * then expands outward to neighboring GC buckets if needed.
-	 *
-	 * @param c The query Clade to find matches for
-	 * @param maxHits The number of results to return
-	 * @return An ordered list of Comparison objects containing the best matches found.
-	 */
 	public ArrayList<Comparison> findBest(final Clade c, final int maxHits) {
 		assert(c.finished());
 		final int center=Math.round(c.gc*100);
@@ -217,17 +161,6 @@ public class CladeIndex implements Cloneable {
 		return heap.toList();
 	}
 
-	/**
-	 * Searches a specific GC bucket for the best match to the given Clade.
-	 * Uses a two-stage comparison process with early filtering to improve performance.
-	 * Updates the best match if a better one is found.
-	 * 
-	 * @param a The query Clade to match
-	 * @param list List of Clades in this GC bucket
-	 * @param best Current best matches (will be updated if better matches are found)
-	 * @param temp Temporary comparison object for reuse
-	 * @param gcLevel The GC percentage (0-100) of this bucket
-	 */
 	private void findBestLinear(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
 		Comparison temp, int gcLevel) {
 		if(list==null || list.isEmpty()) {return;}
@@ -261,18 +194,6 @@ public class CladeIndex implements Cloneable {
 		}
 	}
 
-	/**
-	 * Searches a specific GC bucket for the best match to the given Clade.
-	 * Uses a two-stage comparison process with early filtering to improve performance.
-	 * Updates the best match if a better one is found.
-	 * Assumes list is sorted by HH, and expands from the best position using binary search.
-	 * 
-	 * @param a The query Clade to match
-	 * @param list List of Clades in this GC bucket
-	 * @param best Current best matches (will be updated if better matches are found)
-	 * @param temp Temporary comparison object for reuse
-	 * @param gcLevel The GC percentage (0-100) of this bucket
-	 */
 	private void findBestBinary(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
 		Comparison temp, int gcLevel) {
 		if(list==null || list.isEmpty()) {return;}
@@ -329,7 +250,6 @@ public class CladeIndex implements Cloneable {
 		}
 	}
 
-	/** Returns index of the closest element */	
 	public static final int binarySearchHH(ArrayList<Clade> list, final float key) {
 		final int length=(list==null ? 0 : list.size());
 		if(length<2) {return 0;}
@@ -354,16 +274,10 @@ public class CladeIndex implements Cloneable {
 		return a;
 	}
 
-	/**
-	 * Gets the number of Clades indexed.
-	 * 
-	 * @return Number of Clades in the index
-	 */
 	public int size() {
 		return cladesLoaded;
 	}
 
-	/** Array of Clade lists indexed by GC percentage (0-100) */
 	@SuppressWarnings("unchecked")
 	final ArrayList<Clade>[] gcDex=new ArrayList[101];
 
@@ -371,34 +285,29 @@ public class CladeIndex implements Cloneable {
 //	@SuppressWarnings("unchecked")
 //	final ArrayList<Clade>[][] gcDex2=new ArrayList[101][101];
 
-	/** Number of Clades loaded in this index */
 	int cladesLoaded=0;
-	/** Total number of quick comparisons performed */
+	/** Total number of quick comparisons performed during search operations */
 	long comparisons=0;
-	/** Number of detailed comparisons that passed the quick filter */
+	/** Number of detailed comparisons that passed the initial quick filter */
 	long slowComparisons=0;
 
-	/** Number of intermediate comparisons to retain */
+	/** Number of intermediate comparisons to retain in the result heap */
 	static int heapSize=1;
-	/** Whether to exclude Clades with the same taxonomic ID from matches */
+	/** Whether to exclude Clades with the same taxonomic ID from match results */
 	static boolean banSelf=false;
-	/** Maximum number of GC buckets to search in each direction */
+	/**
+	 * Maximum number of GC buckets to search in each direction from the query GC
+	 */
 	static int maxSteps=6;
-	/** Maximum allowed GC difference (absolute) */
+	/** Maximum allowed GC content difference for initial filtering */
 	static float gcDelta=0.05f;
-	/** Maximum allowed strandedness difference (absolute) */
+	/** Maximum allowed strandedness difference for initial filtering */
 	static float strDelta=0.12f;
-	/** Maximum allowed hh difference (absolute) */
 	static float hhDelta=0.025f;
-	/** Maximum allowed caga difference (absolute) */
 	static float cagaDelta=0.017f;
-	/** Multiplier for dynamic GC difference threshold based on k-mer similarity */
 	static float gcMult=0.5f; //These are optimized for ABS; higher is safer
-	/** Multiplier for dynamic strandedness difference threshold based on k-mer similarity */
 	static float strMult=1.2f;
-	/** Multiplier for dynamic hh difference threshold based on k-mer similarity */
 	static float hhMult=0.5f;
-	/** Multiplier for dynamic caga difference threshold based on k-mer similarity */
 	static float cagaMult=0.8f;
 	
 	static boolean LINEAR_SEARCH=false;

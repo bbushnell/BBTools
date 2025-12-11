@@ -26,16 +26,19 @@ import tax.TaxTree;
 import tracker.ReadStats;
 
 /**
- * Removes unwanted sequences from Silva, particularly bacteria flagged as euks due to name misidentification.
- * 
+ * Removes unwanted sequences from Silva database, particularly bacteria flagged
+ * as euks due to name misidentification.
+ * Filters out chloroplast and mitochondrial sequences that are incorrectly
+ * classified as eukaryotes.
+ * Processes sequences with taxonomic information and removes problematic entries.
+ *
  * @author Brian Bushnell
  * @date January 27, 2020
- *
  */
 public class FilterSilva {
 	
-	/** Program entry point for Silva sequence filtering.
-	 * @param args Command-line arguments */
+	/** Program entry point that constructs FilterSilva, processes reads, and reports time.
+	 * @param args Command-line arguments (input/output/tax tree options) */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -51,10 +54,9 @@ public class FilterSilva {
 	}
 	
 	/**
-	 * Constructs a FilterSilva instance with command-line arguments.
-	 * Parses arguments, sets up I/O streams, and initializes the taxonomic tree.
-	 * Configures Silva mode for taxonomic processing.
-	 * @param args Command-line arguments including input/output files and options
+	 * Parses arguments, initializes tax tree and I/O, and configures filtering flags
+	 * for Silva datasets (including SILVA_MODE).
+	 * @param args Command-line arguments for filtering configuration
 	 */
 	public FilterSilva(String[] args){
 		
@@ -143,9 +145,8 @@ public class FilterSilva {
 	}
 	
 	/**
-	 * Main processing method that filters Silva sequences.
-	 * Reads input sequences, applies taxonomic filtering logic, and writes filtered output.
-	 * Removes eukaryotic sequences that are actually bacterial organelles.
+	 * Streams reads, applies Silva-specific taxonomic filtering to drop misidentified
+	 * organellar sequences, writes retained reads, and records throughput statistics.
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
@@ -230,15 +231,6 @@ public class FilterSilva {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Determines whether a single read should be kept based on taxonomic classification.
-	 * Parses taxonomic information from the read header and applies filtering rules.
-	 * Removes chloroplast and mitochondrial sequences, and bacterial sequences
-	 * misclassified as eukaryotes.
-	 *
-	 * @param r The read to evaluate
-	 * @return true if the read should be kept, false if it should be filtered out
-	 */
 	private boolean process(Read r){
 		TaxNode tn=tree.parseNodeFromHeader(r.id, true);
 		if(tn==null){return false;}
@@ -253,47 +245,33 @@ public class FilterSilva {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path */
 	private String in1=null;
 
-	/** Output file path */
 	private String out1=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
-	/** Path to taxonomic tree file, defaults to "auto" for automatic detection */
 	private String treeFile="auto";
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process, -1 for unlimited */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file format specification */
 	private final FileFormat ffin1;
 
-	/** Output file format specification */
 	private final FileFormat ffout1;
 	
-	/** Taxonomic tree for sequence classification */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output mode */
 	public static boolean verbose=false;
-	/** Tracks whether processing encountered any errors */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

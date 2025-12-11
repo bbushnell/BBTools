@@ -16,10 +16,12 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * 
+ * Main BBMap alignment engine for mapping short reads to reference genomes.
+ * Provides high-speed k-mer based alignment with configurable sensitivity modes.
+ * Supports single and paired-end reads with comprehensive output format options.
+ *
  * @author Brian Bushnell
  * @date Dec 22, 2012
- *
  */
 public final class BBMap extends AbstractMapper {
 	
@@ -51,6 +53,11 @@ public final class BBMap extends AbstractMapper {
 		super(args);
 	}
 	
+	/**
+	 * Sets BBMap-specific default values for alignment parameters.
+	 * Configures compression, key density, alignment scoring, and output settings.
+	 * Called during initialization to establish baseline configuration.
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -77,6 +84,14 @@ public final class BBMap extends AbstractMapper {
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 	}
 	
+	/**
+	 * Pre-processes arguments to apply speed/accuracy mode presets.
+	 * Modifies key density, alignment strictness, and index parameters based on
+	 * fast, slow, or vslow mode selection before main argument parsing.
+	 *
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with mode-specific parameters added
+	 */
 	@Override
 	public String[] preparse(String[] args){
 		if(fast){
@@ -162,6 +177,12 @@ public final class BBMap extends AbstractMapper {
 		return args;
 	}
 	
+	/**
+	 * Post-processes parsed arguments to finalize configuration.
+	 * Applies bandwidth constraints, handles input file detection,
+	 * configures ambiguous read handling, and validates parameter combinations.
+	 * @param args Parsed command-line arguments
+	 */
 	@Override
 	void postparse(String[] args){
 		
@@ -243,6 +264,11 @@ public final class BBMap extends AbstractMapper {
 		
 	}
 	
+	/**
+	 * Performs pre-alignment setup and validation.
+	 * Configures minimum identity thresholds, output streams, blacklists,
+	 * and validates required parameters like build number and reference.
+	 */
 	@Override
 	public void setup(){
 		
@@ -292,6 +318,11 @@ public final class BBMap extends AbstractMapper {
 	}
 	
 
+	/**
+	 * Configures handling of reads that map to multiple references.
+	 * Sets parameters for splitting, first-reference assignment, random selection,
+	 * or discarding based on AMBIGUOUS2_MODE setting.
+	 */
 	@Override
 	void processAmbig2(){
 		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
@@ -319,6 +350,12 @@ public final class BBMap extends AbstractMapper {
 		}
 	}
 	
+	/**
+	 * Loads reference genome index and prepares for alignment.
+	 * Initializes chromosome data structures, generates k-mer index,
+	 * applies genome size optimizations, and optionally creates Bloom filter.
+	 * Configures coverage analysis structures if requested.
+	 */
 	@Override
 	void loadIndex(){
 		Timer t=new Timer(outstream, true);
@@ -462,6 +499,12 @@ public final class BBMap extends AbstractMapper {
 //		assert(false) : RefToIndex.chrombits+", "+AbstractIndex.CHROMS_PER_BLOCK;
 	}
 		
+	/**
+	 * Executes the main alignment pipeline.
+	 * Opens input/output streams, creates mapping threads, processes reads,
+	 * and generates alignment statistics and output files.
+	 * @param args Command-line arguments for stream configuration
+	 */
 	@Override
 	public void testSpeed(String[] args){
 		
@@ -533,6 +576,11 @@ public final class BBMap extends AbstractMapper {
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
 	
+	/**
+	 * Configures parameters for semi-perfect alignment mode.
+	 * Reduces key density requirements and alignment score thresholds
+	 * to allow alignments with small numbers of mismatches.
+	 */
 	@Override
 	void setSemiperfectMode() {
 		assert(SEMIPERFECTMODE);
@@ -547,6 +595,11 @@ public final class BBMap extends AbstractMapper {
 		}
 	}
 
+	/**
+	 * Configures parameters for perfect alignment mode.
+	 * Sets maximum alignment score ratio to require exact matches
+	 * and adjusts key density for perfect-match detection.
+	 */
 	@Override
 	void setPerfectMode() {
 		assert(PERFECTMODE);
@@ -562,6 +615,12 @@ public final class BBMap extends AbstractMapper {
 	}
 	
 
+	/**
+	 * Prints current alignment configuration settings.
+	 * Displays key density, index parameters, hit filtering settings,
+	 * and other alignment options based on verbosity level.
+	 * @param k K-mer length for alignment
+	 */
 	@Override
 	void printSettings(int k){
 		

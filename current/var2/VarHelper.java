@@ -12,11 +12,10 @@ import stream.SamLine;
 
 /**
  * Utility class providing helper methods for variant processing and output formatting.
- * Contains static methods for generating file headers, calculating scores, analyzing homopolymers,
- * and processing junction variants. Extracted from Var class for better code organization.
- * 
+ * Contains static methods for generating file headers, calculating scores, analyzing homopolymers, and processing junction variants.
+ * Extracted from Var class for better code organization.
  * @author Brian Bushnell
- * @author Isla
+ * @author Isla Winglet
  * @date June 2025
  */
 public class VarHelper {
@@ -28,7 +27,6 @@ public class VarHelper {
 	/**
 	 * Generates comprehensive header for VAR format output files.
 	 * Includes metadata about sequencing run, processing parameters, and column definitions.
-	 * 
 	 * @param properPairRate Fraction of reads that mapped as proper pairs
 	 * @param totalQualityAvg Average base quality across all processed bases
 	 * @param mapqAvg Average mapping quality across all reads
@@ -78,10 +76,6 @@ public class VarHelper {
 		return sb.toString();
 	}
 
-	/**
-	 * Generates basic column header for simplified VAR output.
-	 * @return Basic VAR format header without metadata
-	 */
 	public static String toBasicHeader(){
 		StringBuilder sb=new StringBuilder();
 		sb.append("#scaf\tstart\tstop\ttype\tcall\tr1p\tr1m\tr2p\tr2m\tpaired\tlengthSum");
@@ -95,8 +89,7 @@ public class VarHelper {
 
 	/**
 	 * Generates comprehensive VCF format header with metadata and field definitions.
-	 * Includes all INFO and FORMAT field descriptions required by VCF specification.
-	 * 
+	 * Includes all INFO and FORMAT field descriptions required by the VCF specification.
 	 * @param properPairRate Fraction of properly paired reads
 	 * @param totalQualityAvg Average base quality score
 	 * @param mapqAvg Average mapping quality score
@@ -210,7 +203,6 @@ public class VarHelper {
 	/**
 	 * Converts variant quality score to Phred scale.
 	 * Applies scaling factors to convert internal scoring to standard Phred format.
-	 * 
 	 * @param score Internal variant quality score (0.0 to 1.0)
 	 * @return Phred-scaled quality score
 	 */
@@ -227,7 +219,6 @@ public class VarHelper {
 	/**
 	 * Counts homopolymer length around a substitution position.
 	 * Examines up to 4 bases in each direction for runs of identical bases.
-	 * 
 	 * @param bases Reference sequence
 	 * @param pos Position of substitution
 	 * @param base Base being substituted
@@ -256,13 +247,6 @@ public class VarHelper {
 		return count1+count2+(count1>0 && count2>0 ? 1 : 0);
 	}
 
-	/**
-	 * Counts homopolymer length extending leftward from position.
-	 * @param bases Sequence data
-	 * @param pos Starting position
-	 * @param base Base to count
-	 * @return Count of consecutive matching bases leftward
-	 */
 	public static int homopolymerCountLeft(final byte[] bases, final int pos, final byte base){
 		if(pos<0 || bases[pos]!=base){return 0;}
 		if(!AminoAcid.isFullyDefined(base)){return 0;}
@@ -275,13 +259,6 @@ public class VarHelper {
 		return count;
 	}
 
-	/**
-	 * Counts homopolymer length extending rightward from position.
-	 * @param bases Sequence data
-	 * @param pos Starting position
-	 * @param base Base to count
-	 * @return Count of consecutive matching bases rightward
-	 */
 	public static int homopolymerCountRight(final byte[] bases, final int pos, final byte base){
 		if(pos<0 || bases[pos]!=base){return 0;}
 		if(!AminoAcid.isFullyDefined(base)){return 0;}
@@ -298,11 +275,6 @@ public class VarHelper {
 	/*----------------      Clipping Analysis       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** 
-	 * Counts left-clipped bases from match string (handles both short and long format).
-	 * @param match Match string from read alignment
-	 * @return Number of left-clipped bases
-	 */
 	private static int countLeftClip(byte[] match){
 		byte mode=match[0];
 		if(mode!='C'){return 0;} // No clipping if first character isn't 'C'
@@ -326,11 +298,6 @@ public class VarHelper {
 		return current;
 	}
 
-	/** 
-	 * Counts right-clipped bases from match string (handles both short and long format).
-	 * @param match Match string from read alignment
-	 * @return Number of right-clipped bases
-	 */
 	private static int countRightClip(byte[] match){
 		int mpos=match.length-1;
 		boolean hasDigit=false;
@@ -362,11 +329,6 @@ public class VarHelper {
 		return current;
 	}
 	
-	/** 
-	 * Counts left clipping in long match format (e.g., "CCCCCCMMMM").
-	 * @param longmatch Long format match string
-	 * @return Number of left-clipped bases
-	 */
 	private static int countLeftClipLong(byte[] longmatch){
 		for(int i=0; i<longmatch.length; i++){
 			if(longmatch[i]!='C'){return i;}
@@ -374,11 +336,6 @@ public class VarHelper {
 		return longmatch.length;
 	}
 	
-	/** 
-	 * Counts right clipping in long match format.
-	 * @param longmatch Long format match string
-	 * @return Number of right-clipped bases
-	 */
 	private static int countRightClipLong(byte[] longmatch){
 		for(int i=0, j=longmatch.length-1; i<longmatch.length; i++, j--){
 			if(longmatch[j]!='C'){return i;}
@@ -392,9 +349,7 @@ public class VarHelper {
 	
 	/**
 	 * Identifies junction variants from clipped alignments.
-	 * Detects left and right junction points where reads are clipped, indicating
-	 * potential structural variations or assembly breaks.
-	 * 
+	 * Detects left and right junction points where reads are clipped, indicating potential structural variations or assembly breaks.
 	 * @param r Read with alignment information
 	 * @param sl SAM line with mapping details
 	 * @param scafnum Scaffold number for variant coordinates

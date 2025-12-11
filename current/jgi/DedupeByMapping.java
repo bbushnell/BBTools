@@ -18,14 +18,14 @@ import structures.ListNum;
 import template.BBTool_ST;
 
 /**
+ * Removes duplicate reads from mapped sequencing data based on alignment coordinates.
+ * Uses SAM/BAM format input to identify duplicates by comparing read pair mapping positions.
+ * Retains the highest-quality read from each set of duplicates based on expected error rates.
  * @author Brian Bushnell
  * @date Jan 30, 2015
- *
  */
 public class DedupeByMapping extends BBTool_ST{
 	
-	/** Program entry point. Creates DedupeByMapping instance and processes reads.
-	 * @param args Command-line arguments for deduplication parameters */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		DedupeByMapping bbt=new DedupeByMapping(args);
@@ -33,7 +33,9 @@ public class DedupeByMapping extends BBTool_ST{
 	}
 
 	/**
-	 * @param args
+	 * Constructs DedupeByMapping with command-line arguments.
+	 * Initializes SAM line processing and creates priority queue if sorted mode enabled.
+	 * @param args Command-line arguments for configuring deduplication behavior
 	 */
 	public DedupeByMapping(String[] args) {
 		super(args);
@@ -46,6 +48,8 @@ public class DedupeByMapping extends BBTool_ST{
 	/* (non-Javadoc)
 	 * @see jgi.BBTool_ST#setDefaults()
 	 */
+	/** Sets default parameter values for deduplication.
+	 * Keeps unmapped reads, singletons, uses unsorted processing, and maintains pair order. */
 	@Override
 	protected void setDefaults() {
 		keepUnmapped=true;
@@ -54,6 +58,14 @@ public class DedupeByMapping extends BBTool_ST{
 		usePairOrder=true;
 	}
 	
+	/**
+	 * Parses deduplication-specific command-line arguments.
+	 * Handles parameters for keeping unmapped reads, singletons, pair order, and sorting mode.
+	 * @param arg Original argument string
+	 * @param a Parameter key (lowercase)
+	 * @param b Parameter value
+	 * @return true if argument was recognized and parsed, false otherwise
+	 */
 	@Override
 	public boolean parseArgument(String arg, String a, String b) {
 		if(a.equals("keepunmapped") | a.equals("ku")){
@@ -72,21 +84,24 @@ public class DedupeByMapping extends BBTool_ST{
 		return false;
 	}
 	
+	/** Indicates that this tool uses shared SAM/BAM headers across threads.
+	 * @return true to enable shared header usage */
 	@Override
 	protected final boolean useSharedHeader(){return true;}
 	
+	/**
+	 * Processes a single read from SAM/BAM input for deduplication analysis.
+	 * Routes to sorted or unsorted processing based on configuration.
+	 * @param r1 The read to process (contains SAM line data)
+	 * @param r2 Always null for this single-read processing mode
+	 * @return true if read was processed successfully
+	 */
 	@Override
 	protected boolean processReadPair(Read r1, Read r2) {
 		assert(r2==null);
 		return (sorted ? processReadPair_sorted(r1) : processReadPair_unsorted(r1));
 	}
 	
-	/**
-	 * Processes reads in unsorted mode by pairing them based on read names.
-	 * Extracts mapping coordinates from SAM line and stores reads for later duplicate detection.
-	 * @param r1 The read to process
-	 * @return false if read is not primary alignment, true otherwise
-	 */
 	boolean processReadPair_unsorted(Read r1) {
 		SamLine sl=r1.samline;
 		if(!sl.primary()){return false;}
@@ -122,12 +137,6 @@ public class DedupeByMapping extends BBTool_ST{
 	}
 	
 	
-	/**
-	 * Processes reads in sorted mode (currently unimplemented).
-	 * Similar to unsorted processing but intended for coordinate-sorted input.
-	 * @param r1 The read to process
-	 * @return false if read is not primary alignment, true otherwise
-	 */
 	boolean processReadPair_sorted(Read r1) {
 		assert(false) : "TODO";
 		SamLine sl=r1.samline;
@@ -163,6 +172,11 @@ public class DedupeByMapping extends BBTool_ST{
 		return true;
 	}
 	
+	/**
+	 * Main processing method that routes to sorted or unsorted deduplication algorithms.
+	 * @param cris Input stream for reading SAM/BAM data
+	 * @param ros Output stream for writing deduplicated reads
+	 */
 	@Override
 	protected void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		if(sorted){processInner_sorted(cris, ros);}
@@ -170,15 +184,6 @@ public class DedupeByMapping extends BBTool_ST{
 	}
 	
 	
-	/**
-	 * Performs deduplication on unsorted SAM/BAM input in three phases.
-	 * Phase 1: Reads input and pairs reads by name.
-	 * Phase 2: Identifies duplicates based on mapping coordinates and selects best quality reads.
-	 * Phase 3: Outputs retained reads and generates statistics.
-	 *
-	 * @param cris Input stream for reading SAM/BAM data
-	 * @param ros Output stream for writing deduplicated reads
-	 */
 	void processInner_unsorted(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		readsProcessed=0;
@@ -306,12 +311,6 @@ public class DedupeByMapping extends BBTool_ST{
 	
 	
 	
-	/**
-	 * Performs deduplication on coordinate-sorted SAM/BAM input (unimplemented).
-	 * Currently throws assertion error - intended for future sorted processing optimization.
-	 * @param cris Input stream for reading coordinate-sorted SAM/BAM data
-	 * @param ros Output stream for writing deduplicated reads
-	 */
 	void processInner_sorted(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		assert(false) : "TODO";
 		readsProcessed=0;
@@ -425,24 +424,23 @@ public class DedupeByMapping extends BBTool_ST{
 		outstream.println("Unmapped reads:     "+unmappedReads+" \t("+unmappedBases+" bases)");
 	}
 	
+	/** Performs subclass-specific initialization (no operations needed) */
 	@Override
 	protected void startupSubclass() {}
 	
+	/** Performs subclass-specific cleanup (no operations needed) */
 	@Override
 	protected void shutdownSubclass() {}
 	
+	/**
+	 * Displays subclass-specific statistics (no additional stats for this tool).
+	 * @param t Timer for execution time tracking
+	 * @param readsIn Total number of input reads processed
+	 * @param basesIn Total number of input bases processed
+	 */
 	@Override
 	protected void showStatsSubclass(Timer t, long readsIn, long basesIn) {}
 	
-	/**
-	 * Converts read pair mapping coordinates into a Quad for duplicate detection.
-	 * Uses strand-adjusted start positions and chromosome information to create unique keys.
-	 * Handles pair order based on usePairOrder setting and strand orientations.
-	 *
-	 * @param r1 First read of the pair (may be single-end)
-	 * @param r2 Second read of the pair (null for single-end)
-	 * @return Quad representing the mapping positions of this read pair
-	 */
 	private Quad toQuad(Read r1, Read r2){
 
 //		if(usePairOrder){
@@ -478,21 +476,8 @@ public class DedupeByMapping extends BBTool_ST{
 		return q;
 	}
 	
-	/**
-	 * Represents mapping coordinates of a read pair for duplicate detection.
-	 * Contains start positions and chromosome identifiers for both reads in a pair.
-	 * Implements Comparable for sorting and provides hash/equals methods for efficient lookups.
-	 */
 	private static class Quad implements Comparable<Quad>{
 		
-		/**
-		 * Constructs a Quad with mapping coordinates for a read pair.
-		 *
-		 * @param start1_ Start position of first read
-		 * @param start2_ Start position of second read
-		 * @param chr1_ Chromosome identifier of first read
-		 * @param chr2_ Chromosome identifier of second read
-		 */
 		Quad(int start1_, int start2_, int chr1_, int chr2_){
 			start1=start1_;
 			start2=start2_;
@@ -502,30 +487,43 @@ public class DedupeByMapping extends BBTool_ST{
 //			System.err.println(usePairOrder+", "+this);
 		}
 		
+		/** Returns string representation of the Quad coordinates.
+		 * @return Formatted string showing all four coordinate values */
 		@Override
 		public String toString(){
 			return "("+start1+","+start2+","+chr1+","+chr2+")";
 		}
 		
+		/**
+		 * Computes hash code using bit rotation of all coordinate values.
+		 * Combines start positions and chromosome identifiers with rotated XOR operations.
+		 * @return Hash code for efficient HashMap storage
+		 */
 		@Override
 		public int hashCode(){
 			return start1^(Integer.rotateLeft(start2, 8))^(Integer.rotateLeft(chr1, 16))^(Integer.rotateLeft(chr2, 24));
 		}
 		
+		/**
+		 * Tests equality with another object by casting to Quad and comparing coordinates.
+		 * @param o Object to compare against
+		 * @return true if both Quads have identical coordinate values
+		 */
 		@Override
 		public boolean equals(Object o){
 			return equals((Quad)o);
 		}
 		
-		/**
-		 * Tests equality with another Quad by comparing all coordinate values.
-		 * @param o Quad to compare against
-		 * @return true if all coordinate values match
-		 */
 		public boolean equals(Quad o){
 			return start1==o.start1 && start2==o.start2 && chr1==o.chr1 && chr2==o.chr2;
 		}
 		
+		/**
+		 * Compares Quads for sorting by chromosome and start position order.
+		 * Primary sort by chr1, secondary by start1, tertiary by chr2, quaternary by start2.
+		 * @param b Quad to compare against
+		 * @return negative, zero, or positive for less than, equal, or greater than
+		 */
 		@Override
 		public int compareTo(Quad b) {
 			int x;
@@ -539,48 +537,31 @@ public class DedupeByMapping extends BBTool_ST{
 			return x;
 		}
 		
+		/**
+		 * Mapping start position for read 1 (paired fields tracked separately in Quad)
+		 */
 		final int start1, start2, chr1, chr2;
 	}
 	
-	/** Whether to retain unmapped reads in output */
 	private boolean keepUnmapped;
-	/** Whether to retain singleton reads (only one read of pair mapped) */
 	private boolean keepSingletons;
-	/** Whether input is coordinate-sorted for optimized processing */
 	private boolean sorted;
-	/** Whether to maintain pair order when creating Quad coordinates */
 	private static boolean usePairOrder;
 
-	/** Count of reads identified as duplicates */
 	private long duplicateReads=0;
-	/** Total bases in reads identified as duplicates */
 	private long duplicateBases=0;
-	/** Count of unmapped reads processed */
 	private long unmappedReads=0;
-	/** Total bases in unmapped reads */
 	private long unmappedBases=0;
-	/** Count of reads retained after deduplication */
 	private long retainedReads=0;
-	/** Total bases in retained reads after deduplication */
 	private long retainedBases=0;
 	
-	/** Initial size for hash tables based on available memory */
 	private int initialSize=(int)Tools.min(2000000, Tools.max(80000, Shared.memAvailable(1)/4000));
 	
-	/**
-	 * Maps contig names to numeric identifiers for efficient chromosome comparison
-	 */
 	private HashMap<String, Integer> contigToNumber=new HashMap<String, Integer>(initialSize);
-	/**
-	 * Maps mapping coordinate Quads to representative reads for duplicate detection
-	 */
 	private LinkedHashMap<Quad, Read> quadToRead=new LinkedHashMap<Quad, Read>(initialSize);
-	/** Maps read names to reads for pairing single-end reads into pairs */
 	private LinkedHashMap<String, Read> nameToRead=new LinkedHashMap<String, Read>(initialSize);
-	/** Storage for unmapped reads to be written to output */
 	private ArrayList<Read> unmapped=new ArrayList<Read>(initialSize/2);
 	
-	/** Priority queue for sorted processing mode (currently unused) */
 	private PriorityQueue<Quad> queue;
 	
 }

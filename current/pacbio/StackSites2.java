@@ -26,17 +26,18 @@ import structures.CoverageArray2;
 import structures.ListNum;
 
 /**
+ * Processes alignment sites from PacBio long reads to generate coverage arrays
+ * and filtered site lists.
+ * Accumulates coverage statistics for perfect matches and overall alignments across chromosomes.
+ * Filters sites based on coverage thresholds to retain only reliable alignment
+ * data for downstream analysis.
+ * Writes intermediate data to temporary files organized by genomic blocks for memory efficiency.
+ *
  * @author Brian Bushnell
  * @date Jul 16, 2012
- *
  */
 public class StackSites2 {
 	
-	/**
-	 * Main entry point for processing alignment sites with configurable parameters.
-	 * Parses command-line arguments for genome build, temporary file patterns, and processing options.
-	 * @param args Command line arguments: input1 input2 output pcovOutput [options]
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -75,16 +76,6 @@ public class StackSites2 {
 		System.out.println("Time: \t"+t);
 	}
 	
-	/**
-	 * Core processing method that reads alignments and generates coverage statistics.
-	 * Creates perfect coverage and total coverage arrays for each chromosome.
-	 * Filters alignment sites and writes them to temporary files organized by genomic position.
-	 * @param fname1 Primary input file with aligned reads
-	 * @param fname2 Secondary input file (may be null for single-ended data)
-	 * @param outname Output file for filtered alignment sites
-	 * @param pcovoutname Pattern for perfect coverage output files (must contain #)
-	 * @param tempname Pattern for temporary intermediate files
-	 */
 	public static void stack(String fname1, String fname2, String outname, String pcovoutname, String tempname){
 		assert(pcovoutname.contains("#"));
 		final RTextInputStream rtis=new RTextInputStream(fname1, (fname2==null || fname2.equals("null") ? null : fname2), -1);
@@ -292,7 +283,6 @@ public class StackSites2 {
 		
 	}
 	
-	/** TODO - thread this by chrom */
 	private static final void finish(Glob g, String outname, ArrayList<CoverageArray> pcov, ArrayList<CoverageArray> truePcov, ArrayList<CoverageArray> cov){
 
 		
@@ -382,16 +372,6 @@ public class StackSites2 {
 		out.poisonAndWait();
 	}
 	
-	/**
-	 * Determines whether to retain an alignment site based on coverage criteria.
-	 * Retains semiperfect sites for tip extension and filters low-coverage or over-represented regions.
-	 * Sites in high perfect coverage regions are discarded as likely repetitive.
-	 * @param ssr Site score record to evaluate
-	 * @param pcov Perfect coverage array for this chromosome
-	 * @param tpcov True perfect coverage array for this chromosome
-	 * @param cov Total coverage array for this chromosome
-	 * @return true if site should be retained, false if filtered out
-	 */
 	private static boolean retainSite(SiteScoreR ssr, CoverageArray pcov, CoverageArray tpcov, CoverageArray cov){
 		if(ssr.semiperfect && !ssr.perfect){return true;} //For tip extension
 		assert(cov!=null && cov!=FAKE) : (cov==FAKE)+", "+ssr.chrom;
@@ -435,18 +415,6 @@ public class StackSites2 {
 		return true;
 	}
 	
-	/**
-	 * Verifies if a read alignment is perfect within the specified threshold.
-	 * Compares read bases to reference sequence, accounting for reverse complement orientation.
-	 * Allows for N bases in reference and requires minimum fraction of matching bases.
-	 * @param start Start position in reference coordinates
-	 * @param stop Stop position in reference coordinates
-	 * @param bases Read sequence bases to check
-	 * @param cha Reference chromosome array
-	 * @param rcomp true if read is reverse complemented
-	 * @param f Minimum fraction of bases that must match (excluding N's)
-	 * @return true if alignment meets perfection threshold
-	 */
 	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f) {
 		
 		int noref=0;
@@ -468,19 +436,6 @@ public class StackSites2 {
 		return bases.length-noref>=f*bases.length;
 	}
 	
-	/**
-	 * Determines if an alignment site is considered correct within loose tolerances.
-	 * Compares alignment coordinates to true coordinates with configurable threshold.
-	 * Optionally validates chromosome matching depending on useChrom parameter.
-	 * @param ss Site score to validate
-	 * @param trueChrom True chromosome number
-	 * @param trueStrand True strand orientation
-	 * @param trueStart True start position
-	 * @param trueStop True stop position
-	 * @param thresh Maximum allowed difference in start or stop positions
-	 * @param useChrom Whether to require chromosome matching
-	 * @return true if site is within acceptable distance of true coordinates
-	 */
 	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh, boolean useChrom){
 		if((useChrom && ss.chrom!=trueChrom) || ss.strand!=trueStrand){return false;}
 
@@ -492,21 +447,10 @@ public class StackSites2 {
 	
 	private static class Glob{
 		
-		/**
-		 * Creates a new Glob for managing temporary file output streams.
-		 * Uses provided pattern or default if null for temporary file naming.
-		 * @param tempPattern_ Template for temporary file names (must contain #)
-		 */
 		public Glob(String tempPattern_){
 			tempname=(tempPattern_ == null ? DEFAULT_TEMP_PATTERN : tempPattern_);
 		}
 		
-		/**
-		 * Writes a site score record to appropriate temporary file based on genomic position.
-		 * Creates new output streams as needed for different genomic blocks.
-		 * Routes records to files based on chromosome and position for later merging.
-		 * @param ssr Site score record to write
-		 */
 		public void write(SiteScoreR ssr){
 			long key=key(ssr.chrom, ssr.start);
 			TextStreamWriter tsw=wmap.get(key);
@@ -519,62 +463,34 @@ public class StackSites2 {
 			tsw.print(ssr.toText().append('\n'));
 		}
 		
-		/**
-		 * Generates unique key for temporary file organization based on genomic coordinates.
-		 * Combines chromosome number and position block into single long value.
-		 * @param chrom Chromosome number
-		 * @param start Start position (negative values clamped to 0)
-		 * @return Unique key for this genomic block
-		 */
 		protected static final long key(int chrom, int start){
 			long k=((long)chrom<<32)+(Tools.max(start, 0))/BLOCKSIZE;
 			return k;
 		}
 		
-		/**
-		 * Generates temporary file name from key and pattern.
-		 * Incorporates genome build and block key into file name for uniqueness.
-		 * @param key Genomic block key from key() method
-		 * @param outname File name pattern containing # placeholder
-		 * @return Complete temporary file name
-		 */
 		protected static final String fname(long key, String outname){
 			if(outname==null){outname=DEFAULT_TEMP_PATTERN;}
 			assert(outname.contains("#")) : outname;
 			return outname.replace("#", "b"+Data.GENOME_BUILD+"_"+key);
 		}
 
-		/** Map of genomic block keys to output stream writers */
 		final HashMap<Long, TextStreamWriter> wmap=new HashMap<Long, TextStreamWriter>();
-		/** Template pattern for temporary file names */
 		final String tempname;
 		
 	}
 	
-	/** Sites will be written to files, each containing an index range of this size.
-	 * Larger means fewer files, but more memory used when reading the files (at a later stage).
-	 */
 	public static int BLOCKSIZE=8000000;
 	
-	/** Sites are grouped into intervals (by start location) and treated as an array of arrays.
-	 * All sites in an interval are printed as one line of text. */
+	/** Interval size for grouping sites by genomic position */
 	public static final int INTERVAL=200;
-	/** Total number of reads processed */
 	public static long readsProcessed=0;
-	/** Total number of alignment sites processed */
 	public static long sitesProcessed=0;
-	/** Total number of sites retained after filtering */
 	public static long sitesOut=0;
-	/** Whether to delete temporary files after processing */
 	public static boolean DELETE_TEMP=true;
-	/** Default pattern for temporary file names */
 	public static final String DEFAULT_TEMP_PATTERN="StackSites2TempFile_#.txt.gz";
-	/** Start incrementing coverage this far in from the site tips. */
 	public static int PCOV_TIP_DIST=6;
 
-	/** Toss sites from areas with less than this coverage, since they can't be used to call vars */
 	public static int MIN_COV_TO_RETAIN=2;
-	/** Toss sites from areas with less than this coverage, since they can't be used to call vars */
 	public static int MIN_PCOV_TO_TOSS=3;
 	
 	private static final CoverageArray FAKE=new CoverageArray2(-1, 500);

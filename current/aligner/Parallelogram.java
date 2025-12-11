@@ -34,15 +34,11 @@ public class Parallelogram {
 	}
 
 	/**
-	 * Converts parallelogram-shaped text layout to rectangular format.
-	 * Reads input file line by line and transforms coordinates by shifting
-	 * each character upward by its column number (newRow = i - j).
-	 * Creates a matrix to hold transformed content and outputs only rows
-	 * containing non-whitespace characters.
-	 *
-	 * @param inputFile Path to input file containing parallelogram text layout
-	 * @param outputFile Path to output file for rectangular format result
-	 * @throws IOException If file reading or writing operations fail
+	 * Converts parallelogram-shaped text to rectangular format by shifting characters up by their column index.
+	 * Skips empty lines, preserves non-whitespace rows, and writes the transformed matrix.
+	 * @param inputFile Path to the input text file
+	 * @param outputFile Path to write the rectangularized output
+	 * @throws IOException if reading or writing fails
 	 */
 	public static void convertParallelogramToRectangle(String inputFile, String outputFile) throws IOException {
 	    // Read input file

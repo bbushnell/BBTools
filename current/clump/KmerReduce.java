@@ -28,10 +28,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Reduces reads to their feature kmer.
+ * Reduces reads to their feature k-mers for downstream analysis.
+ * Processes reads by hashing each read to a representative k-mer and outputting that k-mer as a FASTA sequence.
+ * Supports multi-threaded processing with configurable k-mer length and optional overlap-based error correction.
  * @author Brian Bushnell
  * @date Nov 10, 2015
- *
  */
 public class KmerReduce {
 
@@ -39,10 +40,6 @@ public class KmerReduce {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		Timer t=new Timer();
@@ -56,10 +53,12 @@ public class KmerReduce {
 	}
 	
 	/**
+	 * Extracts valid k-mers from a read file by processing reads through KmerReduce.
+	 * Creates a temporary output file of representative k-mers, then builds and filters a KmerTableSet.
 	 * @param fname0 Input filename of reads
-	 * @param k Kmer length
-	 * @param cutoff Minimum count to retain
-	 * @return Set of pivot kmers
+	 * @param k K-mer length
+	 * @param cutoff Minimum count to retain in the final table
+	 * @return Set of pivot k-mers meeting the count threshold
 	 */
 	public static KmerTableSet getValidKmersFromReads(final String fname0, int k, int cutoff){
 		final String fname=fname0+"_"+(new Random().nextLong()>>>1)+".fa.gz";
@@ -82,10 +81,12 @@ public class KmerReduce {
 	}
 	
 	/**
-	 * @param fname Input filename of pivot kmers
-	 * @param k Kmer length
-	 * @param cutoff Minimum count to retain
-	 * @return Set of pivot kmers
+	 * Builds a k-mer table from a file containing pivot k-mers.
+	 * Applies optional prefiltering and count-based filtering to retain only k-mers meeting the cutoff.
+	 * @param fname Input filename of pivot k-mers
+	 * @param k K-mer length
+	 * @param cutoff Minimum count to retain in the final table
+	 * @return Set of pivot k-mers meeting the count threshold
 	 */
 	public static KmerTableSet getValidKmers(final String fname, int k, int cutoff){
 		ArrayList<String> arglist=new ArrayList<String>();
@@ -116,7 +117,8 @@ public class KmerReduce {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Constructor.
+	 * Parses command-line arguments and initializes processing parameters.
+	 * Sets up input/output file formats, validates configuration, and prepares read streams.
 	 * @param args Command line arguments
 	 */
 	public KmerReduce(String[] args){
@@ -223,7 +225,11 @@ public class KmerReduce {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams and processes all data.
+	 * Sets up concurrent input/output streams, runs HashThread workers, and reports timing and error state.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -265,7 +271,12 @@ public class KmerReduce {
 		}
 	}
 	
-	/** Manage threads */
+	/**
+	 * Manages multi-threaded processing using HashThread workers.
+	 * Creates and coordinates worker threads, then aggregates per-thread read and base counts.
+	 * @param cris Concurrent input stream for reading data
+	 * @param ros Concurrent output stream for writing results
+	 */
 	public void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, false, false);
@@ -299,16 +310,8 @@ public class KmerReduce {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Worker thread that processes reads and extracts feature kmers.
-	 * Converts reads to their representative kmer sequences using KmerComparator hashing. */
 	private class HashThread extends Thread{
 
-		/**
-		 * Constructs a HashThread with required processing components.
-		 * @param cris_ Input stream for reading data
-		 * @param ros_ Output stream for writing results
-		 * @param kc_ KmerComparator for hashing reads
-		 */
 		HashThread(ConcurrentReadInputStream cris_, ConcurrentReadOutputStream ros_, KmerComparator kc_){
 			cris=cris_;
 			ros=ros_;
@@ -345,19 +348,13 @@ public class KmerReduce {
 			}
 		}
 		
-		/** Input stream for reading sequence data */
 		final ConcurrentReadInputStream cris;
-		/** Output stream for writing processed results */
 		final ConcurrentReadOutputStream ros;
-		/** KmerComparator instance for hashing reads to feature kmers */
 		final KmerComparator kc;
 		
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
 		
-		/** Default header string for generated reads */
 		private static final String header="1";
 	}
 	
@@ -365,26 +362,12 @@ public class KmerReduce {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Converts a packed long kmer to its byte array representation.
-	 * Creates a new byte array and fills it with the kmer sequence.
-	 * @param kmer Packed kmer as a long value
-	 * @return Byte array containing the kmer sequence
-	 */
 	public byte[] toBytes(final long kmer){
 		byte[] dest=KillSwitch.allocByte1D(k);
 		fill(kmer, dest, 0);
 		return dest;
 	}
 	
-	/**
-	 * Fills a byte array with the sequence representation of a packed kmer.
-	 * Extracts 2-bit bases from the long value and converts to nucleotide bytes.
-	 *
-	 * @param kmer Packed kmer as a long value
-	 * @param dest Destination byte array to fill
-	 * @param pos Starting position in destination array
-	 */
 	public void fill(final long kmer, final byte[] dest, int pos){
 		for(int i=k-1; i>=0; i--, pos++){
 			int x=(int)((kmer>>(2*i))&3);
@@ -396,65 +379,46 @@ public class KmerReduce {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Kmer length for sequence hashing and reduction */
 	private int k=31;
-	/** Whether to apply prefiltering during kmer table construction */
 	static boolean prefilter=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input filename */
 	private String in1=null;
-	/** Secondary input filename for paired reads */
 	private String in2=null;
 	
-	/** Output filename for processed results */
 	private String out1=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of reads processed across all threads */
 	protected long readsProcessed=0;
-	/** Total number of bases processed across all threads */
 	protected long basesProcessed=0;
 	
-	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
-	/** Whether to apply error correction and overlap detection */
 	protected boolean ecco=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format handler for primary input */
 	private final FileFormat ffin1;
-	/** File format handler for secondary input */
 	private final FileFormat ffin2;
 
-	/** File format handler for output */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Whether to print verbose status messages */
 	public static boolean verbose=false;
-	/** Whether an error has occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

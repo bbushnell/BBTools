@@ -9,20 +9,18 @@ import shared.Shared;
 import shared.Timer;
 
 /**
- * Extends IntHashSet to track new numbers added for rapid clearing.
- * This is synchronized with clear, but not remove.
+ * Hash set that tracks newly added integers for optimized bulk clearing.
+ * Extends IntHashSet with an internal list to record added elements, enabling
+ * faster clearing when the set is sparse relative to its capacity.
+ * Thread-safe for clear() operations but not for remove() operations.
+ *
  * @author Brian Bushnell
  * @date September 13, 2017
- *
  */
 public class IntHashSetList extends IntHashSet{
 	
-	/**
-	 * Test and benchmark program comparing IntHashSetList with standard HashSet.
-	 * Validates correctness through add/remove cycles and measures performance
-	 * for large-scale operations.
-	 * @param args Command-line arguments (unused)
-	 */
+	/** Benchmark and validation entry point comparing IntHashSetList to standard HashSet.
+	 * @param args Unused */
 	public static void main(String[] args){
 		Random randy2=Shared.threadLocalRandom();
 		IntHashSetList set=new IntHashSetList(20, 0.7f);
@@ -131,24 +129,23 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates an empty IntHashSetList with default capacity.
-	 * Initializes the internal tracking list with capacity 4. */
+	/** Creates an empty set with default capacity and tracking list. */
 	public IntHashSetList(){
 		super();
 		list=new IntList(4);
 	}
 	
-	/** Creates an empty IntHashSetList with specified initial capacity.
-	 * @param initialSize Initial capacity for the hash set */
+	/** Creates an empty set with specified initial capacity.
+	 * @param initialSize Initial hash table size */
 	public IntHashSetList(int initialSize){
 		super(initialSize);
 		list=new IntList(4);
 	}
 	
 	/**
-	 * Creates an empty IntHashSetList with specified capacity and load factor.
-	 * @param initialSize Initial capacity for the hash set
-	 * @param loadFactor_ Load factor threshold for rehashing (0.0 to 1.0)
+	 * Creates an empty set with specified capacity and load factor.
+	 * @param initialSize Initial hash table size
+	 * @param loadFactor_ Load factor threshold for rehashing
 	 */
 	public IntHashSetList(int initialSize, float loadFactor_){
 		super(initialSize, loadFactor_);
@@ -207,7 +204,6 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Internal list tracking all added elements for optimized bulk operations */
 	private IntList list;
 	
 }

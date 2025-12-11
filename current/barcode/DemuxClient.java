@@ -19,7 +19,10 @@ import structures.ByteBuilder;
 import structures.StringNum;
 
 /**
- * Sends data to the demux server.
+ * Sends data to the demux server for barcode demultiplexing operations.
+ * Handles encoding/decoding of barcode pairs and communication with remote server.
+ * Supports both raw string and A48 compressed encoding formats.
+ *
  * @author BBushnell
  * @date June 24, 2024
  */
@@ -90,11 +93,8 @@ public class DemuxClient {
 		System.err.println("Decoded:\n"+pairs2);
 	}
 	
-	/** Creates a DemuxClient with default server address. */
 	public DemuxClient() {}
 	
-	/** Creates a DemuxClient with specified server address.
-	 * @param address_ Server address URL; uses default if null */
 	public DemuxClient(String address_) {
 		if(address_!=null) {address=address_;}
 	}
@@ -294,21 +294,13 @@ public class DemuxClient {
 		return bb.toBytes();
 	}
 	
-	/**
-	 * Checks server response for HTTP error indicators.
-	 * @param s Server response string
-	 * @return true if response contains error indicators, false otherwise
-	 */
 	private static boolean checkForError(String s){
 		if(s==null){return false;}
 		return s.contains("java.io.IOException: Server returned HTTP response code:");
 	}
 	
-	/** Indicates whether an error occurred during server communication */
 	public boolean errorState=false;
-	/** Server address URL for demux service */
 	public String address=Shared.demuxServer();
-	/** Optional file path to write sent data for debugging purposes */
 	public static String writeSent=null;
 	
 }

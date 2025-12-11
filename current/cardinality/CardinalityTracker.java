@@ -16,9 +16,10 @@ import ukmer.Kmer;
 
 /**
  * Abstract superclass for cardinality-tracking structures like LogLog.
+ * Provides probabilistic estimation of unique k-mer counts in sequences using various LogLog-based algorithms.
+ * Supports different implementations optimized for accuracy, speed, or memory usage.
  * @author Brian Bushnell
  * @date Feb 20, 2020
- *
  */
 public abstract class CardinalityTracker {
 	
@@ -26,9 +27,11 @@ public abstract class CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** 
-	 * Factory method; creates a tracker using default settings.
+	/**
+	 * Factory method that creates a tracker using default settings.
 	 * Subclass is determined by static Parser.loglogType field.
+	 * BBLog is preferred when trackCounts is enabled for optimal accuracy and speed.
+	 * @return New CardinalityTracker instance of the configured type
 	 */
 	public static CardinalityTracker makeTracker(){
 		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
@@ -46,9 +49,12 @@ public abstract class CardinalityTracker {
 		throw new RuntimeException(Parser.loglogType);
 	}
 	
-	/** 
-	 * Factory method; creates a tracker using parsed settings.
+	/**
+	 * Factory method that creates a tracker using parsed settings.
 	 * Subclass is determined by static Parser.loglogType field.
+	 * Parameters are extracted from the Parser object.
+	 * @param p Parser containing configuration parameters
+	 * @return New CardinalityTracker instance configured from parser
 	 */
 	public static CardinalityTracker makeTracker(Parser p){
 		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
@@ -66,9 +72,15 @@ public abstract class CardinalityTracker {
 		throw new RuntimeException(Parser.loglogType);
 	}
 	
-	/** 
-	 * Factory method; creates a tracker using specified settings.
+	/**
+	 * Factory method that creates a tracker with specified settings.
 	 * Subclass is determined by static Parser.loglogType field.
+	 * Allows direct specification of all key parameters.
+	 * @param buckets_ Number of buckets (will be rounded to next power of 2)
+	 * @param k_ K-mer length for hashing
+	 * @param seed Random number generator seed (-1 for random seed)
+	 * @param minProb_ Ignore k-mers with correctness probability below this threshold
+	 * @return New CardinalityTracker instance with specified configuration
 	 */
 	public static CardinalityTracker makeTracker(int buckets_, int k_, long seed, float minProb_){
 		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
@@ -90,17 +102,20 @@ public abstract class CardinalityTracker {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a tracker with parsed parameters. */
+	/** Creates a tracker with parameters extracted from a Parser.
+	 * @param p Parser containing loglog configuration values */
 	public CardinalityTracker(Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 	
 	/**
-	 * Create a tracker with specified parameters.
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
+	 * Creates a tracker with specified parameters.
+	 * Buckets will be rounded up to the next power of 2 for efficient bit masking.
+	 * Initializes hash function with random XOR value from the specified seed.
+	 * @param buckets_ Number of buckets (counters) - will be made power of 2
+	 * @param k_ K-mer length for sequence hashing
 	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	public CardinalityTracker(int buckets_, int k_, long seed, float minProb_){
 //		if((buckets_&1)==0){buckets_=(int)Primes.primeAtLeast(buckets_);} //Legacy code, needed modulo operation
@@ -122,9 +137,11 @@ public abstract class CardinalityTracker {
 
 	public abstract CardinalityTracker copy();
 	
-	/** 
-	 * Return the lowest power of 2 that is >= target. 
-	 * Provided because buckets must currently be a power of 2. 
+	/**
+	 * Returns the lowest power of 2 that is greater than or equal to target.
+	 * Required because buckets must be a power of 2 for efficient bit masking.
+	 * @param target The minimum value needed
+	 * @return Smallest power of 2 >= target, capped at 0x40000000
 	 */
 	public static final int powerOf2AtLeast(int target){
 		if(target<1){return 1;}
@@ -137,7 +154,11 @@ public abstract class CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Deprecated; use LogLogWrapper */
+	/**
+	 * Program entry point (deprecated).
+	 * Redirects to LogLogWrapper for actual processing.
+	 * @param args Command-line arguments
+	 */
 	public static final void main(String[] args){
 		LogLogWrapper llw=new LogLogWrapper(args);
 		
@@ -149,9 +170,13 @@ public abstract class CardinalityTracker {
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 	}
 	
-	/** 
-	 * Old table-based hash function.
-	 * Slower than the new function.
+	/**
+	 * Old table-based hash function using XOR operations.
+	 * Slower than the new hash method and no longer used.
+	 * Applies multiple rounds of table lookups with bit shifting.
+	 * @param value0 Value to hash
+	 * @param table Pre-computed random bit mask table
+	 * @return 64-bit hash code
 	 */
 	public final long hash(final long value0, final long[][] table){
 		long value=value0, code=0;
@@ -165,31 +190,42 @@ public abstract class CardinalityTracker {
 		return code;
 	}
 	
-	/** Hash and add a number to this tracker */
+	/** Hashes and adds a number to this tracker.
+	 * @param number The value to hash and track */
 	public final void add(long number){
 		hashAndStore(number);
 	}
 	
-	/** 
-	 * Hash and track the Read 
-	 * */
+	/**
+	 * Hashes and tracks all k-mers from a Read and its mate.
+	 * Processes both forward and mate sequences if they meet minimum length requirements.
+	 * @param r The Read to process (may be null)
+	 */
 	public final void hash(Read r){
 		if(r==null){return;}
 		if(r.length()>=k){hash(r.bases, r.quality);}
 		if(r.mateLength()>=k){hash(r.mate.bases, r.mate.quality);}
 	}
 	
-	/** 
-	 * Hash and track the sequence 
-	 * */
+	/**
+	 * Hashes and tracks all k-mers from a sequence with quality scores.
+	 * Routes to appropriate method based on k-mer size (small vs big).
+	 * @param bases Sequence bases as byte array
+	 * @param quals Quality scores (may be null)
+	 */
 	public final void hash(byte[] bases, byte[] quals){
 		if(k<32){hashSmall(bases, quals);}
 		else{hashBig(bases, quals);}
 	}
 	
-	/** 
-	 * Hash and track the sequence using short kmers 0<k<32 
-	 * */
+	/**
+	 * Hashes and tracks sequence using short k-mers (k < 32).
+	 * Uses bit-shifting operations for efficient k-mer rolling.
+	 * Applies quality-based probability filtering when quality scores provided.
+	 * Uses canonical k-mers (maximum of forward and reverse complement).
+	 * @param bases Sequence bases as byte array
+	 * @param quals Quality scores for probability calculation (may be null)
+	 */
 	public final void hashSmall(byte[] bases, byte[] quals){
 		final int shift=2*k;
 		final int shift2=shift-2;
@@ -249,9 +285,13 @@ public abstract class CardinalityTracker {
 		}
 	}
 	
-	/** 
-	 * Hash and track the sequence using long kmers >31 
-	 * */
+	/**
+	 * Hashes and tracks sequence using long k-mers (k >= 32).
+	 * Uses Kmer objects for handling k-mers longer than 31 bases.
+	 * Applies quality-based probability filtering when quality scores provided.
+	 * @param bases Sequence bases as byte array
+	 * @param quals Quality scores for probability calculation (may be null)
+	 */
 	public final void hashBig(byte[] bases, byte[] quals){
 		
 		Kmer kmer=getLocalKmer();
@@ -281,10 +321,15 @@ public abstract class CardinalityTracker {
 		}
 	}
 	
-	/** 
-	 * Make a table of random bitmasks for hashing. 
-	 * Superceded by new hash method. 
-	 * */
+	/**
+	 * Makes a table of random bitmasks for hashing (deprecated).
+	 * Creates random bit patterns with controlled bit density for XOR operations.
+	 * Short-circuited to return null as this method is superseded.
+	 * @param length Number of hash rounds
+	 * @param bits Bits per hash step
+	 * @param seed Random seed for table generation
+	 * @return Random bitmask table (currently returns null)
+	 */
 	private static final long[][] makeCodes(int length, int bits, long seed){
 		if(true) {return null;}//Short circuit
 		Random randy=Shared.threadLocalRandom(seed);
@@ -306,31 +351,17 @@ public abstract class CardinalityTracker {
 		return r;
 	}
 	
-	/** Calculates multiplier to compensate for bucket count effects on estimation.
-	 * @return Compensation factor based on number of buckets */
 	public final float compensationFactorBuckets(){
 		assert(Integer.bitCount(buckets)==1) : buckets;
 		int zeros=Integer.numberOfTrailingZeros(buckets);
 		return compensationFactorLogBuckets(zeros);
 	}
 	
-	/** 
-	 * Multiplier to compensate for overestimating genome size
-	 * when the number of buckets is too small,
-	 * as a function of log2(buckets)
-	 * @param logBuckets
-	 * @return Multiplier for final estimate
-	 */
 	public final float compensationFactorLogBuckets(int logBuckets){
 		float[] array=compensationFactorLogBucketsArray();
 		return (array!=null && logBuckets<array.length) ? array[logBuckets] : 1/(1+(1<<logBuckets));
 	}
 	
-	/**
-	 * Converts bucket counts to a frequency distribution.
-	 * Returns sorted list of non-zero count values for histogram generation.
-	 * @return Sorted list of count frequencies
-	 */
 	public SuperLongList toFrequency(){
 		SuperLongList list=new SuperLongList(1000);
 		int[] counts=getCounts();
@@ -341,12 +372,15 @@ public abstract class CardinalityTracker {
 		return list;
 	}
 	
-	/** 
-	 * Print a kmer frequency histogram.
-	 * @param path File to which to print
-	 * @param overwrite
-	 * @param append
+	/**
+	 * Prints a k-mer frequency histogram to file.
+	 * Outputs depth-count pairs with optional supersampling adjustment.
+	 * Handles both array-based and list-based frequency data.
+	 * @param path File path for output
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
 	 * @param supersample Adjust counts for the effect of subsampling
+	 * @param decimals Number of decimal places for supersampled counts
 	 */
 	public void printKhist(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
 		SuperLongList sll=toFrequency();
@@ -409,7 +443,6 @@ public abstract class CardinalityTracker {
 		bsw.poisonAndWait();
 	}
 	
-	/** Sum of counts array, if present */
 	public final long countSum(){
 		int[] counts=getCounts();
 		return counts==null ? 0 : shared.Vector.sum(counts);
@@ -423,53 +456,72 @@ public abstract class CardinalityTracker {
 	/*----------------       Abstract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Calculate cardinality estimate from this tracker */
+	/**
+	 * Calculates cardinality estimate from this tracker.
+	 * Implementation varies by subclass algorithm.
+	 * @return Estimated number of unique k-mers observed
+	 */
 	public abstract long cardinality();
 
-	/** Counts array, if present.
-	 * Should be overridden for classes that track counts. */
+	/**
+	 * Returns the counts array if present.
+	 * Should be overridden for classes that track counts.
+	 * @return Array of bucket counts, or null if not tracking counts
+	 */
 	public int[] getCounts(){
 		return null;
 	}
 	
-	/** Add another tracker to this one */
+	/**
+	 * Merges another tracker into this one.
+	 * Combines cardinality estimates from both trackers.
+	 * @param log The tracker to add to this one
+	 */
 	public abstract void add(CardinalityTracker log);
 	
-	/** Generate a 64-bit hashcode from a number, and add it to this tracker */
+	/**
+	 * Generates a 64-bit hashcode from a number and adds it to this tracker.
+	 * Core method for adding individual values to the cardinality estimate.
+	 * @param number The value to hash and store
+	 */
 	public abstract void hashAndStore(final long number);
 	
-	/** TODO: Deprecate?
+	/**
+	 * Returns array of compensation factors indexed by log2(buckets).
 	 * Designed to compensate for overestimate with small numbers of buckets.
-	 * Appears to be handled by using the harmonic mean in the case of multiple trials. */
+	 * May be deprecated in favor of harmonic mean handling multiple trials.
+	 * @return Array of compensation factors, or null if not implemented
+	 */
 	public abstract float[] compensationFactorLogBucketsArray();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Kmer length */
+	/** K-mer length for sequence hashing */
 	public final int k;
 	
-	/** Ignore kmers under this probability of correctness */
+	/** Minimum probability threshold for k-mer correctness filtering */
 	public final float minProb;
 	
-	/** 
-	 * Number of buckets for tracking.
-	 * Must be a power of 2.
-	 * Larger is slower and uses more memory, but more accurate.
-	 */
+	/** Number of buckets for tracking; must be a power of 2 for efficiency */
 	public final int buckets;
 	
-	/** Mask for lower bits of hashcode to yield bucket; bucketMask==buckets-1. */
+	/** Bit mask for extracting bucket index from hashcode; equals buckets-1 */
 	final int bucketMask;
 	
-	/** Reusable kmer for hashing. */
+	/** Thread-local storage for Kmer objects used in long k-mer hashing */
 	private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
 	
-	/** The hash function will yield a different mapping for each mask here. */
+	/** Random value XORed with hash inputs to vary hash function behavior */
 	private final long hashXor;
 	
-	/** For long kmer mode */
+	/**
+	 * Gets a thread-local Kmer object for long k-mer mode processing.
+	 * Creates new Kmer if none exists for current thread.
+	 * Clears the Kmer before returning for reuse.
+	 * @return Thread-local Kmer object ready for use
+	 */
 	protected Kmer getLocalKmer(){
 		Kmer kmer=localKmer.get();
 		if(kmer==null){
@@ -484,13 +536,10 @@ public abstract class CardinalityTracker {
 	/*----------------    Deprecated Table Fields   ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of hash tables used in deprecated table-based hashing */
 	static final int numTables=4;
-	/** Bit mask for table selection in deprecated hashing method */
 	static final int numTablesMask=numTables-1;
-	/** Bits hashed per cycle; no longer needed */
+	/** Bits hashed per cycle in deprecated table-based method */
 	private static final int bits=8;
-	/** Number of hash steps required to process 64-bit values */
 	private static final int steps=(63+bits)/bits;;
 //	final long[][][] tables;
 	
@@ -498,32 +547,24 @@ public abstract class CardinalityTracker {
 	/*----------------            Statics           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Converts quality score to probability of correctness */
+	/** Array converting quality scores to probability of base correctness */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 128);
-	/** Inverse of PROB_CORRECT */
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 128);
 
-	/** Atomic mode allows less memory when multithreaded, but lower peak concurrency due to contention. */
 	public static final boolean atomic=false;//non-atomic is faster.
-	/** Track number of times the value in each bucket was seen. */
+	/** Whether to track occurrence counts for each bucket value */
 	public static boolean trackCounts=false;
-	/** Ignores kmers such that x%SKIPMOD!=0, to skip expensive hash and store functions */ 
 	static final long SKIPMOD=1;//No longer used; requires a modulo operation
-	/** Records the last cardinality tracked, for use in static contexts (RQCFilter) */
+	/** Records the most recent cardinality estimate for static contexts */
 	public static long lastCardinality=-1;
 //	/** Ignore hashed values above this, to skip expensive read and store functions. */
 //	static final long maxHashedValue=((-1L)>>>3);//No longer used
 	
-	/** These determine how to combine multiple buckets to yield a value. 
-	 * Mean is best even though mwa is pretty close.  Median is much worse. */
+	/** Whether to use arithmetic mean for combining multiple bucket estimates */
 	public static boolean USE_MEAN=true;//Arithmetic mean
-	/** Whether to use median for combining multiple bucket estimates */
 	public static boolean USE_MEDIAN=false;
-	/** Whether to use median-weighted-average for combining bucket estimates */
 	public static boolean USE_MWA=false;//Median-weighted-average
-	/** Whether to use harmonic mean for combining multiple bucket estimates */
 	public static boolean USE_HMEAN=false;//Harmonic mean
-	/** Whether to use geometric mean for combining multiple bucket estimates */
 	public static boolean USE_GMEAN=false;//Geometric mean
 	
 }

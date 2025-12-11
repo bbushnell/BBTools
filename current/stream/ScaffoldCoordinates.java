@@ -4,9 +4,11 @@ import dna.Data;
 
 /**
  * Transforms BBMap index coordinates into scaffold-relative coordinates.
+ * Handles coordinate conversion from global index positions to local scaffold positions,
+ * validating that alignments fall within single scaffolds and calculating relative positions.
+ *
  * @author Brian Bushnell
  * @date Aug 26, 2014
- *
  */
 public class ScaffoldCoordinates {
 
@@ -14,15 +16,15 @@ public class ScaffoldCoordinates {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates an empty ScaffoldCoordinates object with default values */
+	/** Creates an empty ScaffoldCoordinates with default/invalid fields. */
 	public ScaffoldCoordinates(){}
 	
-	/** Creates ScaffoldCoordinates from a mapped Read.
-	 * @param r The Read to extract coordinate information from */
+	/** Initializes coordinates from a mapped Read by calling set(r).
+	 * @param r Read to extract coordinates from */
 	public ScaffoldCoordinates(Read r){set(r);}
 	
-	/** Creates ScaffoldCoordinates from a SiteScore alignment.
-	 * @param ss The SiteScore to extract coordinate information from */
+	/** Initializes coordinates from a SiteScore by calling set(ss).
+	 * @param ss SiteScore alignment */
 	public ScaffoldCoordinates(SiteScore ss){set(ss);}
 	
 	/*--------------------------------------------------------------*/
@@ -30,10 +32,9 @@ public class ScaffoldCoordinates {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Sets coordinates from a mapped Read's alignment information.
-	 * Only processes reads that are successfully mapped to a reference.
-	 * @param r The Read to extract coordinates from
-	 * @return true if coordinates were successfully set, false otherwise
+	 * Sets coordinates from a mapped Read; returns true if successful.
+	 * @param r Read to extract coordinates from
+	 * @return true if set
 	 */
 	public boolean set(Read r){
 		valid=false;
@@ -43,24 +44,21 @@ public class ScaffoldCoordinates {
 	
 	/**
 	 * Sets coordinates from a SiteScore alignment.
-	 * @param ss The SiteScore containing alignment coordinates
-	 * @return true if coordinates were successfully set, false otherwise
+	 * @param ss SiteScore containing alignment info
+	 * @return true if set
 	 */
 	public boolean set(SiteScore ss){
 		return setFromIndex(ss.chrom, ss.start, ss.stop, ss.strand, ss);
 	}
 	
 	/**
-	 * Sets coordinates from BBMap index positions to scaffold-relative coordinates.
-	 * Validates that the alignment falls within a single scaffold and calculates
-	 * the relative position within that scaffold. Only succeeds for single-scaffold alignments.
-	 *
-	 * @param iChrom_ Index chromosome identifier
-	 * @param iStart_ Start position in index coordinates
-	 * @param iStop_ Stop position in index coordinates
-	 * @param strand_ Alignment strand (0=forward, 1=reverse)
-	 * @param o Object used for assertion error context (typically Read or SiteScore)
-	 * @return true if conversion succeeded and alignment is within single scaffold, false otherwise
+	 * Converts BBMap index coordinates to scaffold-relative coordinates, validating single-scaffold alignment.
+	 * @param iChrom_ Index chromosome
+	 * @param iStart_ Index start
+	 * @param iStop_ Index stop
+	 * @param strand_ Strand (0/1)
+	 * @param o Context object for assertions
+	 * @return true if conversion succeeds
 	 */
 	public boolean setFromIndex(int iChrom_, int iStart_, int iStop_, int strand_, Object o){
 		valid=false;
@@ -83,8 +81,7 @@ public class ScaffoldCoordinates {
 		return valid;
 	}
 	
-	/** Resets all coordinate fields to invalid/default values.
-	 * Sets valid flag to false and clears all position and identifier fields. */
+	/** Resets all coordinate fields and validity flag. */
 	public void clear(){
 		valid=false;
 		scafIndex=-1;
@@ -103,19 +100,13 @@ public class ScaffoldCoordinates {
 	/*----------------            Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Index of the scaffold within the chromosome's scaffold array */
 	public int scafIndex=-1;
-	/** Index chromosome identifier from BBMap indexing */
 	public int iChrom=-1;
 	public int iStart=-1, iStop=-1;
 	public int start=-1, stop=-1;
-	/** Alignment strand (0=forward, 1=reverse, -1=unset) */
 	public byte strand=-1;
-	/** Length of the scaffold containing this alignment */
 	public int scafLength=0;
-	/** Name of the scaffold containing this alignment */
 	public byte[] name=null;
-	/** Flag indicating whether coordinate conversion was successful */
 	public boolean valid=false;
 	
 }

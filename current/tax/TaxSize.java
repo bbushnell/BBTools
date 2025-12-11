@@ -17,11 +17,13 @@ import stream.FastaReadInputStream;
 import structures.IntLongHashMap;
 
 /**
- * Calculates the sizes sequences corresponding to TaxIDs.
- * 
+ * Calculates the sizes of sequences corresponding to TaxIDs.
+ * Processes FASTA files containing taxonomy-labeled sequences and computes
+ * size statistics including base counts, sequence counts, and node counts
+ * with cumulative values propagated up the taxonomic hierarchy.
+ *
  * @author Brian Bushnell
  * @date December 13, 2017
- *
  */
 public class TaxSize {
 	
@@ -29,10 +31,6 @@ public class TaxSize {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		TaxSize x=new TaxSize(args);
@@ -44,6 +42,8 @@ public class TaxSize {
 	
 	/**
 	 * Constructor.
+	 * Parses command-line arguments, initializes I/O settings, loads taxonomy tree,
+	 * and validates input/output files.
 	 * @param args Command line arguments
 	 */
 	public TaxSize(String[] args){
@@ -133,7 +133,12 @@ public class TaxSize {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create read streams and process all data */
+	/**
+	 * Create read streams and process all data.
+	 * Executes the main processing pipeline, generates output statistics,
+	 * and reports timing information.
+	 * @param t Timer for tracking execution time
+	 */
 	public void process(Timer t){
 		
 		processInner();
@@ -209,11 +214,6 @@ public class TaxSize {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Propagates size and sequence counts up the taxonomic hierarchy.
-	 * For each node in the taxonomy tree, accumulates counts from child nodes
-	 * to parent nodes, computing cumulative statistics.
-	 */
 	void percolateUp(){
 		for(TaxNode tn : tree.nodes){
 			if(tn!=null){
@@ -233,7 +233,6 @@ public class TaxSize {
 		}
 	}
 	
-	/** Iterate through the reads */
 	void processInner(){
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
 		TaxNode currentNode=null;
@@ -275,72 +274,50 @@ public class TaxSize {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out=null;
 	
-	/** Override input file extension */
 	private String extin=null;
 	
-	/** Path to taxonomy tree file */
 	public String taxTreeFile=null;
 
-	/** Maps taxID to total sequence length in bases */
 	public IntLongHashMap sizeMap=new IntLongHashMap();
-	/** Maps taxID to cumulative sequence length including descendant nodes */
 	public IntLongHashMap cSizeMap=new IntLongHashMap();
-	/** Maps taxID to number of sequences */
 	public IntLongHashMap seqMap=new IntLongHashMap();
-	/** Maps taxID to cumulative sequence count including descendant nodes */
 	public IntLongHashMap cSeqMap=new IntLongHashMap();
-	/** Maps taxID to cumulative count of descendant nodes in taxonomy tree */
 	public IntLongHashMap cNodeMap=new IntLongHashMap();
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of lines processed */
 	protected long linesProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads out */
+	/** Number of reads successfully assigned to taxonomy nodes */
 	public long readsAssigned=0;
-	/** Number of lines out */
 	public long linesAssigned=0;
-	/** Number of bases out */
 	public long basesAssigned=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Whether to include nodes with zero size in output */
 	private boolean printEmptyNodes=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
 	
-	/** Taxonomy tree for mapping sequence headers to taxIDs */
 	private final TaxTree tree;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
 	
 }

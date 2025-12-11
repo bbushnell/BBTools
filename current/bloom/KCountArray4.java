@@ -7,25 +7,18 @@ import shared.Timer;
 
 
 /**
- * 
- * Uses hashing rather than direct-mapping to support longer kmers.
- * 
+ * Hash-based k-mer count array implementation using bloom filter approach.
+ * Uses hashing rather than direct-mapping to support longer k-mers efficiently.
+ * Implements collision handling through multiple hash functions for reliable counting.
+ *
  * @author Brian Bushnell
  * @date Aug 17, 2012
- *
  */
 public class KCountArray4 extends KCountArray {
 	
-	/**
-	 * 
-	 */
+	/** Serial version ID for serialization compatibility */
 	private static final long serialVersionUID = -1418539960644885681L;
 
-	/**
-	 * Test harness for basic functionality verification.
-	 * Tests reading and incrementing operations on specific key values.
-	 * @param args Command-line arguments: [cells, bits, gap, hashes]
-	 */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -67,15 +60,6 @@ public class KCountArray4 extends KCountArray {
 		
 	}
 		
-	/**
-	 * Constructs a new hash-based count array.
-	 * Initializes matrix structure and hash parameters for bloom filter counting.
-	 *
-	 * @param cells_ Total number of cells in the count array
-	 * @param bits_ Number of bits per cell for storing count values
-	 * @param gap_ Gap parameter (currently unused in implementation)
-	 * @param hashes_ Number of hash functions to use for collision avoidance
-	 */
 	public KCountArray4(long cells_, int bits_, int gap_, int hashes_){
 		super(cells_, bits_);
 		long words=cells/cellsPerWord;
@@ -103,12 +87,6 @@ public class KCountArray4 extends KCountArray {
 		return min;
 	}
 	
-	/**
-	 * Reads count value for a pre-hashed key from the matrix.
-	 * Performs bit manipulation to extract count from packed integer storage.
-	 * @param key Pre-hashed key value
-	 * @return Count value stored at the hashed position
-	 */
 	private int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 		key=((key&Long.MAX_VALUE)%(cells-1));
@@ -136,6 +114,14 @@ public class KCountArray4 extends KCountArray {
 		throw new RuntimeException("Not allowed for this class.");
 	}
 	
+	/**
+	 * Increments count for a k-mer key using bloom filter collision handling.
+	 * For single hash, increments directly; for multiple hashes, ensures consistency
+	 * by reading minimum value first and incrementing all positions to maintain it.
+	 *
+	 * @param rawKey Raw k-mer key to increment
+	 * @param incr Amount to increment by (must be positive)
+	 */
 	@Override
 	public void increment(final long rawKey, int incr){
 //		verbose=(rawKey==32662670693L);
@@ -170,7 +156,6 @@ public class KCountArray4 extends KCountArray {
 		//return min(min+incr, maxValue);
 	}
 	
-	/** Returns unincremented value */
 	@Override
 	public int incrementAndReturnUnincremented(long rawKey, int incr){
 //		verbose=(rawKey==32662670693L);
@@ -205,16 +190,6 @@ public class KCountArray4 extends KCountArray {
 		return min;
 	}
 	
-	/**
-	 * Conditionally increments a hashed position if current value is at most the limit.
-	 * Used to maintain consistency across multiple hash positions in bloom filter.
-	 * Updates cellsUsed counter when incrementing from zero.
-	 *
-	 * @param key Pre-hashed key position
-	 * @param incr Amount to increment by
-	 * @param lim Maximum current value to allow increment
-	 * @return New count value after increment
-	 */
 	private int incrementHashedIfAtMost(long key, int incr, int lim){
 		if(verbose){System.err.print("incrementing hashed key "+key);}
 		key=((key&Long.MAX_VALUE)%(cells-1));
@@ -234,14 +209,6 @@ public class KCountArray4 extends KCountArray {
 		return value;
 	}
 	
-	/**
-	 * Unconditionally increments count at a hashed position.
-	 * Updates cellsUsed counter when incrementing from zero.
-	 *
-	 * @param key Pre-hashed key position
-	 * @param incr Amount to increment by (must be positive)
-	 * @return New count value after increment
-	 */
 	private int incrementHashed(long key, int incr){
 		assert(incr>0);
 		int arrayNum=(int)(key&arrayMask);
@@ -258,11 +225,21 @@ public class KCountArray4 extends KCountArray {
 		return value;
 	}
 	
+	/**
+	 * Converts count matrix to frequency histogram array.
+	 * Delegates to superclass implementation using this instance's matrix.
+	 * @return Array where index represents count value and value represents frequency
+	 */
 	@Override
 	public long[] transformToFrequency(){
 		return transformToFrequency(matrix);
 	}
 	
+	/**
+	 * Generates string representation of all count values in the matrix.
+	 * Extracts and formats individual cell counts from packed integer storage.
+	 * @return Comma-separated string of all count values in matrix order
+	 */
 	@Override
 	public String toContentsString(){
 		StringBuilder sb=new StringBuilder();
@@ -284,6 +261,8 @@ public class KCountArray4 extends KCountArray {
 		return sb.toString();
 	}
 	
+	/** Calculates fraction of cells currently in use (non-zero count).
+	 * @return Fraction of cells with non-zero counts (0.0 to 1.0) */
 	@Override
 	public double usedFraction(){return cellsUsed/(double)cells;}
 	
@@ -308,6 +287,14 @@ public class KCountArray4 extends KCountArray {
 	}
 	
 	
+	/**
+	 * Applies hash function to map raw key to hash table position.
+	 * Uses pre-computed hash masks and applies double-hashing for row 0.
+	 *
+	 * @param key Raw key value to hash
+	 * @param row Hash function row/iteration number
+	 * @return Hashed key value for matrix positioning
+	 */
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
@@ -324,9 +311,12 @@ public class KCountArray4 extends KCountArray {
 	}
 	
 	/**
-	 * @param i
-	 * @param j
-	 * @return
+	 * Creates hash mask arrays with specific bit distribution requirements.
+	 * Ensures balanced bit patterns for effective hash distribution.
+	 *
+	 * @param rows Number of hash function rows
+	 * @param cols Number of columns per hash table
+	 * @return 2D array of hash masks with controlled bit patterns
 	 */
 	private static long[][] makeMasks(int rows, int cols) {
 		
@@ -347,12 +337,6 @@ public class KCountArray4 extends KCountArray {
 		return r;
 	}
 	
-	/**
-	 * Fills hash mask array with random values having exactly 16 bits set in each 32-bit half.
-	 * Ensures no duplicate hash values are created within the array.
-	 * @param r Array to fill with hash mask values
-	 * @param randy Random number generator for mask creation
-	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -403,32 +387,18 @@ public class KCountArray4 extends KCountArray {
 		
 	}
 	
-	/** Returns total number of cells currently in use (non-zero count).
-	 * @return Count of cells with non-zero values */
 	public long cellsUsed(){return cellsUsed;}
 
-	/** Counter tracking number of cells with non-zero count values */
 	private long cellsUsed;
-	/**
-	 * 2D matrix storing packed count values using bit manipulation for space efficiency
-	 */
 	private final int[][] matrix;
-	/** Number of hash functions used for bloom filter collision avoidance */
 	private final int hashes;
 	
 	
-	/** Number of bits used for hash table sizing (2^hashBits = table size) */
 	private static final int hashBits=6;
-	/** Length of hash arrays calculated as 2^hashBits */
 	private static final int hashArrayLength=1<<hashBits;
-	/** Bit mask for hash cell indexing (hashArrayLength - 1) */
 	private static final int hashCellMask=hashArrayLength-1;
-	/**
-	 * Pre-computed hash masks for multiple hash functions with controlled bit patterns
-	 */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
 	
-	/** Global counter for generating unique hash mask seeds across instances */
 	private static long counter=0;
 	
 }

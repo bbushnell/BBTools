@@ -26,9 +26,12 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Advanced k-mer sorting utility for processing and manipulating sequencing reads with
+ * multiple pass and clustering capabilities. Extends KmerSort to provide multi-threaded
+ * fetch operations and sophisticated memory management for large datasets.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class KmerSort3 extends KmerSort {
 	
@@ -37,7 +40,8 @@ public class KmerSort3 extends KmerSort {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point (disabled with assertion failure).
+	 * Delegates to overloaded main method with default parameters.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -46,7 +50,13 @@ public class KmerSort3 extends KmerSort {
 	}
 	
 	/**
-	 * Code entrance from the command line.
+	 * Main entry point for k-mer sorting with memory and pass control.
+	 * Handles compression settings, creates KmerSort3 instance, processes data,
+	 * and restores original settings.
+	 *
+	 * @param fileMem Expected memory usage for input files
+	 * @param outerPassNum Current outer pass number
+	 * @param outerPasses Total number of outer passes
 	 * @param args Command line arguments
 	 */
 	public static void main(long fileMem, int outerPassNum, int outerPasses, String[] args){
@@ -68,8 +78,14 @@ public class KmerSort3 extends KmerSort {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs KmerSort3 instance with comprehensive argument parsing.
+	 * Configures input/output files, processing parameters, memory settings,
+	 * and validates file paths and formats.
+	 *
+	 * @param fileMem_ Expected memory usage for input files
+	 * @param outerPassNum_ Current outer pass number
+	 * @param outerPasses_ Total number of outer passes
+	 * @param args Command line arguments for configuration
 	 */
 	public KmerSort3(long fileMem_, int outerPassNum_, int outerPasses_, String[] args){
 		
@@ -291,6 +307,11 @@ public class KmerSort3 extends KmerSort {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Main processing pipeline that executes preprocessing and read processing.
+	 * Manages output streams, processes reads through inner pipeline, and prints statistics.
+	 * @param t Timer for tracking execution time
+	 */
 	@Override
 	void process(Timer t){
 		
@@ -317,7 +338,12 @@ public class KmerSort3 extends KmerSort {
 		if(outerPassNum<outerPasses){outstream.println();}
 	}
 	
-	/** Collect and sort the reads */
+	/**
+	 * Core read processing pipeline with multi-threaded fetch operations.
+	 * Creates k-mer comparator, manages fetch threads, processes clumps for
+	 * deduplication/condensing/correction, and handles output streaming.
+	 * @param rosa Array of concurrent read output streams for results
+	 */
 	void processInner(final ConcurrentReadOutputStream rosa[]){
 		if(verbose){outstream.println("Making comparator.");}
 		KmerComparator kc=new KmerComparator(k, addName, (rcomp || condense || correct));
@@ -489,15 +515,6 @@ public class KmerSort3 extends KmerSort {
 		if(verbose && outerPassNum==outerPasses){outstream.println("Done!");}
 	}
 	
-	/**
-	 * Distributes read list to output streams, handling single or multiple output groups.
-	 * For multiple groups, performs k-mer based hashing and splitting.
-	 *
-	 * @param rosa Array of output streams
-	 * @param list List of reads to distribute
-	 * @param t Timer for tracking operations
-	 * @param old K-mer comparator to base new comparator on
-	 */
 	private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old){
 		if(rosa==null){return;}
 		assert(rosa.length>0);
@@ -525,16 +542,6 @@ public class KmerSort3 extends KmerSort {
 		if(verbose){System.err.println("Sent writable reads.");}
 	}
 	
-	/**
-	 * Creates and starts multiple fetch threads for concurrent read processing.
-	 * Each thread processes input groups independently and communicates via queue.
-	 *
-	 * @param kc K-mer comparator for read processing
-	 * @param fetchThreads Number of fetch threads to create
-	 * @param listQ Queue for communication between fetch threads and main thread
-	 * @param rosa Output streams for direct streaming when appropriate
-	 * @return List of created and started fetch threads
-	 */
 	public ArrayList<FetchThread3> fetchReads(final KmerComparator kc, final int fetchThreads, SynchronousQueue<ArrayList<Read>> listQ, ConcurrentReadOutputStream[] rosa){
 		AtomicInteger nextGroup=new AtomicInteger(0);
 		if(verbose){outstream.println("Making "+fetchThreads+" fetch thread"+(fetchThreads==1 ? "." : "s."));}
@@ -550,12 +557,6 @@ public class KmerSort3 extends KmerSort {
 	}
 	
 
-	/**
-	 * Waits for all fetch threads to complete and aggregates their statistics.
-	 * Collects reads processed, bases processed, memory used, and error states.
-	 * @param alft List of fetch threads to close
-	 * @return Total number of reads processed across all threads
-	 */
 	private long closeFetchThread3s(ArrayList<FetchThread3> alft){
 		readsThisPass=0;
 		memThisPass=0;
@@ -595,21 +596,8 @@ public class KmerSort3 extends KmerSort {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread that fetches and processes reads from input groups.
-	 * Handles memory management, streaming operations, and multi-threaded
-	 * read hashing with sub-threads.
-	 */
 	private class FetchThread3 extends Thread{
 		
-		/**
-		 * Constructs fetch thread with processing dependencies.
-		 *
-		 * @param kc_ K-mer comparator for read processing
-		 * @param listQ_ Queue for communicating processed reads to main thread
-		 * @param nextGroup_ Atomic counter for determining next input group to process
-		 * @param rosa_ Output streams for direct streaming when memory constrained
-		 */
 		FetchThread3(final KmerComparator kc_, SynchronousQueue<ArrayList<Read>> listQ_, AtomicInteger nextGroup_, ConcurrentReadOutputStream[] rosa_){
 			kc=kc_;
 			listQ=listQ_;
@@ -646,12 +634,6 @@ public class KmerSort3 extends KmerSort {
 			if(verbose){System.err.println("A fetch thread finished.");}
 		}
 		
-		/**
-		 * Fetches and processes next available input group.
-		 * Handles memory constraints by switching between full processing and streaming modes.
-		 * Includes sophisticated memory estimation and warning system.
-		 * @return Processed list of reads, or empty list if streamed directly to output
-		 */
 		private ArrayList<Read> fetchNext(){
 			final int group=nextGroup.getAndIncrement();
 			if(group>=groups){return null;}
@@ -725,12 +707,6 @@ public class KmerSort3 extends KmerSort {
 			return fetchNext_inner(cris);
 		}
 		
-		/**
-		 * Streams reads directly to output without processing when memory constrained.
-		 * Uses StreamToOutput for efficient pass-through processing.
-		 * @param cris Input stream to process
-		 * @return Empty read list (reads were streamed directly)
-		 */
 		private ArrayList<Read> streamNext_inner(ConcurrentReadInputStream cris){
 			StreamToOutput sto=new StreamToOutput(cris, rosa, kc, (repair || namesort), false);
 			errorStateT|=sto.process();
@@ -742,12 +718,6 @@ public class KmerSort3 extends KmerSort {
 			return new ArrayList<Read>();
 		}
 		
-		/**
-		 * Processes input stream using multiple sub-threads for parallel read hashing.
-		 * Creates sub-threads, waits for completion, combines results, and sorts final list.
-		 * @param cris Input stream to process
-		 * @return Sorted list of processed reads
-		 */
 		private ArrayList<Read> fetchNext_inner(ConcurrentReadInputStream cris){
 			
 //			Timer t=new Timer();
@@ -805,44 +775,21 @@ public class KmerSort3 extends KmerSort {
 			return list;
 		}
 		
-		/** Queue for communication between fetch thread and main processing thread */
 		final SynchronousQueue<ArrayList<Read>> listQ;
-		/** Atomic counter for determining next input group to process */
 		final AtomicInteger nextGroup;
-		/** K-mer comparator used for read processing and sorting */
 		final KmerComparator kc;
-		/** Array of concurrent read output streams for results */
 		final ConcurrentReadOutputStream[] rosa;
 
-		/** Number of entries filtered by this fetch thread */
 		protected long entryFilteredT=0;
-		/** Number of reads processed by this fetch thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this fetch thread */
 		protected long basesProcessedT=0;
-		/** Number of disk bytes processed by this fetch thread */
 		protected long diskProcessedT=0;
-		/** Memory usage by this fetch thread */
 		protected long memProcessedT=0;
-		/** Error state flag for this fetch thread */
 		protected boolean errorStateT=false;
 		
 		
-		/**
-		 * Sub-thread for processing read lists within a fetch operation.
-		 * Handles read validation, optional ECCO processing, entry filtering,
-		 * k-mer hashing, and local sorting.
-		 */
 		private class FetchSubThread extends Thread{
 			
-			/**
-			 * Constructs sub-thread for parallel read processing.
-			 *
-			 * @param id_ Thread identifier
-			 * @param cris_ Input stream to read from
-			 * @param kc_ K-mer comparator for processing
-			 * @param unpair_ Whether to unpair paired-end reads
-			 */
 			FetchSubThread(int id_, ConcurrentReadInputStream cris_, KmerComparator kc_, boolean unpair_){
 				id=id_;
 				cris=cris_;
@@ -852,6 +799,11 @@ public class KmerSort3 extends KmerSort {
 				entryFilterTable=(entryfilter ? new HashMap<Long, Read>() : null);
 			}
 			
+			/**
+			 * Main sub-thread processing loop that reads lists from input stream.
+			 * Validates reads, applies transformations (name shrinking, ECCO),
+			 * performs entry filtering, hashes reads with k-mer comparator, and sorts locally.
+			 */
 			@Override
 			public void run(){
 				ListNum<Read> ln=cris.nextList();
@@ -948,28 +900,17 @@ public class KmerSort3 extends KmerSort {
 				}
 			}
 
-			/** Unique identifier for this sub-thread */
 			final int id;
-			/** Input stream for reading sequencing data */
 			final ConcurrentReadInputStream cris;
-			/** Thread-local k-mer comparator for read processing */
 			final KmerComparator kcT;
-			/** Local storage for processed reads before sorting */
 			final ArrayList<Read> storage;
-			/** Whether to unpair paired-end reads in this sub-thread */
 			final boolean unpairT;
-			/** Hash table for entry filtering to detect and remove duplicate entries */
 			final HashMap<Long, Read> entryFilterTable;
-			/** Number of entries filtered by this sub-thread */
 			public long entryFilteredT=0;
 
-			/** Number of reads processed by this sub-thread */
 			protected long readsProcessedST=0;
-			/** Number of bases processed by this sub-thread */
 			protected long basesProcessedST=0;
-			/** Number of disk bytes processed by this sub-thread */
 			protected long diskProcessedST=0;
-			/** Memory usage by this sub-thread */
 			protected long memProcessedST=0;
 		}
 		
@@ -983,47 +924,32 @@ public class KmerSort3 extends KmerSort {
 	/*----------------          I/O Fields          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Memory processed in the last operation for tracking purposes */
 	protected static long lastMemProcessed=0;
 	
-	/** Expected file size per processing group based on input file analysis */
 	final long expectedSizePerGroup;
-	/** Expected memory usage per processing group */
 	private final long expectedMemPerGroup;
-	/** Total available system memory */
 	final long totalMem;
-	/** Expected total memory usage for all input files */
 	final long fileMem;
-	/** Total size of all input files in bytes */
 	final long fileSize;
 	
-	/** Current outer pass number in multi-pass processing */
 	private final int outerPassNum;
-	/** Total number of outer passes configured */
 	private final int outerPasses;
 	
-	/** Ratio of expected memory usage to file size */
 	private final double memRatio;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Poison pill marker used to signal thread completion in fetch queues */
 	static final ArrayList<Read> POISON=new ArrayList<Read>();
-	/** Number of fetch threads to use for parallel processing */
 	protected static int fetchThreads=2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Array of input file formats for read 1 files */
 	final FileFormat ffin1[];
-	/** Array of input file formats for read 2 files (paired-end) */
 	final FileFormat ffin2[];
 
-	/** Array of output file formats for read 1 files */
 	private final FileFormat ffout1[];
-	/** Array of output file formats for read 2 files (paired-end) */
 	private final FileFormat ffout2[];
 	
 }

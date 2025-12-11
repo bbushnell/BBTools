@@ -9,10 +9,12 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Stores kmers in a long[] and values in an int[][], with a victim cache.
+ * Two-dimensional hash array for k-mer storage with multi-value support.
+ * Stores k-mers in long arrays and associated values in int[][] arrays.
+ * Extends HashArrayU to provide specialized behavior for multi-value k-mer storage.
+ *
  * @author Brian Bushnell
  * @date Nov 7, 2014
- *
  */
 public final class HashArrayU2D extends HashArrayU {
 	
@@ -21,11 +23,11 @@ public final class HashArrayU2D extends HashArrayU {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Constructs a new HashArrayU2D with specified sizing schedule and k-mer parameters.
-	 * Initializes the hash array with two-dimensional value storage.
+	 * Constructs a HashArrayU2D with the given resize schedule and k-mer parameters.
+	 * Initializes two-dimensional value storage and enables victim cache support.
 	 *
-	 * @param schedule_ Array of prime sizes for hash table growth
-	 * @param k_ K-mer length in bases
+	 * @param schedule_ Prime sizes for hash growth
+	 * @param k_ K-mer length
 	 * @param kbig_ Extended k-mer length for multi-part storage
 	 */
 	public HashArrayU2D(int[] schedule_, int k_, int kbig_){
@@ -48,6 +50,15 @@ public final class HashArrayU2D extends HashArrayU {
 		throw new RuntimeException("Unsupported.");
 	}
 	
+	/**
+	 * Unsupported operation that throws RuntimeException.
+	 * HashArrayU2D does not support increment with creation counting.
+	 *
+	 * @param kmer K-mer to increment (unused)
+	 * @return Never returns (always throws exception)
+	 * @throws RuntimeException Always thrown as operation is unsupported
+	 * @deprecated This operation is not supported in HashArrayU2D
+	 */
 	@Deprecated
 	@Override
 	public int incrementAndReturnNumCreated(final Kmer kmer){
@@ -58,18 +69,40 @@ public final class HashArrayU2D extends HashArrayU {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the primary value from a hash table cell.
+	 * Returns the first value in the int array at the specified cell, or 0 if null.
+	 * @param cell Hash table cell index to read from
+	 * @return The first value in the cell's array, or 0 if cell is empty
+	 */
 	@Override
 	protected final int readCellValue(int cell) {
 		int[] set=values[cell];
 		return set==null ? 0 : set[0];
 	}
 	
+	/**
+	 * Reads all values from a hash table cell.
+	 * Returns the complete int array stored at the specified cell.
+	 *
+	 * @param cell Hash table cell index to read from
+	 * @param singleton Unused parameter for interface compatibility
+	 * @return The int array stored at the cell, or null if cell is empty
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		return values[cell];
 	}
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts a single value into the hash table at the specified cell.
+	 * Creates a new array if cell is empty, or extends existing array if value not found.
+	 * Automatically resizes arrays when capacity is reached.
+	 *
+	 * @param kmer K-mer being stored (for verification)
+	 * @param v Value to insert
+	 * @param cell Hash table cell index for insertion
+	 */
 	@Override
 	protected final void insertValue(final long[] kmer, final int v, final int cell){
 		assert(matches(kmer, cell));
@@ -93,7 +126,15 @@ public final class HashArrayU2D extends HashArrayU {
 		values[cell]=set;
 	}
 	
-	/** Returns number of values added */
+	/**
+	 * Inserts multiple values into the hash table at the specified cell.
+	 * If cell is empty, stores the entire array directly.
+	 * Otherwise, inserts each non-negative value individually.
+	 *
+	 * @param kmer K-mer being stored (for verification)
+	 * @param vals Array of values to insert
+	 * @param cell Hash table cell index for insertion
+	 */
 	@Override
 	protected final void insertValue(final long[] kmer, final int[] vals, final int cell){
 		assert(matches(kmer, cell));
@@ -111,6 +152,8 @@ public final class HashArrayU2D extends HashArrayU {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Indicates that this hash table implementation cannot be rebalanced.
+	 * @return false, as HashArrayU2D does not support rebalancing operations */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
@@ -188,6 +231,11 @@ public final class HashArrayU2D extends HashArrayU {
 //	}
 	
 	
+	/**
+	 * Resizes the hash table when load factor exceeds threshold.
+	 * Creates new larger arrays, rehashes all existing k-mers, and transfers victim cache.
+	 * Uses either scheduled sizing or dynamic growth based on configuration.
+	 */
 	@Override
 	protected synchronized void resize(){
 		if(verbose){System.err.println("Resizing from "+prime+"; load="+(size*1f/prime));}
@@ -266,12 +314,26 @@ public final class HashArrayU2D extends HashArrayU {
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
 	}
 	
+	/**
+	 * Unsupported operation that throws RuntimeException.
+	 * HashArrayU2D does not support rebalancing operations.
+	 * @throws RuntimeException Always thrown as operation is unimplemented
+	 * @deprecated This operation is not implemented in HashArrayU2D
+	 */
 	@Deprecated
 	@Override
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Regenerates the hash table by removing entries with values below limit.
+	 * Clears ownership, removes low-count k-mers, and reinserts remaining entries.
+	 *
+	 * @param limit Minimum value threshold for k-mer retention
+	 * @return Number of k-mers removed during regeneration
+	 * @deprecated This method is not tested or intended for general use
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -314,7 +376,7 @@ public final class HashArrayU2D extends HashArrayU {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Two-dimensional array storing int values associated with k-mers */
+	/** Backing array of int value lists per hash cell (NOT_PRESENT-terminated). */
 	private int[][] values;
 	
 

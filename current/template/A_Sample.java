@@ -22,13 +22,10 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * This class does nothing.
- * It is designed to be easily modified into a program
- * that processes reads in a single thread.
- * 
+ * Template class for single-threaded read processing programs.
+ * Provides a complete framework for input/output handling, argument parsing, and read processing that can be adapted for specific bioinformatics tools.
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class A_Sample {
 	
@@ -36,10 +33,8 @@ public class A_Sample {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that creates an instance, processes data, and handles cleanup.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -55,8 +50,9 @@ public class A_Sample {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that initializes the program with command line arguments.
+	 * Handles preprocessing, argument parsing, file validation, and stream setup.
+	 * @param args Command line arguments containing input/output paths and options
 	 */
 	public A_Sample(String[] args){
 		
@@ -112,7 +108,12 @@ public class A_Sample {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments and sets program parameters.
+	 * Handles standard BBTools arguments plus template-specific options.
+	 * @param args Array of command line arguments
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -147,7 +148,8 @@ public class A_Sample {
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/** Replaces # symbols with 1 and 2 in input/output file paths.
+	 * Enables paired file specification using wildcards (e.g., reads_#.fq) and validates that required input files are specified. */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -168,7 +170,8 @@ public class A_Sample {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adds or removes compression extensions (.gz, .bz2) as needed.
+	 * Ensures file paths have appropriate extensions for automatic compression detection. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -176,7 +179,11 @@ public class A_Sample {
 		qfin2=Tools.fixExtension(qfin2);
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files can be read and output files can be written.
+	 * Checks for duplicate file specifications and permission issues.
+	 * @throws RuntimeException if files cannot be accessed or are duplicated
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
@@ -195,7 +202,8 @@ public class A_Sample {
 		}
 	}
 	
-	/** Make sure interleaving agrees with number of input and output files */
+	/** Configures interleaved read handling based on input/output file counts.
+	 * Sets FASTQ interleaving flags to match the specified file configuration. */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -219,7 +227,8 @@ public class A_Sample {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static configuration settings for optimal performance.
+	 * Configures threading and file handling modes based on system capabilities. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -233,7 +242,12 @@ public class A_Sample {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that coordinates input/output streams and read processing.
+	 * Creates streams, processes all reads, handles cleanup, and reports statistics.
+	 * @param t Timer for tracking execution time
+	 * @throws RuntimeException if processing encounters errors
+	 */
 	void process(Timer t){
 		
 		//Create a read input stream
@@ -271,11 +285,6 @@ public class A_Sample {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates and configures the concurrent read input stream.
-	 * Sets up input from primary/secondary files with quality score handling.
-	 * @return Configured and started ConcurrentReadInputStream
-	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -285,12 +294,6 @@ public class A_Sample {
 		return cris;
 	}
 	
-	/**
-	 * Creates concurrent read output stream if output files are specified.
-	 * Configures buffering and interleaving based on input characteristics.
-	 * @param pairedInput Whether the input data is paired-end
-	 * @return Configured ConcurrentReadOutputStream or null if no output specified
-	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -307,7 +310,6 @@ public class A_Sample {
 		return ros;
 	}
 	
-	/** Iterate through the reads */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -342,12 +344,6 @@ public class A_Sample {
 		
 	}
 	
-	/**
-	 * Process a list of Reads.
-	 * @param ln The list.
-	 * @param cris Read Input Stream
-	 * @param ros Read Output Stream for reads that will be retained
-	 */
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 
 		//Grab the actual read list from the ListNum
@@ -392,10 +388,12 @@ public class A_Sample {
 	
 	
 	/**
-	 * Process a single read pair.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
+	 * Template method for processing individual read pairs.
+	 * This method should be implemented with specific logic for the tool being created.
+	 * @param r1 First read in the pair
+	 * @param r2 Second read in the pair (may be null for single-end data)
+	 * @return true if the reads should be retained, false if they should be discarded
+	 * @throws RuntimeException Always throws \"TODO\" in the template; must be implemented by subclass
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		throw new RuntimeException("TODO");
@@ -405,78 +403,53 @@ public class A_Sample {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 	
-	/** Primary quality file input path */
 	private String qfin1=null;
-	/** Secondary quality file input path */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
 	private String out2=null;
 
-	/** Primary quality file output path */
 	private String qfout1=null;
-	/** Secondary quality file output path */
 	private String qfout2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
-	/** Whether interleaved was explicitly set. */
+	/** Whether interleaved was explicitly set */
 	private boolean setInterleaved=false;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
 	protected long readsOut=0;
-	/** Number of bases retained */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
-	/** Secondary output file */
 	private final FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered=false;
 	
 }

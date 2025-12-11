@@ -16,11 +16,12 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * Based on TestIndex11Ii
- * 
+ * Enhanced BBMap implementation optimized for high accuracy sequence alignment.
+ * Provides configurable speed modes (fast, slow, vslow) with adaptive parameter
+ * tuning for different accuracy-speed trade-offs plus coverage-aware index analysis.
+ * Includes the TestIndex11Ii improvements for multi-reference workflows.
  * @author Brian Bushnell
  * @date Jul 10, 2012
- *
  */
 public final class BBMapAcc extends AbstractMapper  {
 	
@@ -44,12 +45,15 @@ public final class BBMapAcc extends AbstractMapper  {
 		clearStatics();
 	}
 	
-	/** Constructs BBMapAcc mapper with command-line arguments.
-	 * @param args Command-line arguments for configuration */
 	public BBMapAcc(String[] args){
 		super(args);
 	}
 	
+	/**
+	 * Sets default parameters optimized for accuracy-focused alignment.
+	 * Configures compression settings (bgzip preferred), k-mer parameters, alignment scoring thresholds,
+	 * and multistate aligner options geared toward sensitive mappings.
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -76,6 +80,13 @@ public final class BBMapAcc extends AbstractMapper  {
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 	}
 	
+	/**
+	 * Preprocesses command-line arguments and applies speed mode configurations.
+	 * Implements fast/slow/vslow profiles that adjust tip-search distance, rescue parameters,
+	 * key densities, and genome exclusion fractions before full parsing.
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with speed mode parameters applied
+	 */
 	@Override
 	public String[] preparse(String[] args){
 		if(fast){
@@ -148,6 +159,12 @@ public final class BBMapAcc extends AbstractMapper  {
 		return args;
 	}
 	
+	/**
+	 * Post-processes parsed arguments and configures alignment parameters.
+	 * Adjusts bandwidth-dependent padding, indel limits, hit thresholds, and ambiguous mapping behavior.
+	 * Handles positional input inference and validates output configuration expectations.
+	 * @param args Parsed command-line arguments
+	 */
 	@Override
 	void postparse(String[] args){
 		
@@ -229,6 +246,11 @@ public final class BBMapAcc extends AbstractMapper  {
 		
 	}
 	
+	/**
+	 * Configures alignment parameters and initializes data structures.
+	 * Sets minimum identity ratios, XS/intron tag behavior, output stream wiring, blacklist creation,
+	 * reference indexing, and compression level overrides before alignment begins.
+	 */
 	@Override
 	public void setup(){
 		
@@ -275,6 +297,11 @@ public final class BBMapAcc extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Configures handling of reads mapping to multiple reference sequences.
+	 * Supports split, first, toss, random, and all modes for dispatching ambiguous mappings
+	 * when multiple references (Data.scaffoldPrefixes) are in play.
+	 */
 	@Override
 	void processAmbig2(){
 		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
@@ -302,6 +329,11 @@ public final class BBMapAcc extends AbstractMapper  {
 		}
 	}
 	
+	/**
+	 * Loads and initializes the alignment index with genome-specific optimizations.
+	 * Sets chromosome ranges, loads reference sequences, generates BBIndexAcc with size-aware tuning,
+	 * initializes coverage pileup/analysis, and optionally creates Bloom filters with serialization.
+	 */
 	@Override
 	void loadIndex(){
 		Timer t=new Timer();
@@ -441,6 +473,12 @@ public final class BBMapAcc extends AbstractMapper  {
 		}
 	}
 		
+	/**
+	 * Executes the main alignment pipeline with performance monitoring.
+	 * Opens streams, adjusts thread count based on memory constraints, launches BBMapThreadAcc workers,
+	 * processes reads in parallel, and prints alignment statistics and timing reports.
+	 * @param args Command-line arguments for stream configuration
+	 */
 	@Override
 	public void testSpeed(String[] args){
 		
@@ -512,6 +550,11 @@ public final class BBMapAcc extends AbstractMapper  {
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
 
+	/**
+	 * Configures parameters for semi-perfect alignment mode.
+	 * Reduces key densities and desired key counts by half, pins minimum density to 1.1,
+	 * lowers the alignment score ratio to 0.45, and disables trim list processing for sensitivity.
+	 */
 	@Override
 	void setSemiperfectMode() {
 		assert(SEMIPERFECTMODE);
@@ -526,6 +569,11 @@ public final class BBMapAcc extends AbstractMapper  {
 		}
 	}
 
+	/**
+	 * Configures parameters for perfect alignment mode.
+	 * Reduces key densities and desired key counts by half, pins minimum density to 1.1,
+	 * requires a perfect (1.0) alignment score ratio, and disables trim list processing.
+	 */
 	@Override
 	void setPerfectMode() {
 		assert(PERFECTMODE);
@@ -541,6 +589,12 @@ public final class BBMapAcc extends AbstractMapper  {
 	}
 	
 
+	/**
+	 * Outputs current alignment settings and index configuration details.
+	 * Displays key density ranges, block subsections, genome exclusion fractions, hit filtering thresholds,
+	 * and other index optimizations controlled by verbose_stats.
+	 * @param k K-mer length for alignment
+	 */
 	@Override
 	void printSettings(int k){
 		

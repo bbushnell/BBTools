@@ -16,18 +16,15 @@ import structures.CoverageArray2;
 import var.GenerateVarlets;
 
 /**
+ * Calculates coverage statistics from site alignment data and generates detailed accuracy reports.
+ * Processes SiteScoreR data to compute coverage depth and correctness metrics.
+ * Supports both memory-efficient processing and full CoverageArray output generation.
+ *
  * @author Brian Bushnell
  * @date Jul 19, 2012
- *
  */
 public class CalcCoverageFromSites {
 	
-	/**
-	 * Program entry point for coverage calculation from site data.
-	 * Parses command-line arguments including input file, output pattern, and thresholds.
-	 * Routes to processAndWrite() for array output or process() for statistics only.
-	 * @param args Command-line arguments: infile outfile genome [mincoverage=1]
-	 */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -62,17 +59,6 @@ public class CalcCoverageFromSites {
 	}
 	
 	
-	/**
-	 * Processes site data and writes CoverageArray objects while computing statistics.
-	 * Creates per-chromosome coverage arrays and tracks total and correct coverage.
-	 * Applies MIN_END_DIST offset to avoid counting alignment end artifacts in coverage calculations.
-	 * Generates detailed accuracy metrics for defined bases vs. N bases separately.
-	 *
-	 * @param fname Input file containing tab-separated SiteScoreR data
-	 * @param genome Genome build ID for Data.setGenome()
-	 * @param mincoverage Minimum coverage threshold for position-level statistics
-	 * @param outpattern Output file pattern with # placeholder for chromosome number
-	 */
 	public static void processAndWrite(final String fname, final int genome, final int mincoverage, final String outpattern){
 		Data.setGenome(genome);
 		
@@ -304,16 +290,6 @@ public class CalcCoverageFromSites {
 	}
 	
 	
-	/**
-	 * Memory-efficient processing that computes statistics without CoverageArray files.
-	 * Uses byte arrays instead of CoverageArray objects to minimize memory usage for large genomes.
-	 * Does not apply MIN_END_DIST offset, counting full site spans for coverage calculations.
-	 * Generates identical statistical output to processAndWrite() but with different memory profile.
-	 *
-	 * @param fname Input file containing tab-separated SiteScoreR data
-	 * @param genome Genome build ID for Data.setGenome()
-	 * @param mincoverage Minimum coverage threshold for position-level statistics
-	 */
 	public static void process(final String fname, final int genome, final int mincoverage){
 		Data.setGenome(genome);
 		
@@ -539,12 +515,6 @@ public class CalcCoverageFromSites {
 	
 	
 	
-	/**
-	 * Parses a tab-delimited line into an array of SiteScoreR objects.
-	 * Each tab-separated field represents one site with position and correctness information.
-	 * @param s Tab-delimited string containing SiteScoreR text representations
-	 * @return Array of parsed SiteScoreR objects
-	 */
 	public static SiteScoreR[] toSites(String s){
 		String[] split=s.split("\t");
 		SiteScoreR[] scores=new SiteScoreR[split.length];
@@ -554,7 +524,6 @@ public class CalcCoverageFromSites {
 		return scores;
 	}
 	
-	/** Minimum distance from alignment ends to avoid counting coverage artifacts */
 	public static int MIN_END_DIST=GenerateVarlets.MIN_END_DIST; //These must be the same.
 	
 }

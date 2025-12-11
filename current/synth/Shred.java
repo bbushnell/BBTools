@@ -23,9 +23,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Shreds long sequences into shorter fragments using fixed, even, or random-length strategies.
+ * Supports overlap/increment control and several distributions (uniform, log-uniform, exponential) for simulated read lengths.
+ * Useful for simulating sequencing reads or breaking up long contigs for downstream analysis.
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class Shred {
 	
@@ -33,10 +35,8 @@ public class Shred {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that constructs a Shred instance and processes input sequences.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Shred x=new Shred(args);
@@ -47,8 +47,9 @@ public class Shred {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a Shred instance by parsing command-line arguments.
+	 * Configures shredding parameters (length, overlap, increment, mode) and sets up input/output streams.
+	 * @param args Command-line arguments containing shredding options
 	 */
 	public Shred(String[] args){
 		
@@ -181,15 +182,6 @@ public class Shred {
 		}
 	}
 	
-	/**
-	 * Parses additional command-line arguments not handled by main constructor.
-	 * Currently handles reads/maxreads parameter for limiting input processing.
-	 *
-	 * @param arg Full argument string
-	 * @param a Argument name (lowercase)
-	 * @param b Argument value
-	 * @return true if argument was recognized and parsed, false otherwise
-	 */
 	public boolean parseArgument(String arg, String a, String b){
 		if(a.equals("reads") || a.equals("maxreads")){
 			maxReads=Parse.parseKMG(b);
@@ -206,7 +198,11 @@ public class Shred {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that coordinates input/output streams and shredding.
+	 * Creates concurrent streams, processes all input reads, and reports timing and throughput statistics.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -249,7 +245,12 @@ public class Shred {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Core processing loop that reads input sequences and generates shreds according to the configured mode.
+	 * Handles taxonomic ID parsing from filenames or sequence headers when enabled.
+	 * @param cris Concurrent input stream for reading sequences
+	 * @param ros Concurrent output stream for writing shreds
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		readsProcessed=0;
@@ -328,15 +329,6 @@ public class Shred {
 //		}
 //	}
 	
-	/**
-	 * Shreds sequence into fragments with evenly distributed positions.
-	 * Calculates chunk positions to ensure even coverage across the sequence.
-	 * Fragment lengths may vary slightly to maintain even spacing.
-	 *
-	 * @param r1 Input sequence to shred
-	 * @param list Output list to append generated shreds
-	 * @param tid Taxonomic ID to include in shred names
-	 */
 	void processEvenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -365,15 +357,6 @@ public class Shred {
 		}
 	}
 	
-	/**
-	 * Shreds sequence into fixed-length overlapping fragments.
-	 * Advances by fixed increment creating consistent overlap between fragments.
-	 * All shreds have identical length except possibly the last one.
-	 *
-	 * @param r1 Input sequence to shred
-	 * @param list Output list to append generated shreds
-	 * @param tid Taxonomic ID to include in shred names
-	 */
 	void processUnevenly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -397,15 +380,6 @@ public class Shred {
 		}
 	}
 	
-	/**
-	 * Shreds sequence into random-length non-overlapping fragments.
-	 * Uses configurable probability distribution (linear, log, or exponential).
-	 * Fragment lengths vary according to specified min/max bounds and distribution.
-	 *
-	 * @param r1 Input sequence to shred
-	 * @param list Output list to append generated shreds
-	 * @param tid Taxonomic ID to include in shred names
-	 */
 	void processRandomly(final Read r1, final ArrayList<Read> list, int tid){
 		final byte[] bases=r1.bases;
 		final byte[] quals=r1.quality;
@@ -432,26 +406,10 @@ public class Shred {
 		}
 	}
 	
-	/**
-	 * Generates standardized name for shred fragments.
-	 * Format: originalName_start-stop or originalName_start-stop_tid_taxonomicID
-	 *
-	 * @param name Original sequence name
-	 * @param start Start position (0-based inclusive)
-	 * @param stop Stop position (0-based inclusive)
-	 * @param tid Taxonomic ID (added only if > 0)
-	 * @return Formatted shred name
-	 */
 	final String toName(String name, int start, int stop, int tid) {
 		return (name==null ? "" : name+"_")+start+"-"+stop+(tid>0 ? "_tid_"+tid : "");
 	}
 	
-	/**
-	 * Generates random fragment length according to configured distribution mode.
-	 * Dispatches to appropriate distribution function based on current mode setting.
-	 * @param remainder Maximum possible length (bases remaining in sequence)
-	 * @return Random length between minLength and min(maxLength, remainder)
-	 */
 	final int randomLength(final int remainder) {
 		if(mode==LINEAR) {return randomLengthLinear(remainder);}
 		else if(mode==LOG) {return logUniformLength(remainder);}
@@ -461,23 +419,10 @@ public class Shred {
 		}
 	}
 	
-	/**
-	 * Generates uniformly distributed random length within specified range.
-	 * @param remainder Maximum possible length
-	 * @return Uniformly random length between minLength and maxLength
-	 */
 	final int randomLengthLinear(final int remainder) {
 		return Tools.min(minLength+randy.nextInt(range), remainder);
 	}
 	
-	/**
-	 * Generates exponentially distributed random length.
-	 * Uses inverse lambda based on geometric mean of min and max lengths.
-	 * Retries up to 20 times if generated value falls outside valid range.
-	 *
-	 * @param remainder Maximum possible length
-	 * @return Exponentially distributed length, or remainder if sampling fails
-	 */
 	final int randomLengthExp(final int remainder) {
 		if(remainder<=minLength) {return remainder;}
 		long max=Tools.min(maxLength, remainder);
@@ -492,8 +437,10 @@ public class Shred {
 	}
 	
     /**
-     * Samples a length from a continuous log-uniform distribution.
-     * @author Isla
+     * Samples a length from a continuous log-uniform distribution between minLength and maxLength.
+     * Draws a uniform random variate in log space, exponentiates, and clips to the remaining sequence length.
+     * @param remainder Maximum possible length for the current shred
+     * @return Log-uniform distributed length between minLength and maxLength, bounded by remainder
      */
     private int logUniformLength(int remainder) {
         double u = randy.nextDouble(); // Uniform between 0 and 1
@@ -512,96 +459,62 @@ public class Shred {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input filename for sequences to shred */
 	private String in1=null;
-	/** Output filename for shredded sequences */
 	private String out1=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
-	/** Whether to parse taxonomic ID from input filename */
 	boolean parseFileTID=false;
-	/** Whether to parse taxonomic ID from sequence headers */
 	boolean parseSequenceTID=false;
-	/** Optional prefix to add to all shred names */
 	String prefix=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of input sequences processed */
 	protected long readsProcessed=0;
-	/** Total bases in input sequences processed */
 	protected long basesProcessed=0;
-	/** Number of shred fragments generated */
 	protected long readsOut=0;
-	/** Total bases in generated shred fragments */
 	protected long basesOut=0;
 	
-	/** Maximum number of input sequences to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
-	/** Target median length for random length generation (-1 if not set) */
 	private int median=-1;
-	/** Variance around median for random length generation (-1 if not set) */
 	private int variance=-1;
 	
-	/** Target length for fixed-length shredding (default 500) */
 	private int shredLength=500;
-	/** Minimum acceptable fragment length (-1 for no limit) */
 	private int minLength=-1;
-	/** Maximum acceptable fragment length (-1 for no limit) */
 	private int maxLength=-1;
-	/** Maximum ambiguous bases allowed in fragments (-1 for no limit) */
 	private int maxNs=-1;
-	/** Range of valid fragment lengths (maxLength - minLength + 1) */
 	private final int range;
-	/** Overlap between consecutive fragments in fixed-increment mode */
 	private int overlap=0;
-	/** Step size between fragment start positions */
 	private final int increment;
-	/** Precomputed inverse of increment (1.0/increment) for efficiency */
 	private final double incMult;
 	
-	/** Whether to use even fragment positioning instead of fixed increment */
 	private final boolean evenLengths;
 	
-	/** Random number generator for length sampling and positioning */
 	private final Random randy;
 	
-	/** Distribution mode for random length generation (LINEAR, LOG, or EXP) */
 	int mode=LINEAR;
 	/** Constant for exponential distribution mode */
 	/** Constant for log-uniform distribution mode */
-	/** Constant for uniform linear distribution mode */
 	static final int LINEAR=0, LOG=1, EXP=2;
-	/** String names for distribution modes corresponding to mode constants */
 	static final String[] modes={"LINEAR", "LOG", "EXP"};
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format configuration for input stream */
 	private final FileFormat ffin1;
-	/** File format configuration for output stream */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Global flag enabling detailed progress reporting */
 	public static boolean verbose=false;
-	/** Flag indicating whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

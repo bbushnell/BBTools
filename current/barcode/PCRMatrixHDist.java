@@ -12,12 +12,13 @@ import template.Accumulator;
 import template.ThreadWaiter;
 
 /**
- * Tracks data about bar code mismatches by position.
- * Uses split barcodes instead of contiguous.
- * 
+ * Tracks bar code mismatches by position using split barcodes with Hamming distance calculations.
+ * Performs barcode assignment using Hamming distance metrics for single or dual
+ * barcode scenarios with configurable mismatch and clearzone constraints.
+ * Enables multi-threaded processing for efficient barcode assignment.
+ *
  * @author Brian Bushnell
  * @date March 22, 2024
- *
  */
 public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHDist.PopThread> {
 
@@ -25,14 +26,6 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	/*----------------         Constructor          ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a PCRMatrixHDist with specified barcode configuration.
-	 *
-	 * @param length1_ Length of first barcode segment
-	 * @param length2_ Length of second barcode segment (0 for single barcodes)
-	 * @param delimiter_ ASCII value of delimiter character between segments
-	 * @param hdistSum_ Whether to sum Hamming distances across segments
-	 */
 	public PCRMatrixHDist(int length1_, int length2_, int delimiter_, boolean hdistSum_) {
 		super(length1_, length2_, delimiter_, hdistSum_);
 	}
@@ -41,14 +34,6 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	/*----------------           Parsing            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Parses static configuration parameters for Hamming distance calculations.
-	 *
-	 * @param arg Complete argument string
-	 * @param a Parameter name (e.g., "maxhdist", "clearzone")
-	 * @param b Parameter value
-	 * @return true if parameter was recognized and parsed, false otherwise
-	 */
 	public static boolean parseStatic(String arg, String a, String b){
 		if(a.equals("maxhdist") || a.equals("hdist") || a.equals("maxhdist0") || a.equals("hdist0")){
 			maxHDist0=Integer.parseInt(b);
@@ -62,18 +47,30 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 		return true;
 	}
 	
+	/**
+	 * Parses instance-specific parameters (currently no instance parameters supported).
+	 *
+	 * @param arg Complete argument string
+	 * @param a Parameter name
+	 * @param b Parameter value
+	 * @return false (no instance parameters currently supported)
+	 */
 	@Override
 	public boolean parse(String arg, String a, String b) {
 		return false;
 	}
 	
-	/** Performs post-parsing static initialization (currently no operations) */
 	public static void postParseStatic(){}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            HDist             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Finds the closest matching barcode using default distance and clearzone parameters.
+	 * @param s Query barcode string
+	 * @return Closest matching Barcode object or null if no match within thresholds
+	 */
 	@Override
 	public Barcode findClosest(String s) {
 		return length2<1 ? findClosestSingleHDist(s, maxHDist0, clearzone0) : 
@@ -94,17 +91,35 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 			findClosestDualHDist(s, maxHDist, clearzone);
 	}
 
+	/**
+	 * Throws RuntimeException as this Hamming distance implementation does not support probability calculations
+	 */
 	@Override
 	public void makeProbs() {
 		throw new RuntimeException("This class does not support this method.");
 	}
 
+	/** Initializes data structures (no-op for this implementation) */
 	@Override
 	public void initializeData() {}
 	
+	/**
+	 * Refines barcode assignments (no-op for this Hamming distance implementation).
+	 * @param codeCounts Collection of barcode counts to refine
+	 * @param minCount Minimum count threshold for refinement
+	 */
 	@Override
 	public void refine(Collection<Barcode> codeCounts, long minCount) {}
 	
+	/**
+	 * Creates mapping from observed barcodes to assigned reference barcodes.
+	 * Processes all barcodes above minimum count threshold using Hamming distance matching.
+	 * Chooses single-threaded or multi-threaded processing based on dataset size.
+	 *
+	 * @param codeCounts Collection of observed barcode counts
+	 * @param minCount Minimum count threshold for processing
+	 * @return HashMap mapping observed barcode strings to assigned reference strings
+	 */
 	@Override
 	public HashMap<String, String> makeAssignmentMap(Collection<Barcode> codeCounts, long minCount) {
 		Timer t=new Timer();
@@ -148,6 +163,12 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	/*----------------          Populating          ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Populates barcode assignment counts by finding closest matches for each query barcode.
+	 * Automatically selects single-threaded or multi-threaded processing based on workload size.
+	 * @param list List of query barcodes to process
+	 * @param minCount Minimum count threshold (must be less than 2)
+	 */
 	@Override
 	public void populateCounts(ArrayList<Barcode> list, long minCount) {
 		assert(minCount<2) : "TODO";
@@ -161,12 +182,6 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 		}
 	}
 
-	/**
-	 * Single-threaded population of barcode assignment counts.
-	 * @param countList List of barcodes to process
-	 * @param maxHDist Maximum Hamming distance for matching
-	 * @param clearzone Minimum distance gap between best and second-best matches
-	 */
 	private void populateCountsST(ArrayList<Barcode> countList,
 			int maxHDist, int clearzone) {
 		for(Barcode query : countList) {
@@ -211,15 +226,22 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 		}
 	}
 	
+	/**
+	 * Throws assertion error as this operation is not valid for Hamming distance implementation
+	 */
 	@Override
 	public void populateUnexpected() {assert(false) : "Not valid.";}
 	
+	/**
+	 * Throws RuntimeException as probability output is not supported.
+	 * @param bb ByteBuilder for output
+	 * @return Never returns (always throws exception)
+	 */
 	@Override
 	public ByteBuilder toBytesProb(ByteBuilder bb) {
 		throw new RuntimeException("This class does not support this method.");
 	}
 	
-	/** Returns true indicating this implementation is valid for use */
 	protected boolean valid() {return true;}
 	
 	/*--------------------------------------------------------------*/
@@ -228,16 +250,6 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	 * Each thread processes a subset of barcodes using stride-based work partitioning. */
 	final class PopThread extends Thread {
 
-		/**
-		 * Constructs a worker thread for barcode processing.
-		 *
-		 * @param list_ List of barcodes to process
-		 * @param maxHDist_ Maximum Hamming distance threshold
-		 * @param clearzone_ Clearzone threshold for disambiguation
-		 * @param map_ Optional assignment map to populate
-		 * @param tid_ Thread ID for stride-based work partitioning
-		 * @param threads_ Total number of worker threads
-		 */
 		public PopThread(ArrayList<Barcode> list_,
 				int maxHDist_, int clearzone_, HashMap<String, String> map_, int tid_, int threads_) {
 			list=list_;
@@ -249,6 +261,9 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 			countsT=(localCounts ? new long[length][5][5] : null);
 		}
 
+		/**
+		 * Executes barcode assignment processing for this thread's assigned work subset
+		 */
 		@Override
 		public void run() {
 			for(int i=tid; i<list.size(); i+=threads) {
@@ -291,33 +306,24 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 			}
 		}
 
-		/** List of barcodes assigned to this thread for processing */
 		final ArrayList<Barcode> list;
-		/** Maximum Hamming distance threshold for barcode matching */
 		final int maxHDist;
-		/** Minimum distance gap required between best and second-best matches */
 		final int clearzone;
-		/** Thread ID used for stride-based work partitioning */
 		final int tid;
-		/** Total number of worker threads in the processing pool */
 		final int threads;
-		/** Optional assignment map for storing barcode-to-reference mappings */
 		final HashMap<String, String> map;
 		
-		/**
-		 * Thread-local 3D array tracking [position][query_base][ref_base] mismatches
-		 */
 		final long[][][] countsT;
-		/** Thread-local count of total barcodes processed by this thread */
 		long totalCountedT;
-		/** Thread-local count of barcodes successfully assigned by this thread */
 		long totalAssignedT;
-		/**
-		 * Thread-local count of barcodes assigned to expected references by this thread
-		 */
 		long totalAssignedToExpectedT;
 	}
 
+	/**
+	 * Accumulates thread-local results from a worker thread into global counts.
+	 * Synchronizes access to prevent race conditions during result aggregation.
+	 * @param t PopThread containing thread-local results to accumulate
+	 */
 	@Override
 	public final void accumulate(PopThread t) {
 		if(localCounts) {
@@ -330,6 +336,8 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 		}
 	}
 
+	/** Returns processing success status based on error state.
+	 * @return true if processing completed without errors, false otherwise */
 	@Override
 	public boolean success() {
 		return !errorState;
@@ -337,9 +345,7 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Default maximum Hamming distance threshold for barcode matching */
 	static int maxHDist0=2;
-	/** Default clearzone threshold requiring minimum distance gap between matches */
 	static int clearzone0=1;
 	private static final boolean verbose=false;
 }

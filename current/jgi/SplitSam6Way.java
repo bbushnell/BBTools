@@ -15,14 +15,18 @@ import shared.Tools;
 import stream.SamLine;
 
 /**
+ * Splits SAM files into six separate output files based on read characteristics.
+ * Separates reads by pair number (R1/R2), strand orientation (plus/minus),
+ * and mapping status (mapped/unmapped). Processes header lines and alignment
+ * records to organize data for downstream analysis.
+ *
  * @author Brian Bushnell
  * @date Jun 15, 2017
- *
  */
 public class SplitSam6Way {
 	
-	/** Program entry point that creates and executes a SplitSam6Way instance.
-	 * @param args Command-line arguments containing input file and 6 output files */
+	/** Program entry point: parses args, constructs SplitSam6Way, and closes redirected streams.
+	 * Args: input SAM, then six outputs (r1plus, r1minus, r1unmapped, r2plus, r2minus, r2unmapped); use \"null\" to skip. */
 	public static void main(String[] args){
 		SplitSam6Way x=new SplitSam6Way(args);
 		
@@ -30,8 +34,7 @@ public class SplitSam6Way {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/** Prints usage syntax and options to the output stream.
-	 * Shows the required 7 arguments: input file and 6 output files. */
+	/** Prints usage syntax and expected arguments to stderr. */
 	private void printOptions(){
 		outstream.println("Syntax:\n");
 		outstream.println("java -ea -Xmx128m -cp <path> jgi.SplitSam6Way <input> <r1plus> <r1minus> <r1unmapped> <r2plus> <r2minus> <r2unmapped>");
@@ -39,14 +42,9 @@ public class SplitSam6Way {
 	}
 	
 	/**
-	 * Constructor that processes command-line arguments and splits the SAM file.
-	 * Creates separate output files for R1/R2 reads split by strand and mapping status.
-	 * Processes all SAM lines, copying headers to all outputs and routing alignment
-	 * records based on pair number, strand, and mapping status.
-	 *
-	 * @param args Array with input file and 6 output files:
-	 * [input, r1plus, r1minus, r1unmapped, r2plus, r2minus, r2unmapped]
-	 * Use "null" to skip unwanted output files
+	 * Parses command-line arguments, sets up output writers, and streams SAM records into six buckets based on pair/strand/mapping.
+	 * Supports optional maxReads argument.
+	 * @param args [input, r1plus, r1minus, r1unmapped, r2plus, r2minus, r2unmapped, (optional) maxReads]
 	 */
 	public SplitSam6Way(String[] args){
 		
@@ -162,7 +160,6 @@ public class SplitSam6Way {
 		outstream.println("R1 Unmapped Reads:  "+r2ureads);
 	}
 	
-	/** Output stream for progress messages and statistics */
 	private PrintStream outstream=System.err;
 	
 }

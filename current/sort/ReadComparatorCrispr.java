@@ -8,18 +8,18 @@ import shared.Parse;
 import stream.Read;
 import structures.SeqCountM;
 
+
+
 /**
+ * Comparator for sorting and ranking DNA reads with optional neural network scoring.
+ * Compares DNA reads based on embedded count and score metadata, with thread-safe
+ * neural network model loading for sequence scoring when score metadata is missing.
+ *
  * @author Brian Bushnell
  * @date Oct 27, 2014
- *
  */
-
-
 public class ReadComparatorCrispr extends ReadComparator{
 	
-	/**
-	 * Private constructor prevents instantiation; use the static comparator instance
-	 */
 	private ReadComparatorCrispr(){}
 	
 	@Override
@@ -27,15 +27,6 @@ public class ReadComparatorCrispr extends ReadComparator{
 		return ascending*compare(r1, r2, true);
 	}
 	
-	/**
-	 * Extracts or creates a SeqCountM object containing count and score metadata for a read.
-	 * Parses count from the read ID using "count=" prefix and score using "score=" prefix.
-	 * If score is missing or invalid and a neural network is loaded, computes score using
-	 * the network in a thread-safe manner.
-	 *
-	 * @param r The read to extract metadata from
-	 * @return SeqCountM object with count and score information
-	 */
 	private SeqCountM getSCM(Read r) {
 		if(r.obj!=null) {return (SeqCountM)r.obj;}
 		String id=r.id;
@@ -56,12 +47,9 @@ public class ReadComparatorCrispr extends ReadComparator{
 	}
 	
 	/**
-	 * Compares two reads based on their SeqCountM metadata.
-	 * First compares using SeqCountM.compareTo(), then falls back to string ID comparison
-	 * for tie-breaking.
-	 *
-	 * @param r1 First read to compare
-	 * @param r2 Second read to compare
+	 * Compares two reads using SeqCountM metadata (count/score) and falls back to ID tie-breakers.
+	 * @param r1 First read
+	 * @param r2 Second read
 	 * @param compareMates Whether to include mate comparison (currently unused)
 	 * @return Negative if r1 < r2, positive if r1 > r2, zero if equal
 	 */
@@ -74,24 +62,23 @@ public class ReadComparatorCrispr extends ReadComparator{
 		return r1.id.compareTo(r2.id);
 	}
 
+	/** Sets the sorting direction for read comparison.
+	 * @param asc true for ascending order, false for descending */
 	@Override
 	public void setAscending(boolean asc) {
 		ascending=(asc ? 1 : -1);
 	}
 	
-	/** Loads the neural network from the default CRISPR network file if not already loaded.
-	 * Uses thread-safe initialization to prevent multiple loading attempts. */
+	/**
+	 * Loads the default CRISPR neural network if not already loaded; thread-safe.
+	 */
 	public static synchronized void loadNet() {
 		if(net!=null) {return;}
 		setNet(CellNetParser.load(netFile));
 	}
 	
-	/**
-	 * Sets the neural network for sequence scoring with thread-safe initialization.
-	 * Creates a copy of the provided network and initializes the input vector array.
-	 * Setting null clears both the network and vector.
-	 * @param net_ The neural network to use, or null to clear
-	 */
+	/** Sets or clears the neural network used for sequence scoring; initializes input vector.
+	 * @param net_ Network to use, or null to clear */
 	public static synchronized void setNet(CellNet net_) {
 		if(net_==null) {
 			net=null;
@@ -102,20 +89,11 @@ public class ReadComparatorCrispr extends ReadComparator{
 		vec=new float[net.numInputs()];
 	}
 	
-	/** Path to the default CRISPR neural network file (crispr.bbnet.gz) */
 	private static String netFile=Data.findPath("?crispr.bbnet.gz", false);
 	
-	/** Singleton instance of the CRISPR read comparator */
 	public static final ReadComparatorCrispr comparator=new ReadComparatorCrispr();
-	/**
-	 * Neural network used for sequence scoring when score metadata is unavailable
-	 */
 	private static CellNet net=null;
-	/** Input vector for neural network scoring operations */
 	private static float[] vec=null;
 	
-	/**
-	 * Sorting direction multiplier: 1 for ascending order, -1 for descending order
-	 */
 	int ascending=1;
 }

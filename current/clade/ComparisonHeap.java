@@ -6,19 +6,15 @@ import java.util.Comparator;
 import java.util.PriorityQueue;
 
 /**
- * Maintains a heap of the top N Comparisons encountered.
- * Useful for finding the best N matches rather than just the single best match.
- * 
+ * Maintains a heap of the top N Comparison objects (best-first retrieval).
+ * Keeps worst element at the root to allow efficient replacement when better comparisons arrive.
+ * Useful for retaining top matches rather than a single best match.
  * @author Brian Bushnell
  * @contributor Isla
  * @date April 19, 2024
  */
 public class ComparisonHeap {
     
-    /**
-     * Comparator that reverses the natural ordering of Comparisons.
-     * This keeps the worst comparison at the top of our heap.
-     */
     private static class WorstFirstComparator implements Comparator<Comparison> {
         @Override
         public int compare(Comparison c1, Comparison c2) {
@@ -27,11 +23,8 @@ public class ComparisonHeap {
         }
     }
     
-    /**
-     * Creates a new ComparisonHeap with the specified maximum size.
-     * 
-     * @param maxSize Maximum number of comparisons to keep
-     */
+    /** Creates a heap with a fixed maximum size; worst element sits at the top.
+     * @param maxSize Maximum number of comparisons to retain */
     public ComparisonHeap(int maxSize) {
         this.maxSize = maxSize;
         // Create a heap ordered to keep the worst comparison at the top
@@ -39,12 +32,10 @@ public class ComparisonHeap {
     }
     
     /**
-     * Offers a comparison to the heap. The comparison will be added if:
-     * 1. The heap is not yet full, or
-     * 2. The comparison is better than the worst one in the heap
-     * 
-     * @param comp The comparison to offer (will not be modified or stored directly)
-     * @return true if the comparison was added, false otherwise
+     * Offers a comparison; added if heap has room or if it is better than the current worst.
+     * Copies the offered Comparison before storing.
+     * @param comp Comparison candidate
+     * @return true if added
      */
     public boolean offer(Comparison comp) {
         if (heap.size() < maxSize) {
@@ -69,7 +60,9 @@ public class ComparisonHeap {
     }
     
     /**
-     * Returns a sorted list of the top comparisons (best first)
+     * Returns a sorted list of the top comparisons in best-first order.
+     * The heap is converted to an ArrayList and sorted using natural ordering.
+     * @return ArrayList of comparisons sorted from best to worst
      */
     public ArrayList<Comparison> toList() {
     	ArrayList<Comparison> result = new ArrayList<Comparison>(heap);
@@ -78,16 +71,13 @@ public class ComparisonHeap {
         return result;
     }
     
-    /**
-     * Returns the number of comparisons currently in the heap
-     */
+    /** Returns the number of comparisons currently stored.
+     * @return Current heap size */
     public int size() {
         return heap.size();
     }
     
-    /**
-     * Clears all comparisons from the heap
-     */
+    /** Clears all stored comparisons from the heap. */
     public void clear() {
         heap.clear();
     }
@@ -110,14 +100,12 @@ public class ComparisonHeap {
 //        return best;
 //    }
     
-    /** Returns the worst comparison currently in the heap without removing it.
-     * @return The worst comparison, or null if heap is empty */
+    /** Returns the worst comparison without removing it (root of the heap).
+     * @return Worst comparison or null if empty */
     public Comparison worst() {
     	return heap.peek();
     }
     
-    /** Priority queue maintaining comparisons with worst element at top */
     private final PriorityQueue<Comparison> heap;
-    /** Maximum number of comparisons to retain in the heap */
     private final int maxSize;
 }

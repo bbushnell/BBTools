@@ -6,17 +6,17 @@ import shared.Tools;
  * Converts Var objects into feature vectors for neural network analysis.
  * Implements a factory pattern supporting three different neural network models
  * developed by summer interns, each with specialized feature extraction algorithms.
- * 
+ *
  * Feature extraction modes:
  * - ELBA: Quality score prediction using 32-dimensional vectors with quality metrics,
- *   strand bias analysis, and context normalization against dataset statistics
+ * strand bias analysis, and context normalization against dataset statistics
  * - LAWRENCE: Genotype calling using 8-dimensional min-max scaled vectors with
- *   revised allele fractions, mapping qualities, and strand bias scoring
+ * revised allele fractions, mapping qualities, and strand bias scoring
  * - DONOVAN: Template framework for additional model development (16-dimensional placeholder)
- * 
+ *
  * The feature vectors are designed for specific neural network architectures trained
  * on variant calling datasets, with each intern optimizing for their particular task.
- * 
+ *
  * @author Brian Bushnell
  * @author Isla
  * @date July 21, 2025
@@ -27,13 +27,10 @@ public class FeatureVectorMaker {
 	/*----------------        Mode Constants        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Feature extraction modes for different neural network models trained by summer interns */
 	public static final int ELBA=0, LAWRENCE=1, DONOVAN=2;
 	
-	/** Current active feature extraction mode, defaults to ELBA's quality prediction model */
 	private static int MODE=ELBA;
 	
-	/** String representations of modes for command-line parsing and configuration */
 	private static final String[] MODE_NAMES={"ELBA", "LAWRENCE", "DONOVAN"};
 	
 	/*--------------------------------------------------------------*/
@@ -45,7 +42,7 @@ public class FeatureVectorMaker {
 	 * Implements factory pattern routing to intern-specific feature extraction algorithms.
 	 * Each algorithm produces vectors of different dimensionality and scaling appropriate
 	 * for their trained neural network architectures.
-	 * 
+	 *
 	 * @param v Variant to convert with coverage, quality, and mapping statistics
 	 * @param pairingRate Dataset-wide proper pairing rate for normalization context
 	 * @param totalQualityAvg Average base quality across entire sequencing dataset
@@ -81,6 +78,7 @@ public class FeatureVectorMaker {
 	 * normalization ratios.
 	 * Algorithm combines absolute quality metrics with relative measures normalized
 	 * against dataset averages to provide context-aware features for neural network training.
+	 *
 	 * @param v Variant with accumulated quality and coverage statistics
 	 * @param pairingRate Dataset proper pairing rate for normalization
 	 * @param totalQualityAvg Dataset average base quality for relative scaling
@@ -143,11 +141,11 @@ public class FeatureVectorMaker {
 	 * Implements min-max scaling algorithm with pre-trained bounds derived from training data.
 	 * Features focus on revised allele fractions, quality metrics, and strand bias scoring
 	 * specifically tuned for distinguishing true variants from sequencing artifacts.
-	 * 
+	 *
 	 * The algorithm applies min-max normalization: (value - min) / (max - min)
 	 * with bounds clipped to [0,1] to handle values outside the training range.
 	 * Feature bounds were empirically derived from variant calling training datasets.
-	 * 
+	 *
 	 * @param v Variant with quality and mapping statistics
 	 * @param pairingRate Dataset proper pairing rate (unused in current implementation)
 	 * @param totalQualityAvg Dataset average base quality (unused in current implementation)
@@ -232,10 +230,10 @@ public class FeatureVectorMaker {
 	 * Currently implements basic variant features as a foundation for custom neural network
 	 * architecture development. This method serves as a starting framework that can be
 	 * extended with domain-specific features as requirements become defined.
-	 * 
+	 *
 	 * Template includes fundamental variant properties (allele count, coverage, frequency,
 	 * and type) with remaining vector slots reserved for custom feature engineering.
-	 * 
+	 *
 	 * @param v Variant with basic statistics for feature extraction
 	 * @param pairingRate Dataset proper pairing rate (reserved for future use)
 	 * @param totalQualityAvg Dataset average base quality (reserved for future use)
@@ -291,10 +289,6 @@ public class FeatureVectorMaker {
 		MODE=mode;
 	}
 	
-	/**
-	 * Get the currently active feature extraction mode constant.
-	 * @return Current mode constant (ELBA=0, LAWRENCE=1, DONOVAN=2)
-	 */
 	public static int getMode(){
 		return MODE;
 	}
@@ -311,10 +305,6 @@ public class FeatureVectorMaker {
 		else{throw new RuntimeException("Unknown mode: "+MODE);}
 	}
 	
-	/**
-	 * Get the string representation of the currently active mode.
-	 * @return Current mode name ("ELBA", "LAWRENCE", or "DONOVAN")
-	 */
 	public static String getModeName(){
 		return MODE_NAMES[MODE];
 	}

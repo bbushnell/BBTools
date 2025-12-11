@@ -13,14 +13,16 @@ import shared.Tools;
 import stream.SamLine;
 
 /**
+ * Splits SAM alignment files into four categories based on mapping properties.
+ * Separates reads into plus strand, minus strand, chimeric, and unmapped files.
+ * Processes paired-end alignments and categorizes based on strand orientation
+ * and mapping status.
+ *
  * @author Brian Bushnell
  * @date Jul 23, 2013
- *
  */
 public class SplitSam4Way {
 	
-	/** Program entry point for SAM file splitting utility.
-	 * @param args Command-line arguments: input SAM file and four output file paths */
 	public static void main(String[] args){
 		SplitSam4Way x=new SplitSam4Way(args);
 		
@@ -28,22 +30,12 @@ public class SplitSam4Way {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/** Prints usage instructions and command-line syntax to the output stream.
-	 * Shows the required arguments and explains that unwanted outputs can use 'null'. */
 	private void printOptions(){
 		outstream.println("Syntax:\n");
 		outstream.println("java -ea -Xmx128m -cp <path> jgi.SplitSam4Way <input> <out plus> <out minus> <out chimeric> <out unmapped>");
 		outstream.println("If you do not want one of the output files, use the word 'null'.\n");
 	}
 	
-	/**
-	 * Constructs and executes the SAM file splitting operation.
-	 * Parses input SAM file and categorizes reads into four output streams:
-	 * plus strand, minus strand, chimeric, and unmapped reads.
-	 * Reads are categorized based on mapping status, mate pairing, and strand orientation.
-	 *
-	 * @param args Command-line arguments containing input file and four output file paths
-	 */
 	public SplitSam4Way(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -124,7 +116,6 @@ public class SplitSam4Way {
 		outstream.println("Unmapped Reads:     "+ureads);
 	}
 	
-	/** Output stream for progress messages and statistics */
 	private PrintStream outstream=System.err;
 	
 }

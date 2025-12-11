@@ -21,14 +21,16 @@ import structures.ByteBuilder;
 import structures.IntHashSet;
 
 /**
+ * Renames sequence headers in IMG (Integrated Microbial Genomes) files by adding
+ * taxonomy ID prefixes. Processes FASTA files from IMG database and prepends
+ * "tid|{taxid}|img|{imgid}" to sequence headers.
+ * Enables taxonomic tracking and identification of sequences from IMG genome collections.
+ *
  * @author Brian Bushnell
  * @date May 9, 2016
- *
  */
 public class RenameIMG {
 	
-	/** Program entry point for IMG sequence renaming.
-	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RenameIMG x=new RenameIMG(args);
@@ -38,12 +40,6 @@ public class RenameIMG {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs RenameIMG instance and parses command-line arguments.
-	 * Configures input/output files, IMG database paths, and processing options.
-	 * Sets up file format handlers and validates output directory permissions.
-	 * @param args Command-line arguments containing file paths and configuration
-	 */
 	public RenameIMG(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -114,12 +110,6 @@ public class RenameIMG {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FA, null, true, overwrite, append, false);
 	}
 	
-	/**
-	 * Processes array of IMG records and copies sequences with renamed headers.
-	 * For each IMG record, extracts taxonomy ID and processes the associated FASTA file.
-	 * Tracks known and unknown taxonomy IDs during processing.
-	 * @param array Array of IMG records containing file paths and metadata
-	 */
 	void copyFiles(ImgRecord[] array){
 		if(useSet){set=new IntHashSet(10000);}
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout1);
@@ -135,12 +125,6 @@ public class RenameIMG {
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 	}
 	
-	/**
-	 * Main processing pipeline that loads IMG database and renames sequences.
-	 * Loads IMG records from input file, initializes taxonomy tree, processes files,
-	 * and prints comprehensive statistics about the operation.
-	 * @param t Timer for tracking execution time and performance metrics
-	 */
 	void process(Timer t){
 		ImgRecord[] array=ImgRecord.toArray(in1, TaxTree.IMG_HQ);
 		if(imgFile==null){
@@ -178,15 +162,6 @@ public class RenameIMG {
 		}
 	}
 	
-	/**
-	 * Processes individual FASTA file and renames sequence headers with taxonomy information.
-	 * Reads each line from input file, identifies sequence headers (starting with '>'),
-	 * and prepends "tid|{taxid}|img|{imgid}" prefix to create taxonomically annotated headers.
-	 *
-	 * @param ffin Input file format specification
-	 * @param bsw Output stream writer for processed sequences
-	 * @param img IMG identifier for the current genome
-	 */
 	void process_inner(final FileFormat ffin, final ByteStreamWriter bsw, final long img){
 		
 		filesProcessed++;
@@ -245,60 +220,39 @@ public class RenameIMG {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Primary input file path containing IMG record list or sequence data */
 	private String in1=null;
-	/** Output file path for sequences with renamed headers */
 	private String out1=null;
-	/** Optional IMG database file path for taxonomy information lookup */
 	private String imgFile=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Hash set for tracking unique taxonomy IDs encountered during processing */
 	private IntHashSet set=null;
-	/** Count of sequences with known taxonomy IDs */
 	private int knownTaxid=0;
-	/** Count of sequences with unknown or invalid taxonomy IDs */
 	private int unknownTaxid=0;
-	/** Whether to use hash set for tracking unique taxonomy IDs */
 	private boolean useSet=true;
 	
-	/** Total number of lines read from all input files */
 	private long linesProcessed=0;
-	/** Number of valid lines successfully processed */
 	private long linesValid=0;
-	/** Total bytes read from all input files including headers and sequences */
 	private long bytesProcessed=0;
 
-	/** Total number of sequence bases processed (excludes header lines) */
 	private long basesProcessed=0;
-	/** Total number of sequences (FASTA records) processed */
 	private long sequencesProcessed=0;
-	/** Total number of files attempted for processing */
 	private long filesProcessed=0;
-	/** Number of files successfully processed without errors */
 	private long filesValid=0;
 	
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output file format specification for renamed sequences */
 	private final FileFormat ffout1;
 	
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Global flag controlling verbosity of diagnostic output */
 	public static boolean verbose=false;
-	/** Flag indicating whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

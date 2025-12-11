@@ -10,10 +10,14 @@ import shared.Tools;
 import structures.IntList2;
 
 /**
- * Stores kmers in a long[] and counts in an int[], with a victim cache.
+ * Stores k-mers in a long[] and counts in an int[], with a victim cache.
+ * Hybrid hash array implementation that uses arrays for primary storage and
+ * overflow handling through a victim cache. Values can be stored directly
+ * in the values array or as references to lists when multiple values exist
+ * for a single k-mer.
+ *
  * @author Brian Bushnell
  * @date Oct 25, 2013
- *
  */
 public final class HashArrayHybrid extends HashArray {
 	
@@ -21,14 +25,6 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a new HashArrayHybrid with specified schedule and core mask.
-	 * Initializes the values array and setList for storing k-mer counts and
-	 * overflow handling.
-	 *
-	 * @param schedule_ Array defining resize schedule for the hash array
-	 * @param coreMask_ Bit mask for k-mer core extraction
-	 */
 	public HashArrayHybrid(int[] schedule_, long coreMask_){
 		super(schedule_, coreMask_, true);
 		values=allocInt1D(prime+extra);
@@ -49,6 +45,15 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Increments the count for a k-mer by the specified amount.
+	 * Searches the primary array first, then falls back to victim cache if needed.
+	 * Creates new entry if k-mer not found. Triggers resize when size limit exceeded.
+	 *
+	 * @param kmer The k-mer to increment
+	 * @param incr Amount to increment by
+	 * @return New count value after increment
+	 */
 	@Override
 	public final int increment(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
@@ -74,6 +79,15 @@ public final class HashArrayHybrid extends HashArray {
 		return x;
 	}
 	
+	/**
+	 * Increments the count for a k-mer and returns number of new entries created.
+	 * Similar to increment but returns 1 if a new k-mer entry was created, 0 if existing
+	 * entry was incremented. Used for tracking unique k-mer additions.
+	 *
+	 * @param kmer The k-mer to increment
+	 * @param incr Amount to increment by
+	 * @return 1 if new entry created, 0 if existing entry incremented
+	 */
 	@Override
 	public final int incrementAndReturnNumCreated(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
@@ -103,6 +117,14 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------      Nonpublic Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Reads the count value from a specific cell in the array.
+	 * Handles both direct values and references to setList arrays.
+	 * Values >= -1 are direct counts, values < -2 are indices into setList.
+	 *
+	 * @param cell Array index to read from
+	 * @return Count value for the cell
+	 */
 	@Override
 	protected final int readCellValue(int cell) {
 		final int x=values[cell];
@@ -110,6 +132,15 @@ public final class HashArrayHybrid extends HashArray {
 		return setList.get(0-x)[0];
 	}
 	
+	/**
+	 * Reads all count values from a specific cell.
+	 * For single values, uses provided singleton array. For multiple values,
+	 * returns reference to array stored in setList.
+	 *
+	 * @param cell Array index to read from
+	 * @param singleton Reusable single-element array for efficiency
+	 * @return Array containing all values for the cell
+	 */
 	@Override
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		final int x=values[cell];
@@ -120,6 +151,16 @@ public final class HashArrayHybrid extends HashArray {
 		return setList.get(0-x);
 	}
 	
+	/**
+	 * Inserts an array of values for a k-mer at the specified cell.
+	 * Handles various cases: single values, existing arrays, and array creation.
+	 * Optimizes for the common case where only one value is being added.
+	 *
+	 * @param kmer The k-mer these values belong to
+	 * @param vals Array of values to insert
+	 * @param cell Target cell location
+	 * @param vlen Number of valid values in vals array
+	 */
 	@Override
 	protected final void insertValue(long kmer, int[] vals, int cell, int vlen) {
 		if(verbose){System.err.println("insertValue("+kmer+", "+Arrays.toString(vals)+", "+cell+"); old="+values[cell]);}
@@ -156,6 +197,15 @@ public final class HashArrayHybrid extends HashArray {
 		}
 	}
 	
+	/**
+	 * Inserts a single value for a k-mer at the specified cell.
+	 * Handles transitions from no value to single value to multiple values.
+	 * Creates setList arrays when multiple values need to be stored.
+	 *
+	 * @param kmer The k-mer this value belongs to
+	 * @param v The value to insert
+	 * @param cell Target cell location
+	 */
 	@Override
 	protected final void insertValue(long kmer, int v, int cell) {
 		assert(array[cell]==kmer);
@@ -173,15 +223,6 @@ public final class HashArrayHybrid extends HashArray {
 		}
 	}
 	
-	/**
-	 * Legacy method for inserting values into setList arrays.
-	 * Handles array growth and duplicate checking. Replaced by
-	 * more efficient implementation in setList.insertIntoList().
-	 *
-	 * @param v Value to insert
-	 * @param loc Location in setList
-	 * @return 1 if new value added, 0 if duplicate found
-	 */
 	@Deprecated
 	private final int insertIntoListOld(final int v, final int loc){
 		
@@ -210,14 +251,6 @@ public final class HashArrayHybrid extends HashArray {
 		return 1;
 	}
 	
-	/**
-	 * Inserts a value into a setList array at specified location.
-	 * Delegates to setList's optimized insertion method.
-	 *
-	 * @param v Value to insert
-	 * @param loc Location in setList
-	 * @return 1 if new value added, 0 if duplicate found
-	 */
 	private final int insertIntoList(final int v, final int loc){
 		return setList.insertIntoList(v, loc);
 	}
@@ -226,9 +259,16 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------   Resizing and Rebalancing   ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns false as this implementation does not support rebalancing */
 	@Override
 	public final boolean canRebalance() {return false;}
 	
+	/**
+	 * Resizes the hash array when load factor exceeds threshold.
+	 * Creates new arrays with larger prime size, rehashes all existing k-mers
+	 * from both main array and victim cache. Preserves all stored values
+	 * and their associations. Synchronized to prevent concurrent modifications.
+	 */
 	@Override
 	protected synchronized void resize(){
 		
@@ -381,12 +421,21 @@ public final class HashArrayHybrid extends HashArray {
 //		}
 	}
 	
+	/**
+	 * Throws RuntimeException as rebalancing is not implemented for this hash array type
+	 */
 	@Deprecated
 	@Override
 	public void rebalance(){
 		throw new RuntimeException("Unimplemented.");
 	}
 	
+	/**
+	 * Throws RuntimeException as regeneration is not supported.
+	 * @param limit Unused parameter
+	 * @return Never returns due to exception
+	 * @throws RuntimeException Always thrown
+	 */
 	@Deprecated
 	@Override
 	public long regenerate(final int limit){
@@ -397,9 +446,7 @@ public final class HashArrayHybrid extends HashArray {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Array storing count values corresponding to k-mers in the main array */
 	private int[] values;
-	/** List of integer arrays for storing multiple values per k-mer when needed */
 	private IntList2 setList;
 	
 }

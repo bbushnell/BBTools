@@ -14,17 +14,15 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Streams reads from FASTA format files with support for interleaved paired reads.
+ * Provides buffered reading with configurable read splitting and filtering capabilities.
+ * Handles both amino acid and nucleotide sequences with quality score generation.
+ *
  * @author Brian Bushnell
  * @date Feb 13, 2013
- *
  */
 public class FastaReadInputStream extends ReadInputStream {
 	
-	/**
-	 * Test harness for reading and displaying FASTA sequences.
-	 * Accepts parameters for read range, minimum length, and target length.
-	 * @param args Command-line arguments: filename, start_index, end_index, min/target_length
-	 */
 	public static void main(String[] args){
 		
 		int a=20, b=Integer.MAX_VALUE;
@@ -55,29 +53,10 @@ public class FastaReadInputStream extends ReadInputStream {
 		System.out.println("Time: \t"+t);
 	}
 	
-	/**
-	 * Constructs a FASTA input stream from filename with processing options.
-	 * Automatically detects file format and validates FASTA extension.
-	 *
-	 * @param fname Input filename or "stdin" for standard input
-	 * @param interleaved_ Whether reads are interleaved paired-end format
-	 * @param amino_ Whether sequences are amino acid (true) or nucleotide (false)
-	 * @param allowSubprocess_ Whether to allow subprocess for compressed files
-	 * @param maxdata Maximum data to buffer in memory
-	 */
 	public FastaReadInputStream(String fname, boolean interleaved_, boolean amino_, boolean allowSubprocess_, long maxdata){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, FileFormat.FASTA, 0, allowSubprocess_, false, false), interleaved_, amino_, maxdata);
 	}
 	
-	/**
-	 * Constructs a FASTA input stream from FileFormat with processing options.
-	 * Sets up buffering, length limits, and flags based on configuration.
-	 *
-	 * @param ff FileFormat object specifying input file details
-	 * @param interleaved_ Whether reads are interleaved paired-end format
-	 * @param amino_ Whether sequences are amino acid (true) or nucleotide (false)
-	 * @param maxdata Maximum data to buffer in memory
-	 */
 	public FastaReadInputStream(FileFormat ff, boolean interleaved_, boolean amino_, long maxdata){
 		name=ff.name();
 		amino=amino_;
@@ -126,6 +105,8 @@ public class FastaReadInputStream extends ReadInputStream {
 		return (currentList!=null && nextReadIndex<currentList.size());
 	}
 	
+	/** Resets the stream to beginning for re-reading the same file.
+	 * Closes current stream, clears buffers, and reopens from start. */
 	@Override
 	public void restart() {
 		if(ins!=null){close();}
@@ -147,6 +128,11 @@ public class FastaReadInputStream extends ReadInputStream {
 		}
 	}
 	
+	/**
+	 * Closes the input stream and releases resources.
+	 * Thread-safe operation that prevents multiple closures.
+	 * @return false always (legacy return value)
+	 */
 	@Override
 	public final boolean close(){
 		synchronized(this){
@@ -168,6 +154,8 @@ public class FastaReadInputStream extends ReadInputStream {
 		return false;
 	}
 	
+	/** Indicates if this stream contains paired-end reads.
+	 * @return true if reads are interleaved paired-end format */
 	@Override
 	public boolean paired() {return interleaved;}
 	
@@ -214,12 +202,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		return currentList.size()>0;
 	}
 	
-	/**
-	 * Generates a single Read object from buffered FASTA data.
-	 * Handles read splitting, section naming, and quality score generation.
-	 * @param pairnum Pair number (0 or 1) for paired-end reads
-	 * @return Read object or null if no more sequence data available
-	 */
 	private final Read generateRead(int pairnum){
 		if(verbose){System.err.println("Called generateRead(); bstart="+bstart+", bstop="+bstop+", currentSection="+currentSection+", header="+header);}
 		assert(header!=null) : "Null header for fasta read - input file may be corrupt: "+name;
@@ -294,11 +276,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
-	/**
-	 * Extracts the next FASTA header from the buffer.
-	 * Handles buffer refilling and legacy format compatibility.
-	 * @return Header string without '>' prefix or null if no more headers
-	 */
 	private String nextHeader(){
 		if(verbose){System.err.println("Called nextHeader(); bstart="+bstart+"; bstop="+bstop);}
 		assert(bstart>=bstop || buffer[bstart]=='>' || buffer[bstart]<=slashr) : bstart+", "+bstop+", '"+(char)buffer[bstart]+"'"+"\t"+name;
@@ -354,11 +331,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		return s;
 	}
 	
-	/**
-	 * Extracts sequence bases following the current header.
-	 * Filters non-sequence characters and enforces length limits.
-	 * @return Byte array of sequence bases or null if insufficient sequence
-	 */
 	private byte[] nextBases(){
 		if(verbose){System.err.println("Called nextBases()");}
 //		assert(open) : "Attempting to read from a closed file.  Current header: "+header;
@@ -435,11 +407,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
-	/**
-	 * Handles FASTA headers that have no associated sequence data.
-	 * Provides configurable warning behavior for malformed files.
-	 * @param x Current buffer position for error reporting
-	 */
 	private void handleNoSequence(int x){
 		if(currentSection>0){return;}//This section is spuriously entered for reads that are a multiple of the target read length when splitting.
 		if(WARN_IF_NO_SEQUENCE){
@@ -453,7 +420,11 @@ public class FastaReadInputStream extends ReadInputStream {
 		assert(!ABORT_IF_NO_SEQUENCE) : "\n<START>"+new String(buffer, 0, Tools.min(x+1, buffer.length))+"<STOP>\n";
 	}
 	
-	/** Fills buffer.  Ensures that result will extend to the next caret or EOF.  Returns number of bytes filled. */
+	/**
+	 * Fills internal buffer from input stream ensuring complete FASTA records.
+	 * Handles buffer expansion, comment skipping, and boundary detection.
+	 * @return Number of bytes read from stream
+	 */
 	private final int fillBuffer(){
 //		assert(open);
 		if(!open){return 0;}
@@ -534,12 +505,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		return sum;
 	}
 	
-	/**
-	 * Opens the input stream for reading FASTA data.
-	 * Initializes buffer state and handles subprocess creation.
-	 * @return InputStream object for reading data
-	 * @throws RuntimeException If stream is already open
-	 */
 	private final InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened fasta file "+name);
@@ -552,12 +517,14 @@ public class FastaReadInputStream extends ReadInputStream {
 		return ins;
 	}
 	
-	/** Checks if the input stream is currently open.
-	 * @return true if stream is open and ready for reading */
 	public boolean isOpen(){return open;}
 	
-	/** Validate fasta settings for auto-shredding input.
-	 * This is kind of obsolete legacy code for BBMap. */
+	/**
+	 * Validates configuration settings for FASTA processing.
+	 * Checks length limits and split-read parameters for consistency.
+	 * @return true if all settings are valid
+	 * @throws RuntimeException If settings are invalid or inconsistent
+	 */
 	public static final boolean settingsOK(){
 		if(MIN_READ_LEN>=Integer.MAX_VALUE-1){
 			throw new RuntimeException("Minimum FASTA read length is too long: "+MIN_READ_LEN);
@@ -581,68 +548,42 @@ public class FastaReadInputStream extends ReadInputStream {
 	@Override
 	public String fname(){return name;}
 	
-	/** Input filename or stream identifier */
 	public final String name;
 	
-	/** Current buffer of reads being processed */
 	private ArrayList<Read> currentList=null;
-	/** Currently active FASTA header */
 	private String header=null;
 	
-	/** Last header reported for no-sequence warnings */
 	private String reportedHeader=null;
 
-	/** Whether the input stream is currently open */
 	private boolean open=false;
-	/** Internal buffer for reading file data */
 	private byte[] buffer=new byte[16384];
 	private int bstart=0, bstop=0;
-	/** Underlying input stream for reading data */
 	public InputStream ins;
 	
-	/** Number of reads consumed from this stream */
 	private long consumed=0;
-	/** Numeric ID for the next read to be generated */
 	private long nextReadID=0;
-	/** Index of next read in current buffer */
 	private int nextReadIndex=0;
-	/** Current section number for split reads */
 	private int currentSection=0;
 
-	/** Whether subprocess creation is allowed for compressed files */
 	public final boolean allowSubprocess;
-	/** Whether reads are in interleaved paired-end format */
 	public final boolean interleaved;
-	/** Whether sequences are amino acids rather than nucleotides */
 	public final boolean amino;
-	/** Bit flags for read properties based on amino acid setting */
 	public final int flag;
-	/** Maximum number of reads to buffer at once */
 	private final int BUF_LEN=Shared.bufferLen();
-	/** Maximum total sequence data to buffer in memory */
 	private final long MAX_DATA;
 	private final int maxLen, minLen;
 	
 	
-	/** Enable verbose debugging output */
 	public static boolean verbose=false;
 	private static final byte slashr='\r', slashn='\n', carrot='>', space=' ', tab='\t', SOH=0x1, STX=0x2;
 	
-	/** Whether to split long reads into smaller segments */
 	public static boolean SPLIT_READS=false;
-	/** Target length for read splitting when enabled */
 	public static int TARGET_READ_LEN=500;
-	/** Minimum sequence length to retain after filtering */
 	public static int MIN_READ_LEN=1;
-	/** Whether to generate fake quality scores for FASTA sequences */
 	public static boolean FAKE_QUALITY=false;
-	/** Whether to force section suffixes even for single-section reads */
 	public static boolean FORCE_SECTION_NAME=false;
-	/** Whether to warn about FASTA headers with no associated sequence */
 	public static boolean WARN_IF_NO_SEQUENCE=true;
-	/** Whether to suppress repeated warnings after the first occurrence */
 	public static boolean WARN_FIRST_TIME_ONLY=true;
-	/** Whether to abort processing when encountering headerless sequences */
 	public static boolean ABORT_IF_NO_SEQUENCE=false;
 	
 }

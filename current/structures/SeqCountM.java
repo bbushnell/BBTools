@@ -3,10 +3,9 @@ package structures;
 import shared.Tools;
 
 /**
- * Mutable version of SeqCount that tracks variable occurrence counts and scores.
- * While the parent SeqCount is immutable with fixed count of 1, SeqCountM allows
- * incremental counting of sequence occurrences and maintains an optional score.
- * Used for applications requiring accumulation of sequence statistics.
+ * Mutable SeqCount that accumulates occurrences and optional scores.
+ * Allows incrementing counts for repeated sequences while retaining sequence bytes.
+ * Used where SeqCount immutability is insufficient for aggregation.
  *
  * @author Brian Bushnell
  * @date June 3, 2025
@@ -17,32 +16,24 @@ public class SeqCountM extends SeqCount {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates a mutable SeqCountM from an existing SeqCount.
-	 * Copies the sequence data and initializes count to the source count.
-	 * @param sq Source SeqCount to copy from
-	 */
 	public SeqCountM(SeqCount sq) {
 		super(sq.bases);
 		count=sq.count();
 	}
 	
-	/**
-	 * Creates a SeqCountM from a subsequence of bases with initial count of 1.
-	 * @param s Source sequence array
-	 * @param start Starting index (inclusive)
-	 * @param stop Ending index (exclusive)
-	 */
 	public SeqCountM(byte[] s, int start, int stop) {
 		super(s, start, stop);
 	}
 	
-	/** Creates a SeqCountM from a complete sequence array with initial count of 1.
-	 * @param s Sequence bases to track */
 	public SeqCountM(byte[] s) {
 		super(s);
 	}
 	
+	/**
+	 * Creates a synchronized clone of this SeqCountM.
+	 * Preserves the sequence data, count, and score values.
+	 * @return Deep copy of this SeqCountM
+	 */
 	@Override
 	public SeqCountM clone() {
 		synchronized(this) {
@@ -56,26 +47,32 @@ public class SeqCountM extends SeqCount {
 	/*--------------------------------------------------------------*/
 	
 //	@Override
-	/**
-	 * Adds the count from another SeqCount to this SeqCountM.
-	 * Accumulates occurrence counts for the same sequence.
-	 * @param s SeqCount whose count should be added to this one
-	 */
+	/** Adds the count from another SeqCount to this instance (no sequence copy).
+	 * @param s SeqCount whose count should be accumulated */
 	public void add(SeqCount s) {
 //		assert(equals(s));
 		count+=s.count();
 	}
 
 //	@Override
-	/** Increments the count by the specified amount.
+	/** Increments the occurrence count by the specified amount.
 	 * @param x Amount to add to the current count */
 	public void increment(int x) {
 		count+=x;
 	}
 
+	/** Returns the current occurrence count for this sequence */
 	@Override
 	public int count() {return count;}
 	
+	/**
+	 * Compares SeqCounts for ordering, with enhanced score comparison.
+	 * Primary comparison by count, then sequence length, then score (for SeqCountM),
+	 * finally by lexicographic sequence comparison.
+	 *
+	 * @param s SeqCount to compare against
+	 * @return Negative, zero, or positive for less than, equal, or greater than
+	 */
 	@Override
 	public int compareTo(SeqCount s) {
 		if(count()!=s.count()) {return count()-s.count();}
@@ -91,9 +88,9 @@ public class SeqCountM extends SeqCount {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Number of occurrences observed for this sequence */
+	/** Number of occurrences observed for this sequence (mutable). */
 	public int count=1;
-	/** Optional score associated with this sequence, defaults to -1 */
+	/** Optional score associated with this sequence; defaults to -1 when unset. */
 	public float score=-1;
 	
 }

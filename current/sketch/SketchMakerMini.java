@@ -25,11 +25,13 @@ import tax.TaxTree;
 import tracker.EntropyTracker;
 
 /**
- * Creates MinHashSketches rapidly.
- * 
+ * Creates MinHashSketches rapidly from sequence data.
+ * Processes reads in nucleotide, amino acid, or translated modes to generate
+ * hash-based sequence sketches for fast similarity comparison.
+ * Supports quality filtering, entropy tracking, and gene calling.
+ *
  * @author Brian Bushnell
  * @date July 6, 2016
- *
  */
 public class SketchMakerMini extends SketchObject {
 	
@@ -37,18 +39,20 @@ public class SketchMakerMini extends SketchObject {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Convenience constructor using DisplayParams.
-	 * @param tool_ The parent SketchTool containing configuration
-	 * @param mode_ Processing mode (ONE_SKETCH, PER_FILE, etc.)
-	 * @param params Display parameters containing entropy, probability, and quality thresholds
-	 */
 	public SketchMakerMini(SketchTool tool_, int mode_, DisplayParams params){
 		this(tool_, mode_, params.minEntropy, params.minProb, params.minQual);
 	}
 	
 	/**
-	 * Constructor.
+	 * Main constructor for SketchMakerMini.
+	 * Initializes all parameters, creates heap, entropy tracker, and gene caller as needed.
+	 * Sets up bit manipulation parameters based on k-mer length and amino/nucleotide mode.
+	 *
+	 * @param tool_ The parent SketchTool containing sketch configuration
+	 * @param mode_ Processing mode determining sketch creation strategy
+	 * @param minEntropy_ Minimum entropy threshold for k-mer acceptance (0 to disable)
+	 * @param minProb_ Minimum probability threshold for quality filtering (0 to disable)
+	 * @param minQual_ Minimum quality score for base acceptance
 	 */
 	public SketchMakerMini(SketchTool tool_, int mode_, float minEntropy_, float minProb_, byte minQual_){
 		
@@ -95,7 +99,15 @@ public class SketchMakerMini extends SketchObject {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates sketches from a filename, handling paired-end detection.
+	 * Automatically detects paired files with '#' notation and creates appropriate FileFormats.
+	 *
+	 * @param fname Input filename, may contain '#' for paired-end files
+	 * @param samplerate Fraction of reads to process (1.0 for all reads)
+	 * @param reads Maximum number of reads to process (-1 for unlimited)
+	 * @return List of generated sketches
+	 */
 	public ArrayList<Sketch> toSketches(final String fname, float samplerate, long reads){
 		final FileFormat ffin1, ffin2;
 		if(fname.indexOf('#')>=0 && FileFormat.isFastqExt(ReadWrite.rawExtension(fname)) && !new File(fname).exists()){
@@ -108,7 +120,16 @@ public class SketchMakerMini extends SketchObject {
 		return toSketches(ffin1, ffin2, samplerate, reads);
 	}
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates sketches from FileFormat objects.
+	 * Main entry point for sketch generation from input streams.
+	 *
+	 * @param ffin1 Primary input file format
+	 * @param ffin2 Secondary input file format (may be null)
+	 * @param samplerate Fraction of reads to process (1.0 for all reads)
+	 * @param reads Maximum number of reads to process (-1 for unlimited)
+	 * @return List of generated sketches
+	 */
 	public ArrayList<Sketch> toSketches(FileFormat ffin1, FileFormat ffin2, float samplerate, long reads){
 		heap.clear(false); //123
 		final String simpleName;
@@ -137,7 +158,6 @@ public class SketchMakerMini extends SketchObject {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Iterate through the reads */
 	ArrayList<Sketch> processInner(Streamer cris){
 		assert(heap.size()==0);
 		ArrayList<Sketch> sketches=new ArrayList<Sketch>(mode==ONE_SKETCH || mode==PER_FILE ? 1 : 8);
@@ -185,14 +205,6 @@ public class SketchMakerMini extends SketchObject {
 		return sketches;
 	}
 
-	/**
-	 * Processes a read pair, handling merging, taxonomy assignment, and sketching.
-	 * Merges overlapping pairs if configured, extracts taxonomy from headers,
-	 * and delegates to appropriate read processing method.
-	 *
-	 * @param r1 Primary read (required)
-	 * @param r2 Mate read (may be null)
-	 */
 	void processReadPair(Read r1, Read r2){
 		//Track the initial length for statistics
 		final int initialLength1=r1.length();
@@ -245,11 +257,6 @@ public class SketchMakerMini extends SketchObject {
 		assert(heap.taxID<0 || heap.taxName()!=null || taxtree==null) : heap.taxID+", "+heap.taxName()+", "+heap.name()+", "+tn;
 	}
 
-	/**
-	 * Routes read processing based on sequence type.
-	 * Delegates to amino acid, translated, or nucleotide processing.
-	 * @param r The read to process
-	 */
 	public void processRead(final Read r){
 		if(amino){
 			processReadAmino(r);
@@ -260,12 +267,6 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
-	/**
-	 * Processes nucleotide reads by translating to amino acids.
-	 * Handles both six-frame translation and gene calling modes.
-	 * Extracts 16S rRNA sequences for SSU processing if enabled.
-	 * @param r Nucleotide read to translate and process
-	 */
 	public void processReadTranslated(final Read r){
 		assert(!r.aminoacid());
 		final ArrayList<Read> prots;
@@ -299,12 +300,6 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
-	/**
-	 * Processes nucleotide reads directly without translation.
-	 * Performs k-mer rolling hash generation with quality filtering and entropy tracking.
-	 * Handles both high-quality and low-quality data with automatic PacBio detection.
-	 * @param r Nucleotide read to process
-	 */
 	public void processReadNucleotide(final Read r){
 		if(processSSU && heap.r16S()==null && r.length()>=min_SSU_len && !useSSUMapOnly && !heap.isEukaryote()){
 			Orf orf=gCaller.makeRna(r.id, r.bases, ProkObject.r16S);//TODO: 18S
@@ -474,12 +469,6 @@ public class SketchMakerMini extends SketchObject {
 //		assert(false);
 	}
 	
-	/**
-	 * Heuristically detects PacBio reads based on quality patterns and naming.
-	 * Checks for ZMW identifiers and quality score distributions typical of PacBio.
-	 * @param r Read to analyze
-	 * @return true if read appears to be from PacBio sequencing
-	 */
 	boolean looksLikePacBio(Read r){
 		if(r.length()<302 || r.mate!=null){return false;}
 		if(r.quality==null){
@@ -502,11 +491,6 @@ public class SketchMakerMini extends SketchObject {
 		return zero>=r.length()/2 && positive==0;
 	}
 
-	/**
-	 * Processes amino acid reads directly.
-	 * Generates k-mers from amino acid sequence using appropriate encoding.
-	 * @param r Amino acid read to process
-	 */
 	void processReadAmino(final Read r){
 		final byte[] bases=r.bases;
 		long kmer=0;
@@ -543,11 +527,6 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 
-	/**
-	 * Legacy amino acid processing without entropy filtering.
-	 * Retained for compatibility but not actively used.
-	 * @param r Amino acid read to process
-	 */
 	void processReadAmino_old_no_entropy(final Read r){
 		final byte[] bases=r.bases;
 		long kmer=0;
@@ -579,12 +558,6 @@ public class SketchMakerMini extends SketchObject {
 		}
 	}
 	
-	/**
-	 * Converts accumulated hash data to a final Sketch object.
-	 * Applies minimum count filtering and clears the internal heap.
-	 * @param minCount Minimum occurrence count for hash inclusion
-	 * @return Completed sketch, or null if heap is empty
-	 */
 	public Sketch toSketch(int minCount){
 		Sketch sketch=null;
 		if(heap!=null && heap.size()>0){
@@ -599,11 +572,6 @@ public class SketchMakerMini extends SketchObject {
 		return sketch;
 	}
 	
-	/**
-	 * Merges data from another SketchMakerMini instance.
-	 * Combines heaps and accumulates processing statistics.
-	 * @param smm Source SketchMakerMini to merge from
-	 */
 	public void add(SketchMakerMini smm){
 		heap.add(smm.heap);
 		readsProcessed+=smm.readsProcessed;
@@ -613,20 +581,15 @@ public class SketchMakerMini extends SketchObject {
 		pacBioDetected|=smm.pacBioDetected;
 	}
 
-	/** Checks if the sketch maker contains any data.
-	 * @return true if heap is null or empty */
 	public boolean isEmpty() {
 		return heap==null || heap.size()<1;
 	}
 	
-	/** Gets the minimum entropy threshold.
-	 * @return Current entropy cutoff, or -1 if entropy tracking disabled */
 	public float minEntropy() {
 		// TODO Auto-generated method stub
 		return eTracker==null ? -1 : eTracker.cutoff();
 	}
 	
-	/** Gets the internal SketchHeap for direct access */
 	public SketchHeap heap() {return heap;}
 	
 //	public void clear() {
@@ -639,67 +602,51 @@ public class SketchMakerMini extends SketchObject {
 	/*--------------------------------------------------------------*/
 	
 
-	/** True only if this thread has completed successfully */
 	boolean success=false;
 
-	/** Hash storage container for sketch data */
 	SketchHeap heap;
 
-	/** Bit shift value for amino acid encoding */
 	final int aminoShift;
-	/** Total bit shift for k-mer encoding */
 	final int shift;
-	/** Shift value for reverse complement rolling hash */
 	final int shift2;
-	/** Bit mask for k-mer hash values */
 	final long mask;
-	/** Entropy tracker for low-complexity filtering, null if disabled */
 	final EntropyTracker eTracker;
-	/** Gene caller for translation and SSU detection, null if not needed */
 	final GeneCaller gCaller;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Number of reads processed by this instance */
 	public long readsProcessed=0;
-	/** Number of bases processed */
+	/** Number of bases processed by this instance */
 	public long basesProcessed=0;
-	/** Number of bases processed */
+	/** Number of k-mers processed by this instance */
 	public long kmersProcessed=0;
-	/** Number of sketches started */
+	/** Number of sketches created by this instance */
 	public long sketchesMade=0;
 
-	/** Gets the minimum probability threshold for quality filtering */
 	float minProb() {return minProb;}
-	/** Gets the minimum quality score threshold */
 	byte minQual() {return minQual;}
-	/** Flag indicating PacBio data was detected and processed */
 	public boolean pacBioDetected=false;
-	/** Minimum probability threshold for k-mer acceptance */
 	private float minProb;
-	/** Minimum quality score for base acceptance */
 	private byte minQual;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Reference to parent SketchTool containing configuration */
 	private final SketchTool tool;
-	/** Whether to include reverse complement in sketch generation */
 	private final boolean rcomp;
-	/** Processing mode determining sketch creation strategy */
 	final int mode;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Global flag for verbose output */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag indicating an error was encountered during processing */
 	public boolean errorState=false;
 	
 }

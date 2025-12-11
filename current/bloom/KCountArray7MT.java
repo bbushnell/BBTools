@@ -12,25 +12,21 @@ import structures.ByteBuilder;
 
 
 /**
- * 
- * Uses prime numbers for array lengths.
- * 
+ * Multi-threaded k-mer count array using prime-sized array dimensions
+ * for improved hash distribution.
+ * Employs separate write threads for each array partition to enable
+ * concurrent increment operations.
+ * Extends KCountArray with multi-threading support and uses prime number
+ * array lengths to reduce hash collisions.
+ *
  * @author Brian Bushnell
  * @date Aug 17, 2012
- *
  */
 public class KCountArray7MT extends KCountArray {
 	
-	/**
-	 * 
-	 */
+	/** Serial version UID for serialization compatibility */
 	private static final long serialVersionUID = -8767643111803866913L;
 
-	/**
-	 * Test method for KCountArray7MT functionality.
-	 * Demonstrates basic increment and read operations on test keys.
-	 * @param args Command-line arguments: [cells, bits, hashes]
-	 */
 	public static void main(String[] args){
 		long cells=Long.parseLong(args[0]);
 		int bits=Integer.parseInt(args[1]);
@@ -71,14 +67,6 @@ public class KCountArray7MT extends KCountArray {
 		
 	}
 		
-	/**
-	 * Constructs a multi-threaded k-mer count array with prime-sized dimensions.
-	 * Calculates optimal array partitioning to prevent integer overflow while using prime lengths.
-	 *
-	 * @param cells_ Target number of cells for the array
-	 * @param bits_ Number of bits per cell for count storage
-	 * @param hashes_ Number of hash functions to use for bloom filter behavior
-	 */
 	public KCountArray7MT(long cells_, int bits_, int hashes_){
 		super(getPrimeCells(cells_, bits_), bits_, getDesiredArrays(cells_, bits_));
 //		verbose=false;
@@ -94,14 +82,6 @@ public class KCountArray7MT extends KCountArray {
 		assert(hashes>0 && hashes<=hashMasks.length);
 	}
 	
-	/**
-	 * Calculates the minimum number of arrays needed to avoid integer overflow.
-	 * Starts with minimum arrays and doubles until each array fits within integer bounds.
-	 *
-	 * @param desiredCells Target total number of cells
-	 * @param bits Number of bits per cell
-	 * @return Number of arrays needed to prevent overflow
-	 */
 	private static int getDesiredArrays(long desiredCells, int bits){
 		
 		long words=Tools.max((desiredCells*bits+31)/32, minArrays);
@@ -113,14 +93,6 @@ public class KCountArray7MT extends KCountArray {
 		return arrays;
 	}
 	
-	/**
-	 * Computes the actual number of cells using prime-sized arrays.
-	 * Finds the largest prime less than or equal to cells per array, then multiplies by array count.
-	 *
-	 * @param desiredCells Target number of cells
-	 * @param bits Number of bits per cell
-	 * @return Actual number of cells using prime dimensions
-	 */
 	private static long getPrimeCells(long desiredCells, int bits){
 		
 		int arrays=getDesiredArrays(desiredCells, bits);
@@ -130,6 +102,14 @@ public class KCountArray7MT extends KCountArray {
 		return x2*arrays;
 	}
 	
+	/**
+	 * Reads the minimum count value across all hash functions for a key.
+	 * Applies multiple hash functions and returns the minimum count found,
+	 * implementing bloom filter semantics where the minimum represents the true count.
+	 *
+	 * @param rawKey The raw key to look up
+	 * @return Minimum count across all hash functions
+	 */
 	@Override
 	public int read(final long rawKey){
 		assert(finished);
@@ -146,12 +126,6 @@ public class KCountArray7MT extends KCountArray {
 		return min;
 	}
 	
-	/**
-	 * Reads count value for a pre-hashed key from the appropriate array partition.
-	 * Extracts array number and cell position from the hashed key, then retrieves the count value.
-	 * @param key Pre-hashed key containing array and position information
-	 * @return Count value stored at the specified position
-	 */
 	private int readHashed(long key){
 		if(verbose){System.err.print("Reading hashed key "+key);}
 //		System.out.println("key="+key);
@@ -174,11 +148,25 @@ public class KCountArray7MT extends KCountArray {
 		return (int)((word>>>cellShift)&valueMask);
 	}
 	
+	/**
+	 * Write operation not supported for this multi-threaded implementation.
+	 * Use increment operations instead for thread-safe count modifications.
+	 *
+	 * @param key The key to write to
+	 * @param value The value to write
+	 * @throws RuntimeException Always thrown as operation is not allowed
+	 */
 	@Override
 	public void write(final long key, int value){
 		throw new RuntimeException("Not allowed for this class.");
 	}
 	
+	/**
+	 * Increments counts for multiple keys with pre-hashing optimization.
+	 * Pre-computes first hash outside the critical section for better performance,
+	 * then processes all keys within a synchronized block.
+	 * @param keys Array of keys to increment
+	 */
 	@Override
 	/** This should increase speed by doing the first hash outside the critical section, but it does not seem to help. */
 	public void increment(long[] keys){
@@ -193,17 +181,19 @@ public class KCountArray7MT extends KCountArray {
 	}
 	
 	//Slow
+	/**
+	 * Increments a key's count by the specified amount.
+	 * Implemented by calling increment0 multiple times, which is inefficient
+	 * but maintains correctness for the multi-threaded implementation.
+	 *
+	 * @param rawKey The key to increment
+	 * @param amt Number of times to increment
+	 */
 	@Override
 	public void increment(final long rawKey, int amt){
 		for(int i=0; i<amt; i++){increment0(rawKey);}
 	}
 	
-	/**
-	 * Increments count for a single key across all hash functions.
-	 * Applies each hash function and queues the increment operations to appropriate write threads.
-	 * Each hash function result is buffered and sent to the corresponding array's write thread.
-	 * @param rawKey The raw key to increment
-	 */
 	public void increment0(final long rawKey){
 		if(verbose){System.err.println("\n*** Incrementing raw key "+rawKey+" ***");}
 		
@@ -234,12 +224,6 @@ public class KCountArray7MT extends KCountArray {
 		}
 	}
 	
-	/**
-	 * Increments count for a key that has been pre-hashed once.
-	 * Optimized version that skips the first hash computation since it was done externally.
-	 * Applies remaining hash functions and queues operations to write threads.
-	 * @param pKey Pre-hashed key from first hash function
-	 */
 	private void incrementPartiallyHashed(final long pKey){
 		if(verbose){System.err.println("\n*** Incrementing key "+pKey+" ***");}
 		
@@ -287,17 +271,36 @@ public class KCountArray7MT extends KCountArray {
 		}
 	}
 	
-	/** Returns unincremented value */
+	/**
+	 * Increment and return operation not supported for this implementation.
+	 * The multi-threaded nature makes atomic increment-and-return operations complex.
+	 *
+	 * @param key The key to increment
+	 * @param incr Increment amount
+	 * @return Never returns
+	 * @throws RuntimeException Always thrown as operation is not supported
+	 */
 	@Override
 	public int incrementAndReturnUnincremented(long key, int incr){
 		throw new RuntimeException("Operation not supported.");
 	}
 	
+	/**
+	 * Transforms count data to frequency histogram.
+	 * Delegates to the parent class implementation using this instance's matrix.
+	 * @return Array containing frequency counts for each possible count value
+	 */
 	@Override
 	public long[] transformToFrequency(){
 		return transformToFrequency(matrix);
 	}
 	
+	/**
+	 * Creates a string representation of all array contents.
+	 * Iterates through all arrays and cells, extracting individual count values
+	 * and formatting them as a comma-separated list enclosed in brackets.
+	 * @return ByteBuilder containing formatted array contents
+	 */
 	@Override
 	public ByteBuilder toContentsString(){
 		ByteBuilder sb=new ByteBuilder();
@@ -319,12 +322,27 @@ public class KCountArray7MT extends KCountArray {
 		return sb;
 	}
 	
+	/** Calculates the fraction of cells that contain non-zero counts.
+	 * @return Proportion of cells in use (0.0 to 1.0) */
 	@Override
 	public double usedFraction(){return cellsUsed/(double)cells;}
 	
+	/**
+	 * Calculates the fraction of cells with counts at or above the specified depth.
+	 * @param mindepth Minimum count threshold
+	 * @return Proportion of cells meeting the depth requirement
+	 */
 	@Override
 	public double usedFraction(int mindepth){return cellsUsed(mindepth)/(double)cells;}
 	
+	/**
+	 * Counts cells with count values at or above the specified minimum depth.
+	 * Iterates through all arrays and extracts individual cell counts from packed words,
+	 * counting those that meet the depth threshold.
+	 *
+	 * @param mindepth Minimum count value to include
+	 * @return Number of cells with counts >= mindepth
+	 */
 	@Override
 	public long cellsUsed(int mindepth){
 		long count=0;
@@ -348,6 +366,15 @@ public class KCountArray7MT extends KCountArray {
 	}
 	
 	
+	/**
+	 * Applies hash function for the specified row to distribute keys across arrays.
+	 * Uses double hashing on the first row (row 0) for improved distribution,
+	 * then XORs with pre-computed hash masks for subsequent rows.
+	 *
+	 * @param key The key to hash
+	 * @param row Hash function row/iteration number
+	 * @return Hashed key value
+	 */
 	@Override
 	final long hash(long key, int row){
 		int cell=(int)((Long.MAX_VALUE&key)%(hashArrayLength-1));
@@ -364,9 +391,13 @@ public class KCountArray7MT extends KCountArray {
 	}
 	
 	/**
-	 * @param i
-	 * @param j
-	 * @return
+	 * Creates hash mask arrays with balanced bit patterns for hash distribution.
+	 * Generates random masks where each 32-bit half has exactly 16 set bits,
+	 * ensuring no collision in the lower hash bits across all masks.
+	 *
+	 * @param rows Number of hash function rows
+	 * @param cols Number of hash mask columns
+	 * @return 2D array of hash masks with balanced bit patterns
 	 */
 	private static long[][] makeMasks(int rows, int cols) {
 		
@@ -387,14 +418,6 @@ public class KCountArray7MT extends KCountArray {
 		return r;
 	}
 	
-	/**
-	 * Fills a mask array with balanced random values ensuring no hash collisions.
-	 * Each mask has exactly 16 bits set in both upper and lower 32-bit halves.
-	 * Guarantees that no two masks produce the same hash bucket for any input.
-	 *
-	 * @param r The mask array to fill
-	 * @param randy Random number generator
-	 */
 	private static void fillMasks(long[] r, Random randy) {
 //		for(int i=0; i<r.length; i++){
 //			long x=0;
@@ -446,6 +469,8 @@ public class KCountArray7MT extends KCountArray {
 	}
 	
 	
+	/** Starts all write threads for concurrent array processing.
+	 * Creates and launches one write thread per array partition. */
 	@Override
 	public void initialize(){
 		for(int i=0; i<writers.length; i++){
@@ -459,6 +484,11 @@ public class KCountArray7MT extends KCountArray {
 //		assert(false) : writers.length;
 	}
 	
+	/**
+	 * Shuts down all write threads and finalizes count data.
+	 * Flushes remaining buffered operations, sends poison pills to threads,
+	 * waits for thread termination, and accumulates final cell usage counts.
+	 */
 	@Override
 	public void shutdown(){
 		if(finished){return;}
@@ -511,12 +541,15 @@ public class KCountArray7MT extends KCountArray {
 	
 	private class WriteThread extends Thread{
 		
-		/** Constructs a write thread for the specified array partition.
-		 * @param tnum Array partition number this thread will manage */
 		public WriteThread(int tnum){
 			num=tnum;
 		}
 		
+		/**
+		 * Main write thread execution loop.
+		 * Allocates local array memory, processes key batches from the queue,
+		 * and performs local increment operations until shutdown signal received.
+		 */
 		@Override
 		public void run(){
 			assert(matrix[num]==null);
@@ -556,11 +589,6 @@ public class KCountArray7MT extends KCountArray {
 			array=null;
 		}
 		
-		/**
-		 * Adds a batch of keys to this thread's processing queue.
-		 * Blocks until space is available in the queue if it's full.
-		 * @param keys Array of hashed keys to process
-		 */
 		void add(long[] keys){
 //			assert(isAlive());
 			assert(!shutdown);
@@ -580,14 +608,6 @@ public class KCountArray7MT extends KCountArray {
 			if(verbose){System.err.println(" ++ Added keys to wt"+num+". (success)");}
 		}
 		
-		/**
-		 * Increments the count for a hashed key in this thread's local array.
-		 * Extracts cell position, reads current value, increments (up to max),
-		 * and writes back to the array. Tracks newly used cells.
-		 *
-		 * @param key Pre-hashed key containing position information
-		 * @return New count value after increment
-		 */
 		private int incrementHashedLocal(long key){
 			assert((key&arrayMask)==num);
 			key=(key>>>arrayBits)%(cellMod);
@@ -603,60 +623,37 @@ public class KCountArray7MT extends KCountArray {
 			return value;
 		}
 		
-		/** Local array partition managed by this write thread */
 		private int[] array;
-		/** Array partition number assigned to this write thread */
 		private final int num;
-		/** Number of cells this thread has incremented from zero to non-zero */
 		public long cellsUsedPersonal=0;
 		
-		/** Queue for receiving key batches to process */
 		public ArrayBlockingQueue<long[]> writeQueue=new ArrayBlockingQueue<long[]>(16);
-		/** Flag indicating whether this write thread should terminate */
 		public boolean shutdown=false;
 		
 	}
 	
 	
-	/** Returns total number of cells containing non-zero counts.
-	 * @return Count of cells in use across all arrays */
 	public long cellsUsed(){return cellsUsed;}
 	
-	/** Flag indicating whether shutdown process has completed */
 	private boolean finished=false;
 	
-	/** Total number of cells containing non-zero counts */
 	private long cellsUsed;
-	/** 2D array storing all count data across array partitions */
 	final int[][] matrix;
-	/** Array of write threads, one per array partition */
 	private final WriteThread[] writers=new WriteThread[numArrays];
-	/** Number of hash functions used for bloom filter behavior */
 	private final int hashes;
-	/** Number of 32-bit words in each array partition */
 	final int wordsPerArray;
-	/** Number of cells in each array partition */
 	private final long cellsPerArray;
-	/** Modulo value for cell position calculation within arrays */
 	final long cellMod;
-	/** Pre-computed hash masks for key distribution across arrays */
 	private final long[][] hashMasks=makeMasks(8, hashArrayLength);
 	
-	/** Buffer arrays for batching key operations before sending to write threads */
 	private final long[][] buffers=new long[numArrays][500];
-	/** Current length of each buffer array */
 	private final int[] bufferlen=new int[numArrays];
 	
-	/** Number of bits used for hash array indexing */
 	private static final int hashBits=6;
-	/** Length of hash mask arrays, computed as 2^hashBits */
 	private static final int hashArrayLength=1<<hashBits;
-	/** Bit mask for extracting hash array indices */
 	private static final int hashCellMask=hashArrayLength-1;
-	/** Empty array used as poison pill to signal write thread shutdown */
 	static final long[] poison=new long[0];
 	
-	/** Global counter for generating unique random seeds for hash mask creation */
 	private static long counter=0;
 	
 }

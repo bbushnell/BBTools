@@ -20,17 +20,15 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Sorts sequence reads by numeric ID using a disk-based external sorting algorithm.
+ * Divides reads into bins based on ID ranges, sorts each bin individually,
+ * then merges bins to produce globally sorted output files.
+ *
  * @author Brian Bushnell
  * @date Nov 1, 2012
- *
  */
 public class SortReadsByID {
 	
-	/**
-	 * Program entry point for command-line execution.
-	 * Parses arguments and initiates the read sorting process.
-	 * @param args Command-line arguments including input/output files and options
-	 */
 	public static void main(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -98,12 +96,6 @@ public class SortReadsByID {
 	}
 	
 	
-	/**
-	 * Executes the external sorting algorithm for reads.
-	 * Phase 1: Reads input and distributes reads into bins based on ID ranges.
-	 * Phase 2: Sorts each bin individually and merges into final sorted output.
-	 * Uses temporary files to handle datasets larger than available memory.
-	 */
 	public void process(){
 
 		Timer tRead=new Timer();
@@ -216,14 +208,6 @@ public class SortReadsByID {
 		
 	}
 	
-	/**
-	 * Constructs a SortReadsByID instance with input/output file paths.
-	 * Determines output format (FASTQ, FASTA, or text) from output filename.
-	 *
-	 * @param in1_ Primary input file path
-	 * @param in2_ Secondary input file path (may be null for single-end)
-	 * @param out_ Output file path template containing '#' placeholder
-	 */
 	public SortReadsByID(String in1_, String in2_, String out_) {
 		in1=in1_;
 		in2=in2_;
@@ -235,41 +219,22 @@ public class SortReadsByID {
 		outText=ff.bread();
 	}
 
-	/** Primary input file path */
 	public String in1;
-	/** Secondary input file path for paired reads */
 	public String in2;
-	/** Output file path template containing '#' placeholder */
 	public String out;
 
-	/** Whether output should be in text format */
 	private final boolean outText;
-	/** Whether output should be in FASTA format */
 	private final boolean outFasta;
-	/** Whether output should be in FASTQ format */
 	private final boolean outFastq;
 	
-	/** Number of reads per bin for external sorting algorithm */
 	public static int BLOCKSIZE=8000000;
-	/** Whether to overwrite existing output files */
 	public static boolean overwrite=true;
-	/** Whether to append to existing output files */
 	public static boolean append=false;
-	/** Whether to renumber reads sequentially after sorting */
 	public static boolean RENUMBER=false;
-	/** Whether to output paired reads in interleaved format */
 	public static boolean OUT_INTERLEAVED=false;
 	
-	/** Represents a temporary file block containing reads from a specific ID range.
-	 * Manages writing reads to temporary files during the binning phase of external sort. */
 	private class Block{
 		
-		/**
-		 * Creates a new block with specified output file paths.
-		 * Initializes text stream writers for the temporary files.
-		 * @param out1_ Output path for first reads in pairs
-		 * @param out2_ Output path for second reads in pairs (may be null)
-		 */
 		public Block(String out1_, String out2_){
 			out1=out1_;
 			out2=out2_;
@@ -281,11 +246,6 @@ public class SortReadsByID {
 			if(tsw2!=null){tsw2.start();}
 		}
 		
-		/**
-		 * Adds a read and its mate (if present) to this block's temporary files.
-		 * Converts reads to the appropriate output format before writing.
-		 * @param r The read to add to this block
-		 */
 		public void add(Read r){
 			count++;
 			Read r2=r.mate;
@@ -304,31 +264,22 @@ public class SortReadsByID {
 			
 		}
 		
-		/** Closes the text stream writers by sending poison signals.
-		 * Must be called before reading back the temporary files. */
 		public void close(){
 			tsw1.poison();
 			if(tsw2!=null){tsw2.poison();}
 		}
 		
-		/** Waits for the text stream writers to finish writing and close.
-		 * Ensures all data is flushed to disk before proceeding. */
 		public void join(){
 			tsw1.waitForFinish();
 			if(tsw2!=null){tsw2.waitForFinish();}
 		}
 		
-		/** Output file path for first reads in pairs */
 		String out1;
-		/** Output file path for second reads in pairs */
 		String out2;
 		
-		/** Text stream writer for first reads in pairs */
 		TextStreamWriter tsw1;
-		/** Text stream writer for second reads in pairs */
 		TextStreamWriter tsw2;
 		
-		/** Number of reads processed by this block */
 		long count=0;
 		
 	}

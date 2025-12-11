@@ -21,25 +21,8 @@ import template.ThreadWaiter;
 import tracker.EntropyTracker;
 import tracker.KmerTracker;
 
-/**
- * Concurrent processing and analysis of genomic contigs with multi-threaded feature extraction.
- * Manages parallel processing of contigs, extracting genomic metrics like entropy, depth, and potential gene markers.
- * Supports optional entropy and strandedness calculation, 16S/18S ribosomal gene detection, and taxonomic ID parsing.
- *
- * @author Brian Bushnell
- * @date December 2013
- */
 public class SpectraCounter extends BinObject implements Accumulator<SpectraCounter.LoadThread> {
 	
-	/**
-	 * Constructs a SpectraCounter with configuration for genomic contig processing.
-	 * Initializes entropy adjustment parameters if entropy calculation is enabled.
-	 *
-	 * @param outstream_ Output stream for progress and error messages
-	 * @param parseDepth_ Whether to parse depth information from contig headers
-	 * @param parseTID_ Whether to parse taxonomy IDs from contig headers
-	 * @param sizeMap_ Map for tracking contig sizes by taxonomy ID
-	 */
 	public SpectraCounter(PrintStream outstream_, boolean parseDepth_, 
 			boolean parseTID_, IntLongHashMap sizeMap_) {
 		outstream=outstream_;
@@ -55,7 +38,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		}
 	}
 	
-	/** Spawn process threads */
 	public void makeSpectra(ArrayList<Contig> contigs, Streamer cris, int minlen){
 		
 		//Do anything necessary prior to processing
@@ -91,28 +73,18 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		}
 	}
 
+	/** Returns null as this accumulator does not require read-write locking.
+	 * @return null indicating no lock required */
 	@Override
 	public ReadWriteLock rwlock() {return null;}
 
+	/** Returns the processing success status.
+	 * @return true if processing completed without errors, false otherwise */
 	@Override
 	public synchronized boolean success() {return errorState;}
 	
-	/**
-	 * Worker thread for concurrent contig processing and analysis.
-	 * Handles loading contigs from input streams, processing genomic features,
-	 * and tracking statistics for the parent SpectraCounter.
-	 */
 	class LoadThread extends Thread {
 		
-		/**
-		 * Constructs a LoadThread for processing genomic contigs.
-		 *
-		 * @param contigs_ Shared list of contigs to process or populate
-		 * @param cris_ Concurrent read input stream for loading contigs (may be null)
-		 * @param minlen_ Minimum contig length threshold
-		 * @param tid_ Thread ID for work distribution
-		 * @param threads_ Total number of processing threads
-		 */
 		LoadThread(ArrayList<Contig> contigs_, Streamer cris_, 
 				int minlen_, int tid_, int threads_) {
 			contigs=contigs_;
@@ -122,6 +94,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			threads=threads_;
 		}
 		
+		/** Main thread execution method that initializes resources and processes contigs.
+		 * Sets up entropy tracker and gene caller if needed, then delegates to runInner(). */
 		@Override
 		public void run() {
 			et=new EntropyTracker(entropyK, entropyWindow, false);
@@ -133,8 +107,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			}
 		}
 		
-		/** Core processing logic that routes to appropriate processing method.
-		 * Processes either pre-loaded contigs or streams new contigs from input. */
 		private void runInner() {
 			if(cris==null) {//Calculate data on existing contigs
 				runOnContigs();
@@ -144,8 +116,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			success=true;
 		}
 		
-		/** Processes pre-loaded contigs using thread-based work distribution.
-		 * Each thread processes every nth contig based on thread ID and total thread count. */
 		void runOnContigs() {
 			for(int i=tid; i<contigs.size(); i+=threads) {
 				Contig c=contigs.get(i);
@@ -153,11 +123,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			}
 		}
 		
-		/**
-		 * Processes contigs from concurrent read input stream.
-		 * Continuously fetches read lists, converts reads to contigs, processes them,
-		 * and adds processed contigs to the shared contig list.
-		 */
 		void runOnCris() {
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
@@ -179,11 +144,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			}
 		}
 		
-		/**
-		 * Converts a read to a contig and processes it completely.
-		 * @param r The read to convert and process
-		 * @return The processed contig, or null if the read was too short
-		 */
 		Contig processRead(Read r) {
 			Contig c=loadContig(r);
 			if(c==null) {return null;}
@@ -191,14 +151,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			return c;
 		}
 		
-		/**
-		 * Loads a read into a Contig object with metadata extraction.
-		 * Parses taxonomy ID if enabled, filters by minimum length, detects ribosomal genes,
-		 * and creates a fully initialized Contig with associated metadata.
-		 *
-		 * @param r The read to convert to a contig
-		 * @return A new Contig object with metadata, or null if read is too short
-		 */
 		Contig loadContig(Read r) {
 			contigsLoadedT++;
 			basesLoadedT+=r.length();
@@ -226,14 +178,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			return c;
 		}
 		
-		/**
-		 * Detects and extracts 16S or 18S ribosomal RNA genes from a read.
-		 * Uses gene calling to identify ribosomal sequences and returns the first
-		 * 16S or 18S sequence found.
-		 *
-		 * @param r The read to analyze for ribosomal genes
-		 * @return Array containing [16S_sequence, 18S_sequence] or null if none found
-		 */
 		byte[][] callSSU(Read r) {
 			if(caller==null || r.length()<900) {return null;}
 			assert(call16S || call18S);
@@ -252,14 +196,6 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			return null;
 		}
 		
-		/**
-		 * Processes a contig by calculating various genomic metrics.
-		 * Computes k-mer counts, normalized depth, entropy (if enabled), strandedness
-		 * (if enabled), and parses depth information from headers. All processing
-		 * is synchronized on the contig object.
-		 *
-		 * @param c The contig to process and analyze
-		 */
 		void processContig(Contig c) {
 			synchronized(c) {
 //				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());
@@ -295,76 +231,43 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			}
 		}
 		
-		/** Thread ID for work distribution among parallel threads */
 		final int tid;
-		/** Total number of processing threads for workload distribution */
 		final int threads;
-		/** Minimum contig length threshold for retention */
 		final int minlen;
-		/** Shared list of contigs to process or populate */
 		final ArrayList<Contig> contigs;
-		/** Streamer for loading contigs on demand */
 		final Streamer cris;
-		/** Entropy tracker for calculating sequence entropy metrics */
 		private EntropyTracker et;
-		/** Gene caller for detecting ribosomal RNA genes */
 		private GeneCaller caller;
 //		final int[] counts=(calcEntropy ? new int[1<<(entropyK*2)] : null);
-		/** Thread processing success status */
 		boolean success=false;
-		/** Number of contigs processed by this thread */
 		int contigsProcessedT=0;
-		/** Total bases processed by this thread */
 		long basesProcessedT=0;
-		/** Line parser for single-character delimited strings */
 		LineParserS1 lps=new LineParserS1('_');
-		/** Line parser for four-character delimited strings */
 		LineParserS4 lpt=new LineParserS4(",,=,");
 		
-		/** Number of contigs loaded by this thread */
 		int contigsLoadedT=0;
-		/** Total bases loaded by this thread */
 		long basesLoadedT=0;
-		/** Number of contigs retained after length filtering by this thread */
 		int contigsRetainedT=0;
-		/** Total bases retained after length filtering by this thread */
 		long basesRetainedT=0;
 	}
 	
-	/** Output stream for progress messages and error reporting */
 	public PrintStream outstream=System.err;
 	
-	/** Whether to parse depth information from contig headers */
 	public final boolean parseDepth;
-	/** Whether to parse taxonomy IDs from contig headers */
 	public final boolean parseTID;
-	/** Map tracking contig sizes by taxonomy ID */
 	public final IntLongHashMap sizeMap;
 
-	/** Total number of contigs loaded across all threads */
 	public int contigsLoaded=0;
-	/** Total bases loaded across all threads */
 	public long basesLoaded=0;
-	/** Total number of contigs retained after filtering across all threads */
 	public int contigsRetained=0;
-	/** Total bases retained after filtering across all threads */
 	public long basesRetained=0;
 	
-	/** Processing error status across all threads */
 	public boolean errorState=false;
-	/** Global flag to enable entropy calculation for processed contigs */
 	public static boolean calcEntropy=true;
-	/** Global flag to use fast entropy calculation method from k-mer counts */
 	public static boolean calcEntropyFast=false;
-	/** Global flag to enable strandedness calculation for processed contigs */
 	public static boolean calcStrandedness=true;
-	/** Global flag to enable 16S ribosomal RNA gene detection */
 	public static boolean call16S=false;
-	/** Global flag to enable 18S ribosomal RNA gene detection */
 	public static boolean call18S=false;
-	/**
-	 * Override for the number of loading threads, -1 uses automatic determination
-	 */
 	public static int loadThreadsOverride=-1;
 	
 }

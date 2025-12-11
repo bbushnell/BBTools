@@ -3,31 +3,31 @@ package sort;
 import stream.Read;
 
 /**
- * Sorts highest-quality reads first, and longest first on ties.
+ * Sorts reads based on quality and length, prioritizing high-quality and longer reads.
+ * Compares Read objects using a multi-stage sorting algorithm that evaluates error rates,
+ * total length, and read IDs for consistent ordering.
+ *
  * @author Brian Bushnell
  * @date Nov 9, 2016
- *
  */
 public final class ReadQualityComparator extends ReadComparator {
 	
-	/** Private constructor to enforce singleton pattern */
 	private ReadQualityComparator(){}
 	
+	/**
+	 * Compares two reads based on quality and length criteria.
+	 * Applies ascending/descending order multiplier to the comparison result.
+	 *
+	 * @param a First read to compare
+	 * @param b Second read to compare
+	 * @return Negative if a < b, positive if a > b, zero if equal
+	 */
 	@Override
 	public int compare(Read a, Read b) {
 		int x=compareInner(a, b);
 		return ascending*x;
 	}
 
-	/**
-	 * Performs the core comparison logic between two reads.
-	 * Compares by expected error rate, total length (read + mate), string ID,
-	 * and numeric ID as successive tiebreakers.
-	 *
-	 * @param a First read to compare
-	 * @param b Second read to compare
-	 * @return Negative if a < b, positive if a > b, zero if equal
-	 */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -53,12 +53,12 @@ public final class ReadQualityComparator extends ReadComparator {
 		return 0;
 	}
 	
-	/** Singleton instance of the comparator for reuse */
 	public static final ReadQualityComparator comparator=new ReadQualityComparator();
 	
-	/** Multiplier for sort direction: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
+	/** Sets the sorting order direction.
+	 * @param asc true for ascending order, false for descending */
 	@Override
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);

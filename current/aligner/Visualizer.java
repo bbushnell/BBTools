@@ -29,13 +29,6 @@ import structures.IntList;
  */
 public class Visualizer {
 
-	/**
-	 * Creates a new visualization output for alignment matrices.
-	 * 
-	 * @param fname Output filename for the visualization
-	 * @param pBits Number of bits used for position information in the score encoding
-	 * @param cBits Number of bits used for deletion information in the score encoding
-	 */
 	public Visualizer(String fname, int pBits, int cBits) {
 		positionBits=pBits;
 		countBits=cBits;
@@ -43,10 +36,8 @@ public class Visualizer {
 		bsw=ByteStreamWriter.makeBSW(fname, true, false, true);
 	}
 
-	/**
-	 * Properly terminates the output file.
-	 * Should be called when visualization is complete.
-	 */
+	/** Properly terminates the output file.
+	 * Should be called when visualization is complete. */
 	public void shutdown() {
 		bsw.poisonAndWait();
 	}
@@ -55,7 +46,7 @@ public class Visualizer {
 	 * Generates a simple visualization line marking explored cells.
 	 * Original visualization style that represents exploration pattern
 	 * without score information.
-	 * 
+	 *
 	 * @param active List of positions that were actively explored
 	 * @param length Length of the current row
 	 * @param maxPos Position with the highest score in this row (-1 if none)
@@ -78,8 +69,13 @@ public class Visualizer {
 		bsw.print(bb);
 	}
 
-	/** 
-	 * Wrapper for int[].
+	/**
+	 * Wrapper for int[] scores that converts to long[] for visualization.
+	 *
+	 * @param scores Array of integer scores for the current row
+	 * @param bandStart Min scored position for this row
+	 * @param bandEnd Max scored position for this row
+	 * @param rLen Reference length
 	 */
 	public void print(int[] scores, int bandStart, int bandEnd, int rLen) {
 		long[] scores2=new long[scores.length];
@@ -87,8 +83,13 @@ public class Visualizer {
 		print(scores2, bandStart, bandEnd, rLen);
 	}
 
-	/** 
-	 * Wrapper for byte[]
+	/**
+	 * Wrapper for byte[] scores that converts to long[] for visualization.
+	 *
+	 * @param scores Array of byte scores for the current row
+	 * @param bandStart Min scored position for this row
+	 * @param bandEnd Max scored position for this row
+	 * @param rLen Reference length
 	 */
 	public void print(byte[] scores, int bandStart, int bandEnd, int rLen) {
 		long[] scores2=new long[scores.length];
@@ -96,8 +97,10 @@ public class Visualizer {
 		print(scores2, bandStart, bandEnd, rLen);
 	}
 
-	/** 
+	/**
 	 * Visualizer for banded aligners.
+	 * Creates visualization within a defined band of the alignment matrix.
+	 *
 	 * @param scores Array of scores for the current row
 	 * @param bandStart Min scored position for this row
 	 * @param bandEnd Max scored position for this row
@@ -168,9 +171,10 @@ public class Visualizer {
 	 * Generates a detailed visualization line showing score distributions.
 	 * Enhanced visualization that represents scores with different characters,
 	 * providing richer information about the scoring landscape.
-	 * 
+	 *
 	 * @param scores Array of scores for the current row
 	 * @param active List of positions that were actively explored (optional, may be null)
+	 * @param rLen Reference length
 	 */
 	public void print(long[] scores, IntList active, int rLen) {
 		ByteBuilder bb=new ByteBuilder(scores.length);
@@ -207,12 +211,10 @@ public class Visualizer {
 	}
 
 	/**
-	 * Generates a detailed visualization line showing score distributions.
-	 * Enhanced visualization that represents scores with different characters,
-	 * providing richer information about the scoring landscape.
-	 * 
+	 * Generates a detailed visualization line showing edit distance distributions.
+	 * Visualizes edit distances with different characters based on distance from minimum.
 	 * @param editDist Edit distances for the row, or very high if unexplored
-	 * @param rLen Reference length.
+	 * @param rLen Reference length
 	 */
 	public void printEditDist(int[] editDist, int rLen) {
 		//    	System.err.println("Called viz with "+Arrays.toString(editDist)+", "+rLen);
@@ -241,7 +243,7 @@ public class Visualizer {
 	/**
 	 * Converts a numeric score to a display character.
 	 * Uses absolute or relative scoring based on the maximum score value.
-	 * 
+	 *
 	 * @param score The score to convert
 	 * @param maxScore The maximum score in the current row
 	 * @return A character representing the score's magnitude
@@ -279,11 +281,6 @@ public class Visualizer {
 	//        return symbols[Tools.mid(0, symbol, symbols.length-1)];
 	//    }
 
-	/**
-	 * Creates a mapping from ASCII character values to symbol indices.
-	 * @param symbols Array of symbol characters
-	 * @return Array mapping ASCII values to symbol positions
-	 */
 	private static int[] makeSymbolMap(byte[] symbols) {
 		int[] map=new int[128];
 		for(int i=0; i<symbols.length; i++) {
@@ -292,27 +289,18 @@ public class Visualizer {
 		return map;
 	}
 
-	/** Output stream writer for visualization data */
 	private ByteStreamWriter bsw;
 
 	// Bit field definitions
-	/** Number of bits used for position information in the score encoding */
 	private final int positionBits;
-	/** Number of bits used for deletion information in the score encoding */
 	private final int countBits;
-	/** Bit shift amount to extract score from encoded value */
 	private final int scoreShift;
 
-	/** Value representing invalid or pruned cells */
 	private static final long BAD=(Long.MIN_VALUE/2);
-	/** Whether to use absolute scoring for symbol conversion */
 	public static boolean useAbsolute=true;
-	/** Whether to use relative scoring for symbol conversion */
 	public static boolean useRelative=true;
-	/** Whether to use scaled scoring for symbol conversion */
 	public static boolean useScaled=false;
 
-	/** Character set for score visualization (a-z, 0-9, A-Z) from lowest to highest */
 	static final byte[] symbols=new byte[] {
 		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 
 		'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
@@ -320,6 +308,5 @@ public class Visualizer {
 		'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 
 		'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 	};
-	/** Mapping from ASCII character values to symbol indices */
 	static final int[] symbolMap=makeSymbolMap(symbols);
 }

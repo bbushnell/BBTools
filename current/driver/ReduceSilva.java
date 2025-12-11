@@ -22,9 +22,12 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
+ * Reduces Silva database sequences by removing duplicate taxa.
+ * Processes FASTA/FASTQ files and keeps only the first occurrence of each taxon
+ * based on taxonomic information parsed from sequence headers.
+ *
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class ReduceSilva {
 	
@@ -32,10 +35,8 @@ public class ReduceSilva {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point for ReduceSilva.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReduceSilva x=new ReduceSilva(args);
@@ -46,8 +47,9 @@ public class ReduceSilva {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command line arguments and initializes the program.
+	 * Sets up input/output file formats, parsing options, and validation.
+	 * @param args Command line arguments including input/output files and options
 	 */
 	public ReduceSilva(String[] args){
 		
@@ -119,15 +121,6 @@ public class ReduceSilva {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 	}
 	
-	/**
-	 * Parses individual command line arguments.
-	 * Handles reads/maxreads parameter and other specific arguments.
-	 *
-	 * @param arg The full argument string
-	 * @param a The argument key (lowercase)
-	 * @param b The argument value
-	 * @return true if the argument was recognized and parsed, false otherwise
-	 */
 	public boolean parseArgument(String arg, String a, String b){
 		if(a.equals("reads") || a.equals("maxreads")){
 			maxReads=Parse.parseKMG(b);
@@ -144,7 +137,6 @@ public class ReduceSilva {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
 	void process(Timer t){
 		
 		final ConcurrentReadInputStream cris;
@@ -209,7 +201,12 @@ public class ReduceSilva {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Iterates through reads and processes each one for taxonomic deduplication.
+	 * Reads sequences in batches, applies processRead to each, and writes kept reads to output.
+	 * @param cris Input stream for reading sequences
+	 * @param ros Output stream for writing filtered sequences (may be null)
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		readsProcessed=0;
@@ -266,9 +263,12 @@ public class ReduceSilva {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Process a single read pair.
-	 * @param r1 Read 1
-	 * @return True if the read should be kept, false if it should be discarded.
+	 * Processes a single read to determine if it should be kept or discarded.
+	 * Extracts taxonomic information from the read header and keeps only the first
+	 * occurrence of each taxon based on the configured column position.
+	 *
+	 * @param r1 The read to process
+	 * @return true if the read should be kept (first occurrence of taxon), false if discarded
 	 */
 	boolean processRead(final Read r1){
 		String[] split=r1.id.split(";");
@@ -284,63 +284,43 @@ public class ReduceSilva {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Hash table storing previously seen taxa to prevent duplicates */
 	private HashSet<String> table=new HashSet<String>();
 	
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
-	/**
-	 * Column position (from right) in semicolon-delimited header containing taxon information
-	 */
 	private int column=1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Total number of reads processed */
 	protected long readsProcessed=0;
-	/** Total number of bases processed */
 	protected long basesProcessed=0;
 	
-	/** Number of reads written to output after filtering */
 	protected long readsOut=0;
-	/** Number of bases written to output after filtering */
 	protected long basesOut=0;
 	
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input file format specification */
 	private final FileFormat ffin1;
 
-	/** Output file format specification */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and statistics */
 	private PrintStream outstream=System.err;
-	/** Flag to enable verbose output messages */
 	public static boolean verbose=false;
-	/** Flag indicating if the program encountered an error during execution */
 	public boolean errorState=false;
-	/** Flag to allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Flag to append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

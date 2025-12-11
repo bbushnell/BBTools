@@ -5,10 +5,18 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Based on SSAFlat, but with previous state pointers removed. */
+ * Amino acid sequence aligner using single-state dynamic programming.
+ * Based on SingleStateAlignerFlat but optimized for protein alignment.
+ * Removes previous state pointers to reduce memory overhead while maintaining alignment accuracy.
+ * @author Brian Bushnell
+ */
 public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for standardized testing.
+	 * @param args Command-line arguments for alignment testing
+	 * @throws Exception If testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -17,13 +25,15 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 	}
 	
 	
-	/** Creates a new amino acid aligner instance */
 	public SingleStateAlignerFlat2Amino(){}
 
+	/** Returns the aligner name identifier */
 	@Override
 	public final String name() {return "SSA2Amino";}
+	/** Returns -1 as loop counting is not supported */
 	@Override
 	public long loops() {return -1;}
+	/** No-op as loop setting is not supported */
 	@Override
 	public void setLoops(long x) {};//Not supported
 	@Override
@@ -84,8 +94,6 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		}
 	}
 	
-	/** Fills the left column of alignment matrix with insertion penalties.
-	 * @param i Starting row index (minimum 1) */
 	private void prefillLeftColumnStartingAt(int i){
 		packed[0][0]=MODE_MATCH;
 		i=Tools.max(1, i);
@@ -138,8 +146,6 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		prefillTopRow();
 	}
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Will not fill areas that cannot match minScore */
 	@Override
 	public final int[] fillLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		return fillUnlimited(read, ref, refStartLoc, refEndLoc, minScore);
@@ -150,8 +156,17 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return fillUnlimited(read, ref, refStartLoc, refEndLoc, -999999);
 	}
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Min score is optional */
+	/**
+	 * Fills alignment matrix without iteration limits using dynamic programming.
+	 * Computes optimal local alignment between amino acid sequences.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference (inclusive)
+	 * @param refEndLoc End position in reference (inclusive)
+	 * @param minScore Minimum score threshold for valid alignment
+	 * @return Array containing [rows, maxCol, maxState, maxScore, maxStart] or null if below threshold
+	 */
 	@Override
 	public final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		initialize(read.length, refEndLoc-refStartLoc+1);
@@ -261,7 +276,19 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return MODE_INS;
 	}
 	
-	/** Generates the match string */
+	/**
+	 * Generates alignment string by tracing back through the filled matrix.
+	 * Creates match/mismatch/indel representation of the optimal alignment.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Reference start location
+	 * @param refEndLoc Reference end location
+	 * @param row Starting row for traceback
+	 * @param col Starting column for traceback
+	 * @param state Starting alignment state
+	 * @return Byte array representing alignment with 'm'=match, 'S'=substitution, 'D'=deletion, 'I'=insertion, 'N'=ambiguous, 'C'=clip
+	 */
 	@Override
 	public final byte[] traceback(byte[] query, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state){
 //		assert(false);
@@ -333,6 +360,20 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return out2;
 	}
 	
+	/**
+	 * Calculates alignment identity by tracing back through matrix.
+	 * Counts matches, mismatches, insertions, deletions for identity calculation.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Reference start location
+	 * @param refEndLoc Reference end location
+	 * @param row Starting row for traceback
+	 * @param col Starting column for traceback
+	 * @param state Starting alignment state
+	 * @param extra Output array for detailed counts [match, sub, del, ins, noref, clip] (must be 6 elements if not null)
+	 * @return Identity fraction (matches / alignment length)
+	 */
 	@Override
 	/** Generates identity;
 	 * fills 'extra' with {match, sub, del, ins, N, clip} if present */
@@ -404,8 +445,20 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return id;
 	}
 	
-	/** Generates identity;
-	 * fills 'extra' with {match, sub, del, ins, N, clip} if present */
+	/**
+	 * Amino acid-specific identity calculation with traceback.
+	 * Identical to tracebackIdentity but named specifically for amino acid context.
+	 *
+	 * @param query Query amino acid sequence
+	 * @param ref Reference amino acid sequence
+	 * @param refStartLoc Reference start location
+	 * @param refEndLoc Reference end location
+	 * @param row Starting row for traceback
+	 * @param col Starting column for traceback
+	 * @param state Starting alignment state
+	 * @param extra Output array for detailed counts [match, sub, del, ins, noref, clip] (must be 6 elements if not null)
+	 * @return Identity fraction (matches / alignment length)
+	 */
 	public float tracebackIdentityAmino(byte[] query, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state, int[] extra){
 
 //		assert(false);
@@ -474,7 +527,19 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return id;
 	}
 	
-	/** @return {score, bestRefStart, bestRefStop} */
+	/**
+	 * Calculates alignment boundaries and score by tracing back from optimal position.
+	 * Determines the exact start and end positions in the reference sequence.
+	 *
+	 * @param read Query sequence
+	 * @param ref Reference sequence
+	 * @param refStartLoc Reference start location
+	 * @param refEndLoc Reference end location
+	 * @param maxRow Row of optimal alignment endpoint
+	 * @param maxCol Column of optimal alignment endpoint
+	 * @param maxState Alignment state at optimal endpoint
+	 * @return Array containing [score, bestRefStart, bestRefStop] or with padding info if overflow
+	 */
 	@Override
 	public final int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState/*, final int maxScore, final int maxStart*/){
@@ -554,8 +619,17 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 	}
 	
 	
-	/** Will not fill areas that cannot match minScore.
-	 * @return {score, bestRefStart, bestRefStop}  */
+	/**
+	 * Performs complete alignment and scoring with column limit enforcement.
+	 * Restricts alignment range if it exceeds maximum allowed columns.
+	 *
+	 * @param read Query sequence to align
+	 * @param ref Reference sequence
+	 * @param refStartLoc Start position in reference
+	 * @param refEndLoc End position in reference
+	 * @param minScore Minimum score threshold
+	 * @return Alignment score and boundaries, or null if below threshold
+	 */
 	@Override
 	public final int[] fillAndScoreLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		int a=Tools.max(0, refStartLoc);
@@ -575,14 +649,6 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return score;
 	}
 	
-	/**
-	 * Converts reference sequence region to string representation.
-	 *
-	 * @param ref Reference sequence bytes
-	 * @param startLoc Start position (inclusive)
-	 * @param stopLoc Stop position (inclusive)
-	 * @return String representation of sequence region
-	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -603,6 +669,14 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 //		return (int)(len*(identity*POINTS_MATCH+(1-identity)*POINTS_SUB));
 //	}
 	
+	/**
+	 * Calculates minimum possible alignment score for given length and identity.
+	 * Considers match, substitution, insertion, and deletion scoring schemes.
+	 *
+	 * @param len Alignment length
+	 * @param identity Expected identity fraction (0.0-1.0)
+	 * @return Minimum score achievable with given parameters
+	 */
 	@Override
 	public int minScoreByIdentity(int len, float identity){
 		assert(identity>=0 && identity<=1);
@@ -613,57 +687,39 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 		return Tools.min(a, b, c);
 	}
 	
-	/**
-	 * Calculates deletion penalty for given length.
-	 * @param len Number of deleted positions
-	 * @return Total deletion penalty score
-	 */
 	private static int calcDelScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL*len;
 		return score;
 	}
 	
+	/** Returns current number of matrix rows */
 	@Override
 	public int rows(){return rows;}
+	/** Returns current number of matrix columns */
 	@Override
 	public int columns(){return columns;}
 	
 	
-	/** Maximum number of rows allocated in alignment matrix */
 	private int maxRows;
-	/** Maximum number of columns allocated in alignment matrix */
 	private int maxColumns;
 
-	/** Two-dimensional alignment scoring matrix */
 	private int[][] packed;
 	
-	/** Maximum allowed alignment score to prevent overflow */
 	public static final int MAX_SCORE=Integer.MAX_VALUE-2000;
-	/** Minimum allowed alignment score */
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
 
 	//For some reason changing MODE_DEL from 1 to 0 breaks everything
-	/** Alignment state constant for deletions */
 	private static final byte MODE_DEL=1;
-	/** Alignment state constant for insertions */
 	private static final byte MODE_INS=2;
-	/** Alignment state constant for substitutions/mismatches */
 	private static final byte MODE_SUB=3;
-	/** Alignment state constant for matches */
 	private static final byte MODE_MATCH=4;
-	/** Alignment state constant for ambiguous amino acids */
 	private static final byte MODE_N=5;
 	
-	/** Score penalty for ambiguous reference amino acids */
 	public static final int POINTS_NOREF=-15;
-	/** Score reward for amino acid matches */
 	public static final int POINTS_MATCH=100;
-	/** Score penalty for amino acid substitutions */
 	public static final int POINTS_SUB=-50;
-	/** Score penalty for amino acid insertions */
 	public static final int POINTS_INS=-121;
-	/** Score penalty for amino acid deletions */
 	public static final int POINTS_DEL=-111;
 	
 //	public static final int POINTS_NOREF=-100000;
@@ -672,20 +728,15 @@ public final class SingleStateAlignerFlat2Amino implements Aligner, IDAligner {
 //	public static final int POINTS_INS=-100;
 //	public static final int POINTS_DEL=-100;
 	
-	/** Score constant representing a bad/invalid alignment */
 	public static final int BAD=MIN_SCORE-1;
 	
-	/** Current number of rows in alignment matrix */
 	private int rows;
-	/** Current number of columns in alignment matrix */
 	private int columns;
 
 //	public long iterationsLimited=0;
 //	public long iterationsUnlimited=0;
 
-	/** Flag for basic verbose output */
 	public boolean verbose=false;
-	/** Flag for extended verbose output */
 	public boolean verbose2=false;
 	
 }

@@ -10,14 +10,18 @@ import shared.PreParser;
 import shared.Tools;
 
 /**
+ * Analyzes coverage files to summarize primary and secondary organism counts.
+ * Processes tab-delimited coverage files to identify the dominant organism
+ * based on coverage depth and read count, then reports summary statistics.
+ *
  * @author Brian Bushnell
  * @date Apr 29, 2015
- *
  */
 public class SummarizeCoverage {
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point.
+	 * Creates a SummarizeCoverage instance and executes the processing pipeline.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -28,12 +32,6 @@ public class SummarizeCoverage {
 		x.process();
 	}
 	
-	/**
-	 * Constructor that parses command line arguments and prepares input files.
-	 * Handles file discovery, parameter parsing, and input validation.
-	 * Accepts individual files, comma-separated lists, or directories.
-	 * @param args Command line arguments including input files and output options
-	 */
 	public SummarizeCoverage(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -77,13 +75,6 @@ public class SummarizeCoverage {
 		}
 	}
 	
-	/**
-	 * Main processing method that analyzes coverage files and generates summary.
-	 * For each input file, identifies the primary organism (highest coverage or count)
-	 * and accumulates statistics for both primary and secondary organisms.
-	 * Outputs tab-delimited results with file name, primary organism name,
-	 * primary/other counts, and primary/other coverage in megabases.
-	 */
 	public void process(){
 		TextStreamWriter tsw=new TextStreamWriter(out, true, false, false);
 		tsw.start();
@@ -116,9 +107,7 @@ public class SummarizeCoverage {
 		tsw.poisonAndWait();
 	}
 	
-	/** List of input coverage files to process */
 	final ArrayList<String> in;
-	/** Output destination for summary results */
 	final String out;
 	
 }

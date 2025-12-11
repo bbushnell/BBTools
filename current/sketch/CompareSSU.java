@@ -31,11 +31,13 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 
 /**
- * Compares SSUs, all-to-all or fractional matrix.
- * 
+ * Compares SSU (Small Subunit) ribosomal RNA sequences in all-to-all or fractional matrix format.
+ * Performs sequence identity comparisons between SSU sequences using taxonomic
+ * hierarchy information.
+ * Results are grouped by taxonomic levels and identity statistics are computed.
+ *
  * @author Brian Bushnell
  * @date December 2, 2019
- *
  */
 public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	
@@ -43,10 +45,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that creates a CompareSSU instance and processes sequences.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -62,8 +62,10 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses arguments and initializes data structures.
+	 * Loads SSU sequences from the input file, creates taxonomic tree,
+	 * and prepares comparison matrices.
+	 * @param args Command line arguments containing input files and parameters
 	 */
 	public CompareSSU(String[] args){
 		
@@ -127,7 +129,12 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into program parameters.
+	 * Handles parameters like verbose, tree file, length filters, and comparison modes.
+	 * @param args Command line argument array
+	 * @return Configured Parser object with standard settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -176,7 +183,11 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		return parser;
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files can be read and output files can be written.
+	 * Checks for duplicate file specifications and file accessibility.
+	 * @throws RuntimeException if files cannot be accessed or are duplicated
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -195,7 +206,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file-related settings for optimal performance.
+	 * Configures ByteFile modes based on thread count and validates stream settings. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -205,7 +217,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		assert(FastaReadInputStream.settingsOK());
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/** Validates parameter ranges and required settings.
+	 * @return true if all parameters are valid */
 	private boolean validateParams(){
 		return true;
 	}
@@ -214,7 +227,11 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes SSU sequence comparisons.
+	 * Spawns worker threads, collects results, and outputs statistics by taxonomic level.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=makeBSW(ffout1);
@@ -277,7 +294,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/** Creates and manages ProcessThread instances for parallel sequence comparison.
+	 * @param bsw Output stream writer for results */
 	private void spawnThreads(ByteStreamWriter bsw){
 		
 		//Do anything necessary prior to processing
@@ -299,6 +317,11 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		
 	}
 	
+	/**
+	 * Accumulates results from a completed ProcessThread.
+	 * Merges query counts, comparison counts, identity lists, and error states.
+	 * @param pt Completed ProcessThread containing results to accumulate
+	 */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		queriesProcessed+=pt.querysProcessedT;
@@ -312,6 +335,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		}
 	}
 	
+	/** Reports whether all processing completed successfully.
+	 * @return true if no error state was encountered, false otherwise */
 	@Override
 	public final boolean success(){return !errorState;}
 	
@@ -319,11 +344,6 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the given file format.
-	 * @param ff File format specification, or null for no output
-	 * @return Started ByteStreamWriter, or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -335,19 +355,14 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/**
+	 * Worker thread that performs pairwise sequence comparisons.
+	 * Processes a subset of query sequences against reference sequences,
+	 * computing identity scores and grouping by taxonomic levels.
+	 */
 	class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructs a ProcessThread with output stream and thread parameters.
-		 * Initializes local data structures and copies the SSU sequence list.
-		 *
-		 * @param bsw_ Output stream writer for comparison results
-		 * @param tid_ Thread identifier
-		 * @param threads_ Total number of processing threads
-		 */
 		ProcessThread(ByteStreamWriter bsw_, final int tid_, final int threads_){
 			bsw=bsw_;
 			threadID=tid_;
@@ -360,6 +375,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		}
 		
 		//Called by start()
+		/** Thread execution method that processes assigned sequence comparisons.
+		 * Called automatically when thread starts. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -373,7 +390,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/** Main processing loop that iterates through assigned sequences.
+		 * Uses atomic counter to distribute work among threads. */
 		void processInner(){
 			final long limit=Tools.min(ssuList.size(), (maxReads>0 ? maxReads : Integer.MAX_VALUE));
 			
@@ -383,12 +401,6 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 			}
 		}
 		
-		/**
-		 * Processes a single query sequence against all reference sequences.
-		 * Finds taxonomic relationships and computes sequence identity scores.
-		 * Results are filtered by taxonomic level and output format requirements.
-		 * @param query Query sequence to compare against references
-		 */
 		void processRead(Read query){
 			if(query.numericID<1){return;}//invalid TID
 			final int qid=(int)query.numericID;
@@ -425,14 +437,6 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 			}
 		}
 		
-		/**
-		 * Compares two sequences and records identity statistics for the given taxonomic level.
-		 *
-		 * @param query Query sequence
-		 * @param ref Reference sequence
-		 * @param level Taxonomic level for statistical grouping
-		 * @return Sequence identity score between 0.0 and 1.0
-		 */
 		float compare(Read query, Read ref, int level){
 			comparisonsT++;
 			float identity=SketchObject.align(query.bases, ref.bases);
@@ -442,30 +446,25 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 			return identity;
 		}
 
-		/** Number of reads processed by this thread */
+		/** Number of queries processed by this thread */
 		protected long querysProcessedT=0;
-		/** Number of bases processed by this thread */
+		/** Number of comparisons performed by this thread */
 		protected long comparisonsT=0;
 		
-		/** True only if this thread has completed successfully */
+		/** Whether this thread completed successfully */
 		boolean success=false;
 		
-		/** Shared output stream */
+		/** Output stream writer for this thread's results */
 		private final ByteStreamWriter bsw;
-		/** Thread ID */
+		/** Unique identifier for this processing thread */
 		final int threadID;
 		
-		/** Total number of processing threads */
 		final int threads;
 		
-		/** Thread-local copy of the SSU sequence list for processing */
 		ArrayList<Read> listCopy;
 		
-		/** Thread-local identity score lists, one per taxonomic level */
 		final FloatList[] idListsT=new FloatList[taxLevels];
-		/** Thread-local comparison counts, one per taxonomic level */
 		long[] countsT=new long[taxLevels];
-		/** Thread-local identity score sums, one per taxonomic level */
 		double[] sumsT=new double[taxLevels];
 	}
 	
@@ -473,33 +472,22 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
+	/** Primary input file path for SSU sequences */
 	private String in1=null;
 	
-	/** Taxonomic tree file path, defaults to "auto" */
 	private String treeFile="auto";
 
-	/** Primary output file path */
+	/** Primary output file path for comparison results */
 	private String out1=null;
 	
-	/** List of SSU sequences loaded from input file */
 	public static ArrayList<Read> ssuList=null;
 
-	/** Number of taxonomic levels in the extended taxonomy system */
 	final static int taxLevels=TaxTree.numTaxLevelNamesExtended;
-	/** Array of taxonomic level names to include in output */
 	static final String[] printLevelsArray=new String[] {"strain", "species", "genus", "family", "order", "class", "phylum", "superkingdom", "life"};
-	/** Bitmask indicating which taxonomic levels to print */
 	static final long printLevels=makePrintLevels(printLevelsArray);
 	
-	/** Taxonomic tree for determining sequence relationships */
 	private final TaxTree tree;
 	
-	/**
-	 * Creates a bitmask representing which taxonomic levels should be printed.
-	 * @param names Array of taxonomic level names to include in output
-	 * @return Bitmask with bits set for each specified level
-	 */
 	private static final long makePrintLevels(String[] names){
 		long mask=0;
 		for(String s : names){
@@ -509,67 +497,57 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		return mask;
 	}
 	
-	/** Array of identity score lists, one per taxonomic level */
 	private FloatList[] idLists=new FloatList[taxLevels];
-	/** Array of comparison counts, one per taxonomic level */
 	private long[] counts=new long[taxLevels];
-	/** Array of identity score sums, one per taxonomic level */
 	private double[] sums=new double[taxLevels];
 	
-	/** Minimum sequence length filter */
 	private int minlen=0;
-	/** Maximum sequence length filter */
 	private int maxlen=Integer.MAX_VALUE;
-	/** Maximum number of ambiguous bases allowed in sequences */
 	private int maxns=-1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Total number of query sequences processed */
 	protected long queriesProcessed=0;
-	/** Number of bases processed */
+	/** Total number of pairwise sequence comparisons performed */
 	protected long comparisons=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of reads to process, -1 for no limit */
 	private long maxReads=-1;
 	
-	/** Thread-safe counter for distributing work among processing threads */
 	private AtomicInteger next=new AtomicInteger(0);
 
-	/**
-	 * Whether to perform all-to-all comparisons instead of selective comparisons
-	 */
 	private boolean allToAll=false;
-	/** Whether to store detailed results for statistical analysis */
 	private boolean storeResults=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary output file */
+	/** Output file format specification for comparison results */
 	private final FileFormat ffout1;
 	
+	/** Returns the read-write lock for thread synchronization.
+	 * @return ReadWriteLock instance used by this object */
 	@Override
 	public final ReadWriteLock rwlock() {return rwlock;}
-	/** Read-write lock for thread synchronization */
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Whether to print verbose status messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Whether an error was encountered during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Whether to append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
+	/** Whether results should be output in input order */
 	private boolean ordered=false;
 	
 }

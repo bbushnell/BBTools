@@ -8,18 +8,15 @@ import fileIO.ReadWrite;
 import fileIO.TextFile;
 
 /**
+ * Transforms and consolidates tabular data files by reorganizing entries based on unique keys.
+ * Processes tab-separated input files, groups entries by first column, and generates
+ * a restructured output file with reorganized data columns.
+ *
  * @author Brian Bushnell
  * @date May 15, 2014
- *
  */
 public class FixDumbFile {
 	
-	/**
-	 * Program entry point that processes and reorganizes tabular data.
-	 * Reads input file, groups entries by first column key, and writes reorganized output.
-	 * Skips header lines starting with "library_name" and preserves entry ordering.
-	 * @param args Command-line arguments: [0] input filename, [1] output filename
-	 */
 	public static void main(String[] args){
 		
 		String in=args[0];

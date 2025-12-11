@@ -4,35 +4,33 @@ import stream.Read;
 import tax.TaxNode;
 import tax.TaxTree;
 
+
 /**
+ * Comparator for sorting genomic reads based on their taxonomic classification.
+ * Compares reads by hierarchically traversing taxonomic nodes from species to family levels.
+ * Handles unclassified reads with name-based fallback sorting.
+ *
  * @author Brian Bushnell
  * @date Oct 27, 2014
- *
  */
-
 public final class ReadComparatorTaxa extends ReadComparator {
 	
-	/**
-	 * Private constructor to prevent instantiation; use singleton comparator instance
-	 */
 	private ReadComparatorTaxa(){}
 	
+	/**
+	 * Compares two reads based on their taxonomic classification.
+	 * Delegates to internal comparison method and applies sort direction.
+	 *
+	 * @param r1 First read to compare
+	 * @param r2 Second read to compare
+	 * @return Negative, zero, or positive integer for less than, equal, or greater than
+	 */
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
 		return ascending*x;
 	}
 	
-	/**
-	 * Core taxonomic comparison logic for two reads.
-	 * Parses taxonomic nodes from read headers, traverses taxonomy hierarchy from
-	 * family level down to species level, and compares nodes at matching levels.
-	 * Falls back to name comparison for reads with identical taxonomic classifications.
-	 *
-	 * @param r1 First read for comparison
-	 * @param r2 Second read for comparison
-	 * @return Comparison result based on taxonomic hierarchy
-	 */
 	private static int compareInner(Read r1, Read r2) {
 		final TaxNode a0=tree.parseNodeFromHeader(r1.id, true);
 		final TaxNode b0=tree.parseNodeFromHeader(r2.id, true);
@@ -106,31 +104,22 @@ public final class ReadComparatorTaxa extends ReadComparator {
 		return compareSimple(a, b);
 	}
 	
-	/**
-	 * Simple comparison of two taxonomic nodes.
-	 * Compares first by taxonomic level, then by node ID as tiebreaker.
-	 *
-	 * @param a First taxonomic node
-	 * @param b Second taxonomic node
-	 * @return Comparison result: level difference or ID difference
-	 */
 	private static int compareSimple(final TaxNode a, final TaxNode b){
 		if(a.levelExtended!=b.levelExtended){return a.levelExtended-b.levelExtended;}
 		return a.id-b.id;
 	}
 		
-	/** Sorting direction multiplier: 1 for ascending, -1 for descending */
 	private int ascending=1;
 	
+	/** Sets the sorting direction for taxonomic comparison.
+	 * @param asc true for ascending order, false for descending order */
 	@Override
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}
 
-	/** Taxonomic tree used for parsing and traversing taxonomic nodes */
 	public static TaxTree tree;
 	
-	/** Singleton instance of the taxonomic read comparator */
 	public static final ReadComparatorTaxa comparator=new ReadComparatorTaxa();
 	
 }

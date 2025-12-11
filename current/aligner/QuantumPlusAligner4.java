@@ -8,22 +8,23 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *
- * Encodes ACGTN as 1,2,4,8,15/31 in long[] arrays.
- * Uses SIMD for the dense top with a deletion tail loop.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
+ * Aligns two sequences to compute Average Nucleotide Identity (ANI) using a sparse dynamic programming core.
+ * Uses only two score arrays, avoids traceback, and still computes rstart and rstop for the optimal alignment.
+ * Employs a \"quantum teleportation\" deletion model that can jump between high-scoring regions across gaps.
+ * Limited to sequences up to ~2Mbp with 21 position bits and encodes ACGTN as 1,2,4,8,15/31 in long arrays.
+ * Combines a dense SIMD-optimized top band with sparse matrix traversal for the remainder of the alignment.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date April 24, 2025
  */
 public class QuantumPlusAligner4 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test for standardized alignment testing.
+	 * Uses reflection to locate the calling class and passes it to Test.testAndPrint.
+	 * @param args Command-line arguments passed to the testing framework
+	 * @throws Exception If class lookup or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -35,21 +36,52 @@ public class QuantumPlusAligner4 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor */
 	public QuantumPlusAligner4() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the aligner name for identification purposes. */
 	@Override
 	public final String name() {return "Quantum+4";}
+	/**
+	 * Aligns two sequences and returns their identity score.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity score with position information.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Array for returning alignment start/stop positions
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with a minimum score threshold parameter.
+	 * Note: the current implementation ignores the minScore value.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Array for returning alignment start/stop positions
+	 * @param minScore Minimum score threshold (currently unused)
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference coordinate window.
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Array for returning alignment start/stop positions
+	 * @param rStart Window start position in the reference
+	 * @param rStop Window stop position in the reference
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -57,7 +89,14 @@ public class QuantumPlusAligner4 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates an appropriate bandwidth for sparse matrix traversal.
+	 * Tests for high-identity indel-free alignments that need low bandwidth.
+	 * Uses an adaptive strategy based on sequence lengths and mismatch count.
+	 * @param query Query sequence for bandwidth estimation
+	 * @param ref Reference sequence for bandwidth estimation
+	 * @return Optimal bandwidth (minimum 1, capped by sequence length ratios)
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int bandwidth=Tools.min(query.length/4+2, Math.max(query.length, ref.length)/32, 12);
 		bandwidth=Math.max(2, bandwidth);
@@ -69,11 +108,14 @@ public class QuantumPlusAligner4 implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Main alignment method using sparse dynamic programming.
+	 * Optionally swaps sequences so the query is not longer than the reference.
+	 * Uses a dense, SIMD-optimized top band followed by sparse matrix traversal.
+	 * Implements a long-deletion model that can jump between high-scoring regions.
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence to align against
+	 * @param posVector Optional array for returning {rStart, rStop} coordinates; if null, sequences may be swapped
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -267,10 +309,9 @@ public class QuantumPlusAligner4 implements IDAligner{
 	// Process the first topWidth rows using a dense approach
 //	@ForceInline // Apparently requires Java 9
 	/**
-	 * Processes the first topWidth rows using dense matrix approach.
-	 * Encodes sequences as longs for SIMD optimization and processes all columns
-	 * in top rows. Uses separate tail loop for handling deletions.
-	 *
+	 * Processes the first topWidth rows using a dense dynamic programming matrix.
+	 * Encodes bases into long words for SIMD-style operations across all columns.
+	 * Uses a tail loop to handle deletions while keeping scores in packed form.
 	 * @param query0 Query sequence in byte format
 	 * @param ref0 Reference sequence in byte format
 	 * @param prev Previous row scores array
@@ -344,13 +385,15 @@ public class QuantumPlusAligner4 implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Converts alignment score to identity and extracts coordinates.
+	 * Solves equations to recover matches, substitutions, insertions, and deletions from the encoded score.
+	 * Handles global alignment adjustments before computing identity and filling position vectors.
+	 * @param maxScore Highest score containing encoded alignment information
+	 * @param maxPos Position of highest score in the reference
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for returning coordinates and statistics
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -405,14 +448,14 @@ public class QuantumPlusAligner4 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Lightweight wrapper for aligning to a reference window.
+	 * Extracts the specified region from the reference and adjusts returned coordinates.
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence containing the target region
+	 * @param posVector Optional array for returning {rStart, rStop} coordinates
+	 * @param refStart Window start position (inclusive)
+	 * @param refEnd Window end position (inclusive)
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -428,14 +471,9 @@ public class QuantumPlusAligner4 implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for total alignment matrix loops performed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the total number of alignment loops performed across all threads */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -443,49 +481,30 @@ public class QuantumPlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits allocated for position encoding in score field */
 	private static final int POSITION_BITS=21;
-	/** Number of bits allocated for deletion count encoding in score field */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for score portion of encoded long value */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from encoded score */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from encoded score */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting raw score from encoded long value */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score increment for sequence matches */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for alignments involving ambiguous bases (N) */
 	private static final long N_SCORE=0L;
-	/** Sentinel value indicating invalid or uncomputed alignment scores */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty and position increment for matrix traversal */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Whether to extend matching positions for finding deletions */
 	private static final boolean EXTEND_MATCH=true;
-	/** Whether to use loop-based or optimized loop-free position addition */
 	private static final boolean LOOP_VERSION=false;
-	/** Whether to build bridges to catch up with long deletions */
 	private static final boolean BUILD_BRIDGES=true;
-	/** Whether to use dense matrix computation for top alignment band */
 	private static final boolean DENSE_TOP=true;
-	/** Whether to print detailed alignment operation statistics for debugging */
 	private static final boolean PRINT_OPS=false;
-	/** Whether to perform global alignment (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

@@ -15,18 +15,15 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * BLAST-based sequence filtering tool that processes genomic sequences by BLAST
+ * alignment score cutoff. Executes BLAST commands and filters sequences based on
+ * tabular output format, supporting both name-only and FASTA sequence output modes.
+ *
  * @author Brian Bushnell
  * @date Jul 29, 2014
- *
  */
 public class EstherFilter {
 	
-	/**
-	 * Program entry point that executes BLAST filtering workflow.
-	 * Parses command-line arguments for query file, reference database, score cutoff,
-	 * and optional output format. Runs BLAST command and processes results.
-	 * @param args Command-line arguments: [query_file] [reference_db] [score_cutoff] [optional:fasta]
-	 */
 	public static void main(String[] args){
 		String query=args[0];
 		String ref=args[1];
@@ -64,15 +61,6 @@ public class EstherFilter {
 		
 	}
 	
-	/**
-	 * Processes BLAST tabular output to generate FASTA sequences for passing reads.
-	 * Parses BLAST results line by line, filters by alignment score cutoff, collects
-	 * unique sequence names, and outputs corresponding FASTA sequences.
-	 *
-	 * @param b BufferedReader containing BLAST tabular output (-m 8 format)
-	 * @param cutoff Minimum alignment score threshold for sequence retention
-	 * @param query Original query filename for FASTA sequence extraction
-	 */
 	public static void processToFasta(BufferedReader b, float cutoff, String query){
 		String s=null;
 		
@@ -114,14 +102,6 @@ public class EstherFilter {
 		outputFasta(query, names);
 	}
 	
-	/**
-	 * Processes BLAST tabular output to print sequence names that pass score cutoff.
-	 * Parses BLAST results line by line, extracting alignment scores from column 11
-	 * and printing sequence names that meet the minimum score threshold.
-	 *
-	 * @param b BufferedReader containing BLAST tabular output (-m 8 format)
-	 * @param cutoff Minimum alignment score threshold for sequence inclusion
-	 */
 	public static void processToNames(BufferedReader b, float cutoff){
 		String s=null;
 //		System.out.println("Reading line 0");
@@ -155,14 +135,6 @@ public class EstherFilter {
 		}
 	}
 	
-	/**
-	 * Outputs FASTA sequences for specified read names using binary search matching.
-	 * Reads input FASTA file, sorts target sequence names, and uses binary search
-	 * to efficiently identify and output matching sequences in FASTA format.
-	 *
-	 * @param fname Input FASTA filename to extract sequences from
-	 * @param names ArrayList of sequence names to extract and output
-	 */
 	public static void outputFasta(String fname, ArrayList<String> names){
 		
 		Shared.sort(names);

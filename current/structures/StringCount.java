@@ -1,35 +1,22 @@
 package structures;
 
 /**
- * Object holding a String and numbers, for tracking the number of read and base hits per scaffold.
- * Used by BBDuk and Seal.
+ * Data structure for tracking scaffold statistics in sequence alignment tools.
+ * Stores a scaffold name along with counts of reads and bases that aligned to it.
+ * Used primarily by BBDuk and Seal for contamination detection and reference matching.
+ * Implements Comparable to enable sorting by base count (descending), then read count,
+ * then lexicographically by name.
+ *
+ * @author Brian Bushnell
  */
 public class StringCount implements Comparable<StringCount>{
 
-	/** Creates StringCount with only a name, initializing counts to zero.
-	 * @param name_ Scaffold or reference sequence name */
 	public StringCount(String name_){
 		name=name_;
 	}
-	/**
-	 * Creates StringCount with name, length, and basic counts.
-	 * Sets ambiguous reads count to zero.
-	 * @param name_ Scaffold or reference sequence name
-	 * @param len_ Length of the reference sequence
-	 * @param reads_ Number of reads aligned to this scaffold
-	 * @param bases_ Number of bases aligned to this scaffold
-	 */
 	public StringCount(String name_, int len_, long reads_, long bases_){
 		this(name_, len_, reads_, bases_, 0);
 	}
-	/**
-	 * Creates StringCount with full statistics including ambiguous read count.
-	 * @param name_ Scaffold or reference sequence name
-	 * @param len_ Length of the reference sequence
-	 * @param reads_ Number of reads aligned to this scaffold
-	 * @param bases_ Number of bases aligned to this scaffold
-	 * @param ambigReads_ Number of ambiguous reads (multi-mapping or uncertain alignment)
-	 */
 	public StringCount(String name_, int len_, long reads_, long bases_, long ambigReads_){
 		name=name_;
 		length=len_;
@@ -37,24 +24,34 @@ public class StringCount implements Comparable<StringCount>{
 		bases=bases_;
 		ambigReads=ambigReads_;
 	}
+	/**
+	 * Compares StringCount objects for sorting by alignment statistics.
+	 * Primary sort: base count (descending)
+	 * Secondary sort: read count (descending)
+	 * Tertiary sort: name (ascending lexicographic)
+	 * @param o Other StringCount to compare against
+	 * @return Negative if this < o, positive if this > o, zero if equal
+	 */
 	@Override
 	public final int compareTo(StringCount o){
 		if(bases!=o.bases){return o.bases>bases ? 1 : -1;}
 		if(reads!=o.reads){return o.reads>reads ? 1 : -1;}
 		return name.compareTo(o.name);
 	}
-	/**
-	 * Tests equality based on compareTo result.
-	 * @param o Other StringCount to compare
-	 * @return true if all comparison fields are equal
-	 */
 	public final boolean equals(StringCount o){
 		return compareTo(o)==0;
 	}
+	/** Hash code based solely on the scaffold name.
+	 * @return Hash code of the name string */
 	@Override
 	public final int hashCode(){
 		return name.hashCode();
 	}
+	/**
+	 * Tab-delimited string representation for output formatting.
+	 * Format: name\tlength\treads\tbases
+	 * @return Tab-separated values string
+	 */
 	@Override
 	public final String toString(){
 		return name+"\t"+length+"\t"+reads+"\t"+bases;
@@ -62,12 +59,9 @@ public class StringCount implements Comparable<StringCount>{
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Scaffold or reference sequence identifier */
 	public final String name;
-	/** Length of the reference sequence in bases */
 	public int length;
 	/** Number of ambiguous reads that map to multiple locations. */
 	/** Number of bases aligned to this scaffold. */
-	/** Number of reads aligned to this scaffold. */
 	public long reads, bases, ambigReads;
 }

@@ -18,10 +18,13 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Loads output of HMMSearch.
+ * Processes Hidden Markov Model (HMM) search output files.
+ * Loads HMM search results, parses individual result lines, and builds
+ * a comprehensive protein summary mapping for analysis.
+ * Supports compressed input files and provides timing statistics.
+ *
  * @author Brian Bushnell
  * @date April 9, 2020
- *
  */
 public class HMMSearchReport {
 	
@@ -30,8 +33,10 @@ public class HMMSearchReport {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
+	 * Program entry point for HMM search report processing.
+	 * Creates a timer, instantiates HMMSearchReport, processes the input,
+	 * and handles output stream cleanup.
+	 * @param args Command-line arguments for input file and options
 	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
@@ -48,8 +53,10 @@ public class HMMSearchReport {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs HMMSearchReport with command-line argument parsing.
+	 * Handles preprocessing, argument parsing, file extension fixing,
+	 * file existence verification, and input format setup.
+	 * @param args Command-line arguments including input file path
 	 */
 	public HMMSearchReport(String[] args){
 		
@@ -84,7 +91,14 @@ public class HMMSearchReport {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments using shared Parser framework.
+	 * Handles verbose flag configuration and validates all parameters.
+	 * Unknown parameters trigger assertion errors for debugging.
+	 *
+	 * @param args Array of command-line arguments to parse
+	 * @return Configured Parser instance with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -112,13 +126,18 @@ public class HMMSearchReport {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes compression extensions (.gz, .bz2) as needed.
+	 * Validates that at least one input file is specified.
+	 * Throws RuntimeException if no input file provided.
+	 */
 	private void fixExtensions(){
 		in=Tools.fixExtension(in);
 		if(in==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that all specified input files exist and can be read.
+	 * Throws RuntimeException if any input files cannot be accessed. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 //		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -137,7 +156,11 @@ public class HMMSearchReport {
 //		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Adjusts file-related static fields for optimal performance.
+	 * Forces ByteFile2 mode when using more than 2 threads for
+	 * improved input file reading performance.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -149,12 +172,6 @@ public class HMMSearchReport {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that executes HMM search result analysis.
-	 * Creates input file reader, processes all HMM search lines,
-	 * handles cleanup, and reports timing statistics.
-	 * @param t Timer for tracking execution performance
-	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -187,14 +204,6 @@ public class HMMSearchReport {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Internal processing logic for HMM search results.
-	 * Loads all HMM search lines and adds them to the protein summary map.
-	 * Outputs each processed line to stderr for monitoring.
-	 *
-	 * @param bf ByteFile reader for input HMM search results
-	 * @param bsw ByteStreamWriter for output (currently unused)
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		ArrayList<HMMSearchLine> lines=load(bf);
 		for(HMMSearchLine line : lines){
@@ -203,12 +212,6 @@ public class HMMSearchReport {
 		}
 	}
 	
-	/**
-	 * Adds an HMM search line to the protein summary mapping.
-	 * Creates new ProteinSummary if none exists for the protein name,
-	 * otherwise adds the hit to the existing summary.
-	 * @param line HMMSearchLine containing search hit information
-	 */
 	private void addToMap(HMMSearchLine line){
 		ProteinSummary ps=map.get(line.name);
 		if(ps==null){
@@ -218,14 +221,6 @@ public class HMMSearchReport {
 		ps.add(line);
 	}
 	
-	/**
-	 * Loads and parses all HMM search lines from input file.
-	 * Skips comment lines starting with '#' and creates HMMSearchLine
-	 * objects for each valid result line. Updates processing statistics.
-	 *
-	 * @param bf ByteFile reader for the input file
-	 * @return ArrayList of parsed HMMSearchLine objects
-	 */
 	private ArrayList<HMMSearchLine> load(ByteFile bf){
 		byte[] line=bf.nextLine();
 		
@@ -245,12 +240,6 @@ public class HMMSearchReport {
 		return lines;
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for output formatting.
-	 * Returns null if no output format is specified.
-	 * @param ff FileFormat specification for output
-	 * @return Started ByteStreamWriter or null if no output needed
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -262,18 +251,14 @@ public class HMMSearchReport {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path for HMM search results */
 	private String in=null;
 //	private String out=null;
 	
-	/** Protein summary mapping from protein names to their best hit summaries */
 	public HashMap<String, ProteinSummary> map=new HashMap<String, ProteinSummary>();
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Total number of lines processed from input file */
 	private long linesProcessed=0;
-	/** Total number of bytes processed from input file */
 	private long bytesProcessed=0;
 //	private long linesOut=0;
 //	private long bytesOut=0;
@@ -282,7 +267,6 @@ public class HMMSearchReport {
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input file format specification */
 	private final FileFormat ffin;
 //	private final FileFormat ffout;
 	
@@ -290,15 +274,10 @@ public class HMMSearchReport {
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and results */
 	private PrintStream outstream=System.err;
-	/** Controls verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
-	/** Tracks whether any errors occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files rather than overwrite */
 	private boolean append=false;
 	
 }

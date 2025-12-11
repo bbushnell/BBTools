@@ -7,21 +7,21 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *
- *Counts matches instead of dels.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
+ * Aligns two sequences to compute ANI (Average Nucleotide Identity) using sparse dynamic programming.
+ * Uses only two score arrays without traceback, returning exact identity and reference start/stop bounds for alignments up to ~2Mbp.
+ * Counts matches instead of deletions and adapts bandwidth based on sequence similarity, with optional dense processing for the top band.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date April 24, 2025
  */
 public class QuantumAlignerM implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to the shared Test harness for standardized alignment testing.
+	 * Uses reflection to determine the calling class and forwards args to Test.
+	 * @param args Command-line arguments passed to Test
+	 * @throws Exception If class reflection or Test execution fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -33,7 +33,6 @@ public class QuantumAlignerM implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for QuantumAlignerM aligner */
 	public QuantumAlignerM() {}
 
 	/*--------------------------------------------------------------*/
@@ -55,7 +54,13 @@ public class QuantumAlignerM implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates an adaptive bandwidth for sparse alignment based on initial mismatches.
+	 * Tests early positions to distinguish high-identity, indel-free cases needing minimal bandwidth.
+	 * @param query Query sequence to analyze
+	 * @param ref Reference sequence to compare against
+	 * @return Bandwidth value between 8 and 24, adjusted for sequence divergence
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int bandwidth=Tools.min(query.length/2, Math.max(query.length, ref.length)/16, 24);
 		bandwidth=Math.max(8, bandwidth);
@@ -67,11 +72,12 @@ public class QuantumAlignerM implements IDAligner{
 	}
 	
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Core alignment method using sparse dynamic programming with match counting and adaptive bandwidth.
+	 * Optionally swaps query/ref so the query is shorter, and can run a dense top band followed by sparse exploration.
+	 * @param query Query sequence (may be swapped to be shorter if posVector is null)
+	 * @param ref Reference sequence (must be ≤2Mbp due to 21-bit position limit)
+	 * @param posVector Optional array to return alignment bounds [rStart, rStop]; if null, sequences may be swapped
+	 * @return Identity score (0.0-1.0) calculated as matches/(matches+subs+ins+dels)
 	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -263,14 +269,12 @@ public class QuantumAlignerM implements IDAligner{
 	
 	/**
 	 * Extracts alignment statistics from encoded score and calculates final identity.
-	 * Solves system of equations to determine match, substitution, insertion, and deletion counts.
-	 * Uses bit field decoding to extract position and match count information.
-	 *
-	 * Equation system solved:
+	 * Uses bit field decoding to extract position, match count, raw score, and alignment length.
+	 * Solves the equation system:
 	 * 1. M + S + I = queryLength
 	 * 2. M + S + D = refAlignmentLength
 	 * 3. Score = M - S - I - D
-	 *
+	 * to obtain match, substitution, insertion, and deletion counts.
 	 * @param maxScore Encoded score containing position, matches, and raw score
 	 * @param maxPos Reference position of optimal alignment end
 	 * @param qLen Query sequence length
@@ -332,9 +336,7 @@ public class QuantumAlignerM implements IDAligner{
 	// Process the first topWidth rows using a dense approach
 	/**
 	 * Processes initial alignment rows using dense dynamic programming.
-	 * Fills complete alignment matrix for the top band to establish high-quality seed alignments.
-	 * Used when DENSE_TOP is enabled to ensure optimal alignment initiation.
-	 *
+	 * Fills a full-width band of top rows before switching to sparse exploration when DENSE_TOP is enabled.
 	 * @param query Query sequence being aligned
 	 * @param ref Reference sequence
 	 * @param prev Previous row scores array (will be modified)
@@ -395,14 +397,14 @@ public class QuantumAlignerM implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Aligns query to a specific window of the reference sequence.
+	 * Extracts a reference region, runs alignStatic on that window, then adjusts positions back to global coordinates.
+	 * @param query Query sequence to align
+	 * @param ref Full reference sequence
+	 * @param posVector Array to store adjusted alignment positions [rStart, rStop]
+	 * @param refStart Alignment window start position
+	 * @param refEnd Alignment window stop position
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -418,16 +420,9 @@ public class QuantumAlignerM implements IDAligner{
 		return id;
 	}
 
-	/** Thread-safe counter for total alignment matrix cells processed */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the total number of alignment matrix cells processed */
 	public long loops() {return loops.get();}
-	/** Sets the alignment loop counter.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/**
-	 * Optional output path for alignment visualization (null disables visualization)
-	 */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -435,55 +430,30 @@ public class QuantumAlignerM implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/**
-	 * Number of bits allocated for position encoding in score field (21 bits = ~2M positions)
-	 */
 	private static final int POSITION_BITS=21;
-	/** Number of bits allocated for match count encoding in score field */
 	private static final int MATCH_BITS=21;
-	/** Bit shift amount to access raw score portion of encoded score */
 	private static final int SCORE_SHIFT=POSITION_BITS+MATCH_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from encoded scores */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting match count from encoded scores */
 	private static final long MATCH_MASK=((1L << MATCH_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting raw score portion from encoded scores */
 	private static final long SCORE_MASK=~(POSITION_MASK | MATCH_MASK);
 
 	// Scoring constants
-	/** Score increment for sequence matches (+1 in score bits) */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for substitutions (-1 in score bits) */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for insertions (-1 in score bits) */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for deletions (-1 in score bits) */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous base matches (neutral, 0 penalty) */
 	private static final long N_SCORE=0L;
-	/** Sentinel value indicating invalid or cleared alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined increment for matches: adds both score and position tracking */
 	private static final long MATCH_INCREMENT=MATCH+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Enables extension from matching cells to find deletions */
 	private static final boolean EXTEND_MATCH=true;
-	/**
-	 * Controls whether to use loop-based or optimized position addition strategy
-	 */
 	private static final boolean LOOP_VERSION=false;
-	/** Enables bridge building to catch long deletions via periodic exploration */
 	private static final boolean BUILD_BRIDGES=true;
-	/**
-	 * Enables dense processing of initial alignment rows for better seed quality
-	 */
 	private static final boolean DENSE_TOP=true;
-	/** Debug flag to print detailed operation counts and alignment statistics */
 	private static final boolean PRINT_OPS=false;
-	/** Controls global vs local alignment mode (false = local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

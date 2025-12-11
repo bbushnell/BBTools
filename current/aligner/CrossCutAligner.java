@@ -7,20 +7,22 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses 3 scoring arrays and avoids traceback.
- *Gives an exact identity plus rstart and rstop.
- *Limited to length 2Mbp with 21 position bits.
- *Iterates over diagonals that span bottom left to top right.
- *This avoids all inter-loop data dependencies.
- *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 2, 2025
+ * Aligns two sequences to return Average Nucleotide Identity (ANI) using diagonal cross-cut iteration.
+ * Uses three scoring arrays and avoids traceback while still producing exact identity, rstart, and rstop.
+ * Iterates over diagonals from bottom-left to top-right to eliminate inter-loop data dependencies and enable SIMD-friendly processing.
+ * Supports sequences up to ~2Mbp with 21-bit position encoding in 64-bit packed scores.
+ * @author Brian Bushnell
+ * @contributor Isla
+ * @date May 2, 2025
  */
 public class CrossCutAligner implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test for validation and benchmarking.
+	 * Uses reflection to determine the calling class and passes it to Test.testAndPrint.
+	 * @param args Command-line arguments for testing
+	 * @throws Exception If class reflection or test execution fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -54,11 +56,13 @@ public class CrossCutAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Core diagonal-processing alignment method with cross-cut diagonal iteration.
+	 * Processes diagonals k=2 to qLen+rLen using three rolling arrays with packed scores, positions, and deletions.
+	 * Automatically swaps sequences when the query is longer than the reference for memory efficiency.
+	 * @param query0 Query sequence bytes
+	 * @param ref0 Reference sequence bytes
+	 * @param posVector Optional int[2] array for returning {rStart, rStop} coordinates
+	 * @return Identity score (0.0-1.0) calculated from packed operation counts
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		if(posVector==null && query0.length>ref0.length) { // Swap sequences if query is longer than ref
@@ -207,17 +211,15 @@ public class CrossCutAligner implements IDAligner{
 	
 	/**
 	 * Handles top row (row=1) cell processing in diagonal iteration.
-	 * Calculates cell value for matrix positions where row=1 and processes boundary conditions.
-	 * Updates bottom array for special case when qLen=1.
-	 *
-	 * @param q Query base at current position
-	 * @param r Reference base at current position
+	 * Computes the first row of a diagonal and updates the bottom-row tracking array when qLen==1.
+	 * @param q Encoded query base at current position
+	 * @param r Encoded reference base at current position
 	 * @param qLen Query sequence length
 	 * @param col Column position being processed
 	 * @param diag_k Current diagonal array
 	 * @param diag_km1 Previous diagonal array
 	 * @param bottom Bottom row tracking array
-	 * @return Calculated cell value with bit-packed score, position, and deletion count
+	 * @return Calculated cell value with packed score, position, and deletion count
 	 */
 	private static final long handleTop(long q, long r, int qLen, int col,
 			long[] diag_k, long[] diag_km1, long[] bottom) {
@@ -250,17 +252,15 @@ public class CrossCutAligner implements IDAligner{
 	
 	/**
 	 * Handles left column (col=1) cell processing in diagonal iteration.
-	 * Calculates cell value for matrix positions where col=1 and processes boundary conditions.
-	 * Updates bottom array when row=qLen (bottom row).
-	 *
-	 * @param q Query base at current position
-	 * @param r Reference base at current position
+	 * Calculates cell values along the first column and updates the bottom row when row==qLen.
+	 * @param q Encoded query base at current position
+	 * @param r Encoded reference base at current position
 	 * @param qLen Query sequence length
 	 * @param row Row position being processed
 	 * @param diag_k Current diagonal array
 	 * @param diag_km1 Previous diagonal array
 	 * @param bottom Bottom row tracking array
-	 * @return Calculated cell value with bit-packed score, position, and deletion count
+	 * @return Calculated cell value with packed score, position, and deletion count
 	 */
 	private static final long handleLeft(long q, long r, int qLen, int row,
 			long[] diag_k, long[] diag_km1, long[] bottom) {
@@ -291,14 +291,14 @@ public class CrossCutAligner implements IDAligner{
 	}
 
 	/**
-	 * Calculate score for a cell in the alignment matrix
-	 * 
-	 * @param q Query base
-	 * @param r Reference base
-	 * @param diagValue Diagonal cell value
-	 * @param upValue Up cell value
-	 * @param leftValue Left cell value
-	 * @return Maximum score for this cell
+	 * Calculates an alignment matrix cell value using branchless conditional operations.
+	 * Combines match/substitution scores, insertion penalties, and deletion penalties to produce a packed score.
+	 * @param q Encoded query base
+	 * @param r Encoded reference base
+	 * @param diagValue Diagonal predecessor cell value
+	 * @param upValue Up predecessor cell value
+	 * @param leftValue Left predecessor cell value
+	 * @return Maximum cell value with packed score, position, and deletion information
 	 */
 	private static long calculateCellValue(long q, long r, long diagValue, long upValue, long leftValue) {
 	    final boolean isMatch=(q==r); // Check if match
@@ -316,11 +316,9 @@ public class CrossCutAligner implements IDAligner{
 	}
 
 	/**
-	 * Post-processes alignment results using mathematical constraint solving.
-	 * Finds optimal alignment position in bottom row and extracts operation counts.
-	 * Uses constraint system M+S+I=qLen, M+S+D=refAlnLength, Score=M-S-I-D for exact recovery.
-	 * Handles special cases for negative scores and misaligned sequences.
-	 *
+	 * Post-processes alignment results using constraint solving on the bottom row.
+	 * Finds the optimal position, recovers matches, substitutions, insertions, and deletions, and computes identity.
+	 * Handles special cases for negative scores and mismatched full-length alignments.
 	 * @param bottom Bottom row array containing final alignment scores
 	 * @param qLen Query sequence length
 	 * @param rLen Reference sequence length
@@ -407,14 +405,14 @@ public class CrossCutAligner implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * Aligns query to a window of the reference sequence.
+	 * Extracts the reference region, delegates to alignStatic, and adjusts coordinates for the window offset.
+	 * @param query Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param posVector Optional array for returning adjusted {rStart, rStop} coordinates
+	 * @param refStart Window start position (inclusive)
+	 * @param refEnd Window end position (exclusive)
+	 * @return Identity score (0.0-1.0) for alignment within the window
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -430,13 +428,9 @@ public class CrossCutAligner implements IDAligner{
 		return id;
 	}
 
-	/**
-	 * Thread-safe counter tracking total matrix cells processed across all alignments
-	 */
 	private static AtomicLong loops=new AtomicLong(0);
 	public long loops() {return loops.get();}
 	public void setLoops(long x) {loops.set(x);}
-	/** Optional output file path for alignment matrix visualization */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -444,47 +438,26 @@ public class CrossCutAligner implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits (21) allocated for position encoding in bit-packed values */
 	private static final int POSITION_BITS=21;
-	/**
-	 * Number of bits (21) allocated for deletion count encoding in bit-packed values
-	 */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount (42) for score field in 64-bit packed encoding */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting 21-bit position field from packed values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting 21-bit deletion count field from packed values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting 22-bit score field from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Bit-shifted match score (+1) for alignment scoring */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Bit-shifted substitution penalty (-1) for alignment scoring */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Bit-shifted insertion penalty (-1) for alignment scoring */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Bit-shifted deletion penalty (-1) for alignment scoring */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/**
-	 * Score (0) assigned when either query or reference contains ambiguous nucleotide
-	 */
 	private static final long N_SCORE=0L;
-	/** Sentinel value for invalid or uninitialized matrix cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/**
-	 * Combined deletion penalty and position increment for efficient bit-packed operations
-	 */
 	private static final long DEL_INCREMENT=(1L<<POSITION_BITS)+DEL;
 
 	// Run modes
-	/** Debug flag for printing detailed operation counts during postprocessing */
 	private static final boolean PRINT_OPS=false;
-	/** Debug flag for detailed alignment matrix processing output */
 	public static final boolean debug=false;
 
 }

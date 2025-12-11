@@ -228,20 +228,17 @@ public final class QuadHeap {
 		array[loc]=a;
 	}
 	
-	/** Returns true if the heap contains no elements */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
-	/** Removes all elements from the heap by resetting size to zero */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=null;}
 		size=0;
 	}
 	
-	/** Returns the current number of elements in the heap */
 	public int size(){
 		return size;
 	}
@@ -274,6 +271,12 @@ public final class QuadHeap {
 		return true;
 	}
 	
+	/**
+	 * Returns string representation of heap contents.
+	 * Shows all elements from index 1 to size in array order,
+	 * formatted as comma-separated list enclosed in brackets.
+	 * @return String representation of heap elements
+	 */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -285,11 +288,8 @@ public final class QuadHeap {
 		return sb.toString();
 	}
 	
-	/** Internal array storing heap elements with 1-based indexing */
 	private final Quad[] array;
-	/** Maximum number of elements this heap can hold */
 	private final int CAPACITY;
-	/** Current number of elements in the heap */
 	private int size=0;
 	
 }

@@ -46,22 +46,26 @@ public class Pointer implements Comparable<Pointer>{
 	}
 	
 	/**
-	 * Creates a new Pointer with the specified key-value pair.
-	 * @param key_ The key (typically an index)
-	 * @param value_ The value (typically a length or count)
+	 * Creates a new Pointer with the specified key and value.
+	 * @param key_ Key (often a matrix row/column index)
+	 * @param value_ Value (often a length or count) used for comparisons
 	 */
 	public Pointer(int key_, int value_){
 		key=key_;
 		value=value_;
 	}
 	
+	/**
+	 * Compares Pointers based on their values for sorting.
+	 * Returns negative if this value is less, positive if greater, 0 if equal.
+	 * @param o The Pointer to compare against
+	 * @return Difference between this.value and o.value
+	 */
 	@Override
 	public int compareTo(Pointer o) {
 		return value-o.value;
 	}
 	
-	/** The key component, typically used as an index or identifier */
 	public int key;
-	/** The value component, typically used for lengths, counts, or priorities */
 	public int value;
 }

@@ -143,23 +143,16 @@ public class NeedlemanWunsch {
 		return out;
 	}
 	
-	/** Maximum number of rows in the alignment matrix */
 	public final int maxRows;
-	/** Maximum number of columns in the alignment matrix */
 	public final int maxColumns;
-	/** Dynamic programming matrix storing alignment scores */
 	private final int[][] scores;
-	/** Matrix storing traceback pointers for alignment reconstruction */
 	private final byte[][] pointers;
 	
 	/** Pointer constant indicating gap in reference sequence (move up in matrix) */
 	/** Pointer constant indicating match/mismatch (diagonal move in matrix) */
-	/** Pointer constant indicating gap in query sequence (move left in matrix) */
 	public static final byte LEFT=0, DIAG=1, UP=2;
 	
-	/** Current number of rows being used in the alignment matrix */
 	private int rows;
-	/** Current number of columns being used in the alignment matrix */
 	private int columns;
 	
 }

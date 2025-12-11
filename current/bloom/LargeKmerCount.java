@@ -12,9 +12,12 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * K-mer counting tool for large-scale FASTQ files using probabilistic hash tables.
+ * Processes paired-end reads to generate k-mer frequency distributions with collision detection.
+ * Uses dual hashing strategy to estimate true k-mer counts despite hash collisions.
+ *
  * @author Brian Bushnell
  * @date Jul 6, 2012
- *
  */
 public class LargeKmerCount {
 	
@@ -75,18 +78,6 @@ public static void main(String[] args){
 		
 	}
 	
-	/**
-	 * Counts k-mers in FASTQ file(s) using a hash table with collision tracking.
-	 * Uses rotating hash function and dual hash codes to detect and count collisions.
-	 * Processes both forward reads and mate pairs if provided.
-	 *
-	 * @param reads1 Path to first/primary FASTQ file
-	 * @param reads2 Path to second FASTQ file for paired reads, or null
-	 * @param indexbits Number of bits for hash table size (table size = 2^indexbits)
-	 * @param cbits Number of bits per count cell in the array
-	 * @param k K-mer length for counting
-	 * @return KCountArray2 containing k-mer counts
-	 */
 	public static KCountArray2 countFastq(String reads1, String reads2, int indexbits, int cbits, int k){
 		assert(indexbits>=1 && indexbits<40);
 		collisionsA=0;
@@ -208,12 +199,6 @@ public static void main(String[] args){
 		return count;
 	}
 	
-	/**
-	 * Creates rotation masks for removing old bases from rolling k-mer hash.
-	 * Generates masks for each of the 4 DNA bases rotated by specified distance.
-	 * @param rotDist Rotation distance in bits
-	 * @return Array of 4 rotation masks corresponding to bases A,C,G,T
-	 */
 	public static final long[] makeRotMasks(int rotDist){
 		long[] masks=new long[4];
 		for(long i=0; i<4; i++){
@@ -222,12 +207,6 @@ public static void main(String[] args){
 		return masks;
 	}
 	
-	/**
-	 * Converts count array to frequency histogram.
-	 * Creates histogram showing how many k-mers appear each number of times.
-	 * @param count Array of k-mer counts
-	 * @return Frequency array where index=count, value=number of k-mers with that count
-	 */
 	public static long[] transformToFrequency(int[] count){
 		long[] freq=new long[2000];
 		int max=freq.length-1;
@@ -239,47 +218,28 @@ public static void main(String[] args){
 		return freq;
 	}
 	
-	/**
-	 * Calculates sum of all values in integer array.
-	 * @param array Array to sum
-	 * @return Sum as long to avoid overflow
-	 */
 	public static long sum(int[] array){
 		long x=0;
 		for(int y : array){x+=y;}
 		return x;
 	}
 	
-	/**
-	 * Calculates sum of all values in long array.
-	 * @param array Array to sum
-	 * @return Sum of all values
-	 */
 	public static long sum(long[] array){
 		long x=0;
 		for(long y : array){x+=y;}
 		return x;
 	}
 	
-	/** Returns the smaller of two integers */
 	public static final int min(int x, int y){return x<y ? x : y;}
-	/** Returns the larger of two integers */
 	public static final int max(int x, int y){return x>y ? x : y;}
 	
-	/** Controls verbose output during k-mer counting */
 	public static boolean verbose=true;
-	/** Minimum quality score threshold for base inclusion */
 	public static byte minQuality=-5;
-	/** Counter tracking total number of reads processed */
 	public static long readsProcessed=0;
-	/** Maximum number of reads to process in memory simultaneously */
 	public static long maxReads=1000000L;
-	/** Number of bits to rotate for rolling hash function updates */
 	public static final int ROTATE_DIST=2;
 
-	/** Counter for type A hash collisions (new k-mer hits occupied slot) */
 	public static long collisionsA=0;
-	/** Counter for type B hash collisions (duplicate k-mer hits occupied slot) */
 	public static long collisionsB=0;
 	
 }

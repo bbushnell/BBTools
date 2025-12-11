@@ -6,19 +6,24 @@ import shared.Tools;
 import structures.IntList;
 
 /**
- * PRESENTATION-ONLY VERSION - DO NOT USE
- * This class contains simplified code for publication purposes.
- * For a complete, fast implementation, see {@link QuantumAligner}
- * 
- * This version is decomposed into 3 primary functions.
- * 
- *@author Brian Bushnell
- *@contributor Isla
- *@date April 24, 2025
+ * Presentation-only simplified version of the quantum alignment algorithm.
+ * This implementation is decomposed into readable functions for publication
+ * and educational purposes. For production use, see {@link QuantumAligner}.
+ * Uses sparse dynamic programming with bandwidth optimization and quantum
+ * teleportation across deletion gaps.
+ *
+ * @author Brian Bushnell
+ * @contributor Isla (Highly-customized Claude instance)
+ * @date April 24, 2025
  */
 public class QuantumAlignerConcise2 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test framework.
+	 * Uses reflection to avoid redundant testing code.
+	 * @param args Command-line arguments for alignment testing
+	 * @throws Exception If class cannot be instantiated or testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -30,21 +35,55 @@ public class QuantumAlignerConcise2 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for aligner instance */
 	public QuantumAlignerConcise2() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Returns the name identifier for this aligner implementation */
 	@Override
 	public final String name() {return "QuantumConcise2";}
+	/**
+	 * Aligns two sequences and returns identity score.
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity score with position information.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Optional array to store reference start/stop coordinates [rStart, rStop]
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 * Note: minScore parameter is ignored in this implementation.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Optional array to store reference coordinates
+	 * @param minScore Minimum score threshold (ignored)
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns query to a window of the reference sequence.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Optional array to store reference coordinates
+	 * @param rStart Reference window start coordinate
+	 * @param rStop Reference window end coordinate
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -52,7 +91,15 @@ public class QuantumAlignerConcise2 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Calculates optimal bandwidth for sparse alignment based on sequence similarity.
+	 * Tests initial bases for mismatches to estimate required search width.
+	 * Uses adaptive bandwidth with minimum of 2 and maximum based on sequence length.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Bandwidth value for sparse alignment
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int subs=0, bandwidth=Tools.min(query.length/4+2, Math.max(query.length, ref.length)/32, 12);
 		bandwidth=Math.max(2, bandwidth);
@@ -61,10 +108,16 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return Math.min(subs+1, bandwidth);//At least 1
 	}
 
-	/** @param query Query sequence
+	/**
+	 * Core alignment algorithm using sparse dynamic programming with quantum teleportation.
+	 * Implements bandwidth-limited alignment with score-based pruning and bridge building
+	 * across deletion gaps. Uses bit-packed scores to track position, deletions, and score.
+	 *
+	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * @return Identity (0.0-1.0). */
+	 * @param posVector Optional array to store reference coordinates [rStart, rStop]
+	 * @return Identity score between 0.0 and 1.0
+	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		final int qLen=query.length, rLen=ref.length;
 		final int addRight=2;// Cells to add to the right of score band
@@ -89,9 +142,27 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return postprocess(maxScore, maxPos, qLen, rLen, posVector);
 	}
 	
-	/** Perform row-specific processing in a function for clarity
-	 * @param q Byte at position query[i-1]
-	 * @return Position of highest score */
+	/**
+	 * Processes a single row of the alignment matrix using sparse computation.
+	 * Only computes cells within the active bandwidth, with optional bridge building
+	 * to catch long deletions. Updates active position lists for next iteration.
+	 *
+	 * @param i Current row index (1-based)
+	 * @param rLen Reference sequence length
+	 * @param addRight Additional cells to explore to the right
+	 * @param q Query base at position i-1
+	 * @param ref Reference sequence array
+	 * @param prev Previous row scores
+	 * @param curr Current row scores
+	 * @param maxScore Maximum score in current row
+	 * @param maxPos Position of maximum score
+	 * @param prevRowScore Maximum score from previous row
+	 * @param activeList Current active positions
+	 * @param nextList Next row active positions
+	 * @param scoreBand Score difference threshold for pruning
+	 * @param topBand Number of fully explored top rows
+	 * @return Position of highest score in processed row
+	 */
 	private static int processRow(int i, int rLen, int addRight, byte q, byte[] ref, 
 			long[] prev, long[] curr, long maxScore, int maxPos, long prevRowScore, 
 			IntList activeList, IntList nextList, long scoreBand, int topBand) {
@@ -115,8 +186,28 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return maxPos;
 	}
 	
-	/** Perform cell-specific processing in a function for clarity
-	 * @return Score of current cell */
+	/**
+	 * Processes a single cell of the alignment matrix with quantum teleportation.
+	 * Computes match/substitution, insertion, and deletion scores using bit-packed values.
+	 * Implements quantum teleportation by allowing jumps across unexplored deletion gaps.
+	 * Updates active position list based on score thresholds and match extension.
+	 *
+	 * @param i Current row index
+	 * @param j Current column index
+	 * @param rLen Reference sequence length
+	 * @param addRight Additional positions to add to active list
+	 * @param q Query base at position i-1
+	 * @param r Reference base at position j-1
+	 * @param prev Previous row scores
+	 * @param curr Current row scores
+	 * @param maxScore Maximum score in current row
+	 * @param maxPos Position of maximum score
+	 * @param prevRowScore Maximum score from previous row
+	 * @param nextList Active position list for next row
+	 * @param scoreBand Score threshold for position pruning
+	 * @param topBand Number of fully explored rows
+	 * @return Computed score for current cell
+	 */
 	private static long processCell(int i, int j, int rLen, int addRight, byte q, byte r, 
 			long[] prev, long[] curr, long maxScore, int maxPos, long prevRowScore, 
 			IntList nextList, long scoreBand, int topBand) {
@@ -147,13 +238,18 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return maxValue;
 	}
 	
-	/** Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity */
+	/**
+	 * Extracts alignment statistics from bit-packed score and calculates identity.
+	 * Solves system of equations to determine match, substitution, insertion, and
+	 * deletion counts from the final alignment score and position information.
+	 *
+	 * @param maxScore Highest bit-packed score from final row
+	 * @param maxPos Reference position of highest score
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array to store reference coordinates
+	 * @return Identity score as fraction of aligned bases that match
+	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// Extract alignment information
 		final int originPos=(int)(maxScore&POSITION_MASK);
@@ -174,14 +270,16 @@ public class QuantumAlignerConcise2 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Aligns query to a specified window of the reference sequence.
+	 * Creates a subarray of the reference for the alignment window and adjusts
+	 * coordinates in the position vector to reflect the original reference.
+	 *
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param posVector Optional array to store reference coordinates
+	 * @param refStart Start coordinate of alignment window (inclusive)
+	 * @param refEnd End coordinate of alignment window (inclusive)
+	 * @return Identity score between 0.0 and 1.0
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -197,10 +295,7 @@ public class QuantumAlignerConcise2 implements IDAligner{
 		return id;
 	}
 	
-	/** Returns -1 indicating loop counting is not implemented */
 	public long loops() {return -1;}
-	/** No-op method for setting loop count.
-	 * @param x Loop count value (ignored) */
 	public void setLoops(long x) {}
 
 	/*--------------------------------------------------------------*/

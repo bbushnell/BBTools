@@ -8,15 +8,16 @@ import fileIO.ReadWrite;
 import shared.KillSwitch;
 
 /**
+ * Data structure for storing alignment hit positions and start indices.
+ * Used by BBTools alignment framework to efficiently manage k-mer hit lists
+ * with compressed storage and serialization support for index persistence.
+ *
  * @author Brian Bushnell
  * @date Dec 23, 2012
- *
  */
 public class Block implements Serializable{
 	
-	/**
-	 * 
-	 */
+	/** Serialization version ID */
 	private static final long serialVersionUID = -1638122096023589384L;
 	
 	/**
@@ -47,7 +48,12 @@ public class Block implements Serializable{
 		assert(Integer.bitCount(numStarts)==1 && Integer.bitCount(starts.length)==2) : numStarts;
 	}
 	
-	/** For legacy support */
+	/**
+	 * Returns hit list for a given key.
+	 * Creates a copy of the hit positions for legacy compatibility.
+	 * @param key Index key for the hit list
+	 * @return Array of hit positions, or null if empty
+	 */
 	public int[] getHitList(int key){
 		int len=length(key);
 		if(len==0){return null;}
@@ -56,7 +62,14 @@ public class Block implements Serializable{
 		return r;
 	}
 	
-	/** For legacy support */
+	/**
+	 * Returns hit list for a given range.
+	 * Creates a copy of hit positions between start and stop indices.
+	 *
+	 * @param start Starting index in sites array
+	 * @param stop Stopping index in sites array
+	 * @return Array of hit positions, or null if empty
+	 */
 	public int[] getHitList(int start, int stop){
 		int len=length(start, stop);
 		if(len==0){return null;}
@@ -65,7 +78,14 @@ public class Block implements Serializable{
 		return r;
 	}
 	
-	/** For legacy support */
+	/**
+	 * Returns multiple hit lists for given ranges.
+	 * Batch operation for retrieving multiple hit lists efficiently.
+	 *
+	 * @param start Array of starting indices
+	 * @param stop Array of stopping indices
+	 * @return Array of hit lists corresponding to each start/stop pair
+	 */
 	public int[][] getHitLists(int[] start, int[] stop){
 		int[][] r=new int[start.length][];
 		for(int i=0; i<start.length; i++){r[i]=getHitList(start[i], stop[i]);}
@@ -212,20 +232,13 @@ public class Block implements Serializable{
 		return r;
 	}
 
-	/** Number of hit position sites in this block */
 	public final int numSites;
-	/** Number of start indices in this block */
 	public final int numStarts;
-	/** Array storing hit positions for all keys */
 	public final int[] sites;
-	/** Array storing start indices for each key's hit list */
 	public final int[] starts;
 
-	/** Whether to allow subprocess execution for I/O operations */
 	private static boolean allowSubprocess=false;
-	/** Whether to compress starts array during serialization */
 	private static final boolean compress=true;
-	/** Whether to copy arrays before compression during write operations */
 	private static final boolean copyOnWrite=false;
 	
 }

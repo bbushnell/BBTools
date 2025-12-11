@@ -10,18 +10,20 @@ package aligner;
  */
 public final class FlatAligner {
 
-	/** Creates a new FlatAligner instance */
 	public FlatAligner(){}
 	
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Performs forward dynamic programming alignment of query against reference.
+	 * Uses stack-allocated arrays and aggressive early exit for performance.
+	 * Implements standard Smith-Waterman-like algorithm with custom scoring.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence
+	 * @param rstart Start position in reference sequence
+	 * @param rstop Stop position in reference sequence
+	 * @param minScore Minimum score threshold for early exit
+	 * @param minRatio Minimum score ratio relative to perfect match
+	 * @return AlignmentResult with score and positions, or null if below thresholds
 	 */
 	public AlignmentResult alignForward(final byte[] query, final byte[] ref, final int rstart, final int rstop, final int minScore,
 			final float minRatio) {
@@ -130,14 +132,16 @@ public final class FlatAligner {
 	}
 
 	/**
-	 * @param query
-	 * @param ref
-	 * @param qstart
-	 * @param rstart
-	 * @param rstop
-	 * @param minScore Quit early if score drops below this
-	 * @param minRatio Don't return results if max score is less than this fraction of max possible score
-	 * @return
+	 * Optimized forward alignment for shorter sequences.
+	 * Iterates over reference positions while keeping query array fixed-size.
+	 * More memory-efficient than standard approach for short queries.
+	 *
+	 * @param query Query sequence to align
+	 * @param ref Reference sequence
+	 * @param rstart Start position in reference sequence
+	 * @param rstop Stop position in reference sequence
+	 * @param minRatio Minimum score ratio relative to perfect match
+	 * @return AlignmentResult with score and positions, or null if below threshold
 	 */
 	public AlignmentResult alignForwardShort(final byte[] query, final byte[] ref, final int rstart, final int rstop,
 			final float minRatio) {
@@ -233,18 +237,14 @@ public final class FlatAligner {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns total iterations performed by standard alignment method */
 	long iters(){return iters;}
-	/** Returns total iterations performed by short alignment method */
 	long itersShort(){return itersShort;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Counter for iterations in standard alignment method */
 	long iters = 0;
-	/** Counter for iterations in short alignment method */
 	long itersShort = 0;
 	
 	/*--------------------------------------------------------------*/
@@ -256,13 +256,9 @@ public final class FlatAligner {
 //	public static final int pointsDel = -9;
 //	public static final int pointsIns = -9;
 	
-	/** Score awarded for matching bases in alignment */
 	public static final int pointsMatch = 120;
-	/** Penalty for substituting bases in alignment */
 	public static final int pointsSub = -123;
-	/** Penalty for deleting bases from reference in alignment */
 	public static final int pointsDel = -187;
-	/** Penalty for inserting bases into reference in alignment */
 	public static final int pointsIns = -243;
 	
 }

@@ -6,15 +6,17 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Based on MSA9PBA, but reduced to a single matrix. */
+ * Single-state alignment adapter optimized for PacBio long-read sequencing data.
+ * Based on MSA9PBA but reduced to a single scoring matrix for simplified processing.
+ * Uses bit-packed scoring with mode flags and position tracking for efficient alignment.
+ * @author Brian Bushnell
+ */
 public final class SingleStateAlignerPacBioAdapter {
 	
 	
 	/**
 	 * Constructs aligner with specified dimensions and PacBio-optimized scoring.
-	 * Initializes packed scoring matrix and pre-computed scoring arrays for efficient
-	 * gap penalty calculation with streak-aware scoring.
-	 *
+	 * Initializes packed scoring matrix and pre-computed scoring arrays for efficient gap penalty calculation with streak-aware scoring.
 	 * @param maxRows_ Maximum number of query rows supported
 	 * @param maxColumns_ Maximum number of reference columns supported
 	 * @param qlen Query sequence length for scoring initialization
@@ -73,22 +75,45 @@ public final class SingleStateAlignerPacBioAdapter {
 	}
 	
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Will not fill areas that cannot match minScore */
+	/**
+	 * Fills alignment matrix with minimum score threshold for early termination.
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param minScore Minimum score threshold for early termination
+	 * @return Array containing {rows, maxCol, maxState, maxScore, maxStart}
+	 */
 	public final int[] fillLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		return fillLimitedX(read, ref, refStartLoc, refEndLoc, minScore);
 	}
 	
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Will not fill areas that cannot match minScore */
+	/**
+	 * Internal limited filling method that delegates to unlimited fill.
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param minScore Minimum score threshold
+	 * @return Array containing alignment results
+	 */
 	private final int[] fillLimitedX(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		return fillUnlimited(read, ref, refStartLoc, refEndLoc, minScore);
 	}
 	
 	
-	/** return new int[] {rows, maxCol, maxState, maxScore, maxStart};
-	 * Does not require a min score (ie, same as old method) */
+	/**
+	 * Performs complete dynamic programming matrix fill without early termination.
+	 * Uses packed scoring with mode flags for match, substitution, insertion, deletion states.
+	 * Handles N bases in reference with special scoring.
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param minScore Minimum score threshold (used for result filtering)
+	 * @return Array containing {rows, maxCol, maxState, maxScore, maxStart} or null if below threshold
+	 */
 	private final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, final int minScore){
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
@@ -174,7 +199,16 @@ public final class SingleStateAlignerPacBioAdapter {
 	
 	
 	
-	/** Generates the match string */
+	/**
+	 * Generates traceback alignment string from filled matrix.
+	 * Produces CIGAR-style alignment with match (m), substitution (S), deletion (D), insertion (I), and clipping (X) operations.
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param row Final row position
+	 * @param col Final column position
+	 * @param state Final alignment state
+	 * @return Byte array containing alignment operations in reverse order
+	 */
 	public final byte[] traceback(int refStartLoc, int refEndLoc, int row, int col, int state){
 //		assert(false);
 		assert(refStartLoc<=refEndLoc) : refStartLoc+", "+refEndLoc;
@@ -230,7 +264,19 @@ public final class SingleStateAlignerPacBioAdapter {
 		return out2;
 	}
 	
-	/** @return {score, bestRefStart, bestRefStop} */
+	/**
+	 * Calculates final alignment score and reference coordinates.
+	 * Handles incomplete alignments by adding penalties for unaligned query bases.
+	 * Returns optimal alignment boundaries in reference coordinates.
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param maxRow Row of maximum score
+	 * @param maxCol Column of maximum score
+	 * @param maxState State at maximum score position
+	 * @return Array containing {score, bestRefStart, bestRefStop} with optional padding
+	 */
 	public final int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState/*, final int maxScore, final int maxStart*/){
 		
@@ -304,8 +350,16 @@ public final class SingleStateAlignerPacBioAdapter {
 	}
 	
 	
-	/** Will not fill areas that cannot match minScore.
-	 * @return {score, bestRefStart, bestRefStop}  */
+	/**
+	 * Performs complete alignment: matrix fill, scoring, and coordinate calculation.
+	 * Validates reference bounds and restricts to maximum column limit.
+	 * @param read Query sequence bytes
+	 * @param ref Reference sequence bytes
+	 * @param refStartLoc Starting position in reference
+	 * @param refEndLoc Ending position in reference
+	 * @param minScore Minimum score threshold
+	 * @return Array containing {score, bestRefStart, bestRefStop} or null if below threshold
+	 */
 	public final int[] fillAndScoreLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		int a=Tools.max(0, refStartLoc);
 		int b=Tools.min(ref.length-1, refEndLoc);
@@ -324,14 +378,6 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
-	/**
-	 * Converts reference subsequence to string representation.
-	 *
-	 * @param ref Reference sequence bytes
-	 * @param startLoc Starting position (inclusive)
-	 * @param stopLoc Stopping position (inclusive)
-	 * @return String representation of reference subsequence
-	 */
 	public static final String toString(byte[] ref, int startLoc, int stopLoc){
 		StringBuilder sb=new StringBuilder(stopLoc-startLoc+1);
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
@@ -353,11 +399,6 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
-	/**
-	 * Calculates bit-shifted deletion penalty for packed scoring.
-	 * @param len Deletion length in bases
-	 * @return Deletion penalty shifted by SCOREOFFSET
-	 */
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
@@ -383,11 +424,6 @@ public final class SingleStateAlignerPacBioAdapter {
 		return score;
 	}
 	
-	/**
-	 * Calculates bit-shifted insertion penalty for packed scoring.
-	 * @param len Insertion length in bases
-	 * @return Insertion penalty shifted by SCOREOFFSET
-	 */
 	private static int calcInsScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_INS;
@@ -399,26 +435,17 @@ public final class SingleStateAlignerPacBioAdapter {
 	}
 	
 	
-	/** Maximum number of query rows this aligner can handle */
 	private final int maxRows;
-	/** Maximum number of reference columns this aligner can handle */
 	public final int maxColumns;
 
-	/** Packed scoring matrix storing score, mode, and position information */
 	private final int[][] packed;
 
-	/** Vertical pruning limits for optimization */
 	private final int[] vertLimit;
-	/** Horizontal pruning limits for optimization */
 	private final int[] horizLimit;
 
-	/** Pre-computed insertion scores for different preceding states */
 	private final int[] insScoreArray;
-	/** Pre-computed deletion scores for different preceding states */
 	private final int[] delScoreArray;
-	/** Pre-computed match scores for different preceding states */
 	private final int[] matchScoreArray;
-	/** Pre-computed substitution scores for different preceding states */
 	private final int[] subScoreArray;
 
 	public static final int MODEBITS=3;
@@ -485,19 +512,13 @@ public final class SingleStateAlignerPacBioAdapter {
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
 	
-	/** Current number of query rows in alignment */
 	private int rows;
-	/** Current number of reference columns in alignment */
 	private int columns;
 
-	/** Counter for limited alignment iterations for performance analysis */
 	public long iterationsLimited=0;
-	/** Counter for unlimited alignment iterations for performance analysis */
 	public long iterationsUnlimited=0;
 
-	/** Enable verbose debugging output */
 	public boolean verbose=false;
-	/** Enable additional verbose debugging output */
 	public boolean verbose2=false;
 	
 }

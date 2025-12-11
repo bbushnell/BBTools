@@ -3,30 +3,11 @@ package bin;
 import java.util.ArrayList;
 import java.util.Random;
 
-/**
- * Enhanced recrystallization-based bin refinement using iterative centroid clustering.
- * Implements binary splitting (k=2) with farthest-first centroid initialization and assignment stability detection.
- * The algorithm performs K-means-style clustering using Oracle similarity calculations instead of Euclidean distance,
- * making it suitable for biological sequence similarity rather than numerical feature clustering.
- * Uses fixed binary splits to avoid algorithmic complexity since recursive splitting can achieve multi-way partitions.
- * 
- * The recrystallization process iteratively assigns contigs to the nearest centroid (highest similarity),
- * then updates centroids to represent each cluster. Convergence is detected when assignments stabilize
- * between iterations, providing faster termination than traditional centroid movement thresholds.
- * 
- * "Perfect binary splits with better initialization - no need for complexity." - UMP45
- * 
- * @author UMP45
- * @author Brian Bushnell
- */
 class CrystalChamber2 extends AbstractRefiner {
 	
 	/**
-	 * Creates enhanced CrystalChamber2 refiner with specified Oracle for similarity calculations.
-	 * Initializes recrystallization parameters for iterative centroid-based clustering with binary splitting.
-	 * Sets reasonable defaults for convergence (50 iterations max), split quality thresholds (0.1 minimum improvement),
-	 * and reproducible random seed for consistent centroid initialization across runs.
-	 * Enables debugging output to track split success rates and similarity thresholds.
+	 * Creates a CrystalChamber2 refiner with the specified Oracle for contig similarity calculations.
+	 * Initializes recrystallization parameters for binary clustering, including convergence limits, split thresholds, and random seed.
 	 * @param oracle_ Oracle instance for contig similarity evaluation during clustering
 	 */
 	public CrystalChamber2(Oracle oracle_){
@@ -41,14 +22,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	}
 	
 	/**
-	 * Performs binary splitting refinement on input cluster using recrystallization algorithm.
-	 * Attempts to separate the input cluster into two sub-clusters using iterative centroid-based clustering.
-	 * First validates input size (minimum 4 contigs required for meaningful split), then performs recrystallization
-	 * with k=2 binary splitting. Validates split quality using Oracle similarity calculations and split improvement thresholds.
-	 * Returns null if input is too small, recrystallization fails, split quality is insufficient, or resulting clusters
-	 * would be merged back together based on similarity scores.
-	 * @param input Input cluster to refine through binary splitting
-	 * @return ArrayList containing two refined clusters, or null if splitting failed or was not beneficial
+	 * Performs binary splitting refinement on an input bin using a recrystallization algorithm.
+	 * Uses centroid-based clustering with k=2 and Oracle similarity to decide whether a split is beneficial.
+	 * @param input Input bin to refine through binary splitting
+	 * @return List containing two refined bins, or null if splitting fails or is not beneficial
 	 */
 	@Override
 	ArrayList<Bin> refine(Bin input){
@@ -96,15 +73,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	}
 	
 	/**
-	 * Determines optimal number of clusters based on cluster size heuristics.
-	 * Uses simple rules to balance clustering effectiveness with computational complexity.
-	 * Small clusters (size < 8) use binary splits to avoid over-fragmentation.
-	 * Medium clusters (8-19) can support 3-way splits for better separation.
-	 * Large clusters (20-49) use 4-way splits to handle complexity without excessive fragmentation.
-	 * Very large clusters use up to 5-way splits or size/10, whichever is smaller.
-	 * Note: Current implementation uses fixed k=2, making this method unused but preserved for future flexibility.
-	 * @param contigs List of contigs to analyze for optimal k value determination
-	 * @return Recommended number of clusters (2-5) based on input size heuristics
+	 * Determines an optimal number of clusters based on simple size heuristics.
+	 * Currently unused because the implementation always performs binary splits (k=2), but preserved for future flexibility.
+	 * @param contigs List of contigs to analyze for potential k selection
+	 * @return Recommended number of clusters based on heuristic rules
 	 */
 	private int determineOptimalK(ArrayList<Contig> contigs){
 		int size=contigs.size();
@@ -117,15 +89,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	
 	/**
 	 * Performs iterative centroid-based clustering to separate contigs into k clusters using Oracle similarity.
-	 * Implements K-means-style algorithm adapted for biological sequence similarity rather than Euclidean distance.
-	 * Uses farthest-first centroid initialization to maximize initial separation, then iteratively assigns
-	 * contigs to nearest centroids and updates centroid representatives. Enhanced convergence detection uses
-	 * assignment stability (no contig reassignments) rather than traditional centroid movement thresholds.
-	 * Fails if any cluster becomes empty during iterations or if initialization cannot find sufficient diversity.
-	 * Creates proper Cluster objects with correct contig.cluster pointer updates to maintain data integrity.
+	 * Uses farthest-first centroid initialization, repeated assignment/centroid updates, and aborts if any cluster becomes empty.
 	 * @param contigs List of contigs to partition into clusters using similarity-based assignments
-	 * @param k Number of clusters to create (typically k=2 for binary splitting)
-	 * @return ArrayList of k clusters with proper contig assignments, or null if clustering fails
+	 * @param k Number of clusters to create (typically 2 for binary splitting)
+	 * @return List of k clusters with contigs assigned, or null if clustering fails
 	 */
 	private ArrayList<Cluster> recrystallize(ArrayList<Contig> contigs, int k){
 		if(contigs.size()<k){return null;} //Cannot create more clusters than contigs available
@@ -196,16 +163,11 @@ class CrystalChamber2 extends AbstractRefiner {
 	}
 	
 	/**
-	 * Initializes centroids using farthest-first strategy to maximize initial cluster separation.
-	 * Selects first centroid randomly from available contigs, then iteratively chooses subsequent centroids
-	 * to maximize the minimum distance (1 - similarity) to all previously selected centroids.
-	 * This approach provides better initial separation than random selection and avoids the problematic
-	 * K-means++ probabilistic weighting which doesn't work well with Oracle similarity functions.
-	 * Each iteration examines all remaining contigs and selects the one most dissimilar to the closest
-	 * existing centroid, creating well-separated initial cluster centers for effective convergence.
+	 * Initializes centroids using a farthest-first strategy to maximize initial cluster separation.
+	 * Selects the first centroid at random, then iteratively chooses contigs that are far from existing centroids under the Oracle metric.
 	 * @param contigs Available contigs for centroid selection and initialization
 	 * @param k Number of centroids to initialize (must be <= contigs.size())
-	 * @return ArrayList of k initialized centroids with maximum separation, or null if insufficient contigs
+	 * @return List of k initialized centroids, or null if insufficient contigs
 	 */
 	private ArrayList<Centroid> initializeCentroids(ArrayList<Contig> contigs, int k){
 		if(contigs.size()<k){return null;} //Cannot select more centroids than available contigs
@@ -247,11 +209,7 @@ class CrystalChamber2 extends AbstractRefiner {
 	
 	/**
 	 * Finds the centroid with highest similarity to the given contig for cluster assignment.
-	 * Iterates through all available centroids and calculates Oracle similarity scores,
-	 * returning the index of the centroid with maximum similarity. Uses "nearest" in the similarity sense
-	 * (highest similarity score) rather than traditional distance minimization, since Oracle provides
-	 * similarity rather than distance metrics. This assignment strategy ensures contigs are placed
-	 * in clusters where they are most similar to the representative centroid.
+	 * Iterates through all centroids, scores similarity via the Oracle, and returns the best index.
 	 * @param contig Contig to assign to the most similar centroid
 	 * @param centroids Available centroids for similarity-based assignment
 	 * @return Index of centroid with highest similarity to the input contig
@@ -272,16 +230,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	}
 	
 	/**
-	 * Calculates centroid representative for a group of contigs using size-based selection.
-	 * Uses the largest contig in the group as the centroid representative, under the assumption
-	 * that larger contigs provide more stable similarity calculations and better represent
-	 * the cluster's characteristics. This is a practical heuristic since true feature averaging
-	 * is complex for biological sequences and may not improve clustering effectiveness.
-	 * For single-contig groups, returns the contig itself as the centroid representative.
-	 * The size-based selection provides deterministic centroid updates and avoids computational
-	 * complexity of feature space averaging while maintaining reasonable clustering behavior.
+	 * Calculates a centroid representative for a group of contigs using size-based selection.
+	 * Uses the largest contig in the group as the representative to provide stable similarity calculations.
 	 * @param contigs Group of contigs requiring centroid representation for clustering
-	 * @return Centroid object with largest contig as representative, or null if group is empty
+	 * @return Centroid object with the largest contig as representative, or null if the group is empty
 	 */
 	private Centroid calculateCentroid(ArrayList<Contig> contigs){
 		if(contigs.isEmpty()){return null;} //Cannot calculate centroid for empty cluster
@@ -298,14 +250,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	
 	/**
 	 * Checks if two assignment sets are identical for convergence detection in clustering iterations.
-	 * Performs deep comparison of all contig assignments across all clusters to determine if
-	 * assignments have stabilized between iterations. This provides more reliable convergence
-	 * detection than traditional centroid movement thresholds, since it directly measures
-	 * the clustering objective (stable assignments) rather than intermediate values.
-	 * Uses element-wise comparison assuming assignment lists maintain consistent ordering.
-	 * @param a First assignment set from current iteration
-	 * @param b Second assignment set from previous iteration  
-	 * @return true if all assignments are identical (converged), false if any differences exist
+	 * Performs deep comparison of contig assignments across clusters to see if assignments have stabilized.
+	 * @param a First assignment set from the current iteration
+	 * @param b Second assignment set from the previous iteration
+	 * @return true if all assignments are identical, false otherwise
 	 */
 	private boolean assignmentsEqual(ArrayList<ArrayList<Contig>> a, ArrayList<ArrayList<Contig>> b){
 		if(a.size()!=b.size()) return false; //Different number of clusters
@@ -320,14 +268,10 @@ class CrystalChamber2 extends AbstractRefiner {
 	}
 	
 	/**
-	 * Creates deep copy of assignment sets for comparison in subsequent clustering iterations.
-	 * Prevents accidental modification of stored assignments during convergence checking by creating
-	 * independent copies of all cluster assignment lists. Essential for assignment stability detection
-	 * since the original assignments will be cleared and rebuilt in each iteration.
-	 * Only copies list structure and references, not the Contig objects themselves, which is sufficient
-	 * for assignment comparison purposes and avoids unnecessary object duplication.
-	 * @param original Original assignment set from current iteration to preserve
-	 * @return Deep copy of assignment structure with independent ArrayList instances
+	 * Creates a deep copy of assignment sets for comparison in subsequent clustering iterations.
+	 * Copies the list structure and references so that convergence checks are not affected by later mutations.
+	 * @param original Original assignment set from the current iteration
+	 * @return Deep copy of the assignment structure with independent ArrayList instances
 	 */
 	private ArrayList<ArrayList<Contig>> deepCopyAssignments(ArrayList<ArrayList<Contig>> original){
 		ArrayList<ArrayList<Contig>> copy=new ArrayList<>();
@@ -337,29 +281,17 @@ class CrystalChamber2 extends AbstractRefiner {
 		return copy;
 	}
 	
-	/**
-	 * Represents a cluster centroid using a single representative contig for similarity calculations.
-	 * Provides a lightweight abstraction for centroid-based clustering where centroids are actual
-	 * contigs rather than computed feature vectors. This approach works well with Oracle similarity
-	 * functions that operate on pairs of biological sequences, avoiding the complexity of
-	 * feature space averaging while maintaining effective clustering behavior.
-	 */
+	/** Represents a cluster centroid using a single representative contig for similarity calculations.
+	 * Provides a lightweight abstraction where centroids are contigs rather than averaged feature vectors. */
 	private static class Centroid {
-		/** Representative contig serving as the centroid for similarity calculations */
 		final Contig representative;
 		
-		/**
-		 * Creates centroid with specified representative contig as the cluster center.
-		 * The representative contig will be used for all similarity calculations with this centroid.
-		 * @param rep Representative contig that defines this centroid's position in similarity space
-		 */
+		/** Creates a centroid with the specified representative contig as the cluster center.
+		 * @param rep Representative contig used for similarity calculations */
 		Centroid(Contig rep){representative=rep;}
 		
 		/**
 		 * Calculates Oracle similarity between this centroid and a target contig for assignment.
-		 * Uses the representative contig as the centroid's position in similarity space,
-		 * delegating to the Oracle's similarity function for biological sequence comparison.
-		 * Higher similarity scores indicate better assignment matches for clustering.
 		 * @param contig Target contig for similarity-based distance calculation
 		 * @param oracle Oracle instance providing biological sequence similarity calculations
 		 * @return Similarity score between centroid representative and target contig (higher = more similar)
@@ -369,24 +301,22 @@ class CrystalChamber2 extends AbstractRefiner {
 		}
 	}
 	
-	/** Oracle instance for biological sequence similarity calculations during clustering and validation */
 	private final Oracle oracle;
-	/** Maximum iterations allowed for centroid convergence before terminating clustering attempts */
 	private final int maxIterations;
-	/** Traditional convergence threshold for centroid movement (unused in assignment stability detection) */
 	private final float convergenceThreshold;
-	/** Minimum similarity difference required between clusters to justify split (prevents over-fragmentation) */
 	private final float minSplitImprovement;
-	/** Random number generator with fixed seed for reproducible centroid initialization across runs */
 	private final Random random;
 	
-	/** Enable debugging output for split success rate analysis and similarity threshold monitoring */
 	private final boolean debug;
-	/** Total number of split attempts across all inputs for debugging and performance statistics */
 	private int splitAttempts;
-	/** Number of successful splits that passed quality thresholds for debugging and effectiveness analysis */
 	private int successfulSplits;
 	
+	/**
+	 * Converts refined clusters to IntHashSet representations for compatibility with integer-based algorithms.
+	 * Runs binary splitting refinement, then extracts contig IDs from each resulting cluster into IntHashSet collections.
+	 * @param input Input cluster to refine and convert to integer set representation
+	 * @return List of IntHashSets containing contig IDs for each refined cluster, or null if refinement fails
+	 */
 	@Override
 	ArrayList<structures.IntHashSet> refineToIntSets(Bin input) {
 		ArrayList<Bin> refined = refine(input);

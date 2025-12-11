@@ -19,12 +19,15 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Generates histograms from a square matrix.
- * Intended for plotting a TileDump.
- * If rewritten to use FloatList, it could ignore outlier percentiles...
- * @author Brian Bushnell
- * @date Nov 5, 2024
+ * Generates histograms from data matrix files, specifically designed for plotting
+ * TileDump data. Processes input text files containing numerical data, creating
+ * histogram distributions by binning values across multiple columns.
  *
+ * The tool dynamically calculates bin ranges based on the maximum values in each
+ * column and generates output TSV files representing the histogram counts. Each
+ * column from the input file produces a separate histogram output file.
+ *
+ * @author Brian Bushnell
  */
 public class PlotHist {
 	
@@ -32,10 +35,6 @@ public class PlotHist {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -51,7 +50,9 @@ public class PlotHist {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructor that parses command line arguments and initializes the PlotHist
+	 * instance. Sets up file formats, validates parameters, and prepares for
+	 * data processing.
 	 * @param args Command line arguments
 	 */
 	public PlotHist(String[] args){
@@ -86,7 +87,12 @@ public class PlotHist {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses arguments from the command line using a Parser object.
+	 * Supports configuration of bins count and verbose output settings.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser instance with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -130,13 +136,18 @@ public class PlotHist {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Adds or removes .gz or .bz2 extensions as needed for input files.
+	 * Validates that at least one input file is specified.
+	 * @throws RuntimeException if no input file is provided
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Ensures input files can be read by testing file accessibility.
+	 * @throws RuntimeException if input files cannot be read */
 	private void checkFileExistence(){
 		
 		//Ensure input files can be read
@@ -145,7 +156,11 @@ public class PlotHist {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/**
+	 * Adjusts file-related static fields as needed for this program.
+	 * Configures ByteFile mode based on available thread count for optimal
+	 * I/O performance.
+	 */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -158,7 +173,11 @@ public class PlotHist {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Ensures parameter ranges are within bounds and required parameters are set.
+	 * Validates that input file and bins count are properly configured.
+	 * @return true if all parameters are valid
+	 */
 	private boolean validateParams(){
 		assert(in1!=null);
 		assert(bins>0);
@@ -169,7 +188,12 @@ public class PlotHist {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Creates streams and processes all data through the histogram generation
+	 * pipeline. Coordinates file reading, data gathering, histogram calculation,
+	 * and output writing.
+	 * @param t Timer for tracking processing duration and performance metrics
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -196,12 +220,6 @@ public class PlotHist {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * First pass through the data to determine maximum values for each column
-	 * and parse the header. Resets the ByteFile position for subsequent processing.
-	 * Initializes the countMatrix based on discovered data structure.
-	 * @param bf ByteFile containing the input data to analyze
-	 */
 	private void gatherData(ByteFile bf) {
 		byte[] line=bf.nextLine();
 		
@@ -228,12 +246,6 @@ public class PlotHist {
 		countMatrix=new long[terms][bins+1];
 	}
 	
-	/**
-	 * Second pass through the data to populate histogram bins. Parses each data
-	 * line, calculates appropriate bin indices based on normalized values, and
-	 * increments count matrix accordingly.
-	 * @param bf ByteFile containing the input data to process
-	 */
 	private void processInner(ByteFile bf){
 		gatherData(bf);
 		
@@ -264,11 +276,6 @@ public class PlotHist {
 		}
 	}
 	
-	/**
-	 * Writes histogram data to separate TSV files for each column. Each output
-	 * file contains bin start values and corresponding counts, with filenames
-	 * based on column headers.
-	 */
 	private void writeData() {
 		ByteBuilder bb=new ByteBuilder();
 		for(int term=0; term<terms; term++) {
@@ -294,51 +301,35 @@ public class PlotHist {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of lines processed from input */
 	private long linesProcessed=0;
-	/** Count of lines written to output */
 	private long linesOut=0;
-	/** Count of bytes processed from input */
 	private long bytesProcessed=0;
-	/** Count of bytes written to output */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
 	private final FileFormat ffin1;
 	
-	/** Column headers from input file */
 	String[] header;
-	/** Matrix storing histogram counts for each column and bin */
 	long[][] countMatrix;
-	/** Maximum values for each column used for bin normalization */
 	double[] maxArray;
-	/** Number of histogram bins to generate */
 	int bins=1000;
-	/** Number of columns in the input data */
 	int terms=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

@@ -13,18 +13,15 @@ import stream.Read;
 import structures.ListNum;
 
 /**
+ * Counts k-mer frequencies in sequencing data using memory-efficient arrays.
+ * Processes FASTQ and FASTA files to generate k-mer frequency distributions
+ * for analysis of sequence composition and complexity.
+ *
  * @author Brian Bushnell
  * @date Jul 5, 2012
- *
  */
 public class KmerCount3 extends KmerCountAbstract {
 	
-	/**
-	 * Program entry point for k-mer counting analysis.
-	 * Expects command-line arguments: input_file [paired_file] k_value cbits_value
-	 * Outputs k-mer frequency distribution statistics to standard output.
-	 * @param args Command-line arguments containing file paths and parameters
-	 */
 	public static void main(String[] args){
 		
 		Timer t=new Timer();
@@ -72,17 +69,6 @@ public class KmerCount3 extends KmerCountAbstract {
 		}
 	}
 	
-	/**
-	 * Counts k-mer occurrences in FASTQ/FASTA sequence files.
-	 * Processes both single-end and paired-end reads, applying quality filtering
-	 * and handling ambiguous bases. Uses rolling hash for efficient k-mer extraction.
-	 *
-	 * @param reads1 Path to first (or only) input sequence file
-	 * @param reads2 Path to second paired-end file, or null for single-end
-	 * @param k Length of k-mers to count (must be 1-19)
-	 * @param cbits Number of bits per counter in the counting array
-	 * @return KCountArray2 containing k-mer counts for frequency analysis
-	 */
 	public static KCountArray2 countFastq(String reads1, String reads2, int k, int cbits){
 		assert(k>=1 && k<20);
 		final int kbits=2*k;

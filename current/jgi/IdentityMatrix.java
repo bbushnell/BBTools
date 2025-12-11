@@ -19,18 +19,15 @@ import stream.Read;
 import structures.ListNum;
 
 /**
- * Calculates an all-to-all identity matrix.
+ * Calculates an all-to-all identity matrix between sequences using alignment.
+ * Performs pairwise alignments between all sequences in the input and computes
+ * similarity scores based on edit distances. Outputs results as a matrix format.
+ *
  * @author Brian Bushnell
  * @date Nov 23, 2014
- *
  */
 public class IdentityMatrix {
 
-	/**
-	 * Program entry point.
-	 * Creates an IdentityMatrix instance and processes sequences to generate the matrix.
-	 * @param args Command-line arguments for input/output files and parameters
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		IdentityMatrix x=new IdentityMatrix(args);
@@ -40,12 +37,6 @@ public class IdentityMatrix {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs IdentityMatrix and parses command-line arguments.
-	 * Sets up file formats, alignment parameters, and output formatting options.
-	 * @param args Command-line arguments including input files, output paths,
-	 * alignment parameters (edits, width), and formatting options
-	 */
 	public IdentityMatrix(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -99,12 +90,6 @@ public class IdentityMatrix {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
 	}
 	
-	/**
-	 * Main processing method that generates the all-to-all identity matrix.
-	 * Loads all sequences, creates worker threads to perform pairwise alignments,
-	 * computes similarity scores, and outputs the final matrix.
-	 * @param t Timer for tracking execution time and reporting performance metrics
-	 */
 	void process(Timer t){
 		
 		allReads=load();
@@ -171,12 +156,6 @@ public class IdentityMatrix {
 		outstream.println("Avg Similarity:     "+Tools.format("%.5f", avgID));
 	}
 	
-	/**
-	 * Loads all sequences from the input file into memory.
-	 * Reads sequences using ConcurrentReadInputStream and stores them in an ArrayList.
-	 * Tracks the longest sequence length for alignment parameter optimization.
-	 * @return ArrayList containing all loaded sequences with numeric IDs assigned
-	 */
 	private ArrayList<Read> load(){
 		Timer t=new Timer();
 		final ConcurrentReadInputStream cris;
@@ -235,19 +214,8 @@ public class IdentityMatrix {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Worker thread that performs pairwise alignments between sequences.
-	 * Each thread processes a subset of sequences and computes similarity scores
-	 * using BandedAligner for efficient alignment with edit distance calculation.
-	 */
 	private class ProcessThread extends Thread {
 		
-		/**
-		 * Constructs a processing thread with optimized alignment parameters.
-		 * Creates a BandedAligner instance with width calculated from maximum edits
-		 * and longest sequence length for efficient alignment processing.
-		 * @param cris_ Input stream for reading sequences to process
-		 */
 		ProcessThread(ConcurrentReadInputStream cris_){
 			cris=cris_;
 			maxEdits2=Tools.min(maxEdits, longestSequence);
@@ -310,15 +278,8 @@ public class IdentityMatrix {
 			avgID=sum/compares;
 		}
 		
-		/** Input stream for reading sequences in this processing thread */
 		private final ConcurrentReadInputStream cris;
-		/**
-		 * Alignment engine optimized for calculating edit distances between sequences
-		 */
 		private final BandedAligner bandy;
-		/**
-		 * Thread-local maximum edit distance limit, constrained by longest sequence length
-		 */
 		private final int maxEdits2;
 	}
 	
@@ -326,44 +287,29 @@ public class IdentityMatrix {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path containing sequences for matrix calculation */
 	private String in1=null;
-	/** Output file path for writing the identity matrix */
 	private String out1=null;
 	
-	/** File format specification for input sequence file */
 	private final FileFormat ffin1;
-	/** File format specification for output matrix file */
 	private final FileFormat ffout1;
-	/**
-	 * Whether to output similarity values as percentages (true) or fractions (false)
-	 */
 	private boolean percent=false;
 	
-	/** Container holding all loaded sequences for matrix calculation */
 	private ArrayList<Read> allReads;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Maximum number of reads to process, or -1 for unlimited */
 	private long maxReads=-1;
-	/** Maximum edit distance allowed in alignments before giving up */
 	private final int maxEdits;
-	/** Maximum alignment band width for BandedAligner optimization */
 	private final int maxWidth;
-	/** Length of the longest sequence in the input set */
 	private int longestSequence;
 	
 	/** Average similarity value across all pairwise comparisons */
 	/** Maximum similarity value observed across all pairwise comparisons */
-	/** Minimum similarity value observed across all pairwise comparisons */
 	private double minID=1, maxID=0, avgID=0;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for logging and status messages */
 	private java.io.PrintStream outstream=System.err;
-	/** Enable verbose logging of processing steps and debugging information */
 	public static boolean verbose=false;
 	
 }

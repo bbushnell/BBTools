@@ -26,13 +26,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * This class does nothing.
- * It is designed to be easily modified into a program
- * that processes reads in a single thread.
- * 
+ * Command-line utility for adjusting homopolymer runs in sequencing reads.
+ * Modifies sequences by expanding or contracting consecutive identical bases based on a configurable rate parameter while preserving quality scores for expanded bases.
+ * Supports both single-end and paired-end FASTQ processing using the standard BBTools single-threaded template.
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class AdjustHomopolymers {
 	
@@ -40,10 +38,8 @@ public class AdjustHomopolymers {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that creates an AdjustHomopolymers instance, processes reads, and reports timing.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -59,8 +55,9 @@ public class AdjustHomopolymers {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes file I/O.
+	 * Sets up input/output file formats, validates file accessibility, and configures processing parameters including the homopolymer adjustment rate.
+	 * @param args Command line arguments for configuration
 	 */
 	public AdjustHomopolymers(String[] args){
 		
@@ -118,7 +115,12 @@ public class AdjustHomopolymers {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into configuration parameters.
+	 * Recognizes standard BBTools flags plus a rate parameter for homopolymer adjustment and validates required parameters and unknown flags.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser object with processed parameters
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -155,7 +157,8 @@ public class AdjustHomopolymers {
 		return parser;
 	}
 	
-	/** Replace # with 1 and 2 in headers */
+	/** Replaces `#` placeholders in file paths with `1` and `2` for paired files.
+	 * Automatically detects paired-end naming conventions and validates that required input files are specified. */
 	private void doPoundReplacement(){
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -176,7 +179,9 @@ public class AdjustHomopolymers {
 		if(out1==null && out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/**
+	 * Automatically adds or corrects file extensions (.gz, .bz2) for input and quality files based on compression detection.
+	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
@@ -184,7 +189,8 @@ public class AdjustHomopolymers {
 		qfin2=Tools.fixExtension(qfin2);
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that input files are readable and output files can be written.
+	 * Checks for duplicate file specifications and enforces overwrite settings. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2)){
@@ -203,7 +209,8 @@ public class AdjustHomopolymers {
 		}
 	}
 	
-	/** Make sure interleaving agrees with number of input and output files */
+	/** Configures interleaved file processing based on input/output file counts.
+	 * Sets FASTQ interleaving flags appropriately for single vs paired-end data. */
 	private void adjustInterleaving(){
 		//Adjust interleaved detection based on the number of input files
 		if(in2!=null){
@@ -227,7 +234,8 @@ public class AdjustHomopolymers {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file I/O settings for optimal performance.
+	 * Configures ByteFile modes and validates stream settings. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -241,7 +249,11 @@ public class AdjustHomopolymers {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes the homopolymer adjustment pipeline.
+	 * Creates input/output streams, processes all reads, and reports statistics including reads processed, bases processed, and execution timing.
+	 * @param t Timer for tracking execution duration
+	 */
 	void process(Timer t){
 		
 		//Create a read input stream
@@ -279,11 +291,6 @@ public class AdjustHomopolymers {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates and starts concurrent read input stream for file processing.
-	 * Configures stream for specified maximum reads and paired-end detection.
-	 * @return Started ConcurrentReadInputStream for reading input files
-	 */
 	private ConcurrentReadInputStream makeCris(){
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
 		cris.start(); //Start the stream
@@ -293,12 +300,6 @@ public class AdjustHomopolymers {
 		return cris;
 	}
 	
-	/**
-	 * Creates concurrent read output stream for writing processed reads.
-	 * Configures output buffering and interleaving based on input characteristics.
-	 * @param pairedInput Whether input data is paired-end
-	 * @return ConcurrentReadOutputStream for output, or null if no output specified
-	 */
 	private ConcurrentReadOutputStream makeCros(boolean pairedInput){
 		if(ffout1==null){return null;}
 
@@ -315,7 +316,12 @@ public class AdjustHomopolymers {
 		return ros;
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Core read processing loop that iterates through read lists from the input stream.
+	 * Validates read pairing consistency, delegates processing to processList, and handles proper stream lifecycle management.
+	 * @param cris Input stream providing read lists
+	 * @param ros Output stream for processed reads (may be null)
+	 */
 	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -351,10 +357,11 @@ public class AdjustHomopolymers {
 	}
 	
 	/**
-	 * Process a list of Reads.
-	 * @param ln The list.
-	 * @param cris Read Input Stream
-	 * @param ros Read Output Stream for reads that will be retained
+	 * Processes a list of reads, applying homopolymer adjustments to each.
+	 * Validates reads, tracks length statistics, and updates global counters for reads and bases processed.
+	 * @param ln List of reads to process with associated ID
+	 * @param cris Input stream for returning processed list
+	 * @param ros Output stream for writing retained reads
 	 */
 	void processList(ListNum<Read> ln, final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 
@@ -400,10 +407,11 @@ public class AdjustHomopolymers {
 	
 	
 	/**
-	 * Process a single read pair.
-	 * @param r1 Read 1
-	 * @param r2 Read 2 (may be null)
-	 * @return True if the reads should be kept, false if they should be discarded.
+	 * Processes a paired-end read set by applying homopolymer adjustments.
+	 * Delegates individual read processing and always retains the reads.
+	 * @param r1 First read in pair (required)
+	 * @param r2 Second read in pair (may be null for single-end)
+	 * @return true to retain reads (never discards)
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
 		processRead(r1);
@@ -411,14 +419,6 @@ public class AdjustHomopolymers {
 		return true;
 	}
 	
-	/**
-	 * Applies homopolymer length adjustments to a single read.
-	 * Scans for consecutive identical bases and expands/contracts runs based
-	 * on the configured rate. Preserves quality scores during adjustments.
-	 * Only modifies fully-defined DNA bases, skipping ambiguous characters.
-	 *
-	 * @param r Read to process (null reads are skipped)
-	 */
 	void processRead(final Read r){
 		if(r==null){return;}
 		bbBases.clear();
@@ -458,12 +458,6 @@ public class AdjustHomopolymers {
 		}
 	}
 	
-	/**
-	 * Generates or reuses fake quality score array for reads without quality data.
-	 * Expands internal buffer as needed and fills with default quality values.
-	 * @param minlen Minimum required array length
-	 * @return Byte array filled with fake quality scores
-	 */
 	private byte[] fakeQuality(int minlen){
 		if(fakeQuality.length<minlen){
 			fakeQuality=KillSwitch.allocByte1D(minlen+10);
@@ -476,89 +470,79 @@ public class AdjustHomopolymers {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
+	/** Secondary input file path for paired-end data. */
 	private String in2=null;
 	
-	/** Primary input quality file path (optional) */
 	private String qfin1=null;
-	/** Secondary input quality file path (optional) */
 	private String qfin2=null;
 
-	/** Primary output file path */
 	private String out1=null;
-	/** Secondary output file path */
+	/** Secondary output file path for paired-end data. */
 	private String out2=null;
 
-	/** Primary output quality file path (optional) */
 	private String qfout1=null;
-	/** Secondary output quality file path (optional) */
 	private String qfout2=null;
 	
-	/** Override input file extension */
+	/** Override input file extension detection. */
 	private String extin=null;
-	/** Override output file extension */
+	/** Override output file extension detection. */
 	private String extout=null;
 	
-	/** Whether interleaved was explicitly set. */
+	/** Whether interleaved processing was explicitly configured. */
 	private boolean setInterleaved=false;
 
-	/** Reusable buffer for building adjusted base sequences */
 	private ByteBuilder bbBases=new ByteBuilder();
-	/** Reusable buffer for building adjusted quality sequences */
 	private ByteBuilder bbQuals=new ByteBuilder();
 	
-	/** Homopolymer adjustment rate (positive=expand, negative=contract) */
 	private float rate=0.0f;
 	
-	/** Reusable array for generating fake quality scores when needed */
 	private byte[] fakeQuality=new byte[0];
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
+	/** Total number of reads processed. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Total number of bases processed. */
 	protected long basesProcessed=0;
 
-	/** Number of reads retained */
+	/** Total number of reads retained in output. */
 	protected long readsOut=0;
-	/** Number of bases retained */
+	/** Total number of bases retained in output. */
 	protected long basesOut=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
+	/** Maximum number of input reads to process (-1 for unlimited). */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
+	/** File format handler for primary input file. */
 	private final FileFormat ffin1;
-	/** Secondary input file */
+	/** File format handler for secondary input file. */
 	private final FileFormat ffin2;
 	
-	/** Primary output file */
+	/** File format handler for primary output file. */
 	private final FileFormat ffout1;
-	/** Secondary output file */
+	/** File format handler for secondary output file */
 	private final FileFormat ffout2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Indicates whether processing encountered errors */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
+	/** Preserve read order in output (no effect on single-threaded programs) */
 	private final boolean ordered=false;
 	
 }

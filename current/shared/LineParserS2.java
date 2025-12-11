@@ -6,12 +6,13 @@ import java.util.ArrayList;
 import fileIO.TextFile;
 import structures.ByteBuilder;
 
-/** Similar speed, but less powerful.
- * Main advantage is having a bounded memory footprint for very long lines.
- * 
+/**
+ * Memory-efficient line parser for delimited text strings.
+ * Similar speed to other parsers but uses bounded memory footprint for very long lines.
+ * Implements the LineParserS interface using string-based parsing with character delimiters.
+ *
  * @author Brian Bushnell
  * @date May 24, 2023
- *
  */
 public final class LineParserS2 implements LineParserS {
 	
@@ -21,11 +22,6 @@ public final class LineParserS2 implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
-	/**
-	 * Test method for LineParserS2 functionality.
-	 * Accepts a filename/literal string and single character delimiter.
-	 * @param args Command-line arguments: [filename/literal] [delimiter]
-	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -50,12 +46,8 @@ public final class LineParserS2 implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Constructs a LineParserS2 with the specified character delimiter.
-	 * @param delimiter_ The character used to separate fields */
 	public LineParserS2(char delimiter_) {delimiter=delimiter_;}
 
-	/** Constructs a LineParserS2 with the specified integer delimiter converted to char.
-	 * @param delimiter_ The delimiter as an integer (must be valid char value) */
 	public LineParserS2(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=Character.MAX_VALUE);
 		delimiter=(char)delimiter_;
@@ -77,37 +69,22 @@ public final class LineParserS2 implements LineParserS {
 		return set(new String(line_), maxTerm);
 	}
 	
-	/**
-	 * Sets the line to parse as a string and resets parsing state.
-	 * @param line_ The string to parse
-	 * @return This parser instance for method chaining
-	 */
 	public LineParserS2 set(String line_) {
 		reset();
 		line=line_;
 		return this;
 	}
 	
-	/**
-	 * Sets the line to parse as a string. maxTerm parameter is ignored.
-	 * @param line_ The string to parse
-	 * @param maxTerm Maximum number of terms (ignored in this implementation)
-	 * @return This parser instance for method chaining
-	 */
 	public LineParserS2 set(String line_, int maxTerm) {
 		return set(line_);
 	}
 	
-	/** Clears the parser by setting line to null and resetting all position markers.
-	 * @return This parser instance for method chaining */
 	public LineParserS2 clear() {
 		line=null;
 		a=b=currentTerm=-1;
 		return this;
 	}
 	
-	/** Resets parsing position to the beginning without clearing the line.
-	 * @return This parser instance for method chaining */
 	public LineParserS2 reset() {
 		a=b=currentTerm=-1;
 		return this;
@@ -117,39 +94,26 @@ public final class LineParserS2 implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Advances to next field and parses it as an integer.
-	 * @return The parsed integer value */
 	public int parseInt() {
 		advance();
 		return Parse.parseInt(line, a, b);
 	}
 	
-	/** Advances to next field and parses it as a long.
-	 * @return The parsed long value */
 	public long parseLong() {
 		advance();
 		return Parse.parseLong(line, a, b);
 	}
 	
-	/** Advances to next field and parses it as a float.
-	 * @return The parsed float value */
 	public float parseFloat() {
 		advance();
 		return Parse.parseFloat(line, a, b);
 	}
 	
-	/** Advances to next field and parses it as a double.
-	 * @return The parsed double value */
 	public double parseDouble() {
 		advance();
 		return Parse.parseDouble(line, a, b);
 	}
 	
-	/**
-	 * Advances to next field and returns the byte at specified offset within that field.
-	 * @param offset Position within the current field to extract byte from
-	 * @return The byte value at the specified offset
-	 */
 	public byte parseByte(int offset) {
 		advance();
 		int index=a+offset;
@@ -157,8 +121,6 @@ public final class LineParserS2 implements LineParserS {
 		return (byte)line.charAt(index);
 	}
 	
-	/** Advances to next field and returns it as a string.
-	 * @return The current field as a string */
 	public String parseString() {
 		int len=advance();
 		assert(b>a) : currentTerm+", "+line;
@@ -173,12 +135,22 @@ public final class LineParserS2 implements LineParserS {
 		return Parse.parseInt(line, a, b);
 	}
 
+	/**
+	 * Advances to specified term and parses it as a long.
+	 * @param term The term number to advance to (0-based)
+	 * @return The parsed long value
+	 */
 	@Override
 	public long parseLong(int term) {
 		advanceTo(term);
 		return Parse.parseLong(line, a, b);
 	}
 
+	/**
+	 * Advances to specified term and parses it as a float.
+	 * @param term The term number to advance to (0-based)
+	 * @return The parsed float value
+	 */
 	@Override
 	public float parseFloat(int term) {
 		advanceTo(term);
@@ -254,16 +226,32 @@ public final class LineParserS2 implements LineParserS {
 		return line.startsWith(s);
 	}
 	
+	/**
+	 * Tests if the line starts with the specified character.
+	 * @param c The character to test for
+	 * @return true if the line starts with the specified character
+	 */
 	@Override
 	public boolean startsWith(char c) {
 		return Tools.startsWith(line, c);
 	}
 	
+	/**
+	 * Tests if the line starts with the specified byte value as character.
+	 * @param b The byte value to test for
+	 * @return true if the line starts with the specified byte as character
+	 */
 	@Override
 	public boolean startsWith(byte b) {
 		return Tools.startsWith(line, b);
 	}
 	
+	/**
+	 * Tests if the specified term starts with the given string.
+	 * @param s The prefix to test for
+	 * @param term The term number to check (0-based)
+	 * @return true if the term starts with the specified string
+	 */
 	@Override
 	public boolean termStartsWith(String s, int term) {
 		final int len=advanceTo(term);
@@ -275,6 +263,12 @@ public final class LineParserS2 implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified term equals the given string.
+	 * @param s The string to compare against
+	 * @param term The term number to check (0-based)
+	 * @return true if the term equals the specified string
+	 */
 	@Override
 	public boolean termEquals(String s, int term) {
 		final int len=advanceTo(term);
@@ -286,30 +280,59 @@ public final class LineParserS2 implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified term equals the given character.
+	 * @param c The character to compare against
+	 * @param term The term number to check (0-based)
+	 * @return true if the term equals the specified character
+	 */
 	@Override
 	public boolean termEquals(char c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Tests if the specified term equals the given byte value as character.
+	 * @param c The byte value to compare against
+	 * @param term The term number to check (0-based)
+	 * @return true if the term equals the specified byte as character
+	 */
 	@Override
 	public boolean termEquals(byte c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Increments the start position of current field by specified amount.
+	 * @param amt Amount to increment the start position
+	 * @return The new length of the current field
+	 */
 	@Override
 	public int incrementA(int amt) {
 		a+=amt;
 		return b-a;
 	}
 	
+	/**
+	 * Increments the start position of current field by specified amount.
+	 * Note: This appears to increment 'a' instead of 'b' as method name suggests.
+	 * @param amt Amount to increment the position
+	 * @return The new length of the current field
+	 */
 	@Override
 	public int incrementB(int amt) {
 		a+=amt;
 		return b-a;
 	}
 
+	/**
+	 * Returns the length of the specified term without changing current position.
+	 * Temporarily advances to the term, measures length, then restores position.
+	 * @param term The term number to measure (0-based)
+	 * @return The length of the specified term
+	 */
 	@Override
 	public int length(int term) {
 		int a0=a, b0=b, c0=currentTerm;
@@ -318,27 +341,36 @@ public final class LineParserS2 implements LineParserS {
 		return len;
 	}
 
+	/** Returns the length of the current field.
+	 * @return The number of characters in the current field */
 	@Override
 	public int currentFieldLength() {
 		return b-a;
 	}
 
+	/** Tests if there are more characters to parse in the line.
+	 * @return true if the current position has not reached end of line */
 	@Override
 	public boolean hasMore() {
 		return b<line.length();
 	}
 
+	/** Returns the total length of the line being parsed.
+	 * @return The number of characters in the line */
 	@Override
 	public int lineLength() {
 		return line.length();
 	}
 
+	/** Returns the current line being parsed */
 	@Override
 	public String line() {return line;}
 	
+	/** Returns the start position of the current field */
 	@Override
 	public int a() {return a;}
 	
+	/** Returns the end position of the current field */
 	@Override
 	public int b() {return b;}
 	
@@ -346,16 +378,16 @@ public final class LineParserS2 implements LineParserS {
 	/*----------------        Advance Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Sets the parsing bounds to the specified term.
+	 * @param term The term number to advance to (0-based)
+	 * @return The length of the term
+	 */
 	@Override
 	public int setBounds(int term) {
 		return advanceTo(term);
 	}
 	
-	/**
-	 * Advances to the next field in the line.
-	 * Increments term counter and finds next delimiter boundary.
-	 * @return The length of the new current field
-	 */
 	public final int advance() {
 		currentTerm++;
 		b++;
@@ -364,8 +396,6 @@ public final class LineParserS2 implements LineParserS {
 		return b-a;
 	}
 	
-	/** Advances by the specified number of terms.
-	 * @param terms Number of terms to advance */
 	public void advanceBy(int terms) {
 		for(; terms>0; terms--) {
 			advance();
@@ -373,8 +403,6 @@ public final class LineParserS2 implements LineParserS {
 	}
 	
 	//Advances to term before toTerm
-	/** Advances to the term immediately before the specified term.
-	 * @param toTerm The target term number (will advance to toTerm-1) */
 	public void advanceToBefore(int toTerm) {
 		assert(toTerm>=currentTerm) : "Can't advance backwards: "+currentTerm+">"+toTerm;
 		for(toTerm--; currentTerm<toTerm;) {
@@ -383,11 +411,6 @@ public final class LineParserS2 implements LineParserS {
 	}
 	
 	//Advances to actual term
-	/**
-	 * Advances to the specified term number.
-	 * @param toTerm The term number to advance to (0-based)
-	 * @return The length of the target term
-	 */
 	private int advanceTo(int toTerm) {
 		assert(toTerm>=currentTerm) : "Can't advance backwards: "+currentTerm+">"+toTerm;
 		for(toTerm--; currentTerm<=toTerm;) {
@@ -400,13 +423,13 @@ public final class LineParserS2 implements LineParserS {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns string representation of all terms in the line as a list.
+	 * @return String representation of parsed terms */
 	@Override
 	public String toString() {
 		return toList().toString();
 	}
 	
-	/** Parses all remaining terms in the line and returns them as a list of strings.
-	 * @return ArrayList containing all terms as strings */
 	public ArrayList<String> toList(){
 		ArrayList<String> list=new ArrayList<String>();
 		do{
@@ -419,16 +442,11 @@ public final class LineParserS2 implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Start position of the current field in the line */
 	private int a=-1;
-	/** End position of the current field in the line */
 	private int b=-1;
-	/** Index of the current term being processed (0-based) */
 	private int currentTerm=-1;
-	/** The string line being parsed */
 	private String line;
 	
-	/** The character used to separate fields in the line */
 	public final char delimiter;
 	
 }

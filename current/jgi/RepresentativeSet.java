@@ -26,24 +26,15 @@ import structures.LongHashSet;
 import tax.TaxFilter;
 
 /**
- * From a 3+ column text file of {node 1, node 2, dist, optionally sizeratio and others},
- * makes a minimal representative set by retaining nodes
- * such that all original nodes are within a minimum distance
- * of at least one representative node.
- * Singleton nodes will only be included if they are
- * represented by a self-edge.
- * 
+ * From a 3+ column text file of {node 1, node 2, dist, optionally sizeRatio and others},
+ * builds a minimal representative set by retaining nodes such that every original
+ * node is within the minimum distance threshold of at least one representative.
+ * Singleton nodes are only included if they are represented by a self-edge.
  * @author Brian Bushnell
  * @date October 26, 2017
- *
  */
 public class RepresentativeSet {
 	
-	/**
-	 * Program entry point for representative set selection.
-	 * Creates RepresentativeSet instance, processes input, and prints results.
-	 * @param args Command-line arguments including input/output files and parameters
-	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		RepresentativeSet x=new RepresentativeSet(args);
@@ -54,11 +45,6 @@ public class RepresentativeSet {
 		Shared.closeStream(x.outstream);
 	}
 	
-	/**
-	 * Constructs RepresentativeSet with command-line argument parsing.
-	 * Configures input/output files, filters, and processing parameters.
-	 * @param args Command-line arguments array
-	 */
 	public RepresentativeSet(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
@@ -168,12 +154,6 @@ public class RepresentativeSet {
 		}
 	}
 	
-	/**
-	 * Main processing method that performs representative set selection.
-	 * Loads nodes from input, identifies representatives using greedy algorithm,
-	 * and writes results to output files.
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 		
 		HashMap<Long, Node> map=load();
@@ -298,12 +278,6 @@ public class RepresentativeSet {
 		if(bswInvalid!=null){errorState|=bswInvalid.poisonAndWait();}
 	}
 	
-	/**
-	 * Loads nodes and edges from input file into memory.
-	 * Parses tab-delimited format with node IDs, distances, and optional size data.
-	 * Applies threshold, size, and taxonomic filters during loading.
-	 * @return HashMap mapping node IDs to Node objects with edge lists
-	 */
 	private HashMap<Long, Node> load(){
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
 		
@@ -353,11 +327,6 @@ public class RepresentativeSet {
 		return map;
 	}
 	
-	/**
-	 * Prints processing statistics and performance metrics to output stream.
-	 * Reports lines processed, nodes processed/valid/ignored, and timing information.
-	 * @param t Timer containing elapsed execution time
-	 */
 	private void printResults(Timer t){
 		t.stop();
 
@@ -402,19 +371,8 @@ public class RepresentativeSet {
 	/*--------------------------------------------------------------*/
 	
 	
-	/**
-	 * Represents a node in the similarity graph with edges to other nodes.
-	 * Contains node metadata (ID, size, bases) and list of connecting edges.
-	 * Implements comparison based on weighted sum of edge scores.
-	 */
 	private class Node implements Comparable<Node> {
 		
-		/**
-		 * Constructs a Node with specified ID and size information.
-		 * @param id_ Unique identifier for this node
-		 * @param size_ Estimated size in unique k-mers (minimum 2)
-		 * @param bases_ Estimated size in total base pairs (minimum 2)
-		 */
 		Node(long id_, long size_, long bases_){
 			id=id_;
 			size=Tools.max(2, size_);
@@ -422,11 +380,6 @@ public class RepresentativeSet {
 //			assert(bases>2) : bases+", "+size;
 		}
 		
-		/**
-		 * Adds an edge to this node's edge list.
-		 * Updates the cumulative sum score used for node ranking.
-		 * @param e Edge to add to this node
-		 */
 		void add(Edge e){
 			if(edges==null){edges=new ArrayList<Edge>();}
 			edges.add(e);
@@ -462,30 +415,17 @@ public class RepresentativeSet {
 			return sb.toString();
 		}
 		
-		/** Unique identifier for this node */
 		final long id;
-		/** Estimated size in unique k-mers */
 		final long size;
-		/** Estimated size in total base pairs */
 		final long bases;
-		/** List of edges connecting this node to other nodes */
 		ArrayList<Edge> edges;
-		/** Flag indicating if this node was selected as representative */
 		boolean used=false;
-		/** Cumulative score from all edges, used for node ranking */
 		double sum;
 		
 	}
 	
-	/** Represents an edge between two nodes with distance and size information.
-	 * Parses tab-delimited input format with node IDs, distance, and optional size data. */
 	private class Edge {
 		
-		/**
-		 * Constructs Edge by parsing tab-delimited input line.
-		 * Expected format: nodeA nodeB distance [sizeA sizeB [basesA basesB]]
-		 * @param line Tab-delimited input line as byte array
-		 */
 		Edge(byte[] line){
 			String[] split=new String(line).split("\t+");
 			try {
@@ -519,17 +459,6 @@ public class RepresentativeSet {
 //			assert(basesA>2) : new String(line);
 		}
 		
-		/**
-		 * Constructs Edge with explicit parameter values.
-		 *
-		 * @param a_ ID of first node
-		 * @param b_ ID of second node
-		 * @param dist_ Distance/similarity score between nodes
-		 * @param sizeA_ Size in unique k-mers for node A
-		 * @param sizeB_ Size in unique k-mers for node B
-		 * @param basesA_ Size in total bases for node A
-		 * @param basesB_ Size in total bases for node B
-		 */
 		Edge(long a_, long b_, double dist_, long sizeA_, long sizeB_, long basesA_, long basesB_){
 			a=a_;
 			b=b_;
@@ -540,11 +469,6 @@ public class RepresentativeSet {
 			basesB=basesB_;
 		}
 		
-		/**
-		 * Calculates size ratio between the two nodes.
-		 * Applies inversion if configured to ensure ratio <= 1.
-		 * @return Size ratio, optionally inverted to be <= 1
-		 */
 		double ratio(){
 			double ratio=Tools.max(1, sizeA)/(float)Tools.max(1, sizeB);
 			return (invertRatio && ratio>1 ? 1/ratio : ratio);
@@ -557,19 +481,12 @@ public class RepresentativeSet {
 			return sb.toString();
 		}
 		
-		/** ID of first node in this edge */
 		final long a;
-		/** ID of second node in this edge */
 		final long b;
-		/** Distance or similarity score between the two nodes */
 		final double dist;
-		/** Size in unique k-mers for node A */
 		final long sizeA;
-		/** Size in unique k-mers for node B */
 		final long sizeB;
-		/** Size in total base pairs for node A */
 		final long basesA;
-		/** Size in total base pairs for node B */
 		final long basesB;
 		
 	}
@@ -601,14 +518,10 @@ public class RepresentativeSet {
 	private double threshold=0;
 	private double minRatio=0;
 	
-	/** Ignore nodes over this estimated size in unique kmers */
 	private long maxSize=-1;
-	/** Ignore nodes under this estimated size in unique kmers */
 	private long minSize=0;
 
-	/** Ignore nodes over this estimated size in total bp */
 	private long maxBases=-1;
-	/** Ignore nodes under this estimated size in total bp */
 	private long minBases=0;
 	
 	boolean invertRatio=false;
@@ -627,9 +540,7 @@ public class RepresentativeSet {
 	/*--------------------------------------------------------------*/
 	
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
-	/** Flag indicating if processing encountered errors */
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;

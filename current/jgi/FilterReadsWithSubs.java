@@ -17,18 +17,18 @@ import stream.SamLine;
 import structures.ListNum;
 
 /**
- * Filters to select only reads with substitution errors
- * for bases with quality scores in a certain interval.
+ * Filters reads to select only those with substitution errors
+ * for bases with quality scores in a specified interval.
  * Used for manually examining specific reads that may have
- * incorrectly calibrated quality scores, for example.
+ * incorrectly calibrated quality scores.
+ *
  * @author Brian Bushnell
  * @date May 5, 2015
- *
  */
 public class FilterReadsWithSubs {
 
-	/** Program entry point.
-	 * @param args Command-line arguments */
+	/** Program entry point: constructs FilterReadsWithSubs, runs processing, reports timing.
+	 * @param args Command-line arguments for input/output and filter settings */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -44,10 +44,9 @@ public class FilterReadsWithSubs {
 	}
 	
 	/**
-	 * Constructor that parses command-line arguments and initializes parameters.
-	 * Sets up input/output streams and filtering criteria including quality score
-	 * ranges, substitution thresholds, and clipping parameters.
-	 * @param args Command-line arguments containing input/output paths and filter options
+	 * Parses command-line arguments, configures substitution/quality/clipping thresholds,
+	 * and initializes SAM input/output streams for filtering.
+	 * @param args Command-line arguments for filter configuration and I/O
 	 */
 	public FilterReadsWithSubs(String[] args){
 		
@@ -112,10 +111,9 @@ public class FilterReadsWithSubs {
 	}
 	
 	/**
-	 * Main processing method that filters reads based on substitution criteria.
-	 * Opens input/output streams, processes reads in batches, and applies
-	 * substitution and quality score filters to retain only qualifying reads.
-	 * @param t Timer for tracking execution time and generating performance reports
+	 * Streams reads, applies substitution-quality filtering, writes retained reads,
+	 * and reports throughput statistics.
+	 * @param t Timer for tracking execution
 	 */
 	void process(Timer t){
 		
@@ -186,12 +184,10 @@ public class FilterReadsWithSubs {
 	}
 	
 	/**
-	 * Evaluates whether a read should be kept based on substitution and quality criteria.
-	 * Parses match string to count substitutions, indels, and clips, then applies
-	 * quality score filters to substitutions to determine if read meets thresholds.
-	 *
-	 * @param r1 The read to evaluate for filtering criteria
-	 * @return true if the read passes all filters and should be retained
+	 * Evaluates a read against substitution count, quality-score, and clipping thresholds.
+	 * Returns true to keep the read; false to discard it.
+	 * @param r1 Read to evaluate
+	 * @return true if the read passes all filters
 	 */
 	private boolean processRead(Read r1) {
 		final byte[] quals=r1.quality, bases=r1.bases;
@@ -245,51 +241,33 @@ public class FilterReadsWithSubs {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Input file path for reads */
 	private String in1=null;
-	/** Output file path for filtered reads */
 	private String out1=null;
 	
-	/** Input file format handler */
 	private final FileFormat ffin1;
-	/** Output file format handler */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
-	/** Total number of reads processed */
 	private long readsProcessed=0;
-	/** Number of reads that passed filters and were output */
 	private long readsOut=0;
-	/** Total number of bases processed */
 	private long basesProcessed=0;
-	/** Number of bases in reads that passed filters */
 	private long basesOut=0;
 
 	/** Minimum number of substitutions required to retain a read */
 	/**
 	 * Maximum quality score for bases to be considered in substitution filtering
 	 */
-	/**
-	 * Minimum quality score for bases to be considered in substitution filtering
-	 */
 	public int minq, maxq, minSubs;
-	/** Maximum number of clipped bases allowed per read */
 	public int maxClips=Integer.MAX_VALUE;
-	/** Minimum number of clipped bases required per read */
 	public int minClips=0;
-	/** Whether to count indels as qualifying events for read retention */
 	public boolean countIndels;
-	/** Whether to keep reads with no substitutions or indels */
 	public boolean keepPerfect;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and results */
 	private java.io.PrintStream outstream=System.err;
-	/** Enable verbose output for debugging and progress tracking */
 	public static boolean verbose=false;
 	
 }

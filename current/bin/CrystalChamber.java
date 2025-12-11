@@ -7,28 +7,18 @@ import java.util.Random;
  * Recrystallization-based bin refinement using centroid clustering.
  * Dissolves clusters and rebuilds them using iterative centroid assignment
  * to find natural partitions that greedy algorithms might miss.
- * 
- * "Like chemistry - sometimes you need to dissolve and re-precipitate 
+ *
+ * "Like chemistry - sometimes you need to dissolve and re-precipitate
  * to allow components to find their optimal, pure state." - Kairos
- * 
+ *
  * @author UMP45
  */
 class CrystalChamber extends AbstractRefiner {
     
-    /**
-     * Creates a CrystalChamber refiner with default random seed.
-     * Uses seed 12345 for backward compatibility.
-     * @param oracle_ Oracle instance for contig similarity evaluation during clustering
-     */
     public CrystalChamber(Oracle oracle_) {
         this(oracle_, 12345); // Default seed for backward compatibility
     }
     
-    /**
-     * Creates a CrystalChamber refiner with specified Oracle and configurable random seed.
-     * @param oracle_ Oracle instance for contig similarity evaluation during clustering
-     * @param seed Random seed for deterministic centroid initialization and reproducible results
-     */
     public CrystalChamber(Oracle oracle_, long seed) {
         oracle=oracle_;
         maxIterations=50;
@@ -63,7 +53,13 @@ class CrystalChamber extends AbstractRefiner {
     }
     
     /**
-     * Performs iterative centroid-based clustering to separate contigs.
+     * Performs iterative centroid-based clustering to separate contigs into k clusters.
+     * Uses farthest-first initialization followed by iterative assignment and centroid updates.
+     * Converges when centroid movements fall below threshold or max iterations reached.
+     *
+     * @param contigs List of contigs to cluster
+     * @param k Number of clusters to create (typically 2 for binary splitting)
+     * @return ArrayList of k Cluster objects, or null if clustering failed or produced empty clusters
      */
     private ArrayList<Cluster> recrystallize(ArrayList<Contig> contigs, int k) {
         if(contigs.size()<k){return null;}
@@ -129,7 +125,13 @@ class CrystalChamber extends AbstractRefiner {
     }
     
     /**
-     * Initialize centroids by finding most dissimilar contigs.
+     * Initialize centroids by finding most dissimilar contigs using farthest-first strategy.
+     * First centroid is chosen randomly, subsequent centroids maximize minimum distance
+     * to existing centroids to ensure good initial separation.
+     *
+     * @param contigs List of contigs to select centroids from
+     * @param k Number of centroids to initialize
+     * @return ArrayList of k Centroid objects, or null if initialization failed
      */
     private ArrayList<Centroid> initializeCentroids(ArrayList<Contig> contigs, int k) {
         if(contigs.size()<k){return null;}
@@ -174,7 +176,12 @@ class CrystalChamber extends AbstractRefiner {
     }
     
     /**
-     * Find the centroid nearest to given contig.
+     * Find the centroid with highest similarity to given contig.
+     * Uses Oracle similarity metric to compare contig against all centroids.
+     *
+     * @param contig Contig to assign to nearest centroid
+     * @param centroids List of available centroids
+     * @return Index of centroid with highest similarity to the contig
      */
     private int findNearestCentroid(Contig contig, ArrayList<Centroid> centroids) {
         int best=0;
@@ -193,6 +200,11 @@ class CrystalChamber extends AbstractRefiner {
     
     /**
      * Calculate centroid of a group of contigs.
+     * Currently uses largest contig as representative centroid.
+     * TODO: Could implement proper averaging of features.
+     *
+     * @param contigs Group of contigs to calculate centroid for
+     * @return Centroid representing the group, or null if contigs is empty
      */
     private Centroid calculateCentroid(ArrayList<Contig> contigs) {
         if(contigs.isEmpty()){return null;}
@@ -210,6 +222,11 @@ class CrystalChamber extends AbstractRefiner {
     
     /**
      * Calculate distance between two centroids.
+     * Converts Oracle similarity to distance using (1.0 - similarity).
+     *
+     * @param a First centroid
+     * @param b Second centroid
+     * @return Distance between centroids, or Float.MAX_VALUE if either is null
      */
     private float centroidDistance(Centroid a, Centroid b) {
         if(a==null || b==null){return Float.MAX_VALUE;}
@@ -219,34 +236,35 @@ class CrystalChamber extends AbstractRefiner {
     
     /**
      * Test whether Oracle would recommend merging the split clusters back together.
+     * If clusters are too similar, splitting them is counterproductive.
+     *
+     * @param a First cluster from split
+     * @param b Second cluster from split
+     * @return true if clusters should be merged back (similarity > minSplitImprovement)
      */
     private boolean shouldMergeBack(Cluster a, Cluster b) {
         float similarity=oracle.similarity(a, b, 1.0f);
         return similarity>minSplitImprovement; // If high similarity, don't split
     }
     
-    /**
-     * Inner class representing a cluster centroid.
-     */
+    /** Inner class representing a cluster centroid.
+     * Currently uses a single representative contig for simplicity. */
     private static class Centroid {
-        /** Representative contig for this centroid */
         final Contig representative;
         
-        /** Creates centroid with specified representative contig.
-         * @param rep Contig to use as centroid representative */
         Centroid(Contig rep) {representative=rep;}
         
-        /**
-         * Calculates similarity between this centroid and given contig using Oracle.
-         * @param contig Contig to compare against this centroid
-         * @param oracle Oracle instance for similarity calculation
-         * @return Similarity score between centroid representative and contig
-         */
         float similarityTo(Contig contig, Oracle oracle) {
             return oracle.similarity(representative, contig, 1.0f);
         }
     }
     
+    /**
+     * Refines bin and converts result to IntHashSet representation.
+     * Each IntHashSet contains contig IDs from one refined cluster.
+     * @param input Bin to refine
+     * @return ArrayList of IntHashSet objects containing contig IDs, or null if refinement failed
+     */
     @Override
     ArrayList<structures.IntHashSet> refineToIntSets(Bin input) {
         ArrayList<Bin> refined = refine(input);
@@ -267,18 +285,9 @@ class CrystalChamber extends AbstractRefiner {
     }
     
     // Configuration parameters
-    /** Oracle instance for contig similarity evaluation during clustering */
     private final Oracle oracle;
-    /** Maximum number of clustering iterations before convergence timeout */
     private final int maxIterations;
-    /**
-     * Threshold for centroid movement below which clustering is considered converged
-     */
     private final float convergenceThreshold;
-    /** Minimum improvement required to justify splitting a cluster */
     private final float minSplitImprovement;
-    /**
-     * Random number generator with deterministic seed for reproducible centroid initialization
-     */
     private final Random random;
 }

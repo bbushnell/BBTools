@@ -11,11 +11,8 @@ import shared.Tools;
 import tracker.ReadStats;
 
 /**
- * Command-line statistical calculation tool that generates cumulative
- * distribution statistics for bitwise-encoded integer combinations.
- * Generates distribution by iterating through 2^(numStats*5) possible
- * bit combinations and outputs cumulative percentage distribution.
- *
+ * Command-line tool to compute cumulative distributions of bit-encoded integer combinations.
+ * Iterates over 2^(numStats*5) combinations, counts bucket sums, and reports cumulative percentages.
  * @author Brian Bushnell
  */
 public class Calc {
@@ -24,10 +21,8 @@ public class Calc {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Entry point: parses args, runs processing, closes redirected streams.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Calc x=new Calc(args);
@@ -38,8 +33,10 @@ public class Calc {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and configures processing
+	 * parameters. Supports verbose mode, numstats configuration, and standard
+	 * parser flags for output file handling.
+	 * @param args Command-line arguments to parse
 	 */
 	public Calc(String[] args){
 		
@@ -90,7 +87,12 @@ public class Calc {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that executes statistical calculation pipeline.
+	 * Calls processInner for computation, reports timing information, and
+	 * checks for error states.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Process the read stream
@@ -110,7 +112,14 @@ public class Calc {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Core statistical calculation engine that generates cumulative distribution
+	 * statistics. Iterates through 2^(numStats*5) combinations, calculates
+	 * frequency distribution using sum() method, builds cumulative counts,
+	 * and outputs percentage statistics to stdout.
+	 *
+	 * @param numStats Number of statistics to process (affects bit combinations)
+	 */
 	void processInner(int numStats){
 		int bits=numStats*5;
 		final int iters=1<<bits;
@@ -133,12 +142,9 @@ public class Calc {
 	}
 	
 	/**
-	 * Calculates sum of 5-bit chunks in an integer using bitwise operations.
-	 * Extracts each 5-bit segment (0x1F mask) and accumulates the total.
-	 * Used for bucket assignment in statistical distribution calculation.
-	 *
-	 * @param stats Integer containing bitwise-encoded statistical data
-	 * @return Sum of all 5-bit segments in the input
+	 * Calculates the sum of 5-bit chunks (mask 0x1F) in an integer for bucket assignment.
+	 * @param stats Bit-encoded integer
+	 * @return Sum of 5-bit segments
 	 */
 	int sum(int stats){
 		int sum=0;
@@ -157,27 +163,23 @@ public class Calc {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary output file path */
+	/** Primary output path (default stdout.txt). */
 	private String out1="stdout.txt";
 	
-	/**
-	 * Number of statistics to process, affects iteration count as 2^(numStats*5)
-	 */
+	/** Number of statistics to process (controls 2^(numStats*5) iterations). */
 	private int numStats=6;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Print stream for status messages and verbose output */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Controls whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Controls whether to append to existing output files */
 	private boolean append=false;
 	
 }

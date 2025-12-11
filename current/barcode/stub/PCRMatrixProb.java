@@ -1,11 +1,15 @@
 package barcode.stub;
 
 /**
- * PCRMatrix subclass.
- * 
+ * Stub implementation of a probabilistic PCR matrix for barcode processing.
+ * Provides a placeholder implementation for PCR matrix probability calculations
+ * in the barcode processing workflow, with no active computational logic.
+ * Extends PCRMatrixProbAbstract to inherit the abstract framework for
+ * probabilistic matrix operations while serving as an extension point for
+ * future implementation of specialized PCR matrix probability calculations.
+ *
  * @author Brian Bushnell
  * @date March 25, 2024
- *
  */
 public class PCRMatrixProb extends PCRMatrixProbAbstract {
 	

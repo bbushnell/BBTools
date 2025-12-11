@@ -4,14 +4,13 @@ import stream.Read;
 import structures.IntList;
 
 /**
- * Saves and restores the state of a Read object for rollback operations.
- * Captures read ID, flags, bases, quality scores, and optional count data to enable
- * reverting modifications made during assembly or processing.
+ * Saves and restores the state of a Read object for rollback operations, including ID, flags, bases, qualities, and optional counts.
+ * Used to revert modifications during assembly or processing by cloning the original read state and restoring it later.
  * @author Brian Bushnell
  */
 public class Rollback {
 
-	/** Creates a rollback point for a read without count data.
+	/** Creates a rollback point for a read without count data by delegating to the full constructor.
 	 * @param r The read to save state for */
 	public Rollback(Read r){
 		this(r, null);
@@ -31,7 +30,7 @@ public class Rollback {
 		counts0=(counts==null ? null : counts.copy());
 	}
 	
-	/** Restores a read to its saved state without count data.
+	/** Restores a read to its saved state without count data by delegating to the full rollback method.
 	 * @param r The read to restore */
 	public void rollback(Read r){
 		rollback(r, null);
@@ -60,14 +59,13 @@ public class Rollback {
 		}
 	}
 	
-	/** Saved read identifier */
+	/** Saved read identifier. */
 	final String id0;
-	/** Saved read flags */
+	/** Saved read flags. */
 	final int flags0;
 	/** Saved quality scores cloned from the original read (may be null). */
-	/** Saved sequence bases cloned from the original read. */
 	final byte[] bases0, quals0;
-	/** Saved count data (may be null) */
+	/** Saved count data (may be null). */
 	public final IntList counts0;
 	
 }

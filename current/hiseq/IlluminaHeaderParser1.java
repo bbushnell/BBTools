@@ -5,11 +5,19 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Parses an Illumina header to gather positional information.
- * Superceded by ihp2.
+ * Parses Illumina sequencing read headers to extract positional and metadata
+ * information from various Illumina platforms (MiSeq, HiSeq, NovaSeq).
+ * This parser has been superseded by IlluminaHeaderParser2 for improved performance.
+ *
+ * Supports multiple header formats including:
+ * - NovaSeq 6000: @VP2-06:112:H7LNDMCVY:2:2437:14181:20134
+ * - MiSeq: MISEQ08:172:000000000-ABYD0:1:1101:18147:1925 1:N:0:TGGATATGCGCCAATT
+ * - HiSeq: HISEQ07:419:HBFNEADXX:1:1101:1238:2072
+ * - NovaSeq S: A00178:38:H5NYYDSXX:2:1101:3007:1000 1:N:0:CAACCTA+CTAGGTT
+ * - NovaSeq X: @LH00223:28:22GLGMLT3:1:1101:5928:1016 1:N:0:CTGCTTGGTT+CTAACGACAG
+ *
  * @author Brian Bushnell
  * @date Aug 22, 2018
- *
  */
 public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	
@@ -18,9 +26,9 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Test method for parsing Illumina headers and displaying extracted metadata.
-	 * Enables comment parsing and uses default test header if none provided.
-	 * @param args Command-line arguments; first argument used as test header
+	 * Test hook that enables comment parsing, constructs a parser, and parses a
+	 * provided header (or a default example) to display extracted fields.
+	 * @param args Optional single header string to parse
 	 */
 	public static void main(String[] args) {
 		PARSE_COMMENT=true;
@@ -65,12 +73,12 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Parses an Illumina header string to extract all available metadata.
-	 * Resets internal state and extracts coordinates and comment information
-	 * based on static parsing flags.
+	 * Parses an Illumina header string, extracting coordinates and comment fields
+	 * according to static flags PARSE_COORDINATES and PARSE_COMMENT. Resets parser
+	 * state before parsing and tolerates multiple platform header formats.
 	 *
-	 * @param id_ The Illumina header string to parse
-	 * @return This parser instance for method chaining
+	 * @param id_ Header string to parse
+	 * @return This parser instance for chaining
 	 */
 	public IlluminaHeaderParser1 parse(String id_) {
 		reset(id_);
@@ -86,53 +94,81 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 		return this;
 	}
 	
+	/**
+	 * Returns sequencing instrument identifier. Not parsed by this legacy parser
+	 * and always returns null.
+	 * @return null (machine name not extracted)
+	 */
 	@Override
 	public String machine() {
 		return null;
 	}
 	
+	/** Returns sample identifier. Not parsed by this legacy parser and always null.
+	 * @return null (sample not extracted) */
 	@Override
 	public String sample() {
 		return null;
 	}
 
+	/** Returns run number; not parsed in this implementation so -1 is returned. */
 	@Override
 	public int run() {
 		return -1;
 	}
 
+	/**
+	 * Returns flowcell identifier; not parsed in this implementation so null is returned.
+	 */
 	@Override
 	public String flowcell() {
 		return null;
 	}
 
+	/** Returns the flowcell lane number */
 	@Override
 	public int lane() {return lane;}
 
+	/** Returns the tile number */
 	@Override
 	public int tile() {return tile;}
 
+	/** Returns the x-coordinate position within the tile (in pixels) */
 	@Override
 	public int xPos() {return x;}
 
+	/** Returns the y-coordinate position within the tile (in pixels) */
 	@Override
 	public int yPos() {return y;}
 
+	/** Returns the pair code ('1' for read 1, '2' for read 2) */
 	@Override
 	public char pairCode() {return pairCode;}
 
+	/** Returns the chastity filter code ('Y' for fail, 'N' for pass) */
 	@Override
 	public char chastityCode() {return chastityCode;}
 
+	/** Returns the control bits value from the header */
 	@Override
 	public int controlBits() {return controlBits;}
 
+	/**
+	 * Returns the barcode sequence from the header comment field.
+	 * Requires PARSE_COMMENT flag to be enabled.
+	 * @return Barcode string or null if not parsed
+	 */
 	@Override
 	public String barcode() {
 		assert(PARSE_COMMENT);
 		return barcode;
 	}
 
+	/**
+	 * Returns any extra information after the barcode in the comment field.
+	 * Requires PARSE_COMMENT flag to be enabled.
+	 * @return Extra string data or null if not present
+	 */
 	@Override
 	public String extra() {
 		assert(PARSE_COMMENT);
@@ -143,7 +179,11 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*----------------        Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse lane, tile, x, and y coordinates */
+	/**
+	 * Parses lane, tile, x, and y coordinates from the header string.
+	 * Handles various header formats including HiSeq 3000 variations.
+	 * Updates lane, tile, x, and y fields.
+	 */
 	private void parseCoordinates(){
 		pos=commentSeparator;
 		goBackSeveralColons(4);
@@ -159,7 +199,11 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 		y=parseInt();
 	}
 	
-	/** Parse the comment field for pair number, chastity filter, and barcode */
+	/**
+	 * Parses the comment field to extract pair number, chastity filter, and barcode.
+	 * Extracts pairCode, chastityCode, controlBits, barcode, and extra fields.
+	 * Handles both space and tab-separated extra information.
+	 */
 	private void parseComment(){
 		pos=commentSeparator+1;
 		pairCode=parseChar();
@@ -176,7 +220,11 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 		}
 	}
 	
-	/** Clear all fields and point to a new header */
+	/**
+	 * Resets all internal fields and sets the header to parse.
+	 * Initializes parsing state and clears previously extracted values.
+	 * @param id_ The new header string to parse
+	 */
 	private void reset(String id_){
 		id=id_;
 		limit=(id==null ? -1 : id.length());
@@ -199,7 +247,8 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Find the first instance of the comment separator (' ' or '/')
+	 * Locates the comment separator character (' ' or '/') in the header.
+	 * This separator divides the coordinate section from the comment section.
 	 * @return Position of the separator, or header length if not found
 	 */
 	private int findCommentSeparator(){
@@ -211,9 +260,9 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	}
 	
 	/**
-	 * Decrement pos until target colons have been encountered
-	 * @modifies pos
-	 * @param target number of colons to backtrack
+	 * Moves the parsing position backward through the specified number of colons.
+	 * Used to locate the beginning of coordinate fields in the header.
+	 * @param target Number of colons to backtrack through
 	 */
 	private void goBackSeveralColons(int target){
 		for(int colons=0; pos>=0; pos--){
@@ -226,10 +275,9 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	}
 	
 	/**
-	 * Parse an integer from the current location in the string, 
-	 * and advance the position to the beginning of the next number.
-	 * @modifies pos
-	 * @return The parsed number
+	 * Parses an integer from the current position and advances past it.
+	 * Reads consecutive digits and moves position to the next token.
+	 * @return The parsed integer value
 	 */
 	private int parseInt(){
 		int current=0;
@@ -243,10 +291,9 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	}
 	
 	/**
-	 * Parse a character from the current location in the string, 
-	 * and advance the position to the next code character.
-	 * @modifies pos
-	 * @return The parsed char
+	 * Parses a single character from the current position and advances past delimiter.
+	 * Expects character to be followed by a colon delimiter.
+	 * @return The parsed character
 	 */
 	private char parseChar(){
 		char c=id.charAt(pos);
@@ -258,11 +305,6 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 		return c;
 	}
 	
-	/**
-	 * Returns a formatted string representation of all parsed header fields.
-	 * Displays lane, tile, coordinates, pair info, barcode, and chastity status.
-	 * @return Formatted string with tab-separated field values
-	 */
 	public String toString() {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("lane:\t").append(lane).nl();
@@ -279,35 +321,35 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	/*----------------        Public Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Flowcell lane number */
+	/** Flowcell lane number extracted from header */
 	public int lane;
-	/** Tile number */
+	/** Tile number extracted from header */
 	public int tile;
-	/** X-coordinate within tile (pixels) */
+	/** X-coordinate within tile (pixels) extracted from header */
 	public int x;
-	/** Y-coordinate within tile (pixels) */
+	/** Y-coordinate within tile (pixels) extracted from header */
 	public int y;
 	
-	/** '1' for read 1, '2' for read 2 */
+	/** Pair designation: '1' for read 1, '2' for read 2 */
 	public char pairCode;
-	/** 'Y' for fail, 'N' for pass */
+	/** Chastity filter result: 'Y' for fail, 'N' for pass */
 	public char chastityCode;
-	/** A number for control bits set */
+	/** Control bits value indicating special read properties */
 	public int controlBits;
-	/** Read barcode */
+	/** Barcode sequence extracted from comment field */
 	public String barcode;
-	/** Anything after the barcode */
+	/** Additional information following the barcode in comment field */
 	public String extra;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Private Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Length of header */
+	/** Length of the header string being parsed */
 	private int limit;
-	/** Current position, typically the start of the next token */
+	/** Current parsing position, typically start of next token */
 	private int pos;
-	/** Position after coordinates, but before pairnum; typically space or slash */
+	/** Position of separator between coordinates and comment (space or slash) */
 	private int commentSeparator;
 	
 }

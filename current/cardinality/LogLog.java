@@ -7,9 +7,12 @@ import shared.Tools;
 import structures.LongList;
 
 /**
+ * Basic LogLog cardinality estimator for counting distinct k-mers or sequences.
+ * Uses leading zero counts from hashed values to estimate cardinality.
+ * Less accurate than other variants but simple and fast.
+ *
  * @author Brian Bushnell
  * @date Sep 30, 2015
- *
  */
 public final class LogLog extends CardinalityTracker {
 	
@@ -17,12 +20,15 @@ public final class LogLog extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Create a LogLog with default parameters */
+	/**
+	 * Creates a LogLog with default parameters: 2048 buckets, k=31, random seed, minProb=0
+	 */
 	LogLog(){
 		this(2048, 31, -1, 0);
 	}
 	
-	/** Create a LogLog with parsed parameters */
+	/** Creates a LogLog with parameters from command-line parser.
+	 * @param p Parser containing loglog configuration parameters */
 	LogLog(Parser p){
 		super(p);
 		//assert(atomic);
@@ -31,11 +37,12 @@ public final class LogLog extends CardinalityTracker {
 	}
 	
 	/**
-	 * Create a LogLog with specified parameters
-	 * @param buckets_ Number of buckets (counters)
-	 * @param k_ Kmer length
+	 * Creates a LogLog with specified parameters.
+	 *
+	 * @param buckets_ Number of buckets (counters) for tracking
+	 * @param k_ K-mer length
 	 * @param seed Random number generator seed; -1 for a random seed
-	 * @param minProb_ Ignore kmers with under this probability of being correct
+	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	LogLog(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -52,12 +59,6 @@ public final class LogLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	//Restores floating point to integer
-	/**
-	 * Restores the original hash value from a leading zero count.
-	 * Used to convert stored leading zero counts back to approximate hash values.
-	 * @param score Leading zero count from stored hash
-	 * @return Approximated original hash value
-	 */
 	private long restore(int score){
 		int leading=score;
 		long mantissa=1;
@@ -152,11 +153,6 @@ public final class LogLog extends CardinalityTracker {
 //		return cardinality;
 //	}
 	
-	/**
-	 * Alternative cardinality calculation using harmonic mean.
-	 * Experimental method that may provide different accuracy characteristics.
-	 * @return Estimated cardinality using harmonic mean approach
-	 */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArrayA.length(); i++){
@@ -167,18 +163,17 @@ public final class LogLog extends CardinalityTracker {
 		return (long)((Math.pow(2, mean)*buckets*SKIPMOD));
 	}
 	
+	/**
+	 * Adds another CardinalityTracker to this LogLog by merging bucket values.
+	 * Takes the maximum leading zero count for each bucket position.
+	 * @param log CardinalityTracker to merge (must be LogLog instance)
+	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog)log);
 	}
 	
-	/**
-	 * Merges another LogLog into this one by taking maximum bucket values.
-	 * Updates each bucket with the higher leading zero count from either LogLog.
-	 * Handles both atomic and non-atomic array modes.
-	 * @param log LogLog instance to merge into this one
-	 */
 	public void add(LogLog log){
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
@@ -220,6 +215,7 @@ public final class LogLog extends CardinalityTracker {
 		}
 	}
 	
+	/** Returns the compensation factor array for LogLog bucket count adjustments */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return compensationFactorLogBucketsArray;
@@ -229,14 +225,12 @@ public final class LogLog extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Maintains state.  These are the actual buckets. */
 	private final int[] maxArray;
-	/** Atomic version of maxArray. */
+	/**
+	 * Atomic array storing maximum leading zero counts for each bucket (atomic mode)
+	 */
 	private final AtomicIntegerArray maxArrayA;
 	
-	/**
-	 * Pre-computed compensation factors to adjust for bucket count effects on accuracy
-	 */
 	private static final float[] compensationFactorLogBucketsArray={
 			0.053699781f, 0.49556874f, 0.742263622f, 0.861204899f, 0.926038294f,
 			0.967001269f, 0.982949748f, 0.992495155f, 0.996185775f, 0.998077246f

@@ -31,14 +31,14 @@ import structures.StringNum;
 import tracker.ReadStats;
 
 /**
+ * Counts occurrences of barcodes in sequence reads and analyzes their distance to expected codes.
+ * Extracts barcodes from read headers, counts them, compares to expected and valid sets, and reports distances and validity flags.
+ * Supports paired and single-end reads with optional reverse-complement handling.
  * @author Brian Bushnell
  * @date June 20, 2014
- *
  */
 public class CountBarcodes {
 
-	/** Program entry point.
-	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		CountBarcodes x=new CountBarcodes(args);
@@ -49,8 +49,8 @@ public class CountBarcodes {
 	}
 	
 	/**
-	 * Constructor that parses command-line arguments and initializes file formats.
-	 * Sets up input/output streams, barcode maps, and processing parameters.
+	 * Parses command-line arguments and initializes file formats.
+	 * Sets up input/output streams, expected/valid barcode maps, and processing parameters such as maxReads and header printing.
 	 * @param args Command-line arguments for configuration
 	 */
 	public CountBarcodes(String[] args){
@@ -203,8 +203,7 @@ public class CountBarcodes {
 	
 	/**
 	 * Main processing method that reads sequences, counts barcodes, and generates output.
-	 * Extracts barcodes from read headers, maintains counts in a hash map, calculates
-	 * distances to expected codes, and writes results to output files.
+	 * Extracts barcodes from read headers, maintains counts in a hash map, computes distances to expected codes, and writes results to output files.
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
@@ -340,9 +339,11 @@ public class CountBarcodes {
 	}
 	
 	/**
-	 * @param s
-	 * @param expectedCodes
-	 * @return
+	 * Calculates the minimum Hamming distance between a barcode and expected codes.
+	 * Compares against all expected codes and returns the smallest distance found.
+	 * @param s The barcode sequence to compare
+	 * @param expectedCodes List of expected barcode sequences
+	 * @return Minimum Hamming distance to any expected code
 	 */
 	public static int calcHdist(String s, ArrayList<String> expectedCodes) {
 		int min=s.length();
@@ -356,7 +357,6 @@ public class CountBarcodes {
 	/**
 	 * Calculates Hamming distance between two strings by counting substitutions.
 	 * Only counts mismatches up to the length of the shorter string.
-	 *
 	 * @param s First string to compare
 	 * @param code Second string to compare
 	 * @return Number of character substitutions needed
@@ -371,9 +371,11 @@ public class CountBarcodes {
 	}
 	
 	/**
-	 * @param s
-	 * @param expectedCodes
-	 * @return
+	 * Calculates the minimum edit distance between a barcode and expected codes.
+	 * Uses a banded aligner to compute edit distance allowing insertions and deletions.
+	 * @param s The barcode sequence to compare
+	 * @param expectedCodes List of expected barcode sequences
+	 * @return Minimum edit distance to any expected code
 	 */
 	int calcEdist(String s, ArrayList<String> expectedCodes) {
 		int min=s.length();
@@ -387,7 +389,6 @@ public class CountBarcodes {
 	/**
 	 * Calculates edit distance between two strings using banded alignment.
 	 * Allows insertions, deletions, and substitutions in the alignment.
-	 *
 	 * @param s First string to align
 	 * @param code Second string to align
 	 * @return Edit distance between the strings
@@ -399,86 +400,54 @@ public class CountBarcodes {
 	
 	/*--------------------------------------------------------------*/
 	
-	/** First input file path */
 	private String in1=null;
-	/** Second input file path for paired reads */
 	private String in2=null;
 	
-	/** Quality file for first input */
 	private String qfin1=null;
-	/** Quality file for second input */
 	private String qfin2=null;
 
-	/** First output file path */
 	private String out1=null;
-	/** Second output file path for paired reads */
 	private String out2=null;
-	/** Output file path for barcode count results */
 	private String outCounts=null;
 
-	/** Quality output file for first stream */
 	private String qfout1=null;
-	/** Quality output file for second stream */
 	private String qfout2=null;
 	
-	/** Input file extension override */
 	private String extin=null;
-	/** Output file extension override */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Whether to reverse complement the mate read */
 	private boolean reverseComplementMate=false;
-	/** Whether to reverse complement reads */
 	private boolean reverseComplement=false;
-	/** Whether to count barcodes containing undefined bases (default true) */
 	private boolean countUndefined=true;
-	/** Whether to print column headers in output (default true) */
 	private boolean printHeader=true;
-	/** Maximum number of barcode rows to output (-1 for unlimited) */
 	private int maxRows=-1;
 
-	/** Maximum number of reads to process (-1 for unlimited) */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** File format handler for first input file */
 	private final FileFormat ffin1;
-	/** File format handler for second input file */
 	private final FileFormat ffin2;
 
-	/** File format handler for first output file */
 	private final FileFormat ffout1;
-	/** File format handler for second output file */
 	private final FileFormat ffout2;
-	/** File format handler for barcode count output */
 	private final FileFormat ffCounts;
 
-	/** Map of expected barcode codes for distance calculations */
 	private final HashMap<String,String> expectedCodeMap;
-	/** Map of valid barcode codes for validation marking */
 	private final HashMap<String,String> validCodeMap;
-	/** List of expected barcode sequences for distance calculations */
 	private final ArrayList<String> expectedCodes;
-	/** List of valid barcode sequences for validation */
 	private final ArrayList<String> validCodes;
 	
-	/** Banded aligner for calculating edit distances with k=21 */
 	private final BandedAlignerConcrete bandy=new BandedAlignerConcrete(21);
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for progress and error messages (default System.err) */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging */
 	public static boolean verbose=false;
-	/** Flag indicating if an error occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files (default true) */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files (default false) */
 	private boolean append=false;
 	
 }

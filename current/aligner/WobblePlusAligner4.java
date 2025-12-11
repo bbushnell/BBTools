@@ -8,22 +8,22 @@ import shared.Tools;
 import structures.RingBuffer;
 
 /**
- *Aligns two sequences to return ANI.
- *Uses only 2 arrays and avoids traceback.
- *Gives an exact answer.
- *Calculates rstart and rstop without traceback.
- *Limited to length 2Mbp with 21 position bits.
- *Center of band drifts toward highest score.
- *Band starts wide and narrows to allow glocal alignments.
- *Band dynamically widens and narrows in response to sequence identity.
+ * Dynamic-banded sequence aligner that computes Average Nucleotide Identity (ANI).
+ * Uses only 2 arrays without traceback to give exact alignment results.
+ * Band dynamically widens and narrows based on sequence identity and drifts toward
+ * highest-scoring regions. Supports sequences up to 2Mbp with 21 position bits.
  *
- *@author Brian Bushnell
- *@contributor Isla
- *@date May 7, 2025
+ * @author Brian Bushnell
+ * @contributor Isla (Highly-customized Claude instance)
+ * @date May 7, 2025
  */
 public class WobblePlusAligner4 implements IDAligner{
 
-	/** Main() passes the args and class to Test to avoid redundant code */
+	/**
+	 * Program entry point that delegates to Test class for common testing functionality.
+	 * @param args Command-line arguments
+	 * @throws Exception If testing fails
+	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
@@ -35,21 +35,54 @@ public class WobblePlusAligner4 implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Default constructor for WobblePlusAligner4 */
 	public WobblePlusAligner4() {}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Gets the aligner name identifier */
 	@Override
 	public final String name() {return "Wobble+4";}
+	/**
+	 * Aligns two sequences and returns identity score.
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @return Identity score (0.0-1.0)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	/**
+	 * Aligns two sequences and returns identity with position information.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Output array for alignment start/stop positions
+	 * @return Identity score (0.0-1.0)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns two sequences with minimum score threshold.
+	 *
+	 * @param a First sequence
+	 * @param b Second sequence
+	 * @param pos Output array for alignment positions
+	 * @param minScore Minimum required alignment score (ignored in current implementation)
+	 * @return Identity score (0.0-1.0)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	/**
+	 * Aligns sequences within a specified reference region.
+	 *
+	 * @param a Query sequence
+	 * @param b Reference sequence
+	 * @param pos Output array for alignment positions
+	 * @param rStart Reference start position for alignment window
+	 * @param rStop Reference stop position for alignment window
+	 * @return Identity score (0.0-1.0)
+	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
@@ -57,7 +90,14 @@ public class WobblePlusAligner4 implements IDAligner{
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Tests for high-identity indel-free alignments needing low bandwidth */
+	/**
+	 * Determines optimal bandwidth for high-identity indel-free alignments.
+	 * Calculates substitutions in the initial prefix to estimate required band width.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @return Bandwidth size for alignment band
+	 */
 	private static int decideBandwidth(byte[] query, byte[] ref) {
 		int bandwidth=Tools.mid(7, 1+Math.max(query.length, ref.length)/24, 24);
 		int subs=0;
@@ -68,11 +108,15 @@ public class WobblePlusAligner4 implements IDAligner{
 	}
 
 	/**
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @return Identity (0.0-1.0).
+	 * Static alignment method with dynamic banding and SIMD optimization.
+	 * Swaps sequences if needed to ensure query is not longer than reference.
+	 * Uses encoded long arrays and ring buffer for band drift tracking.
+	 *
+	 * @param query0 Query sequence
+	 * @param ref0 Reference sequence
+	 * @param posVector Optional array for returning {rStart, rStop} alignment coordinates.
+	 * If null, sequences may be swapped for optimal performance
+	 * @return Identity score (0.0-1.0)
 	 */
 	public static final float alignStatic(byte[] query0, byte[] ref0, int[] posVector) {
 		// Swap to ensure query is not longer than ref
@@ -178,13 +222,16 @@ public class WobblePlusAligner4 implements IDAligner{
 	}
 	
 	/**
-	 * Use alignment information to calculate identity and starting coordinate.
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates.
-	 * @return Identity
+	 * Calculates final identity score and alignment coordinates from raw alignment data.
+	 * Extracts position, deletion count, and score information from packed long values.
+	 * Solves system of equations to determine match/substitution/indel counts.
+	 *
+	 * @param maxScore Highest score from alignment matrix (packed with position/deletion data)
+	 * @param maxPos Position of highest score in reference
+	 * @param qLen Query sequence length
+	 * @param rLen Reference sequence length
+	 * @param posVector Optional array for returning alignment coordinates and statistics
+	 * @return Identity score (0.0-1.0)
 	 */
 	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
 		// For conversion to global alignments
@@ -239,14 +286,15 @@ public class WobblePlusAligner4 implements IDAligner{
 	}
 
 	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
+	 * Lightweight wrapper for aligning to a specific reference window.
+	 * Extracts reference region and adjusts output coordinates accordingly.
+	 *
 	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of the optimal alignment.
-	 * If the posVector is null, sequences may be swapped so that the query is shorter.
-	 * @param rStart Alignment window start.
-	 * @param to Alignment window stop.
-	 * @return Identity (0.0-1.0).
+	 * @param ref Full reference sequence
+	 * @param posVector Output array for alignment coordinates
+	 * @param refStart Start position of alignment window
+	 * @param refEnd End position of alignment window
+	 * @return Identity score (0.0-1.0)
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
 			final int[] posVector, int refStart, int refEnd) {
@@ -263,14 +311,9 @@ public class WobblePlusAligner4 implements IDAligner{
 		return id;
 	}
 
-	/** Atomic counter for tracking total alignment matrix loops across threads */
 	private static AtomicLong loops=new AtomicLong(0);
-	/** Gets the total number of alignment loops performed */
 	public long loops() {return loops.get();}
-	/** Sets the loop counter value.
-	 * @param x New loop count value */
 	public void setLoops(long x) {loops.set(x);}
-	/** Output file path for alignment visualization (null to disable) */
 	public static String output=null;
 
 	/*--------------------------------------------------------------*/
@@ -278,41 +321,26 @@ public class WobblePlusAligner4 implements IDAligner{
 	/*--------------------------------------------------------------*/
 
 	// Bit field definitions
-	/** Number of bits reserved for position information in packed score values */
 	private static final int POSITION_BITS=21;
-	/** Number of bits reserved for deletion count in packed score values */
 	private static final int DEL_BITS=21;
-	/** Bit shift amount for extracting score from packed long values */
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
 	// Masks
-	/** Bit mask for extracting position information from packed values */
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
-	/** Bit mask for extracting deletion count from packed values */
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
-	/** Bit mask for extracting score portion from packed values */
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
 	// Scoring constants
-	/** Score value for a match operation */
 	private static final long MATCH=1L << SCORE_SHIFT;
-	/** Score penalty for a substitution operation */
 	private static final long SUB=(-1L) << SCORE_SHIFT;
-	/** Score penalty for an insertion operation */
 	private static final long INS=(-1L) << SCORE_SHIFT;
-	/** Score penalty for a deletion operation */
 	private static final long DEL=(-1L) << SCORE_SHIFT;
-	/** Score for ambiguous base matches */
 	private static final long N_SCORE=0L;
-	/** Sentinel value indicating invalid or uninitialized alignment cells */
 	private static final long BAD=Long.MIN_VALUE/2;
-	/** Combined deletion penalty and position increment for tracking deletions */
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
 	// Run modes
-	/** Debug flag for printing detailed alignment operation statistics */
 	private static final boolean PRINT_OPS=false;
-	/** Flag indicating global alignment mode (false for local alignment) */
 	public static final boolean GLOBAL=false;
 
 }

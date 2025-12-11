@@ -9,9 +9,12 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 
 /**
+ * Thread-safe output stream for writing sequence reads to files concurrently.
+ * Extends ConcurrentReadOutputStream with generic file format support and ordering.
+ * Manages dual ReadStreamByteWriter instances for paired-end output with buffering.
+ *
  * @author Brian Bushnell
  * @date Jan 26, 2015
- *
  */
 public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutputStream {
 	
@@ -20,19 +23,6 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Constructs a concurrent output stream with dual file format support.
-	 * Initializes ReadStreamByteWriter instances for primary and optional secondary output.
-	 * Configures buffering, headers, and ordering based on parameters.
-	 *
-	 * @param ff1_ Primary output file format (required)
-	 * @param ff2_ Secondary output file format (may be null for single-end)
-	 * @param qf1 Quality file path for primary output (may be null)
-	 * @param qf2 Quality file path for secondary output (may be null)
-	 * @param rswBuffers Number of buffers for ReadStreamByteWriter
-	 * @param header Header text to write to output files
-	 * @param useSharedHeader Whether to share header between outputs
-	 */
 	ConcurrentGenericReadOutputStream(FileFormat ff1_, FileFormat ff2_, String qf1, String qf2, int rswBuffers, CharSequence header, boolean useSharedHeader){
 		super(ff1_, ff2_);
 		
@@ -85,6 +75,14 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------        Outer Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Adds a list of reads to the output queue with optional ordering.
+	 * For ordered output, blocks if buffer becomes full waiting for sequential IDs.
+	 * For unordered output, writes immediately without buffering.
+	 *
+	 * @param list Read list to add to output queue
+	 * @param listnum Sequential identifier for ordering (ignored if unordered)
+	 */
 	@Override
 	public synchronized void add(ArrayList<Read> list, long listnum){
 		
@@ -117,6 +115,11 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		}
 	}
 	
+	/**
+	 * Closes the output stream and terminates writer threads.
+	 * Sets error state if unfinished lists remain in buffer.
+	 * Poisons ReadStreamByteWriter instances to trigger shutdown.
+	 */
 	@Override
 	public synchronized void close(){
 		
@@ -132,6 +135,11 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		if(readstream2!=null){readstream2.poison();}
 	}
 	
+	/**
+	 * Waits for all writer threads to complete before returning.
+	 * Ensures proper cleanup by joining both ReadStreamByteWriter instances.
+	 * Sets finishedSuccessfully flag upon completion.
+	 */
 	@Override
 	public void join(){
 		while(readstream1!=null && readstream1.getState()!=Thread.State.TERMINATED){
@@ -154,6 +162,11 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		finishedSuccessfully=true;
 	}
 	
+	/**
+	 * Resets the next list ID counter to zero after clearing buffers.
+	 * Waits up to 4 minutes for table to clear before forcing reset.
+	 * Issues warning if table doesn't clear within timeout period.
+	 */
 	@Override
 	public synchronized void resetNextListID(){
 		for(int i=0; i<2000 && !table.isEmpty(); i++){
@@ -170,17 +183,23 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		nextListID=0;
 	}
 	
+	/** Gets the filename of the primary output stream.
+	 * @return Filename from primary ReadStreamByteWriter */
 	@Override
 	public final String fname(){
 //		if(STANDARD_OUT){return "stdout";}
 		return readstream1.fname();
 	}
 	
+	/** Checks if any component is in an error state.
+	 * @return true if this stream or either ReadStreamByteWriter has errors */
 	@Override
 	public boolean errorState(){
 		return errorState || (readstream1!=null && readstream1.errorState()) || (readstream2!=null && readstream2.errorState());
 	}
 	
+	/** Checks if all components finished without errors.
+	 * @return true if this stream and both ReadStreamByteWriter instances completed successfully */
 	@Override
 	public boolean finishedSuccessfully(){
 		return finishedSuccessfully && (readstream1==null || readstream1.finishedSuccessfully()) && (readstream2==null || readstream2.finishedSuccessfully());
@@ -191,14 +210,6 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*--------------------------------------------------------------*/
 	
 	
-	/**
-	 * Adds reads to ordered output buffer and processes sequential entries.
-	 * Buffers out-of-order lists and writes when sequential IDs become available.
-	 * Maintains ordering by processing lists in nextListID sequence.
-	 *
-	 * @param list Read list to buffer or write
-	 * @param listnum Sequential identifier for ordering
-	 */
 	private synchronized void addOrdered(ArrayList<Read> list, long listnum){
 //		System.err.println("RTOS got "+listnum+" of size "+(list==null ? "null" : list.size())+
 //				" with first read id "+(list==null || list.isEmpty() || list.get(0)==null ? "null" : ""+list.get(0).numericID));
@@ -218,24 +229,12 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		if(table.isEmpty()){notifyAll();}
 	}
 	
-	/**
-	 * Writes reads immediately without ordering or buffering.
-	 * Used when ordered output is disabled for maximum throughput.
-	 * @param list Read list to write immediately
-	 * @param listnum List identifier (ignored for unordered output)
-	 */
 	private synchronized void addDisordered(ArrayList<Read> list, long listnum){
 		assert(list!=null);
 		assert(table==null);
 		write(new ArrayList<Read>(list));
 	}
 	
-	/**
-	 * Writes a read list to the appropriate ReadStreamByteWriter instances.
-	 * Distributes reads to primary and secondary streams as configured.
-	 * Throws RuntimeException if attempting to write to terminated threads.
-	 * @param list Read list to write to output streams
-	 */
 	private synchronized void write(ArrayList<Read> list){
 		if(readstream1!=null){
 			if(readstream1.getState()==State.TERMINATED){throw new RuntimeException("Writing to a terminated thread.");}
@@ -251,6 +250,8 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Gets the primary ReadStreamWriter instance.
+	 * @return Primary ReadStreamWriter for first-in-pair or single-end reads */
 	@Override
 	public final ReadStreamWriter getRS1(){return readstream1;}
 	@Override
@@ -260,23 +261,14 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Primary ReadStreamWriter for first-in-pair or single-end output */
 	private final ReadStreamWriter readstream1;
-	/**
-	 * Secondary ReadStreamWriter for second-in-pair output (null for single-end)
-	 */
 	private final ReadStreamWriter readstream2;
-	/** Next expected list ID for ordered output processing */
 	private long nextListID=0;
 	
-	/** Number of lists held before the stream blocks */
 	private final int MAX_CAPACITY=256;
-	/** Buffer size threshold that triggers blocking for new additions */
 	private final int ADD_LIMIT=MAX_CAPACITY-2;
-	/** Half the add limit used for wait/notify coordination */
 	private final int HALF_LIMIT=ADD_LIMIT/2;
 	
-	/** For ordered output */
 	private final HashMap<Long, ArrayList<Read>> table;
 	
 	{if(HALF_LIMIT<1){throw new RuntimeException("Capacity too low.");}}
@@ -285,7 +277,6 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Flag controlling whether to print buffer full/clear notifications */
 	private boolean printBufferNotification=true;
 	
 }

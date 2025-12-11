@@ -17,11 +17,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Reads a text file.
- * Does something.
+ * Template class for basic file processing operations.
+ * Demonstrates standard BBTools program structure with argument parsing,
+ * file validation, and output generation patterns.
+ *
  * @author Brian Bushnell
  * @date April 9, 2020
- *
  */
 public class A_SampleBasic2 {
 	
@@ -30,7 +31,8 @@ public class A_SampleBasic2 {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point. Initializes timer, creates instance, processes data,
+	 * and closes output stream.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -48,7 +50,8 @@ public class A_SampleBasic2 {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructor that initializes the program from command-line arguments.
+	 * Handles preprocessing, argument parsing, file validation, and output setup.
 	 * @param args Command line arguments
 	 */
 	public A_SampleBasic2(String[] args){
@@ -80,7 +83,12 @@ public class A_SampleBasic2 {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures program settings.
+	 * Handles verbose flag and delegates other arguments to parser.
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser instance
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -108,7 +116,8 @@ public class A_SampleBasic2 {
 		return parser;
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that output files can be written.
+	 * Throws RuntimeException if output path is invalid or not writable. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out)){
@@ -117,7 +126,8 @@ public class A_SampleBasic2 {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts file-related static settings for optimal performance.
+	 * Forces ByteFile2 mode when multiple threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -129,11 +139,6 @@ public class A_SampleBasic2 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that coordinates the workflow.
-	 * Creates output writer, processes data, handles errors, and reports timing.
-	 * @param t Timer for execution time tracking
-	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=makeBSW(ffout);
@@ -161,11 +166,6 @@ public class A_SampleBasic2 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Inner processing loop that performs the main work.
-	 * Executes cycles of processing using the provided output writer.
-	 * @param bsw Output stream writer for results
-	 */
 	private void processInner(ByteStreamWriter bsw){
 		ByteBuilder bb=new ByteBuilder();
 		
@@ -174,11 +174,6 @@ public class A_SampleBasic2 {
 		}
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the given file format.
-	 * @param ff File format specification
-	 * @return Started ByteStreamWriter, or null if format is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -186,15 +181,6 @@ public class A_SampleBasic2 {
 		return bsw;
 	}
 	
-	/**
-	 * Placeholder method for specific processing logic.
-	 * Currently contains commented-out template code for line processing.
-	 *
-	 * @param bsw Output stream writer
-	 * @param bb Byte buffer for building output
-	 * @param cycle Current processing cycle number
-	 * @return true indicating successful processing
-	 */
 	private boolean doSomething(ByteStreamWriter bsw, ByteBuilder bb, long cycle){
 
 //		if(line.length>0){
@@ -220,38 +206,28 @@ public class A_SampleBasic2 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file path */
 	private String out=null;
-	/** Maximum number of processing cycles to execute */
 	private long maxCycles=100;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of output lines written */
 	private long linesOut=0;
-	/** Count of output bytes written */
 	private long bytesOut=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** File format specification for output */
 	private final FileFormat ffout;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output stream for status messages and errors */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output and debugging information */
 	public static boolean verbose=false;
-	/** Tracks whether an error has occurred during processing */
 	public boolean errorState=false;
-	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files instead of overwriting */
 	private boolean append=false;
 	
 }

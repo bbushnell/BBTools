@@ -5,19 +5,14 @@ import java.util.Arrays;
 import shared.KillSwitch;
 
 
-/** 
- * Like IntList2 but has a size for each array independent of its length.
- * This is similar to a list of IntList but more efficient.
- * Designed for use with HashArrayHybridFast.
- * Assumes each entry is a set with all adds either ascending (Seal)
- * or unique (Sketch).
- * 
- * IntList3 does not extend IntList2 because virtual functions might be slower,
- * but it would make the code more concise.
- * 
+/**
+ * Dynamic list of integer arrays with independent size tracking for each array.
+ * More efficient than a list of IntList objects, designed for use with HashArrayHybridFast.
+ * Assumes each entry is a set with additions either ascending (Seal) or unique (Sketch).
+ * Does not extend IntList2 to avoid virtual function overhead.
+ *
  * @author Brian Bushnell
  * @date Dec 10, 2018
- *
  */
 public final class IntList3{
 	
@@ -25,11 +20,14 @@ public final class IntList3{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Re-call with default initial size and mode. */
+	/** Creates an IntList3 with default initial size and mode */
 	public IntList3(){this(defaultInitialSize, defaultMode);}
 	
-	/** Construct an IntList3 with this initial size.
-	 * Setting the proper mode is the caller's responsibility. */
+	/**
+	 * Creates an IntList3 with specified initial size and mode.
+	 * @param initialSize Initial capacity for the entries array
+	 * @param mode_ Addition mode (ASCENDING or UNIQUE)
+	 */
 	public IntList3(int initialSize, int mode_){
 		assert(initialSize>0);
 		entries=new int[initialSize][];
@@ -43,12 +41,23 @@ public final class IntList3{
 	/*----------------           Mutation           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Add this entry to the end of the list */
+	/**
+	 * Adds an entry to the end of the list.
+	 * @param entry Integer array to add
+	 * @param len Number of valid elements in the array
+	 */
 	public final void add(int[] entry, int len){
 		set(size, entry, len);
 	}
 	
-	/** Set this location to specified entry */
+	/**
+	 * Sets the entry at the specified location.
+	 * Resizes the list if necessary to accommodate the location.
+	 *
+	 * @param loc Target location index
+	 * @param entry Integer array to store
+	 * @param len Number of valid elements in the array
+	 */
 	public final void set(int loc, int[] entry, int len){
 		assert((entry==null && len==0) || (entry.length>0 && len<=entry.length)) : len+", "+(entry==null ? entry : ""+entry.length);
 		
@@ -60,10 +69,15 @@ public final class IntList3{
 		size=max(size, loc+1);
 	}
 	
-	/** 
-	 * Add this value to the specified location. 
-	 * If an entry exists, insert the value, enlarging if necessary.
-	 * Otherwise, create a new entry. */
+	/**
+	 * Inserts a value into the list at the specified location.
+	 * Creates a new entry if location is empty, otherwise adds to existing entry.
+	 * Scans recent entries to avoid duplicates based on mode assumptions.
+	 *
+	 * @param v Value to insert
+	 * @param loc Target location index
+	 * @return 1 if value was added, 0 if already present
+	 */
 	public final int insertIntoList(final int v, final int loc){
 		
 		//If the location is empty
@@ -102,24 +116,23 @@ public final class IntList3{
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Resize the array of entries */
+	/** Resizes the entries and sizes arrays to accommodate more elements.
+	 * @param size2 New capacity (must be larger than current size) */
 	public final void resize(int size2){
 		assert(size2>size);
 		entries=KillSwitch.copyOf(entries, size2);//TODO: Safe copy to prevent memory exception
 		sizes=KillSwitch.copyOf(sizes, size2);
 	}
 	
-	/** Compress the list by eliminating the unused trailing space */
+	/** Compresses the list by eliminating unused trailing space */
 	public final void shrink(){
 		if(size==entries.length){return;}
 		entries=KillSwitch.copyOf(entries, size);
 		sizes=KillSwitch.copyOf(sizes, size);
 	}
 	
-	/**
-	 * Provided for supporting disordered additions; not currently used.  
-	 * Make each entry unique and minimal-length. 
-	 * */
+	/** Makes each entry unique and minimal-length for disordered additions.
+	 * Currently untested and not expected to be used in production. */
 	public final void shrinkToUnique(){
 		assert(false) : "TODO: This function has not been tested and is not expected to be used.";
 		assert(!shrunk);
@@ -133,10 +146,8 @@ public final class IntList3{
 		assert(readyToUse());
 	}
 	
-	/**
-	 * Provided for supporting disordered additions; not currently used. 
-	 * I could redo this so that the sets become packed and the size changes without creating a new array. 
-	 * */
+	/** Makes the entry at the specified location unique by sorting and deduplicating.
+	 * @param loc Location index to process */
 	private void shrinkToUnique(int loc){
 		final int[] entry=entries[loc];
 		final int oldSize=sizes[loc];
@@ -168,8 +179,6 @@ public final class IntList3{
 		set(loc, set2, unique);
 	}
 	
-	/** Determines if the list is ready for use based on shrinking status and mode.
-	 * @return true if ready to use, false if shrinkToUnique needs to be called */
 	private boolean readyToUse(){
 		return shrunk || mode==ASCENDING || mode==UNIQUE;
 	}
@@ -178,12 +187,16 @@ public final class IntList3{
 	/*----------------           Reading            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Get the entry at the location */
 	public final int[] get(int loc){
 		return(loc>=size ? null : entries[loc]);
 	}
 	
-	/** Added for better IntList2 compatibility */
+	/**
+	 * Gets the length of the entry at the specified location.
+	 * Added for better IntList2 compatibility.
+	 * @param i Location index
+	 * @return Number of valid elements in the entry, or 0 if out of bounds
+	 */
 	public int getLen(int i) {
 		return i>=size ? 0 : sizes[i];
 	}
@@ -192,6 +205,8 @@ public final class IntList3{
 	/*----------------           ToString           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns a string representation showing all non-null entries with their indices.
+	 * @return String representation of the list */
 	@Override
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
@@ -218,46 +233,47 @@ public final class IntList3{
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Holds entries.  Each entry is a sets of numbers in an int[]. 
-	 * Leftmost values are valid, rightmost values are invalid. */
+	/**
+	 * Holds entries as integer arrays; leftmost values are valid, rightmost invalid
+	 */
 	private int[][] entries;
-	/** Number of values in each entry. */
+	/** Number of valid values in each entry */
 	private int[] sizes;
-	/** Number of entries in the primary array. */
+	/** Number of entries in the primary array */
 	public int size=0;
 	
-	/** True after shrinkToUnique has been called.
-	 * Currently unused. */
+	/** True after shrinkToUnique has been called; currently unused */
 	private boolean shrunk=false;
 	
-	/** Preconditions for adding values */
+	/** Preconditions for adding values (ASCENDING, UNIQUE, or DISORDERED) */
 	private final int mode;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This could be made mutable per instance, but it would be a lot of work. */
+	/** Sentinel value indicating unused array positions */
 	public static final int INVALID=-1;
 	
-	/** Only scan back this far for duplicates when adding values */
+	/** Maximum number of recent entries to scan for duplicates when adding */
 	public static final int slowAddLimit=4;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Modes             ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** All adds to an entry must be nondescending */
+	/** Mode requiring all additions to an entry be nondescending */
 	public static final int ASCENDING=1;
-	/** All adds to an entry must be unique */
+	/** Mode requiring all additions to an entry be unique */
 	public static final int UNIQUE=2;
-	/** No requirements for adds.
-	 * To ensure set functionality, shrinkToUnique should be called before use. */
+	/**
+	 * Mode with no ordering requirements; shrinkToUnique should be called before use
+	 */
 	public static final int DISORDERED=3;
 	
-	/** Should be set prior to creation, e.g. by Seal or Sketch */
+	/** Default mode for new IntList3 instances; should be set by Seal or Sketch */
 	public static int defaultMode=ASCENDING;
-	/** Default initial capacity for new IntList3 instances */
+	/** Default initial capacity (in entry slots) for new IntList3 instances */
 	public static int defaultInitialSize=256;
 	
 }

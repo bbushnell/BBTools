@@ -5,18 +5,16 @@ package assemble;
  * @date Jul 20, 2015
  *
  */
-/**
- * Removes dead-end kmers.
- */
 abstract class AbstractShaveThread extends Thread{
 
-	/**
-	 * Constructor
-	 */
+	/** Creates a new shave thread with the specified identifier.
+	 * @param id_ Thread identifier for tracking and debugging */
 	public AbstractShaveThread(int id_){
 		id=id_;
 	}
 	
+	/** Main thread execution method that processes k-mer tables until exhausted.
+	 * Continuously calls processNextTable() until no more tables remain. */
 	@Override
 	public final void run(){
 		while(processNextTable()){}
@@ -31,10 +29,8 @@ abstract class AbstractShaveThread extends Thread{
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of k-mers removed by this thread during processing */
 	long kmersRemovedT=0;
 	
-	/** Unique identifier for this thread instance */
 	final int id;
 	
 }

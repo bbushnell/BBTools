@@ -23,11 +23,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Realigns samlines to a reference.
- * 
+ * Realigns SAM records to a reference using Realigner.
+ * Takes SAM/BAM input, optionally trims reads, and attempts local realignment
+ * against a loaded reference to improve alignment positions and CIGAR strings.
  * @author Brian Bushnell
  * @date April 26, 2017
- *
  */
 public class Realign {
 	
@@ -35,10 +35,6 @@ public class Realign {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -54,7 +50,8 @@ public class Realign {
 	}
 	
 	/**
-	 * Constructor.
+	 * Parses command-line arguments, configures SAM filtering, quality trimming,
+	 * input/output formats, and loads the reference into ScafMap.
 	 * @param args Command line arguments
 	 */
 	public Realign(String[] args){
@@ -191,8 +188,8 @@ public class Realign {
 		loadReference();
 	}
 
-	/** Loads the reference genome into ScafMap for realignment.
-	 * Only loads once per instance to avoid duplicate work. */
+	/** Loads the reference genome into ScafMap for realignment and sets the
+	 * static Realigner map, skipping work if the reference has already been loaded. */
 	private void loadReference(){
 		if(loadedRef){return;}
 		assert(ref!=null);
@@ -205,7 +202,11 @@ public class Realign {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Creates read streams, spawns worker threads, processes all reads, and
+	 * prints realignment statistics and timing information.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		//Turn off read validation in the input threads to increase speed
@@ -270,7 +271,13 @@ public class Realign {
 		}
 	}
 	
-	/** Spawn process threads */
+	/**
+	 * Spawns worker threads to consume reads from the input stream, optionally
+	 * write to the output stream, and accumulates per-thread statistics and
+	 * realignment counts.
+	 * @param cris Concurrent input stream for reading
+	 * @param ros Concurrent output stream for writing (may be null)
+	 */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing
@@ -337,17 +344,11 @@ public class Realign {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/** Worker thread that validates reads, invokes processRead(...) for realignment,
+	 * and tracks per-thread statistics and trimming counters. */
 	private class ProcessThread extends Thread {
 		
 		//Constructor
-		/**
-		 * Constructor for ProcessThread.
-		 * @param cris_ Input stream for reading
-		 * @param ros_ Output stream for writing
-		 * @param tid_ Thread ID
-		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ConcurrentReadOutputStream ros_, final int tid_){
 			cris=cris_;
 			ros=ros_;
@@ -356,6 +357,8 @@ public class Realign {
 		}
 		
 		//Called by start()
+		/** Main thread body that repeatedly fetches read lists, calls processInner(),
+		 * and marks successful completion when processing finishes. */
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
@@ -369,7 +372,11 @@ public class Realign {
 			success=true;
 		}
 		
-		/** Iterate through the reads */
+		/**
+		 * Iterates through lists of reads from the input stream, processes each read
+		 * via processRead(...), discards failed reads, and forwards retained reads to
+		 * the output stream.
+		 */
 		void processInner(){
 			
 			//Grab the first ListNum of reads
@@ -425,9 +432,11 @@ public class Realign {
 		}
 		
 		/**
-		 * Process a read.
-		 * @param r Read 1
-		 * @return True if the reads should be kept, false if they should be discarded.
+		 * Processes a read or read pair by applying SAM filters, attempting
+		 * realignment with Realigner, trimming with TrimRead if configured, and
+		 * updating per-thread counters.
+		 * @param r Primary read (mate may be attached)
+		 * @return true if the reads should be kept, false if they should be discarded
 		 */
 		boolean processRead(final Read r){
 			if(r.bases==null || r.length()<=1){return false;}
@@ -464,32 +473,22 @@ public class Realign {
 			return true;
 		}
 		
-		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
-		/** Number of trimmed, mapped bases processed. */
+		/** Number of trimmed, mapped bases processed by this thread. */
 		protected long trimmedBasesProcessedT=0;
-		/** Number of trimmed, mapped bases processed. */
+		/** Number of bases trimmed by this thread. */
 		protected long basesTrimmedT=0;
-		/** Number of reads discarded by this thread */
 		protected long readsDiscardedT=0;
-		/** Number of paired reads processed by this thread, whether or not they mapped as pairs */
 		protected long pairedInSequencingReadsProcessedT=0;
-		/** Number of properly paired reads processed by this thread */
 		protected long properlyPairedReadsProcessedT=0;
 		
-		/** True only if this thread has completed successfully */
 		boolean success=false;
 		
-		/** Shared input stream */
 		private final ConcurrentReadInputStream cris;
-		/** Shared output stream */
 		private final ConcurrentReadOutputStream ros;
-		/** For realigning reads */
 		final Realigner realigner;
 		
-		/** Thread ID */
 		final int tid;
 	}
 	
@@ -497,103 +496,69 @@ public class Realign {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** A fasta file. */
 	private String ref=null;
 	
-	/** Primary output file path */
 	private String out1=null;
 	
-	/** Override input file extension */
 	private String extin=null;
-	/** Override output file extension */
 	private String extout=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
 	/*--------------------------------------------------------------*/
 	
 	
-	/** Flag indicating if reference has been loaded */
 	private boolean loadedRef=false;
 
-	/** Enable quality trimming from left end */
 	private boolean qtrimLeft=false;
-	/** Enable quality trimming from right end */
 	private boolean qtrimRight=true;
-	/** Quality threshold for trimming */
 	private float trimq=10;
-	/** Expected error rate for trimming calculations */
 	private final float trimE;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of trimmed, mapped bases processed */
 	protected long trimmedBasesProcessed=0;
-	/** Number of reads discarded */
 	protected long readsDiscarded=0;
-	/** Number of paired reads processed by this thread, whether or not they mapped as pairs */
 	protected long pairedInSequencingReadsProcessed=0;
-	/** Number of properly paired reads processed */
 	protected long properlyPairedReadsProcessed=0;
-	/** Number of bases trimmed */
 	protected long basesTrimmed=0;
 	
-	/** Number of realignment attempts made */
 	protected long realignmentsAttempted;
-	/** Number of realignments that improved the alignment score */
 	protected long realignmentsImproved;
-	/** Number of successful realignments */
 	protected long realignmentsSucceeded;
-	/** Number of realignments that were retained in the output */
 	protected long realignmentsRetained;
 	
-	/** Map of scaffolds from reference sequences */
 	public final ScafMap scafMap=new ScafMap();
 	
-	/** Number of bases to trim from borders */
 	public int border=0;
-	/** Whether to unclip soft-clipped bases during realignment */
 	public boolean unclip=false;
 	
-	/** Filter for SAM/BAM records */
 	public final SamFilter samFilter=new SamFilter();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
 	
-	/** Primary output file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** Reads are output in input order */
 	private boolean ordered=true;
 	
 }

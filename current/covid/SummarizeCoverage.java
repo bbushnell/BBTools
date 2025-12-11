@@ -19,9 +19,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
+ * Processes base coverage files and generates summary statistics.
+ * Reads coverage depth files and outputs statistics including average coverage
+ * and percentage of bases at various coverage thresholds (1x, 2x, 3x, etc.).
+ *
  * @author Brian Bushnell
  * @date April 5, 2020
- *
  */
 public class SummarizeCoverage {
 	
@@ -29,10 +32,8 @@ public class SummarizeCoverage {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -48,7 +49,8 @@ public class SummarizeCoverage {
 	}
 	
 	/**
-	 * Constructor.
+	 * Constructor that parses command line arguments and initializes the program.
+	 * Sets up input/output files, configures threading, and validates file access.
 	 * @param args Command line arguments
 	 */
 	public SummarizeCoverage(String[] args){
@@ -86,7 +88,14 @@ public class SummarizeCoverage {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command line arguments and configures program parameters.
+	 * Supports parameters for maximum lines, reference length, verbosity,
+	 * and input file specification.
+	 *
+	 * @param args Command line arguments to parse
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		Parser parser=new Parser();
@@ -122,13 +131,15 @@ public class SummarizeCoverage {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Validates that at least one input file was specified.
+	 * Throws RuntimeException if no input files are provided. */
 	private void fixExtensions(){
 //		in1=Tools.fixExtension(in1); //TODO
 		if(in.isEmpty()){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Verifies that input files can be read and output files can be written.
+	 * Throws RuntimeException if file access validation fails. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -147,7 +158,8 @@ public class SummarizeCoverage {
 //		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts file reading mode based on available threads.
+	 * Forces ByteFile2 mode when more than 2 threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -164,11 +176,6 @@ public class SummarizeCoverage {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Main processing method that reads coverage files and generates summary output.
-	 * Creates output header, processes each input file, and reports statistics.
-	 * @param t Timer for tracking execution time
-	 */
 	void process(Timer t){
 		
 		ByteStreamWriter bsw=makeBSW(ffout1);
@@ -211,15 +218,6 @@ public class SummarizeCoverage {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Processes a single coverage file and generates summary statistics.
-	 * Reads coverage values, builds histogram, calculates average coverage
-	 * and percentage of bases at different coverage thresholds.
-	 *
-	 * @param bf ByteFile to read coverage data from
-	 * @param bsw ByteStreamWriter for output (may be null)
-	 * @param name Sample name for output labeling
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, String name){
 		byte[] line=bf.nextLine();
 		final int max=20;
@@ -271,11 +269,6 @@ public class SummarizeCoverage {
 		if(bsw!=null){bsw.print(bb);}
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the specified file format.
-	 * @param ff FileFormat to write to (may be null)
-	 * @return Started ByteStreamWriter or null if ff is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -287,26 +280,18 @@ public class SummarizeCoverage {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Set of input file paths to process */
 	private LinkedHashSet<String> in=new LinkedHashSet<String>();
-	/** Output file path for summary statistics */
 	private String out1="stdout.txt";
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Count of input lines processed across all files */
 	private long linesProcessed=0;
-	/** Count of output lines written */
 	private long linesOut=0;
-	/** Count of input bytes processed across all files */
 	private long bytesProcessed=0;
-	/** Count of output bytes written */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process per file */
 	private long maxLines=Long.MAX_VALUE;
 	
-	/** Reference genome length for coverage calculations (-1 if not specified) */
 	private long refLen=-1;
 	
 	/*--------------------------------------------------------------*/
@@ -314,22 +299,16 @@ public class SummarizeCoverage {
 	/*--------------------------------------------------------------*/
 	
 //	private final FileFormat ffin1;
-	/** File format specification for output file */
 	private final FileFormat ffout1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print stream for status messages and errors */
 	private PrintStream outstream=System.err;
-	/** Enable verbose output for debugging and detailed logging */
 	public static boolean verbose=false;
-	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Whether to overwrite existing output files */
 	private boolean overwrite=true;
-	/** Whether to append to existing output files */
 	private boolean append=false;
 	
 }

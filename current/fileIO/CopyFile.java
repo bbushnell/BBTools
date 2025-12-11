@@ -16,20 +16,17 @@ import tracker.ReadStats;
 
 
 /**
- * Unlike ReadWrite's version, this one forces compression and decompression even with same extensions.
- * Mainly for benchmarking.
+ * Utility class for file copying operations with explicit compression handling.
+ * Unlike ReadWrite's version, this forces compression and decompression even with same extensions.
+ * Primarily designed for benchmarking file I/O operations.
+ *
  * @author Brian Bushnell
  * @date Jan 23, 2013
- *
  */
 public class CopyFile {
 	
-	/**
-	 * Program entry point that parses command-line arguments and performs file copying with timing.
-	 * Supports arguments for input file, output file, overwrite mode, and append mode.
-	 * Reports copy speed in MB/s after completion.
-	 * @param args Command-line arguments including in=file, out=file, overwrite=boolean, append=boolean
-	 */
+	/** Entry point that parses args, copies a file, and reports throughput.
+	 * Args support in/out, overwrite, append, and zip options. */
 	public static void main(String[] args){
 
 		{//Preparse block for help, config files, and outstream
@@ -78,15 +75,12 @@ public class CopyFile {
 	
 	
 	/**
-	 * Copies a file from source to destination path with configurable options.
-	 * Uses 16KB buffer for efficient byte-level copying between input and output streams.
-	 * Handles special cases for ZipOutputStream with proper entry closure and finishing.
-	 *
-	 * @param source Source file path to copy from
-	 * @param dest Destination file path to copy to
-	 * @param createPathIfNeeded If true, creates parent directories if they don't exist
-	 * @param overwrite If false, asserts that destination file doesn't already exist
-	 * @throws RuntimeException if FileNotFoundException or IOException occurs during copy
+	 * Copies a file with optional parent creation and overwrite control; forces compression/decompression via ReadWrite streams.
+	 * Uses a 16KB buffer and handles ZipOutputStream completion.
+	 * @param source Source path
+	 * @param dest Destination path
+	 * @param createPathIfNeeded Create parent directories if missing
+	 * @param overwrite Whether to allow existing destination
 	 */
 	public static synchronized void copyFile(String source, String dest, boolean createPathIfNeeded, boolean overwrite){
 

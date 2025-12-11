@@ -18,13 +18,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Analyzes paired barcode counts.
- * This is the output file from CountBarcodes2.
- * Example: TODO
- * 
+ * Analyzes paired barcode counts from CountBarcodes2 output.
+ * Generates statistics comparing expected vs actual barcode pair distributions
+ * and identifies problematic barcode pairs that may indicate technical issues.
+ *
  * @author Brian Bushnell
  * @date July 19, 2023
- *
  */
 public class AnalyzeBarcodes {
 	
@@ -32,10 +31,8 @@ public class AnalyzeBarcodes {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point.
+	 * @param args Command-line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -51,8 +48,9 @@ public class AnalyzeBarcodes {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command-line arguments and initializes the analyzer.
+	 * Sets up input/output files, validates parameters, and configures processing options.
+	 * @param args Command-line arguments containing file paths and options
 	 */
 	public AnalyzeBarcodes(String[] args){
 		
@@ -86,7 +84,14 @@ public class AnalyzeBarcodes {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments into program configuration.
+	 * Processes parameters for input files, expected barcode counts, output files,
+	 * and various analysis options.
+	 *
+	 * @param args Array of command-line arguments in key=value format
+	 * @return Configured Parser object with parsed settings
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -141,13 +146,18 @@ public class AnalyzeBarcodes {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Adds or removes file extensions (.gz, .bz2) as needed for input files.
+	 * Ensures input file path has correct compression extension. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");} //Possible bug: misleading error message since expectedBarcodeFile is also required
 	}
 	
-	/** Ensure files can be read and written */
+	/**
+	 * Validates that input files exist and output files can be created.
+	 * Checks for file accessibility and prevents duplicate file specifications.
+	 * @throws RuntimeException if files cannot be read/written or duplicates exist
+	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, outLeft, outRight, outPair)){
@@ -166,7 +176,8 @@ public class AnalyzeBarcodes {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Adjusts static file handling settings based on thread count.
+	 * Enables multi-threaded file reading when sufficient threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -179,7 +190,11 @@ public class AnalyzeBarcodes {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates that required parameters are set and within acceptable ranges.
+	 * Ensures input file and expected barcode file are specified.
+	 * @return true if all parameters are valid
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(in1!=null && expectedBarcodeFile!=null) : "Barcode stats and expected barcodes must be specified.";
@@ -190,7 +205,12 @@ public class AnalyzeBarcodes {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Main processing method that loads barcode statistics and generates analysis output.
+	 * Loads barcode data, calculates statistics for left/right/pair distributions,
+	 * and writes analysis results to specified output files.
+	 * @param t Timer for tracking execution time and performance metrics
+	 */
 	void process(Timer t){
 		
 		bs=BarcodeStats.loadStatic(in1, expectedBarcodeFile, expectedBarcodeCount);
@@ -319,21 +339,11 @@ public class AnalyzeBarcodes {
 		}
 	}
 	
-	/**
-	 * Creates a ByteStreamWriter for the specified output filename.
-	 * @param fname Output filename to create writer for
-	 * @return ByteStreamWriter for the file, or null if file creation fails
-	 */
 	private ByteStreamWriter makeBSW(String fname){
 		FileFormat ff=FileFormat.testOutput(fname, FileFormat.TXT, null, true, overwrite, append, false);
 		return makeBSW(ff);
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter for the specified FileFormat.
-	 * @param ff FileFormat specification for the output file
-	 * @return Started ByteStreamWriter, or null if FileFormat is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -345,58 +355,48 @@ public class AnalyzeBarcodes {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
+	/** Primary input file path containing barcode statistics data */
 	private String in1=null;
 	
-	/** File path containing expected barcode sequences */
 	private String expectedBarcodeFile=null;
-	/** Expected number of barcodes when not using a barcode file */
 	private int expectedBarcodeCount=-1;
 
-	/** Primary output file path */
+	/** Output file path for left barcode statistics */
 	private String outLeft="leftStats.txt";
-	/** Output file path for right barcode statistics */
 	private String outRight="rightStats.txt";
-	/** Output file path for barcode pair statistics */
 	private String outPair="pairStats.txt";
 	
-	/** BarcodeStats object containing loaded barcode count data and analysis */
 	private BarcodeStats bs;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of input lines processed */
 	private long linesProcessed=0;
-	/** Number of input bytes processed */
 	private long bytesProcessed=0;
-	/** Number of output lines written */
 	private long linesOut=0;
-	/** Number of output bytes written */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
+	/** FileFormat object for the primary input file */
 	private final FileFormat ffin1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
+	/** Output stream for status messages and logging */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
+	/** Enable verbose logging output */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
+	/** Flag indicating whether an error occurred during processing */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
+	/** Allow overwriting existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
+	/** Append output to existing files instead of overwriting */
 	private boolean append=false;
 	
 }

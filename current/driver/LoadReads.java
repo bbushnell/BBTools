@@ -21,11 +21,11 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * This class loads data to see how much memory is used.
- * 
+ * Loads sequence data to analyze memory usage patterns.
+ * Reads FASTQ/FASTA files and tracks memory consumption during processing.
+ * Used for benchmarking and estimating memory requirements for large datasets.
  * @author Brian Bushnell
  * @date October 28, 2016
- *
  */
 public class LoadReads {
 	
@@ -34,7 +34,8 @@ public class LoadReads {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Code entrance from the command line.
+	 * Program entry point.
+	 * Creates LoadReads instance, processes data, and closes output streams.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -47,8 +48,10 @@ public class LoadReads {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructor that parses command line arguments and configures the loader.
+	 * Sets up input files, memory tracking options, and processing parameters.
+	 * Validates input files and initializes file format objects.
+	 * @param args Command line arguments containing file paths and options
 	 */
 	public LoadReads(String[] args){
 		
@@ -165,7 +168,11 @@ public class LoadReads {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create read streams and process all data */
+	/**
+	 * Main processing method that loads reads and tracks memory usage.
+	 * Creates input streams, processes all reads, calculates memory statistics, and outputs detailed memory usage analysis including estimates vs actual.
+	 * @param t Timer for tracking execution time
+	 */
 	void process(Timer t){
 		
 		calcMem();
@@ -294,7 +301,11 @@ public class LoadReads {
 		}
 	}
 	
-	/** Iterate through the reads */
+	/**
+	 * Core read processing loop that accumulates reads in memory.
+	 * Fetches read lists from input stream, stores them in memory, and tracks memory usage metrics for each read processed.
+	 * @param cris Concurrent read input stream providing read data
+	 */
 	void processInner(final ConcurrentReadInputStream cris){
 		
 		//Do anything necessary prior to processing
@@ -363,8 +374,6 @@ public class LoadReads {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Calculates and updates memory usage statistics.
-	 * Tracks minimum, maximum, initial, and final memory usage values. */
 	private void calcMem(){
 		final long used=Shared.memUsed();
 		minMem=Tools.min(used, minMem);
@@ -381,84 +390,55 @@ public class LoadReads {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
-	/** Secondary input file path */
 	private String in2=null;
 	
-	/** Primary quality file path */
 	private String qfin1=null;
-	/** Secondary quality file path */
 	private String qfin2=null;
 	
-	/** Override input file extension */
 	private String extin=null;
 	
-	/** Storage for accumulated read lists to measure memory usage */
 	private ArrayList<ArrayList<Read>> storage=new ArrayList<ArrayList<Read>>();
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Number of reads processed */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
 	protected long basesProcessed=0;
-	/** Number of quality scores processed */
 	protected long qualitiesProcessed=0;
-	/** Number of header characters processed */
 	protected long headersProcessed=0;
 	
-	/** Approximate number of fastq disk bytes processed */
 	protected long diskBytesProcessed=0;
-	/** Approximate number of read memory bytes processed */
 	protected long memBytesProcessed=0;
 	
-	/** Minimal observed memory usage */
 	protected long minMem=Long.MAX_VALUE;
-	/** Maximal observed memory usage */
 	protected long maxMem=0;
 	
-	/** Initial memory usage measurement */
 	protected long initialMem=-1;
-	/** Final memory usage measurement */
 	protected long finalMem=-1;
 	
-	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 	
-	/** Memory overhead estimation parameter */
 	private int overhead=0;
-	/** Whether to exit early during memory estimation */
 	private boolean earlyExit=false;
-	/** Whether to perform garbage collection and report memory after GC */
 	private boolean gc=false;
-	/** Whether to consider low complexity sequences in memory estimation */
 	private boolean lowComplexity=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file */
 	private final FileFormat ffin1;
-	/** Secondary input file */
 	private final FileFormat ffin2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
-	/** This flag has no effect on singlethreaded programs */
 	private final boolean ordered=false;
 	
 }

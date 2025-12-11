@@ -45,8 +45,6 @@ public final class PackedHeap {
 		return true;
 	}
 	
-	/** Returns the minimum element without removing it from the heap.
-	 * @return The minimum long value, or -1L if heap is empty */
 	public long peek(){
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
@@ -191,20 +189,17 @@ public final class PackedHeap {
 		array[loc]=a;
 	}
 	
-	/** Returns true if the heap contains no elements */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
 	
-	/** Removes all elements from the heap by resetting size to zero */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=-1L;}
 		size=0;
 	}
 	
-	/** Returns the number of elements currently in the heap */
 	public int size(){
 		return size;
 	}
@@ -234,11 +229,8 @@ public final class PackedHeap {
 		return true;
 	}
 	
-	/** Internal array storing heap elements with 1-based indexing */
 	final long[] array;
-	/** Maximum number of elements the heap can contain */
 	private final int CAPACITY;
-	/** Current number of elements in the heap */
 	private int size=0;
 	
 }

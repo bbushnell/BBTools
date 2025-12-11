@@ -11,24 +11,24 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
+ * Thread class for parallel dumping of k-mers from AbstractKmerTableU arrays.
+ * Each thread processes multiple tables sequentially while coordinating with other threads
+ * to ensure all tables are processed exactly once.
+ *
  * @author Brian Bushnell
  * @date Nov 16, 2015
- *
  */
 public class DumpThreadU extends Thread{
 	
 	/**
-	 * Initiates parallel dumping of k-mers from multiple tables using worker threads.
-	 * Creates and manages a pool of DumpThreadU instances that coordinate via atomic counter
-	 * to process all tables without duplication.
-	 *
-	 * @param k K-mer length for output formatting
-	 * @param mincount Minimum count threshold for k-mer inclusion
-	 * @param maxcount Maximum count threshold for k-mer inclusion
-	 * @param tables Array of AbstractKmerTableU instances to dump
-	 * @param bsw ByteStreamWriter for output coordination
-	 * @param remaining AtomicLong counter tracking remaining k-mers to dump
-	 * @return true if all threads completed successfully, false otherwise
+	 * Launches multiple DumpThreadU workers to dump k-mers with shared writer and atomic counters.
+	 * @param k K-mer length
+	 * @param mincount Minimum count threshold
+	 * @param maxcount Maximum count threshold
+	 * @param tables Tables to process
+	 * @param bsw Output writer
+	 * @param remaining Atomic remaining counter
+	 * @return true if all threads succeeded
 	 */
 	public static boolean dump(final int k, final int mincount, final int maxcount, final AbstractKmerTableU[] tables, final ByteStreamWriter bsw, AtomicLong remaining){
 		final int threads=DumpThread.NUM_THREADS>0 ? DumpThread.NUM_THREADS : Tools.min(tables.length, (Tools.mid(1, Shared.threads()-1, 6)));
@@ -54,17 +54,14 @@ public class DumpThreadU extends Thread{
 	}
 	
 	/**
-	 * Constructs a DumpThreadU worker thread with dumping parameters.
-	 * Thread will coordinate with others via the shared nextTable counter to
-	 * claim and process tables from the array.
-	 *
-	 * @param k_ K-mer length for output formatting
-	 * @param mincount_ Minimum count threshold for k-mer inclusion
-	 * @param maxcount_ Maximum count threshold for k-mer inclusion
-	 * @param nextTable_ Atomic counter for coordinating table assignment among threads
-	 * @param tables_ Array of AbstractKmerTableU instances to dump
-	 * @param bsw_ ByteStreamWriter for thread-safe output coordination
-	 * @param remaining_ AtomicLong counter tracking remaining k-mers to dump
+	 * Worker constructor wiring k-mer thresholds, shared table index, table array, writer, and remaining counter.
+	 * @param k_ K-mer length
+	 * @param mincount_ Minimum count
+	 * @param maxcount_ Maximum count
+	 * @param nextTable_ Atomic table index for coordination
+	 * @param tables_ Tables to dump
+	 * @param bsw_ Output writer
+	 * @param remaining_ Atomic remaining counter
 	 */
 	public DumpThreadU(final int k_, final int mincount_, final int maxcount_, final AtomicInteger nextTable_, final AbstractKmerTableU[] tables_, final ByteStreamWriter bsw_, AtomicLong remaining_){
 		k=k_;
@@ -76,6 +73,11 @@ public class DumpThreadU extends Thread{
 		remaining=remaining_;
 	}
 	
+	/**
+	 * Thread execution method that dumps k-mers from assigned tables.
+	 * Uses atomic counter to claim tables sequentially and processes each table
+	 * by calling dumpKmersAsBytes_MT. Buffers output in ByteBuilder for efficiency.
+	 */
 	@Override
 	public void run(){
 		final ByteBuilder bb=new ByteBuilder(16300);
@@ -89,21 +91,13 @@ public class DumpThreadU extends Thread{
 		success=true;
 	}
 	
-	/** K-mer length for output formatting */
 	final int k;
-	/** Minimum count threshold for k-mer inclusion */
 	final int mincount;
-	/** Maximum count threshold for k-mer inclusion */
 	final int maxcount;
-	/** Atomic counter for coordinating table assignment among threads */
 	final AtomicInteger nextTable;
-	/** AtomicLong counter tracking remaining k-mers to dump */
 	final AtomicLong remaining;
-	/** Array of AbstractKmerTableU instances to dump */
 	final AbstractKmerTableU[] tables;
-	/** ByteStreamWriter for thread-safe output coordination */
 	final ByteStreamWriter bsw;
-	/** Flag indicating whether thread completed successfully */
 	boolean success=false;
 	
 }

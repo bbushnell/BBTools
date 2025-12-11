@@ -20,12 +20,10 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * Reads a text file.
- * Prints it to another text file.
- * Filters out invalid lines and prints them to an optional third file.
+ * Reads a text file, filters lines, and generates statistical insights about file access and sizes.
+ * Processes input text files with delimited data, extracts and analyzes file size and access time information, and provides detailed statistical breakdowns of file metadata.
  * @author Brian Bushnell
  * @date May 9, 2016
- *
  */
 public class Foo6 {
 	
@@ -33,10 +31,8 @@ public class Foo6 {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Code entrance from the command line.
-	 * @param args Command line arguments
-	 */
+	/** Program entry point that creates a Foo6 instance and processes files.
+	 * @param args Command line arguments */
 	public static void main(String[] args){
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
@@ -52,8 +48,9 @@ public class Foo6 {
 	}
 	
 	/**
-	 * Constructor.
-	 * @param args Command line arguments
+	 * Constructs a Foo6 instance with command-line argument parsing.
+	 * Sets up file I/O parameters, validates input/output paths, and initializes FileFormat objects for processing.
+	 * @param args Command line arguments for configuration
 	 */
 	public Foo6(String[] args){
 		
@@ -91,7 +88,12 @@ public class Foo6 {
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Parse arguments from the command line */
+	/**
+	 * Parses command-line arguments and configures processing parameters.
+	 * Supports 'invalid', 'lines', 'verbose', and other configuration options.
+	 * @param args Array of command-line arguments
+	 * @return Configured Parser object
+	 */
 	private Parser parse(String[] args){
 		
 		//Create a parser object
@@ -136,13 +138,15 @@ public class Foo6 {
 		return parser;
 	}
 	
-	/** Add or remove .gz or .bz2 as needed */
+	/** Validates and fixes file extensions for input files.
+	 * Ensures at least one input file is specified and properly formatted. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 	
-	/** Ensure files can be read and written */
+	/** Validates that input files exist and output files can be written.
+	 * Checks for file accessibility and prevents duplicate file specifications. */
 	private void checkFileExistence(){
 		//Ensure output files can be written
 		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
@@ -161,7 +165,8 @@ public class Foo6 {
 		}
 	}
 	
-	/** Adjust file-related static fields as needed for this program */
+	/** Configures static ByteFile settings based on thread count.
+	 * Forces ByteFile2 mode when more than 2 threads are available. */
 	private static void checkStatics(){
 		//Adjust the number of threads for input file reading
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
@@ -174,7 +179,11 @@ public class Foo6 {
 //		}
 	}
 	
-	/** Ensure parameter ranges are within bounds and required parameters are set */
+	/**
+	 * Validates parameter ranges and required parameter settings.
+	 * Currently returns true but includes framework for future validation logic.
+	 * @return true if parameters are valid
+	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
@@ -185,7 +194,11 @@ public class Foo6 {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Create streams and process all data */
+	/**
+	 * Main processing method that reads input files and generates statistics.
+	 * Creates input/output streams, processes file contents, and reports statistical analysis of file sizes and access times.
+	 * @param t Timer for tracking execution performance
+	 */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -221,16 +234,6 @@ public class Foo6 {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Core file processing logic that reads lines and extracts file metadata.
-	 * Parses each line to extract file size and access time information,
-	 * performs statistical analysis including percentile calculations,
-	 * and outputs summary statistics about file access patterns.
-	 *
-	 * @param bf Input ByteFile for reading data
-	 * @param bsw Output ByteStreamWriter for valid data (currently unused)
-	 * @param bswInvalid Output ByteStreamWriter for invalid data (currently unused)
-	 */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, ByteStreamWriter bswInvalid){
 		
 		Timer t=new Timer();
@@ -297,19 +300,8 @@ public class Foo6 {
 		t.start();
 	}
 
-	/** Pipe character used as field delimiter in input files */
 	static final byte delimiter=(byte)'|';
 	
-	/**
-	 * Processes a single line of delimited file metadata.
-	 * Parses pipe-delimited fields to extract file size and access time,
-	 * filters lines based on file type (must contain 'F' in 7th field),
-	 * and adds combined time/size data to the processing list.
-	 *
-	 * @param line Raw byte array representing one line of input
-	 * @param list LongList for accumulating processed file metadata
-	 * @return File size if line is valid, -1 if filtered out
-	 */
 	long processLine(byte[] line, LongList list) {
 		int a=0, b=0;
 
@@ -370,11 +362,6 @@ public class Foo6 {
 		return size;
 	}
 	
-	/**
-	 * Creates and starts a ByteStreamWriter from a FileFormat.
-	 * @param ff FileFormat specification for output
-	 * @return Started ByteStreamWriter, or null if FileFormat is null
-	 */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -382,11 +369,6 @@ public class Foo6 {
 		return bsw;
 	}
 	
-	/**
-	 * Converts millisecond timestamp to PST-formatted date string.
-	 * @param time Millisecond timestamp
-	 * @return Formatted date string in "yyyy-MM-dd HH:mm:ss" format
-	 */
 	static String timeString(long time){
 		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
@@ -394,24 +376,12 @@ public class Foo6 {
 		return sdf.format(new Date(time));
 	}
 	
-	/** Number of bits used for storing compressed size data */
 	static final int LOWER_BITS=31;
-	/** Number of bits used for size value mantissa in compression */
 	static final int MANTISSA_BITS=24;
-	/** Number of bits used for size value exponent in compression */
 	static final int EXP_BITS=LOWER_BITS-MANTISSA_BITS;
-	/** Number of bits used for storing timestamp data */
 	static final int UPPER_BITS=64-MANTISSA_BITS;
-	/** Bit mask for extracting lower bits containing compressed size */
 	static final long LOWER_MASK=~((-1L)<<LOWER_BITS);
-	/** Bit mask for extracting mantissa bits from compressed size */
 	static final long MANTISSA_MASK=~((-1L)<<MANTISSA_BITS);
-	/**
-	 * Compresses large size values using floating-point-like representation.
-	 * Uses mantissa and exponent encoding to reduce storage space for large values.
-	 * @param raw Original size value
-	 * @return Compressed representation using mantissa/exponent encoding
-	 */
 	static final long compress(long raw) {
 		if(raw<=MANTISSA_MASK){return raw;}
 		int leading=Long.numberOfLeadingZeros(raw);
@@ -419,42 +389,18 @@ public class Foo6 {
 		assert(exp>=1);
 		return (raw>>>exp)|(exp<<MANTISSA_BITS);
 	}
-	/**
-	 * Decompresses size values from mantissa/exponent representation.
-	 * Reverses the compression process to retrieve approximate original values.
-	 * @param f Compressed value with mantissa and exponent
-	 * @return Decompressed size value
-	 */
 	static final long decompress(long f) {
 		if(f<=MANTISSA_MASK){return f;}
 		int exp=(int)(f>>>MANTISSA_BITS);
 		assert(exp>=1);
 		return (f&MANTISSA_MASK)<<exp;
 	}
-	/**
-	 * Combines timestamp and compressed size into a single long value.
-	 * Uses bit shifting to pack time in upper bits and compressed size in lower bits.
-	 *
-	 * @param time Access timestamp
-	 * @param size File size value
-	 * @return Combined value with time and compressed size
-	 */
 	static final long combine(long time, long size) {
 		return (time<<LOWER_BITS) | compress(size);
 	}
-	/**
-	 * Extracts timestamp from combined time/size value.
-	 * @param combined Combined value containing time and size
-	 * @return Extracted timestamp from upper bits
-	 */
 	static final long getTime(long combined) {
 		return combined>>>LOWER_BITS;
 	}
-	/**
-	 * Extracts and decompresses file size from combined time/size value.
-	 * @param combined Combined value containing time and compressed size
-	 * @return Decompressed file size from lower bits
-	 */
 	static final long getSize(long combined) {
 		return decompress(combined&LOWER_MASK);
 	}
@@ -463,53 +409,37 @@ public class Foo6 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Primary input file path */
 	private String in1=null;
 
-	/** Primary output file path */
 	private String out1=null;
 
-	/** Junk output file path */
 	private String outInvalid=null;
 	
 	/*--------------------------------------------------------------*/
 	
-	/** Counter for total number of lines processed from input */
 	private long linesProcessed=0;
-	/** Counter for number of valid lines that passed filtering */
 	private long linesOut=0;
-	/** Counter for total bytes read from input files */
 	private long bytesProcessed=0;
-	/** Counter for bytes written to output files */
 	private long bytesOut=0;
 	
-	/** Maximum number of lines to process before stopping */
 	private long maxLines=Long.MAX_VALUE;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Input File */
 	private final FileFormat ffin1;
-	/** Output File */
 	private final FileFormat ffout1;
-	/** Optional Output File for Junk */
 	private final FileFormat ffoutInvalid;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Print status messages to this output stream */
 	private PrintStream outstream=System.err;
-	/** Print verbose messages */
 	public static boolean verbose=false;
-	/** True if an error was encountered */
 	public boolean errorState=false;
-	/** Overwrite existing output files */
 	private boolean overwrite=true;
-	/** Append to existing output files */
 	private boolean append=false;
 	
 }

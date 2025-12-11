@@ -12,9 +12,12 @@ import shared.Timer;
 import shared.Tools;
 
 /**
+ * Hash set implementation optimized for long values with linear probing collision resolution.
+ * Uses an invalid marker system for empty cells and supports dynamic resizing.
+ * Provides O(1) average-case performance for add, remove, and contains operations.
+ *
  * @author Brian Bushnell
  * @date July 6, 2016
- *
  */
 public final class LongHashSet{
 	
@@ -126,25 +129,14 @@ public final class LongHashSet{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Creates a LongHashSet with default initial size of 256 and load factor 0.7
-	 */
 	public LongHashSet(){
 		this(256);
 	}
 	
-	/** Creates a LongHashSet with specified initial size and default load factor 0.7.
-	 * @param initialSize Initial capacity of the hash table */
 	public LongHashSet(int initialSize){
 		this(initialSize, 0.7f);
 	}
 	
-	/**
-	 * Creates a LongHashSet with specified initial size and load factor.
-	 * Load factor is constrained to range [0.25, 0.90] for performance.
-	 * @param initialSize Initial capacity of the hash table
-	 * @param loadFactor_ Target load factor before resizing (0.0-1.0)
-	 */
 	public LongHashSet(int initialSize, float loadFactor_){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
@@ -158,26 +150,21 @@ public final class LongHashSet{
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Removes all values from the set by filling the array with invalid markers */
 	public void clear(){
 		if(size<1){return;}
 		Arrays.fill(array, invalid);
 		size=0;
 	}
 	
-	/**
-	 * Tests whether the set contains the specified value.
-	 * @param value The value to search for
-	 * @return true if the value is present in the set, false otherwise
-	 */
 	public boolean contains(long value){
 		return value==invalid ? false : findCell(value)>=0;
 	}
 	
 	/**
-	 * Add this value to the set.
-	 * @param value
-	 * @return true if the value was added, false if it was already contained.
+	 * Adds the specified value to the set if not already present.
+	 * Automatically resizes the hash table when load factor is exceeded.
+	 * @param value The value to add
+	 * @return true if the value was added, false if it was already contained
 	 */
 	public boolean add(long value){
 		if(value==invalid){resetInvalid();}
@@ -193,9 +180,10 @@ public final class LongHashSet{
 	}
 	
 	/**
-	 * Remove this value from the set.
-	 * @param value
-	 * @return true if the value was removed, false if it was not present.
+	 * Removes the specified value from the set.
+	 * Performs rehashing of subsequent elements to maintain probe sequence integrity.
+	 * @param value The value to remove
+	 * @return true if the value was removed, false if it was not present
 	 */
 	public boolean remove(long value){
 		if(value==invalid){return false;}
@@ -209,26 +197,20 @@ public final class LongHashSet{
 		return true;
 	}
 	
-	/** Returns the number of values currently stored in the set */
 	public int size(){return size;}
 	
-	/** Returns true if the set contains no values */
 	public boolean isEmpty(){return size==0;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        String Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Returns a string representation of the set showing only the values */
 	@Override
 	public String toString(){
 		return toStringListView();
 	}
 	
-	/**
-	 * Returns a detailed string showing array indices and their values.
-	 * Useful for debugging hash table structure and collision patterns.
-	 * @return String in format [(index, value), (index, value), ...]
-	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -243,8 +225,6 @@ public final class LongHashSet{
 		return sb.toString();
 	}
 	
-	/** Returns a string representation showing only the stored values.
-	 * @return String in format [value1, value2, value3, ...] */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -259,11 +239,6 @@ public final class LongHashSet{
 		return sb.toString();
 	}
 	
-	/**
-	 * Returns a copy of the internal array including both valid values and invalid markers.
-	 * The returned array has the same length as the internal hash table.
-	 * @return Array copy containing all stored values and invalid markers
-	 */
 	public long[] toArray(){
 		long[] x=new long[array.length];
 		int i=0;
@@ -278,11 +253,6 @@ public final class LongHashSet{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Verifies the internal consistency of the hash table structure.
-	 * Checks that all values can be found at their expected positions.
-	 * @return true if the hash table structure is valid, false otherwise
-	 */
 	public boolean verify(){
 		int numValues=0;
 		int numFound=0;
@@ -301,11 +271,6 @@ public final class LongHashSet{
 		return numValues==numFound && numValues==size;
 	}
 	
-	/**
-	 * Rehashes all elements starting from the specified position to maintain
-	 * linear probing sequence integrity after a removal operation.
-	 * @param initial The starting position for rehashing
-	 */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=array.length;
@@ -321,12 +286,6 @@ public final class LongHashSet{
 		}
 	}
 	
-	/**
-	 * Rehashes a single cell to its correct position.
-	 * Used during removal operations to fill gaps in the probe sequence.
-	 * @param cell The cell index to rehash
-	 * @return true if the cell was moved to a different position
-	 */
 	private boolean rehashCell(final int cell){
 		final long value=array[cell];
 		assert(value!=invalid);
@@ -339,8 +298,6 @@ public final class LongHashSet{
 		return true;
 	}
 	
-	/** Generates a new invalid marker value when collision occurs with current marker.
-	 * Updates all existing invalid markers in the array to the new value. */
 	private void resetInvalid(){
 		final long old=invalid;
 		long x=invalid;
@@ -352,11 +309,6 @@ public final class LongHashSet{
 		}
 	}
 	
-	/**
-	 * Locates the cell containing the specified value using linear probing.
-	 * @param value The value to locate
-	 * @return Cell index if found, -1 if not found
-	 */
 	private int findCell(final long value){
 		if(value==invalid){return -1;}
 		
@@ -374,14 +326,6 @@ public final class LongHashSet{
 		return -1;
 	}
 	
-	/**
-	 * Finds the cell containing the value or the first empty cell for insertion.
-	 * Uses linear probing starting from the hash position.
-	 *
-	 * @param value The value to locate or position for insertion
-	 * @return Cell index containing the value or first empty cell
-	 * @throws RuntimeException if no empty cells are found
-	 */
 	private int findCellOrEmpty(final long value){
 		assert(value!=invalid) : "Collision - this should have been intercepted.";
 		
@@ -397,17 +341,11 @@ public final class LongHashSet{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
-	/** Doubles the hash table size plus one when size limit is reached */
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(array.length*2L+1);
 	}
 	
-	/**
-	 * Resizes the hash table to accommodate the specified minimum size.
-	 * Uses prime numbers for optimal hash distribution and rehashes all existing values.
-	 * @param size2 Minimum required size for the new hash table
-	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		long newPrime=Primes.primeAtLeast(size2);
@@ -435,11 +373,6 @@ public final class LongHashSet{
 		}
 	}
 
-	/**
-	 * Clears the set and resizes to the specified capacity.
-	 * All existing values are lost in this operation.
-	 * @param newSize New capacity for the hash table
-	 */
 	public final void resizeDestructive(int newSize){
 		size=0;
 		sizeLimit=0;
@@ -447,7 +380,11 @@ public final class LongHashSet{
 		resize(newSize);
 	}
 	
-	/** Number of values that can be held without resizing */
+	/**
+	 * Returns the maximum number of values that can be stored without triggering a resize.
+	 * This is the size limit based on current capacity and load factor.
+	 * @return Maximum capacity before resize
+	 */
 	public int capacity(){
 		return sizeLimit;
 	}
@@ -457,27 +394,18 @@ public final class LongHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Internal hash table array storing the long values */
 	private long[] array;
-	/** Current number of values stored in the set */
 	private int size=0;
-	/** Value for empty cells */
+	/** Marker value used to indicate empty cells in the hash table */
 	private long invalid;
-	/** Prime number used as modulus for hash function calculations */
 	private int modulus;
-	/** Maximum number of values before triggering resize operation */
 	private int sizeLimit;
-	/** Load factor threshold for determining when to resize the hash table */
 	private final float loadFactor;
 	
-	/** Random number generator used for generating invalid marker values */
 	private static final Random randy=new Random(1);
-	/** Bit mask for ensuring positive hash values (Long.MAX_VALUE) */
 	private static final long MASK=Long.MAX_VALUE;
-	/** Bit mask for ensuring invalid markers are negative (Long.MIN_VALUE) */
 	private static final long MINMASK=Long.MIN_VALUE;
 	
-	/** Additional buffer size added to hash table capacity */
 	private static final int extra=10;
 
 	

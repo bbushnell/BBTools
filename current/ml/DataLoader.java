@@ -14,38 +14,13 @@ import shared.Shared;
 import shared.Tools;
 import structures.IntList;
 
-/**
- * Loads and preprocesses machine learning datasets from files.
- * Handles data parsing, shuffling, class balancing, and train/test splitting.
- * Supports multiple file formats and automatic data type inference.
- * 
- * @author Brian Bushnell
- * @contributor Isla
- * @version 1.0
- */
 public class DataLoader {
     
-    /**
-     * Constructs a DataLoader for the specified file(s).
-     * Accepts either a single file path or comma-separated multiple files.
-     * 
-     * @param fname_ File path or comma-separated list of file paths
-     */
     private DataLoader(String fname_){
         fnames=new File(fname_).exists() ? 
                 new String[] {fname_} : Tools.commaPattern.split(fname_);
     }
 
-    /**
-     * Splits a matrix into training and validation sets.
-     * Distributes samples between sets while maintaining class balance.
-     * 
-     * @param m Source matrix to split
-     * @param fraction Fraction of samples to assign to validation set
-     * @param maxLines1 Maximum lines allowed in validation set
-     * @param exclusive If true, creates independent sets; if false, training set contains all data
-     * @return Array of two matrices: [training, validation]
-     */
     public static Matrix[] split(Matrix m, float fraction, int maxLines1, boolean exclusive) {
         if(m.inputs.length == 0) {
             throw new RuntimeException("Cannot split empty matrix");
@@ -106,19 +81,6 @@ public class DataLoader {
         return array;
     }
     
-    /**
-     * Loads dataset from file(s) and creates SampleSets for training.
-     * Handles file parsing, optional shuffling, train/test splitting, and class balancing.
-     * 
-     * @param fname File path(s) to load data from
-     * @param maxLines0 Maximum lines to load initially
-     * @param shuffleRaw Whether to shuffle data after loading
-     * @param splitFraction Fraction for train/test split (0 for no split)
-     * @param maxLines1 Maximum lines in validation set
-     * @param exclusive Whether split sets should be independent
-     * @param balance Class balancing factor (0 for no balancing, 1 for perfect balance)
-     * @return Array of SampleSets: [training] or [training, validation]
-     */
     public static SampleSet[] load(String fname, int maxLines0, boolean shuffleRaw, 
             float splitFraction, int maxLines1, boolean exclusive, float balance) {
         DataLoader dl=new DataLoader(fname);
@@ -135,14 +97,6 @@ public class DataLoader {
         }
     }
     
-    /**
-     * Internal method to load and preprocess data from files.
-     * Parses headers, processes data lines, applies shuffling and balancing.
-     * 
-     * @param maxLines Maximum number of lines to process
-     * @param shuffleRaw Whether to shuffle the raw data
-     * @param balance Class balancing multiplier
-     */
     private void load(final int maxLines, final boolean shuffleRaw, final float balance) {
         matrix=new Matrix();
         ArrayList<float[]> inputList=new ArrayList<float[]>();
@@ -221,9 +175,8 @@ public class DataLoader {
     /**
      * Randomly shuffles the dataset using a reproducible seed.
      * Maintains correspondence between inputs, outputs, and weights.
-     * 
      * @param inputList List of input vectors
-     * @param outputList List of output vectors  
+     * @param outputList List of output vectors
      * @param weightList List of weight vectors
      * @param maxLines Maximum number of samples to retain after shuffling
      */
@@ -253,7 +206,6 @@ public class DataLoader {
     /**
      * Balances class representation by cloning underrepresented samples.
      * Intelligently handles edge cases including single-class datasets.
-     * 
      * @param inputList List of input vectors to balance
      * @param outputList List of output vectors to balance
      * @param weightList List of weight vectors to balance
@@ -291,7 +243,6 @@ public class DataLoader {
     /**
      * Parses a single data line into input, output, and weight arrays.
      * Handles tab-separated values with optional weight column.
-     * 
      * @param line Raw byte array containing the data line
      * @param inputs Array to populate with input values
      * @param outputs Array to populate with output values
@@ -325,26 +276,11 @@ public class DataLoader {
     /*----------------           Parsing            ----------------*/
     /*--------------------------------------------------------------*/
     
-    /**
-     * Parses an integer value from a delimited line.
-     * 
-     * @param line Byte array containing the line to parse
-     * @return Parsed integer value
-     */
     private static int parseInt(byte[] line){
         int idx=Tools.indexOf(line, delimiter);
         return Parse.parseInt(line, idx+1, line.length);
     }
     
-    /**
-     * Parses an array of integers from a delimited line.
-     * Optionally skips a title field at the beginning.
-     * 
-     * @param line Byte array containing the line to parse
-     * @param delimiter Character used to separate fields
-     * @param parseTitle Whether to skip the first field as a title
-     * @return Array of parsed integer values
-     */
     public static int[] parseIntArray(final byte[] line, final byte delimiter, boolean parseTitle){
         int a=0, b=0;
         IntList list=new IntList(3);
@@ -369,30 +305,17 @@ public class DataLoader {
     
     /*--------------------------------------------------------------*/
     
-    /**
-     * Helper class to maintain correspondence between inputs, outputs, and weights during shuffling.
-     */
     private static class Triple{
-        /**
-         * Creates a Triple containing input, output, and weight vectors.
-         * 
-         * @param in_ Input feature vector
-         * @param out_ Output target vector
-         * @param w_ Weight vector
-         */
         Triple(float[] in_, float[] out_, float[] w_){
             in=in_;
             out=out_;
             w=w_;
         }
         
-        /** Input feature vector */
         final float[] in;
         
-        /** Output target vector */
         final float[] out;
         
-        /** Sample weight vector */
         final float[] w;
     }
     
@@ -400,36 +323,25 @@ public class DataLoader {
     /*----------------           Fields             ----------------*/
     /*--------------------------------------------------------------*/
     
-    /** Line parser for handling delimited data */
     LineParser1 lp=new LineParser1(delimiter);
     
-    /** Array of file names to process */
     String fnames[];
     
-    /** Loaded data matrix */
     Matrix matrix;
     
-    /** Current parsing position */
     int pos=0;
     
-    /** Count of successfully parsed lines */
     long validLines=0;
     
-    /** Count of invalid or unparseable lines */
     long invalidLines=0;
     
-    /** Valid lines from most recent load operation */
     static long lastValidLines=0;
     
-    /** Invalid lines from most recent load operation */
     static long lastInvalidLines=0;
     
-    /** Flag indicating whether weight columns are present */
     static boolean weighted=false;
     
-    /** Field delimiter character */
     public static final byte delimiter='\t';
     
-    /** Flag to ignore malformed lines instead of failing */
     public static boolean IGNORE_BAD_LINES=false;
 }

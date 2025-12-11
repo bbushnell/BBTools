@@ -8,16 +8,8 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 
-/**
- * Read input stream for tab-delimited oneline format files.
- * Each line contains a sequence identifier, tab character, then sequence bases.
- * Supports both single and paired-end (interleaved) reads.
- * @author Brian Bushnell
- */
 public class OnelineReadInputStream extends ReadInputStream {
 	
-	/** Program entry point for testing oneline format reading.
-	 * @param args Command-line arguments containing filename */
 	public static void main(String[] args){
 		
 		OnelineReadInputStream fris=new OnelineReadInputStream(args[0], true);
@@ -27,21 +19,11 @@ public class OnelineReadInputStream extends ReadInputStream {
 		
 	}
 	
-	/**
-	 * Constructs a OnelineReadInputStream from a filename.
-	 * @param fname Input filename
-	 * @param allowSubprocess_ Whether to allow subprocess execution for compressed files
-	 */
 	public OnelineReadInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.ONELINE, null, allowSubprocess_, false));
 	}
 
 	
-	/**
-	 * Constructs a OnelineReadInputStream from a FileFormat object.
-	 * Validates oneline format extension and initializes the underlying ByteFile.
-	 * @param ff FileFormat specifying the input file characteristics
-	 */
 	public OnelineReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
 		
@@ -81,8 +63,6 @@ public class OnelineReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
-	/** Fills the internal buffer with reads by parsing oneline format data.
-	 * Closes the file when fewer reads than buffer size are returned. */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -104,12 +84,6 @@ public class OnelineReadInputStream extends ReadInputStream {
 		}
 	}
 	
-	/**
-	 * Parses oneline format data into Read objects.
-	 * Each line is split at the last tab character to separate ID from sequence.
-	 * Handles both single-end and paired-end (interleaved) reads.
-	 * @return ArrayList of parsed Read objects
-	 */
 	private ArrayList<Read> toReadList(){
 		ArrayList<Read> list=new ArrayList<Read>(BUF_LEN);
 		Read r1=null, r2=null;
@@ -137,6 +111,8 @@ public class OnelineReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/** Closes the input stream and underlying file.
+	 * @return true if an error occurred during closing, false otherwise */
 	@Override
 	public boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+tf.name()+"; errorState="+errorState);}
@@ -145,6 +121,8 @@ public class OnelineReadInputStream extends ReadInputStream {
 		return errorState;
 	}
 
+	/** Resets the stream to the beginning for re-reading.
+	 * Clears all counters and buffers. */
 	@Override
 	public synchronized void restart() {
 		generated=0;
@@ -155,41 +133,33 @@ public class OnelineReadInputStream extends ReadInputStream {
 		tf.reset();
 	}
 
+	/** Indicates whether this stream contains paired-end reads.
+	 * @return true if reads are interleaved pairs, false for single-end */
 	@Override
 	public boolean paired() {return interleaved;}
 	
-	/** Return true if this stream has detected an error */
+	/** Indicates if the stream has encountered an error.
+	 * @return true if an error has been detected, false otherwise */
 	@Override
 	public boolean errorState(){return errorState;}
 	
 	@Override
 	public String fname(){return tf.name();}
 
-	/** Buffer for storing parsed reads */
 	private ArrayList<Read> buffer=null;
-	/** Index of next read to return from buffer */
 	private int next=0;
 	
-	/** Underlying file reader for oneline format data */
 	private final ByteFile tf;
-	/** Whether reads are paired and interleaved */
 	private final boolean interleaved;
 
-	/** Maximum number of reads to buffer at once */
 	private final int BUF_LEN=Shared.bufferLen();;
-	/** Maximum amount of sequence data to buffer in bytes */
 	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
 
-	/** Total number of reads generated from this stream */
 	public long generated=0;
-	/** Total number of reads consumed by caller */
 	public long consumed=0;
-	/** ID number for the next read to be created */
 	private long nextReadID=0;
 	
-	/** Whether input is from standard input */
 	public final boolean stdin;
-	/** Whether to print verbose debugging information */
 	public static boolean verbose=false;
 
 }

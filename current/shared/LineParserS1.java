@@ -7,20 +7,6 @@ import fileIO.TextFile;
 import structures.ByteBuilder;
 import structures.IntList;
 
-/**
- * Finds delimiters of a text line efficiently, to allow for parsing.
- * For example:<br>
- * Integer.parseInt("a b c 22 jan".split(" ")[3])<br>
- * could be redone as:<br>
- * LineParserS lps=new LineParser1S(' ')<br>
- * lp.set("a b c 22 jan").parseInt(3)<br>
- * 
- * Uses memory proportional to 4*(# delimiters per line); for constant memory, use LineParser1S.
- * 
- * @author Brian Bushnell
- * @date May 24, 2023
- *
- */
 public final class LineParserS1 implements LineParserS {
 	
 	/*--------------------------------------------------------------*/
@@ -29,11 +15,6 @@ public final class LineParserS1 implements LineParserS {
 	
 	//For testing
 	//Syntax: LineParser fname/literal delimiter 
-	/**
-	 * Test method for parsing files or literal strings with delimiters.
-	 * Accepts filename/literal and delimiter character as command-line arguments.
-	 * @param args Command-line arguments: [filename/literal] [single_delimiter_char]
-	 */
 	public static void main(String[] args) {
 		assert(args.length==2);
 		String fname=args[0];
@@ -58,15 +39,8 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Creates a line parser with the specified delimiter character.
-	 * @param delimiter_ The character that separates fields in text lines */
 	public LineParserS1(char delimiter_) {delimiter=delimiter_;}
 
-	/**
-	 * Creates a line parser with the specified delimiter from an integer value.
-	 * Converts the integer to a character and uses it as the field delimiter.
-	 * @param delimiter_ Integer value representing the delimiter character (0-65535)
-	 */
 	public LineParserS1(int delimiter_) {
 		assert(delimiter_>=0 && delimiter_<=Character.MAX_VALUE);
 		delimiter=(char)delimiter_;
@@ -130,8 +104,6 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------         Parse Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns the number of fields found in the current line.
-	 * @return Count of delimited fields in the line */
 	public int terms() {return bounds.size();}
 	
 	@Override
@@ -140,12 +112,22 @@ public final class LineParserS1 implements LineParserS {
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/**
+	 * Parses the specified field as a long integer value.
+	 * @param term Zero-based field index to parse
+	 * @return Long value of the field
+	 */
 	@Override
 	public long parseLong(int term) {
 		setBounds(term);
 		return Parse.parseLong(line, a, b);
 	}
 	
+	/**
+	 * Parses the specified field as a floating-point value.
+	 * @param term Zero-based field index to parse
+	 * @return Float value of the field
+	 */
 	@Override
 	public float parseFloat(int term) {
 		setBounds(term);
@@ -158,11 +140,23 @@ public final class LineParserS1 implements LineParserS {
 		return Parse.parseDouble(line, a, b);
 	}
 	
+	/**
+	 * Extracts a single byte from within a field at the specified offset.
+	 * @param term Zero-based field index
+	 * @param offset Character position within the field
+	 * @return Byte value of the character at the offset position
+	 */
 	@Override
 	public byte parseByte(int term, int offset) {
 		return (byte)parseChar(term, offset);
 	}
 	
+	/**
+	 * Extracts a single character from within a field at the specified offset.
+	 * @param term Zero-based field index
+	 * @param offset Character position within the field (0-based)
+	 * @return Character at the specified position within the field
+	 */
 	@Override
 	public char parseChar(int term, int offset) {
 		setBounds(term);
@@ -171,6 +165,12 @@ public final class LineParserS1 implements LineParserS {
 		return line.charAt(index);
 	}
 	
+	/**
+	 * Converts the specified field to a byte array.
+	 * Each character in the field becomes one byte in the array.
+	 * @param term Zero-based field index to convert
+	 * @return Byte array representation of the field content
+	 */
 	@Override
 	public byte[] parseByteArray(int term) {
 		int len=setBounds(term);
@@ -179,6 +179,11 @@ public final class LineParserS1 implements LineParserS {
 		return ret;
 	}
 	
+	/**
+	 * Converts the current field (as set by setBounds) to a byte array.
+	 * Uses the current field boundaries without changing them.
+	 * @return Byte array representation of the current field content
+	 */
 	@Override
 	public byte[] parseByteArrayFromCurrentField() {
 		int len=b-a;
@@ -187,12 +192,25 @@ public final class LineParserS1 implements LineParserS {
 		return ret;
 	}
 	
+	/**
+	 * Extracts the specified field as a string.
+	 * @param term Zero-based field index to extract
+	 * @return String content of the field
+	 */
 	@Override
 	public String parseString(int term) {
 		final int len=setBounds(term);
 		return line.substring(a, b);
 	}
 
+	/**
+	 * Appends the content of a field to a ByteBuilder.
+	 * Efficiently adds field characters to the builder without creating intermediate strings.
+	 *
+	 * @param bb The ByteBuilder to append to
+	 * @param term Zero-based field index to append
+	 * @return The same ByteBuilder instance for method chaining
+	 */
 	@Override
 	public ByteBuilder appendTerm(ByteBuilder bb, int term) {
 		final int len=setBounds(term);
@@ -202,11 +220,21 @@ public final class LineParserS1 implements LineParserS {
 	
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Parses the current field as an integer using existing field boundaries.
+	 * Does not change the current field position.
+	 * @return Integer value of the current field
+	 */
 	@Override
 	public int parseIntFromCurrentField() {
 		return Parse.parseInt(line, a, b);
 	}
 	
+	/**
+	 * Returns the current field as a string using existing field boundaries.
+	 * Does not change the current field position.
+	 * @return String content of the current field
+	 */
 	@Override
 	public String parseStringFromCurrentField() {
 		return line.substring(a, b);
@@ -231,6 +259,12 @@ public final class LineParserS1 implements LineParserS {
 		return Tools.startsWith(line, b);
 	}
 	
+	/**
+	 * Tests if the specified field starts with the given string.
+	 * @param s String prefix to test for
+	 * @param term Zero-based field index to check
+	 * @return true if the field starts with the string, false otherwise
+	 */
 	@Override
 	public boolean termStartsWith(String s, int term) {
 		final int len=setBounds(term);
@@ -242,6 +276,12 @@ public final class LineParserS1 implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified field exactly matches the given string.
+	 * @param s String to compare against
+	 * @param term Zero-based field index to check
+	 * @return true if the field equals the string, false otherwise
+	 */
 	@Override
 	public boolean termEquals(String s, int term) {
 		final int len=setBounds(term);
@@ -253,40 +293,72 @@ public final class LineParserS1 implements LineParserS {
 		return true;
 	}
 	
+	/**
+	 * Tests if the specified field consists of exactly one character that matches the given character.
+	 * @param c Character to compare against
+	 * @param term Zero-based field index to check
+	 * @return true if the field is a single character matching c, false otherwise
+	 */
 	@Override
 	public boolean termEquals(char c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Tests if the specified field consists of exactly one character that matches the given byte value.
+	 * @param c Byte value to compare against (treated as character)
+	 * @param term Zero-based field index to check
+	 * @return true if the field is a single character matching the byte value, false otherwise
+	 */
 	@Override
 	public boolean termEquals(byte c, int term) {
 		final int len=setBounds(term);
 		return len==1 && line.charAt(a)==c;
 	}
 	
+	/**
+	 * Moves the start boundary of the current field forward by the specified amount.
+	 * @param amt Number of characters to advance the start position
+	 * @return New length of the current field after adjustment
+	 */
 	@Override
 	public int incrementA(int amt) {
 		a+=amt;
 		return b-a;
 	}
 	
+	/**
+	 * Moves the start boundary of the current field forward by the specified amount.
+	 * Note: This method appears to have a bug - it modifies 'a' instead of 'b'.
+	 * @param amt Number of characters to advance the boundary
+	 * @return New length of the current field after adjustment
+	 */
 	@Override
 	public int incrementB(int amt) {
 		a+=amt;
 		return b-a;
 	}
 
+	/**
+	 * Returns the length of the specified field in characters.
+	 * @param term Zero-based field index
+	 * @return Length of the field in characters
+	 */
 	@Override
 	public int length(int term) {
 		return setBounds(term);
 	}
 
+	/** Returns the length of the current field using existing boundaries.
+	 * @return Length of the current field in characters */
 	@Override
 	public int currentFieldLength() {
 		return b-a;
 	}
 
+	/** Tests if there are more characters after the current field position.
+	 * @return true if more content exists beyond the current position, false otherwise */
 	@Override
 	public boolean hasMore() {
 		return b<line.length();
@@ -310,23 +382,12 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Sets the internal field boundaries (a and b) for the specified term.
-	 * Calculates start and end positions based on stored delimiter positions.
-	 * @param term Zero-based field index to set boundaries for
-	 * @return Length of the field in characters
-	 */
 	public int setBounds(int term){
 		a=(term==0 ? 0 : bounds.get(term-1)+1);
 		b=bounds.get(term);
 		return b-a;
 	}
 	
-	/**
-	 * Advances through the line to find the next delimiter position.
-	 * Updates internal position counters and identifies field boundaries.
-	 * @return Length of the current field found
-	 */
 	private int advance() {
 		b++;
 		a=b;
@@ -343,6 +404,11 @@ public final class LineParserS1 implements LineParserS {
 		return toList().toString();
 	}
 	
+	/**
+	 * Converts all parsed fields into a list of strings.
+	 * Creates a new ArrayList containing each field as a separate string element.
+	 * @return ArrayList containing all fields as strings
+	 */
 	@Override
 	public ArrayList<String> toList(){
 		ArrayList<String> list=new ArrayList<String>(bounds.size);
@@ -356,17 +422,12 @@ public final class LineParserS1 implements LineParserS {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Stores the end positions of each field for efficient random access */
 	private final IntList bounds=new IntList();
 	
-	/** Start position of the current field being processed */
 	private int a=-1;
-	/** End position of the current field being processed */
 	private int b=-1;
-	/** The current line being parsed into fields */
 	private String line;
 	
-	/** The character used to separate fields in the line */
 	public final char delimiter;
 	
 }

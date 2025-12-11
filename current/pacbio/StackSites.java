@@ -22,14 +22,13 @@ import structures.CoverageArray2;
 import structures.ListNum;
 
 /**
+ * Processes alignment sites from PacBio sequencing data and generates coverage maps.
+ * Stacks aligned reads by genomic position and outputs site information for analysis.
  * @author Brian Bushnell
  * @date Jul 16, 2012
- *
  */
 public class StackSites {
 	
-	/** Program entry point. Parses command-line arguments and initiates site stacking.
-	 * @param args Command-line arguments: input1 input2 output pcovoutput [genome=N] */
 	public static void main(String[] args){
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
@@ -55,16 +54,6 @@ public class StackSites {
 		System.out.println("Time: \t"+t);
 	}
 	
-	/**
-	 * Main processing method that stacks alignment sites from input files.
-	 * Reads aligned sequence data, processes sites for perfect coverage tracking,
-	 * and outputs sorted site information grouped by chromosome and position.
-	 *
-	 * @param fname1 Primary input file path
-	 * @param fname2 Secondary input file path (may be null)
-	 * @param outname Output file path for stacked sites
-	 * @param pcovoutname Output file pattern for perfect coverage arrays (must contain #)
-	 */
 	public static void stack(String fname1, String fname2, String outname, String pcovoutname){
 		assert(pcovoutname.contains("#"));
 		RTextInputStream rtis=new RTextInputStream(fname1, (fname2==null || fname2.equals("null") ? null : fname2), -1);
@@ -221,18 +210,6 @@ public class StackSites {
 		
 	}
 	
-	/**
-	 * Determines if a read alignment is perfect or near-perfect against the reference.
-	 * Compares read bases to reference sequence, allowing for 'N' positions in reference.
-	 *
-	 * @param start Start position in reference
-	 * @param stop Stop position in reference
-	 * @param bases Read sequence bases
-	 * @param cha Reference chromosome array
-	 * @param rcomp true if read should be reverse complemented for comparison
-	 * @param f Minimum fraction of matching bases required
-	 * @return true if alignment meets perfection threshold
-	 */
 	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f) {
 		
 		int noref=0;
@@ -254,12 +231,6 @@ public class StackSites {
 		return bases.length-noref>=f*bases.length;
 	}
 
-	/**
-	 * Writes sorted site scores to output stream in tab-delimited format.
-	 * Groups sites by genomic intervals to manage memory usage and output structure.
-	 * @param alsr List of site scores to write
-	 * @param out Output text stream writer
-	 */
 	private static void write(ArrayList<SiteScoreR> alsr, TextStreamWriter out){
 		if(alsr==null || alsr.size()==0){return;}
 		
@@ -299,19 +270,6 @@ public class StackSites {
 		}
 	}
 	
-	/**
-	 * Determines if an alignment site is correct within tolerance thresholds.
-	 * Compares predicted site position against known true position.
-	 *
-	 * @param ss Site score to evaluate
-	 * @param trueChrom True chromosome number
-	 * @param trueStrand True strand orientation
-	 * @param trueStart True start position
-	 * @param trueStop True stop position
-	 * @param thresh Position tolerance threshold
-	 * @param useChrom Whether to require chromosome match
-	 * @return true if site is within acceptable distance of true position
-	 */
 	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh, boolean useChrom){
 		if((useChrom && ss.chrom!=trueChrom) || ss.strand!=trueStrand){return false;}
 
@@ -321,11 +279,8 @@ public class StackSites {
 		return (Tools.absdif(ss.start, trueStart)<=thresh || Tools.absdif(ss.stop, trueStop)<=thresh);
 	}
 	
-	/** Dynamic array container for organizing site scores by chromosome.
-	 * Automatically expands to accommodate new chromosomes as needed. */
 	private static class Glob{
 		
-		/** Constructs a new Glob with initial capacity for 8 chromosomes. */
 		public Glob(){
 			array=new ArrayList[8];
 			for(int i=0; i<array.length; i++){
@@ -333,11 +288,6 @@ public class StackSites {
 			}
 		}
 		
-		/**
-		 * Adds a site score to the appropriate chromosome list.
-		 * Expands array capacity if necessary to accommodate the chromosome.
-		 * @param ssr Site score to add
-		 */
 		public void add(SiteScoreR ssr){
 			if(ssr.chrom>=array.length){
 				int newlen=((int)ssr.chrom*2);
@@ -350,16 +300,12 @@ public class StackSites {
 			array[ssr.chrom].add(ssr);
 		}
 		
-		/** Array of chromosome-specific site score lists */
 		public ArrayList<SiteScoreR>[] array;
 		
 	}
 	
-	/** Genomic interval size for grouping output sites */
 	public static final int INTERVAL=200;
-	/** Counter for total number of reads processed */
 	public static long readsProcessed=0;
-	/** Counter for total number of alignment sites processed */
 	public static long sitesProcessed=0;
 	
 }

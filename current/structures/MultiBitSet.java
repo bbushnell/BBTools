@@ -2,21 +2,8 @@ package structures;
 
 import shared.Tools;
 
-/**
- * A space-efficient bit set implementation that stores multi-bit values (0-3) for each position.
- * Uses 2 bits per element, packing 16 elements into each 32-bit integer for memory efficiency.
- * Supports increment operations with saturation at maximum value and various set operations.
- *
- * @author Brian Bushnell
- * @date 2013
- */
 public class MultiBitSet extends AbstractBitSet {
 
-	/**
-	 * Test method demonstrating MultiBitSet functionality.
-	 * Creates a bit set and performs various increment operations to show behavior.
-	 * @param args Command-line arguments (unused)
-	 */
 	public static void main(String[] args){
 		MultiBitSet mbs=new MultiBitSet(20);
 		System.err.println(mbs);
@@ -40,18 +27,10 @@ public class MultiBitSet extends AbstractBitSet {
 		System.err.println(mbs);
 	}
 	
-	/** Creates a MultiBitSet with the specified capacity and no extra space.
-	 * @param capacity_ Maximum number of elements this bit set can hold */
 	MultiBitSet(long capacity_){
 		setCapacity(capacity_, 0);
 	}
 
-	/**
-	 * Creates a MultiBitSet with the specified capacity plus extra space.
-	 * Extra space allows for expansion without reallocation.
-	 * @param capacity_ Maximum number of elements this bit set can hold
-	 * @param extra Additional cells to allocate beyond required capacity
-	 */
 	MultiBitSet(long capacity_, int extra){
 		setCapacity(capacity_, extra);
 	}
@@ -122,6 +101,7 @@ public class MultiBitSet extends AbstractBitSet {
 		return currentValue;
 	}
 
+	/** Sets all elements to zero by clearing all cells in the underlying array. */
 	@Override
 	public void clear(){
 		for(int i=0; i<length; i++){
@@ -129,6 +109,11 @@ public class MultiBitSet extends AbstractBitSet {
 		}
 	}
 
+	/**
+	 * Returns the number of non-zero elements in this bit set.
+	 * Iterates through all cells and counts elements with non-zero values.
+	 * @return Count of positions that contain non-zero values
+	 */
 	@Override
 	public long cardinality(){
 		long sum=0;
@@ -142,6 +127,14 @@ public class MultiBitSet extends AbstractBitSet {
 		return sum;
 	}
 
+	/**
+	 * Sets the capacity and reallocates the underlying array if necessary.
+	 * Calculates required cell count and allocates additional extra cells if specified.
+	 * Only reallocates if new capacity exceeds current maximum capacity.
+	 *
+	 * @param capacity_ New capacity in number of elements
+	 * @param extra Additional cells to allocate beyond required
+	 */
 	@Override
 	public void setCapacity(long capacity_, int extra){
 		capacity=capacity_;
@@ -155,37 +148,32 @@ public class MultiBitSet extends AbstractBitSet {
 //		assert(false) : capacity+", "+length;
 	}
 
+	/** Returns the current capacity of this bit set.
+	 * @return Maximum number of elements this bit set can hold */
 	@Override
 	public long capacity(){return capacity;}
 
+	/** Returns the number of cells in the underlying array.
+	 * @return Number of 32-bit integers used to store the bit set */
 	@Override
 	public int length(){return length;}
 
+	/** Returns the number of bits used per element.
+	 * @return Always returns 2 for MultiBitSet */
 	@Override
 	public final int bits(){return bits;}
 	
-	/** Returns direct access to the underlying storage array.
-	 * @return The array of integers storing the packed bit set data */
 	public int[] array(){return array;}
 	
-	/** Maximum capacity for which space has been allocated */
 	private long maxCapacity=0;
-	/** Current capacity in number of elements */
 	private long capacity=0;
-	/** Maximum length of allocated array */
 	private int maxLength=0;
-	/** Current length of array in use */
 	private int length=0;
-	/** Underlying storage array where each int holds 16 packed 2-bit elements */
 	private int[] array;
 	
-	/** Number of bits per element (always 2 for MultiBitSet) */
 	public static final int bits=2;
-	/** Bit mask for extracting a single element value (0b11 = 3) */
 	public static final int elementMask=~((-1)<<bits);
-	/** Number of elements stored in each 32-bit cell (16 for 2-bit elements) */
 	public static final int elementsPerCell=32/bits;
-	/** Modulus for computing element index within a cell (elementsPerCell - 1) */
 	public static final int modulus=elementsPerCell-1;
 
 }
