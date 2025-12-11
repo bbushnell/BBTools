@@ -163,7 +163,7 @@ public final class FastqScanMT {
 					if(r<0){break;}
 					len+=r;
 				}
-				basesT+=len;
+				bytesT+=len;
 				return len;
 			}
 		}
@@ -186,7 +186,7 @@ public final class FastqScanMT {
 				// We can't identify it, so we assume it's a Sequence line if we can't prove otherwise.
 				// But 1MB without newlines is weird. Assuming sequence base count.
 				assert(false) : "Record exceeded buffer length";
-				basesT+=len;
+				bytesT+=len;
 				return;
 			}
 			
