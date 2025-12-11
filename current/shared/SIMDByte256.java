@@ -195,6 +195,47 @@ final class SIMDByte256{
 	}
 
 	/**
+	 * Count positions of the given symbol in a byte array using SIMD.
+	 * @param buffer The byte array to search
+	 * @param from Starting position (inclusive)
+	 * @param to Ending position (exclusive)
+	 * @param symbol Character to find
+	 * @return Number of symbols found, including pre-existing ones
+	 */
+	static final int countSymbols(final byte[] buffer, final int from, 
+		final int to, final byte symbol){
+		int positions=0;
+		int i=from;
+
+		{//256-bit loop
+			final ByteVector newlineVec256=ByteVector.broadcast(BSPECIES256, symbol);
+			for(; i<=to-BWIDTH256; i+=BWIDTH256){
+				ByteVector vec=ByteVector.fromArray(BSPECIES256, buffer, i);
+				VectorMask<Byte> mask=vec.eq(newlineVec256);
+				long bits=mask.toLong();
+				positions+=Long.bitCount(bits);
+			}
+		}
+
+		{//64-bit loop
+			final ByteVector newlineVec64=ByteVector.broadcast(BSPECIES64, symbol);
+			for(; i<=to-BWIDTH64; i+=BWIDTH64){
+				ByteVector vec=ByteVector.fromArray(BSPECIES64, buffer, i);
+				VectorMask<Byte> mask=vec.eq(newlineVec64);
+				long bits=mask.toLong();
+				positions+=Long.bitCount(bits);
+			}
+		}
+
+		//Scalar tail
+		for(; i<to; i++){
+			if(buffer[i]==symbol){positions++;}
+		}
+
+		return positions;
+	}
+
+	/**
 	 * Find the last symbol in buffer by scanning backwards using SIMD.
 	 * @param buffer Buffer to scan
 	 * @param limit Scan backwards from this position (exclusive)
