@@ -13,6 +13,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
+import stream.bam.BgzfInputStreamMT2;
 import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 import structures.IntList;
@@ -468,6 +469,9 @@ public final class FastqScan{
 	}
 	
 	void readBam() throws IOException {
+		SamLine.PARSE_0=SamLine.PARSE_2=SamLine.PARSE_5=SamLine.PARSE_6=false;
+		SamLine.PARSE_7=SamLine.PARSE_8=SamLine.PARSE_OPTIONAL=false;
+		SamLine.FLIP_ON_LOAD=false;
 		Streamer st=StreamerFactory.makeStreamer(ff, 0, false, -1, false, false, -1);
 		st.start();
 		for(ListNum<SamLine> ln=st.nextLines(); ln!=null && !ln.poison(); ln=st.nextLines()) {
@@ -477,11 +481,13 @@ public final class FastqScan{
 				totalRecords++;
 				totalBases+=bases;
 				totalQuals+=quals;
-				totalBytes+=sl.countBytes();
 				qualMismatch|=(quals>0 && quals!=bases);
 			}
 		}
 		st.close();
+		if(st.getClass()==BamStreamer.class) {
+			totalBytes=((BamStreamer)st).bytesProcessed();
+		}
 	}
 	
 	void readOther() throws IOException {

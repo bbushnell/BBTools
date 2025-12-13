@@ -446,7 +446,7 @@ public class ReadCounter extends KmerCountAbstract {
 			if(ff2==null){ff1.preferShreds=true;}
 //			if(ff2!=null){ //TODO - interleaved flag
 			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
-			cris.start(); //4567
+			cris.start();
 		}
 		
 		assert(cris!=null) : reads1;
@@ -526,7 +526,7 @@ public class ReadCounter extends KmerCountAbstract {
 			FileFormat ff2=FileFormat.testInput(reads2, FileFormat.FASTQ, null, true, true);
 			if(ff2==null){ff1.preferShreds=true;}
 			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
-			cris.start(); //4567
+			cris.start();
 		}
 		
 		assert(cris!=null) : reads1;

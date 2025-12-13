@@ -242,7 +242,7 @@ public class TableLoaderLockFree {
 				/* Start an input stream */
 				FileFormat ff=FileFormat.testInput(refname, FileFormat.FASTA, null, false, true);
 				Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
-				cris.start(); //4567
+				cris.start();
 				ListNum<Read> ln=cris.nextList();
 				ArrayList<Read> reads=(ln!=null ? ln.list : null);
 				

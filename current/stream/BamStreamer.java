@@ -73,6 +73,7 @@ public class BamStreamer implements Streamer {
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
+		bytesProcessed=0;
 		
 		//Spawn threads
 		spawnThreads();
@@ -98,10 +99,12 @@ public class BamStreamer implements Streamer {
 	public int pairnum(){return 0;}
 	
 	@Override
-	public long readsProcessed() {return readsProcessed;}
+	public long readsProcessed(){return readsProcessed;}
 	
 	@Override
-	public long basesProcessed() {return basesProcessed;}
+	public long basesProcessed(){return basesProcessed;}
+	
+	public long bytesProcessed(){return bytesProcessed;}
 	
 	@Override
 	public void setSampleRate(float rate, long seed){
@@ -207,6 +210,7 @@ public class BamStreamer implements Streamer {
 				if(pt!=this){
 					readsProcessed+=pt.readsProcessedT;
 					basesProcessed+=pt.basesProcessedT;
+					bytesProcessed+=pt.bytesProcessedT;
 					allSuccess&=pt.success;
 				}
 			}
@@ -243,6 +247,7 @@ public class BamStreamer implements Streamer {
 								if(i>start){
 									byte[] line=Arrays.copyOfRange(text, start, i);
 									header.add(line);
+									bytesProcessedT+=line.length;
 								}
 								start=i+1;
 							}
@@ -250,6 +255,7 @@ public class BamStreamer implements Streamer {
 						if(start<text.length){
 							byte[] line=Arrays.copyOfRange(text, start, text.length);
 							header.add(line);
+							bytesProcessedT+=line.length;
 						}
 						SamReadInputStream.setSharedHeader(header);
 						if(verbose){outstream.println("Thread "+tid+" set shared header.");}
@@ -350,6 +356,7 @@ public class BamStreamer implements Streamer {
 					new ArrayList<SamLine>(list.size()), list.id);
 				long readID=list.firstRecordNum;
 				for(byte[] bamRecord : list){
+					bytesProcessedT+=bamRecord.length;
 					final SamLine sl=converter.toSamLine(bamRecord, cigar);
 					assert(sl!=null);
 					if(sl!=null){
@@ -379,6 +386,8 @@ public class BamStreamer implements Streamer {
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */
 		protected long basesProcessedT=0;
+		/** Number of bytes processed by this thread */
+		protected long bytesProcessedT=0;
 		/** True only if this thread has completed successfully */
 		boolean success=false;
 		/** Thread ID */
@@ -410,6 +419,7 @@ public class BamStreamer implements Streamer {
 	protected long readsProcessed=0;
 	/** Number of bases processed */
 	protected long basesProcessed=0;
+	private long bytesProcessed=0;
 	
 	/** Quit after processing this many input reads */
 	final long maxReads;

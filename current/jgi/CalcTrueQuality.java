@@ -158,6 +158,8 @@ public class CalcTrueQuality {
 				if(b!=null && Tools.isDigit(b.charAt(0))){
 					streamerThreads=Tools.max(1, Integer.parseInt(b));
 				}
+			}else if(a.equals("ordered")){
+				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("passes") || a.equals("recalpasses")){
 				passes=Integer.parseInt(b);
 			}
@@ -362,7 +364,8 @@ public class CalcTrueQuality {
 		assert(gbmatrices.size()==pass || fnum>0) : gbmatrices.size()+", "+pass;
 		
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
-		final Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
+		final Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, ordered, maxReads, true);
+		ss.start();
 		
 		/* Create Workers */
 		final int wthreads=Tools.mid(1, threads, 16);
@@ -2499,7 +2502,9 @@ public class CalcTrueQuality {
 	/** Whether to write calibration matrices to disk */
 	private boolean writeMatrices=true;
 	/** Number of threads for SamReadStreamer */
-	private int streamerThreads=3;
+	private int streamerThreads=-1;
+	/** Keep input ordered */
+	private boolean ordered=false;
 
 	/** List of matrix sets for each calibration pass */
 	ArrayList<GBMatrixSet> gbmatrices=new ArrayList<GBMatrixSet>();

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 17, 2024
+Last modified December 12, 2025
 
 Description:  This is a version of Pileup designed to process multiple files
 concurrently.  If you only have one input file just use regular Pileup.

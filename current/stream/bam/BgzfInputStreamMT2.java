@@ -579,6 +579,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 			System.arraycopy(currentBlock, currentBlockPos, b, off+totalRead, toCopy);
 			currentBlockPos+=toCopy;
 			totalRead+=toCopy;
+			totalBytes+=toCopy;
 		}
 
 		assert(totalRead==len) : "Read wrong amount: expected "+len+", got "+totalRead;
@@ -634,6 +635,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	public long totalBytes=0;
 	private final int workerThreads;
 	private final ArrayBlockingQueue<BgzfInputJob> inputQueue;
 	private final JobQueue<BgzfInputJob> jobQueue;

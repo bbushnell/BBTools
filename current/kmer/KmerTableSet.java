@@ -406,7 +406,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 			FileFormat ff1=FileFormat.testInput(fname1, FileFormat.FASTQ, null, true, true);
 			FileFormat ff2=FileFormat.testInput(fname2, FileFormat.FASTQ, null, true, true);
 			cris=StreamerFactory.getReadInputStream(maxReads, false, ff1, ff2, -1);
-			cris.start(); //4567
+			cris.start();
 		}
 		
 //		/* Optionally skip the first reads, since initial reads may have lower quality */
