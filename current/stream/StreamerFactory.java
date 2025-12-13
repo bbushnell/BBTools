@@ -1,5 +1,7 @@
 package stream;
 
+import java.util.ArrayList;
+
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
@@ -36,6 +38,15 @@ public class StreamerFactory {
 	public static Streamer makeSamOrBamStreamer(FileFormat ffin, int threads, boolean saveHeader, 
 			boolean ordered, long maxReads, boolean makeReads) {
 		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
+	}
+	
+	public static synchronized ArrayList<byte[]> loadSharedHeader(FileFormat ff){
+		Streamer st=makeSamOrBamStreamer(ff, -1, true, true, 1, false);
+		st.start();
+		while(st.nextLines()!=null) {}
+		ReadWrite.closeStream(st);
+		ArrayList<byte[]> list=SamReadInputStream.getSharedHeader(true);
+		return list;
 	}
 	
 	/*--------------------------------------------------------------*/

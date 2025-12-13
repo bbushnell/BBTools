@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 8, 2024
+Last modified December 12, 2025
 
 Description:  Calculates observed quality scores from mapped sam/bam files.
 Generates matrices for use in recalibrating quality scores.  By default,

@@ -1201,7 +1201,7 @@ public class BBMerge {
 			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			cris.setSampleRate(samplerate, sampleseed);
 			if(verbose){outstream.println("Started cris");}
-			cris.start(); //4567
+			cris.start();
 		}
 		boolean paired=cris.paired();
 //		assert(paired);//Fails on empty files.
@@ -1313,7 +1313,7 @@ public class BBMerge {
 			cris=StreamerFactory.getReadInputStream(numReads, true, ff1, ff2, 1);
 			cris.setSampleRate(samplerate, 1);
 			if(verbose){outstream.println("Started cris");}
-			cris.start(); //4567
+			cris.start();
 			if(!cris.paired()){
 				ReadWrite.closeStreams(cris);
 				return null;

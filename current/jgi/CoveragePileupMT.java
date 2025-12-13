@@ -432,10 +432,11 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			if(Data.SAMTOOLS()){ReadWrite.USE_SAMBAMBA=false;} //Disable because it takes forever to read the header
 		}
 		
-		ByteFile tf=ByteFile.makeByteFile(inputFiles.get(0), false);
-
-		processHeader(tf);
-		errorState=tf.close()|errorState;
+//		ByteFile tf=ByteFile.makeByteFile(inputFiles.get(0), false);
+//
+//		processHeader(tf);
+//		errorState=tf.close()|errorState;
+		processHeader(inputFiles.get(0));
 		if(verboseTime) {t.stopAndStart("Process Header:");}
 		
 		ReadWrite.USE_SAMBAMBA=true;
@@ -503,13 +504,20 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	/** Process all sam header lines from the tf.
 	 * Once a non-header line is encountered, return it.
 	 * If non-null, print all lines to the tsw. */
-	public void processHeader(ByteFile tf){
+	@Deprecated
+	private void processHeader(ByteFile tf){
 		byte[] line=null;
 		for(line=tf.nextLine(); line!=null && (line.length==0 || line[0]=='@'); line=tf.nextLine()){
 			processHeaderLine(line);
 		}
 		if(line!=null){tf.pushBack(line);}
 //		return line;
+	}
+	
+	private void processHeader(String fname) {
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false, false);
+		ArrayList<byte[]> lines=StreamerFactory.loadSharedHeader(ff);
+		for(byte[] line : lines) {processHeaderLine(line);}
 	}
 	
 	/**

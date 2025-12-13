@@ -1291,7 +1291,7 @@ public class KmerNormalize {
 			FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
 			cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 			if(verbose){System.err.println("Started cris");}
-			cris.start(); //4567
+			cris.start();
 		}
 		boolean paired=cris.paired();
 		if(verbose){System.err.println("Paired: "+paired);}
@@ -1766,7 +1766,7 @@ public class KmerNormalize {
 				FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, null, true, true);
 				cris=StreamerFactory.getReadInputStream(maxReads, true, ff1, ff2, 1);
 				if(verbose){System.err.println("Started cris");}
-				cris.start(); //4567
+				cris.start();
 			}
 			boolean paired=cris.paired();
 			if(verbose){System.err.println("Paired: "+paired);}
