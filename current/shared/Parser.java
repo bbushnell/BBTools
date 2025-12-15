@@ -81,6 +81,18 @@ public class Parser {
 	 * @return true if the argument was successfully parsed, false otherwise
 	 */
 	public boolean parse(String arg, String a, String b){
+		return (parseStatic(arg, a, b) || parseNonStatic(arg, a, b));
+	}
+	
+	/**
+	 * Entry point for parsing static fields.
+	 *
+	 * @param arg The complete argument string (e.g., "ziplevel=4")
+	 * @param a The parameter name portion (e.g., "ziplevel")
+	 * @param b The parameter value portion (e.g., "4")
+	 * @return true if the argument was successfully parsed, false otherwise
+	 */
+	public static boolean parseStatic(String arg, String a, String b) {
 		if(isJavaFlag(arg)){return true;}
 
 		if(parseQuality(arg, a, b)){return true;}
@@ -90,7 +102,18 @@ public class Parser {
 		if(parseCommonStatic(arg, a, b)){return true;}
 		if(parseHist(arg, a, b)){return true;}
 		if(parseQualityAdjust(arg, a, b)){return true;}
-
+		return false;
+	}
+	
+	/**
+	 * Entry point for parsing non-static fields.
+	 *
+	 * @param arg The complete argument string (e.g., "qtrim=r")
+	 * @param a The parameter name portion (e.g., "qtrim")
+	 * @param b The parameter value portion (e.g., "r")
+	 * @return true if the argument was successfully parsed, false otherwise
+	 */
+	public boolean parseNonStatic(String arg, String a, String b){
 		if(parseFiles(arg, a, b)){return true;}
 		if(parseCommon(arg, a, b)){return true;}
 		if(parseTrim(arg, a, b)){return true;}

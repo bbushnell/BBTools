@@ -20,7 +20,7 @@ import structures.RingBuffer;
  * - Exact identity calculation without traceback
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 7, 2025
  */
 public class WobblePlusAligner5 implements IDAligner{

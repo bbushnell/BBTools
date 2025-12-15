@@ -18,7 +18,7 @@ import shared.Tools;
  * - Provides exact ANI calculation with reference coordinate tracking
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2025
  */
 public class DriftingAligner implements IDAligner{

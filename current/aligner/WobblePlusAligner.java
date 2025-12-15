@@ -13,7 +13,7 @@ import structures.RingBuffer;
  * Band width adapts to sequence identity and alignment quality for optimal performance.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 7, 2025
  */
 public class WobblePlusAligner implements IDAligner{

@@ -14,7 +14,7 @@ import structures.RingBuffer;
  * highest-scoring regions. Supports sequences up to 2Mbp with 21 position bits.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 7, 2025
  */
 public class WobblePlusAligner4 implements IDAligner{

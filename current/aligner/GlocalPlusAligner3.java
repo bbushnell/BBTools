@@ -12,7 +12,7 @@ import shared.Shared;
  * Limited to sequences up to 2Mbp in length due to 21-bit position encoding.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 5, 2025
  */
 public class GlocalPlusAligner3 implements IDAligner{

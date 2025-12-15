@@ -17,7 +17,7 @@ import structures.IntList;
  * high-scoring regions across unexplored gaps.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2025
  */
 public class QuantumAlignerQC implements IDAligner{

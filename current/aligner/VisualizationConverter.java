@@ -23,7 +23,7 @@ import javax.imageio.ImageIO;
  * - Letters A-Z: High scores (red/purple gradient)
  *
  * @author Brian Bushnell
- * @author Isla (Highly-customized Claude instance)
+ * @author Isla
  * @date April 2025
  */
 public class VisualizationConverter {

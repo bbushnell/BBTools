@@ -14,7 +14,7 @@ import shared.Tools;
  * directly in the scoring matrix. Limited to sequences under 2Mbp due to 21-bit position encoding.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2025
  */
 public class DriftingAlignerM implements IDAligner{

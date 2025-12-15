@@ -116,6 +116,18 @@ public final class LongList{
 		for(int i=0; i<size2; i++){add(array2[i]);}
 	}
 	
+	public void add(long[] array2, int from, int to) {
+		int len=to-from;
+		expand(len);
+		System.arraycopy(array2, from, array, size, len);
+	}
+	
+	private final void expand(final long extra) {
+		if(size+extra>=array.length){
+			resize(size*2L+1);
+		}
+	}
+	
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		final int size3=(int)Tools.min(Shared.MAX_ARRAY_LEN, size2);

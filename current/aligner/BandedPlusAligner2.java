@@ -12,7 +12,7 @@ import shared.Shared;
  * Uses SIMD vectorization when available and falls back to optimized scalar processing.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2025
  */
 public class BandedPlusAligner2 implements IDAligner{

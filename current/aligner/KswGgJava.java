@@ -55,7 +55,7 @@ public class KswGgJava implements IDAligner {
 	 */
 	@Override
 	public float align(byte[] q, byte[] r) {
-		return align(q, r, null);
+		return align(q, r, (int[])null);
 	}
 
 	/**

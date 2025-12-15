@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 10, 2025
+Last modified December 14, 2025
 
 Description:  Aligns a query sequence to a reference using ScrabbleAligner.
 The sequences can be any characters, but N is a special case.

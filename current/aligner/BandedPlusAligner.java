@@ -13,7 +13,7 @@ import shared.Shared;
  * Limited to sequences up to 2Mbp with 21 position bits per the bit field design.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2025
  */
 public class BandedPlusAligner implements IDAligner{
