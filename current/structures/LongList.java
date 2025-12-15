@@ -120,6 +120,7 @@ public final class LongList{
 		int len=to-from;
 		expand(len);
 		System.arraycopy(array2, from, array, size, len);
+		size+=len;
 	}
 	
 	private final void expand(final long extra) {
