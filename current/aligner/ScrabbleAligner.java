@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 import shared.Tools;
+import structures.LongList;
 
 /**
  * Aligns two sequences to return ANI using dynamic banded alignment.
@@ -27,8 +28,8 @@ public class ScrabbleAligner implements IDAligner{
 	 * @param args Command-line arguments
 	 * @throws Exception If testing fails
 	 */
-	public static <C extends IDAligner> void main(String[] args) throws Exception {
-	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+	public static <C extends IDAligner> void main(String[] args) throws Exception{
+	    StackTraceElement[] stackTrace=Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
 		Class<C> c=(Class<C>)Class.forName(stackTrace[(stackTrace.length<3 ? 1 : 2)].getClassName());
 		Test.testAndPrint(c, args);
@@ -38,7 +39,7 @@ public class ScrabbleAligner implements IDAligner{
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public ScrabbleAligner() {}
+	public ScrabbleAligner(){}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Methods           ----------------*/
@@ -46,7 +47,7 @@ public class ScrabbleAligner implements IDAligner{
 
 	/** Returns the name of this aligner implementation */
 	@Override
-	public final String name() {return "Scrabble";}
+	public final String name(){return "Scrabble";}
 	/**
 	 * Aligns two sequences and returns identity percentage.
 	 * @param a First sequence to align
@@ -54,7 +55,7 @@ public class ScrabbleAligner implements IDAligner{
 	 * @return Identity as a float between 0.0 and 1.0
 	 */
 	@Override
-	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
+	public final float align(byte[] a, byte[] b){return alignStatic(a, b, null);}
 	/**
 	 * Aligns two sequences and returns identity percentage with position information.
 	 *
@@ -64,18 +65,18 @@ public class ScrabbleAligner implements IDAligner{
 	 * @return Identity as a float between 0.0 and 1.0
 	 */
 	@Override
-	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
+	public final float align(byte[] a, byte[] b, int[] pos){return alignStatic(a, b, pos);}
 	/**
 	 * Aligns two sequences with minimum score threshold.
 	 *
 	 * @param a First sequence to align
 	 * @param b Second sequence to align
 	 * @param pos Optional array to store alignment positions
-	 * @param minScore Minimum alignment score threshold (unused in current implementation)
+	 * @param minScore Minimum alignment score threshold(unused in current implementation)
 	 * @return Identity as a float between 0.0 and 1.0
 	 */
 	@Override
-	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
+	public final float align(byte[] a, byte[] b, int[] pos, int minScore){return alignStatic(a, b, pos);}
 	/**
 	 * Aligns sequences within a specified reference window.
 	 *
@@ -87,8 +88,23 @@ public class ScrabbleAligner implements IDAligner{
 	 * @return Identity as a float between 0.0 and 1.0
 	 */
 	@Override
-	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
+	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop){return alignStatic(a, b, pos, rStart, rStop);}
 
+	/**
+	 * Aligns sequences within a specified reference window.
+	 *
+	 * @param a Query sequence to align
+	 * @param b Reference sequence
+	 * @param pos Optional array to store alignment positions
+	 * @param rStart Start position in reference sequence
+	 * @param rStop Stop position in reference sequence
+	 * @return Identity as a float between 0.0 and 1.0
+	 */
+	@Override
+	public final float align(byte[] a, byte[] b, AlignmentStats stats){
+		return alignAndTraceStatic(a, b, stats);
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -102,10 +118,10 @@ public class ScrabbleAligner implements IDAligner{
 	 * @param ref Reference sequence
 	 * @return Optimal bandwidth for alignment
 	 */
-	private static int decideBandwidth(byte[] query, byte[] ref) {
+	private static int decideBandwidth(byte[] query, byte[] ref){
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Tools.mid(7, 1+Math.max(qLen, rLen)/32, 20+(int)Math.sqrt(rLen)/8);
-		for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++) {
+		for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++){
 			subs+=(query[i]!=ref[i] ? 1 : 0);}
 		return Math.min(subs+1, bandwidth);
 	}
@@ -117,18 +133,18 @@ public class ScrabbleAligner implements IDAligner{
 	 *
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment.
+	 * @param posVector Optional int[2] for returning{rStart, rStop}of optimal alignment.
 	 * If null, sequences may be swapped for efficiency.
-	 * @return Identity (0.0-1.0)
+	 * @return Identity(0.0-1.0)
 	 */
-	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
+	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector){
 		// Swap to ensure query is not longer than ref
-		if(posVector==null && query.length>ref.length) {
+		if(posVector==null && query.length>ref.length){
 			byte[] temp=query;
 			query=ref;
 			ref=temp;
 		}
-		
+//		assert(false); //123
 		assert(ref.length<=POSITION_MASK) : "Ref is too long: "+ref.length+">"+POSITION_MASK;
 		final int qLen=query.length;
 		final int rLen=ref.length;
@@ -166,10 +182,10 @@ public class ScrabbleAligner implements IDAligner{
 			
 			// Calculate bonus bandwidth due to low local alignment quality
 			final boolean nextMatch=(q==ref[Math.min(rLen-1, maxPos)]);
-			if(nextMatch) {// Reduce bandwidth cautiously
+			if(nextMatch){// Reduce bandwidth cautiously
 				deltaBW=(deltaBW<0 ? Math.max(-maxDynamic, deltaBW*2) : -2);
-			} else {// Increase bandwidth rapidly
-				deltaBW=Tools.mid(1, (maxDynamic-dynamicBW)/2, 8);
+			}else{// Increase bandwidth rapidly
+				deltaBW=Tools.mid(1,(maxDynamic-dynamicBW)/2, 8);
 			}
 			dynamicBW=Tools.mid(0, dynamicBW+deltaBW, maxDynamic);
 			
@@ -200,7 +216,7 @@ public class ScrabbleAligner implements IDAligner{
 				// Branchless score calculation
 				final boolean isMatch=(q==r && q!='N');
 				final boolean hasN=(q=='N' || r=='N');
-				final long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
+				final long scoreAdd=isMatch ? MATCH :(hasN ? N_SCORE : SUB);
 
 				// Read adjacent scores
 				final long pj1=prev[j-1], pj=prev[j], cj1=curr[j-1];
@@ -221,7 +237,7 @@ public class ScrabbleAligner implements IDAligner{
 				maxScore=better ? maxValue : maxScore;
 				maxPos=better ? j : maxPos;
 			}
-			if(viz!=null) {viz.print(curr, bandStart, bandEnd, rLen);}
+			if(viz!=null){viz.print(curr, bandStart, bandEnd, rLen);}
 			mloops+=(bandEnd-bandStart+1);
 			
 			// Swap rows
@@ -229,73 +245,10 @@ public class ScrabbleAligner implements IDAligner{
 			prev=curr;
 			curr=temp;
 		}
-		if(viz!=null) {viz.shutdown();}// Terminate visualizer
-		if(GLOBAL) {maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
+		if(viz!=null){viz.shutdown();}// Terminate visualizer
+		if(GLOBAL){maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
 		loops.addAndGet(mloops);
-		return postprocess(maxScore, maxPos, qLen, rLen, posVector);
-	}
-	
-	/**
-	 * Processes alignment results to calculate identity and extract alignment coordinates.
-	 * Solves system of equations to determine matches, substitutions, insertions, and deletions.
-	 *
-	 * @param maxScore Highest score in last row of alignment matrix
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query sequence length
-	 * @param rLen Reference sequence length
-	 * @param posVector Optional array for returning reference start/stop coordinates
-	 * @return Identity percentage as float
-	 */
-	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
-		// For conversion to global alignments
-		if(GLOBAL && maxPos<rLen) {
-			int dif=rLen-maxPos;
-			maxPos+=dif;
-			maxScore+=(dif*DEL_INCREMENT);
-		}
-		
-		// Extract alignment information
-		final int originPos=(int)(maxScore&POSITION_MASK);
-		final int endPos=maxPos;
-
-		// Calculate alignment statistics
-		final int deletions=(int)((maxScore & DEL_MASK) >> POSITION_BITS);
-		final int refAlnLength=(endPos-originPos);
-		final int rawScore=(int)(maxScore >> SCORE_SHIFT);
-		
-		if(posVector!=null){
-			posVector[0]=originPos;
-			posVector[1]=endPos-1;
-			if(posVector.length>2) {posVector[2]=rawScore;}
-			if(posVector.length>3) {posVector[3]=deletions;}
-		}
-		
-		// Solve the system of equations:
-		// 1. M + S + I = qLen
-		// 2. M + S + D = refAlnLength
-		// 3. Score = M - S - I - D
-		
-		// Calculate operation counts
-		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
-		final float matches=((rawScore+qLen+deletions)/2f);
-		final float substitutions=Math.max(0, qLen-matches-insertions);
-		final float identity=matches/(matches+substitutions+insertions+deletions);
-
-		if(PRINT_OPS) {
-			System.err.println("originPos="+originPos);
-			System.err.println("endPos="+endPos);
-			System.err.println("qLen="+qLen);
-			System.err.println("matches="+matches);
-			System.err.println("refAlnLength="+refAlnLength);
-			System.err.println("rawScore="+rawScore);
-			System.err.println("deletions="+deletions);
-			System.err.println("matches="+matches);
-			System.err.println("substitutions="+substitutions);
-			System.err.println("insertions="+insertions);
-			System.err.println("identity="+identity);
-		}
-		
-		return identity;
+		return Tracer.postprocess(maxScore, maxPos, qLen, rLen, posVector, null);
 	}
 
 	/**
@@ -304,20 +257,20 @@ public class ScrabbleAligner implements IDAligner{
 	 *
 	 * @param query Query sequence
 	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment
+	 * @param posVector Optional int[2] for returning{rStart, rStop}of optimal alignment
 	 * @param refStart Alignment window start position
 	 * @param refEnd Alignment window end position
-	 * @return Identity (0.0-1.0)
+	 * @return Identity(0.0-1.0)
 	 */
 	public static final float alignStatic(final byte[] query, final byte[] ref, 
-			final int[] posVector, int refStart, int refEnd) {
+			final int[] posVector, int refStart, int refEnd){
 		refStart=Math.max(refStart, 0);
 		refEnd=Math.min(refEnd, ref.length-1);
 		final int rlen=refEnd-refStart+1;
 		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd));
 		final float id=alignStatic(query, region, posVector);
 		assert(posVector[1]>0) : id+", "+Arrays.toString(posVector)+", "+refStart;
-		if(posVector!=null) {
+		if(posVector!=null){
 			posVector[0]+=refStart;
 			posVector[1]+=refStart;
 		}
@@ -325,10 +278,129 @@ public class ScrabbleAligner implements IDAligner{
 	}
 
 	private static AtomicLong loops=new AtomicLong(0);
-	public long loops() {return loops.get();}
-	public void setLoops(long x) {loops.set(x);}
+	public long loops(){return loops.get();}
+	public void setLoops(long x){loops.set(x);}
 	public static String output=null;
+	
+	/*--------------------------------------------------------------*/
+	/*----------------          Traceback           ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	/**
+	 * Aligns sequences and returns the match string(CIGAR-like but with m/S/I/D/N).
+	 * Records the alignment trace using a sparse LongList to minimize memory overhead.
+	 *
+	 * @param query Query sequence
+	 * @param ref Reference sequence
+	 * @param stats Optional container for scores, counts, and backtrace
+	 * @return Byte array containing the match string(e.g. "mmmmmSmmDmmm")
+	 */
+	public static final float alignAndTraceStatic(byte[] query, byte[] ref, AlignmentStats stats){
+		// Swap to ensure query is not longer than ref
+		final boolean swapped, doTrace=(stats!=null && stats.doTrace);
+		if(stats==null && query.length>ref.length){
+			byte[] temp=query;
+			query=ref;
+			ref=temp;
+			swapped=true;
+		}else{swapped=false;}
+//		assert(false); //123
+		
+		assert(ref.length<=POSITION_MASK) : "Ref is too long: "+ref.length+">"+POSITION_MASK;
+		final int qLen=query.length;
+		final int rLen=ref.length;
+		
+		// Initialize Trace Storage
+		// Header format: 1(sign) | row(21) | col(21) | distToPrevHeader(21)
+		final LongList trace=(doTrace ? new LongList(qLen*20) : null); 
+		int lastHeaderIdx=0; // Tracks index of the previous row's header
+		
+		final int bandWidth0=decideBandwidth(query, ref);
+		final int maxDrift=2, maxDynamic=(bandWidth0*12)/4;
 
+		long[] prev=new long[rLen+1], curr=new long[rLen+1];
+		Arrays.fill(curr, BAD);
+
+		{// Initialize first row(Row 0)
+			final long mult=(GLOBAL ? DEL_INCREMENT : 1);
+			if(doTrace){
+				// Row 0, Col 0, Dist 0
+				trace.add(0x8000000000000000L); 
+				lastHeaderIdx=0;
+			}
+			for(int j=0; j<=rLen; j++){
+				prev[j]=j*mult;
+				if(doTrace){trace.add(prev[j]);}
+			}
+		}
+
+		int bandStart=1, bandEnd=rLen-1;
+		int center=0;
+		int maxPos=0;
+		long maxScore=2*SUB;
+		int dynamicBW=0;
+		int deltaBW=0;
+		
+		for(int i=1; i<=qLen; i++){
+			final byte q=query[i-1];
+			
+			final boolean nextMatch=(q==ref[Math.min(rLen-1, maxPos)]);
+			if(nextMatch){deltaBW=(deltaBW<0 ? Math.max(-maxDynamic, deltaBW*2) : -2);}
+			else{deltaBW=Tools.mid(1, (maxDynamic-dynamicBW)/2, 8);}
+			dynamicBW=Tools.mid(0, dynamicBW+deltaBW, maxDynamic);
+			
+			final int bandWidth=bandWidth0+Math.max(16+bandWidth0*12-maxDrift*i, dynamicBW);
+			final int quarterBand=bandWidth/4;
+			final int drift=Tools.mid(-1, maxPos-center, maxDrift);
+			center=center+1+drift;
+			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
+			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+			
+			if(doTrace){
+				final int dist=trace.size-lastHeaderIdx;
+				assert(dist<=(int)POSITION_MASK);
+				// Header: Sign | Row | Col | Dist
+				long header=0x8000000000000000L | ((long)i<<42) | ((long)bandStart<<21) | dist;
+				lastHeaderIdx=trace.size;
+				trace.add(header);
+			}
+			
+			curr[bandStart-1]=BAD;
+			curr[0]=i*INS;
+			maxScore=BAD;
+			maxPos=-1;
+			
+			for(int j=bandStart; j<=bandEnd; j++){
+				final byte r=ref[j-1];
+
+				final boolean isMatch=(q==r && q!='N');
+				final boolean hasN=(q=='N' || r=='N');
+				final long scoreAdd=isMatch ? MATCH :(hasN ? N_SCORE : SUB);
+
+				final long pj1=prev[j-1], pj=prev[j], cj1=curr[j-1];
+				final long maxDiagUp=Math.max(pj1+scoreAdd, pj+INS);
+				final long maxValue=(maxDiagUp&SCORE_MASK)>=(cj1+DEL_INCREMENT) ? maxDiagUp : (cj1+DEL_INCREMENT);
+				
+				curr[j]=maxValue;
+				
+				final boolean better=((maxValue&SCORE_MASK)>maxScore);
+				maxScore=better ? maxValue : maxScore;
+				maxPos=better ? j : maxPos;
+			}
+			if(doTrace) {trace.add(curr, bandStart, bandEnd+1);}
+			long[] temp=prev; prev=curr; curr=temp;
+		}
+		
+		if(GLOBAL){maxPos=rLen;}
+		float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
+		if(stats!=null && stats.doTrace){
+			final byte[] matchString=Tracer.traceback(trace, query, ref, qLen, maxPos);
+			if(swapped){Tracer.invertMatchString(matchString);}//Should never happen
+			stats.setFromMatchString(matchString);
+		}
+		return identity;
+	}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/

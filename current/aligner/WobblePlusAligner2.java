@@ -14,7 +14,7 @@ import structures.RingBuffer;
  * Limited to 2Mbp sequences using 21-bit position encoding.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 7, 2025
  */
 public class WobblePlusAligner2 implements IDAligner{

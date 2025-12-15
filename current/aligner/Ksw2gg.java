@@ -7,7 +7,7 @@ package aligner;
  * memory efficiency on long sequences.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 21, 2025
  */
 public class Ksw2gg implements IDAligner {
@@ -64,7 +64,7 @@ public class Ksw2gg implements IDAligner {
      */
     @Override
     public float align(byte[] query, byte[] ref) {
-        return align(query, ref, null);
+        return align(query, ref, (int[])null);
     }
     
     /**

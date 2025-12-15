@@ -148,11 +148,9 @@ public class A_SampleStreamer{
 				forceParse=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
-			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
-				FileFormat.isSequence(arg) && new File(arg).isFile()){
+			}else if(i==0 && Tools.looksLikeInputSequenceStream(arg)){
 				parser.in1=arg;
-			}else if(i==1 && !arg.contains("=") && parser.out1==null && parser.in1!=null &&
-				FileFormat.isSequence(arg)){
+			}else if(i==1 && parser.in1!=null && Tools.looksLikeOutputSequenceStream(arg)) {
 				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);

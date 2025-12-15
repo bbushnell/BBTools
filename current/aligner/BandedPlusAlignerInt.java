@@ -17,7 +17,7 @@ import shared.Tools;
  * where full alignment matrices would be wasteful.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 19, 2025
  */
 public class BandedPlusAlignerInt implements IDAligner{

@@ -13,7 +13,7 @@ import structures.IntList;
  * Limited to sequences up to 2Mbp due to 21-bit position encoding.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 24, 2024
  */
 public class IntListAligner implements IDAligner{

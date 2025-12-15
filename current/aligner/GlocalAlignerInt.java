@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Implements a space-efficient dynamic programming algorithm using only two arrays.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 19, 2024
  */
 public class GlocalAlignerInt implements IDAligner{

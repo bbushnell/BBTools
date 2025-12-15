@@ -28,7 +28,7 @@ public class QuabbleAligner implements IDAligner{
 	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 		args=new PreParser(args, System.err, null, false, true, false).args;
-	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+		StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
 		Class<C> c=(Class<C>)Class.forName(stackTrace[(stackTrace.length<3 ? 1 : 2)].getClassName());
 		Test.testAndPrint(c, args);

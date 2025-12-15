@@ -12,7 +12,7 @@ import shared.Shared;
  * Limited to sequences up to 2Mbp with 21 position bits in bit-packed scores.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date May 5, 2025
  */
 public class GlocalPlusAligner5 implements IDAligner{

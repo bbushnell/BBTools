@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Limited to sequences up to 2Mbp due to 21-bit position encoding.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 23, 2025
  */
 public class GlocalPlusAligner2 implements IDAligner{

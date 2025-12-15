@@ -34,7 +34,7 @@ public class DiagonalAligner implements IDAligner {
 
     @Override
     public float align(byte[] query, byte[] target) {
-        return align(query, target, null);
+        return align(query, target, (int[])null);
     }
 
     @Override

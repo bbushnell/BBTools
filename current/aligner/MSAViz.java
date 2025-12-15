@@ -46,7 +46,7 @@ public final class MSAViz implements Aligner, IDAligner {
 	@Override
 	public final String name() {return "MSA9Viz";}
 	@Override
-	public float align(byte[] q, byte[] r) {return align(q, r, null);}
+	public float align(byte[] q, byte[] r) {return align(q, r, (int[])null);}
 	@Override
 	public float align(byte[] q, byte[] r, int[] posVector) {return align(q, r, posVector, 0, r.length-1);}
 	@Override

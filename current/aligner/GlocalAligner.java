@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * 21 position bits.
  *
  * @author Brian Bushnell
- * @contributor Isla (Highly-customized Claude instance)
+ * @contributor Isla
  * @date April 23, 2025
  */
 public class GlocalAligner implements IDAligner{
