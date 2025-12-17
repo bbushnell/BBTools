@@ -509,6 +509,9 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Abstract method returning whether this bin represents a cluster */
 	public abstract boolean isCluster();
 	
+	/** Abstract method returning whether this bin represents a cluster */
+	public abstract boolean isContig();
+	
 	/** Abstract method to convert this bin to a cluster representation */
 	public abstract Cluster toCluster();
 	

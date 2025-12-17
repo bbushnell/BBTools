@@ -272,7 +272,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			if(minID>0 && sl.calcIdentity()<minID) {return false;}
 			final String rname=ContigRenamer.toShortName(sl.rnameS());
 			final Contig c1=contigMap.get(rname);
-			System.err.println("rname="+rname+", contig="+c1+"\nid="+c1.id());
+//			System.err.println("rname="+rname+", contig="+c1+"\nid="+c1.id());
 			if(c1==null) {return false;}//Contig not found; possibly too short
 			assert(c1!=null) : "Can't find contig for rname "+rname;
 			final int cid=c1.id();

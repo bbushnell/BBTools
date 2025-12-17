@@ -383,7 +383,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		Bin target=null;
 		assert(a.isCluster() || a.cluster()==null);
 
-		int max=(a.isCluster() ? maxEdges : maxEdges+Tools.min(2, maxEdges)*Tools.min(8, a.numContigs()-1));
+		int max=(!a.isCluster() ? maxEdges : maxEdges+Tools.min(2, maxEdges)*Tools.min(8, a.numContigs()-1));
 		max=Tools.min(max, edges.size());
 		int minWeight=(int)Math.ceil(minEdgeRatio*edges.get(0).value);
 		minWeight=Tools.max(minWeight, minEdgeWeight);

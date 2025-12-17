@@ -165,6 +165,40 @@ public class BinObject {
 		return valid;
 	}
 	
+	public static int[][] countKmersMulti(final byte[] bases, int kmax) {
+		int[][] counts=new int[Tools.max(kmax, 5)+1][];
+		counts[1]=new int[4];
+		counts[2]=new int[16];
+		for(int i=3; i<=kmax; i++) {
+			counts[i]=new int[canonicalKmers[i]];
+		}
+		countKmersMulti(bases, counts, kmax);
+		return counts;
+	}
+	
+	//TODO: Use this instead
+	public static void countKmersMulti(final byte[] bases, final int[][] counts, int kmax){
+		if(bases==null || bases.length<1){return;}
+		
+		int kmer=0;
+		int len=0;
+		for(int i=0; i<bases.length; i++){
+			byte b=bases[i];
+			int x=AminoAcid.baseToNumber[b];
+			kmer=((kmer<<2)|x);
+			if(x>=0){
+				counts[1][x]++;
+				len++;
+				for(int k=2; k<=kmax && k<=len; k++) {
+//					assert(counts[k]!=null) : k+", "+kmax+", "+len+", "+bases.length;
+					int masked=kmer&masks[k];
+					int canon=remapMatrix[k][masked];
+					counts[k][canon]++;
+				}
+			}else{len=kmer=0;}
+		}
+	}
+	
 	public static void countKmersMulti(final byte[] bases, final long[][] counts, int kmax){
 		if(bases==null || bases.length<1){return;}
 		

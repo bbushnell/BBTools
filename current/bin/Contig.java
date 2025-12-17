@@ -5,6 +5,7 @@ import java.util.Iterator;
 
 import dna.AminoAcid;
 import shared.Shared;
+import shared.Tools;
 import sketch.Sketch;
 import sketch.SketchMakerMini;
 import stream.Read;
@@ -31,6 +32,9 @@ public class Contig extends Bin {
 	
 	@Override
 	public boolean isCluster() {return false;}
+	
+	@Override
+	public boolean isContig() {return true;}
 	
 	/** Creates a new Cluster containing this contig.
 	 * @return New Cluster wrapping this contig */
@@ -96,7 +100,7 @@ public class Contig extends Bin {
 		return true;
 	}
 	
-	public void loadCounts() {
+	public void loadCountsOld() {
 		assert(numTetramers==0);
 		tetramers=new int[canonicalKmers[4]];
 		numTetramers=countKmers(bases, tetramers, 4);
@@ -115,6 +119,21 @@ public class Contig extends Bin {
 			pentamers=new int[canonicalKmers[5]];
 			numPentamers=countKmers(bases, pentamers, 5);
 		}
+	}
+	
+	public void loadCountsFast() {
+		assert(numTetramers==0);
+		
+		boolean k5=(countPentamers && size()>=minPentamerSizeCount);
+		int[][] counts=countKmersMulti(bases, k5 ? 5 : 4);
+		gcSum=counts[1][1]+counts[1][2];
+		dimers=counts[2];
+		trimers=counts[3];
+		tetramers=counts[4];
+		pentamers=counts[5];
+
+		numTetramers=(int)Tools.sum(tetramers);
+		numPentamers=k5 ? (int)Tools.sum(pentamers) : 0;
 	}
 	
 	/**
