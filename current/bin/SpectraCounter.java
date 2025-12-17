@@ -196,12 +196,12 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			return null;
 		}
 		
-		void processContig(Contig c) {
+		void processContigSlow(Contig c) {
 			synchronized(c) {
 //				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());
 				contigsProcessedT++;
 				basesProcessedT+=c.size();
-				c.loadCounts();
+				c.loadCountsOld();
 				if(c.numDepths()>1) {c.fillNormDepth();}
 				if(calcEntropy) {
 					if(!calcEntropyFast) {
@@ -218,6 +218,38 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 					c.hh=KmerTracker.HH(c.dimers);
 					c.caga=KmerTracker.CAGA(c.dimers);
 				}
+				if(parseDepth) {
+					boolean b=DataLoader.parseAndSetDepth(c, lps, lpt);
+					if(!b) {
+						KillSwitch.kill("Could not parse depth from header "+c.name+
+								"\nThis program needs a sam file, a cov file, or labeled contigs.");
+					}
+					assert(b) : "Could not parse depth from "+c.name;
+				}
+				
+				assert(c.tetramers!=null && c.numTetramers>0);
+			}
+		}
+		
+		void processContig(Contig c) {
+			synchronized(c) {
+//				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());
+				contigsProcessedT++;
+				basesProcessedT+=c.size();
+				c.loadCountsFast();
+				if(c.numDepths()>1) {c.fillNormDepth();}
+				if(calcEntropy) {
+					if(!calcEntropyFast) {
+						c.entropy=et.averageEntropy(c.bases, false);
+					}else {
+						//This would need regeneration of nns but uses much less CPU time loading.
+						c.entropy=EntropyTracker.calcEntropyFromCounts(c.trimers);
+					}
+					c.entropy=AdjustEntropy.compensate(c.gc(), c.entropy);
+				}
+				c.strandedness=EntropyTracker.strandedness(c.dimers, 2);
+				c.hh=KmerTracker.HH(c.dimers);
+				c.caga=KmerTracker.CAGA(c.dimers);
 				if(parseDepth) {
 					boolean b=DataLoader.parseAndSetDepth(c, lps, lpt);
 					if(!b) {

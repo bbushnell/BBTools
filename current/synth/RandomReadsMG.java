@@ -1164,6 +1164,7 @@ public class RandomReadsMG{
 		 *@param fnum File number for read headers
 		 */
 		private void processContig(Read contig, float depth, int taxID, int fnum, String fname){
+			final int clen=contig.length();
 			if(circular) {
 				bb.clear().append(contig.bases).append(contig.bases);
 				contig.bases=bb.toBytes();
@@ -1272,7 +1273,8 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, strand, paddedLen, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
+			String header=makeHeader(start, contig.length(), strand, paddedLen, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
 			Read r=new Read(bases, null, header, rnum);
 			if(addErrors){mutateLongRead(r, sRate, iRate, dRate, hRate, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
@@ -1312,7 +1314,8 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
+			String header=makeHeader(start, contig.length(), strand, insert, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
 			Read r=new Read(bases, null, header, rnum);
 			if(addErrors){mutateIllumina(r, meanQScore, qScoreRange, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
@@ -1366,8 +1369,10 @@ public class RandomReadsMG{
 				bases2=temp;
 			}
 			if(randomPriming && !RandomHexamer.keep(bases1, randy)){return null;}
-			String header1=makeHeader(start1, strand, insert, taxID, fnum, cnum, 0, novel?0:1, fname, randy);
-			String header2=makeHeader(start1, strand, insert, taxID, fnum, cnum, 1, novel?0:1, fname, randy);
+			String header1=makeHeader(start1, contig.length(), strand, insert, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
+			String header2=makeHeader(start1, contig.length(), strand, insert, taxID,
+				fnum, cnum, 1, novel?0:1, fname, randy);
 			Read r1=new Read(bases1, null, header1, rnum);
 			Read r2=new Read(bases2, null, header2, rnum);
 			r2.setPairnum(1);
@@ -1431,8 +1436,9 @@ public class RandomReadsMG{
 		 *@param randy A random number generator, for Illumina headers
 		 *@return Formatted header string
 		 */
-		private String makeHeader(int start, int strand, int insert, int taxID, 
+		private String makeHeader(int start, int clen, int strand, int insert, int taxID, 
 				int fnum, long cnum, int pnum, int pcr, String fname, Random randy){
+			if(circular && start>=clen/2) {start-=clen/2;}
 			bb.clear();
 			if(illuminaHeaders) {
 				illuminaHeader(bb, randy, pnum);

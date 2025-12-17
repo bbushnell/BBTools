@@ -28,6 +28,9 @@ public class Cluster extends Bin {
 	public boolean isCluster() {return true;}
 	
 	@Override
+	public boolean isContig() {return false;}
+	
+	@Override
 	public Cluster toCluster() {return this;}
 	
 	/** Returns this cluster object unchanged */

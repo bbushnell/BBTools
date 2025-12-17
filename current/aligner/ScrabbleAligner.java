@@ -394,7 +394,7 @@ public class ScrabbleAligner implements IDAligner{
 		if(GLOBAL){maxPos=rLen;}
 		float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
 		if(stats!=null && stats.doTrace){
-			final byte[] matchString=Tracer.traceback(trace, query, ref, qLen, maxPos);
+			final byte[] matchString=Tracer.traceback(trace, qLen, maxPos, null);
 			if(swapped){Tracer.invertMatchString(matchString);}//Should never happen
 			stats.setFromMatchString(matchString);
 		}
