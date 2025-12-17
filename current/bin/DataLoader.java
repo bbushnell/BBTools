@@ -517,7 +517,7 @@ public class DataLoader extends BinObject {
 //				public static boolean PARSE_OPTIONAL=true;
 //				public static boolean PARSE_OPTIONAL_MD_ONLY=false;
 				
-				SamLoader samLoader=new SamLoader(outstream);
+				SamLoader2 samLoader=new SamLoader2(outstream);
 				samLoader.minMapq=minMapq;
 				samLoader.minMateq=minMapq;
 

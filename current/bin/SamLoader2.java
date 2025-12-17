@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.ReadWriteLock;
 
@@ -26,11 +27,12 @@ import tracker.EntropyTracker;
  * Loads SAM/BAM files to compute contig coverage and connectivity graphs.
  * Streams alignments in parallel, aggregates depth, and builds contig linkage edges
  * from paired-end mappings.
+ * * Updated to support sequential loading for large file counts to conserve memory.
  */
-public class SamLoader implements Accumulator<SamLoader.LoadThread> {
+public class SamLoader2 implements Accumulator<SamLoader2.Worker> {
 	
 	/** Builds a loader that reports status to the provided PrintStream. */
-	public SamLoader(PrintStream outstream_) {
+	public SamLoader2(PrintStream outstream_) {
 		outstream=outstream_;
 	}
 	
@@ -47,51 +49,82 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	}
 	
 	/**
-	 * Main loader: creates streamers per file, spawns LoadThreads, and aggregates coverage/connectivity.
+	 * Main loader entry point.
+	 * Branches between parallel loading (few files) and queue-based loading (many files).
 	 */
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
 			ArrayList<Contig> contigs, IntHashMap[] graph){
-		final int files=fnames.size();
+		
 		SamLine.RNAME_AS_BYTES=false;
-		//Do anything necessary prior to processing
 		
-		FileFormat ff0=FileFormat.testInput(fnames.get(0), FileFormat.SAM, null, false, false);
-		final boolean compressed=ff0.compressed();
-		
-		//Determine how many threads may be used
-		final int availableThreads=Tools.max(1, Shared.threads());
-		final int maxThreadsPerFile=(availableThreads+files-1)/files;
-		final float[] ideal;
-		{//FileRead, Decompress, SamLine, Coverage
-			float x=(fnames.size()>MAX_CONCURRENT_FILES ? 1 : MAX_SAM_LOADER_THREADS_PER_FILE);
-			if(ff0.bam()) {//bam
-				ideal=new float[] {1f, 4f, 6f, x};
-			}else if(ff0.compressed()) {//sam.bgz or bz2
-				ideal=new float[] {1f, 4f, 6f, x};
-			}else if(false) {//sam.gz, non-bgzip.  Detectable from magic word...
-				ideal=new float[] {0.5f, 1f, 2f, 0.5f*x};
-			}else {//sam
-				assert(ff0.sam());
-				ideal=new float[] {1f, 0f, 6f, x};
-			}
+		if(fnames.size()>MAX_CONCURRENT_FILES) {
+			loadQueue(fnames, contigMap, contigs, graph);
+		} else {
+			loadParallel(fnames, contigMap, contigs, graph);
 		}
-		final int[] allocation=allocateThreads(ideal, availableThreads);
-//		final int availableLoaderThreads=Tools.mid(1, MAX_SAM_LOADER_THREADS, availableThreads);
-//		final int maxLoaderThreadsPerFile=(availableLoaderThreads+files-1)/files;
-//		
-//		int zipTheadsPF=8;
-//		int streamerThreadsPF=Tools.min(maxThreadsPerFile, Streamer.DEFAULT_THREADS);
-//		int loaderThreadsPF=availableLoaderThreads;
-//		final int loaderThreads=loaderThreadsPF*files;
+	}
 
-		final int readThreadsPF=allocation[0];
-		final int zipThreadsPF=allocation[1];
-		final int streamerThreadsPF=allocation[2];
-		final int covThreadsPF=allocation[3];
+	/**
+	 * Queue-based strategy: Limits concurrent open files to MAX_CONCURRENT_FILES.
+	 * Threads pick the next file from the list, open it, process it, and close it.
+	 */
+	private void loadQueue(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
+			ArrayList<Contig> contigs, IntHashMap[] graph) {
+		
+		final int files=fnames.size();
+		final int concurrentFiles=Tools.min(files, MAX_CONCURRENT_FILES);
+		
+		//Initialize coverage arrays for all files (memory cheap compared to Streamer buffers)
+		AtomicLongArray[] covlist=new AtomicLongArray[files];
+		for(int i=0; i<files; i++) {
+			covlist[i]=new AtomicLongArray(contigs.size());
+		}
+		
+		//Determine thread allocation per ACTIVE file
+		final int availableThreads=Tools.max(1, Shared.threads());
+		final int[] threadAllocation = calculateThreadAllocation(fnames.get(0), concurrentFiles, availableThreads);
+		final int streamerThreadsPF=threadAllocation[2]; //Index 2 is streamer threads
+		
+		outstream.println("Processing "+files+" files in queue mode (concurrency="+concurrentFiles+").");
+		
+		//Shared atomic index for threads to grab the next file
+		final AtomicInteger nextFileIndex = new AtomicInteger(0);
+		
+		ArrayList<Worker> alpt=new ArrayList<Worker>(concurrentFiles);
+		for(int i=0; i<concurrentFiles; i++){
+			final QueueWorker lt=new QueueWorker(nextFileIndex, fnames, streamerThreadsPF,
+				contigMap, contigs, graph, covlist, i);
+			alpt.add(lt);
+		}
+		
+		//Start and wait
+		boolean success=ThreadWaiter.startAndWait(alpt, this);
+		errorState|=!success;
+		
+		//Post-process all coverage arrays
+		for(int i=0; i<files; i++) {postprocess(covlist[i], contigs, i);}
+	}
+
+	/**
+	 * Original strategy: Opens ALL files at once. Best for small numbers of files.
+	 */
+	private void loadParallel(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
+			ArrayList<Contig> contigs, IntHashMap[] graph) {
+		
+		final int files=fnames.size();
+		
+		//Determine thread allocation
+		final int availableThreads=Tools.max(1, Shared.threads());
+		final int[] threadAllocation = calculateThreadAllocation(fnames.get(0), files, availableThreads);
+		
+		final int streamerThreadsPF=threadAllocation[2];
+		final int covThreadsPF=threadAllocation[3];
+		final int zipThreadsPF=threadAllocation[1];
 		
 		System.err.println("Using "+zipThreadsPF+":"+streamerThreadsPF+":"+covThreadsPF+
 			" zip:stream:cov threads for "+files+" files and "+Tools.plural("thread", Shared.threads())+".");
 		
+		//Pre-open all Streamers
 		ArrayList<Streamer> sslist=new ArrayList<Streamer>(files);
 		AtomicLongArray[] covlist=new AtomicLongArray[files];
 		for(int i=0; i<fnames.size(); i++){
@@ -100,36 +133,56 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			sslist.add(ss);
 			ss.start();
 			covlist[i]=new AtomicLongArray(contigs.size());
-//			outstream.println("Opened "+ss.fname());
 		}
 		
 		//Fill a list with LoadThreads
 		final int threads=covThreadsPF*files;
 		assert(threads>=files);
-		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(threads);
+		ArrayList<Worker> alpt=new ArrayList<Worker>(threads);
 		for(int i=0; i<threads; i++){
 			final int sample=i%files;
-//			System.err.println("Started a thread for sample "+sample+", pid="+i+
-//				", threads="+covThreadsPF+", streamerThreads="+streamerThreadsPF);
-			final LoadThread lt=new LoadThread(sslist.get(sample), 
+			final ParallelWorker lt=new ParallelWorker(sslist.get(sample), 
 				sample, contigMap, contigs, graph, covlist[sample], i);
 			alpt.add(lt);
 		}
 		
-		//Start the threads and wait for them to finish
+		//Start and wait
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
+		
+		//Close streams
 		for(Streamer st : sslist) {
 			ReadWrite.closeStreams(st, (Writer[])null);
-//			outstream.println("Closed "+st.fname());
 		}
 		
 		for(int i=0; i<files; i++) {postprocess(covlist[i], contigs, i);}
-		
-		//Do anything necessary after processing
-		
 	}
 	
+	/**
+	 * Calculates thread distribution (bgzip vs streamer vs processing) based on available threads and active files.
+	 */
+	private int[] calculateThreadAllocation(String fname, int activeFiles, int availableThreads) {
+		FileFormat ff0=FileFormat.testInput(fname, FileFormat.SAM, null, false, false);
+		
+		//Determine how many threads may be used
+		final int maxThreadsPerFile=(availableThreads+activeFiles-1)/activeFiles;
+		final float[] ideal;
+		{//FileRead, Decompress, SamLine, Coverage
+			float x=(activeFiles>MAX_CONCURRENT_FILES ? 1 : MAX_SAM_LOADER_THREADS_PER_FILE);
+			if(ff0.bam()) {//bam
+				ideal=new float[] {1f, 4f, 6f, x};
+			}else if(ff0.compressed()) {//sam.bgz or bz2
+				ideal=new float[] {1f, 4f, 6f, x};
+			}else if(false) {//sam.gz, non-bgzip. Detectable from magic word...
+				ideal=new float[] {0.5f, 1f, 2f, 0.5f*x};
+			}else {//sam
+				assert(ff0.sam());
+				ideal=new float[] {1f, 0f, 6f, x};
+			}
+		}
+		return allocateThreads(ideal, availableThreads);
+	}
+
 	/**
 	 * Converts per-contig depth totals into normalized depth values and stores them on the contigs.
 	 */
@@ -159,7 +212,6 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	    assert(Tools.min(allocated)>0 || Tools.min(allocated)<=0) : Arrays.toString(ideal)+", "+budget;
 	    assert(Tools.sum(allocated)>=Tools.sum(ideal) || Tools.sum(ideal)>budget) : 
 	        Arrays.toString(allocated)+", "+budget;
-//	    System.err.println("Budget: "+Arrays.toString(ideal)+", "+budget+" -> "+Arrays.toString(allocated));
 	    return allocated;
 	}
 	
@@ -167,7 +219,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	 * Accumulates per-thread statistics (reads/bases/bytes) and propagates error state.
 	 */
 	@Override
-	public synchronized void accumulate(LoadThread t) {
+	public synchronized void accumulate(Worker t) {
 		synchronized(t) {
 			readsIn+=t.readsInT;
 			readsUsed+=t.readsUsedT;
@@ -188,47 +240,22 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	}
 	
 	/**
-	 * Worker thread that consumes a Streamer, updates per-contig depth, and records contig linkage edges.
+	 * Base class for load workers. Contains the core logic for processing SAM lines
+	 * and updating data structures, agnostic of how streams are managed.
 	 */
-	class LoadThread extends Thread {
+	abstract class Worker extends Thread {
 		
-		/**
-		 * Creates a loader for one input stream and associated per-contig data structures.
-		 */
-		private LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
-				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
-			ss=ss_;
-			sample=sample_;
+		Worker(HashMap<String, Contig> contigMap_, ArrayList<Contig> contigs_, IntHashMap[] graph_) {
 			contigMap=contigMap_;
 			contigs=contigs_;
 			graph=graph_;
-			depthArray=depth_;
-			tid=tid_;
+			et=new EntropyTracker(5, 80, false, minEntropy, true);
 		}
-		
-		/** Synchronizes runInner() to avoid double execution. */
-		@Override
-		public void run() {
-			synchronized(this) {runInner();}
-		}
-		
-		/**
-		 * Consumes all SAM lines from the Streamer and marks the thread successful on completion.
-		 */
-		private void runInner() {
-			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
-//			else {outstream.println("tid "+tid+">sample "+sample);}
 
-//			System.err.println("SamLoader.LoadThread "+tid+" started processSam_Thread.");
-			processSam_Thread(ss, depthArray);//They never leave here aside from one
-			success=true;
-//			System.err.println("SamLoader.LoadThread "+tid+" terminated successfully.");
-		}
-		
 		/**
 		 * Iterates over streamed SAM batches, accumulating depth and edge statistics.
 		 */
-		void processSam_Thread(Streamer ss, AtomicLongArray depthArray) {
+		void processSam(Streamer ss, AtomicLongArray depthArray) {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
 
@@ -247,7 +274,6 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 				ln=ss.nextLines();
 				reads=(ln==null ? null : ln.list);
 			}
-//			assert(false) : (ln==null ? "null" : "poison="+ln.poison()+", last="+ln.last());
 		}
 		
 		/** Calculates aligned bases while trimming contig tips for longer contigs. */
@@ -264,16 +290,16 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		}
 		
 		/**
-		 * Processes a single alignment: updates depth, optionally adds contig linkage edges, and enforces filters.
+		 * Processes a single alignment: updates depth, optionally adds contig linkage edges.
 		 */
 		private boolean addSamLine(SamLine sl, AtomicLongArray depthArray) {
 			if(!sl.mapped()) {return false;}
 			if(maxSubs<999 && sl.countSubs()>maxSubs) {return false;}
 			if(minID>0 && sl.calcIdentity()<minID) {return false;}
 			final String rname=ContigRenamer.toShortName(sl.rnameS());
+			
 			final Contig c1=contigMap.get(rname);
-//			System.err.println("rname="+rname+", contig="+c1+"\nid="+c1.id());
-			if(c1==null) {return false;}//Contig not found; possibly too short
+			if(c1==null) {return false;}
 			assert(c1!=null) : "Can't find contig for rname "+rname;
 			final int cid=c1.id();
 			final int aligned=calcAlignedBases(sl, (int)c1.size());
@@ -283,32 +309,21 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 					|| sl.pairedOnSameChrom() || sl.mapq<minMapq || aligned<minAlignedBases) {return true;}
 			if(minMateq>0) {
 				int mateq=sl.mateq();
-				if(mateq>=0 && mateq<minMateq) {
-//					System.err.println("mateq too low: "+mateq);
-					return true;
-				}
+				if(mateq>=0 && mateq<minMateq) {return true;}
 			}
 			if(minMateID>0){
 				float mateid=sl.mateID();
-				if(mateid>0 && mateid<100*minMateID) {
-//					System.err.println("mateid too low: "+mateid);
-					return true;
-				}
+				if(mateid>0 && mateid<100*minMateID) {return true;}
 			}
 			final String rnext=ContigRenamer.toShortName(sl.rnext());
 			assert(rnext!=null && !"*".equals(rnext) && !"=".equals(rnext));
 			
 			final Contig c2=contigMap.get(rnext);
-			if(c2==null) {
-				//System.err.println("Can't find "+rnext);//Happens when using mincontig
-				return true;
-			}//Contig not found
-//			System.err.println("Adding edge: "+rname+" - "+rnext);
+			if(c2==null) {return true;}
+			
 			if(minEntropy>0 && sl.seq!=null && !et.passes(sl.seq, true)) {return true;}
-//			if(minEntropy>0 && sl.seq!=null && EntropyTracker.calcEntropy(sl.seq, kmerCounts, 4)<minEntropy) {return true;}
 			assert(c2!=null) : "Can't find contig for rnext "+rnext;
 			
-			//TODO:  Try commenting this out to see if it is the source of the nondeterminism.
 			final IntHashMap destMap;
 			synchronized(graph) {
 				if(graph[cid]==null) {graph[cid]=new IntHashMap(5);}
@@ -320,19 +335,100 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			return true;
 		}
 		
-		final Streamer ss;
-		final int sample;
-		final int tid;
 		final HashMap<String, Contig> contigMap;
 		final ArrayList<Contig> contigs;
 		final IntHashMap[] graph;
-		final EntropyTracker et=new EntropyTracker(5, 80, false, minEntropy, true);
-		final AtomicLongArray depthArray;
+		final EntropyTracker et;
+		
 		long readsInT=0;
 		long readsUsedT=0;
 		long basesInT=0;
 		long bytesInT=0;
 		boolean success=false;
+	}
+	
+	/**
+	 * New Style: Worker that grabs files from a queue.
+	 */
+	class QueueWorker extends Worker {
+		
+		QueueWorker(AtomicInteger nextFileIndex_, ArrayList<String> fnames_, int streamerThreadsPF_,
+				HashMap<String, Contig> contigMap_, ArrayList<Contig> contigs_, 
+				IntHashMap[] graph_, AtomicLongArray[] covlist_, int tid_) {
+			super(contigMap_, contigs_, graph_);
+			nextFileIndex=nextFileIndex_;
+			fnames=fnames_;
+			streamerThreadsPF=streamerThreadsPF_;
+			covlist=covlist_;
+			tid=tid_;
+		}
+
+		@Override
+		public void run() {
+			synchronized(this) {
+				runInner();
+			}
+		}
+		
+		private void runInner() {
+			int idx=nextFileIndex.getAndIncrement();
+			while(idx < fnames.size()) {
+				String fname=fnames.get(idx);
+				outstream.println("Thread "+tid+" loading "+fname);
+				
+				//Create and start streamer
+				FileFormat ff=FileFormat.testInput(fname, FileFormat.SAM, null, true, false);
+				Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreadsPF, false, false, -1, false);
+				ss.start();
+				
+				//Process
+				processSam(ss, covlist[idx]);
+				
+				//Close immediately
+				ReadWrite.closeStreams(ss, (Writer[])null);
+				
+				//Next
+				idx=nextFileIndex.getAndIncrement();
+			}
+			success=true;
+		}
+		
+		final AtomicInteger nextFileIndex;
+		final ArrayList<String> fnames;
+		final int streamerThreadsPF;
+		final AtomicLongArray[] covlist;
+		final int tid;
+	}
+	
+	/**
+	 * Old Style: Worker dedicated to a single pre-opened Streamer.
+	 */
+	class ParallelWorker extends Worker {
+		
+		ParallelWorker(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
+				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
+			super(contigMap_, contigs_, graph_);
+			ss=ss_;
+			sample=sample_;
+			depthArray=depth_;
+			tid=tid_;
+		}
+		
+		@Override
+		public void run() {
+			synchronized(this) {runInner();}
+		}
+		
+		private void runInner() {
+			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
+			processSam(ss, depthArray);
+			success=true;
+		}
+		
+		final Streamer ss;
+		final int sample;
+		final int tid;
+		final AtomicLongArray depthArray;
 	}
 	
 	public PrintStream outstream=System.err;
@@ -352,7 +448,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	public boolean errorState=false;
 	public static int MAX_SAM_LOADER_THREADS=1024;
 	public static int MAX_SAM_LOADER_THREADS_PER_FILE=2;
-	public static int MAX_CONCURRENT_FILES=8;
+	
+	/** Max files to open concurrently. 4 is safe for giant files on typical nodes. */
+	public static int MAX_CONCURRENT_FILES=4;
 	public static final boolean verbose=true;
 	
 }
