@@ -651,11 +651,13 @@ public class CoveragePileup {
 					lp.set(line);
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					assert(!table.containsKey(scaf.name) || reference!=null) : 
-						"\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
-					table.put(scaf.name, scaf);
-					list.add(scaf);
-					refBases+=scaf.length;
+					if(!table.containsKey(scaf.name)) {
+						assert(reference!=null) : 
+							"\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
+						table.put(scaf.name, scaf);
+						list.add(scaf);
+						refBases+=scaf.length;
+					}
 //					sc.obj=new CoverageArray2(table.size(), sc.length+1);
 //					outstream.println("Made scaffold "+sc.name+" of length "+sc.length);
 				}else if(a=='P' && b=='G'){
