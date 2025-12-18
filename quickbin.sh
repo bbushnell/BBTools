@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 1, 2025
+Last modified December 17, 2025
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -41,12 +41,20 @@ out=<pattern>   Output pattern.  If this contains a % symbol, like bin%.fa,
                 like 'out=output' will be considered a directory.
 chaff           Enable to write small clusters to a shared file.
 report=<file>   Report on bin size, quality, and taxonomy.
+maxsamples=8    When there are more than this many samples (sam/bam files),
+                combine some into the same logical sample to save memory.
+		It is likely better done manually by combining samples from
+		the same depth or environment.
+readthreads=4   Load up to this many sam/bam files concurrently.
+                Lower uses less memory (when there are more samples).
+writethreads=1  Write up to this many bins concurrently.
+
 
 Size parameters:
 mincluster=50k  (mcs) Minimum output cluster size in base pairs; smaller
                 clusters will share a residual file if chaff=t.
 mincontig=100   Don't load contigs smaller than this; reduces memory usage.
-minseed=3000    Minimum contig length to create a new cluster; reducing this
+minseed=2500    Minimum contig length to create a new cluster; reducing this
                 can increase speed dramatically for large metagenomes,
                 increase sensitivity for small contigs, and slightly increase
                 contamination.  In particular, large metagenomes with only
