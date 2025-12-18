@@ -652,8 +652,8 @@ public class CoveragePileup {
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
 					if(!table.containsKey(scaf.name)) {
-						assert(reference!=null) : 
-							"\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
+						assert(reference==null) : 
+							"\nSam file contained rname missing from ref:\n"+scaf+"\n\n"+table.get(scaf.name);
 						table.put(scaf.name, scaf);
 						list.add(scaf);
 						refBases+=scaf.length;

@@ -164,6 +164,13 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				writeThreads=Integer.parseInt(b);
 			}
 			
+			else if(a.equalsIgnoreCase("maxsamples")) {
+				SamLoader3.MAX_SAMPLES=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("maxconcurrentfiles") || a.equalsIgnoreCase("concurrentfiles")
+					|| a.equalsIgnoreCase("readthreads")) {
+				SamLoader3.MAX_CONCURRENT_FILES=Integer.parseInt(b);
+			}
+			
 			else if(a.equals("clusterbytax") || a.equals("clusterbytaxid")){
 				clusterByTaxid=Parse.parseBoolean(b);
 			}else if(a.equals("refine") || a.equals("refineclusters")){
