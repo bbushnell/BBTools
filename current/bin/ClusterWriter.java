@@ -34,6 +34,10 @@ public class ClusterWriter{
 		Timer t=new Timer();
 //		if(pattern==null) {return;}
 		if(pattern!=null) {
+			if(pattern.contains(".") && !pattern.contains("%") && pattern.contains("#")) {
+				pattern=Tools.replaceLastInstanceOf(pattern, '#', '%');//A common mistake I make
+				//Maybe prudent to make sure it is in a filename rather than dirname
+			}
 			if(!pattern.contains(".") && !pattern.contains("%")) {
 				if(!pattern.endsWith("/")) {pattern=pattern+"/";}
 				pattern=pattern+"bin_%.fa";

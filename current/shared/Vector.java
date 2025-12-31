@@ -4,6 +4,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 import dna.AminoAcid;
+import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.VectorMask;
 import ml.Cell;
 import stream.Read;
 import structures.ByteBuilder;
@@ -600,6 +602,24 @@ public final class Vector {
 			max=(x>max ? x : max);
 		}
 		return max;
+	}
+	
+	/**
+	 * Count mismatches or Ns.
+	 * @param query Query sequence bases
+	 * @param ref Reference sequence bases
+	 * @param maxSubs Maximum allowed substitutions (for early termination)
+	 * @param rStart Starting position in reference (0-based)
+	 * @return Number of substitutions found
+	 */
+	public static int align(byte[] query, byte[] ref, final int maxSubs, final int rStart){
+		if(query==null){return 0;}
+		if(Shared.SIMD && query.length>=8) {return SIMDByte256.alignSIMD(query, ref, maxSubs, rStart);}
+		int subs=0;
+		for(int i=0, j=rStart; i<query.length && subs<=maxSubs; i++, j++){
+			subs+=(query[i]!=ref[j] || query[i]=='N') ? 1 : 0;
+		}
+		return subs;
 	}
 
 	/**
