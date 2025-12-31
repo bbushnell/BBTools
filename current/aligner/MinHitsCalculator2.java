@@ -1,6 +1,5 @@
 package aligner;
 
-import java.util.BitSet;
 import java.util.Random;
 
 import shared.Shared;
@@ -10,12 +9,13 @@ import structures.IntHashMap;
 /**
  * Calculates the minimum seed hits required to detect indel-free alignments at a target probability.
  * Uses Monte Carlo simulation to model wildcards, error patterns, and clipping limits.
+ * Optimized version with branchless operations and direct error storage.
  *
  * @author Brian Bushnell
- * @contributor Isla
- * @date June 4, 2025
+ * @contributor Noire
+ * @date December 30, 2024
  */
-public class MinHitsCalculator {
+public class MinHitsCalculator2 {
 
 	/**
 	 * Constructs the calculator and precomputes wildcard masks.
@@ -26,9 +26,9 @@ public class MinHitsCalculator {
 	 * @param midMaskLen_ Number of wildcard bases in the middle of the k-mer
 	 * @param minProb_ Minimum detection probability (0.0-1.0)
 	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
-	 * @param kStep_ Kmer step size (1 for all kmers, 2 for every other kmer, etc.)
+	 * @param kStep_ K-mer step size (1 for all kmers, 2 for every other kmer, etc.)
 	 */
-	public MinHitsCalculator(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int kStep_){
+	public MinHitsCalculator2(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int kStep_){
 		k=k_;
 		maxSubs0=maxSubs_;
 		minid=minid_;
@@ -37,58 +37,43 @@ public class MinHitsCalculator {
 		maxClipFraction=maxClip_;
 		kStep=Math.max(1, kStep_);
 
-		// Pre-compute wildcard pattern for efficient simulation
-		wildcards=makeWildcardPattern(k, midMaskLen);
-
-		// Calculate bit mask for k-mer (may not be needed)
-		kMask=~((-1)<<(2*k));
-
-		// Calculate middle mask for wildcards (may not be needed)
-		int bitsPerBase=2;
-		int bits=midMaskLen*bitsPerBase;
-		int shift=((k-midMaskLen)/2)*bitsPerBase;
-		midMask=~((~((-1)<<bits))<<shift);
-	}
-
-	/**
-	 * Builds a boolean array marking wildcard positions within a k-mer.
-	 * @param k K-mer length
-	 * @param midMaskLen Count of wildcard bases
-	 * @return Boolean array with true for wildcard positions
-	 */
-	private boolean[] makeWildcardPattern(int k, int midMaskLen){
-		boolean[] wildcards=new boolean[k];
-		// Default false: non-wildcard positions must match exactly
-
-		// Set wildcard positions to true (middle positions, right-shifted for even k)
-		int start=(k-midMaskLen)/2;
+		// Build wildcard mask for error checking (1-bit per position)
+		// Start with all k bits set
+		int wildcardMask_=(1<<k)-1;
+		// Clear the middle bits (wildcard positions)
+		int midStart=(k-midMaskLen)/2;
 		for(int i=0; i<midMaskLen; i++){
-			wildcards[start+i]=true;
+			wildcardMask_&=(~(1<<(midStart+i)));
 		}
-		return wildcards;
+		wildcardMask=wildcardMask_;
 	}
 
 	/**
 	 * Counts k-mers unaffected by errors, honoring wildcard positions.
+	 * Branchless implementation using bit operations.
 	 *
-	 * @param errors BitSet of error positions
-	 * @param wildcards Wildcard position map
+	 * @param errors Array of error positions (0 or 1 for each position)
 	 * @param queryLen Query length
 	 * @param step Step size for sampling k-mer positions (models reference indexing step)
 	 * @return Number of error-free k-mers
 	 */
-	private int countErrorFreeKmers(BitSet errors, boolean[] wildcards, int queryLen, int step){
+	private int countErrorFreeKmers(int[] errors, int queryLen, int step){
 		int count=0;
-		
-		// Check every step-th k-mer position in query
-		for(int i=0; i<=queryLen-k; i+=step){
-			boolean errorFree=true;
+		int errorPattern=0;
+		int len=0;
+		final int stepMask=step-1;
+		final int stepTarget=(k-1)&stepMask;
 
-			// Check each position within this k-mer
-			for(int j=0; j<k && errorFree; j++){
-				errorFree=wildcards[j]||(!errors.get(i+j));
-			}
-			if(errorFree){count++;}
+		for(int i=0; i<queryLen; i++){
+			// Roll error pattern: shift right and add new bit
+			errorPattern=(errorPattern>>1)|(errors[i]<<(k-1));
+
+			// Branchless len tracking: reset to 0 on error, else increment
+			len=(len+1)*(1-errors[i]);
+
+			// Branchless check and count
+			boolean valid=(len>=k) && (i&stepMask)==stepTarget && ((errorPattern&wildcardMask)==0);
+			count+=valid ? 1 : 0;
 		}
 		return count;
 	}
@@ -103,7 +88,7 @@ public class MinHitsCalculator {
 		int queryLen=validKmers+k-1;
 		final int maxSubs=Math.min(maxSubs0, (int)(queryLen*(1-minid)));
 		int maxClips=(maxClipFraction<1 ? (int)(maxClipFraction*queryLen) : (int)maxClipFraction);
-		
+
 		// Deterministic case: require all possible hits
 		if(minProb>=1){
 			int unmasked=(Tools.max(2, k-midMaskLen));// Number of kmers impacted by a sub
@@ -113,23 +98,24 @@ public class MinHitsCalculator {
 		}else if(minProb<0){
 			return 1;
 		}
-		
+
 		// Build histogram of surviving k-mer counts
 		int[] histogram=new int[validKmers+1];
-		BitSet errors=new BitSet(queryLen); // Reuse BitSet for efficiency
+		int[] errors=new int[queryLen]; // Direct error storage (0 or 1)
 
 		// Run Monte Carlo simulation
 		for(int iter=0; iter<iterations; iter++){
-			errors.clear();
+			// Clear errors
+			for(int i=0; i<queryLen; i++){errors[i]=0;}
 
-			// Place maxSubs random errors in query
+			// Place maxSubs random errors
 			for(int i=0; i<maxSubs; i++){
 				int pos=randy.nextInt(queryLen);
-				errors.set(pos);
+				errors[pos]=1;
 			}
 
 			// Count k-mers that survive the errors
-			int errorFreeKmers=countErrorFreeKmers(errors, wildcards, queryLen, kStep);
+			int errorFreeKmers=countErrorFreeKmers(errors, queryLen, kStep);
 			histogram[errorFreeKmers]++;
 		}
 
@@ -146,7 +132,7 @@ public class MinHitsCalculator {
 			}
 		}
 
-		return Math.max(1, validKmers-maxSubs0-maxClips); // Fallback
+		return Math.max(1, validKmers-maxSubs-maxClips); // Fallback
 	}
 
 	/**
@@ -178,11 +164,9 @@ public class MinHitsCalculator {
 	private final float minid;
 	private final int midMaskLen;
 	private final float maxClipFraction;
-	private final int kMask;
-	private final int midMask;
 	private final float minProb;
-	final int kStep;
-	private final boolean[] wildcards;
+	public final int kStep;
+	private final int wildcardMask;
 	private final IntHashMap validKmerToMinHits=new IntHashMap();
 	private final Random randy=Shared.threadLocalRandom(1);
 	public static int iterations=100000;

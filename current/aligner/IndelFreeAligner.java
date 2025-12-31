@@ -105,6 +105,11 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 			out1=parser.out1;
 			extout=parser.extout;
 		}
+		
+		kStep=Math.max(qStep, rStep);
+		assert(qStep==1 || rStep==1) : "Don't use both qStep and rStep at once.";
+		assert(kStep>=1) : "qStep and rStep must be at least 1: "+qStep+", "+rStep;
+		assert(Integer.bitCount(rStep)==1) : "rStep must be a power of 2: "+rStep;
 
 		Shared.BBMAP_CLASS=" "+this.getClass().getName();
 		SamHeader.PN="IndelFreeAligner";
@@ -168,6 +173,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				minSeedHits=Math.max(1, Integer.parseInt(b));
 			}else if(a.equals("minprob") || a.equals("minhitsprob")){
 				minHitsProb=Float.parseFloat(b);
+			}else if(a.equals("iterations")){
+				MinHitsCalculator.iterations=MinHitsCalculator2.iterations=Parse.parseIntKMG(b);
 			}else if(a.equals("maxclip") || a.equals("clip")){
 				Query.maxClip=Tools.max(0, Float.parseFloat(b));
 				assert(Query.maxClip<1 || Query.maxClip==(int)Query.maxClip);
@@ -450,7 +457,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		ArrayList<Read> reads=ConcurrentReadInputStream.getReads(maxReads, false, ff1, ff2, null, null);
 		ArrayList<Query> queries=new ArrayList<Query>(reads.size());
 		if(indexQueries){
-			Query.mhc=new MinHitsCalculator(k, maxSubs, minid, midMaskLen, minHitsProb, 
+			Query.mhc=new MinHitsCalculator2(k, maxSubs, minid, midMaskLen, minHitsProb, 
 				Query.maxClip, Math.max(qStep, rStep)); // Initialize hit calculator
 		}
 		for(Read r : reads){ //TODO: Could be multithreaded.
@@ -611,7 +618,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	* @param ref Reference sequence bases
 	* @return Hash map from masked k-mers to lists of positions, or null if indexing disabled
 	*/
-	IntListHashMap buildReferenceIndex(byte[] ref){
+	IntListHashMap buildReferenceIndex_old(byte[] ref){
 		if(!indexQueries || k<=0){return null;}
 
 		final int defined=Math.max(k-midMaskLen, 2);
@@ -631,13 +638,48 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 			if(x<0){len=0; rkmer=0;}else{len++;} // Reset on ambiguous base
 			if(len>=k){
-				//Apply wildcard mask and store both orientations
+				//Apply wildcard mask and store ONLY FORWARD orientations
 				int maskedKmer=(kmer&Query.midMask);
 				int maskedRkmer=(rkmer&Query.midMask);
 				index.put(maskedKmer, i-k+1); // Store k-mer start position
 				if(maskedKmer!=maskedRkmer){ // Avoid duplicate entries for palindromes
 					index.put(maskedRkmer, i-k+1);
 				}
+			}
+		}
+		return index;
+	}
+
+	/**
+	* Builds a k-mer index for a reference sequence.
+	* Maps masked k-mers to their positions for efficient seed finding.
+	* @param ref Reference sequence bases
+	* @return Hash map from masked k-mers to lists of positions, or null if indexing disabled
+	*/
+	IntListHashMap buildReferenceIndex(byte[] ref){
+		if(!indexQueries || k<=0){return null;}
+
+		final int defined=Math.max(k-midMaskLen, 2);
+		final int kSpace=(1<<(2*defined));
+		final long maxKmers=Math.min(kSpace, (ref.length-k+1)*2L);
+		final int initialSize=(int)Math.min(4000000, ((maxKmers*3)/2));
+		final IntListHashMap index=new IntListHashMap(initialSize);
+
+		final int shift=2*k, mask=~((-1)<<shift); // Bit manipulation constants
+		final int stepMask=(rStep-1);
+		final int stepTarget=((k-1)&stepMask);
+		int kmer=0, len=0; // Rolling k-mer state
+
+		for(int i=0; i<ref.length; i++){
+			final byte b=ref[i];
+			final int x=AminoAcid.baseToNumber[b];
+			kmer=((kmer<<2)|x)&mask; // Roll forward k-mer
+
+			if(x<0){len=0; kmer=0;}else{len++;} // Reset on ambiguous base
+			if(len>=k && ((i&stepMask)==stepTarget)){
+				//Apply wildcard mask and store ONLY FORWARD orientations
+				int maskedKmer=(kmer&Query.midMask);
+				index.put(maskedKmer, i-k+1); // Store k-mer start position
 			}
 		}
 		return index;
@@ -937,22 +979,24 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		* @param q Query sequence to analyze
 		* @param refIndex Reference index for k-mer lookup
 		* @param reverseStrand Flag indicating reverse complement strand
+		* @param minHits Minimum shared kmers with reference, overrides q.minHits
 		* @return Number of query kmers shared with the ref
 		*/
 		private int prescan(Query q, IntListHashMap refIndex, boolean reverseStrand, final int minHits){
 			final int[] queryKmers=reverseStrand ? q.rkmers : q.kmers;
-			final int maxMisses=queryKmers.length-minHits; //TODO: Does not account for qStep
+			final int maxMisses=q.maxMisses-(minHits-q.minHits); //Compensates for a different param minHits
 			if(queryKmers==null || maxMisses<0){return 0;}
 
-			int misses=0;
+			int misses=0, total=0;
 			//Process query k-mers at specified step interval
 			for(int i=0; i<queryKmers.length && misses<=maxMisses; i+=qStep){
 				if(queryKmers[i]==-1){continue;} // Skip invalid k-mers
+				total++;
 				boolean hit=refIndex.containsKey(queryKmers[i]);
 				misses+=(hit ? 0 : 1);
 			}
 
-			return queryKmers.length-misses;
+			return total-misses;
 		}
 
 		/**
@@ -1108,6 +1152,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	int qStep=1;
 	/** Sampling interval for reference k-mers */
 	int rStep=1;
+	/** Max of qStep and rStep */
+	final int kStep;
 
 	/** Minimum seed hits required for alignment consideration (higher = more selective) */
 	int minSeedHits=1;

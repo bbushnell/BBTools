@@ -22,6 +22,7 @@ public class Query {
 		validKmers=(kmers==null ? 0 : Tools.countGreaterThan(kmers, -1)); // Count non-masked kmers
 		minHits=(mhc==null ? 0 : mhc.minHits(validKmers)); // Calculate minimum hits needed
 		maxClips=(maxClip<1 ? (int)(maxClip*bases.length) : (int)maxClip); // Max clipping allowed
+		maxMisses=(validKmers/(mhc==null ? 1 : mhc.kStep))-minHits;
 	}
 	
 	public int length() {return bases.length;}
@@ -92,6 +93,7 @@ public class Query {
 	public final int[] rkmers;
 	public final int validKmers;
 	public final int minHits;
+	public final int maxMisses;
 	public final int maxClips;
 
 	private static int k=11;
@@ -100,6 +102,6 @@ public class Query {
 	public static boolean indexKmers=true;
 	public static int blacklistRepeatLength=2;
 	private static final int[][] blankIndex=new int[2][];
-	public static MinHitsCalculator mhc;
+	public static MinHitsCalculator2 mhc;
 	public static float maxClip=0.25f;
 }
