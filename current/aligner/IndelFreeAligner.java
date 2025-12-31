@@ -18,6 +18,7 @@ import shared.SIMDAlignByte;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import shared.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -187,7 +188,10 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				indexQueries=(k>0);
 			}else if(a.equals("qstep") || a.equals("step") || a.equals("qskip")){
 				qStep=Integer.parseInt(b);
-				assert(qStep>0);
+				assert(qStep>0) : "qStep="+qStep;
+			}else if(a.equals("rstep") || a.equals("rskip")){
+				rStep=Integer.parseInt(b);
+				assert(rStep>0) : "rStep="+rStep;
 			}else if(a.equals("mm")){
 				midMaskLen=(Tools.isNumeric(b) ? Integer.parseInt(b) :
 					Parse.parseBoolean(b) ? 1 : 0);
@@ -446,7 +450,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		ArrayList<Read> reads=ConcurrentReadInputStream.getReads(maxReads, false, ff1, ff2, null, null);
 		ArrayList<Query> queries=new ArrayList<Query>(reads.size());
 		if(indexQueries){
-			Query.mhc=new MinHitsCalculator(k, maxSubs, minid, midMaskLen, minHitsProb, Query.maxClip); // Initialize hit calculator
+			Query.mhc=new MinHitsCalculator(k, maxSubs, minid, midMaskLen, minHitsProb, 
+				Query.maxClip, Math.max(qStep, rStep)); // Initialize hit calculator
 		}
 		for(Read r : reads){ //TODO: Could be multithreaded.
 			readsProcessed+=r.pairCount();
@@ -489,7 +494,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 			}else if(rStart>ref.length-query.length){
 				subs=alignClipped(query, ref, maxSubs, maxClips, rStart); // Right overhang
 			}else{
-				subs=align(query, ref, maxSubs, rStart); // Perfect fit within reference
+				subs=Vector.align(query, ref, maxSubs, rStart); // Perfect fit within reference
 			}
 
 			if(subs<=maxSubs){
@@ -1101,6 +1106,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	boolean prescan=true;
 	/** Sampling interval for query k-mers (1=every k-mer, 2=every other, reduces sensitivity) */
 	int qStep=1;
+	/** Sampling interval for reference k-mers */
+	int rStep=1;
 
 	/** Minimum seed hits required for alignment consideration (higher = more selective) */
 	int minSeedHits=1;

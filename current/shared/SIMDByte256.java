@@ -940,6 +940,49 @@ final class SIMDByte256{
 		return true;
 	}
 
+	/**
+	 * SIMD-optimized alignment counting mismatches between query and reference.
+	 * Uses cascading vector widths (256→64→scalar) for short sequences.
+	 * @param query Query sequence bases
+	 * @param ref Reference sequence bases
+	 * @param maxSubs Maximum allowed substitutions (for early termination)
+	 * @param rStart Starting position in reference (0-based)
+	 * @return Number of substitutions found
+	 */
+	static int alignSIMD(byte[] query, byte[] ref, final int maxSubs, final int rStart){
+		int subs=0;
+		int i=0;
+		int j=rStart;
+
+		{//256-bit loop
+			ByteVector vN256=ByteVector.broadcast(BSPECIES256, 'N');
+			for(final int lim=query.length-BWIDTH256; i<=lim && subs<=maxSubs; i+=BWIDTH256, j+=BWIDTH256){
+				ByteVector qVec=ByteVector.fromArray(BSPECIES256, query, i);
+				ByteVector rVec=ByteVector.fromArray(BSPECIES256, ref, j);
+				VectorMask<Byte> subMask=qVec.eq(rVec).not().or(qVec.eq(vN256));
+				long subBits=subMask.toLong();
+				subs+=Long.bitCount(subBits);
+			}
+		}
+
+		{//64-bit loop
+			ByteVector vN64=ByteVector.broadcast(BSPECIES64, 'N');
+			for(final int lim=query.length-BWIDTH64; i<=lim && subs<=maxSubs; i+=BWIDTH64, j+=BWIDTH64){
+				ByteVector qVec=ByteVector.fromArray(BSPECIES64, query, i);
+				ByteVector rVec=ByteVector.fromArray(BSPECIES64, ref, j);
+				VectorMask<Byte> subMask=qVec.eq(rVec).not().or(qVec.eq(vN64));
+				long subBits=subMask.toLong();
+				subs+=Long.bitCount(subBits);
+			}
+		}
+
+		//Scalar tail
+		for(; i<query.length && subs<=maxSubs; i++, j++){
+			subs+=(query[i]!=ref[j] || query[i]=='N') ? 1 : 0;
+		}
+
+		return subs;
+	}
 
 	/**
 	 * Checks if all letters and no E or L (nucleotide validation).

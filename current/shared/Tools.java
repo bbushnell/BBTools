@@ -3559,9 +3559,31 @@ public final class Tools {
 		return x;
 	}
 	
+	/** 
+	 * Replaces the last instance of c with r.
+	 * @param array Byte array to reverse 
+	 * @return Modified String
+	 * */
+	public static String replaceLastInstanceOf(String s, char c, char r){
+		final int idx;
+		if(s==null || (idx=s.lastIndexOf(c))<0){return s;}
+		char[] array=s.toCharArray();
+		array[idx]=r;
+		return new String(array);
+	}
+	
+	/** Reverses characters.
+	 * @param s String to reverse */
+	public static String reverse(String s){
+		if(s==null || s.length()<2){return s;}
+		char[] array=s.toCharArray();
+		reverseInPlace(array);
+		return new String(array);
+	}
+	
 	/** Reverses byte array elements in-place.
 	 * @param array Byte array to reverse */
-	static void reverseInPlace(final byte[] array){
+	public static void reverseInPlace(final byte[] array){
 		if(array==null){return;}
 		final int max=array.length/2, last=array.length-1;
 		for(int i=0; i<max; i++){

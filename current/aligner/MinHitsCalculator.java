@@ -12,7 +12,7 @@ import structures.IntHashMap;
  * Uses Monte Carlo simulation to model wildcards, error patterns, and clipping limits.
  *
  * @author Brian Bushnell
- * @contributor Isla SOS
+ * @contributor Isla
  * @date June 4, 2025
  */
 public class MinHitsCalculator {
@@ -26,14 +26,16 @@ public class MinHitsCalculator {
 	 * @param midMaskLen_ Number of wildcard bases in the middle of the k-mer
 	 * @param minProb_ Minimum detection probability (0.0-1.0)
 	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
+	 * @param rStep_ Reference step size (1 for all kmers, 2 for every other kmer, etc.)
 	 */
-	public MinHitsCalculator(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_){
+	public MinHitsCalculator(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int rStep_){
 		k=k_;
 		maxSubs0=maxSubs_;
 		minid=minid_;
 		midMaskLen=midMaskLen_;
 		minProb=minProb_;
 		maxClipFraction=maxClip_;
+		rStep=Math.max(1, rStep_);
 
 		// Pre-compute wildcard pattern for efficient simulation
 		wildcards=makeWildcardPattern(k, midMaskLen);
@@ -72,13 +74,14 @@ public class MinHitsCalculator {
 	 * @param errors BitSet of error positions
 	 * @param wildcards Wildcard position map
 	 * @param queryLen Query length
+	 * @param step Step size for sampling k-mer positions (models reference indexing step)
 	 * @return Number of error-free k-mers
 	 */
-	private int countErrorFreeKmers(BitSet errors, boolean[] wildcards, int queryLen){
+	private int countErrorFreeKmers(BitSet errors, boolean[] wildcards, int queryLen, int step){
 		int count=0;
 
-		// Check each possible k-mer position in query
-		for(int i=0; i<=queryLen-k; i++){
+		// Check every step-th k-mer position in query
+		for(int i=0; i<=queryLen-k; i+=step){
 			boolean errorFree=true;
 
 			// Check each position within this k-mer
@@ -104,7 +107,7 @@ public class MinHitsCalculator {
 		// Deterministic case: require all possible hits
 		if(minProb>=1){
 			int unmasked=(Tools.max(2, k-midMaskLen));// Number of kmers impacted by a sub
-			return Math.max(1, validKmers-(unmasked*maxSubs0)-maxClips);
+			return Math.max(1, validKmers-(unmasked*maxSubs)-maxClips);
 		}else if(minProb==0){
 			return validKmers;
 		}else if(minProb<0){
@@ -120,13 +123,13 @@ public class MinHitsCalculator {
 			errors.clear();
 
 			// Place maxSubs random errors in query
-			for(int i=0; i<maxSubs0; i++){
+			for(int i=0; i<maxSubs; i++){
 				int pos=randy.nextInt(queryLen);
 				errors.set(pos);
 			}
 
 			// Count k-mers that survive the errors
-			int errorFreeKmers=countErrorFreeKmers(errors, wildcards, queryLen);
+			int errorFreeKmers=countErrorFreeKmers(errors, wildcards, queryLen, rStep);
 			histogram[errorFreeKmers]++;
 		}
 
@@ -139,7 +142,7 @@ public class MinHitsCalculator {
 			cumulative+=histogram[hits];
 			if(cumulative>=targetCount){
 				// Don't exceed theoretical maximum after clipping
-				return Math.min(hits, validKmers-maxSubs0-maxClips);
+				return Math.min(hits, validKmers-maxSubs-maxClips);
 			}
 		}
 
@@ -178,6 +181,7 @@ public class MinHitsCalculator {
 	private final int kMask;
 	private final int midMask;
 	private final float minProb;
+	private final int rStep;
 	private final boolean[] wildcards;
 	private final IntHashMap validKmerToMinHits=new IntHashMap();
 	private final Random randy=Shared.threadLocalRandom(1);

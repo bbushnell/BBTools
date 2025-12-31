@@ -25,7 +25,7 @@ public class ClusterWriter2 {
 		append=append_;
 		writeChaff=writeChaff_;
 		loud=loud_;
-		threads=(threads_<1 ? 1 : threads_);
+		threads=Math.max(1, threads_);
 		sorted=sorted_;
 	}
 
@@ -45,10 +45,15 @@ public class ClusterWriter2 {
 		Timer t=new Timer();
 
 		if(pattern!=null) {
+			if(pattern.contains(".") && !pattern.contains("%") && pattern.contains("#")) {
+				pattern=Tools.replaceLastInstanceOf(pattern, '#', '%');//A common mistake I make
+				//Maybe prudent to make sure it is in a filename rather than dirname
+			}
 			if(!pattern.contains(".") && !pattern.contains("%")) {
 				if(!pattern.endsWith("/")) {pattern=pattern+"/";}
 				pattern=pattern+"bin_%.fa";
 			}
+			
 			outstream.println("Writing clusters to "+pattern);
 		}
 		
