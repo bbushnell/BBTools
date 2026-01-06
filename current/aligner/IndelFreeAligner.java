@@ -162,7 +162,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				refFile=b;
-			}else if(a.equals("subs") || a.equals("maxsubs")){
+			}else if(a.equals("subs") || a.equals("maxsubs") || a.equals("s")){
 				maxSubs=Integer.parseInt(b);
 			}else if(a.equals("ani") || a.equals("minani") || a.equals("identity")
 					|| a.equals("id") || a.equals("minid")){
@@ -295,7 +295,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 	private boolean validateParams(){
 		assert((k>=1 && k<=15) || !indexQueries);
 		assert(minHitsProb<=1);
-		assert(midMaskLen<k-1);
+		assert(midMaskLen<k-1 || !indexQueries);
 		assert(maxSubs>=0);
 		return ((k>=1 && k<=15) || !indexQueries) && 
 				(minHitsProb<=1) && (midMaskLen<k-1) && (maxSubs>=0);
