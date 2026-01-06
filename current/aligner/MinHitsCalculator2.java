@@ -3,8 +3,9 @@ package aligner;
 import java.util.Random;
 
 import shared.Shared;
+import shared.Timer;
 import shared.Tools;
-import structures.IntHashMap;
+import map.IntHashMap2;
 
 /**
  * Calculates the minimum seed hits required to detect indel-free alignments at a target probability.
@@ -13,7 +14,7 @@ import structures.IntHashMap;
  *
  * @author Brian Bushnell
  * @contributor Noire
- * @date December 30, 2024
+ * @date December 30, 2025
  */
 public class MinHitsCalculator2 {
 
@@ -60,7 +61,6 @@ public class MinHitsCalculator2 {
 	private int countErrorFreeKmers(int[] errors, int queryLen, int step){
 		int count=0;
 		int errorPattern=0;
-		int len=0;
 		final int stepMask=step-1;
 		final int stepTarget=(k-1)&stepMask;
 
@@ -68,11 +68,8 @@ public class MinHitsCalculator2 {
 			// Roll error pattern: shift right and add new bit
 			errorPattern=(errorPattern>>1)|(errors[i]<<(k-1));
 
-			// Branchless len tracking: reset to 0 on error, else increment
-			len=(len+1)*(1-errors[i]);
-
-			// Branchless check and count
-			boolean valid=(len>=k) && (i&stepMask)==stepTarget && ((errorPattern&wildcardMask)==0);
+			// Check if we have a full k-mer (i>=k-1) at a step position with no errors in non-wildcard positions
+			boolean valid=(i>=k-1) && (i&stepMask)==stepTarget && ((errorPattern&wildcardMask)==0);
 			count+=valid ? 1 : 0;
 		}
 		return count;
@@ -117,6 +114,18 @@ public class MinHitsCalculator2 {
 			// Count k-mers that survive the errors
 			int errorFreeKmers=countErrorFreeKmers(errors, queryLen, kStep);
 			histogram[errorFreeKmers]++;
+
+			// Print iterations if verbose
+			if(verbose){
+				System.err.println("\nIteration "+(iter+1)+" (validKmers="+validKmers+"):");
+				printSequence(errors, queryLen);
+				System.err.println("Error-free kmers: "+errorFreeKmers);
+			}
+		}
+
+		// Print histogram if verbose
+		if(verbose){
+			printHistogram(histogram);
 		}
 
 		// Find threshold that captures minProb fraction of cases
@@ -167,7 +176,87 @@ public class MinHitsCalculator2 {
 	private final float minProb;
 	public final int kStep;
 	private final int wildcardMask;
-	private final IntHashMap validKmerToMinHits=new IntHashMap();
+	private final IntHashMap2 validKmerToMinHits=new IntHashMap2();
 	private final Random randy=Shared.threadLocalRandom(1);
-	public static int iterations=100000;
+	public static int iterations=200000;
+	private static final boolean verbose=false; // Set to true for debugging
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Debug Methods         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Main method for standalone testing and debugging.
+	 * Usage: java MinHitsCalculator2 verbose=true k=13 validKmers=50 maxsubs=5 minid=0.9 midmask=1 minprob=0.99 maxclip=0.25 kstep=1 iterations=10000
+	 */
+	public static void main(String[] args){
+		int k=13, validKmers=50, maxSubs=5, midMaskLen=1, kStep=1, iters=10000;
+		float minid=0.9f, minProb=0.99f, maxClip=0.25f;
+
+		for(String arg : args){
+			String[] split=arg.split("=");
+			if(split.length<2){continue;}
+			String a=split[0].toLowerCase(), b=split[1];
+
+			if(a.equals("verbose")){/*verbose=Boolean.parseBoolean(b);*/assert(false) : "Verbose is final.";}
+			else if(a.equals("k")){k=Integer.parseInt(b);}
+			else if(a.equals("validkmers")){validKmers=Integer.parseInt(b);}
+			else if(a.equals("maxsubs")){maxSubs=Integer.parseInt(b);}
+			else if(a.equals("minid")){minid=Float.parseFloat(b);}
+			else if(a.equals("midmask") || a.equals("midmasklen")){midMaskLen=Integer.parseInt(b);}
+			else if(a.equals("minprob")){minProb=Float.parseFloat(b);}
+			else if(a.equals("maxclip")){maxClip=Float.parseFloat(b);}
+			else if(a.equals("kstep") || a.equals("step")){kStep=Integer.parseInt(b);}
+			else if(a.equals("iterations")){iters=Integer.parseInt(b);}
+		}
+		iterations=iters;
+
+		System.err.println("MinHitsCalculator2 testing:");
+		System.err.println("  k="+k+" validKmers="+validKmers+" maxSubs="+maxSubs+" minid="+minid);
+		System.err.println("  midMaskLen="+midMaskLen+" minProb="+minProb+" maxClip="+maxClip+" kStep="+kStep);
+		System.err.println("  iterations="+iterations+" verbose="+verbose);
+		Timer t=new Timer();
+		MinHitsCalculator2 mhc=new MinHitsCalculator2(k, maxSubs, minid, midMaskLen, minProb, maxClip, kStep);
+		t.stopAndPrint();
+		System.err.println("Wildcard mask (int bits): "+Integer.toBinaryString(mhc.wildcardMask));
+		System.err.println("Wildcard mask visual:");
+		for(int i=k-1; i>=0; i--){
+			System.err.print((mhc.wildcardMask&(1<<i))!=0 ? "m" : "W");
+		}
+		System.err.println();
+
+		t.start();
+		int minHits=mhc.minHits(validKmers);
+		t.stopAndPrint();
+
+		System.err.println("\nResult: minHits="+minHits);
+	}
+
+	/**
+	 * Prints a sequence with errors marked. Format: mmmmmSmmmmSmmmm where m=match, S=substitution.
+	 * @param errors Array of error positions (0 or 1)
+	 * @param queryLen Length of query sequence
+	 */
+	static void printSequence(int[] errors, int queryLen){
+		if(!verbose){return;}
+		StringBuilder sb=new StringBuilder(queryLen);
+		for(int i=0; i<queryLen; i++){
+			sb.append(errors[i]==1 ? 'S' : 'm');
+		}
+		System.err.println(sb.toString());
+	}
+
+	/**
+	 * Prints histogram of error-free k-mer counts.
+	 * @param histogram Array where histogram[i] is count of iterations with i error-free kmers
+	 */
+	static void printHistogram(int[] histogram){
+		if(!verbose){return;}
+		System.err.println("Histogram (errorFreeKmers -> count):");
+		for(int i=0; i<histogram.length; i++){
+			if(histogram[i]>0){
+				System.err.println("  "+i+": "+histogram[i]);
+			}
+		}
+	}
 }

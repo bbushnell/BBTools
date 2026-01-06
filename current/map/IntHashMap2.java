@@ -185,6 +185,10 @@ public final class IntHashMap2 implements Serializable {
 	public boolean contains(int key){
 		return findCell(key)>=0;
 	}
+	
+	public boolean containsKey(int key){
+		return findCell(key)>=0;
+	}
 
 	/**
 	 * Associates the specified value with the specified key.

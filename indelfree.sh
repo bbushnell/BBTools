@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 29, 2025
+Last modified January 6, 2026
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
@@ -23,7 +23,7 @@ out=<file>      Sam output.
 outh=<file>     Sam header output (optional).  Due to the streaming nature,
                 primary sam output is headerless, but this can be concatenated
 		with the main sam file.
-subs=5          Maximum allowed substitutions.
+subs=5          (s) Maximum allowed substitutions.
 minid=0.0       Minimum allowed identity.  Actual substitions allowed will be
                 max(subs, (int)(qlen*(1-minid)))
 simd            Enable SIMD alignment.  Only accelerates brute force mode.
@@ -47,7 +47,10 @@ minprob=0.9999  Calculate the number of seed hits needed, on a per-query
 prescan=t       Count query hits before filling seed location lists.
 list=t          Store seed hits in lists rather than maps.
                 Maps are optimized for shorter kmers and more positive hits.
-
+iterations=200k Iterations for error distribution probability simulation.
+qstep=1         Only look up every Nth query kmer (higher is faster).
+rstep=1         Only index every Nth reference kmer.  Qstep is faster, but
+                rstep uses less memory with long reference sequences.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

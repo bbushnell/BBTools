@@ -4,11 +4,11 @@ import java.io.PrintStream;
 import java.util.Arrays;
 
 import dna.AminoAcid;
+import map.IntHashMap2;
 import ml.CellNet;
 import shared.Tools;
 import stream.Read;
 import structures.FloatList;
-import structures.IntHashMap;
 import structures.IntHashSet;
 import tax.TaxTree;
 
@@ -84,8 +84,8 @@ public class CladeObject {
 		final int bits=2*k;
 		final int max=(int)((1L<<bits)-1);
 		int count=0;
-		IntHashMap canonMap=new IntHashMap();
-		IntHashMap kmerMap=new IntHashMap();
+		IntHashMap2 canonMap=new IntHashMap2();
+		IntHashMap2 kmerMap=new IntHashMap2();
 		for(int kmer=0; kmer<=max; kmer++){
 //			int ungapped=ungap(kmer, k, gap);
 			int canon=Tools.min(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k));
@@ -342,7 +342,7 @@ public class CladeObject {
 	//Not useful
 	static float calculateShannonEntropy(FloatList depths, int limit) {
 		final int numDepths=Math.min(limit, depths.size);
-		IntHashMap map=new IntHashMap(numDepths*2);
+		IntHashMap2 map=new IntHashMap2(numDepths*2);
 		for(int i=0; i<numDepths; i++) {
 			float depth=(float)(depths.get(i)*invSampleDepthSum[i]+0.25f);
 			int log=(int)Math.round(8*Math.log(depth));

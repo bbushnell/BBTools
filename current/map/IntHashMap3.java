@@ -16,6 +16,7 @@ import structures.IntHashMap;
  * Hash map with primitive int keys and int values.
  * Uses open addressing with linear probing for collision resolution.
  * Uses power-of-2 sizing and hash mixing for fast, well-distributed hashing.
+ * Slightly slower than IntHashMap2 but greater max capacity (goes over 2^30).
  * 
  * Significantly more memory-efficient than HashMap<Integer, Integer> by:
  * - Storing primitive int values instead of Integer objects
@@ -324,6 +325,10 @@ public final class IntHashMap3 implements Serializable {
 	 * @return true if key is present
 	 */
 	public boolean contains(int key){
+		return findCell(key)>=0;
+	}
+	
+	public boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
 
