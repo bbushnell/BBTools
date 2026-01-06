@@ -756,35 +756,44 @@ final class SIMDByte256{
 	 * @return false if any byte is outside A-Z range after conversion.
 	 */
 	static final boolean toUpperCase(final byte[] array){
-		if(array==null){return true;}
+		if(array==null) {return true;}
 
 		final int length=array.length;
 		int i=0;
 		final byte A='A', Z='Z';
-		final byte mask=~32;
+		final byte mask=(byte) ~32; // Cast needed as ~32 is int
 
 		boolean success=true;
 
-		{//256-bit loop
+		// 256-bit loop
+		{
 			VectorMask<Byte> invalid=BSPECIES256.maskAll(false);
 			ByteVector vmask256=ByteVector.broadcast(BSPECIES256, mask);
 			ByteVector vA256=ByteVector.broadcast(BSPECIES256, A);
 			ByteVector vZ256=ByteVector.broadcast(BSPECIES256, Z);
 
-			for(; i<=length-BWIDTH256; i+=BWIDTH256){
+			for (; i<=length-BWIDTH256; i+=BWIDTH256) {
 				ByteVector vb0=ByteVector.fromArray(BSPECIES256, array, i);
-				ByteVector vb=vb0.and(vmask256);
-				vb.intoArray(array, i);
-				VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA256);
-				VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ256);
-				VectorMask<Byte> valid=validLow.and(validHigh);
-				invalid=valid.not().or(invalid);
+				ByteVector vbMasked=vb0.and(vmask256); // Force potential uppercase
+
+				// Check if the masked version is a valid letter (A-Z)
+				// This correctly identifies both 'a'->'A' and 'A'->'A' as valid.
+				VectorMask<Byte> isLetter=vbMasked.compare(VectorOperators.GE, vA256)
+					.and(vbMasked.compare(VectorOperators.LE, vZ256));
+
+				// BLEND: If isLetter (Mask True) -> Take vbMasked.
+				//        If !isLetter (Mask False) -> Keep vb0 (original).
+				vb0.blend(vbMasked, isLetter).intoArray(array, i);
+
+				// Accumulate failures: if isLetter is false, that lane was invalid
+				invalid=invalid.or(isLetter.not());
 			}
 
-			success=!invalid.anyTrue();
+			if(invalid.anyTrue()){success=false;}
 		}
 
-		{//64-bit loop
+		// 64-bit loop
+		{
 			VectorMask<Byte> invalid=BSPECIES64.maskAll(false);
 			ByteVector vmask64=ByteVector.broadcast(BSPECIES64, mask);
 			ByteVector vA64=ByteVector.broadcast(BSPECIES64, A);
@@ -792,15 +801,17 @@ final class SIMDByte256{
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
 				ByteVector vb0=ByteVector.fromArray(BSPECIES64, array, i);
-				ByteVector vb=vb0.and(vmask64);
-				vb.intoArray(array, i);
-				VectorMask<Byte> validLow=vb.compare(VectorOperators.GE, vA64);
-				VectorMask<Byte> validHigh=vb.compare(VectorOperators.LE, vZ64);
-				VectorMask<Byte> valid=validLow.and(validHigh);
-				invalid=valid.not().or(invalid);
+				ByteVector vbMasked=vb0.and(vmask64);
+
+				VectorMask<Byte> isLetter=vbMasked.compare(VectorOperators.GE, vA64)
+					.and(vbMasked.compare(VectorOperators.LE, vZ64));
+
+				vb0.blend(vbMasked, isLetter).intoArray(array, i);
+
+				invalid=invalid.or(isLetter.not());
 			}
 
-			success&=!invalid.anyTrue();
+			if(invalid.anyTrue()){success=false;}
 		}
 
 		//Scalar tail
