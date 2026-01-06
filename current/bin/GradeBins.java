@@ -107,7 +107,7 @@ public class GradeBins {
 				ccplot=b;
 			}
 			
-			else if(a.equals("report")){
+			else if(a.equals("report") || a.equals("out")){
 				report=b;
 			}else if(a.equals("taxin")){
 				taxIn=b;
@@ -310,8 +310,9 @@ public class GradeBins {
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
-		
+
 		BinObject.grading=true;
+		BinObject.FILL_NORM_DEPTH=false;
 		
 		if(tax!=null && taxIn==null && taxOut==null) {
 			boolean taxExists=(tax==null ? false : new File(tax).canRead());
@@ -347,6 +348,7 @@ public class GradeBins {
 		t.stop();
 		outstream.println();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+		BinObject.FILL_NORM_DEPTH=true;
 	}
 	
 	/**

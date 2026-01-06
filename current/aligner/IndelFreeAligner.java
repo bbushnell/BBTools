@@ -11,6 +11,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.IntHashMap2;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
@@ -26,7 +27,6 @@ import stream.SamHeader;
 import stream.SamHeaderWriter;
 import stream.SamLine;
 import structures.ByteBuilder;
-import structures.IntHashMap;
 import structures.IntList;
 import structures.IntListHashMap;
 import structures.ListNum;
@@ -873,12 +873,12 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		 * @param q Query sequence containing k-mer arrays for seed matching
 		 * @param refIndex Reference k-mer index for lookup of matching positions
 		 * @param reverseStrand True to use reverse complement k-mers from query
-		 * @param hitCounts Reusable IntHashMap for position hit counting (map approach only)
+		 * @param hitCounts Reusable IntHashMap2 for position hit counting (map approach only)
 		 * @param rname Reference sequence name for debugging output
 		 * @return List of alignment start positions meeting minimum seed hit threshold
 		 */
 		private IntList getSeedHits(Query q, IntListHashMap refIndex, 
-				boolean reverseStrand, IntHashMap hitCounts, String rname){
+				boolean reverseStrand, IntHashMap2 hitCounts, String rname){
 			if(useSeedMap){return getSeedHitsMap(q, refIndex, reverseStrand, hitCounts);}
 			else{return getSeedHitsList(q, refIndex, reverseStrand);}
 		}
@@ -935,7 +935,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		* @return List of alignment positions meeting minimum hit threshold
 		*/
 		private IntList getSeedHitsMap(Query q, IntListHashMap refIndex, 
-				boolean reverseStrand, IntHashMap hitCounts){
+				boolean reverseStrand, IntHashMap2 hitCounts){
 			final int[] queryKmers=reverseStrand ? q.rkmers : q.kmers;
 			if(queryKmers==null){return null;}
 			final int minHits=Math.max(minSeedHits, q.minHits);
@@ -956,7 +956,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 					seedHitsT+=positions.size;
 					if(seedHits==null){ // Lazy allocation
 						seedHits=new IntList();
-						if(hitCounts==null){hitCounts=new IntHashMap();}
+						if(hitCounts==null){hitCounts=new IntHashMap2();}
 						else{hitCounts.clear();}
 					}
 					for(int j=0; j<positions.size; j++){
@@ -1020,7 +1020,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 //			Timer t=new Timer();
 //			t.start("Indexing ref.");
 			IntListHashMap refIndex=buildReferenceIndex(ref.bases); // Build k-mer index for this reference
-			IntHashMap seedMap=(useSeedMap ? new IntHashMap() : null);
+			IntHashMap2 seedMap=(useSeedMap ? new IntHashMap2() : null);
 //			t.stopAndStart("Time:");
 //			System.err.println("refIndex: "+refIndex.size());
 //			System.err.println("seedMap: "+(seedMap==null ? 0 : seedMap.size()));

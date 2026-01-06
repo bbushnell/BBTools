@@ -198,6 +198,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Calculates normalized depth values using log transformation and library normalization.
 	 * Normalizes by total library bases, applies log(x+1), then scales to 0-1 range. */
 	synchronized void fillNormDepth() {
+		if(!FILL_NORM_DEPTH) {return;}
 		assert(normDepth==null || (normDepth.length>1 && normDepth.length==numDepths()));
 		if(normDepth==null) {normDepth=new float[depth.size];}
 		assert(normDepth.length>1) : normDepth.length;
