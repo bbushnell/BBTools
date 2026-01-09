@@ -1,6 +1,6 @@
 package bloom;
 
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import shared.Timer;

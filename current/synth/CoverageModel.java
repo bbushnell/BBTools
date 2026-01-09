@@ -1,6 +1,7 @@
 package synth;
 
-import java.util.Random;
+import shared.Random;
+import shared.Shared;
 
 class CoverageModel{
 
@@ -123,7 +124,7 @@ class CoverageModel{
 		int binSize=100;
 
 		// Initialize the model
-		Random randy=new Random();
+		Random randy=shared.Shared.random();
 		CoverageModel model=new CoverageModel(numWaves, maxAmplitude, maxOriBias, minProb, randy);
 
 		// Create a perfect coverage track based on probabilities
@@ -204,7 +205,7 @@ class CoverageModel{
 		int binSize=100;
 
 		// Initialize the model
-		Random randy=new Random();
+		Random randy=shared.Shared.random();
 		CoverageModel model=new CoverageModel(numWaves, maxAmplitude, maxOriBias, minProb, randy);
 
 		// Calculate how many reads to simulate

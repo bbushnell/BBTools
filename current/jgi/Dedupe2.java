@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.PriorityQueue;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import align2.BandedAligner;
@@ -1828,7 +1828,7 @@ public final class Dedupe2 {
 	
 	
 	private static synchronized long[][] makeCodes(int symbols, int modes){
-		Random randy=new Random(1);
+		Random randy=shared.Shared.random(1);
 		long[][] r=new long[symbols][modes];
 		for(int i=0; i<symbols; i++){
 			for(int j=0; j<modes; j++){

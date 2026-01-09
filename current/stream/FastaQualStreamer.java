@@ -320,7 +320,7 @@ public class FastaQualStreamer implements Streamer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int TARGET_LIST_SIZE=200;
+	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 	public static int TARGET_LIST_BYTES=262144;
 	private static final int QUEUE_SIZE=4;
 
@@ -332,6 +332,6 @@ public class FastaQualStreamer implements Streamer {
 	public static final boolean verbose=false;
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 
 }

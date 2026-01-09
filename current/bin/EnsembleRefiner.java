@@ -3,7 +3,7 @@ package bin;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
+import shared.Random;
 
 import structures.IntHashSet;
 
@@ -23,7 +23,7 @@ class EnsembleRefiner extends AbstractRefiner {
         
         consensusThreshold = params.consensusThreshold;
         minMethodsAgreeing = params.minMethodsAgreeing;
-        random = new Random(params.seed);
+        random = shared.Shared.random(params.seed);
         debug = true;
         splitAttempts = 0;
         successfulSplits = 0;

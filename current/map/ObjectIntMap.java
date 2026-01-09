@@ -4,7 +4,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Random;
+import shared.Random;
 
 import shared.KillSwitch;
 import shared.Shared;
@@ -45,7 +45,7 @@ public final class ObjectIntMap<K> implements Serializable {
 		// Generate random strings
 		Shared.printMemory();
 		ArrayList<String> strings=new ArrayList<String>(size);
-		Random randy=new Random(12345);
+		Random randy=shared.Shared.random(12345);
 		int range=maxLen-minLen+1;
 		for(int i=0; i<size; i++){
 			int len=randy.nextInt(range)+minLen;

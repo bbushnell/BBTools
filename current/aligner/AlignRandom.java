@@ -2,7 +2,7 @@ package aligner;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -89,7 +89,7 @@ public class AlignRandom {
 	public static byte[] randomSequence(int len, Random randy) {
 		byte[] array=new byte[len];
 		for(int i=0; i<len; i++) {
-			int x=randy.nextInt(4);
+			int x=randy.nextInt()&3;
 			byte b=AminoAcid.numberToBase[x];
 			array[i]=b;
 		}
@@ -138,7 +138,7 @@ public class AlignRandom {
 		for (int i = 0; i < iters; i++) {
 		    futures.add(executor.submit(new Runnable() {
 		        public void run() {
-		            Random randy = new Random(); // Thread-local
+		            Random randy = shared.Shared.random(); // Thread-local
 		            byte[] a = randomSequence(len, randy);
 		            byte[] b = randomSequence(len, randy);
 		            float id = GlocalPlusAligner5.alignStatic(a, b, null);

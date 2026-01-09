@@ -157,7 +157,7 @@ public class CorrelateIdentity {
 	/** Output file for correlated value pairs */
 	public String out;
 	
-//	private Random randy=new Random();
+//	private Random randy=shared.Shared.random();
 
 	private float samplerate=1;
 	private float sampleseed=-1;

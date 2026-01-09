@@ -9,6 +9,7 @@ import shared.KillSwitch;
 import shared.Parse;
 import shared.Parser;
 import shared.PreParser;
+import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ListNum;
@@ -871,9 +872,9 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		if(rate>=1f){
 			randy=null;
 		}else if(seed>-1){
-			randy=new java.util.Random(seed);
+			randy=shared.Shared.random(seed);
 		}else{
-			randy=new java.util.Random();
+			randy=shared.Shared.random();
 		}
 	}
 	
@@ -898,7 +899,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	/** Fraction of reads to keep during sampling (1.0 = all reads) */
 	private float samplerate=1f;
 	/** Random number generator for read sampling */
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 	
 	/** Queue for buffering read lists from first producer thread */
 	private ArrayBlockingQueue<ArrayList<Read>> p1q;

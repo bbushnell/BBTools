@@ -2,7 +2,7 @@ package synth;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;

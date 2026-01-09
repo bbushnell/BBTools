@@ -3,7 +3,7 @@ package fun;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.charset.StandardCharsets;
-import java.util.Random;
+import shared.Random;
 
 import shared.Timer;
 import shared.Vector;
@@ -55,7 +55,7 @@ public class BenchStringAppend2 {
 		System.out.println("Generating " + numStrings + " random strings (length " + minLen + "-" + maxLen + ")...");
 
 		// Generate random strings
-		Random rand = new Random(42);
+		Random rand = shared.Shared.random(42);
 		String[] strings = new String[numStrings];
 		for(int i = 0; i < numStrings; i++){
 			int len = minLen + rand.nextInt(maxLen - minLen + 1);

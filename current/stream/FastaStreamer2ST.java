@@ -270,6 +270,6 @@ public class FastaStreamer2ST implements Streamer{
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 
 }

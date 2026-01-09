@@ -3,7 +3,7 @@ package ml;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -32,7 +32,7 @@ public class TrainerThread extends Thread {
 		parent=parent_;
 		net0=net0_;
 		net00=net0.copy(false);
-		randyAnneal=new Random(net00.seed);
+		randyAnneal=shared.Shared.random(net00.seed);
 		
 		jobsPerEpoch=parent.jobsPerEpoch;
 		
@@ -251,7 +251,7 @@ public class TrainerThread extends Thread {
 			}
 		}
 //		System.err.println("len="+list.size());
-		Collections.shuffle(list, new Random(SampleSet.shuffleSeed+1));
+		Collections.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
 		data.samples=list.toArray(new Sample[0]);
 		data.samplesSortedByResult=data.samples.clone();
 		data.numPositive=pcount;
@@ -325,7 +325,7 @@ public class TrainerThread extends Thread {
 		assert(data.samples.length>=list.size());
 //		System.err.println(data.samples.length+", "+list.size()+", "+pcount+", "+ncount);
 		final float sampleRatio=data.samples.length/(float)Tools.max(1, list.size());
-		Collections.shuffle(list, new Random(SampleSet.shuffleSeed+1));
+		Collections.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
 		data.samples=list.toArray(new Sample[0]);
 //		System.err.println("samples="+data.samples.length);
 		data.samplesSortedByResult=data.samples.clone();

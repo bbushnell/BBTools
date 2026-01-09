@@ -1,7 +1,7 @@
 package ml;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import shared.Tools;
@@ -75,7 +75,7 @@ public class SampleSet implements Cloneable {
 //		System.err.println("Shuffled ("+seed+")");
 //		new Exception().printStackTrace();
 //		if(true) {return;}
-		Random randy=new Random(seed);
+		Random randy=shared.Shared.random(seed);
 		for(int i=0; i<samples.length; i++) {
 			int idx=randy.nextInt(samples.length);
 			Sample s=samples[idx];

@@ -2,7 +2,7 @@ package synth;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import bin.AdjustEntropy;
 import clade.Clade;
@@ -183,8 +183,8 @@ public class RandomGenome {
 						byte b;
 						if(i<pad || i>=pad2){b='N';}
 						else{
-							b=AminoAcid.numberToBase[randy.nextInt(4)];
-							while(noPoly && b==prev){b=AminoAcid.numberToBase[randy.nextInt(4)];}
+							b=AminoAcid.numberToBase[randy.nextInt()&3];
+							while(noPoly && b==prev){b=AminoAcid.numberToBase[randy.nextInt()&3];}
 						}
 						bb.append(b);
 						prev=b;

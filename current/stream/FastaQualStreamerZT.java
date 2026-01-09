@@ -297,7 +297,7 @@ public class FastaQualStreamerZT implements Streamer {
 	public boolean errorState=false;
 	
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 	
 	public boolean numericQual=true; //Defaults to true, supports legacy ASCII check if adapted
 	
@@ -305,7 +305,7 @@ public class FastaQualStreamerZT implements Streamer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static int TARGET_LIST_SIZE=200;
+	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 	private final byte carrot='>', space=' ', zero='0';
 	
 	protected PrintStream outstream=System.err;

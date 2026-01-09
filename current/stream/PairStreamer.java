@@ -126,6 +126,6 @@ public class PairStreamer implements Streamer {
 	private final Streamer s1; // R1
 	private final Streamer s2; // R2
 //	private float samplerate=1f;
-//	private java.util.Random randy=null;
+//	private shared.Random randy=null;
 	
 }

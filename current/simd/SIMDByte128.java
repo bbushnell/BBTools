@@ -1431,7 +1431,7 @@ final class SIMDByte128{
 //		
 //		// Generate random k-mers
 //		int[] kmers=new int[10000];
-//		java.util.Random randy=new java.util.Random(12345);
+//		shared.Random randy=shared.Shared.random(12345);
 //		for(int i=0; i<kmers.length; i++){
 //			kmers[i]=randy.nextInt()&mask;
 //		}
@@ -1487,7 +1487,7 @@ final class SIMDByte128{
 		final int len=8192;
 		final int mod=len-1;
 		long[] kmers=new long[len];
-		java.util.Random randy=new java.util.Random(12345);
+		shared.Random randy=shared.Shared.random(12345);
 		for(int i=0; i<kmers.length; i++){
 			kmers[i]=randy.nextLong()&mask;
 		}

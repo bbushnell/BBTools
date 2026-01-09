@@ -5,7 +5,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import dna.ChromosomeArray;
@@ -644,23 +644,23 @@ public final class RandomReads3 {
 				}
 			}
 		}
-		randy=new Random(seed+1);
-		randy2=new Random(seed+2);
-		randyMutationType=new Random(seed+3);
-		randyQual=new Random(seed+5);
-		randyAdapter=new Random(seed+25);
+		randy=shared.Shared.random(seed+1);
+		randy2=shared.Shared.random(seed+2);
+		randyMutationType=shared.Shared.random(seed+3);
+		randyQual=shared.Shared.random(seed+5);
+		randyAdapter=shared.Shared.random(seed+25);
 		paired=paired_;
 
-		randyPerfectRead=new Random(seed+20);
-		randyLength=new Random(seed+21);
-		randyAmp=new Random(seed+22);
+		randyPerfectRead=shared.Shared.random(seed+20);
+		randyLength=shared.Shared.random(seed+21);
+		randyAmp=shared.Shared.random(seed+22);
 		
 		if(paired){
-			randyMate=new Random(seed+6);
-			randy2Mate=new Random(seed+7);
-			randyMutationTypeMate=new Random(seed+8);
-			randyQualMate=new Random(seed+10);
-			randyAdapterMate=new Random(seed+30);
+			randyMate=shared.Shared.random(seed+6);
+			randy2Mate=shared.Shared.random(seed+7);
+			randyMutationTypeMate=shared.Shared.random(seed+8);
+			randyQualMate=shared.Shared.random(seed+10);
+			randyAdapterMate=shared.Shared.random(seed+30);
 		}else{
 			randyMate=null;
 			randy2Mate=null;
@@ -670,7 +670,7 @@ public final class RandomReads3 {
 		}
 		
 		if(REPLACE_NOREF){
-			randyNoref=new Random(seed+31);
+			randyNoref=shared.Shared.random(seed+31);
 		}else{
 			randyNoref=null;
 		}
@@ -704,7 +704,7 @@ public final class RandomReads3 {
 			final byte q=(quals==null ? 30 : quals[i]);
 			if(AminoAcid.isFullyDefined(bases[i]) && rand.nextFloat()<align2.QualityTools.PROB_ERROR[q]){
 				int old=AminoAcid.baseToNumber[bases[i]];
-				bases[i]=AminoAcid.numberToBase[(old+rand.nextInt(3)+1)&3];
+				bases[i]=AminoAcid.numberToBase[(old+rand.nextInt3()+1)&3];
 			}
 		}
 	}
@@ -732,7 +732,7 @@ public final class RandomReads3 {
 			}
 			for(int i=lim; i<initial; i++){
 				if(AminoAcid.isFullyDefined(bases[i])){
-					bases[i]=AminoAcid.numberToBase[rand.nextInt(4)];
+					bases[i]=AminoAcid.numberToBase[rand.nextInt()&3];
 				}
 			}
 		}
@@ -780,10 +780,10 @@ public final class RandomReads3 {
 		byte oldNum=AminoAcid.baseToNumber[old];
 		if(oldNum<0){oldNum=0; return bases;}
 		int num;
-		if(BIASED_SNPS && rand.nextInt(3)>0){
+		if(BIASED_SNPS && rand.nextInt3()>0){
 			num=(oldNum^3);
 		}else{
-			num=(oldNum+rand.nextInt(3)+1)&3;
+			num=(oldNum+rand.nextInt3()+1)&3;
 		}
 		assert(num>=0 && num<=3 && num!=oldNum);
 		bases[index]=AminoAcid.numberToBase[num];
@@ -814,10 +814,10 @@ public final class RandomReads3 {
 		byte oldNum=AminoAcid.baseToNumber[old];
 		if(oldNum<0){oldNum=0; return bases;}
 		int num;
-		if(BIASED_SNPS && rand.nextInt(3)>0){
+		if(BIASED_SNPS && rand.nextInt3()>0){
 			num=(oldNum^3);
 		}else{
-			num=(oldNum+rand.nextInt(3)+1)&3;
+			num=(oldNum+rand.nextInt3()+1)&3;
 		}
 		assert(num>=0 && num<=3 && num!=oldNum) : num+", "+oldNum;
 		bases[index]=AminoAcid.numberToBase[num];
@@ -861,7 +861,7 @@ public final class RandomReads3 {
 			byte old=bases[i];
 			if(AminoAcid.isFullyDefined(old)){
 				byte oldNum=AminoAcid.baseToNumber[old];
-				int num=(oldNum+rand.nextInt(3)+1)&3;
+				int num=(oldNum+rand.nextInt3()+1)&3;
 				assert(num>=0 && num<=3 && num!=oldNum);
 				byte base=AminoAcid.numberToBase[num];
 				bases[i]=base;
@@ -871,7 +871,7 @@ public final class RandomReads3 {
 			old=bases[i];
 			if(AminoAcid.isFullyDefined(old)){
 				byte oldNum=AminoAcid.baseToNumber[old];
-				int num=(oldNum+rand.nextInt(3)+1)&3;
+				int num=(oldNum+rand.nextInt3()+1)&3;
 				assert(num>=0 && num<=3 && num!=oldNum);
 				byte base=AminoAcid.numberToBase[num];
 				bases[i]=base;
@@ -882,7 +882,7 @@ public final class RandomReads3 {
 			byte old=bases[i];
 			if(AminoAcid.isFullyDefined(old)){
 				byte oldNum=AminoAcid.baseToNumber[old];
-				int num=(oldNum+rand.nextInt(4))&3;
+				int num=(oldNum+rand.nextInt()&3)&3;
 				assert(num>=0 && num<=3);
 				byte base=AminoAcid.numberToBase[num];
 				bases[i]=base;
@@ -982,7 +982,7 @@ public final class RandomReads3 {
 //		}
 //		final int locfill=locs[(index==0 ? 0 : index-1)];
 		for(int i=index; i<index+len; i++){
-			int x=rand.nextInt(4);
+			int x=rand.nextInt()&3;
 			byte b=AminoAcid.numberToBase[x];
 			bases2[i]=b;
 //			locs[i]=locfill;
@@ -1456,7 +1456,7 @@ public final class RandomReads3 {
 					int a1=AMP;
 					if(randyAmp.nextInt(30)==0){a1*=7;}
 
-					if(randyAmp.nextInt(3)>0){
+					if(randyAmp.nextInt3()>0){
 						ampLevel=Tools.min(randyAmp.nextInt(a1), randyAmp.nextInt(a1));
 					}else{
 						double log=Math.log10(a1*7);
@@ -1663,7 +1663,7 @@ public final class RandomReads3 {
 					int a1=AMP;
 					if(randyAmp.nextInt(30)==0){a1*=7;}
 					
-					if(randyAmp.nextInt(3)>0){
+					if(randyAmp.nextInt3()>0){
 						ampLevel=Tools.min(randyAmp.nextInt(a1), randyAmp.nextInt(a1));
 					}else{
 						double log=Math.log10(a1*7);
@@ -2164,14 +2164,14 @@ public final class RandomReads3 {
 			}else{
 				float p2=randyMutationType.nextFloat();
 				if(p2<0.4){//Ins
-					byte b=AminoAcid.numberToBase[randy2.nextInt(4)];
+					byte b=AminoAcid.numberToBase[randy2.nextInt()&3];
 					bb.append(b);
 					qq.append(q);
 					i--;
 				}else if(p2<0.75){//Del
 					//do nothing
 				}else{//Sub
-					int x=AminoAcid.baseToNumber[bases[i]]+randy2.nextInt(3)+1;
+					int x=AminoAcid.baseToNumber[bases[i]]+randy2.nextInt3()+1;
 					byte b=AminoAcid.numberToBase[x&3];
 					bb.append(b);
 					qq.append(q);

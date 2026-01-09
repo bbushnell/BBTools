@@ -2,7 +2,7 @@ package synth;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import bin.AdjustEntropy;
 import bin.ConservationModel;
@@ -488,9 +488,9 @@ public class MutateGenome {
 							netLengthAdded--;
 						}
 					}else{//ins
-						b=AminoAcid.numberToBase[randy.nextInt(4)];
+						b=AminoAcid.numberToBase[randy.nextInt()&3];
 						while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
-							b=AminoAcid.numberToBase[randy.nextInt(4)];
+							b=AminoAcid.numberToBase[randy.nextInt()&3];
 						}
 						bb.append(b);
 						if(vars!=null){vars.add(new SmallVar(INS, i, i, Character.toString((char)b), "", prevChar, r.id, r.numericID));}
@@ -568,11 +568,11 @@ public class MutateGenome {
 						netLengthAdded+=len;
 						ByteBuilder bbv=new ByteBuilder(len);
 						for(int j=0; j<len; j++) {
-							b=AminoAcid.numberToBase[randy.nextInt(4)];
+							b=AminoAcid.numberToBase[randy.nextInt()&3];
 							//b0 is the current character in the ref, which will be added after the insertion
 							//prevChar is the last character in bb, which will come before the insertion
 							while(banHomopolymers && ((j==0 && b==prevChar) || (j==len-1 && b==b0))) {
-								b=AminoAcid.numberToBase[randy.nextInt(4)];
+								b=AminoAcid.numberToBase[randy.nextInt()&3];
 							}
 							bb.append(b);
 							bbv.append(b);
@@ -632,7 +632,7 @@ public class MutateGenome {
 
 		if(padLeft>0) {
 			ByteBuilder bb2=new ByteBuilder(bb.length+padLeft+padRight);
-			for(int i=0; i<padLeft; i++) {bb2.append(AminoAcid.numberToBase[randy.nextInt(4)]);}
+			for(int i=0; i<padLeft; i++) {bb2.append(AminoAcid.numberToBase[randy.nextInt()&3]);}
 			bb2.append(bb);
 			bb=bb2;
 			if(vars!=null) {
@@ -643,7 +643,7 @@ public class MutateGenome {
 			}
 		}
 		for(int i=0; i<padRight; i++) {
-			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
+			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
 
 		condenseVars(vars);
@@ -662,7 +662,7 @@ public class MutateGenome {
 		final byte original=bases[pos];
 		if(gc==0.5f) {
 			int n=AminoAcid.baseToNumber[original];
-			return AminoAcid.numberToBase[(1+randy.nextInt(3)+n)&3];
+			return AminoAcid.numberToBase[(1+randy.nextInt3()+n)&3];
 		}
 		
 		// Determine if original is GC (0=A, 1=C, 2=G, 3=T)

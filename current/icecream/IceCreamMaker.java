@@ -3,7 +3,7 @@ package icecream;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
 import dna.AminoAcid;
@@ -735,7 +735,7 @@ public class IceCreamMaker {
 			
 			final boolean missing=randy.nextFloat()<missingRate;
 			if(missing){
-				final int missingMod=randy.nextInt(2);
+				final int missingMod=randy.nextInt2();
 				ArrayList<ReadBuilder> temp=new ArrayList<ReadBuilder>();
 				
 				ReadBuilder current=null;
@@ -851,14 +851,14 @@ public class IceCreamMaker {
 				}else{
 					f=mult*(1-f);
 					if(f<insThresh){//ins
-						b=AminoAcid.numberToBase[randy.nextInt(4)];
+						b=AminoAcid.numberToBase[randy.nextInt()&3];
 						bb.append(b);
 						fpos--;
 						movieRemaining--;
 					}else if(f<delThresh){//del
 						
 					}else{//sub
-						int x=AminoAcid.baseToNumber[b]+randy.nextInt(3)+1;
+						int x=AminoAcid.baseToNumber[b]+randy.nextInt3()+1;
 						b=AminoAcid.numberToBase[x&3];
 						bb.append(b);
 						movieRemaining--;

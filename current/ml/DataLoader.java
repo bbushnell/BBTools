@@ -4,7 +4,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
@@ -43,7 +43,7 @@ public class DataLoader {
             n.columns=m.columns;
         }
         
-        Random randy=new Random(0);
+        Random randy=shared.Shared.random(0);
         for(int i=0; i<m.inputs.length; i++) {
             float[] in=m.inputs[i], out=m.outputs[i], wt=m.weights[i];
             int positive=(out[0]>=0.5f ? 1 : 0);
@@ -187,7 +187,7 @@ public class DataLoader {
             Triple p=new Triple(inputList.get(i), outputList.get(i), weightList.get(i));
             list.add(p);
         }
-        Random randy=new Random(SampleSet.shuffleSeed);
+        Random randy=shared.Shared.random(SampleSet.shuffleSeed);
         Collections.shuffle(list, randy);
         inputList.clear();
         outputList.clear();

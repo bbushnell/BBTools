@@ -35,13 +35,15 @@ import sketch.SketchHeap;
 import sketch.SketchMakerMini;
 import sketch.SketchObject;
 import sketch.SketchTool;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import structures.ListNum;
 import structures.LongPair;
 import structures.Range;
@@ -107,8 +109,6 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			
 			in1=parser.in1;
 			in2=parser.in2;
-			qfin1=parser.qfin1;
-			qfin2=parser.qfin2;
 			extin=parser.extin;
 
 			out1=parser.out1;
@@ -291,8 +291,6 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
-		qfin1=Tools.fixExtension(qfin1);
-		qfin2=Tools.fixExtension(qfin2);
 	}
 	
 	/** Ensure files can be read and written */
@@ -385,9 +383,9 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		}
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris=makeCris();
-		final ConcurrentReadOutputStream crosP=makeCros(outPlus);
-		final ConcurrentReadOutputStream crosM=makeCros(outMinus);
+		final Streamer cris=makeCris();
+		final Writer crosP=makeCros(outPlus);
+		final Writer crosM=makeCros(outMinus);
 		
 		//Reset counters
 		readsIn=readsProcessed=0;
@@ -437,9 +435,9 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	 * Start a read input stream from the read files
 	 * @return The stream.
 	 */
-	private ConcurrentReadInputStream makeCris(){
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(
-				maxReads, true, ffin1, ffin2, qfin1, qfin2);
+	private Streamer makeCris(){
+		boolean samOut=(FileFormat.hasSamOrBamExtension(outPlus) || FileFormat.hasSamOrBamExtension(outMinus));
+		Streamer cris=StreamerFactory.makeStreamer(ffin1, ffin2, false, maxReads, samOut, true);
 		cris.setSampleRate(samplerate, sampleseed);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
@@ -455,7 +453,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	 * @param fname Destination file for stream
 	 * @return The stream.
 	 */
-	private ConcurrentReadOutputStream makeCros(String fname){
+	private Writer makeCros(String fname){
 		if(fname==null) {return null;}
 		
 		//Select output buffer size based on whether it needs to be ordered
@@ -464,8 +462,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 
 		final FileFormat ffout=FileFormat.testOutput(
 				fname, ffin1.format(), null, true, overwrite, false, ordered);
-		final ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(
-				ffout, null, buff, null, true);
+		final Writer ros=WriterFactory.getStream(ffout, null, buff, null, true, -1);
 		ros.start(); //Start the stream
 		return ros;
 	}
@@ -503,13 +500,13 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	/*--------------------------------------------------------------*/
 	
 	/** Spawn process threads */
-	private void spawnThreads(final ConcurrentReadInputStream cris, 
-			ConcurrentReadOutputStream crosP, ConcurrentReadOutputStream crosM){
+	private void spawnThreads(final Streamer cris, 
+			Writer crosP, Writer crosM){
 		
 		//Do anything necessary prior to processing
 		
 		//Determine how many threads may be used
-		final int threads=Tools.mid(mergePairs ? 64 : 40, (3+Shared.threads()*7)/8, 1);
+		final int threads=Tools.mid(mergePairs ? 80 : 40, (3+Shared.threads()*7)/8, 1);
 		
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
@@ -643,30 +640,13 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	}
 	
 	/**
-	 * Calls genes while streaming the fasta to save memory.
-	 * Works fine but for some reason is extremely slow.
-	 * @param fna Genome fasta.
-	 * @return Gene sequences.
-	 */
-	@Deprecated
-	private ArrayList<Read> callGenes(String fna){
-		final ConcurrentReadInputStream cris=makeFastaCris(fna);
-		
-		ArrayList<Read> genes=CheckStrand.callGenes(cris, gCaller);
-		
-		//Close the input stream
-		errorState|=ReadWrite.closeStream(cris);
-		return genes;
-	}
-	
-	/**
 	 * Creates a read input stream for the fasta reference.
 	 * @param fname Fasta path.
 	 * @return The stream.
 	 */
-	private ConcurrentReadInputStream makeFastaCris(String fname){
+	private Streamer makeFastaCris(String fname){
 		FileFormat ffin=FileFormat.testInput(fname, FileFormat.FA, null, true, true);
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ffin, null);
+		Streamer cris=StreamerFactory.getReadInputStream(-1, false, ffin, null, -1);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		return cris;
@@ -1059,8 +1039,8 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		 * @param crosM_ Output stream for minus-strand reads (may be null)
 		 * @param tid_ Thread identifier for debugging
 		 */
-		ProcessThread(final ConcurrentReadInputStream cris_, 
-				ConcurrentReadOutputStream crosP_, ConcurrentReadOutputStream crosM_, final int tid_){
+		ProcessThread(final Streamer cris_, 
+				Writer crosP_, Writer crosM_, final int tid_){
 			cris=cris_;
 			crosP=crosP_;
 			crosM=crosM_;
@@ -1097,16 +1077,8 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 				
 				processList(ln);
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-				
 				//Fetch a new list
 				ln=cris.nextList();
-			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 
@@ -1328,17 +1300,11 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			
 		}
 		
-		/**
-		 * Legacy gene scoring method using k-mer enrichment analysis.
-		 * Scores reads against CDS, 16S, and 5S models on both strands.
-		 * Deprecated in favor of proper gene calling approach.
-		 * @param r Read sequence to score
-		 */
-		@Deprecated
 		/** 
 		 * Old version; just looked at enriched interior kmers instead of
-		 * doing normal gene-calling.  Didn't work very will.
+		 * doing normal gene-calling.  Didn't work very well.
 		 */
+		@Deprecated
 		void scoreGenes(Read r) {
 			byte[] bases=r.bases;
 			double plusScoreCDS=gCaller.scoreFeature(bases, ProkObject.CDS);//These scores are suspiciously low; I wonder if frame tracking is working correctly?
@@ -1462,10 +1428,10 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		boolean success=false;
 		
 		/** Shared input stream */
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		
-		private final ConcurrentReadOutputStream crosP;
-		private final ConcurrentReadOutputStream crosM;
+		private final Writer crosP;
+		private final Writer crosM;
 		
 		private ArrayList<Read> pReads, mReads;
 
@@ -1580,11 +1546,6 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 	private String in1=null;
 	/** Secondary input file path */
 	private String in2=null;
-	
-	/** Quality file for first read set */
-	private String qfin1=null;
-	/** Quality file for second read set */
-	private String qfin2=null;
 
 	/** Reference genome or transcriptome FASTA file path */
 	String fna=null;

@@ -1,7 +1,7 @@
 package jgi;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import barcode.CountBarcodes;
 import dna.AminoAcid;

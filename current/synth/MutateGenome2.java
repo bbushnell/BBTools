@@ -2,7 +2,7 @@ package synth;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
@@ -264,7 +264,7 @@ public class MutateGenome2 {
 				sum=0;
 				Arrays.fill(present, 0);
 				for(int i=0; i<ploidy; i++){
-					int x=randy.nextInt(2);
+					int x=randy.nextInt2();
 					sum+=x;
 					present[i]=x;
 				}
@@ -350,7 +350,7 @@ public class MutateGenome2 {
 					float x=randy.nextFloat()*errorRate;
 					int[] present=makePresentArray();
 					if(x<subRate){
-						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt3()+1)&3)];
 
 						for(int haplo=0; haplo<ploidy; haplo++){
 							if(present[haplo]==1){
@@ -378,9 +378,9 @@ public class MutateGenome2 {
 							mutationLengthAdded++;
 						}
 					}else{//ins
-						b=AminoAcid.numberToBase[randy.nextInt(4)];
+						b=AminoAcid.numberToBase[randy.nextInt()&3];
 						while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
-							b=AminoAcid.numberToBase[randy.nextInt(4)];
+							b=AminoAcid.numberToBase[randy.nextInt()&3];
 						}
 						for(int haplo=0; haplo<ploidy; haplo++){
 							if(present[haplo]==1){
@@ -415,7 +415,7 @@ public class MutateGenome2 {
 					if(x<subRate){
 						subsAdded++;
 						mutationLengthAdded++;
-						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt3()+1)&3)];
 						for(int haplo=0; haplo<ploidy; haplo++){
 							if(present[haplo]==1){
 								bba[haplo].append(b);
@@ -452,9 +452,9 @@ public class MutateGenome2 {
 								insAdded++;
 								mutationLengthAdded+=len;
 								if(len==1){
-									b=AminoAcid.numberToBase[randy.nextInt(4)];
+									b=AminoAcid.numberToBase[randy.nextInt()&3];
 									while(banHomopolymers && isHomopolymerIns(bases, i, b)) {
-										b=AminoAcid.numberToBase[randy.nextInt(4)];
+										b=AminoAcid.numberToBase[randy.nextInt()&3];
 									}
 									for(int haplo=0; haplo<ploidy; haplo++){
 										if(present[haplo]==1){
@@ -469,7 +469,7 @@ public class MutateGenome2 {
 									while(sb.length()==0 || (banHomopolymers && isHomopolymerIns(bases, i, sb))) {
 										sb.setLength(0);
 										while(sb.length()<len){
-											b=AminoAcid.numberToBase[randy.nextInt(4)];
+											b=AminoAcid.numberToBase[randy.nextInt()&3];
 											sb.append((char)b);
 										}
 									}

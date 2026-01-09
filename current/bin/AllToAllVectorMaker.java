@@ -2,7 +2,7 @@ package bin;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -373,7 +373,7 @@ public class AllToAllVectorMaker extends BinObject {
 	 */
 	private FloatList makeVector(ArrayList<Contig> alist, ArrayList<Contig> blist, 
 			int minSize, int maxSize, Oracle oracle) {
-		int numClusters=randy.nextInt(3);
+		int numClusters=randy.nextInt3();
 //		System.err.println(numClusters+", "+(alist==blist));
 //		System.err.println("numClusters="+numClusters);
 		if(numClusters==0) {

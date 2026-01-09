@@ -3,7 +3,7 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -819,7 +819,7 @@ public class CountDuplicatesBuffered implements Accumulator<CountDuplicatesBuffe
 	/** Precomputed hash lookup tables with 32 modes for rolling hash computation */
 	private static final long[][] hashcodes=Dedupe.makeCodes2(32);
 	/** Random salt value for hash initialization to prevent collision attacks */
-	private static final long salt=new Random(173).nextLong();
+	private static final long salt=shared.Shared.random(173).nextLong();
 	/**
 	 * Bit mask (1023) for sampling hash codes to determine processing eligibility
 	 */

@@ -329,8 +329,8 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
-		long oldBD=Shared.bufferData();
-		Shared.setBufferData(Math.min(40000, oldBD));
+		int oldBD=Shared.bufferData();
+		Shared.setBufferData(Math.min(400000, oldBD));
 
 		//Create a read input stream
 		final ConcurrentReadInputStream cris=makeCris(refFile);

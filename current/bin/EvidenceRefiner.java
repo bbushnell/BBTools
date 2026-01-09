@@ -1,7 +1,7 @@
 package bin;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import structures.IntHashSet;
 import structures.LongHashMap;
@@ -28,7 +28,7 @@ class EvidenceRefiner extends AbstractRefiner {
         epsilon = params.epsilon;
         minPoints = params.minPoints;
         minClusterSize = params.minClusterSize;
-        random = new Random(params.seed);
+        random = shared.Shared.random(params.seed);
         debug = true;
         splitAttempts = 0;
         successfulSplits = 0;

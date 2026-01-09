@@ -3,7 +3,7 @@ package cardinality;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;

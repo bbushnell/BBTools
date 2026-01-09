@@ -2,7 +2,7 @@ package ml;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import shared.Tools;
@@ -260,7 +260,7 @@ public class Subset {
 	/** Randomly shuffles the order of samples using Fisher-Yates algorithm.
 	 * Uses internal Random generator with incrementing seed for reproducibility. */
 	void shuffle() {
-//		Random randy=new Random(numShuffles);
+//		Random randy=shared.Shared.random(numShuffles);
 		for(int i=0; i<samples.length; i++) {
 			int idx=randy.nextInt(samples.length);
 			Sample s=samples[idx];
@@ -284,7 +284,7 @@ public class Subset {
 	/** Samples classified as negative (goal[0] < 0.5) */
 	final Sample[] negative;
 	/** Random number generator for sample shuffling with deterministic seed */
-	private final Random randy=new Random(0);
+	private final Random randy=shared.Shared.random(0);
 	
 	/** Epoch number for next complete pass through all samples */
 	int nextFullPassEpoch=-1;

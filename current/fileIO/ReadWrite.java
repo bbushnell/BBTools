@@ -765,6 +765,7 @@ public class ReadWrite {
 	public static OutputStream getGZipOutputStream(String fname, boolean append, boolean allowSubprocess){
 		if(verbose){System.err.println("getGZipOutputStream("+fname+", "+append+", "+allowSubprocess+"); "+FORCE_BGZIP+", "+USE_BGZIP+", "+Data.BGZIP()+", "+USE_PIGZ+", "+USE_GZIP+", "+RAWMODE);}
 		final boolean bgzip=(USE_BGZF && (ALLOW_NATIVE_BGZF || (USE_BGZIP && Data.BGZIP())));
+//		assert(false) : fname+", "+allowSubprocess+", "+bgzip+", "+ZIPLEVEL;
 		if(bgzip && (FORCE_BGZIP || (PREFER_BGZIP && ZIPLEVEL<10))){return getBgzipStream(fname, append);}
 		if(FORCE_PIGZ || (allowSubprocess && Shared.threads()>=2)){
 			if((fname.endsWith(".vcf.gz") || fname.endsWith(".sam.gz") || (PREFER_BGZIP && ZIPLEVEL<10)) && bgzip){return getBgzipStream(fname, append);}
@@ -896,6 +897,7 @@ public class ReadWrite {
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			final OutputStream out;
+			assert(false);
 			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {out=new BgzfOutputStream(raw);}
 			else if(BgzfSettings.USE_BGZFOS_MT2){
 				out=new BgzfOutputStreamMT2(raw, Tools.mid(1, 64, threads), zl);
@@ -906,9 +908,9 @@ public class ReadWrite {
 		}
 		
 		if(ALLOW_ZIPLEVEL_CHANGE && threads>=4 && zl>0 && zl<4){zl=4;}
-		if(zl<3){threads=Tools.min(threads, 12);}
-		else if(zl<5){threads=Tools.min(threads, 16);}
-		else if(zl<7){threads=Tools.min(threads, 32);}//Was 40, but even BBDuk can only sustain ~16
+		if(zl<3){threads=Tools.min(threads, 24);}
+		else if(zl<5){threads=Tools.min(threads, 48);}//RandomReadsMG can go way over 16
+		else if(zl<7){threads=Tools.min(threads, 64);}
 
 //		System.err.println("C: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
 		

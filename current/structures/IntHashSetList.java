@@ -3,7 +3,7 @@ package structures;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import shared.Timer;

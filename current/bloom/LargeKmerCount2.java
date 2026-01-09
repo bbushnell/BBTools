@@ -1,7 +1,7 @@
 package bloom;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;
@@ -321,6 +321,6 @@ public static void main(String[] args){
 	public static double invKmerSpace;
 	public static long keysCounted;
 	
-	public static final Random randy=new Random(1);
+	public static final Random randy=shared.Shared.random(1);
 	
 }

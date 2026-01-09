@@ -275,8 +275,8 @@ public class SamStreamerST implements Streamer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static int TARGET_LIST_SIZE=200;
-	public static int TARGET_LIST_BYTES=250000;
+	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
+	public static int TARGET_LIST_BYTES=shared.Shared.bufferSize();
 	private static final int QUEUE_SIZE=8;
 	
 	/*--------------------------------------------------------------*/
@@ -290,6 +290,6 @@ public class SamStreamerST implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 	
 }

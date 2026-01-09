@@ -1,8 +1,8 @@
 package shared;
 
-import java.util.Random;
+import shared.Random;
 
-public final class FastRandomXoshiro extends Random {
+public final class FastRandomXoshiro implements Random {
 
 	private static final long serialVersionUID=1L;
 
@@ -52,7 +52,6 @@ public final class FastRandomXoshiro extends Random {
 		return x^(x>>>31);
 	}
 
-	@Override
 	protected int next(int bits) {
 		return (int)(nextLong()>>>(64-bits));
 	}
@@ -166,7 +165,7 @@ public final class FastRandomXoshiro extends Random {
 
 	/**
 	 * Benchmarks FastRandomXoshiro against other random number generators.
-	 * Tests performance of FastRandom, FastRandomXoshiro, java.util.Random,
+	 * Tests performance of FastRandom, FastRandomXoshiro, shared.Random,
 	 * and ThreadLocalRandom by generating floats and measuring execution time.
 	 * @param args Optional number of iterations (default: 100,000,000)
 	 */
@@ -206,7 +205,7 @@ public final class FastRandomXoshiro extends Random {
 		// Test ThreadLocalRandom
 		startTime=System.nanoTime();
 		sum=0;
-		Random randy=java.util.concurrent.ThreadLocalRandom.current();
+		java.util.concurrent.ThreadLocalRandom randy=java.util.concurrent.ThreadLocalRandom.current();
 		for(int i=0; i<iterations; i++) {
 			sum+=randy.nextFloat();
 		}

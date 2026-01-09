@@ -300,7 +300,7 @@ public class SyncHeart {
 	}
 	
 	/** Thread-safe setter for maximum buffer data */
-	public static void setBufferData(long data) {
+	public static void setBufferData(int data) {
 		writeLock();
 		Shared.setBufferData(data);
 		writeUnlock();

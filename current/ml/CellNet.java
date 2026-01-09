@@ -3,7 +3,7 @@ package ml;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import shared.Tools;
@@ -68,7 +68,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public CellNet(int[] dims_, long seed_, float density_, float density1_, 
 			int edgeBlockSize_, ArrayList<String> commands_) {
-		seed=(seed_>=0 ? seed_ : new Random().nextLong()&Long.MAX_VALUE);
+		seed=(seed_>=0 ? seed_ : shared.Shared.random().nextLong()&Long.MAX_VALUE);
 		commands=commands_; //Store creation parameters for reproducibility
 		dims=dims_.clone(); //Deep copy to prevent external modification
 		density=density_;

@@ -11,7 +11,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import shared.Random;
 import java.util.Set;
 
 /**
@@ -35,9 +35,9 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.61";
+	public static String BBTOOLS_VERSION_STRING="39.62";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Feckless Frog";
+	public static String BBMAP_VERSION_NAME="Goblin Game";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
@@ -119,7 +119,7 @@ public class Shared {
 	/** Length of each read buffer */
 	private static int READ_BUFFER_LENGTH=200;
 	/** Maximum data per buffer */
-	private static long READ_BUFFER_MAX_DATA=400000;
+	private static int READ_BUFFER_MAX_DATA=400000;
 	/** Minimum array length for parallel sort */
 	public static final int parallelSortLength=10000;
 	/** True if parallel sort is disabled */
@@ -464,7 +464,10 @@ public class Shared {
 	public static int bufferLen() {return READ_BUFFER_LENGTH;}
 	
 	/** Gets the maximum buffer data size. @return Maximum buffer data */
-	public static long bufferData() {return READ_BUFFER_MAX_DATA;}
+	public static int bufferData() {return READ_BUFFER_MAX_DATA;}
+	
+	/** Gets the maximum buffer data size. @return Maximum buffer data */
+	public static int bufferSize() {return READ_BUFFER_MAX_DATA;}
 	
 	/**
 	 * Caps the buffer length to a maximum value.
@@ -489,7 +492,7 @@ public class Shared {
 	 * @param x New maximum buffer data (must be positive)
 	 * @return New maximum buffer data
 	 */
-	public static long setBufferData(long x){
+	public static int setBufferData(int x){
 		assert(x>0);
 		return READ_BUFFER_MAX_DATA=x;
 	}
@@ -577,6 +580,12 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------       Utility Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	/** Gets thread-local random number generator. @return Random instance */
+	public static final Random random() {return threadLocalRandom(-1);}
+	
+	/** Gets thread-local random number generator. @return Random instance */
+	public static final Random random(long seed) {return threadLocalRandom(seed);}
 	
 	/** Gets thread-local random number generator. @return Random instance */
 	public static final Random threadLocalRandom() {return threadLocalRandom(-1);}

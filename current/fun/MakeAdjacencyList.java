@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.TextStreamWriter;
 import shared.PreParser;

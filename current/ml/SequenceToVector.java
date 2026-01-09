@@ -2,7 +2,7 @@ package ml;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
@@ -346,7 +346,7 @@ public class SequenceToVector {
 		final int[] map=new int[fullSpace];
 		
 		int count=0;
-		final Random randy=(maxDims<fullSpace ? new Random(k) : null);
+		final Random randy=(maxDims<fullSpace ? shared.Shared.random(k) : null);
 		for(int kmer=0; kmer<fullSpace; kmer++) {
 			int rcomp=AminoAcid.reverseComplementBinaryFast(kmer, k);
 			if(kmer<=rcomp) {

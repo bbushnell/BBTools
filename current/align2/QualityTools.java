@@ -1,7 +1,7 @@
 package align2;
 
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import shared.Tools;

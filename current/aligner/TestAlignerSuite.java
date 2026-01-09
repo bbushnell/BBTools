@@ -1,7 +1,7 @@
 package aligner;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -179,7 +179,7 @@ public class TestAlignerSuite {
 		}
 
 		void run() {
-			Random randy = new Random();
+			Random randy = shared.Shared.random();
 
 			// Generate random reference sequence
 			byte[] ref = AlignRandom.randomSequence(length, randy);
@@ -266,7 +266,7 @@ public class TestAlignerSuite {
 				success = true;
 				i++;
 			} else if(addSub) {
-				b = AminoAcid.numberToBase[((AminoAcid.baseToNumber[b] + randy.nextInt(3) + 1) & 3)];
+				b = AminoAcid.numberToBase[((AminoAcid.baseToNumber[b] + randy.nextInt3() + 1) & 3)];
 				bb.append(b);
 				success = true;
 				i++;
@@ -279,9 +279,9 @@ public class TestAlignerSuite {
 
 				if(len > 0) {
 					for(int j = 0; j < len; j++) {
-						b = AminoAcid.numberToBase[randy.nextInt(4)];
+						b = AminoAcid.numberToBase[randy.nextInt()&3];
 						while(banHomopolymers && ((j == 0 && b == prevChar) || (j == len - 1 && b == b0))) {
-							b = AminoAcid.numberToBase[randy.nextInt(4)];
+							b = AminoAcid.numberToBase[randy.nextInt()&3];
 						}
 						bb.append(b);
 					}

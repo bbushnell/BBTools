@@ -604,15 +604,17 @@ final class SIMDByte256{
 
 		final int length=array.length;
 		int i=0;
-		final byte a='a', N='N';
+		final byte a='a', z='z', N='N';
 
 		{//256-bit loop
 			ByteVector va256=ByteVector.broadcast(BSPECIES256, a);
+			ByteVector vz256=ByteVector.broadcast(BSPECIES256, z);
 			ByteVector vN256=ByteVector.broadcast(BSPECIES256, N);
 
 			for(; i<=length-BWIDTH256; i+=BWIDTH256){
 				ByteVector vb=ByteVector.fromArray(BSPECIES256, array, i);
-				VectorMask<Byte> maskLower=vb.compare(VectorOperators.GE, va256);
+				VectorMask<Byte> maskLower=vb.compare(VectorOperators.GE, va256)
+					.and(vb.compare(VectorOperators.LE, vz256));
 				ByteVector vresult=vb.blend(vN256, maskLower);
 				vresult.intoArray(array, i);
 			}
@@ -620,11 +622,13 @@ final class SIMDByte256{
 
 		{//64-bit loop
 			ByteVector va64=ByteVector.broadcast(BSPECIES64, a);
+			ByteVector vz64=ByteVector.broadcast(BSPECIES64, z);
 			ByteVector vN64=ByteVector.broadcast(BSPECIES64, N);
 
 			for(; i<=length-BWIDTH64; i+=BWIDTH64){
 				ByteVector vb=ByteVector.fromArray(BSPECIES64, array, i);
-				VectorMask<Byte> maskLower=vb.compare(VectorOperators.GE, va64);
+				VectorMask<Byte> maskLower=vb.compare(VectorOperators.GE, va64)
+					.and(vb.compare(VectorOperators.LE, vz64));
 				ByteVector vresult=vb.blend(vN64, maskLower);
 				vresult.intoArray(array, i);
 			}
@@ -1526,7 +1530,7 @@ final class SIMDByte256{
 //		
 //		// Generate random k-mers
 //		int[] kmers=new int[10000];
-//		java.util.Random randy=new java.util.Random(12345);
+//		shared.Random randy=shared.Shared.random(12345);
 //		for(int i=0; i<kmers.length; i++){
 //			kmers[i]=randy.nextInt()&mask;
 //		}
@@ -1582,7 +1586,7 @@ final class SIMDByte256{
 		final int len=8192;
 		final int mod=len-1;
 		long[] kmers=new long[len];
-		java.util.Random randy=new java.util.Random(12345);
+		shared.Random randy=shared.Shared.random(12345);
 		for(int i=0; i<kmers.length; i++){
 			kmers[i]=randy.nextLong()&mask;
 		}

@@ -2,7 +2,7 @@ package icecream;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import aligner.Aligner;
 import consensus.BaseGraph;

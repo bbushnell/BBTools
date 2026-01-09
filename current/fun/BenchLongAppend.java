@@ -1,6 +1,6 @@
 package fun;
 
-import java.util.Random;
+import shared.Random;
 
 import shared.Timer;
 import structures.ByteBuilder;
@@ -21,13 +21,13 @@ public class BenchLongAppend{
 		System.out.println("Generating "+numValues+" random longs...");
 		
 		// Generate random test values with distribution: (rand^2)*MAX_VALUE
-		Random rand=new Random(42);
+		Random rand=shared.Shared.random(42);
 		long[] testValues=new long[numValues];
 		for(int i=0; i<numValues; i++){
 			double r=rand.nextDouble();
 			long val=(long)(r*r*3000000/*Long.MAX_VALUE*/);
 			// 1/4 negative
-			if(rand.nextInt(4)==0){val=-val;}
+			if((rand.nextInt()&3)==0){val=-val;}
 			testValues[i]=val;
 		}
 		

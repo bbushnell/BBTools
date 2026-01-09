@@ -3,7 +3,7 @@ package synth;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.ByteFile;
@@ -145,7 +145,7 @@ public class SynthMDA {
 		if(ref==null){throw new RuntimeException("Error - input reference must be specified.");}
 		
 		if(out1==null){
-			out1=ReadWrite.stripToCore(ref)+"_"+Long.toHexString(new Random().nextLong()&Long.MAX_VALUE)+".fa";
+			out1=ReadWrite.stripToCore(ref)+"_"+Long.toHexString(shared.Shared.random().nextLong()&Long.MAX_VALUE)+".fa";
 		}
 		
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2){

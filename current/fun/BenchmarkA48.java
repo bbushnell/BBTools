@@ -1,6 +1,6 @@
 package fun;
 
-import java.util.Random;
+import shared.Random;
 
 import shared.Timer;
 import structures.ByteBuilder;
@@ -16,7 +16,7 @@ public class BenchmarkA48 {
 		int arraySize=1000;
 		
 		// Generate test data: random positive integers with bias toward smaller values
-		Random rand=new Random(12345);
+		Random rand=shared.Shared.random(12345);
 		long[] testValues=new long[arraySize];
 		for(int i=0; i<arraySize; i++){
 			double r=rand.nextDouble();

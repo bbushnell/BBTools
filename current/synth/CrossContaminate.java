@@ -3,7 +3,7 @@ package synth;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
@@ -457,7 +457,7 @@ public class CrossContaminate {
 //	private double minProbRoot=Math.pow(minProb, 1/root);
 //	private double maxProbRoot=Math.pow(maxProb, 1/root);
 	
-	private final Random randy=new Random();
+	private final Random randy=shared.Shared.random();
 	
 	long readsProcessed=0;
 	long basesProcessed=0;

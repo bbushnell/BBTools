@@ -4,7 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import dna.AminoAcid;

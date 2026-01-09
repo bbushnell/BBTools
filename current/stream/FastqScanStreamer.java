@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.FileFormat;
@@ -347,7 +347,7 @@ public final class FastqScanStreamer implements Streamer{
 	@Override
 	public synchronized void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : new java.util.Random(seed));
+		randy=(rate>=1f ? null : Shared.random(seed));
 	}
 
 	@Override

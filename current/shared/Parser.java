@@ -800,7 +800,7 @@ public class Parser {
 		}else if(a.equals("readbufferlength") || a.equals("readbufferlen")){
 			Shared.setBufferLen((int)Parse.parseKMG(b));
 		}else if(a.equals("readbufferdata")){
-			Shared.setBufferData(Parse.parseKMG(b));
+			Shared.setBufferData(Parse.parseIntKMG(b));
 		}else if(a.equals("readbuffers")){
 			Shared.setBuffers(Integer.parseInt(b));
 		}else if(a.equals("rbm") || a.equals("renamebymapping")){

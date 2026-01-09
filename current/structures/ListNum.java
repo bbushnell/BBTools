@@ -3,7 +3,7 @@ package structures;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.Random;
+import shared.Random;
 
 import shared.Shared;
 import stream.HasID;
