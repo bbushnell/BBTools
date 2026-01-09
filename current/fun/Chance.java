@@ -1,6 +1,6 @@
 package fun;
 
-import java.util.Random;
+import shared.Random;
 
 import shared.Parse;
 import shared.Shared;

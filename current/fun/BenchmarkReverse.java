@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import shared.Timer;
@@ -42,7 +42,7 @@ public class BenchmarkReverse{
 		System.out.println("Benchmarking with "+iterations+" iterations, array size "+arraySize+"...\n");
 		
 		//Generate test data
-		Random rand=new Random(42);
+		Random rand=shared.Shared.random(42);
 		byte[][] testArraysReverse=new byte[arraySize][];
 		byte[][] testArraysRevComp=new byte[arraySize][];
 		
@@ -122,7 +122,7 @@ public class BenchmarkReverse{
 	}
 	
 	static boolean validateReverse(int size){
-		Random rand=new Random(size);
+		Random rand=shared.Shared.random(size);
 		byte[] original=randomBytes(rand, size);
 		byte[] scalar=Arrays.copyOf(original, size);
 		byte[] simd=Arrays.copyOf(original, size);
@@ -134,7 +134,7 @@ public class BenchmarkReverse{
 	}
 	
 	static boolean validateReverseComplement(int size){
-		Random rand=new Random(size+1000);
+		Random rand=shared.Shared.random(size+1000);
 		byte[] original=randomBases(rand, size);
 		byte[] scalar=Arrays.copyOf(original, size);
 		byte[] simd=Arrays.copyOf(original, size);

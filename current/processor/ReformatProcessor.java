@@ -4,7 +4,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
 import cardinality.CardinalityTracker;
@@ -48,7 +48,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 
 			//Clone mutable objects that need independent copies
 			if(randy!=null){
-				rp.randy=new Random(sampleseed);
+				rp.randy=shared.Shared.random(sampleseed);
 			}
 			if(loglog!=null) {
 				rp.loglog=loglog.copy();

@@ -6,7 +6,7 @@ import java.io.InputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -363,7 +363,7 @@ public class DiskBench {
 	
 	String[] makeFnames(int pass){
 		String[] fnames=new String[threads];
-		Random randy=new Random();
+		Random randy=shared.Shared.random();
 		for(int i=0; i<threads; i++){
 			fnames[i]=path+pass+"_"+i+"_"+(System.nanoTime()&0xFFFF)+"_"+randy.nextInt(4096);
 		}

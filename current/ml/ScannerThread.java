@@ -3,7 +3,7 @@ package ml;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.PriorityQueue;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 

@@ -434,7 +434,7 @@ public class AddAdapters {
 							byte q=(quals==null ? 30 : quals[i]);
 							if(randy.nextFloat()<QualityTools.PROB_ERROR[q]){
 								int old=AminoAcid.baseToNumber[bases[i]];
-								bases[i]=AminoAcid.numberToBase[(old+randy.nextInt(3)+1)&3];
+								bases[i]=AminoAcid.numberToBase[(old+randy.nextInt3()+1)&3];
 							}
 						}
 					}
@@ -442,7 +442,7 @@ public class AddAdapters {
 				}
 				for(int i=lim; i<initial; i++){
 					if(AminoAcid.isFullyDefined(bases[i])){
-						bases[i]=AminoAcid.numberToBase[randy.nextInt(4)];
+						bases[i]=AminoAcid.numberToBase[randy.nextInt()&3];
 					}
 					rb++;
 				}
@@ -456,7 +456,7 @@ public class AddAdapters {
 							byte q=(quals==null ? 30 : quals[i]);
 							if(randy.nextFloat()<QualityTools.PROB_ERROR[q]){
 								int old=AminoAcid.baseToNumber[bases[i]];
-								bases[i]=AminoAcid.numberToBase[(old+randy.nextInt(3)+1)&3];
+								bases[i]=AminoAcid.numberToBase[(old+randy.nextInt3()+1)&3];
 							}
 						}
 					}
@@ -464,7 +464,7 @@ public class AddAdapters {
 				}
 				for(int i=lim; i>-1; i--){
 					if(AminoAcid.isFullyDefined(bases[i])){
-						bases[i]=AminoAcid.numberToBase[randy.nextInt(4)];
+						bases[i]=AminoAcid.numberToBase[randy.nextInt()&3];
 					}
 					rb++;
 				}
@@ -858,6 +858,6 @@ public class AddAdapters {
 	public static boolean verbose=false;
 	
 	/** Random number generator for adapter placement and error simulation */
-	private java.util.Random randy;
+	private shared.Random randy;
 	
 }

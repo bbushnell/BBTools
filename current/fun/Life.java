@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.LinkedList;
-import java.util.Random;
+import shared.Random;
 
 /**
  * Implements Conway's Game of Life cellular automata simulation.
@@ -109,7 +109,7 @@ public class Life {
 	 * '1-prob' of being dead (0).
 	 */
 	void initialize(){
-		Random randy=new Random();
+		Random randy=shared.Shared.random();
 		for(int x=0; x<xdim; x++){
 			for(int y=0; y<ydim; y++){
 				grid[x][y]=(randy.nextFloat()<prob ? 1 : 0);

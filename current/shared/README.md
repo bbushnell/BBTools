@@ -35,7 +35,7 @@ Shared utilities and core infrastructure components providing foundational funct
 **Usage**: Used for generating secure, high-performance random numbers in cryptographic and computational applications
 
 ## FastRandomSIMD (FastRandomSIMD.java)
-**Purpose**: SIMD-based pseudorandom number generator extending java.util.Random
+**Purpose**: SIMD-based pseudorandom number generator extending shared.Random
 **Core Function**: Generates random numbers using vectorized operations with SIMD instructions
 **Key Features**:
 - Uses 256-bit vector processing for random number generation
@@ -48,7 +48,7 @@ Shared utilities and core infrastructure components providing foundational funct
 **Purpose**: A fast, seedable random number generator based on xoshiro256+ algorithm
 **Core Function**: Generates high-quality pseudorandom numbers with improved statistical properties
 **Key Features**:
-- Extends java.util.Random for standard random generation
+- Extends shared.Random for standard random generation
 - Uses xoshiro256+ algorithm for efficient random number generation
 - Supports seeding with system time or custom seed
 - Provides methods for generating random int, long, float, double, and boolean values

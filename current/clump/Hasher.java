@@ -1,6 +1,6 @@
 package clump;
 
-import java.util.Random;
+import shared.Random;
 
 import shared.Tools;
 import stream.Read;
@@ -40,7 +40,7 @@ public class Hasher {
 	 * @return 2D array of random long values for hash computation
 	 */
 	private static synchronized long[][] makeCodes(int symbols, int modes){
-		Random randy=new Random(1);
+		Random randy=shared.Shared.random(1);
 		long[][] r=new long[symbols][modes];
 		for(int i=0; i<symbols; i++){
 			for(int j=0; j<modes; j++){

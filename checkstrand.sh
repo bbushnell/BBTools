@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 11, 2025
+Last modified January 9, 2026
 
 Description:  Estimates the strandedness of a library without alignment; 
 intended for RNA-seq data.  Only the reads are required input to determine

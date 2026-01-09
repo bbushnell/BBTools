@@ -1240,11 +1240,11 @@ public class CheckStrand3 implements Accumulator<CheckStrand3.ProcessThread> {
 			
 		}
 		
-		@Deprecated
 		/** 
 		 * Old version; just looked at enriched interior kmers instead of
-		 * doing normal gene-calling.  Didn't work very will.
+		 * doing normal gene-calling.  Didn't work very well.
 		 */
+		@Deprecated
 		void scoreGenes(Read r) {
 			byte[] bases=r.bases;
 			double plusScoreCDS=gCaller.scoreFeature(bases, ProkObject.CDS);//These scores are suspiciously low; I wonder if frame tracking is working correctly?

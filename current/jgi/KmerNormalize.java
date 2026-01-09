@@ -8,7 +8,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 
@@ -3674,7 +3674,7 @@ public class KmerNormalize {
 		
 		private long totalBases=0;
 		private long totalReads=0;
-//		private final java.util.Random randy=new java.util.Random();
+//		private final shared.Random randy=shared.Shared.random();
 		private Random randy; //Note that Random does not support nextLong(long)
 
 		public long readsKept=0;

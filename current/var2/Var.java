@@ -3,7 +3,7 @@ package var2;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;
@@ -2192,7 +2192,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	 * @return Array of 256 random integers for hash mixing
 	 */
 	static final int[] makeCodes(){
-		Random randy=new Random(1); // Fixed seed for reproducibility
+		Random randy=shared.Shared.random(1); // Fixed seed for reproducibility
 		int[] array=new int[256];
 		for(int i=0; i<array.length; i++){
 			array[i]=randy.nextInt(); // Generate random hash codes

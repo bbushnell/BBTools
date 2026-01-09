@@ -1,6 +1,6 @@
 package fun;
 
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
@@ -38,7 +38,7 @@ public class ByteVectorBench {
 		System.out.println("Generating test data...");
 		
 		// Generate random-length arrays (100-160 bp)
-		Random rand=new Random(42);
+		Random rand=shared.Shared.random(42);
 		byte[][] qualsArrays=new byte[numArrays][];
 		byte[][] basesArrays=new byte[numArrays][];
 		byte[] baseChoices={'A', 'C', 'G', 'T', 'N'};

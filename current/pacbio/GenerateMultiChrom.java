@@ -1,7 +1,7 @@
 package pacbio;
 
 import java.io.File;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import dna.ChromosomeArray;
@@ -74,7 +74,7 @@ public class GenerateMultiChrom {
 	private static void addN(ChromosomeArray cha, int minContig, int maxContig, int buffer){
 		
 		final int spread=maxContig-minContig+1;
-		final Random randy=new Random(cha.chromosome);
+		final Random randy=shared.Shared.random(cha.chromosome);
 		final int lim=cha.maxIndex-Tools.max(maxContig, minContig+buffer);
 
 		int contig=0;
@@ -111,7 +111,7 @@ public class GenerateMultiChrom {
 		final int ERROR_PERCENT=INDEL_PERCENT+SUB_PERCENT;
 		final int ERROR_LENGTH=3;
 		
-		Random randy=new Random(chrom);
+		Random randy=shared.Shared.random(chrom);
 		
 		int a=cha.minIndex;
 		int b=chb.minIndex;
@@ -126,7 +126,7 @@ public class GenerateMultiChrom {
 			}else if(x>=INDEL_PERCENT){//sub
 				byte e=c;
 				while(e==c){
-					e=AminoAcid.numberToBase[randy.nextInt(4)];
+					e=AminoAcid.numberToBase[randy.nextInt()&3];
 				}
 				chb.set(b, e);
 				a++;
@@ -143,7 +143,7 @@ public class GenerateMultiChrom {
 				if(ins){
 					for(int i=0; i<len; i++){
 						boolean same=randy.nextFloat()<0.6f; //Additional 60% chance that inserted base will be a duplicate of an existing base
-						int n=randy.nextInt(4);
+						int n=randy.nextInt()&3;
 						byte e=(same ? c : AminoAcid.numberToBase[n]);
 						chb.set(b, e);
 						b++;

@@ -431,8 +431,8 @@ public class BamStreamer implements Streamer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int TARGET_LIST_SIZE=200;
-	public static int TARGET_LIST_BYTES=250000;
+	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
+	public static int TARGET_LIST_BYTES=shared.Shared.bufferSize();
 	public static int DEFAULT_THREADS=6; // BAM benefits from more threads; peaks at 7 + 12 bgzip threads
 	
 	/*--------------------------------------------------------------*/
@@ -446,6 +446,6 @@ public class BamStreamer implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	float samplerate=1f;
-	java.util.Random randy=null;
+	shared.Random randy=null;
 	
 }

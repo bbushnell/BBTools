@@ -2,7 +2,7 @@ package synth;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 import fileIO.ByteFile;
@@ -282,13 +282,13 @@ public class MakeContaminatedGenomes {
 				if(x<errorRate && AminoAcid.isFullyDefined(b)){
 					mutationsAdded++;
 					if(x<subRate){
-						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt(3)+1)&3)];
+						b=AminoAcid.numberToBase[((AminoAcid.baseToNumber[b]+randy.nextInt3()+1)&3)];
 						bb.append(b);
 					}else if(randy.nextBoolean()){//del
 						//do nothing
 					}else{//ins
 						i--;
-						b=AminoAcid.numberToBase[randy.nextInt(4)];
+						b=AminoAcid.numberToBase[randy.nextInt()&3];
 						bb.append(b);
 					}
 				}else{

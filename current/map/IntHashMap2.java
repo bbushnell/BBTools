@@ -3,7 +3,7 @@ package map;
 import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Random;
+import shared.Random;
 
 import shared.KillSwitch;
 import shared.Shared;
@@ -38,7 +38,7 @@ public final class IntHashMap2 implements Serializable {
 		
 		// Generate random keys with collisions
 		System.err.println("Generating "+size+" random keys...");
-		Random randy=new Random(12345);
+		Random randy=shared.Shared.random(12345);
 		int[] keys=new int[size];
 		for(int i=0; i<size; i++){
 			keys[i]=(int)Math.sqrt(randy.nextLong() & Long.MAX_VALUE);
@@ -509,6 +509,6 @@ public final class IntHashMap2 implements Serializable {
 	private static final int MINMASK=Integer.MIN_VALUE;
 
 	/** Random number generator for invalid sentinel */
-	private static final Random randy=new Random(1);
+	private static final Random randy=shared.Shared.random(1);
 
 }

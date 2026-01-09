@@ -93,7 +93,7 @@ public class FastaStreamer2ZT implements Streamer{
 	@Override
 	public synchronized void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : new java.util.Random(seed));
+		randy=(rate>=1f ? null : shared.Shared.random(seed));
 	}
 
 	@Override
@@ -196,6 +196,6 @@ public class FastaStreamer2ZT implements Streamer{
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 
 }

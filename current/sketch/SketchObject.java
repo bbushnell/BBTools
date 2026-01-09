@@ -4,7 +4,7 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Random;
+import shared.Random;
 
 import aligner.IDAligner;
 import aligner.SingleStateAlignerFlat2;
@@ -513,7 +513,7 @@ public class SketchObject {
 	 * @return 2D array of hash codes for lookup table
 	 */
 	public static long[][] makeCodes(int symbols, int modes, long seed, boolean positive){
-		Random randy=new Random(seed);
+		Random randy=shared.Shared.random(seed);
 		long mask=positive ? Long.MAX_VALUE : -1L;
 		long[][] r=new long[symbols][modes];
 		for(int i=0; i<symbols; i++){

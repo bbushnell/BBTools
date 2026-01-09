@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,11 +23,15 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.Vector;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
+import stream.FastqScan;
+import stream.OrderedQueueSystem2;
 import stream.Read;
+import stream.WriterFactory;
 import structures.ByteBuilder;
 import structures.ListNum;
 import tax.TaxTree;
@@ -49,8 +53,7 @@ import tracker.ReadStats;
 *and validating computational pipelines with ground-truth synthetic data.
 *
 *@author Brian Bushnell
-*@contributor Isla
-*@contributor Janus
+*@contributor Isla, Janus
 *@date Feb 8, 2025
  */
 public class RandomReadsMG{
@@ -69,7 +72,7 @@ public class RandomReadsMG{
 	 *3. Hexamer priming bias
 	 *  -Model non-random "random" hexamer priming 
 	 *  -Sequence-dependent coverage bias based on priming efficiency
-	 *  -Use empirical hexamer preference data
+	 *  -Use empirical hexamer preference data <- TODO
 	 *
 	 *4. PCR duplicate simulation
 	 *  -Tested for single-ended reads.
@@ -142,15 +145,16 @@ public class RandomReadsMG{
 			qfout2=parser.qfout2;
 			extout=parser.extout;
 		}
-
+		indelRate=insRate+delRate;
 		validateParams();
 		doPoundReplacement(); //Replace # with 1 and 2
 		checkFileExistence(); //Ensure files can be read and written
 		checkStatics(); //Adjust file-related static fields as needed for this program 
 
 		//Create output FileFormat objects
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
-		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+		final boolean ordered=(out2!=null && !"null".equalsIgnoreCase(out2));
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
+		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, false);
 	}
@@ -225,7 +229,9 @@ public class RandomReadsMG{
 			}else if(a.equals("seed")){
 				seed=Long.parseLong(b);
 			}else if(a.equals("reads")){
-				maxReads=Parse.parseKMG(b);
+				readsDesired=Parse.parseKMG(b);
+			}else if(a.equals("readspercontig")){
+				readsPerContig=Parse.parseKMG(b);
 			}else if(a.equals("loud")){
 				loud=Parse.parseBoolean(b);
 			}else if(a.equals("hexamer") || a.equals("kprime") || a.equals("kmerprime") || 
@@ -249,7 +255,12 @@ public class RandomReadsMG{
 			}else if(a.equals("subrate") || a.equals("snprate")){
 				subRate=Float.parseFloat(b);
 			}else if(a.equals("indelrate")){
-				indelRate=Float.parseFloat(b);
+				float f=Float.parseFloat(b);
+				insRate=delRate=f/2;
+			}else if(a.equals("insrate")){
+				insRate=Float.parseFloat(b);
+			}else if(a.equals("delrate")){
+				delRate=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("pacBioLengthSigma") || a.equals("pbsigma") || a.equals("pacbiosigma")){
 				pacBioLengthSigma=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("ontLongTailFactor") || a.equals("tailfactor")){
@@ -311,13 +322,15 @@ public class RandomReadsMG{
 			}else if(a.equals("platform")){
 				String upper=b.toUpperCase();
 				platform=Tools.find(upper, platforms)%3;
-				assert(platform>=0) : platform;
+				assert(platform>=0) : platform+", "+arg;
 			}else if(a.equalsIgnoreCase("illuminaHeaders") || a.equalsIgnoreCase("illuminaNames")){
 				illuminaHeaders=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("barcode")){
 				barcode=(b==null ? null : b.getBytes());
 			}else if(a.equalsIgnoreCase("machine")){
 				machine=(b==null ? null : b.getBytes());
+			}else if(a.equalsIgnoreCase("lane")){
+				lane=Integer.parseInt(b);
 			}else if(b==null && Tools.find(arg.toUpperCase(), modes)>=0){
 				depthMode=Tools.find(arg.toUpperCase(), modes);
 				assert(depthMode>=0) : depthMode;
@@ -455,7 +468,7 @@ public class RandomReadsMG{
 		Read.VALIDATE_IN_CONSTRUCTOR=true;
 
 		//Optionally create a read output stream
-		final ConcurrentReadOutputStream ros=makeCros();
+		final Writer ros=makeWriter();
 
 		//Reset counters
 		readsProcessed=readsOut=0;
@@ -465,11 +478,12 @@ public class RandomReadsMG{
 		spawnThreads(inputFiles, ros);
 
 		if(verbose){outstream.println("Finished; closing streams.");}
+		if(ros!=null) {ros.poisonAndWait();}
 
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
-		errorState|=ReadWrite.closeStream(ros);
+		errorState|=ReadWrite.closeOutputStreams(ros);
 
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
@@ -486,41 +500,26 @@ public class RandomReadsMG{
 	}
 
 	/**
-	 *Creates and initializes a ConcurrentReadInputStream for reading reference genome sequences.
-	 *Configures the stream for multi-threaded access with automatic format detection and
-	 *starts background reading threads. Used for processing individual reference files
-	 *during synthetic read generation.
-	 *
-	 *@param ff FileFormat object specifying input file type and compression
-	 *@return Initialized and started ConcurrentReadInputStream ready for reading
-	 */
-	private ConcurrentReadInputStream makeCris(FileFormat ff){
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
-		cris.start(); //Start the stream
-		if(verbose){outstream.println("Started cris");}
-		return cris;
-	}
-
-	/**
-	 *Creates and initializes a ConcurrentReadOutputStream for writing generated synthetic reads.
+	 *Creates and initializes a Writer for writing generated synthetic reads.
 	 *Configures paired-end or single-end output based on user settings, handles interleaved
 	 *output when appropriate, and sets up quality score output streams. Returns null if
 	 *no output file was specified (useful for benchmarking scenarios).
-	 *@return Configured and started ConcurrentReadOutputStream, or null if no output specified
+	 *@return Configured and started Writer, or null if no output specified
 	 */
-	private ConcurrentReadOutputStream makeCros(){
+	private Writer makeWriter(){
 		if(ffout1==null){return null;}
-
-		//Set output buffer size
-		final int buff=4;
 
 		//Notify user of output mode
 		if(paired && out2==null){
 			outstream.println("Writing interleaved.");
 		}
-
-		final ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(
-				ffout1, ffout2, qfout1, qfout2, buff, null, false);
+		if(inputFiles.size()>1) {
+			OrderedQueueSystem2.BUFFER_PADDING=Math.max(OrderedQueueSystem2.BUFFER_PADDING, 64);
+			Shared.setBufferLen(400);
+		}
+		int wt=-1;//inputFiles.size()>1 ? -1 : 1;
+		final Writer ros=WriterFactory.getStream(
+				ffout1, ffout2, qfout1, qfout2, 4, null, false, wt);
 		ros.start(); //Start the stream
 		return ros;
 	}
@@ -534,7 +533,7 @@ public class RandomReadsMG{
 	 *@param files Collection of reference genome file paths to process
 	 *@param ros Output stream for generated synthetic reads
 	 */
-	private void spawnThreads(final Collection<String> files, final ConcurrentReadOutputStream ros){
+	private void spawnThreads(final Collection<String> files, final Writer ros){
 
 		//Do anything necessary prior to processing
 		ArrayList<String> flist=new ArrayList<String>(files);
@@ -544,7 +543,7 @@ public class RandomReadsMG{
 			//Not really necessary though
 			int t=singleFileThreads;
 			for(int i=1; i<t; i++){flist.add(flist.get(0));}
-			if(maxReads>0){maxReads=(maxReads+t-1)/t;}
+			if(readsPerContig>0){readsPerContig=(readsPerContig+t-1)/t;}
 			else{
 				String name=ReadWrite.stripPath(flist.get(0));
 				Float depth=depthMap.get(name);
@@ -622,17 +621,17 @@ public class RandomReadsMG{
 	/*--------------------------------------------------------------*/
 
 	/**
-	 *Creates a ConcurrentReadInputStream for a specific reference file.
+	 *Creates a Streamer for a specific reference file.
 	 *Automatically detects file format (FASTA/FASTQ), handles compression,
 	 *and configures the stream for single-threaded reading with buffering.
 	 *This overloaded version is used by ProcessThread workers for individual file access.
 	 *
 	 *@param fname Path to the reference genome file to read
-	 *@return Initialized and started ConcurrentReadInputStream for the specified file
+	 *@return Initialized and started Streamer for the specified file
 	 */
-	private ConcurrentReadInputStream makeCris(String fname){
+	private Streamer makeCris(String fname){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null);
+		Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, 0);
 		cris.start(); //Start the stream
 		if(verbose){outstream.println("Started cris");}
 		return cris;
@@ -657,7 +656,13 @@ public class RandomReadsMG{
 		}
 		final float depth;
 		if(custom!=null){depth=custom;}
-		else{depth=randomDepth(randy);}
+		else if(readsDesired>0){
+			long[] data=FastqScan.countReadsAndBases(path, false, -1, -1);
+			long bases=data[2];
+			long reads=readsDesired*(paired ? 2 : 1);
+			long length=(platform==ILLUMINA ? readlen : meanLength);
+			depth=(reads*length)/Math.max(bases, 1f);
+		}else{depth=randomDepth(randy);}
 		if(loud){
 			String dstring=(custom==null ? "" : " custom")+
 					String.format("depth=%.2f", depth);
@@ -800,7 +805,7 @@ public class RandomReadsMG{
 				float prob=QualityTools.PROB_CORRECT[q];
 				if(randy.nextFloat()>prob){
 					int x=AminoAcid.baseToNumber[b];
-					x=(x+(randy.nextInt(3)+1))&3;
+					x=(x+(randy.nextInt3()+1))&3;
 					bases[i]=AminoAcid.numberToBase[x];
 					subs++;
 				}
@@ -831,7 +836,7 @@ public class RandomReadsMG{
 			if(AminoAcid.isFullyDefined(b) && randy.nextFloat()<rate){
 				//Make a substitution-choose a different base
 				int x=AminoAcid.baseToNumber[b];
-				x=(x+(randy.nextInt(3)+1))&3; // Add 1-3 to avoid same base
+				x=(x+(randy.nextInt3()+1))&3; // Add 1-3 to avoid same base
 				bases[i]=AminoAcid.numberToBase[x];
 				subs++;
 			}
@@ -855,11 +860,11 @@ public class RandomReadsMG{
 	 *@param meanQ The mean quality score for inserted bases
 	 *@param qRange The range around meanQ for quality score randomization
 	 *@param randy Random number generator for randomized decisions
-	 *@return The number of indels (insertions+deletions) added to the read
+	 *@return Actual reflen of read, modified for indels
 	 *
 	 *@throws AssertionError If the resulting read length doesn't match the desired length
 	 */
-	public static int addIndels(Read r, float rate, int desiredLength, int meanQ, int qRange, Random randy){
+	public static int addIndels(Read r, float insRate, float delRate, int desiredLength, int meanQ, int qRange, Random randy){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
 
@@ -872,17 +877,19 @@ public class RandomReadsMG{
 
 		final int fullRange=qRange*2+1;
 		final int baseQ=meanQ-qRange;
+		final float rate=insRate+delRate;
 
 		for(int i=0; i<bases.length && newBases.length<desiredLength; i++){
-			if(randy.nextFloat()<rate){
-				//Make an indel-50% insertion, 50% deletion
-				if(randy.nextBoolean()){
+			final float f=randy.nextFloat();
+			if(f<rate){
+				//Make an indel
+				if(f<insRate){
 					//Insertion-add current base plus a random base
 					newBases.append(bases[i]);
 					if(newQuals!=null){newQuals.append(quals[i]);}
 
 					//Insert a random base
-					int x=randy.nextInt(4);
+					int x=randy.nextInt()&3;
 					newBases.append(AminoAcid.numberToBase[x]);
 					if(newQuals!=null){
 						int q=baseQ+randy.nextInt(fullRange);
@@ -918,7 +925,7 @@ public class RandomReadsMG{
 			newQuals.setLength(desiredLength);
 			r.quality=newQuals.toBytes();
 		}
-		return inss+dels;
+		return newBases.length+dels-inss;
 	}
 
 	/**
@@ -952,7 +959,7 @@ public class RandomReadsMG{
 				bb.append(b);
 			}else if(f<sRate){ //Substitution
 				int x=AminoAcid.baseToNumber[b];
-				x=(x+(randy.nextInt(3)+1))&3;
+				x=(x+(randy.nextInt3()+1))&3;
 				bb.append(AminoAcid.numberToBase[x]);
 				changes++;
 			}else{ //Indel
@@ -960,7 +967,7 @@ public class RandomReadsMG{
 					//Deletion, do nothing
 				}else{ //Insertion
 					bb.append(b);
-					byte b2=(f>errProb ? b : AminoAcid.numberToBase[randy.nextInt(4)]);
+					byte b2=(f>errProb ? b : AminoAcid.numberToBase[randy.nextInt()&3]);
 					bb.append(b2); //This is a same-base insertion, sometimes.
 				}
 				bonus=0;
@@ -1045,12 +1052,12 @@ public class RandomReadsMG{
 	private byte[] randomBarcode(int len1, int len2, Random randy) {
 		ByteBuilder bb=new ByteBuilder(len1+len2+1);
 		for(int i=0; i<len1; i++) {
-			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
+			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
 		if(len2<1) {return bb.toBytes();}
 		bb.append('+');
 		for(int i=0; i<len2; i++) {
-			bb.append(AminoAcid.numberToBase[randy.nextInt(4)]);
+			bb.append(AminoAcid.numberToBase[randy.nextInt()&3]);
 		}
 		return bb.toBytes();
 	}
@@ -1075,7 +1082,7 @@ public class RandomReadsMG{
 		 *@param tid_ Thread ID for seeding random number generator
 		 *@param nextFile_ Atomic counter for work distribution coordination
 		 */
-		ProcessThread(final ArrayList<String> files_, final ConcurrentReadOutputStream ros_, 
+		ProcessThread(final ArrayList<String> files_, final Writer ros_, 
 				int tid_, final AtomicInteger nextFile_){
 			files=files_;
 			ros=ros_;
@@ -1098,6 +1105,7 @@ public class RandomReadsMG{
 			for(int i=nextFile.getAndIncrement(); i<files.size(); i=nextFile.getAndIncrement()){
 				String fname=files.get(i);
 				processFile(fname, i);
+//				System.err.println("Thread "+tid+" finished file "+fname);
 			}
 
 			//Mark successful completion
@@ -1112,17 +1120,13 @@ public class RandomReadsMG{
 		void processFile(String path, int fnum){
 			//			System.err.println("Thread "+tid+" processing file "+fnum+"; next="+nextFile);
 			final String fname=ReadWrite.stripPath(path);
-			ConcurrentReadInputStream cris=makeCris(path);
+			Streamer cris=makeCris(path);
 
 			//Grab the first ListNum of reads
 			ListNum<Read> ln=cris.nextList();
 
-			int taxID=TaxTree.parseHeaderStatic2(path, tree);
-			if(taxID<0 && ln.size()>0){
-				Read c0=ln.get(0);
-				taxID=TaxTree.parseHeaderStatic2(c0.id, tree);
-			}
-			final float fileDepth=(maxReads>0 ? 0 : chooseDepthForFile(fname, taxID, fnum, randy));
+			final int fileTaxID=TaxTree.parseHeaderStatic2(path, tree);
+			final float fileDepth=(readsPerContig>0 ? 0 : chooseDepthForFile(fname, fileTaxID, fnum, randy));
 			//			assert(taxID>0) : "Can't parse taxID from "+fname;
 
 			if(waveCoverage){
@@ -1138,22 +1142,14 @@ public class RandomReadsMG{
 						depthRatio=1f+(depthVariance*(randy.nextFloat()+randy.nextFloat()))-depthVariance;
 					}
 					float contigDepth=depthRatio*fileDepth;
-					//					System.err.println("depthRatio="+depthRatio+"; contigDepth="+contigDepth);
+					final int taxID=fileTaxID>0 ? fileTaxID : TaxTree.parseHeaderStatic2(c.id, tree);
 					processContig(c, contigDepth, taxID, fnum, fname);
 				}
-
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
 
 				//Fetch a new list
 				ln=cris.nextList();
 			}
-
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
-
+			ReadWrite.closeStreams(cris);
 		}
 
 		/**
@@ -1184,7 +1180,7 @@ public class RandomReadsMG{
 			}
 
 			lastStart=lastInsert=lastStrand-1; // Reset PCR duplicates
-			long basesToGenerate=(maxReads>0 ? maxReads*basesPerRead : (long)(depth*contig.length()));
+			long basesToGenerate=(readsPerContig>0 ? readsPerContig*basesPerRead : (long)(depth*contig.length()));
 			long readsGenerated=0;
 			long basesGenerated=0;
 			ArrayList<Read> list=new ArrayList<Read>(200);
@@ -1200,11 +1196,11 @@ public class RandomReadsMG{
 					basesGenerated+=r.pairLength();
 				}
 				if(list.size()>=200){
-					if(ros!=null){ros.add(list, 0);}
+					if(ros!=null){ros.add(list, nextListID.getAndIncrement());}
 					list=new ArrayList<Read>(200);
 				}
 			}
-			if(list.size()>0){if(ros!=null){ros.add(list, 0);}}
+			if(list.size()>0 && ros!=null){ros.add(list, nextListID.getAndIncrement());}
 			//			System.err.println("Generated "+basesGenerated+" for depth-"+depth+" contig "+contig.id);
 
 			readsOutT+=readsGenerated;
@@ -1258,7 +1254,7 @@ public class RandomReadsMG{
 				}
 				if(insert>=contig.length()){return null;}
 				start=randy.nextInt(contig.length()-insert);
-				strand=randy.nextInt(2);
+				strand=randy.nextInt2();
 
 				// Cache for potential duplicates
 				lastInsert=insert;
@@ -1266,19 +1262,20 @@ public class RandomReadsMG{
 				lastStrand=strand;
 			}else{pcrDupesOutT++;}
 
-			int paddedLen=insert+(indelRate>0 ? 20 : 0);
+			int paddedLen=insert+(delRate>0 ? (int)(5+2*insert*delRate) : 0);
 			if(skip((start+paddedLen)/2, contig.length(), variance)
 					|| start+paddedLen>contig.length() || start<0){return null;}
 
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, contig.length(), strand, paddedLen, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
-			Read r=new Read(bases, null, header, rnum);
+			Read r=new Read(bases, null, null, rnum);
 			if(addErrors){mutateLongRead(r, sRate, iRate, dRate, hRate, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
-			if(indelRate>0){addIndels(r, indelRate, paddedLen, meanQScore, qScoreRange, randy);}
+			int reflen=insert;
+			if(indelRate>0){reflen=addIndels(r, insRate, delRate, insert, meanQScore, qScoreRange, randy);}
+			r.id=makeHeader(start, contig.length(), strand, r.length(), reflen, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
 			return r;
 		}
 
@@ -1295,14 +1292,14 @@ public class RandomReadsMG{
 		 */
 		private Read generateReadSingle(Read contig, long rnum, int taxID, 
 				int fnum, long cnum, float variance, String fname){
-			final int paddedLen=readlen+(indelRate>0 ? 5 : 0);
+			final int paddedLen=readlen+(delRate>0 ? (int)(5+2*readlen*delRate) : 0);
 			final boolean novel=(pcrRate<=0 || lastStart<0 || randy.nextFloat()>=pcrRate);
 			int start=lastStart, strand=lastStrand;
 
 			if(novel){
 				if(paddedLen>=contig.length()){return null;}
 				start=randy.nextInt(contig.length()-paddedLen);
-				strand=randy.nextInt(2);
+				strand=randy.nextInt2();
 
 				// Cache for potential duplicates
 				lastStart=start;
@@ -1314,12 +1311,13 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
-			String header=makeHeader(start, contig.length(), strand, insert, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
-			Read r=new Read(bases, null, header, rnum);
+			Read r=new Read(bases, null, null, rnum);
 			if(addErrors){mutateIllumina(r, meanQScore, qScoreRange, randy);}
 			if(subRate>0){addSubs(r, subRate, randy);}
-			if(indelRate>0){addIndels(r, indelRate, readlen, meanQScore, qScoreRange, randy);}
+			int reflen=readlen;
+			if(indelRate>0){reflen=addIndels(r, insRate, delRate, readlen, meanQScore, qScoreRange, randy);}
+			r.id=makeHeader(start, contig.length(), strand, readlen, reflen, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
 			return r;
 		}
 
@@ -1337,7 +1335,7 @@ public class RandomReadsMG{
 		 */
 		private Read generateReadPair(Read contig, long rnum, int taxID, 
 				int fnum, long cnum, float variance, String fname){
-			final int paddedLen=readlen+(indelRate>0 ? 5 : 0);
+			final int paddedLen=readlen+(delRate>0 ? (int)(5+2*readlen*delRate) : 0);
 			final boolean novel=(pcrRate<=0 || lastInsert<1 || randy.nextFloat()>=pcrRate);
 			int insert=lastInsert, start1=lastStart, strand=lastStrand;
 			if(novel){
@@ -1348,7 +1346,7 @@ public class RandomReadsMG{
 				}
 				if(Math.max(insert,paddedLen)>=contig.length()){return null;}
 				start1=randy.nextInt(contig.length()-Math.max(insert, paddedLen));
-				strand=randy.nextInt(2);
+				strand=randy.nextInt2();
 
 				// Cache for potential duplicates
 				lastInsert=insert;
@@ -1369,12 +1367,8 @@ public class RandomReadsMG{
 				bases2=temp;
 			}
 			if(randomPriming && !RandomHexamer.keep(bases1, randy)){return null;}
-			String header1=makeHeader(start1, contig.length(), strand, insert, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
-			String header2=makeHeader(start1, contig.length(), strand, insert, taxID,
-				fnum, cnum, 1, novel?0:1, fname, randy);
-			Read r1=new Read(bases1, null, header1, rnum);
-			Read r2=new Read(bases2, null, header2, rnum);
+			Read r1=new Read(bases1, null, null, rnum);
+			Read r2=new Read(bases2, null, null, rnum);
 			r2.setPairnum(1);
 			r1.mate=r2;
 			r2.mate=r1;
@@ -1393,10 +1387,17 @@ public class RandomReadsMG{
 				addSubs(r1, subRate, randy);
 				addSubs(r2, subRate, randy);
 			}
+			int reflen1=readlen, reflen2=readlen;
 			if(indelRate>0){
-				addIndels(r1, indelRate, readlen, meanQScore, qScoreRange, randy);
-				addIndels(r2, indelRate, readlen, meanQScore, qScoreRange, randy);
+				reflen1=addIndels(r1, insRate, delRate, readlen, meanQScore, qScoreRange, randy);
+				reflen2=addIndels(r2, insRate, delRate, readlen, meanQScore, qScoreRange, randy);
 			}
+			insert=insert+readlen-(strand==0 ? reflen2 : reflen1);//Adjust insert for indels
+			
+			r1.id=makeHeader(start1, contig.length(), strand, insert, reflen1, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy);
+			r2.id=makeHeader(start1, contig.length(), strand, insert, reflen2, taxID,
+				fnum, cnum, 1, novel?0:1, fname, randy);
 			return r1;
 		}
 
@@ -1426,8 +1427,10 @@ public class RandomReadsMG{
 		 *Format: f_[filenum]_c_[contignum]_s_[strand]_p_[position]_i_[insert]_d_[duplicate]_tid_[taxid] [pairnum]:
 		 *Some fields are optional.
 		 *@param start Starting position in the contig
+		 *@param clen Contig length
 		 *@param strand Read strand (0=forward, 1=reverse)
-		 *@param insert Insert size for paired reads
+		 *@param insert Insert size
+		 *@param rlen reference length (accounts for indels)
 		 *@param taxID Taxonomy ID
 		 *@param fnum File number
 		 *@param cnum Contig number
@@ -1436,7 +1439,7 @@ public class RandomReadsMG{
 		 *@param randy A random number generator, for Illumina headers
 		 *@return Formatted header string
 		 */
-		private String makeHeader(int start, int clen, int strand, int insert, int taxID, 
+		private String makeHeader(int start, int clen, int strand, int insert, int rlen, int taxID, 
 				int fnum, long cnum, int pnum, int pcr, String fname, Random randy){
 			if(circular && start>=clen/2) {start-=clen/2;}
 			bb.clear();
@@ -1446,7 +1449,7 @@ public class RandomReadsMG{
 			}
 			bb.append('f').under().append(fnum).under().append('c').under().append(cnum);
 			bb.under().append('s').under().append(strand).under().append('p').under().append(start);
-			bb.under().append('i').under().append(insert);
+			bb.under().append('i').under().append(insert).under().append('r').under().append(rlen);
 			if(pcrRate>0){bb.under().append('d').under().append(pcr);}
 			if(taxID>0){bb.under().append("tid").under().append(taxID);}
 			else{bb.under().append("name").under().append(fname);}
@@ -1469,7 +1472,7 @@ public class RandomReadsMG{
 		/** For generating PCR duplicates */
 		private int lastStart=-1, lastInsert=-1, lastStrand=-1;
 		/** Shared output stream */
-		private final ConcurrentReadOutputStream ros;
+		private final Writer ros;
 		/** Thread ID */
 		final int tid;
 		/** Atomic counter for coordinating file assignment across threads */
@@ -1500,6 +1503,8 @@ public class RandomReadsMG{
 	private String extout=null;
 	/** Path to taxonomic tree file for species classification */
 	private String taxTreeFile=null;
+	
+	private final AtomicLong nextListID=new AtomicLong(0);
 	/*--------------------------------------------------------------*/
 	/** Number of reference sequences processed */
 	protected long readsProcessed=0;
@@ -1529,7 +1534,7 @@ public class RandomReadsMG{
 	private int numSineWaves=4;
 	/** Maximum amplitude multiplier for sine wave coverage variation */
 	private float waveAmp=0.7f;
-	/** Orientation bias factor for coverage modeling */
+	/** Origin of replication bias for coverage modeling */
 	private float oriBias=0.25f;
 	/** Minimum probability threshold for wave-based coverage */
 	private float minWaveProb=0.1f;
@@ -1543,12 +1548,18 @@ public class RandomReadsMG{
 	private boolean varyDepthPerContig=false;
 	/** Custom depth settings for specific files or taxonomy IDs */
 	private HashMap<String, Float> depthMap=new HashMap<String, Float>();
-	/** Maximum number of reads to generate (-1 for depth-based) */
-	private long maxReads=-1;
+	/** Total number of reads to generate (used to set depth) */
+	private long readsDesired=-1;
+	/** Number of reads to generate per contig (-1 for depth-based) */
+	private long readsPerContig=-1;
 	/** Rate of substitution errors to add (0.0-1.0) */
 	private float subRate=0;
+	/** Rate of insertion errors to add (0.0-1.0) */
+	private float insRate=0;
+	/** Rate of deletion errors to add (0.0-1.0) */
+	private float delRate=0;
 	/** Rate of indel errors to add (0.0-1.0) */
-	private float indelRate=0;
+	private final float indelRate;
 	/** Average insert size for paired-end reads */
 	private float avgInsert=300;
 	/** Length of individual reads to generate */
@@ -1574,7 +1585,7 @@ public class RandomReadsMG{
 	/** Number of threads to use for single file processing */
 	private int singleFileThreads=1;
 	/** Maximum number of concurrent genomes to process */
-	private int maxConcurrentGenomes=8192;
+	private int maxConcurrentGenomes=2048;
 	/** Substitution error rate for long-read platforms (-1 for default) */
 	private float sRate=-1;
 	/** Insertion error rate for long-read platforms (-1 for default) */
@@ -1590,7 +1601,7 @@ public class RandomReadsMG{
 	int depthMode=MIN4;
 	/** Available sequencing platform types */
 	static final String[] platforms={"ILLUMINA", "ONT", "PACBIO", "ILL", "NANOPORE", "PB"};
-	static final int ILLUMINA=0, ONT=1, PACBIO=2;
+	static final int ILLUMINA=0, ONT=1, PACBIO=2;//PacBio is HiFi.
 	/** Selected sequencing platform */
 	int platform=ILLUMINA;
 	/** Make synthetic Illumina headers */
@@ -1599,7 +1610,7 @@ public class RandomReadsMG{
 	private int hdrNum2=(int)(Math.round(10+Math.random()*90));
 	private int hdrNum3=(int)(Math.round(10+Math.random()*90));
 	private int lane=(int)(Math.round(1+Math.random()*8));
-	private byte[] barcode=randomBarcode(10, 10, new Random());
+	private byte[] barcode=randomBarcode(10, 10, shared.Shared.random());
 	private byte[] machine;
 	/** Flag indicating read length was explicitly set by user */
 	boolean setReadLength=false;

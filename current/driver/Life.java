@@ -1,7 +1,7 @@
 package driver;
 
 import java.io.PrintStream;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.ByteFile1;
 import fileIO.ByteFile2;

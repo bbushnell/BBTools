@@ -1,6 +1,6 @@
 package bin;
 
-import java.util.Random;
+import shared.Random;
 
 import structures.IntHashSet;
 

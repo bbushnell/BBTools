@@ -3,7 +3,7 @@ package clump;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import assemble.AbstractRemoveThread;
 import dna.AminoAcid;
@@ -61,7 +61,7 @@ public class KmerReduce {
 	 * @return Set of pivot k-mers meeting the count threshold
 	 */
 	public static KmerTableSet getValidKmersFromReads(final String fname0, int k, int cutoff){
-		final String fname=fname0+"_"+(new Random().nextLong()>>>1)+".fa.gz";
+		final String fname=fname0+"_"+(shared.Shared.random().nextLong()>>>1)+".fa.gz";
 		assert(!new File(fname).exists());
 
 		ArrayList<String> arglist=new ArrayList<String>();

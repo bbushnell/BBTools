@@ -1,7 +1,7 @@
 package bin;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.Data;
 import fileIO.ByteFile;

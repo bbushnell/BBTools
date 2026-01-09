@@ -3,7 +3,7 @@ package cluster;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import dna.Data;
 import fileIO.ByteFile;

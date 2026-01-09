@@ -3,7 +3,7 @@ package clump;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -631,7 +631,7 @@ public class Clumpify {
 	/** Whether to quantize quality scores to reduce file size */
 	private boolean quantizeQuality=false;
 	/** Random number generator for creating unique temporary file names */
-	private Random randy=new Random();
+	private Random randy=shared.Shared.random();
 	/** Number of groups to split sequences into for processing */
 	private int groups=31;
 	/** Number of clumpification passes to perform */

@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.HashSet;
-import java.util.Random;
+import shared.Random;
 
 import dna.AminoAcid;
 
@@ -105,14 +105,14 @@ public class ProbShared2 {
 	static byte[] randomSequence(int len){
 		byte[] array=new byte[len];
 		for(int i=0; i<len; i++){
-			int number=randy.nextInt(4);
+			int number=randy.nextInt()&3;
 			array[i]=AminoAcid.numberToBase[number];
 		}
 		return array;
 	}
 	
 	/** Random number generator for sequence generation */
-	static final Random randy=new Random();
+	static final Random randy=shared.Shared.random();
 	/** Lookup table for converting numeric values to DNA bases */
 	static final byte[] numberToBase=AminoAcid.numberToBase;
 	/** Lookup table for converting DNA bases to numeric values */

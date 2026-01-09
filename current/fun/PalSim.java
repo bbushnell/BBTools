@@ -1,6 +1,6 @@
 package fun;
 
-import java.util.Random;
+import shared.Random;
 
 /**
  * Monte Carlo simulation for analyzing product distribution and placement of
@@ -37,7 +37,7 @@ public class PalSim {
 		assert(b0>=0 && b0<=.3);
 		assert(c0>=0 && c0<=.3);
 		final long sims=(args.length>3 ? Long.parseLong(args[3]) : 1000000);
-		final Random randy=new Random();
+		final Random randy=shared.Shared.random();
 		final float product0=(1+a0)*(1+b0)*(1+c0);
 		final float maxProduct=1.3f*1.3f*1.3f;
 		

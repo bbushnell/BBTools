@@ -409,9 +409,9 @@ public class SamStreamer implements Streamer {
 	/*--------------------------------------------------------------*/
 
 	/** Target number of records per chunk before pushing to the queue. */
-	public static int TARGET_LIST_SIZE=200;
+	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 	/** Target number of bytes per chunk before pushing to the queue. */
-	public static int TARGET_LIST_BYTES=250000;
+	public static int TARGET_LIST_BYTES=shared.Shared.bufferSize();
 	/** Default number of worker threads when none is specified. */
 	public static int DEFAULT_THREADS=3;
 	
@@ -428,6 +428,6 @@ public class SamStreamer implements Streamer {
 	/** Fraction of reads to retain when subsampling is enabled. */
 	float samplerate=1f;
 	/** Random generator used for subsampling decisions. */
-	java.util.Random randy=null;
+	shared.Random randy=null;
 	
 }

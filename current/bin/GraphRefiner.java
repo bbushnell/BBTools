@@ -2,7 +2,7 @@ package bin;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Random;
+import shared.Random;
 
 import structures.IntHashSet;
 
@@ -28,7 +28,7 @@ class GraphRefiner extends AbstractRefiner {
         oracle = oracle_;
         minEdgeWeight = params.minEdgeWeight;
         maxIterations = params.maxIterations;
-        random = new Random(params.seed);
+        random = shared.Shared.random(params.seed);
         debug = true;
         splitAttempts = 0;
         successfulSplits = 0;

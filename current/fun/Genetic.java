@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 /**
  * Genetic algorithm implementation for solving optimization problems using
@@ -193,7 +193,7 @@ public class Genetic {
 	}
 	
 	/** Random number generator used throughout the genetic algorithm */
-	public static final Random randy=new Random();
+	public static final Random randy=shared.Shared.random();
 
 	/** Population size for the genetic algorithm */
 	final int pop;

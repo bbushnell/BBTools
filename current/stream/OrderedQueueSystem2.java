@@ -30,7 +30,8 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	 * @param outputPrototype Prototype for creating output poison/last pills
 	 */
 	public OrderedQueueSystem2(int numWorkers, boolean orderedOutput, I inputPrototype_, O outputPrototype_){
-		this(numWorkers+4, (3*numWorkers)/2+4, numWorkers, orderedOutput, inputPrototype_, outputPrototype_);
+		this(numWorkers+BUFFER_PADDING, (BUFFER_MULT*numWorkers)/2+BUFFER_PADDING, 
+			numWorkers, orderedOutput, inputPrototype_, outputPrototype_);
 	}
 
 	/**
@@ -157,5 +158,8 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	private volatile boolean finished=false;
 	private volatile boolean lastSeen=false;
 	private static final boolean verbose=false;
+
+	public static int BUFFER_PADDING=4;
+	public static int BUFFER_MULT=3;
 
 }

@@ -228,9 +228,9 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 		if(rate>=1f){
 			randy=null;
 		}else if(seed>-1){
-			randy=new java.util.Random(seed);
+			randy=shared.Shared.random(seed);
 		}else{
-			randy=new java.util.Random();
+			randy=shared.Shared.random();
 		}
 	}
 	
@@ -247,7 +247,7 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	private boolean errorState=false;
 	
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 	
 	/** Returns array containing the underlying producer stream.
 	 * @return Array with single producer element */

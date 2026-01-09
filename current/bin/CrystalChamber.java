@@ -1,7 +1,7 @@
 package bin;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 /**
  * Recrystallization-based bin refinement using centroid clustering.
@@ -24,7 +24,7 @@ class CrystalChamber extends AbstractRefiner {
         maxIterations=50;
         convergenceThreshold=0.01f;
         minSplitImprovement=0.1f;
-        random=new Random(seed); // Deterministic results with cluster-specific seed
+        random=shared.Shared.random(seed); // Deterministic results with cluster-specific seed
     }
     
     @Override

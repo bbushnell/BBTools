@@ -1,7 +1,7 @@
 package bloom;
 
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import shared.Primes;

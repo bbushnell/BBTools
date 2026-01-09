@@ -1,7 +1,7 @@
 package bin;
 
 import java.util.ArrayList;
-import java.util.Random;
+import shared.Random;
 
 class CrystalChamber2 extends AbstractRefiner {
 	
@@ -15,7 +15,7 @@ class CrystalChamber2 extends AbstractRefiner {
 		maxIterations=50; //Prevent infinite clustering loops
 		convergenceThreshold=0.01f; //Traditional centroid movement threshold (unused in stability detection)
 		minSplitImprovement=0.1f; //Minimum similarity difference to justify cluster separation
-		random=new Random(12345); //Reproducible results for testing
+		random=shared.Shared.random(12345); //Reproducible results for testing
 		debug=true; //Enable debugging output for split analysis
 		splitAttempts=0; //Initialize debugging counters
 		successfulSplits=0;

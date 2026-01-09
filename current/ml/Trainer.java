@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -114,8 +114,8 @@ public class Trainer implements Accumulator<WorkerThread> {
 		alphaEpochs=(Tools.min(maxEpochs, 800000)-peakAlphaEpoch);
 		alphaDropoff=1.0/Math.pow(alphaMult2*alphaMult, 1.0/alphaEpochs);
 
-		randyNetSeed=(netSeed0<0 ? new Random() : new Random(netSeed0));
-//		randyAnnealSeed=(annealSeed0<0 ? new Random() : new Random(netSeed0));
+		randyNetSeed=(netSeed0<0 ? shared.Shared.random() : shared.Shared.random(netSeed0));
+//		randyAnnealSeed=(annealSeed0<0 ? shared.Shared.random() : shared.Shared.random(netSeed0));
 		
 		//Can be 0.9, for example
 		maxAnnealEpoch=(maxAnnealEpoch<Integer.MAX_VALUE ? maxAnnealEpoch : (int)(maxAnnealEpochMult*maxEpochs));

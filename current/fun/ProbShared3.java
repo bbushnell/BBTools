@@ -1,7 +1,7 @@
 package fun;
 
 import java.util.HashSet;
-import java.util.Random;
+import shared.Random;
 
 /**
  * Probabilistic simulation tool for estimating k-mer occurrence probability
@@ -91,6 +91,6 @@ public class ProbShared3 {
 	}
 	
 	/** Random number generator for k-mer simulation */
-	static final Random randy=new Random();
+	static final Random randy=shared.Shared.random();
 	
 }

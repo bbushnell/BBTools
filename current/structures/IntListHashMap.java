@@ -2,7 +2,7 @@ package structures;
 
 import java.io.Serializable;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 
 import shared.KillSwitch;
 import shared.Primes;
@@ -237,5 +237,5 @@ public final class IntListHashMap implements Serializable {
 	static final int MASK=Integer.MAX_VALUE;
 	static final int MINMASK=Integer.MIN_VALUE;
 	private static final int extra=10;
-	private static final Random randy=new Random(1);
+	private static final Random randy=shared.Shared.random(1);
 }

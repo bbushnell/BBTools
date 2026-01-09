@@ -82,12 +82,13 @@ public final class FastqScan{
 		}
 	}
 
+	/** Returns molecules, reads, bases, headers */
 	public static long[] countReadsAndBases(String fname, boolean halveInterleaved, int readThreads, int zipThreads) {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, false);
 		return countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);
 	}
 
-	/** Returns molecules, reads, bases, file headers */
+	/** Returns molecules, reads, bases, headers */
 	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved, int readThreads, int zipThreads) {
 		if(readThreads>1 && ff.fastq()) {return FastqScanMT.countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);}
 		final int oldZT=BgzfSettings.READ_THREADS;
@@ -107,7 +108,7 @@ public final class FastqScan{
 			return null;
 		}finally {BgzfSettings.READ_THREADS=oldZT;}
 		long[] ret=new long[] {fqs.totalRecords/recordsPerRead, fqs.totalRecords, 
-			fqs.totalBases, fqs.totalRecords};
+			fqs.totalBases, fqs.totalHeaders};
 		return ret;
 	}
 

@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
 import fileIO.ByteFile;

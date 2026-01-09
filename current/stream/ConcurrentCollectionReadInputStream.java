@@ -306,7 +306,7 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	private boolean errorState=false;
 	
 	private float samplerate=1f;
-	private java.util.Random randy=null;
+	private shared.Random randy=null;
 	
 	private Thread[] threads;
 	

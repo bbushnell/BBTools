@@ -3,7 +3,7 @@ package structures;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.Random;
+import shared.Random;
 
 import shared.KillSwitch;
 import shared.Primes;
@@ -415,7 +415,7 @@ public class IntHashSet{
 	private int sizeLimit;
 	private final float loadFactor;
 	
-	private static final Random randy=new Random(1);
+	private static final Random randy=shared.Shared.random(1);
 	private static final int MASK=Integer.MAX_VALUE;
 	private static final int MINMASK=Integer.MIN_VALUE;
 	

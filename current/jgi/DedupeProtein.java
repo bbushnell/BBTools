@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.PriorityQueue;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import align2.BandedAligner;

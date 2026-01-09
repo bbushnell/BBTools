@@ -3,7 +3,7 @@ package bloom;
 import java.lang.Thread.State;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Random;
+import shared.Random;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -934,7 +934,7 @@ public final class KCountArray7MTA extends KCountArray {
 	public static synchronized void setSeed(long seed){
 		if(seed>=0){SEEDMASK=seed;}
 		else{
-			Random randy=new Random();
+			Random randy=shared.Shared.random();
 			SEEDMASK=randy.nextLong();
 		}
 	}
