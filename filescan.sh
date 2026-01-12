@@ -3,10 +3,10 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 9, 2025
+Last modified January 12, 2025
 
 Description:  Fast lightweight scanner that parses newlines.
-Supports raw, gzip, bgzip, and bz2.
+Supports raw, gzip, bgzip, and bz2 compression, and any text filetype.
 
 Usage:  filescan.sh <file> <threads>
 e.g.
@@ -14,10 +14,7 @@ filescan.sh contigs.fasta
 filescan.sh reads.fq.gz
 filescan.sh reads.fq 2
 
-Input may be fastq, fasta, sam, scarf, gfa, or fastg, 
-compressed or uncompressed.  To input stdin use e.g. stdin or stdin.gz
-as the argument (with proper extension).
-Bgzipped input processing is multithreaded and far faster than regular gzip.
+Bgzipped input processing is multithreaded and much faster than regular gzip.
 SIMD support is autodetected and can be disabled with the flag simd=f.
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
