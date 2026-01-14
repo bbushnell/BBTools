@@ -188,7 +188,7 @@ public class DataLoader {
             list.add(p);
         }
         Random randy=shared.Shared.random(SampleSet.shuffleSeed);
-        Collections.shuffle(list, randy);
+        Shared.shuffle(list, randy);
         inputList.clear();
         outputList.clear();
         weightList.clear();

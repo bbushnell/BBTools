@@ -211,7 +211,7 @@ public final class RandomReads3 {
 				Shared.FASTA_WRAP=Parse.parseIntKMG(b);
 			}else if(a.startsWith("seed")){
 				seed2=Long.parseLong(b);
-			}else if(a.equals("ref") || a.equals("reference")){
+			}else if(a.equals("ref") || a.equals("reference") || a.equals("in")){
 				ref=b;
 			}else if(a.equals("path")){
 				Data.setPath(b);
@@ -360,8 +360,8 @@ public final class RandomReads3 {
 			}else if(a.equals("slashspace") || a.equals("spaceslash")){
 				spaceslash=Parse.parseBoolean(b);
 				FASTQ.SPACE_SLASH=spaceslash;
-			}else if(a.equals("in")){
-				in1=(b==null || b.equalsIgnoreCase("null") ? null : b);
+//			}else if(a.equals("in")){
+//				in1=(b==null || b.equalsIgnoreCase("null") ? null : b);
 			}else if(Parser.parseCommonStatic(arg, a, b)){
 				//Flag was captured by the parser; do nothing
 			}else{throw new RuntimeException("Unknown parameter "+args[i]);}
@@ -2425,9 +2425,9 @@ public final class RandomReads3 {
 	/** Global error state flag */
 	public static boolean errorState;
 	
-	//Input file, for use as quality source
-	/** Input file for using real quality score distributions */
-	public static String in1;
+//	//Input file, for use as quality source
+//	/** Input file for using real quality score distributions */
+//	public static String in1;
 	
 	/** Output stream for status messages and logging */
 	static PrintStream outstream=System.err;
