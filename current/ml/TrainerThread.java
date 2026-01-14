@@ -4,6 +4,8 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import shared.Random;
+import shared.Shared;
+
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -251,7 +253,7 @@ public class TrainerThread extends Thread {
 			}
 		}
 //		System.err.println("len="+list.size());
-		Collections.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
+		Shared.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
 		data.samples=list.toArray(new Sample[0]);
 		data.samplesSortedByResult=data.samples.clone();
 		data.numPositive=pcount;
@@ -325,7 +327,7 @@ public class TrainerThread extends Thread {
 		assert(data.samples.length>=list.size());
 //		System.err.println(data.samples.length+", "+list.size()+", "+pcount+", "+ncount);
 		final float sampleRatio=data.samples.length/(float)Tools.max(1, list.size());
-		Collections.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
+		Shared.shuffle(list, shared.Shared.random(SampleSet.shuffleSeed+1));
 		data.samples=list.toArray(new Sample[0]);
 //		System.err.println("samples="+data.samples.length);
 		data.samplesSortedByResult=data.samples.clone();

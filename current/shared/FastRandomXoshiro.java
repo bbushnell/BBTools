@@ -17,6 +17,35 @@ public final class FastRandomXoshiro implements Random {
 		setSeed(seed>=0 ? seed : System.nanoTime());
 	}
 
+	// Default to NaN to indicate "empty"
+	private double nextNextGaussian=Double.NaN;
+
+	@Override
+	public double nextGaussian() {
+		// 1. Check if the cache is valid (not NaN)
+		if(!Double.isNaN(nextNextGaussian)){
+			double temp=nextNextGaussian;
+			nextNextGaussian=Double.NaN; // Mark as empty
+			return temp;
+		}
+
+		// 2. Generate two new numbers
+		double v1, v2, s;
+		do{
+			v1=2*nextDouble()-1; 
+			v2=2*nextDouble()-1; 
+			s=v1*v1+v2*v2;
+		}while(s>=1 || s==0);
+
+		double multiplier=Math.sqrt(-2*Math.log(s)/s);
+
+		// 3. Store the second one
+		nextNextGaussian=v2*multiplier;
+
+		// 4. Return the first one
+		return v1*multiplier;
+	}
+
 	@Override
 	public void setSeed(long seed) {
 		// Use SplitMix64 to initialize the state (as recommended by the authors)

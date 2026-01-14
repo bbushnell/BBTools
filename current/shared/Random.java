@@ -1,6 +1,6 @@
 package shared;
 
-import java.util.random.RandomGenerator;
+//import java.util.random.RandomGenerator;
 
 import dna.AminoAcid;
 
@@ -11,7 +11,7 @@ import dna.AminoAcid;
  * @contributor Isla
  * @date January 6, 2026
  */
-public interface Random extends RandomGenerator{
+public interface Random {//Can't extend RandomGenerator, not added until v17.
 
 	/** Returns the next pseudorandom long using XorShift128+ core.
 	 * @return Next random long */
@@ -95,5 +95,18 @@ public interface Random extends RandomGenerator{
 	/** Reinitializes RNG state.
 	 * @param seed New seed (negative for a random seed) */
 	public void setSeed(long seed);
+
+	//From RandomGenerator
+	
+	public long nextLong(long l);
+	
+	public double nextGaussian();
+	
+	public default int nextInt(int origin, int bound) {
+		if(origin>=bound) {
+			throw new IllegalArgumentException("origin must be less than bound");
+		}
+		return origin+nextInt(bound-origin);
+	}
 
 }

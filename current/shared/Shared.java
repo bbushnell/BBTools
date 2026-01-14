@@ -11,7 +11,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import shared.Random;
 import java.util.Set;
 
 /**
@@ -580,6 +579,21 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------       Utility Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	public static <T> void shuffle(ArrayList<T> list, Random randy) {
+	    // Start from the end and swap with a random position 
+	    // between 0 and the current position (inclusive).
+	    for (int i=list.size(); i>1; i--) {
+	        // Pick a random index from 0 to i-1
+	        int x=randy.nextInt(i); 
+	        
+	        // Fast swap (manually inlined)
+	        // Swap element at (i-1) with element at x
+	        T temp=list.get(i-1);
+	        list.set(i-1, list.get(x));
+	        list.set(x, temp);
+	    }
+	}
 	
 	/** Gets thread-local random number generator. @return Random instance */
 	public static final Random random() {return threadLocalRandom(-1);}
