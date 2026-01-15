@@ -136,15 +136,17 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			}
 			
 			for(pos++; pos<list.size(); pos++) {
-				lp.set(list.get(pos));
+				final byte[] line=list.get(pos);
+				lp.set(line);
 				if(lp.startsWith("16S")) {
 					c.r16S=lp.parseByteArray(1);
 				}else if(lp.startsWith("18S")) {
 					c.r18S=lp.parseByteArray(1);
 				}else if(lp.startsWith("k") && MAXK<5) {
 					//do nothing
-				}else {
-					assert(false) : "Unknown line for TaxID "+c+"\n"+new String(list.get(pos));
+				}else{//TODO: Sometimes terminal blank lines are added 
+					assert(line==null || line.length==0) : "Unknown line for TaxID "+c+
+						"\npos="+pos+", line='"+new String(line)+"'";
 				}
 			}
 			c.finish();

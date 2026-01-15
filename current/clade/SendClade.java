@@ -614,6 +614,7 @@ public class SendClade extends CladeObject {
 
 		try{
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Calling ServerTools.sendAndReceive()");}
+//			assert(false) : new String(message);
 			Timer sendTimer=new Timer();
 			StringNum result=sendAndReceive(message, address);
 			assert(result != null) : "Server returned null result";
@@ -645,6 +646,7 @@ public class SendClade extends CladeObject {
 	
 	private static StringNum sendAndReceive(byte[] message, String address) {
 		StringNum sn=null;
+//		assert(false) : "'"+new String(message)+"'";
 		if(sync) {
 			synchronized(SendSketch.class) {
 				sn=ServerTools.sendAndReceive(message, address);
