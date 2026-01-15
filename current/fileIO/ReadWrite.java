@@ -897,7 +897,6 @@ public class ReadWrite {
 			final OutputStream raw=getRawOutputStream(fname, append, false);//TODO - should it be true or false?
 			if(RAWMODE){return raw;}
 			final OutputStream out;
-			assert(false);
 			if(!BgzfSettings.USE_MULTITHREADED_BGZF) {out=new BgzfOutputStream(raw);}
 			else if(BgzfSettings.USE_BGZFOS_MT2){
 				out=new BgzfOutputStreamMT2(raw, Tools.mid(1, 64, threads), zl);
