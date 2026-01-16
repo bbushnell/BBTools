@@ -156,6 +156,8 @@ public class StreamerWrapper{
 				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("forceparse")){
 				forceParse=Parse.parseBoolean(b);
+			}else if(a.equals("skipreads")){
+				skipreads=Parse.parseKMG(b);
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else if(i==0 && parser.in1==null && Tools.looksLikeInputSequenceStream(arg)){
@@ -294,6 +296,7 @@ public class StreamerWrapper{
 		if(fw!=null) {fw.start();}
 		if(readMode) {
 			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+				if(skipreads>0) {skipReads(ln.list);}
 				for(Read r : ln) {
 					processReadPair(r, r.mate);
 				}
@@ -302,6 +305,7 @@ public class StreamerWrapper{
 		}else {
 			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
 				final ArrayList<SamLine> list=ln.list;
+				if(skipreads>0) {skipReads(list);}
 				for(int i=0, len=list.size(); i<len; i++) {
 					SamLine sl=list.get(i);
 					boolean keep=processSamLine(sl);
@@ -327,6 +331,18 @@ public class StreamerWrapper{
 //			e.printStackTrace();
 //		}
 //		Shared.listThreads2();
+	}
+	
+	private int skipReads(ArrayList<?> list) {
+		if(skipreads>0) {
+			if(skipreads>=list.size()) {skipreads-=list.size(); list.clear();}
+			else {
+				for(int i=0; i<skipreads; i++) {list.set(i, null);}
+				Tools.condenseStrict(list);
+				skipreads=0;
+			}
+		}
+		return list.size();
 	}
 	
 	/**
@@ -393,6 +409,8 @@ public class StreamerWrapper{
 	private int threadsOut=-1;
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
+	/** Skip this many initial reads */
+	private long skipreads=-1;
 	/** Fraction of reads to keep (1.0 = all reads) */
 	private float samplerate=1f;
 	/** Random seed for subsampling */

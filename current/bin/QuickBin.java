@@ -1,6 +1,5 @@
 package bin;
 
-import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -20,7 +19,6 @@ import sketch.Sketch;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.Read;
-import structures.ByteBuilder;
 import structures.IntHashMap;
 import structures.IntLongHashMap;
 import structures.ListNum;
