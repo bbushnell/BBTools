@@ -168,14 +168,14 @@ public class Oracle extends BinObject implements Cloneable {
 		final float cagaDif=Math.abs(a.caga-b.caga);
 		final float gchhDif=Tools.max(gcDif, hhDif*hhMult, cagaDif*cagaMult);
 //		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
-		final float depthRatio=a.depthRatio(b);
+		final float maxDepthRatio1=(maxDepthRatio*Binner.goodEdgeMult);
+		final float depthRatio=a.depthRatio1(b, maxDepthRatio1);
 		final long minlen=Math.min(a.size(), b.size());
 		if(BinObject.verbose || verbose2) {
 			System.err.println("gcdif="+gcDif);
 			System.err.println("depthRatio="+depthRatio);
 		}
-		if(gchhDif>maxGCDif*Binner.goodEdgeMult || //TODO: Add hh here
-				depthRatio>maxDepthRatio*Binner.goodEdgeMult) {
+		if(gchhDif>maxGCDif*Binner.goodEdgeMult || depthRatio>maxDepthRatio1) {
 			return -1;
 		}//Early exit before edge-tracking
 		
@@ -402,7 +402,7 @@ public class Oracle extends BinObject implements Cloneable {
 		long minEdges=Tools.min(edges1, edges2);
 		final long edgesT=(minEdges>=Binner.minEdgeWeight ? minEdges : a.transEdgesTo(b));
 		float gcDif=Math.abs(a.gc()-b.gc());
-		float depthRatio=a.depthRatio(b);
+		float depthRatio=a.depthRatio1(b, 4f);
 		float covariance=a.covariance(b);
 		float tetramerDif=SimilarityMeasures.cosineDifference(a.tetramers, b.tetramers);
 		float trimerDif=(countTrimers ? 
@@ -457,7 +457,7 @@ public class Oracle extends BinObject implements Cloneable {
 		float sizeProxy2=0.1f*(logSize2-7);
 		
 		float depthRatioProxy=(float)(0.5f*Tools.log2(depthRatio));
-		if(depthRatioMethod!=1) {depthRatioProxy=a.depthRatio(b, depthRatioMethod);}
+		if(depthRatioMethod!=1) {depthRatioProxy=a.depthRatio(b, depthRatioMethod, 4f);}
 //		if(depthRatioProxy<=0) {
 //			KillSwitch.kill(depthRatioMethod+", "+
 //					depthRatio+", "+depthRatioProxy+", "+a.depth(0)+", "+b.depth(0));

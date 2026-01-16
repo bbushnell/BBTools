@@ -593,7 +593,7 @@ public class AllToAllVectorMaker extends BinObject {
 //			System.err.println("Failed filter: "+same+", gcDif="+gcDif);
 			return false;
 		}
-		final float depthRatio=a.depthRatio(b);
+		final float depthRatio=a.depthRatio1(b, 4f);
 		if(depthRatio>maxDepthRatio) {
 //			System.err.println("Failed filter: "+same+", depthRatio="+depthRatio);
 			return false;

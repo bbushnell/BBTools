@@ -38,16 +38,17 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * @param b The bin to compare against
 	 * @param method Calculation method (0-7): 1=max ratio, 2=harmonic mean,
 	 * 3=adjusted max, 4=min ratio, 5-7=inverted versions of 2-4
+	 * @param cutoff Early exit when ratio exceeds this
 	 * @return Depth ratio metric based on method
 	 */
-	public float depthRatio(Bin b, int method) {
+	public float depthRatio(Bin b, int method, float cutoff) {
 		if(method==0) {return 0;}
-		if(method==1) {return depthRatio(b);}
+		if(method==1) {return depthRatio1(b, cutoff);}
 		if(method==2) {return depthRatio2(b);}
-		if(method==3) {return depthRatio3(b);}
+		if(method==3) {return depthRatio3(b, cutoff);}
 		if(method==4) {return depthRatio4(b);}
 		if(method==5) {return 1-depthRatio2(b);}
-		if(method==6) {return 1-depthRatio3(b);}
+		if(method==6) {return 1-depthRatio3(b, cutoff);}
 		if(method==7) {return 1-depthRatio4(b);}
 		throw new RuntimeException(""+method);
 	}
@@ -56,11 +57,12 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * Calculates maximum depth ratio between bins across all samples.
 	 * Uses depth boost to avoid division by zero.
 	 * @param b The bin to compare against
+	 * @param cutoff Early exit when ratio exceeds this
 	 * @return Maximum ratio of depths across samples
 	 */
-	public float depthRatio(Bin b) {
+	public float depthRatio1(Bin b, float cutoff) {
 		float max=1;
-		for(int i=0; i<depth.size; i++) {
+		for(int i=0; i<depth.size && max<=cutoff; i++) {
 			float d1=depth.get(i)+depthBoost;
 			float d2=b.depth.get(i)+depthBoost;
 			float ratio=Tools.max(d1,d2)/Tools.min(d1,d2);
@@ -75,7 +77,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * @param b The bin to compare against
 	 * @return Minimum harmonic mean ratio
 	 */
-	public float depthRatio2(Bin b) {
+	private float depthRatio2(Bin b) {
 		float min=1;
 		for(int i=0; i<depth.size; i++) {
 			float d1=depth.get(i)+depthBoost;
@@ -92,9 +94,9 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * @param b The bin to compare against
 	 * @return Maximum adjusted depth ratio
 	 */
-	public float depthRatio3(Bin b) {
+	private float depthRatio3(Bin b, float cutoff) {
 		float max=0;
-		for(int i=0; i<depth.size; i++) {
+		for(int i=0; i<depth.size && max<=cutoff; i++) {
 			float d1=depth.get(i)+depthBoost;
 			float d2=b.depth.get(i)+depthBoost;
 			float ratio=2*(Tools.max(d1,d2)/(d1+d2))-1;
@@ -109,7 +111,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * @param b The bin to compare against
 	 * @return Minimum simple depth ratio
 	 */
-	public float depthRatio4(Bin b) {
+	private float depthRatio4(Bin b) {
 		float min=1;
 		for(int i=0; i<depth.size; i++) {
 			float d1=depth.get(i)+depthBoost;
