@@ -44,7 +44,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 * @param minSize Minimum size threshold for map inclusion
 	 */
 	void addAll(Collection<? extends Bin> bins, int minSize) {
-		Key key=new Key();
+		Key key=Key.makeKey();
 		for(Bin b : bins) {
 			if(b.size()<minSize) {
 				residual.add(b);
@@ -64,7 +64,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 */
 	Cluster add(Bin a, Key key) {
 		Cluster c=a.toCluster();
-		if(key==null) {key=new Key();}
+		if(key==null) {key=Key.makeKey();}
 		key.set(a);
 		ArrayList<Cluster> list=getOrMakeList(key);
 		synchronized(list) {list.add(c);}
@@ -86,10 +86,16 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 			list=map.get(key);
 			minGridGC=Tools.min(minGridGC, key.gcLevel);
 			maxGridGC=Tools.max(maxGridGC, key.gcLevel);
-			minGridDepth=Tools.min(minGridDepth, key.covLevel, key.covLevel2);
-			maxGridDepth=Tools.max(maxGridDepth, key.covLevel, key.covLevel2);
+			minGridDim2=Math.min(minGridDim2, key.dim2);
+			maxGridDim2=Math.max(maxGridDim2, key.dim2);
+			minGridDim3=Math.min(minGridDim3, key.dim3);
+			maxGridDim3=Math.max(maxGridDim3, key.dim3);
+			minGridDim4=Math.min(minGridDim4, key.dim4);
+			maxGridDim4=Math.max(maxGridDim4, key.dim4);
 			assert(minGridGC<=maxGridGC) : minGridGC+", "+maxGridGC+", "+key;
-			assert(minGridDepth<=maxGridDepth);
+			assert(minGridDim2<=maxGridDim2);
+			assert(minGridDim3<=maxGridDim3);
+			assert(minGridDim4<=maxGridDim4);
 		}
 		return list;
 	}
@@ -107,30 +113,48 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 * @return Best matching cluster or null if none found
 	 */
 	public Cluster findBestCluster(Bin a, int minSizeToCompare, Key key, int matrixRange, Oracle oracle) {
-		if(key==null) {key=new Key();}
+		if(key==null) {key=Key.makeKey();}
 		oracle.clear();
 		final float gc=a.gc();
-		final float depth=a.depth(0);
-		final float depth2=a.depth(1);
 		key.set(a);
 		
 		float mult=Binner.sizeAdjustMult(a.size());
 		final float maxDepthRatio=1+(oracle.maxDepthRatio0-1)*mult;
 		final float maxGCDif=oracle.maxGCDif0*mult;
-		assert(maxDepthRatio>=1) : maxDepthRatio;
-		final int minDepthLevel=Tools.max(minGridDepth, 
-				key.covLevel-matrixRange, Key.quantizeDepth(depth/maxDepthRatio));
-		final int maxDepthLevel=Tools.min(maxGridDepth,
-				key.covLevel+matrixRange, Key.quantizeDepth(depth*maxDepthRatio));
 		final int minGCLevel=Tools.max(minGridGC, key.gcLevel-matrixRange, Key.quantizeGC(gc-maxGCDif));
 		final int maxGCLevel=Tools.min(maxGridGC, key.gcLevel+matrixRange, Key.quantizeGC(gc+maxGCDif));
 		
-		int minDepthLevel2=0;
-		int maxDepthLevel2=0;
-		if(a.numDepths()>1) {
-			minDepthLevel2=Tools.max(minGridDepth, key.covLevel2-matrixRange, Key.quantizeDepth(depth2/maxDepthRatio));
-			maxDepthLevel2=Tools.min(maxGridDepth, key.covLevel2+matrixRange, Key.quantizeDepth(depth2*maxDepthRatio));
-		}
+		assert(maxDepthRatio>=1) : maxDepthRatio;
+		assert(minGCLevel<=key.gcLevel || minGCLevel==999999 || minGridGC>key.gcLevel) : 
+			key.gcLevel+", "+minGCLevel+", "+minGridGC+", "+
+			matrixRange+", "+gc+", "+maxGCDif+", "+Key.quantizeGC(gc-maxGCDif);
+		assert(maxGCLevel>=key.gcLevel || minGCLevel==999999 || maxGridGC<key.gcLevel) : 
+			key.gcLevel+", "+maxGCLevel+", "+maxGridGC+", "+
+			matrixRange+", "+gc+", "+maxGCDif+", "+Key.quantizeGC(gc+maxGCDif);
+		
+		final int minDim2=key.lowerBoundDim2(a, matrixRange, minGridDim2, maxGCDif, maxDepthRatio);
+		final int maxDim2=key.upperBoundDim2(a, matrixRange, maxGridDim2, maxGCDif, maxDepthRatio);
+		
+		final int minDim3=key.lowerBoundDim3(a, matrixRange, minGridDim3, maxGCDif, maxDepthRatio);
+		final int maxDim3=key.upperBoundDim3(a, matrixRange, maxGridDim3, maxGCDif, maxDepthRatio);
+		
+		final int minDim4=key.lowerBoundDim4(a, matrixRange, minGridDim4, maxGCDif, maxDepthRatio);
+		final int maxDim4=key.upperBoundDim4(a, matrixRange, maxGridDim4, maxGCDif, maxDepthRatio);
+
+		assert(minGCLevel<=maxGCLevel || maxGCLevel==0 || minGridGC>key.gcLevel || maxGridGC<key.gcLevel) : 
+			minGCLevel+", "+maxGCLevel+", "+key.gcLevel+", "+matrixRange;
+		assert(minDim2<=maxDim2 || maxDim2==0 || minGridDim2>key.dim2 || maxGridDim2<key.dim2) : 
+			minDim2+", "+maxDim2;
+		assert(minDim3<=maxDim3 || maxDim3==0 || minGridDim3>key.dim3 || maxGridDim3<key.dim3) : 
+			minDim3+", "+maxDim3;
+		assert(minDim4<=maxDim4 || maxDim4==0 || minGridDim4>key.dim4 || maxGridDim4<key.dim4) : 
+			minDim4+", "+maxDim4;
+		
+		//Bad assertion, it fails sometimes and is basically wrong, just for testing.
+//		assert((minDim3==maxDim3)==(minDim4==maxDim4) || maxDim4==0 || 
+//			minGridDim3>key.dim3 || maxGridDim3<key.dim3 || minGridDim4>key.dim4 || maxGridDim4<key.dim4) : 
+//			minDim3+"-"+maxDim3+", "+minDim4+"-"+maxDim4+"\n"+
+//			minGridDim3+"-"+maxGridDim3+", "+minGridDim4+"-"+maxGridDim4+"\n"+a;
 		
 		if(verbose) {
 			System.err.println("Using params minSizeToCompare="+minSizeToCompare+
@@ -138,16 +162,18 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 					", maxProduct="+oracle.maxProduct0+", maxGCDif="+maxGCDif+
 					", maxCovariance="+oracle.maxCovariance0+", matrixRange="+matrixRange);
 		}
-		
-		for(int depthLevel2=minDepthLevel2; depthLevel2<=maxDepthLevel2; depthLevel2++) {
-			for(int depthLevel=minDepthLevel; depthLevel<=maxDepthLevel; depthLevel++) {
-				for(int gcLevel=minGCLevel; gcLevel<=maxGCLevel; gcLevel++) {
-					if(verbose) {System.err.println("Looking at depth "+depthLevel+", gc "+gcLevel);}
-					key.setLevel(gcLevel, depthLevel, depthLevel2);
-					ArrayList<Cluster> list=map.get(key);
-					if(list!=null) {
-						int idx=findBestBinIndex(a, list, minSizeToCompare, oracle);
-						if(verbose && idx>=0) {System.err.println("***Set best to "+oracle.best.id());}
+
+		for(int dim4=minDim4; dim4<=maxDim4; dim4++) {
+			for(int dim3=minDim3; dim3<=maxDim3; dim3++) {
+				for(int dim2=minDim2; dim2<=maxDim2; dim2++) {
+					for(int gcLevel=minGCLevel; gcLevel<=maxGCLevel; gcLevel++) {
+						if(verbose) {System.err.println("Looking at depth "+dim2+", gc "+gcLevel);}
+						key.setLevel(gcLevel, dim2, dim3, dim4);
+						ArrayList<Cluster> list=map.get(key);
+						if(list!=null) {
+							int idx=findBestBinIndex(a, list, minSizeToCompare, oracle);
+							if(verbose && idx>=0) {System.err.println("***Set best to "+oracle.best.id());}
+						}
 					}
 				}
 			}
@@ -224,8 +250,12 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		if(clearResidual) {residual.clear();}	
 		minGridGC=999999;
 		maxGridGC=0;
-		minGridDepth=999999;
-		maxGridDepth=0;
+		minGridDim2=999999;
+		maxGridDim2=0;
+		minGridDim3=999999;
+		maxGridDim3=0;
+		minGridDim4=999999;
+		maxGridDim4=0;
 	}
 	
 	/**
@@ -263,12 +293,15 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	private int minGridGC=999999;
 	/** Maximum GC level observed in the current grid */
 	private int maxGridGC=0;
-	/** Minimum depth level observed in the current grid */
-	private int minGridDepth=999999;
-	/** Maximum depth level observed in the current grid */
-	private int maxGridDepth=0;
-	
-//	public AtomicLong fastComparisons=new AtomicLong(0);
-//	public AtomicLong slowComparisons=new AtomicLong(0);
+//	/** Minimum depth level observed in the current grid */
+//	private int minGridDepth=999999;
+//	/** Maximum depth level observed in the current grid */
+//	private int maxGridDepth=0;
+	private int minGridDim2=9999999;//Generally depth1 or HH
+	private int maxGridDim2=0;
+	private int minGridDim3=9999999;
+	private int maxGridDim3=0;
+	private int minGridDim4=9999999;
+	private int maxGridDim4=0;
 	
 }

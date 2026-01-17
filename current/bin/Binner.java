@@ -477,7 +477,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			Collections.sort(input);
 		}
 		BinMap map=new BinMap(contigList);
-		Key key=new Key();
+		Key key=Key.makeKey();
 		float stringency=1;
 		long contigsAdded=0;
 		long clustersCreated=0;
@@ -555,7 +555,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 		ArrayList<Cluster> clusters=map.toList(false);
 		Collections.sort(clusters);
-		Key key=new Key();
+		Key key=Key.makeKey();
 
 		for(int i=1; i<clusters.size(); i++) {
 			assert(clusters.get(i).size()<=clusters.get(i-1).size());
@@ -682,7 +682,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			map.clear(true);
 			ArrayList<Bin> bins = toBinList(map.contigList, 0);
 			Collections.sort(bins);
-			Key key = new Key();
+			Key key = Key.makeKey();
 			for(Bin b : bins) {map.add(b, key);}
 		}
 		assert(isValid(map.toList(true), false));
@@ -744,7 +744,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			map.clear(true);
 			ArrayList<Bin> bins=toBinList(map.contigList, 0);
 			Collections.sort(bins);
-			Key key=new Key();
+			Key key=Key.makeKey();
 			for(Bin b : bins) {
 				map.add(b, key);
 			}
@@ -1564,7 +1564,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		//		final boolean allowHalfTaxID;
 		final int range;
 		final int minSize;
-		final Key key=new Key();
+		final Key key=Key.makeKey();
 		final float[] ret=new float[1];
 		final Oracle oracle;
 		boolean success=false;

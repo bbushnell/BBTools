@@ -290,6 +290,14 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		return toBytes().toString();
 	}
 	
+	public final ByteBuilder toSeq() {
+		ByteBuilder bb=new ByteBuilder();
+		for(Contig c : this) {
+			bb.append(c.bases).nl();
+		}
+		return bb;
+	}
+	
 	/**
 	 * Converts bin information to formatted text representation.
 	 * Includes size, contigs, GC content, depth, and taxonomic data.

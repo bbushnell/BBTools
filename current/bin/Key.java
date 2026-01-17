@@ -3,122 +3,100 @@ package bin;
 import shared.Tools;
 
 /**
- * Quantization utility for binning genomic data by GC content and depth.
- * Converts continuous genomic measurements into discrete quantization levels
- * for efficient comparison and binning operations.
+ * Quantization utility for binning genomic data by dimensions such as GC content,
+ * HH (Homo/Het), CAGA, and Depth.
  *
  * @author Brian Bushnell
- * @date 2014
+ * @date January 16, 2026
  */
-class Key implements Cloneable {
-	
-	/**
-	 * Parses command-line arguments for Key quantization parameters.
-	 * Handles gcwidth, gcmult, depthwidth, and depthmult parameter settings.
-	 *
-	 * @param arg The full argument string (unused)
-	 * @param a The parameter name
-	 * @param b The parameter value
-	 * @return true if the parameter was recognized and parsed, false otherwise
-	 */
-	static boolean parse(String arg, String a, String b) {
-		
-		if(a.equalsIgnoreCase("gcwidth")){
-			float f=Float.parseFloat(b);
-			setGCWidth(f);
-		}else if(a.equalsIgnoreCase("gcmult")){
-			float f=Float.parseFloat(b);
-			setGCMult(f);
-		}else if(a.equalsIgnoreCase("depthwidth")){
-			float f=Float.parseFloat(b);
-			setDepthWidth(f);
-		}else if(a.equalsIgnoreCase("depthmult")){
-			float f=Float.parseFloat(b);
-			setDepthMult(f);
+public abstract class Key implements Cloneable {
+
+	public static Key makeKey() {
+		if(defaultType==GDDType) {
+			return new KeyGDD();
+		}else if(defaultType==GHDType) {
+			return new KeyGHD();
+		}else if(defaultType==GHCType) {
+			return new KeyGHC();
+		}else if(defaultType==GHCDType) {
+			return new KeyGHCD();
+		}else if(defaultType==GHDDType) {
+			return new KeyGHDD();
+		}else if(defaultType==GHCDDType) {
+			//			return new KeyGHCDD();
 		}else {
-			return false;
+
 		}
-		return true;
+		throw new RuntimeException("Unknown key type "+defaultType);
 	}
-	
-	/**
-	 * Creates a Key with specified GC content and coverage values.
-	 * Quantizes the continuous values into discrete levels.
-	 *
-	 * @param gc GC content as a fraction (0.0 to 1.0)
-	 * @param cov Primary coverage/depth value
-	 * @param cov2 Secondary coverage/depth value
-	 */
-	public Key(float gc, float cov, float cov2) {
-		setValue(gc, cov, cov2);
-	}
-	
-	/** Creates an uninitialized Key with default quantization levels */
-	public Key() {}
 
 	/**
 	 * Sets this Key's values based on a Bin's characteristics.
-	 * @param a The Bin to extract GC content and depth values from
+	 * @param a The Bin to extract values from
 	 * @return This Key instance for method chaining
 	 */
-	public Key set(Bin a) {
-		return setValue(a.gc(), a.depth(0), a.depth(1));
-	}
-	
+	public abstract Key set(Bin a);
+
 	/**
-	 * Directly sets the quantized levels for GC content and coverage.
-	 *
-	 * @param gcLevel_ Quantized GC content level
-	 * @param covLevel_ Primary quantized coverage level
-	 * @param covLevel2_ Secondary quantized coverage level
+	 * Directly sets the quantized dimensions.
 	 * @return This Key instance for method chaining
 	 */
-	public Key setLevel(int gcLevel_, int covLevel_, int covLevel2_) {
-		gcLevel=gcLevel_;
-		covLevel=covLevel_;
-		covLevel2=covLevel2_;
-		assert(gcLevel>=0 && gcLevel<=(int)gcLevelMult);
-		assert(covLevel>=0 && covLevel<=maxDepthLevel) : covLevel+", "+maxDepthLevel;
-		assert(covLevel2>=0 && covLevel2<=maxDepthLevel) : covLevel2+", "+maxDepthLevel;
+	public Key setLevel(int gc, int d2, int d3) {
+		gcLevel=gc;
+		dim2=d2;
+		dim3=d3;
 		return this;
 	}
-	
+
+	/**
+	 * Directly sets the quantized dimensions.
+	 * @return This Key instance for method chaining
+	 */
+	public Key setLevel(int gc, int d2, int d3, int d4) {
+		gcLevel=gc;
+		dim2=d2;
+		dim3=d3;
+		dim4=d4;
+		return this;
+	}
+
 	/**
 	 * Sets Key values using continuous measurements.
 	 * Automatically quantizes the input values into discrete levels.
-	 *
-	 * @param gc GC content as a fraction (0.0 to 1.0)
-	 * @param cov Primary coverage/depth value
-	 * @param cov2 Secondary coverage/depth value
 	 * @return This Key instance for method chaining
 	 */
-	public Key setValue(float gc, float cov, float cov2) {
-		assert(gc>=0 && gc<=1) : gc;
-		assert(cov>=0) : cov;
-		assert(cov2>=0) : cov;
-		return setLevel(quantizeGC(gc), quantizeDepth(cov), quantizeDepth(cov2));
-	}
-	
+	public abstract Key setValue(float gc, float d2, float d3);
+
+	/**
+	 * Sets Key values using continuous measurements.
+	 * Automatically quantizes the input values into discrete levels.
+	 * @return This Key instance for method chaining
+	 */
+	public abstract Key setValue(float gc, float d2, float d3, float d4);
+
 	@Override
-	public boolean equals(Object other) {
+	public final boolean equals(Object other) {
 		return equals((Key)other);
 	}
-	
+
 	/**
 	 * Compares this Key with another Key for equality.
 	 * Keys are equal if all three quantization levels match.
 	 * @param b The Key to compare with
 	 * @return true if both Keys have identical quantization levels
 	 */
-	public boolean equals(Key b) {
-		return gcLevel==b.gcLevel && covLevel==b.covLevel && covLevel2==b.covLevel2;
+	public final boolean equals(Key b) {
+		return gcLevel==b.gcLevel && dim2==b.dim2 && dim3==b.dim3 && dim4==b.dim4;
 	}
-	
+
 	@Override
-	public int hashCode() {
-		return covLevel+(covLevel2<<10)+(gcLevel<<20);
+	public final int hashCode() {
+		//Shifted to avoid collisions. 
+		//Depth is usually 0-60 (6 bits). HH is 0-50 (6 bits). GC is 0-50 (6 bits).
+		//Allocating 8 bits each is safe and fast.
+		return gcLevel+(dim2<<8)+(dim3<<16)+Integer.rotateLeft(dim4, 24);
 	}
-	
+
 	@Override
 	public Key clone() {
 		try {
@@ -128,19 +106,113 @@ class Key implements Cloneable {
 		}
 	}
 
-	//This is probably faster but not as simple to explain or adjust
-//	public static int quantizeDepth(float depth) {
-//		float yf=depth*depth*16;
-//		long y=(long)yf;
-//		int zeros=Long.numberOfLeadingZeros(y);
-//		int level=Tools.min(maxDepthLevel, 64-zeros);
-//		return level;
-//	}
+	public abstract int lowerBoundDim2(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio);
+	public abstract int upperBoundDim2(Bin a, int range, int maxGrid, float maxGCDif, float maxDepthRatio);
+
+	public abstract int lowerBoundDim3(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio);
+	public abstract int upperBoundDim3(Bin a, int range, int maxGrid, float maxGCDif, float maxDepthRatio);
+
+	public int lowerBoundDim4(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio) {return 0;}
+	public int upperBoundDim4(Bin a, int range, int maxGrid, float maxGCDif, float maxDepthRatio) {return 0;}
+
+	public static int lowerBoundDepth(float val, int level, int range, int minGrid, float maxDepthRatio) {
+		// Depth Physics: Use division/multiplication
+		int quant=quantizeDepth(val/maxDepthRatio);
+		// Combine: Grid Bound vs (Key Index - Range) vs (Physics Lower Bound)
+		return Tools.max(minGrid, level-range, quant);
+	}
+
+	public static int upperBoundDepth(float val, int level, int range, int maxGrid, float maxDepthRatio) {
+		int quant=quantizeDepth(val*maxDepthRatio);
+		return Tools.min(maxGrid, level+range, quant);
+	}
+
+	public static int lowerBoundHH(float val, int level, int range, int minGrid, float maxGCDif) {
+		// HH Physics: Use subtraction (Linear)
+		// Note: Reusing maxGCDif for HH tolerance for now?
+		int quant=quantizeHH(val-maxGCDif); 
+		return Tools.max(minGrid, level-range, quant);
+	}
+
+	public static int upperBoundHH(float val, int level, int range, int maxGrid, float maxGCDif) {
+		int quant=quantizeHH(val+maxGCDif);
+		return Tools.min(maxGrid, level+range, quant);
+	}
+
+	public static int lowerBoundCAGA(float val, int level, int range, int minGrid, float maxGCDif) {
+		int quant=quantizeCAGA(val-maxGCDif); 
+		return Tools.max(minGrid, level-range, quant);
+	}
+
+	public static int upperBoundCAGA(float val, int level, int range, int maxGrid, float maxGCDif) {
+		int quant=quantizeCAGA(val+maxGCDif);
+		return Tools.min(maxGrid, level+range, quant);
+	}
+
+	/**
+	 * Parses command-line arguments for Key quantization parameters.
+	 * Handles gcwidth, hhwidth, depthwidth, and their multipliers.
+	 *
+	 * @param arg The full argument string (unused)
+	 * @param a The parameter name
+	 * @param b The parameter value
+	 * @return true if the parameter was recognized and parsed, false otherwise
+	 */
+	static boolean parse(String arg, String a, String b) {
+
+		if(a.equalsIgnoreCase("gcwidth")){
+			float f=Float.parseFloat(b);
+			setGCWidth(f);
+		}else if(a.equalsIgnoreCase("gcmult")){
+			float f=Float.parseFloat(b);
+			setGCMult(f);
+		}else if(a.equalsIgnoreCase("hhwidth")){
+			float f=Float.parseFloat(b);
+			setHHWidth(f);
+		}else if(a.equalsIgnoreCase("hhmult")){
+			float f=Float.parseFloat(b);
+			setHHMult(f);
+		}else if(a.equalsIgnoreCase("cagawidth")){
+			float f=Float.parseFloat(b);
+			setCagaWidth(f);
+		}else if(a.equalsIgnoreCase("cagamult")){
+			float f=Float.parseFloat(b);
+			setCagaMult(f);
+		}else if(a.equalsIgnoreCase("depthwidth")){
+			float f=Float.parseFloat(b);
+			setDepthWidth(f);
+		}else if(a.equalsIgnoreCase("depthmult")){
+			float f=Float.parseFloat(b);
+			setDepthMult(f);
+		}else if(a.equalsIgnoreCase("dimensions")){
+			int d=Integer.parseInt(b);
+			assert(d>0 && d<=4);
+			dimensions=d;
+		}else if(a.equalsIgnoreCase("key") || a.equalsIgnoreCase("keytype")){
+			if(b.equalsIgnoreCase("gdd")){
+				defaultType=GDDType;
+			}else if(b.equalsIgnoreCase("ghd")){
+				defaultType=GHDType;
+			}else if(b.equalsIgnoreCase("ghc")){
+				defaultType=GHCType;
+			}else if(b.equalsIgnoreCase("ghcd")){
+				defaultType=GHCDType;
+			}else if(b.equalsIgnoreCase("ghdd")){
+				defaultType=GHDDType;
+			}else if(b.equalsIgnoreCase("ghcdd")){
+				defaultType=GHCDDType;
+			}else{
+				throw new RuntimeException("Unknown key type "+arg);
+			}
+		}else{
+			return false;
+		}
+		return true;
+	}
 
 	/**
 	 * Quantizes a depth/coverage value into a discrete level.
-	 * Uses logarithmic scaling with low-depth offset for better resolution
-	 * at low coverage values.
+	 * Uses logarithmic scaling.
 	 *
 	 * @param depth The depth/coverage value to quantize
 	 * @return Quantized depth level as an integer
@@ -161,68 +233,107 @@ class Key implements Cloneable {
 	public static int quantizeGC(float gc) {
 		return (int)(Tools.mid(0,gc,1)*gcLevelMult);
 	}
-	
-	/** Returns a string representation showing the three quantization levels.
-	 * @return String in format "(gcLevel,covLevel,covLevel2)" */
-	public String toString() {
-		return "("+gcLevel+","+covLevel+","+covLevel2+")";
+
+	/**
+	 * Quantizes an HH ratio fraction into a discrete level.
+	 * Uses linear scaling across the 0.0 to 1.0 range.
+	 * @param hh HH ratio as a fraction (0.0 to 1.0)
+	 * @return Quantized HH level as an integer
+	 */
+	public static int quantizeHH(float hh) {
+		return (int)(Tools.mid(0,hh,1)*hhLevelMult);
 	}
-	
-	/** Sets GC quantization multiplier (inverse of width).
-	 * @param f Multiplier value (must be >= 2) */
+
+	/**
+	 * Quantizes an CAGA ratio fraction into a discrete level.
+	 * Uses linear scaling across the 0.0 to 1.0 range.
+	 * @param caga CAGA ratio as a fraction (0.0 to 1.0)
+	 * @return Quantized CAGA level as an integer
+	 */
+	public static int quantizeCAGA(float caga) {
+		return (int)(Tools.mid(0,caga,1)*cagaLevelMult);
+	}
+
+	/** Sets GC quantization multiplier (inverse of width). */
 	static final void setGCMult(float f) {
 		assert(f>=2);
 		setGCWidth(1/f);
 	}
-	
-	/**
-	 * Sets the GC quantization width parameter.
-	 * Smaller values provide finer GC resolution.
-	 * @param f Width value (must be > 0 and <= 0.5)
-	 */
+
+	/** Sets the GC quantization width parameter. */
 	static final void setGCWidth(float f) {
 		assert(f>0 && f<=0.5f);
 		gcLevelWidth=f;
 		gcLevelMult=1f/gcLevelWidth;
 	}
-	
-	/** Sets depth quantization width (inverse of multiplier).
-	 * @param f Width value (must be > 0) */
+
+	/** Sets HH quantization multiplier (inverse of width). */
+	static final void setHHMult(float f) {
+		assert(f>=2);
+		setHHWidth(1/f);
+	}
+
+	/** Sets the HH quantization width parameter. */
+	static final void setHHWidth(float f) {
+		assert(f>0 && f<=0.5f);
+		hhLevelWidth=f;
+		hhLevelMult=1f/hhLevelWidth;
+	}
+
+	/** Sets CAGA quantization multiplier (inverse of width). */
+	static final void setCagaMult(float f) {
+		assert(f>=2);
+		setCagaWidth(1/f);
+	}
+
+	/** Sets the CAGA quantization width parameter. */
+	static final void setCagaWidth(float f) {
+		assert(f>0 && f<=0.5f);
+		cagaLevelWidth=f;
+		cagaLevelMult=1f/cagaLevelWidth;
+	}
+
+	/** Sets depth quantization width (inverse of multiplier). */
 	static final void setDepthWidth(float f) {
 		assert(f>0);
 		setDepthMult(1/f);
 	}
-	
-	/**
-	 * Sets the depth quantization multiplier parameter.
-	 * Higher values provide finer depth resolution.
-	 * @param f Multiplier value (must be > 0)
-	 */
+
+	/** Sets the depth quantization multiplier parameter. */
 	static final void setDepthMult(float f) {
 		assert(f>0);
 		depthLevelMult=f;
 		maxDepthLevel=quantizeDepth(maxDepth);
-		assert(maxDepthLevel>0) : "maxDepthLevel="+maxDepthLevel+", depthLevelMult="+depthLevelMult+
-			", maxDepth="+maxDepth+", yf="+(Tools.log2(maxDepth+0.0625f)+4);
 	}
-	
-	/** Quantized GC content level */
-	int gcLevel;
-	/** Primary quantized coverage/depth level */
-	int covLevel;
-	/** Secondary quantized coverage/depth level */
-	int covLevel2;
-	
-	//gcwidth=0.01, depthwidth=0.25 seems faster, more sensitive, and more specific (halving both of them).
+
+	int gcLevel=0;
+	int dim2=0;
+	int dim3=0;
+	int dim4=0;
+
+	private static final int GDDType=0, GHDType=1, GHCType=2, GHCDType=3, GHDDType=4, GHCDDType=5;
+	protected static int dimensions=3;
+	protected static int defaultType=GDDType;
+
 	/** Maximum depth value for quantization calculations */
-	private static final float maxDepth=1000000;
+	protected static final float maxDepth=1000000;
+
 	/** Multiplier for depth quantization resolution */
-	private static float depthLevelMult=2f;
+	protected static float depthLevelMult=2f;
+	protected static int maxDepthLevel=quantizeDepth(maxDepth);
+
 	/** Width parameter for GC content quantization */
-	private static float gcLevelWidth=0.02f;
-	/** Multiplier for GC content quantization (inverse of width) */
-	private static float gcLevelMult=1f/gcLevelWidth;
-	/** Maximum quantized depth level corresponding to maxDepth */
-	private static int maxDepthLevel=quantizeDepth(maxDepth);
-	
+	protected static float gcLevelWidth=0.02f;
+	/** Multiplier for GC content quantization */
+	protected static float gcLevelMult=1f/gcLevelWidth;
+
+	/** Width parameter for HH content quantization */
+	protected static float hhLevelWidth=0.02f;
+	/** Multiplier for HH content quantization */
+	protected static float hhLevelMult=1f/hhLevelWidth;
+
+	/** Width parameter for CAGA content quantization */
+	protected static float cagaLevelWidth=0.02f;
+	/** Multiplier for CAGA content quantization */
+	protected static float cagaLevelMult=1f/cagaLevelWidth;
 }
