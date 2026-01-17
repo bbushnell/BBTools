@@ -228,7 +228,7 @@ public class KmerTracker{
 		long AT=counts[0b0011], TA=counts[0b1100];
 		long CC=counts[0b0101], GG=counts[0b1010];
 		long CG=counts[0b0110], GC=counts[0b1001];
-		return (AA+CC+GG+TT)/(float)(AA+TT+AT+TA+CC+GG+CG+GC);
+		return (AA+CC+GG+TT)/(float)Math.max(1f, AA+TT+AT+TA+CC+GG+CG+GC);
 	}
 
 	/**
@@ -242,7 +242,7 @@ public class KmerTracker{
 		long AT=counts[0b0011], TA=counts[0b1100];
 		long CC=counts[0b0101], GG=counts[0b1010];
 		long CG=counts[0b0110], GC=counts[0b1001];
-		return (AA+CC+GG+TT)/(float)(AA+TT+AT+TA+CC+GG+CG+GC);
+		return (AA+CC+GG+TT)/(float)Math.max(1f, AA+TT+AT+TA+CC+GG+CG+GC);
 	}
 
 	/**
@@ -297,7 +297,7 @@ public class KmerTracker{
 		long AG=counts[0b0010], CT=counts[0b0111];
 		long TC=counts[0b1101], GA=counts[0b1000];
 		long GT=counts[0b1011], CA=counts[0b0100];
-		return 0.5f*(1+(CA+TG-GA-TC)/(float)(AC+AG+CA+GA+TC+TG+CT+GT));
+		return 0.5f*(1+(CA+TG-GA-TC)/(float)Math.max(1f, AC+AG+CA+GA+TC+TG+CT+GT));
 	}
 	
 	public static float CAGA(int[] counts) {
@@ -306,7 +306,7 @@ public class KmerTracker{
 		long AG=counts[0b0010], CT=counts[0b0111];
 		long TC=counts[0b1101], GA=counts[0b1000];
 		long GT=counts[0b1011], CA=counts[0b0100];
-		return 0.5f*(1+(CA+TG-GA-TC)/(float)(AC+AG+CA+GA+TC+TG+CT+GT));
+		return 0.5f*(1+(CA+TG-GA-TC)/(float)Math.max(1f, AC+AG+CA+GA+TC+TG+CT+GT));
 	}
 
 	/**
