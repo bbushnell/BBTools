@@ -304,7 +304,7 @@ public class DataLoader extends BinObject {
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=true;//should be adjusted for many threads
 		numDepths=(contigs.isEmpty()) ? 0 : contigs.get(0).numDepths();
-		assert(numDepths>0) : "At least one depth is required.";
+		assert(numDepths>0 || flatMode) : "At least one depth is required.";
 
 		net0small=loadNetwork(netFileSmall, "all", Binner.netCutoff_small, numDepths);
 		net0mid=loadNetwork(netFileMid, "all", Binner.netCutoff_mid, numDepths);
@@ -358,8 +358,9 @@ public class DataLoader extends BinObject {
 
 		if(parseCov) {
 			depthCalculated=true;
+			numDepths=1;
 		}else {
-			calculateDepth(contigs);
+			numDepths=calculateDepth(contigs);
 		}
 		double entropy=calcDepthSum(contigs);
 		System.err.println("Depth Entropy:      \t"+entropy);
@@ -575,9 +576,9 @@ public class DataLoader extends BinObject {
 	 * @param contigs List of contigs with depth information
 	 * @return Sample entropy measure indicating depth profile diversity
 	 */
-	public static double calcDepthSum(ArrayList<Contig> contigs) {
-		final int numDepths=contigs.get(0).numDepths();
-		if(numDepths<2) {return 1;}
+	public double calcDepthSum(ArrayList<Contig> contigs) {
+		assert(numDepths==contigs.get(0).numDepths());
+		if(numDepths<2) {return numDepths;}
 		BinObject.sampleDepthSum=new double[numDepths];
 		long sizeSum=0;
 		for(Contig c : contigs) {
@@ -606,8 +607,8 @@ public class DataLoader extends BinObject {
 		for(Contig c : contigs) {
 			distinctSampleSum+=calculateDistinctValues(c.depthList());
 		}
-		BinObject.sampleEntropy=(float)(distinctSampleSum/(double)contigs.size());
-		BinObject.samplesEquivalent=(int)Tools.mid(2, Math.round(1+(sampleEntropy-1)*1.125), numDepths);
+		sampleEntropy=(float)(distinctSampleSum/(double)contigs.size());
+		samplesEquivalent=(int)Tools.mid(2, Math.round(1+(sampleEntropy-1)*1.125), numDepths);
 		return sampleEntropy;
 	}
 	

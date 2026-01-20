@@ -12,10 +12,10 @@ import shared.Tools;
 public abstract class Key implements Cloneable {
 
 	public static Key makeKey() {
-		if(defaultType==GDDType) {
-			return new KeyGDD();
-		}else if(defaultType==GHDType) {
+		if(defaultType==GHDType) {
 			return new KeyGHD();
+		}else if(defaultType==GDDType) {
+			return new KeyGDD();
 		}else if(defaultType==GHCType) {
 			return new KeyGHC();
 		}else if(defaultType==GHCDType) {
@@ -237,7 +237,9 @@ public abstract class Key implements Cloneable {
 			assert(d>0 && d<=4);
 			dimensions=d;
 		}else if(a.equalsIgnoreCase("key") || a.equalsIgnoreCase("keytype")){
-			if(b.equalsIgnoreCase("gdd")){
+			if(b.equalsIgnoreCase("auto")){
+				defaultType=-1;
+			}else if(b.equalsIgnoreCase("gdd")){
 				defaultType=GDDType;
 			}else if(b.equalsIgnoreCase("ghd")){
 				defaultType=GHDType;
@@ -264,6 +266,7 @@ public abstract class Key implements Cloneable {
 			}else{
 				throw new RuntimeException("Unknown key type "+arg);
 			}
+			setType=(defaultType>=0);
 		}else{
 			return false;
 		}
@@ -365,6 +368,24 @@ public abstract class Key implements Cloneable {
 		depthLevelMult=f;
 		maxDepthLevel=quantizeDepth(maxDepth);
 	}
+	
+	static int setType(int samples, long contigs) {
+		if(setType) {return defaultType;}
+		return defaultType=pickType(samples, contigs);
+	}
+	
+	static int pickType(int samples, long contigs) {
+		if(samples<1) {return GHCType;}
+		else if(contigs<200000) {return GHDType;}
+		
+		if(samples<2) {
+			return contigs<1000000 ? GHCDType : GHDDType;
+		}else if(samples<3) {
+			return contigs<1000000 ? GHDDType : GHCDDType;
+		}else {
+			return contigs<1000000 ? GHDDType : GHDDDType;
+		}
+	}
 
 	int gcLevel=0;
 	int dim2=0;
@@ -374,7 +395,8 @@ public abstract class Key implements Cloneable {
 
 	private static final int GDDType=0, GHDType=1, GHCType=2, GHCDType=3, GHDDType=4, GHDDDType=5, GHCDDType=6, ZEROType=7, GType=8, GHType=9, GCType=10, GDType=11;
 	protected static int dimensions=3;
-	protected static int defaultType=GDDType;
+	protected static int defaultType=GHDDType;
+	private static boolean setType=false;
 
 	/** Maximum depth value for quantization calculations */
 	protected static final float maxDepth=1000000;
