@@ -181,6 +181,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			fuseLowerLimit=Parse.parseIntKMG(b);
 		}else if(a.equalsIgnoreCase("fuseUpperLimit")){
 			fuseUpperLimit=Parse.parseIntKMG(b);
+		}else if(a.equalsIgnoreCase("fuseUpperLimit2")){
+			fuseUpperLimit2=Parse.parseIntKMG(b);
 		}else if(a.equalsIgnoreCase("fuseStringency")){
 			fuseStringency=Float.parseFloat(b);
 		}
@@ -1032,6 +1034,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @return Number of successful fusion events
 	 */
 	public long fuse(ArrayList<Contig> contigs, ArrayList<? extends Bin> input, float stringency){
+		//Old, slow non-indexed version
 		if(loud) {outstream.print("Initiating Fusion:  \t");}
 		phaseTimer.start();
 
@@ -1058,6 +1061,52 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 		long merges=0;
 		merges=launchThreads(input, null, contigs, FUSE_MODE, 0, 0, oracle);
+		//		phaseTimer.stopAndPrint();
+		//		phaseTimer.start();
+
+		//This phase can be slow.
+		if(merges>0) {merges=mergeWithDest(contigs, input);}
+
+		if(merges>0 && loud) {phaseTimer.stop("Merged "+merges+"/"+input.size()+" bins: \t");}
+		return merges;
+	}
+
+	/**
+	 * Attempts to merge medium-sized bins that may represent fragments of the same genome.
+	 * Uses very strict similarity requirements to avoid contamination.
+	 *
+	 * @param contigs Reference contig list
+	 * @param input Bins in size range suitable for fusion
+	 * @param stringency Threshold multiplier for fusion decisions
+	 * @return Number of successful fusion events
+	 */
+	public long fuse2(ArrayList<Contig> contigs, BinMap binMap, ArrayList<? extends Bin> input, float stringency, int range){
+		if(loud) {outstream.print("Initiating Fusion:  \t");}
+		phaseTimer.start();
+
+		//		for(int i=1; i<input.size(); i++) {
+		//			assert(input.get(i).size()<=input.get(i-1).size());
+		//			assert(input.get(i).size()>=fuseLowerLimit);
+		//		}
+		//		assert(false) : fuseLowerLimit;
+
+		float maxTrimerDif=max3merDif2*stringency;
+		float maxKmerDif=max4merDif2*stringency;
+		float max5merDif=max5merDif2*stringency;
+		float maxDepthRatio=1+((maxDepthRatio2-1)*stringency);
+		float maxGCDif=maxGCDif2*stringency;
+		float maxProduct=maxKmerDif*maxDepthRatio*Binner.productMult;
+		float maxCovariance=maxCovariance2*stringency;
+		Oracle oracle=new Oracle(maxGCDif, maxDepthRatio, maxTrimerDif, maxKmerDif, max5merDif, 
+				maxProduct, maxCovariance, minKmerProb2, 0);
+
+		//		System.err.println("maxKmerDif="+maxKmerDif+", maxDepthRatio="+maxDepthRatio+
+		//				", maxGCDif="+maxGCDif+", maxProduct="+maxProduct+
+		//				", maxCovariance="+maxCovariance+", minKmerProb2="+minKmerProb2);
+		//		System.err.println("List size: "+input.size());
+
+		long merges=0;
+		merges=launchThreads(input, binMap, contigs, FUSE2_MODE, range, 0, oracle);
 		//		phaseTimer.stopAndPrint();
 		//		phaseTimer.start();
 
@@ -1320,6 +1369,8 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 					follow();
 				}else if(mode==FUSE_MODE) {
 					fuse();
+				}else if(mode==FUSE2_MODE) {
+					fuse2();
 				}else if(mode==RECLUSTER_MODE) {
 					recluster();
 				}else {
@@ -1398,6 +1449,45 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			//			System.err.print('.');
 			if(oracle.best!=null) {a.dest=oracle.best.id();}
 			return oracle.best;
+		}
+
+		/** Attempts fusion of medium-sized bins in assigned work range.
+		 * @return Number of successful fusions */
+		private int fuse2() {
+			for(int i=tid; i<input.size(); i+=threads) {
+				Bin a=input.get(i);
+				if(a.size()<fuseLowerLimit) {
+					assert(false);
+					break;
+				}
+				if(a.size()>fuseUpperLimit) {continue;}
+				fuseSeeks++;
+				Bin b=findBestFuseTarget2(a);
+				mergesT+=(b==null ? 0 : 1);
+				fuseTargets+=(b==null ? 0 : 1);
+			}
+			//			System.err.println("fuseSeeks="+fuseSeeks);
+			//			System.err.println("fuseCompares="+fuseCompares);
+			//			System.err.println("fuseTargets="+fuseTargets);
+			return mergesT;
+		}
+
+		/**
+		 * Finds best candidate for fusing with given bin.
+		 * @param a Source bin seeking fusion partner
+		 * @return Best fusion target, or null if none suitable
+		 */
+		private Bin findBestFuseTarget2(Bin a) {
+			oracle.best=null;
+			oracle.topScore=-1;
+			a.dest=-1;
+			
+			Cluster b=map.findBestCluster(a, a.size(), key, range, oracle);//a.size()+1 would prevent mutual targets, but it's probably OK
+			if(b!=null && b!=a) {
+				a.dest=b.id();
+				assert(b.size()>=a.size());
+			}
+			return b;
 		}
 
 		/** Attempts to split heterogeneous clusters in assigned work range.
@@ -1553,15 +1643,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		long fuseCompares=0;
 		long fuseSeeks=0;
 		long fuseTargets=0;
-
-		//		final float maxKmerDif;
-		//		final float maxDepthRatio;
-		//		final float maxGCDif;
-		//		final float maxProduct;
-		//		final float maxCovariance;
-		//		final int taxLevel;
-		//		final boolean allowNoTaxID;
-		//		final boolean allowHalfTaxID;
+		
 		final int range;
 		final int minSize;
 		final Key key=Key.makeKey();
@@ -1720,11 +1802,15 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	static final int FUSE_MODE=4;
 	/** Thread mode for cluster splitting operations */
 	static final int RECLUSTER_MODE=5;
+	/** Thread mode for bin fusion operations */
+	static final int FUSE2_MODE=6;
 
 	/** Minimum size for bins eligible for fusion */
 	static int fuseLowerLimit=5000;
 	/** Maximum size for bins eligible for fusion */
 	static int fuseUpperLimit=900000;
+	/** Maximum size for bins eligible to accept fusion */
+	static int fuseUpperLimit2=9000000;
 	/** Similarity stringency multiplier for fusion decisions */
 	static float fuseStringency=1.5f;
 	/** Similarity stringency multiplier for purification decisions */

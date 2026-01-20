@@ -370,6 +370,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 //		binner.printThresholds();
 //		binner.setSamples(loader.numDepths, strictnessMult);
 		binner.setSamples(samplesEquivalent, strictnessMult);
+		Key.setType(DataLoader.flatMode ? 0 : Math.min(loader.numDepths, samplesEquivalent), contigList.size());
 //		System.err.println("Thresholds:");
 //		binner.printThresholds();
 		reprocessArgs();
@@ -488,12 +489,36 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
 		}
 		
+//		if(fuseClusters) {
+//			long fused=99999, total=0;
+//			for(int i=0; i<4 && fused>1; i++) {
+//				ArrayList<Bin> bins=Binner.toBinList(contigList, Binner.fuseLowerLimit);
+//				Collections.sort(bins);
+//				fused=binner.fuse(contigList, bins, Binner.fuseStringency);
+//				total+=fused;
+//			}
+//			if(total>0) {
+//				binMap.clear(true);
+//				binList=Binner.toBinList(contigList, 0);
+//				assert(isValid(binList, false));
+//				binMap.addAll(binList, Binner.minSizeToMerge);
+//			}
+//			System.err.println("Fused "+total+" clusters.");
+//			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+//		}
+		
 		if(fuseClusters) {
 			long fused=99999, total=0;
 			for(int i=0; i<4 && fused>1; i++) {
+				binMap.clear(false);
 				ArrayList<Bin> bins=Binner.toBinList(contigList, Binner.fuseLowerLimit);
+				for(int j=0; j<bins.size(); j++) {
+					if(bins.get(j).size()>Binner.fuseUpperLimit2) {bins.set(j, null);}
+				}
+				Tools.condense(bins);
 				Collections.sort(bins);
-				fused=binner.fuse(contigList, bins, Binner.fuseStringency);
+				binMap.addAll(bins, Binner.fuseLowerLimit);
+				fused=binner.fuse2(contigList, binMap, bins, Binner.fuseStringency, (5+i)/2);//2,3,3,4
 				total+=fused;
 			}
 			if(total>0) {

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 17, 2025
+Last modified January 20, 2026
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -126,6 +126,9 @@ aligner=quantum       Options include ssa2, glocal, drifting, banded, crosscut.
 threads=auto          Number of threads; default is logical cores.
 flat                  Ignore depth; may still be used with bam files for e.g. MDA.
                       Required flag if there is no coverage information.
+fuselowerlimit=5k     Reduce stringency for merging clusters as small as this.
+fuseupperlimit=900k   Reduce stringency for merging clusters as big as this.
+fuseupperlimit2=9m    Don't fuse small clusters into clusters bigger than this.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

@@ -116,7 +116,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 * @param oracle Similarity calculator that tracks best match
 	 * @return Best matching cluster or null if none found
 	 */
-	public Cluster findBestCluster(Bin a, int minSizeToCompare, Key key, int matrixRange, Oracle oracle) {
+	public Cluster findBestCluster(Bin a, long minSizeToCompare, Key key, int matrixRange, Oracle oracle) {
 		if(key==null) {key=Key.makeKey();}
 		oracle.clear();
 		final float gc=a.gc();
@@ -215,7 +215,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 * @return Index of best match or -1 if none found
 	 */
 	private int findBestBinIndex(Bin a, ArrayList<? extends Bin> clusters, 
-			int minSizeToCompare, Oracle oracle) {
+			long minSizeToCompare, Oracle oracle) {
 		
 		int bestIdx=-1;
 		for(int i=0; i<clusters.size(); i++) {
