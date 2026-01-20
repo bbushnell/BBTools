@@ -59,17 +59,6 @@ class KeyGHD extends Key {
 	}
 
 	@Override
-	public Key setValue(float gc, float hh, float depth, float d4){
-		assert(gc>=0 && gc<=1) : gc;
-		assert(hh>=0 && hh<=1) : hh;
-		assert(depth>=0) : depth;
-		return setLevel(quantizeGC(gc), quantizeHH(hh), quantizeDepth(depth));
-	}
-
-	@Override
-	public KeyGHD clone() {return (KeyGHD)(super.clone());}
-
-	@Override
 	public int lowerBoundDim2(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio) {
 		return lowerBoundHH(a.hh, dim2, range, minGrid, maxGCDif);
 	}

@@ -59,17 +59,6 @@ class KeyGDD extends Key {
 	}
 
 	@Override
-	public KeyGDD setValue(float gc, float cov, float cov2, float d4){
-		assert(gc>=0 && gc<=1) : gc;
-		assert(cov>=0) : cov;
-		assert(cov2>=0) : cov;
-		return setLevel(quantizeGC(gc), quantizeDepth(cov), quantizeDepth(cov2));
-	}
-
-	@Override
-	public KeyGDD clone() {return (KeyGDD)(super.clone());}
-
-	@Override
 	public int lowerBoundDim2(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio) {
 		return a.numDepths()<1 ? 0 : lowerBoundDepth(a.depth(0), dim2, range, minGrid, maxDepthRatio);
 	}

@@ -644,10 +644,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		}
 		outstream.println("Total Fast Comparisons:   \t"+fastComp+" \t"+Tools.padKMB((long)fcps, 0)+" cps");
 		outstream.println("Total Mid Comparisons:    \t"+midComp+" \t"+Tools.padKMB((long)mcps, 0)+" cps");
-//		outstream.println("Total Mid2 Comparisons:    \t"+tetComp+" \t"+Tools.padKMB((long)tcps, 0)+" cps");
-		outstream.println("Total Slow Comparisons:    \t"+tetComp+" \t"+Tools.padKMB((long)tcps, 0)+" cps");
-//		outstream.println("Total Slow Comparisons:   \t"+totalComp+" \t"+Tools.padKMB((long)scps, 0)+" cps");
+		outstream.println("Total Slow Comparisons:   \t"+tetComp+" \t"+Tools.padKMB((long)tcps, 0)+" cps");
 		outstream.println("Total Net Comparisons:    \t"+netComp+" \t"+Tools.padKMB((long)ncps, 0)+" cps");
+		outstream.println("Total Index Lookups:      \t"+binMap.hashLookups.get()+" \t"+
+			binMap.hashLookupsValid.get()+" valid");
 		outstream.println();
 
 		if(validation && loud) {

@@ -164,7 +164,7 @@ public class ClusterWriter2 {
 					else if(fname.contains("comp%")) {fname=fname.replaceFirst("comp%", String.format("com%.4f", a.completeness));}
 					
 					// Synchronous write for exclusive file
-					final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, true);
+					final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, a.size()>=MIN_SIZE_FOR_SUBPROCESS);
 					printBin(a, bsw, binBB, -1); // Uses standard print/clear logic
 					bsw.poisonAndWait();
 					
@@ -278,4 +278,6 @@ public class ClusterWriter2 {
 	final boolean loud;
 	final boolean sorted;
 	final int threads;
+	
+	static int MIN_SIZE_FOR_SUBPROCESS=1000000;
 }

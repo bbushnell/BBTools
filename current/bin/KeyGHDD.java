@@ -28,8 +28,7 @@ class KeyGHDD extends Key {
 		assert(dim4>=0 && dim4<=maxDepthLevel);
 		return this;
 	}
-
-	@Override
+	
 	public KeyGHDD setValue(float gc, float hh, float depth, float depth2) {
 		assert(gc>=0 && gc<=1) : gc;
 		assert(hh>=0 && hh<=1) : hh;
@@ -37,14 +36,6 @@ class KeyGHDD extends Key {
 		assert(depth2>=0) : depth2;
 		return setLevel(quantizeGC(gc), quantizeHH(hh), quantizeDepth(depth), quantizeDepth(depth2));
 	}
-
-	@Override
-	public Key setValue(float gc, float hh, float depth) {
-		return setValue(gc, hh, depth, 0);
-	}
-
-	@Override
-	public KeyGHDD clone() {return (KeyGHDD)(super.clone());}
 
 	// Dim 2 = HH
 	@Override

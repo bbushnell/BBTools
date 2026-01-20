@@ -1385,7 +1385,7 @@ public class GradeBins {
 				Cluster clust=loadCluster(fname);
 				BinStats bs=processBin(fname, clust);
 				if(bs!=null) {
-					synchronized(bs) {
+					synchronized(binStats) {
 						while(binStats.size()<=i) {binStats.add(null);}
 						binStats.set(i, bs);
 					}
@@ -1398,7 +1398,7 @@ public class GradeBins {
 				Bin b=bins.get(i);
 				BinStats bs=processBin(null, b);
 				if(bs!=null) {
-					synchronized(bs) {
+					synchronized(binStats) {
 						while(binStats.size()<=i) {binStats.add(null);}
 						binStats.set(i, bs);
 					}
