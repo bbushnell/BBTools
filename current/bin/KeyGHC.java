@@ -32,22 +32,13 @@ class KeyGHC extends Key {
 		assert(dim3>=0 && dim3<=(int)cagaLevelMult);
 		return this;
 	}
-
-	@Override
+	
 	public KeyGHC setValue(float gc, float hh, float caga) {
 		assert(gc>=0 && gc<=1) : gc;
 		assert(hh>=0 && hh<=1) : hh;
 		assert(caga>=0 && caga<=1) : caga;
 		return setLevel(quantizeGC(gc), quantizeHH(hh), quantizeCAGA(caga));
 	}
-
-	@Override
-	public Key setValue(float gc, float hh, float caga, float d4){
-		return setValue(gc, hh, caga);
-	}
-
-	@Override
-	public KeyGHC clone() {return (KeyGHC)(super.clone());}
 
 	// Dim 2 = HH
 	@Override

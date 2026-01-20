@@ -61,7 +61,7 @@ public class ClusterWriter{
 					else if(fname.contains("contam%")) {fname=fname.replaceFirst("contam%", String.format("con%.4f", a.contam));}
 					if(fname.contains("%comp")) {fname=fname.replaceFirst("%comp", String.format("com%.4f", a.completeness));}
 					else if(fname.contains("comp%")) {fname=fname.replaceFirst("comp%", String.format("com%.4f", a.completeness));}
-					final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, true);
+					final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, append, a.size()>=MIN_SIZE_FOR_SUBPROCESS);
 					printBin(a, bsw, bb, -1);
 					bsw.poison();
 					clustersWritten++;
@@ -166,5 +166,7 @@ public class ClusterWriter{
 	final boolean append;
 	final boolean writeChaff;
 	final boolean loud;
+	
+	static int MIN_SIZE_FOR_SUBPROCESS=1000000;
 	
 }
