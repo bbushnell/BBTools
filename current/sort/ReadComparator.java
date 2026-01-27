@@ -16,4 +16,10 @@ public abstract class ReadComparator implements Comparator<Read> {
 	
 	public abstract void setAscending(boolean asc);
 	
+	public final boolean ascending() {return ascendingMult()>0;}
+	
+	public abstract int ascendingMult();
+	
+	public abstract String name();
+	
 }

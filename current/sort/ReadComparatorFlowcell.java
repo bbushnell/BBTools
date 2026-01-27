@@ -56,6 +56,11 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}
+	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Flowcell Coordinate";}
 
 	public ThreadLocal<FlowcellCoordinate> tlc1=new ThreadLocal<FlowcellCoordinate>();
 	public ThreadLocal<FlowcellCoordinate> tlc2=new ThreadLocal<FlowcellCoordinate>();

@@ -417,7 +417,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		}
 		
 		long fastComp=0, slowComp=0;
-		BinMap binMap=binner.makeBinMap(contigList, binList);
+		BinMap2 binMap=binner.makeBinMap(contigList, binList);
 		assert(binMap.isValid());
 		binList=null;
 		fastComparisonsCreate+=(binner.fastComparisons.get()-fastComp);
@@ -518,7 +518,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				Tools.condense(bins);
 				Collections.sort(bins);
 				binMap.addAll(bins, Binner.fuseLowerLimit);
-				fused=binner.fuse2(contigList, binMap, bins, Binner.fuseStringency, (5+i)/2);//2,3,3,4
+				fused=binner.fuse(contigList, binMap, bins, Binner.fuseStringency, (5+i)/2);//2,3,3,4
 				total+=fused;
 			}
 			if(total>0) {
@@ -671,8 +671,8 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		outstream.println("Total Mid Comparisons:    \t"+midComp+" \t"+Tools.padKMB((long)mcps, 0)+" cps");
 		outstream.println("Total Slow Comparisons:   \t"+tetComp+" \t"+Tools.padKMB((long)tcps, 0)+" cps");
 		outstream.println("Total Net Comparisons:    \t"+netComp+" \t"+Tools.padKMB((long)ncps, 0)+" cps");
-		outstream.println("Total Index Lookups:      \t"+binMap.hashLookups.get()+" \t"+
-			binMap.hashLookupsValid.get()+" valid");
+		outstream.println("Total Index Lookups:      \t"+binMap.hashLookups()+" \t"+
+			binMap.hashLookupsValid()+" valid");
 		outstream.println();
 
 		if(validation && loud) {

@@ -1,7 +1,5 @@
 package sort;
 
-import java.util.Comparator;
-
 import stream.Read;
 
 /**
@@ -13,7 +11,7 @@ import stream.Read;
  * @author Brian Bushnell
  * @date May 30, 2013
  */
-public final class ReadErrorComparator implements Comparator<Read>{
+public final class ReadErrorComparator extends ReadComparator{
 	
 	/**
 	 * Compares two reads using hierarchical sorting criteria.
@@ -29,6 +27,10 @@ public final class ReadErrorComparator implements Comparator<Read>{
 	 */
 	@Override
 	public int compare(Read r1, Read r2) {
+		return compareInner(r1, r2)*ascending;
+	}
+	
+	public int compareInner(Read r1, Read r2) {
 
 		int a=(r1.errors+(r1.mate==null ? 0 : r1.mate.errors));
 		int b=(r2.errors+(r2.mate==null ? 0 : r2.mate.errors));
@@ -50,5 +52,15 @@ public final class ReadErrorComparator implements Comparator<Read>{
 	}
 	
 	public static final ReadErrorComparator comparator=new ReadErrorComparator();
+
+	@Override
+	public void setAscending(boolean asc){ascending=asc ? 1 : -1;}
+	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Error";}
+	
+	int ascending=1;
 	
 }

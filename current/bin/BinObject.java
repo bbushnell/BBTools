@@ -532,6 +532,7 @@ public class BinObject {
 	static int globalTime=0;
 
 	static double[] sampleDepthSum;
+	/** Relative sample size in mapped bases, normalized to 1 for the smallest */
 	static double[] invSampleDepthSum;
 	static double sampleEntropy=1;
 	static int samplesEquivalent=1;

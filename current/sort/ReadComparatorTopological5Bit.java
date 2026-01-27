@@ -117,6 +117,11 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 		ascending=(asc ? 1 : -1);
 	}
 	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Topology5Bit";}
+	
 	public static final ReadComparatorTopological5Bit comparator=new ReadComparatorTopological5Bit();
 	
 	int ascending=1;

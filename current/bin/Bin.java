@@ -1,5 +1,7 @@
 package bin;
 
+import java.util.Arrays;
+
 import clade.Clade;
 import json.JsonObject;
 import shared.Tools;
@@ -218,7 +220,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		for(int i=0; i<normDepth.length; i++) {
 			normDepth[i]=Tools.mid(0, normDepth[i]*inv, 1);
 		}//Now the max should be 1
-//		assert(false) : Arrays.toString(normDepth);
+//		assert(false) : Arrays.toString(normDepth)+", "+Arrays.toString(BinObject.invSampleDepthSum);
 	}
 	
 	/** Uses a weighted sum of linear and geometric means */
@@ -249,7 +251,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Biggest first */
 	public final int compareTo(Sketchable o) {
 		if(size()!=o.size()) {return size()>o.size() ? -1 : 1;}//Biggest first
-		return o.id()-id();
+		return id()-o.id();//lowest ID first
 	}
 	
 	@Override

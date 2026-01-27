@@ -130,6 +130,11 @@ public final class ReadComparatorClump extends ReadComparator {
 		ascending=(asc ? 1 : -1);
 	}
 	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Clump";}
+	
 //	public void setK(int k_){
 //		k=k_;
 //		assert(k>0 && k<=32) : k;

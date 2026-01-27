@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 10, 2022
+Last modified January 26, 2026
 
 Description:  Sorts reads by name or other keys such as length,
 quality, mapping position, flowcell coordinates, or taxonomy.
@@ -50,7 +50,7 @@ Taxonomy-sorting parameters (for taxa mode only):
 tree=           Specify a taxtree file.  On Genepool, use 'auto'.
 gi=             Specify a gitable file.  On Genepool, use 'auto'.
 accession=      Specify one or more comma-delimited NCBI accession to
-                taxid files.  On Genepool, use 'auto'.
+                taxid files.  On Dori/NERSC, use 'auto'.
 
 Note: name, length, and quality are mutually exclusive.
 Sorting by quality actually sorts by average expected error rate,

@@ -37,6 +37,11 @@ public final class ReadComparatorRandom extends ReadComparator{
 		mult=asc ? 1 : -1;
 	}
 	
+	@Override
+	public final int ascendingMult() {return mult;}
+	@Override
+	public final String name() {return "Random";}
+	
 	private int mult=1;
 	
 }

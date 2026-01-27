@@ -40,6 +40,11 @@ public class StreamerFactory {
 		return makeStreamer(ffin, 0, ordered, maxReads, saveHeader, makeReads, threads);
 	}
 	
+	public static synchronized ArrayList<byte[]> loadSharedHeader(String s){
+		FileFormat ff=FileFormat.testInput(s, FileFormat.SAM, null, false, false);
+		return loadSharedHeader(ff);
+	}
+	
 	public static synchronized ArrayList<byte[]> loadSharedHeader(FileFormat ff){
 		Streamer st=makeSamOrBamStreamer(ff, -1, true, true, 1, false);
 		st.start();

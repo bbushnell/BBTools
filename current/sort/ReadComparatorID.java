@@ -46,6 +46,11 @@ public final class ReadComparatorID extends ReadComparator{
 		mult=asc ? 1 : -1;
 	}
 	
+	@Override
+	public final int ascendingMult() {return mult;}
+	@Override
+	public final String name() {return "Numeric ID";}
+	
 	private int mult=1;
 	
 }

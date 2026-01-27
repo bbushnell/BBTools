@@ -337,6 +337,30 @@ public final class Vector {
 		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
 	}
 
+	/**
+	 * Computes cosine similarity between float arrays
+	 * @param a First float array
+	 * @param b Second float array
+	 * @return Cosine similarity (1.0 = identical, 0.0 = orthogonal)
+	 */
+	public static float cosineSimilarity(float[] a, float[] b){
+		assert(a.length==b.length);
+		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.cosineSimilarity(a, b);}
+		float dotProduct=0f;
+		float normVec1=0f;
+		float normVec2=0f;
+		for(int i=0; i<a.length; i++){
+			float ai=a[i];
+			float bi=b[i];
+			dotProduct+=ai*bi;
+			normVec1+=ai*ai;
+			normVec2+=bi*bi;
+		}
+
+		if(normVec1==0 || normVec2==0){return 0;} //Avoid NaN
+		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
+	}
+
 	/** 
 	 * Performs "a[i]+=b[i]*mult" where a and b are equal-length arrays.
 	 * @param a A vector to increment.

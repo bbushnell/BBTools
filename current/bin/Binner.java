@@ -466,9 +466,9 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 *
 	 * @param contigList All contigs to be organized
 	 * @param input Optional pre-sorted bin list, or null to use contigList
-	 * @return BinMap containing initial clusters and residual sequences
+	 * @return BinMap2 containing initial clusters and residual sequences
 	 */
-	public BinMap makeBinMap(ArrayList<Contig> contigList, ArrayList<? extends Bin> input) {
+	public BinMap2 makeBinMap(ArrayList<Contig> contigList, ArrayList<? extends Bin> input) {
 		outstream.print("Making BinMap:    \t");
 		phaseTimer.start();
 		makingBinMap=true;
@@ -478,7 +478,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		}else {
 			Collections.sort(input);
 		}
-		BinMap map=new BinMap(contigList);
+		BinMap2 map=new BinMap2(contigList);
 		Key key=Key.makeKey();
 		float stringency=1;
 		long contigsAdded=0;
@@ -525,7 +525,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		slowComparisons.addAndGet(oracle.slowComparisons);
 		netComparisons.addAndGet(oracle.netComparisons);
 		phaseTimer.stopAndPrint();
-		outstream.println("Made "+map.map.size()+" lists containing "+clustersCreated+
+		outstream.println("Made "+map.size()+" lists containing "+clustersCreated+
 				" clusters and "+contigsAdded+" contigs from "+contigList.size()+" elements.");
 		return map;
 	}
@@ -543,7 +543,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param minSize Minimum size for merge consideration
 	 * @return Number of clusters merged in this pass
 	 */
-	public int refineBinMapPass(BinMap map, float stringency, 
+	public int refineBinMapPass(BinMap2 map, float stringency, 
 			int taxlevel, boolean allowNoTaxID, boolean allowHalfTaxID, int range, int minSize) {
 		//		System.err.println("Merging clusters pass.");
 
@@ -636,7 +636,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param minSizeRecluster Minimum cluster size to consider for splitting
 	 * @return Number of clusters that were successfully split
 	 */
-	public int recluster(BinMap map, float stringency, int minSizeRecluster) {
+	public int recluster(BinMap2 map, float stringency, int minSizeRecluster) {
 
 		float maxTrimerDif=max3merDif2*stringency;
 		float maxKmerDif=max4merDif2*stringency;
@@ -702,7 +702,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param minSizeCompare Minimum size for comparison targets
 	 * @return Number of contigs removed from their original clusters
 	 */
-	public int purify(BinMap map, float stringency, int range, int minSizePurify, int minSizeCompare) {
+	public int purify(BinMap2 map, float stringency, int range, int minSizePurify, int minSizeCompare) {
 		//		System.err.println("Merging clusters pass.");
 
 		float maxTrimerDif=max3merDif2*stringency;
@@ -798,7 +798,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param range Search range for target clusters
 	 * @return Number of residual contigs successfully assigned to clusters
 	 */
-	public int processResidue(BinMap map, float stringency, 
+	public int processResidue(BinMap2 map, float stringency, 
 			int taxlevel, boolean allowNoTaxID, boolean allowHalfTaxID, int range) {
 		//		assert(map.isValid());
 		System.err.println("Processing "+map.residual.size()+" residual contigs.");
@@ -855,7 +855,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		}
 
 		Tools.condenseStrict(map.residual);
-		for(ArrayList<Cluster> list : map.map.values()) {
+		for(ArrayList<Cluster> list : map) {
 			Collections.sort(list);
 		}
 		assert(map.isValid());
@@ -875,7 +875,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param minSize Minimum target cluster size
 	 * @return Best matching cluster, or null if none suitable
 	 */
-	public Cluster findBestResidualCluster(Bin a, BinMap map, Key key, Oracle oracle, 
+	public Cluster findBestResidualCluster(Bin a, BinMap2 map, Key key, Oracle oracle, 
 			int range, int minSize) {
 		if(a==null || a.size()<minSizeResidue) {return null;}
 		int minSize2=(int)Tools.max(minSizeToCompare, a.size(), minSize);
@@ -889,12 +889,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param map Bin map to refine through multiple passes
 	 * @return Total number of clusters merged across all passes
 	 */
-	public int refineBinMap(BinMap map) {
+	public int refineBinMap(BinMap2 map) {
 		System.err.println("Merging clusters.");
 		if(sketchClusters) {sketcher.sketch(map.toList(false), false);}
 		else {
-			for(Cluster c : map) {
-				if(c.sketchedSize()>=2*c.size()) {c.clearTax();}
+			for(ArrayList<Cluster> list : map) {
+				for(Cluster c : list) {
+					if(c.sketchedSize()>=2*c.size()) {c.clearTax();}
+				}
 			}
 		}
 		phaseTimer.start();
@@ -957,7 +959,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param passes Number of passes to execute
 	 * @return Total clusters merged in this phase
 	 */
-	int refinePhase(BinMap map, String phase,
+	int refinePhase(BinMap2 map, String phase,
 			float stringency, int taxLevel, boolean noTax, boolean halfTax, int range, int initialMinSize, int passes) {
 		Timer t=new Timer(outstream, true);
 		int removedThisPhase=0;
@@ -1033,16 +1035,9 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param stringency Threshold multiplier for fusion decisions
 	 * @return Number of successful fusion events
 	 */
-	public long fuse(ArrayList<Contig> contigs, ArrayList<? extends Bin> input, float stringency){
-		//Old, slow non-indexed version
+	public long fuse(ArrayList<Contig> contigs, BinMap2 binMap, ArrayList<? extends Bin> input, float stringency, int range){
 		if(loud) {outstream.print("Initiating Fusion:  \t");}
 		phaseTimer.start();
-
-		//		for(int i=1; i<input.size(); i++) {
-		//			assert(input.get(i).size()<=input.get(i-1).size());
-		//			assert(input.get(i).size()>=fuseLowerLimit);
-		//		}
-		//		assert(false) : fuseLowerLimit;
 
 		float maxTrimerDif=max3merDif2*stringency;
 		float maxKmerDif=max4merDif2*stringency;
@@ -1054,66 +1049,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		Oracle oracle=new Oracle(maxGCDif, maxDepthRatio, maxTrimerDif, maxKmerDif, max5merDif, 
 				maxProduct, maxCovariance, minKmerProb2, 0);
 
-		//		System.err.println("maxKmerDif="+maxKmerDif+", maxDepthRatio="+maxDepthRatio+
-		//				", maxGCDif="+maxGCDif+", maxProduct="+maxProduct+
-		//				", maxCovariance="+maxCovariance+", minKmerProb2="+minKmerProb2);
-		//		System.err.println("List size: "+input.size());
-
 		long merges=0;
-		merges=launchThreads(input, null, contigs, FUSE_MODE, 0, 0, oracle);
-		//		phaseTimer.stopAndPrint();
-		//		phaseTimer.start();
+		merges=launchThreads(input, binMap, contigs, FUSE_MODE, range, 0, oracle);
 
 		//This phase can be slow.
-		if(merges>0) {merges=mergeWithDest(contigs, input);}
-
-		if(merges>0 && loud) {phaseTimer.stop("Merged "+merges+"/"+input.size()+" bins: \t");}
-		return merges;
-	}
-
-	/**
-	 * Attempts to merge medium-sized bins that may represent fragments of the same genome.
-	 * Uses very strict similarity requirements to avoid contamination.
-	 *
-	 * @param contigs Reference contig list
-	 * @param input Bins in size range suitable for fusion
-	 * @param stringency Threshold multiplier for fusion decisions
-	 * @return Number of successful fusion events
-	 */
-	public long fuse2(ArrayList<Contig> contigs, BinMap binMap, ArrayList<? extends Bin> input, float stringency, int range){
-		if(loud) {outstream.print("Initiating Fusion:  \t");}
-		phaseTimer.start();
-
-		//		for(int i=1; i<input.size(); i++) {
-		//			assert(input.get(i).size()<=input.get(i-1).size());
-		//			assert(input.get(i).size()>=fuseLowerLimit);
-		//		}
-		//		assert(false) : fuseLowerLimit;
-
-		float maxTrimerDif=max3merDif2*stringency;
-		float maxKmerDif=max4merDif2*stringency;
-		float max5merDif=max5merDif2*stringency;
-		float maxDepthRatio=1+((maxDepthRatio2-1)*stringency);
-		float maxGCDif=maxGCDif2*stringency;
-		float maxProduct=maxKmerDif*maxDepthRatio*Binner.productMult;
-		float maxCovariance=maxCovariance2*stringency;
-		Oracle oracle=new Oracle(maxGCDif, maxDepthRatio, maxTrimerDif, maxKmerDif, max5merDif, 
-				maxProduct, maxCovariance, minKmerProb2, 0);
-
-		//		System.err.println("maxKmerDif="+maxKmerDif+", maxDepthRatio="+maxDepthRatio+
-		//				", maxGCDif="+maxGCDif+", maxProduct="+maxProduct+
-		//				", maxCovariance="+maxCovariance+", minKmerProb2="+minKmerProb2);
-		//		System.err.println("List size: "+input.size());
-
-		long merges=0;
-		merges=launchThreads(input, binMap, contigs, FUSE2_MODE, range, 0, oracle);
-		//		phaseTimer.stopAndPrint();
-		//		phaseTimer.start();
-
-		//This phase can be slow.
-		if(merges>0) {merges=mergeWithDest(contigs, input);}
-
-		if(merges>0 && loud) {phaseTimer.stop("Merged "+merges+"/"+input.size()+" bins: \t");}
+		if(merges>0) {
+			merges=mergeWithDest(contigs, input);
+			if(loud) {phaseTimer.stop("Merged "+merges+"/"+input.size()+" bins: \t");}
+		}
 		return merges;
 	}
 
@@ -1278,7 +1221,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param oracle Similarity calculator template
 	 * @return Total number of merges performed across all threads
 	 */
-	private synchronized long launchThreads(ArrayList<? extends Bin> list, BinMap map, 
+	private synchronized long launchThreads(ArrayList<? extends Bin> list, BinMap2 map, 
 			ArrayList<Contig> contigs, int mode, int range, int minSize, Oracle oracle) {
 
 		//Do anything necessary prior to processing
@@ -1342,7 +1285,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		 * @param minSize_ Size threshold
 		 * @param oracle_ Similarity calculator
 		 */
-		public CompareThread(ArrayList<? extends Bin> list, BinMap map_, ArrayList<Contig> contigs_, 
+		public CompareThread(ArrayList<? extends Bin> list, BinMap2 map_, ArrayList<Contig> contigs_, 
 				int tid_, int threads_, int mode_, int range_, int minSize_, Oracle oracle_) {
 			input=list;
 			map=map_;
@@ -1369,8 +1312,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 					follow();
 				}else if(mode==FUSE_MODE) {
 					fuse();
-				}else if(mode==FUSE2_MODE) {
-					fuse2();
 				}else if(mode==RECLUSTER_MODE) {
 					recluster();
 				}else {
@@ -1424,60 +1365,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		 * @return Best fusion target, or null if none suitable
 		 */
 		private Bin findBestFuseTarget(Bin a) {
-			oracle.best=null;
-			oracle.topScore=-1;
-			for(Bin b : input) {
-				if(b.size()<fuseLowerLimit) {
-					assert(false) : a.size()+", "+b.size();
-					break;
-				}
-				if(b.size()<a.size()) {break;}
-				if(b==a) {continue;}
-				fuseCompares++;
-				float f=oracle.similarity(a, b, 1);
-				//				if(f<=0) {
-				//					verbose=true;
-				//					oracle.similarity(a, b, 1);
-				//					assert(false);
-				//				}
-				if(f>oracle.topScore) {
-					assert(f>0) : f;//Actually, could be -1; or clear should set to -1
-					oracle.best=b;
-					oracle.topScore=f;
-				}
-			}
-			//			System.err.print('.');
-			if(oracle.best!=null) {a.dest=oracle.best.id();}
-			return oracle.best;
-		}
-
-		/** Attempts fusion of medium-sized bins in assigned work range.
-		 * @return Number of successful fusions */
-		private int fuse2() {
-			for(int i=tid; i<input.size(); i+=threads) {
-				Bin a=input.get(i);
-				if(a.size()<fuseLowerLimit) {
-					assert(false);
-					break;
-				}
-				if(a.size()>fuseUpperLimit) {continue;}
-				fuseSeeks++;
-				Bin b=findBestFuseTarget2(a);
-				mergesT+=(b==null ? 0 : 1);
-				fuseTargets+=(b==null ? 0 : 1);
-			}
-			//			System.err.println("fuseSeeks="+fuseSeeks);
-			//			System.err.println("fuseCompares="+fuseCompares);
-			//			System.err.println("fuseTargets="+fuseTargets);
-			return mergesT;
-		}
-
-		/**
-		 * Finds best candidate for fusing with given bin.
-		 * @param a Source bin seeking fusion partner
-		 * @return Best fusion target, or null if none suitable
-		 */
-		private Bin findBestFuseTarget2(Bin a) {
 			oracle.best=null;
 			oracle.topScore=-1;
 			a.dest=-1;
@@ -1633,7 +1520,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		}
 
 		final ArrayList<? extends Bin> input;
-		final BinMap map;
+		final BinMap2 map;
 		final ArrayList<Contig> contigs;
 		final int tid;
 		final int threads;
@@ -1755,7 +1642,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	long[] badMergeSize=new long[40];
 
 	/** Main bin map containing all clusters and residual sequences */
-	BinMap binMap;
+	BinMap2 binMap;
 
 	/*--------------------------------------------------------------*/
 
@@ -1802,8 +1689,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	static final int FUSE_MODE=4;
 	/** Thread mode for cluster splitting operations */
 	static final int RECLUSTER_MODE=5;
-	/** Thread mode for bin fusion operations */
-	static final int FUSE2_MODE=6;
 
 	/** Minimum size for bins eligible for fusion */
 	static int fuseLowerLimit=5000;

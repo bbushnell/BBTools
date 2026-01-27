@@ -69,6 +69,11 @@ public class ReadComparatorCrispr extends ReadComparator{
 		ascending=(asc ? 1 : -1);
 	}
 	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Crispr";}
+	
 	/**
 	 * Loads the default CRISPR neural network if not already loaded; thread-safe.
 	 */
