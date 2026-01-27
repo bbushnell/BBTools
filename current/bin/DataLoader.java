@@ -16,10 +16,14 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import fileIO.TextFile;
+import map.ObjectIntMap;
+import map.ObjectSet;
 import ml.CellNet;
 import ml.CellNetParser;
 import shared.LineParser1;
 import shared.LineParser2;
+import shared.LineParser4;
 import shared.LineParserS1;
 import shared.LineParserS4;
 import shared.Parse;
@@ -251,7 +255,9 @@ public class DataLoader extends BinObject {
 		if(s==null) {return false;}
 		String ext=ReadWrite.rawExtension(s);
 		if("txt".equals(ext) || "tsv".equals(ext) || "cov".equals(ext)) {
-			return s.contains("cov");
+			if(s.contains("cov")) {return true;}
+			String[] lines=TextFile.toStringLines(s, 2);
+			return lines.length>1 && lines[0].startsWith("#Contigs");
 		}
 		return false;
 	}
@@ -352,19 +358,52 @@ public class DataLoader extends BinObject {
 		
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
-
 		final boolean parseCov=(covIn==null && readFiles.isEmpty() && covstats.isEmpty() && !flatMode);
 		final ArrayList<Contig> contigs=loadAndProcessContigs(fname, parseCov);
+		Read.VALIDATE_IN_CONSTRUCTOR=vic;
+		
+		loadDepth(contigs, parseCov, true);
+		
+		return contigs;
+	}
+	
+	public ArrayList<Contig> loadContigsFromSam(String fname){
+		ArrayList<Contig> contigs=new ArrayList<Contig>();
+		ArrayList<byte[]> header=StreamerFactory.loadSharedHeader(fname);
+		LineParser4 lp=new LineParser4("\t:\t:\t");//Last tab is for extra fields, may not be needed
+		for(byte[] line : header) {
+			if(Tools.startsWith(line, "@SQ")) {
+				lp.set(line);
+				assert(lp.terms()>=5) : "'"+new String(line)+"'";
+				assert(lp.termEquals("SN", 1));
+				assert(lp.termEquals("LN", 3));
+				final int len=lp.parseInt(4);
+				if(len>=minContigToLoad) {
+					Contig c=new Contig(lp.parseString(2), len, contigs.size());
+					contigs.add(c);
+				}
+			}
+		}
+		return contigs;
+	}
+	
+	public ArrayList<Contig> loadDepth(ArrayList<Contig> contigs, boolean parseCov, boolean assertValid){
+		
+		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
+		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 
+		final boolean loadContigs=(contigs==null);
 		if(parseCov) {
 			depthCalculated=true;
 			numDepths=1;
 		}else {
-			numDepths=calculateDepth(contigs);
+			contigs=calculateDepth(contigs);
+			numDepths=contigs.isEmpty() ? 0 : contigs.get(0).numDepths();
 		}
 		double entropy=calcDepthSum(contigs);
 		System.err.println("Depth Entropy:      \t"+entropy);
 		System.err.println("Samples Equivalent: \t"+samplesEquivalent);
+		System.err.println("Samples:            \t"+numDepths);
 		if(streamContigs && contigs.get(0).numDepths()>1) {//Normally handled by SpectraCounter
 			for(Contig c : contigs) {
 				synchronized(c) {
@@ -375,7 +414,7 @@ public class DataLoader extends BinObject {
 			}
 		}
 		assert(depthCalculated);
-		assert(isValid(contigs, false)) : parseCov;
+		assert(loadContigs || !assertValid || isValid(contigs, false)) : parseCov;
 
 		long removedEdges=0;
 		phaseTimer.start();
@@ -388,7 +427,119 @@ public class DataLoader extends BinObject {
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		
-		return contigs;//not necessarily optimal
+		return contigs;
+	}
+	
+	ArrayList<Contig> loadContigSubsetFromCov(String fasta, String cov, int minSize){
+		ObjectIntMap<String> fastaMap=loadMapFromFasta(fasta, minSize);
+		ArrayList<Contig> rawContigs=loadCovFile(cov, null, Integer.MAX_VALUE);
+		System.err.println("Using a "+fastaMap.size()+" contig subset of "+rawContigs.size()+" total.");
+
+		int maxOldID=0;
+		for(Contig c : rawContigs){maxOldID=Math.max(maxOldID, c.id());}
+		int[] oldToNew=new int[maxOldID+1];
+		Arrays.fill(oldToNew, -1);
+
+		Contig[] finalContigsArray=new Contig[fastaMap.size()];
+		int matched=0;
+
+		for(Contig c : rawContigs){
+			int newID=fastaMap.get(c.name());
+			if(newID>=0){
+				oldToNew[c.id()]=newID;
+				c.setID(newID);
+				finalContigsArray[newID]=c;
+				matched++;
+			}
+		}
+		assert(matched==fastaMap.size()) : "Mismatch: "+matched+" vs "+fastaMap.size();
+
+		for(Contig c : finalContigsArray){
+			if(c!=null && c.pairMap!=null){
+				IntHashMap oldPairs=c.pairMap;
+				IntHashMap newPairs=new IntHashMap((int)(oldPairs.size()*1.5f));
+				int[] keys=oldPairs.keys();
+				int[] values=oldPairs.values();
+
+				for(int i=0; i<keys.length; i++){
+					int oldDest=keys[i];
+					if(oldDest<0){continue;}
+
+					if(oldDest<oldToNew.length){
+						int newDest=oldToNew[oldDest];
+						if(newDest!=-1){
+							newPairs.put(newDest, values[i]); 
+						}
+					}
+				}
+				c.pairMap=newPairs;
+			}
+		}
+
+		ArrayList<Contig> result=new ArrayList<Contig>(finalContigsArray.length);
+		for(Contig c : finalContigsArray){result.add(c);}
+		System.err.println("Resulting subset size: "+result.size());
+		Collections.sort(result); //Ensures they are in length-descending order, tiebroken by fasta order.
+
+		numDepths=result.isEmpty() ? 0 : result.get(0).numDepths();
+		double entropy=calcDepthSum(result);
+		System.err.println("Depth Entropy:      \t"+entropy);
+		System.err.println("Samples Equivalent: \t"+samplesEquivalent);
+		System.err.println("Samples:            \t"+numDepths);
+		
+		return result;
+	}
+	
+	static ObjectIntMap<String> loadMapFromFasta(String fname, int minSize){
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, true, false);
+		ObjectIntMap<String> map=new ObjectIntMap<String>();
+		Streamer st=StreamerFactory.makeStreamer(ff, null, true, -1);
+		st.start();
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+//			System.err.println("Processing ln "+ln.id+", size "+ln.size());
+			for(Read r : ln) {
+//				System.err.println("Processing read "+r.id+", size "+r.length());
+				if(r.length()>=minSize) {
+//					System.err.println("Adding read to map: "+r.id);
+					int old=map.put(r.id, map.size());
+					assert(old<0) : "Duplicate contig "+r.id+", rid="+r.numericID+", msize="+map.size()+", old="+old;
+//					System.err.println("Added.  Map="+map.toString());
+				}
+			}
+		}
+		return map;
+	}
+	
+	static ObjectSet<String> loadSetFromFasta(String fname, int minSize){
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, true, false);
+		ObjectSet<String> set=new ObjectSet<String>();
+		Streamer st=StreamerFactory.makeStreamer(ff, null, true, -1);
+		st.start();
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+			for(Read r : ln) {
+				if(r.length()>=minSize) {
+					boolean added=set.add(r.id);
+					assert(added) : "Duplicate contig "+r.id;
+				}
+			}
+		}
+		return set;
+	}
+	
+	static ArrayList<Contig> loadContigsFromFasta(String fname, int minSize, boolean keepSequence){
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, true, false);
+		ArrayList<Contig> contigs=new ArrayList<Contig>();
+		Streamer st=StreamerFactory.makeStreamer(ff, null, true, -1);
+		st.start();
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+			for(Read r : ln) {
+				if(r.length()>=minSize) {
+					Contig c=(keepSequence ? new Contig(r.id, r.bases, contigs.size()) : new Contig(r.id, r.length(), contigs.size()));
+					contigs.add(c);
+				}
+			}
+		}
+		return contigs;
 	}
 	
 	/**
@@ -429,7 +580,7 @@ public class DataLoader extends BinObject {
 		contigsRetained+=sc.contigsRetained;
 		basesRetained+=sc.basesRetained;
 		phaseTimer.stopAndPrint();
-		Collections.sort(contigs);
+		Collections.sort(contigs);//TODO:  This messes up cov files if the assembly is not descending
 		for(int i=0; i<contigs.size(); i++) {contigs.get(i).setID(i);}
 		errorState|=ReadWrite.closeStream(cris);
 
@@ -486,13 +637,13 @@ public class DataLoader extends BinObject {
 	 * contig headers, and Bloom filters.
 	 *
 	 * @param contigs List of contigs to calculate depth for
-	 * @return Number of depth profiles calculated
+	 * @return New or modified contigs list
 	 */
-	int calculateDepth(ArrayList<Contig> contigs) {
+	ArrayList<Contig> calculateDepth(ArrayList<Contig> contigs) {
 		final boolean sam=(!readFiles.isEmpty() && FileFormat.isSamOrBamFile(readFiles.get(0)));
 
 		if(covIn!=null) {
-			loadCovFile(covIn, contigs, MAX_DEPTH_COUNT);
+			contigs=loadCovFile(covIn, contigs, MAX_DEPTH_COUNT);
 		}else if(covstats.size()>0) {
 			HashMap<String, Contig> contigMap=toMap(contigs);
 			for(int i=0; i<readFiles.size(); i++) {
@@ -565,7 +716,7 @@ public class DataLoader extends BinObject {
 				calcDepthFromBloomFilter(contigs, bloomFilter, 0);
 			}
 		}
-		return contigs.isEmpty() ? 0 : contigs.get(0).numDepths();
+		return contigs;
 	}
 	
 	/**
@@ -1018,7 +1169,7 @@ public class DataLoader extends BinObject {
 	 * @param contigs List of contigs to assign coverage data to
 	 * @param maxSamples Maximum number of samples to load from file
 	 */
-	public void loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
+	public ArrayList<Contig> loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
 		outstream.print("Loading coverage from "+fname+": \t");
 		phaseTimer.start();
 		LineParser1 lp=new LineParser1('\t');
@@ -1034,17 +1185,27 @@ public class DataLoader extends BinObject {
 		assert(numDepths>0) : numDepths;
 		final int edgeStart=3+numDepths;
 		final int samples=Tools.min(numDepths, maxSamples);
+		final boolean makeContigs=(contigs==null);
+		if(makeContigs) {contigs=new ArrayList<Contig>();}
+		
 		int loaded=0;
 		for(; line!=null; line=bf.nextLine()) {
 			lp.set(line);
 			int id=lp.parseInt(1);
-			if(id>=contigs.size()) {continue;}//Presumably small contigs that were not loaded
+			if(id>=contigs.size() && !makeContigs) {break;}//Presumably small contigs that were not loaded
 			int size=lp.parseInt(2);
 			int edges=(lp.terms()-edgeStart)/2;
-			Contig c=contigs.get(id);
+			final Contig c;
+			if(makeContigs) {
+				if(size<minContigToLoad) {continue;}
+				c=new Contig(lp.parseString(0), size, id);
+				contigs.add(c);
+			}else {
+				c=contigs.get(id);
+			}
 			assert(c.id()==id);
 			assert(c.size()==size) : c.name()+", "+c.size()+", "+size+"\n"+new String(line);
-			assert(lp.termEquals(c.shortName, 0));
+			assert(lp.termEquals(c.shortName, 0)) : c.shortName+", "+new String(line);
 			assert(c.numDepths()==0);
 			for(int i=0; i<samples; i++) {
 				float f=lp.parseFloat(i+3);
@@ -1060,9 +1221,11 @@ public class DataLoader extends BinObject {
 			}
 			loaded++;
 		}
+		bf.close();
 		assert(loaded==contigs.size()) : loaded+", "+contigs.size();
 		depthCalculated=true;
 		phaseTimer.stopAndPrint();
+		return contigs;
 	}
 	
 	/**
@@ -1167,7 +1330,7 @@ public class DataLoader extends BinObject {
 	private final ArrayList<String> covstats=new ArrayList<String>();
 	
 	/** Primary read input file path */
-	private final ArrayList<String> readFiles=new ArrayList<String>();
+	final ArrayList<String> readFiles=new ArrayList<String>();
 	
 //	/** Primary read input file */
 //	FileFormat ffin1;

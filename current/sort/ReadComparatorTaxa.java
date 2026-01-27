@@ -117,6 +117,11 @@ public final class ReadComparatorTaxa extends ReadComparator {
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}
+	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Taxa";}
 
 	public static TaxTree tree;
 	

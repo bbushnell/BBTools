@@ -2140,7 +2140,7 @@ public final class Tools {
 		if(list==null || list.size()==0){return 0;}
 		int removed=0;
 		
-		for(int i=list.size()-1; i>0; i--){
+		for(int i=list.size()-1; i>=0; i--){
 			if(list.get(i)==null){
 				removed++;
 				X last=list.get(list.size()-1);

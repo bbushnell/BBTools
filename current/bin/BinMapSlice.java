@@ -3,7 +3,7 @@ package bin;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
-import shared.Tools;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A slice of the BinMap corresponding to a single quantized GC level.
@@ -72,27 +72,76 @@ public class BinMapSlice {
 		if(start2>stop2 || start3>stop3 || start4>stop4 || start5>stop5) {return;}
 
 		// Inner loops for dimensions 5->2
+		long lookups=0, valid=0;
 		for(int dim5=start5; dim5<=stop5; dim5++) {
 			for(int dim4=start4; dim4<=stop4; dim4++) {
 				for(int dim3=start3; dim3<=stop3; dim3++) {
 					for(int dim2=start2; dim2<=stop2; dim2++) {
 						
 						key.setLevel(gcLevel, dim2, dim3, dim4, dim5);
+						lookups++;
 						
 						ArrayList<Cluster> list=map.get(key);
 						if(list!=null) {
-							BinMap2.findBestBinIndex(a, list, minSizeToCompare, oracle, verbose);
+							valid++;
+							findBestBinIndex(a, list, minSizeToCompare, oracle);
 						}
 					}
 				}
 			}
 		}
+		hashLookups.addAndGet(lookups);
+		hashLookupsValid.addAndGet(valid);
+//		assert(false) : lookups+", "+valid;
+	}
+	
+	boolean isValid() {
+		boolean valid=true;
+		for(ArrayList<Cluster> list : map.values()) {
+			assert(valid=BinObject.isValid(list, false) && valid);
+		}
+		return valid;
+	}
+	
+	/**
+	 * Finds the best matching bin within a specific cluster list.
+	 * Iterates through clusters in size order, updating oracle with best match.
+	 * Stops early when clusters become too small for comparison.
+	 *
+	 * @param a Query bin
+	 * @param clusters List of candidate clusters
+	 * @param minSizeToCompare Minimum size threshold for comparison
+	 * @param oracle Similarity calculator that tracks best match
+	 * @return Index of best match or -1 if none found
+	 */
+	private static int findBestBinIndex(Bin a, ArrayList<? extends Bin> clusters, 
+			long minSizeToCompare, Oracle oracle) {
+		
+		int bestIdx=-1;
+		for(int i=0; i<clusters.size(); i++) {
+			Bin b=clusters.get(i);
+			if(b==null || a==b) {continue;}
+			if(b.size()<minSizeToCompare) {break;}
+			
+			float f=oracle.similarity(a, b, 1f);
+			assert(f!=0) : b.id();
+			if(verbose) {
+				System.err.println("Comparing to "+b.id()+"; score="+oracle.score+"/"+oracle.topScore);
+			}
+			if(f>oracle.topScore) {
+				assert(f>0);//Actually, could be -1; or clear should set to -1
+				oracle.best=b;
+				oracle.bestIdx=bestIdx=i;
+				oracle.topScore=f;
+			}
+		}
+		return bestIdx;
 	}
 	
 	public Collection<ArrayList<Cluster>> values(){return map.values();}
 	
 	public final int gcLevel;
-	public final ConcurrentHashMap<Key, ArrayList<Cluster>> map=new ConcurrentHashMap<Key, ArrayList<Cluster>>(32, 0.75f, 4);
+	public final ConcurrentHashMap<Key, ArrayList<Cluster>> map=new ConcurrentHashMap<Key, ArrayList<Cluster>>(1024, 0.75f, 4);
 	
 	// Local bounds for this specific GC slice
 	private int minDim2=9999999;
@@ -103,4 +152,10 @@ public class BinMapSlice {
 	private int maxDim4=0;
 	private int minDim5=9999999;
 	private int maxDim5=0;
+	
+	// Stats
+	static AtomicLong hashLookups=new AtomicLong(0);
+	static AtomicLong hashLookupsValid=new AtomicLong(0);
+	
+	private static final boolean verbose=false;
 }

@@ -578,6 +578,53 @@ final class SIMD{
 		return sum;
 	}
 
+	//Amber
+	/**
+	 * Computes cosine similarity between float arrays using SIMD.
+	 * @param a First float array
+	 * @param b Second float array
+	 * @return Cosine similarity (1.0 = identical, 0.0 = orthogonal)
+	 */
+	static float cosineSimilarity(float[] a, float[] b){
+		assert(a.length==b.length);
+
+		int length=a.length;
+		int upperBound=FSPECIES.loopBound(length);
+
+		//Accumulation vectors
+		FloatVector dotProductVec=FloatVector.zero(FSPECIES);
+		FloatVector normVec1Vec=FloatVector.zero(FSPECIES);
+		FloatVector normVec2Vec=FloatVector.zero(FSPECIES);
+
+		int i=0;
+		for(; i<upperBound; i+=FWIDTH){
+			FloatVector va=FloatVector.fromArray(FSPECIES, a, i);
+			FloatVector vb=FloatVector.fromArray(FSPECIES, b, i);
+
+			//Accumulate in vector space
+			dotProductVec=dotProductVec.add(va.mul(vb));
+			normVec1Vec=normVec1Vec.add(va.mul(va));
+			normVec2Vec=normVec2Vec.add(vb.mul(vb));
+		}
+
+		//Reduce lanes
+		float dotProduct=dotProductVec.reduceLanes(VectorOperators.ADD);
+		float normVec1=normVec1Vec.reduceLanes(VectorOperators.ADD);
+		float normVec2=normVec2Vec.reduceLanes(VectorOperators.ADD);
+
+		//Handle tail
+		for(; i<length; i++){
+			float ai=a[i];
+			float bi=b[i];
+			dotProduct+=ai*bi;
+			normVec1+=ai*ai;
+			normVec2+=bi*bi;
+		}
+
+		if(normVec1==0 || normVec2==0){return 0;} //Avoid NaN
+		return (float)(dotProduct/(Math.sqrt(normVec1)*Math.sqrt(normVec2)));
+	}
+
 	// Isla
 	/**
 	 * Computes cosine similarity between scaled integer arrays using SIMD.

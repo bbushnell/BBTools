@@ -166,9 +166,25 @@ public class TextFile {
 	 * @param ff FileFormat specifying the file to read
 	 * @return Array of all lines in the file as strings
 	 */
-	public static final String[] toStringLines(FileFormat ff){
+	public static final String[] toStringLines(FileFormat ff){return toStringLines(ff, -1);}
+	
+	/**
+	 * Convenience method to read entire file into string array from filename.
+	 * Automatically closes the TextFile after reading.
+	 * @param fname File path to read
+	 * @return Array of all lines in the file as strings
+	 */
+	public static final String[] toStringLines(String fname){return toStringLines(fname, -1);}
+	
+	/**
+	 * Convenience method to read entire file into string array from FileFormat.
+	 * Automatically closes the TextFile after reading.
+	 * @param ff FileFormat specifying the file to read
+	 * @return Array of all lines in the file as strings
+	 */
+	public static final String[] toStringLines(FileFormat ff, int max){
 		TextFile tf=new TextFile(ff);
-		String[] lines=tf.toStringLines();
+		String[] lines=tf.toStringLines(max);
 		tf.close();
 		return lines;
 	}
@@ -179,20 +195,26 @@ public class TextFile {
 	 * @param fname File path to read
 	 * @return Array of all lines in the file as strings
 	 */
-	public static final String[] toStringLines(String fname){
+	public static final String[] toStringLines(String fname, int max){
 		TextFile tf=new TextFile(fname);
-		String[] lines=tf.toStringLines();
+		String[] lines=tf.toStringLines(max);
 		tf.close();
 		return lines;
 	}
 	
 	/** Generate an array of the lines in this TextFile */
 	public final String[] toStringLines(){
+		return toStringLines(-1);
+	}
+	
+	/** Generate an array of the lines in this TextFile */
+	public final String[] toStringLines(long max){
+		if(max<0) {max=Long.MAX_VALUE;}
 		
 		String s=null;
 		ArrayList<String> list=new ArrayList<String>(4096);
 		
-		for(s=nextLine(); s!=null; s=nextLine()){
+		for(s=nextLine(); s!=null && list.size()<max; s=nextLine()){
 			list.add(s);
 		}
 		

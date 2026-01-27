@@ -17,8 +17,11 @@ import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
 import stream.CrisContainer;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
@@ -325,11 +328,13 @@ public class SortByName {
 	/** Create read streams and process all data */
 	void process(Timer t){
 		
+		System.err.println("Sorting by "+comparator.name()+" "+(comparator.ascending() ? "ascending." : "descending."));
+		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
 			useSharedHeader=(ffin1.samOrBam());
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2);
+			cris=StreamerFactory.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2, -1);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -337,7 +342,7 @@ public class SortByName {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 //		//Optionally create a read output stream
-//		final ConcurrentReadOutputStream ros;
+//		final Writer ros;
 //		if(ffout1!=null){
 //			final int buff=4;
 //
@@ -345,7 +350,7 @@ public class SortByName {
 //				outstream.println("Writing interleaved.");
 //			}
 //
-//			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
+//			ros=Writer.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
 //			ros.start(); //Start the stream
 //		}else{ros=null;}
 		
@@ -357,6 +362,8 @@ public class SortByName {
 		processInner(cris);
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
+		cris.close();
+		
 		
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
@@ -374,6 +381,138 @@ public class SortByName {
 	}
 	
 	/** Iterate through the reads */
+	public void processInner(final Streamer cris){
+		//Do anything necessary prior to processing
+		final int ziplevel0=ReadWrite.ZIPLEVEL;
+		ReadWrite.ZIPLEVEL=Tools.mid(1, ReadWrite.ZIPLEVEL, 2);
+		
+		ArrayList<Read> storage=new ArrayList<Read>();
+		
+		final long maxMem=Shared.memAvailable(1);
+		final long memLimit=(long)(maxMem*memTotalMult);//Crashed once at old 0.75 value
+		final long currentLimit=(long)(maxMem*memBlockMult);
+		final int readLimit=2000000000;
+		long currentMem=0;
+		long bytesDumped=0;
+		long dumps=0;
+//		IntList dumpCount=new IntList();
+		AtomicLong outstandingMem=new AtomicLong();
+		
+		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
+				", currentMem="+currentMem+", currentLimit="+currentLimit);}
+		
+		if(comparator==ReadComparatorPosition.comparator){
+			if(ReadComparatorPosition.scafMap==null){
+				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
+			}
+		}
+		if(useSharedHeader && ffout1!=null && ffout1.samOrBam()){
+			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
+
+			if(header!=null) {
+				byte[] hd;
+				if(comparator==ReadComparatorPosition.comparator) {
+					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
+				}else if(comparator==ReadComparatorName.comparator) {
+					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
+				}else {
+					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
+				}
+				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
+					header.set(0, hd);
+				}else {
+					header.add(0, hd);
+				}
+			}
+		}
+		
+		{
+			//Grab the first ListNum of reads
+			ListNum<Read> ln=cris.nextList();
+			//Grab the actual read list from the ListNum
+			ArrayList<Read> reads=(ln!=null ? ln.list : null);
+			
+			//Check to ensure pairing is as expected
+			if(reads!=null && !reads.isEmpty()){
+				Read r=reads.get(0);
+				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
+			}
+			
+			//As long as there is a nonempty read list...
+			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
+				if(verbose2){outstream.println("Fetched "+reads.size()+" reads.");}
+				
+				//Loop through each read in the list
+				for(int idx=0; idx<reads.size(); idx++){
+					final Read r1=reads.get(idx);
+					final Read r2=r1.mate;
+					
+					//Track the initial length for statistics
+					final int initialLength1=r1.length();
+					final int initialLength2=(r1.mateLength());
+					
+					//Increment counters
+					readsProcessed+=r1.pairCount();
+					basesProcessed+=initialLength1+initialLength2;
+					maxLengthObserved=Tools.max(maxLengthObserved, initialLength1, initialLength2);
+					
+					if(minlen<1 || initialLength1>=minlen || initialLength2>=minlen){
+						if(genKmer){ReadComparatorTopological5Bit.genKmer(r1);}
+						else if(clump){ReadComparatorClump.set(r1);}
+						currentMem+=r1.countBytes()+(r2==null ? 0 : r2.countBytes());
+						storage.add(r1);
+					}
+				}
+				
+				if(allowTempFiles && (currentMem>=currentLimit || storage.size()>=readLimit)){
+					if(verbose){outstream.println("currentMem: "+currentMem+" >= "+currentLimit+", dumping. ");}
+					outstandingMem.addAndGet(currentMem);
+//					dumpCount.add(storage.size());
+					sortAndDump(storage, currentMem, outstandingMem, null, null, false);
+					storage=new ArrayList<Read>();
+					bytesDumped+=currentMem;
+					dumps++;
+					currentMem=0;
+					if(verbose){outstream.println("Waiting on memory; outstandingMem="+outstandingMem);}
+					waitOnMemory(outstandingMem, memLimit);
+					if(verbose){outstream.println("Done waiting; outstandingMem="+outstandingMem);}
+				}
+				
+				//Fetch a new list
+				ln=cris.nextList();
+				reads=(ln!=null ? ln.list : null);
+			}
+		}
+		
+		outstream.println("Finished reading input.");
+		
+		outstandingMem.addAndGet(currentMem);
+		if(dumps==0){
+			ReadWrite.ZIPLEVEL=ziplevel0;
+			outstream.println("Sorting.");
+			if(out1!=null){
+				sortAndDump(storage, currentMem, outstandingMem, out1, out2, useSharedHeader);
+				storage=null;
+				waitOnMemory(outstandingMem, 0);
+			}else{
+				Timer t=new Timer();
+				Shared.sort(storage, comparator);//For timing/testing.
+				t.stop("Sort Time: \t\t\t");
+			}
+		}else{
+//			dumpCount.add(storage.size());
+			sortAndDump(storage, currentMem, outstandingMem, null, null, false);
+			storage=null;
+			waitOnMemory(outstandingMem, 0);
+			outstream.println("Merging "+(dumps+1)+" files.");
+			ReadWrite.ZIPLEVEL=ziplevel0;
+			mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);
+		}
+		
+	}
+	
+	/** Legacy method until Clumpify uses Streamer */
+	@Deprecated
 	public void processInner(final ConcurrentReadInputStream cris){
 		//Do anything necessary prior to processing
 		final int ziplevel0=ReadWrite.ZIPLEVEL;
@@ -737,10 +876,10 @@ public class SortByName {
 		
 		ListNum.setDeterministicRandom(false);
 		boolean errorState=false;
-		final ConcurrentReadOutputStream ros;
+		final Writer ros;
 		if(ffout1!=null){
 			final int buff=1;
-			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, useHeader);
+			ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
 			ros.start(); //Start the stream
 		}else{ros=null;}
 		
@@ -770,7 +909,7 @@ public class SortByName {
 				new File(fname).delete();
 			}
 		}
-		if(ros!=null){errorState|=ReadWrite.closeStream(ros);}
+		if(ros!=null){errorState|=ros.poisonAndWait();}
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
@@ -787,7 +926,7 @@ public class SortByName {
 	 * @param ros Concurrent read output stream for writing results
 	 * @param outstream Print stream for debug and status messages
 	 */
-	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream) {
+	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final Writer ros, PrintStream outstream) {
 		
 //		for(CrisContainer cc : q){
 //			assert(!cc.cris().paired()) : FASTQ.TEST_INTERLEAVED+", "+FASTQ.FORCE_INTERLEAVED+
@@ -1011,10 +1150,10 @@ public class SortByName {
 			if(verbose){outstream.println("Started a WriteThread.");}
 			final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, false);
 			final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, false);
-			final ConcurrentReadOutputStream ros;
+			final Writer ros;
 			if(ffout1!=null){
 				final int buff=4;
-				ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, useHeader);
+				ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
 				ros.start(); //Start the stream
 			}else{ros=null;}
 
@@ -1037,7 +1176,7 @@ public class SortByName {
 				}
 			}
 			if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
-			errorState|=ReadWrite.closeStream(ros);
+			errorState|=ros.poisonAndWait();
 			if(verbose){outstream.println("Closed ros.");}
 			
 			synchronized(outstandingMem){

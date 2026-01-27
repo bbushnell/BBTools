@@ -64,6 +64,11 @@ public final class FloatList{
 		}
 	}
 	
+	public FloatList(FloatList x){
+		this(x.size);
+		addAll(x);
+	}
+	
 	public FloatList(){this(256);}
 	
 	public FloatList(int initial){

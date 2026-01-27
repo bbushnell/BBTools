@@ -10,6 +10,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import structures.ByteBuilder;
 
 /**
  * Hash map with Object keys and primitive int values.
@@ -507,6 +508,7 @@ public final class ObjectIntMap<K> implements Serializable {
 		K[] temp=(K[])new Object[(int)size3];
 		keys=temp;
 		values=KillSwitch.allocInt1D((int)size3);
+		Arrays.fill(values, -1);
 		hashes=KillSwitch.allocInt1D((int)size3);
 
 		if(size<1){return;}
@@ -520,6 +522,24 @@ public final class ObjectIntMap<K> implements Serializable {
 				set(k, v, h);
 			}
 		}
+	}
+	
+	@Override
+	public String toString(){
+		return toBytes().toString();
+	}
+	
+	public ByteBuilder toBytes() {
+		ByteBuilder bb=new ByteBuilder();
+		bb.append('{');
+		for(int i=0; i<keys.length; i++) {
+			K key=keys[i];
+			if(key!=null) {
+				if(bb.length>1) {bb.comma().space();}
+				bb.append(key.toString()).equals().append(values[i]);
+			}
+		}
+		return bb;
 	}
 
 	/*--------------------------------------------------------------*/

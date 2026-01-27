@@ -17,15 +17,17 @@ public class Contig extends Bin {
 		name=name_;
 		shortName=ContigRenamer.toShortName(name);
 		bases=bases_;
+		size=bases.length;
 		id=id_;
 	}
 
-//	public Contig(String name_, byte[] bases_, int id_) {
-//		name=name_;
-//		shortName=ContigRenamer.toShortName(name);
-//		bases=bases_;
-//		setID(id_);
-//	}
+	public Contig(String name_, int size_, int id_) {
+		name=name_;
+		shortName=ContigRenamer.toShortName(name);
+		bases=null;
+		size=size_;
+		id=id_;
+	}
 	
 	@Override
 	public String name() {return name;}
@@ -155,7 +157,7 @@ public class Contig extends Bin {
 	
 	/** Returns the length of the genomic sequence in bases */
 	@Override
-	public long size() {return bases.length;}
+	public long size() {return size;}
 
 	/**
 	 * Generates a MinHash sketch for this contig using the provided sketch maker.
@@ -226,6 +228,7 @@ public class Contig extends Bin {
 	}
 	
 	private int id=-1;
+	public final int size;
 	public Cluster cluster=null;
 	public final String name;
 	public final String shortName;

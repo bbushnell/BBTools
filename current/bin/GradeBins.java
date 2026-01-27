@@ -950,8 +950,10 @@ public class GradeBins {
 		long c30=(long)(0.30f*basesLoaded);
 		long c25=(long)(0.25f*basesLoaded);
 		long c20=(long)(0.20f*basesLoaded);
+		long c15=(long)(0.15f*basesLoaded);
 		long c10=(long)(0.10f*basesLoaded);
 		long c05=(long)(0.05f*basesLoaded);
+		long c02=(long)(0.02f*basesLoaded);
 		long c01=(long)(0.01f*basesLoaded);
 		
 		list.sort();
@@ -964,12 +966,14 @@ public class GradeBins {
 			int num=i+1;
 
 			if(sum2>=c01 && prev<c01) {System.err.println("L01: "+size+"\t"+"N01: "+num);}
-//			if(sum2>=c05 && prev<c05) {System.err.println("L05: "+size+"\t"+"N05: "+num);}
+			if(sum2>=c02 && prev<c02) {System.err.println("L02: "+size+"\t"+"N02: "+num);}
+			if(sum2>=c05 && prev<c05) {System.err.println("L05: "+size+"\t"+"N05: "+num);}
 			if(sum2>=c10 && prev<c10) {System.err.println("L10: "+size+"\t"+"N10: "+num);}
+			if(sum2>=c15 && prev<c15) {System.err.println("L15: "+size+"\t"+"N15: "+num);}
 			if(sum2>=c20 && prev<c20) {System.err.println("L20: "+size+"\t"+"N20: "+num);}
-//			if(sum2>=c25 && prev<c25) {System.err.println("L25: "+size+"\t"+"N25: "+num);}
-//			if(sum2>=c30 && prev<c30) {System.err.println("L30: "+size+"\t"+"N30: "+num);}
-//			if(sum2>=c40 && prev<c40) {System.err.println("L40: "+size+"\t"+"N40: "+num);}
+			if(sum2>=c25 && prev<c25) {System.err.println("L25: "+size+"\t"+"N25: "+num);}
+			if(sum2>=c30 && prev<c30) {System.err.println("L30: "+size+"\t"+"N30: "+num);}
+			if(sum2>=c40 && prev<c40) {System.err.println("L40: "+size+"\t"+"N40: "+num);}
 			if(sum2>=c50 && prev<c50) {System.err.println("L50: "+size+"\t"+"N50: "+num);}
 //			if(sum2>=c75 && prev<c75) {System.err.println("L75: "+size+"\t"+"N75: "+num);}
 //			if(sum2>=c80 && prev<c80) {System.err.println("L80: "+size+"\t"+"N80: "+num);}

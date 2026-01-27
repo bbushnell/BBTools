@@ -54,6 +54,11 @@ public final class ReadComparatorName extends ReadComparator {
 	public void setAscending(boolean asc){
 		ascending=(asc ? 1 : -1);
 	}
+	
+	@Override
+	public final int ascendingMult() {return ascending;}
+	@Override
+	public final String name() {return "Name";}
 
 	/** Singleton instance for name-based read comparison. */
 	public static final ReadComparatorName comparator=new ReadComparatorName();
