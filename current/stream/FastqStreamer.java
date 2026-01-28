@@ -59,6 +59,7 @@ public class FastqStreamer implements Streamer {
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(pairnum==0 || !interleaved);
+//		if(interleaved && maxReads_<Long.MAX_VALUE/2) {maxReads_*=2;}
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 		
 		// Create OQS with prototypes for LAST/POISON generation
@@ -236,28 +237,54 @@ public class FastqStreamer implements Streamer {
 			long listNumber=0;
 			long reads=0;
 			int bytes=0;
+			final int sections=(interleaved ? 2 : 1);
 			
 			final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
 			ListNum<byte[][]> ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(slimit), listNumber++);
 			ln.firstRecordNum=reads;
 			
 			while(reads<maxReads){
-				// Read 4 lines per FASTQ record
-				byte[] header=bf.nextLine();
-				if(header==null){break;}
-				byte[] bases=bf.nextLine();
-				byte[] plus=bf.nextLine();
-				byte[] quals=bf.nextLine();
-				bytes+=2*bases.length;//Ignore header, usually short
-				
-				if(bases==null || plus==null || quals==null){
-					// Incomplete record at end of file
-					break;
+				{
+					// Read 4 lines per FASTQ record
+					byte[] header=bf.nextLine();
+					if(header==null){break;}
+					byte[] bases=bf.nextLine();
+					byte[] plus=bf.nextLine();
+					byte[] quals=bf.nextLine();
+
+					if(bases==null || plus==null || quals==null){
+						System.err.println("Incomplete record at end of file: "+new String(header));
+						errorState=true;
+						break;
+					}
+					bytes+=2*bases.length;//Ignore header, usually short
+					
+					byte[][] record=new byte[][]{header, bases, plus, quals};
+					ln.add(record);
 				}
-				
+				if(interleaved){
+					// Read 4 lines per FASTQ record
+					byte[] header=bf.nextLine();
+					if(header==null){
+						System.err.println("Incomplete pair at end of file, pairnum "+reads);
+						errorState=true;
+						break;
+					}
+					byte[] bases=bf.nextLine();
+					byte[] plus=bf.nextLine();
+					byte[] quals=bf.nextLine();
+
+					if(bases==null || plus==null || quals==null){
+						System.err.println("Incomplete record at end of file: "+new String(header));
+						errorState=true;
+						break;
+					}
+					bytes+=2*bases.length;//Ignore header, usually short
+					
+					byte[][] record=new byte[][]{header, bases, plus, quals};
+					ln.add(record);
+				}
 				reads++;
-				byte[][] record=new byte[][]{header, bases, plus, quals};
-				ln.add(record);
 				
 				if(ln.size()>=slimit || bytes>=blimit){
 					oqs.addInput(ln);
@@ -321,10 +348,15 @@ public class FastqStreamer implements Streamer {
 				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>((list.size()+1)/2), list.id());
 				long readID=list.firstRecordNum/2;
 				ArrayList<byte[][]> quads=list.list;
-				assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
+//				assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
+				if((quads.size()&1)!=0){
+					System.err.println("Incomplete pair near pairnum "+readID);
+					errorState=true;
+				}
 
+				final int lim=(quads.size()|1)-1;
 				if(samplerate>=1f){
-					for(int i=0, lim=quads.size(); i<lim; i+=2){
+					for(int i=0; i<lim; i+=2){
 						byte[][] quad1=quads.get(i);
 						byte[][] quad2=quads.get(i+1);
 						Read r1=quadToRead(quad1, 0, readID);
@@ -334,7 +366,7 @@ public class FastqStreamer implements Streamer {
 						reads.add(r1);
 					}
 				}else{
-					for(int i=0, lim=quads.size(); i<lim; i+=2){
+					for(int i=0; i<lim; i+=2){
 						if(randy.nextFloat()<samplerate){
 							byte[][] quad1=quads.get(i);
 							byte[][] quad2=quads.get(i+1);

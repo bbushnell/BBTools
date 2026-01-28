@@ -116,7 +116,8 @@ public final class FastqScanStreamer implements Streamer{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+//				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}

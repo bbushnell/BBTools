@@ -118,7 +118,7 @@ public final class BBLog extends CardinalityTracker {
 //		System.err.println("difSum="+difSum+", count="+count+", mean="+mean+", est="+estimatePerSet+", total="+(long)total);
 //		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
 		
-		long cardinality=(long)(total);
+		long cardinality=Math.min(added, (long)(total));
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -142,6 +142,7 @@ public final class BBLog extends CardinalityTracker {
 	}
 	
 	public void add(BBLog log){
+		added+=log.added;
 		if(atomic && maxArrayA!=log.maxArrayA){
 			for(int i=0; i<buckets; i++){
 				maxArrayA.set(i, Tools.max(maxArrayA.get(i), log.maxArrayA.get(i)));

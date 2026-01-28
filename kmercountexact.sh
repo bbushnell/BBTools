@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 14, 2020
+Last modified January 28, 2026
 
 Description:  Counts the number of unique kmers in a file.
 Generates a kmer frequency histogram and genome size estimate (in peaks output),

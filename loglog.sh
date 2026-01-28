@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified March 24, 2020
+Last modified January 28, 2026
 
 Description:  Estimates cardinality of unique kmers in sequence data.
 See also kmercountmulti.sh.

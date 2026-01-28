@@ -83,7 +83,6 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
-		ReadWrite.setZipThreads(Tools.max(Shared.threads()>1 ? 2 : 1, Shared.threads()>20 ? Shared.threads()/2 : Shared.threads()));
 		BBMerge.strict=true;
 		KCountArray.LOCKED_INCREMENT=true;
 		

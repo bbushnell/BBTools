@@ -314,8 +314,9 @@ public class StreamerWrapper{
 				if(fw!=null) {fw.addLines(ln);}
 			}
 		}
+		boolean errorState=false;
 		if(fw!=null) {
-			fw.poisonAndWait();
+			errorState=fw.poisonAndWait();
 			assert(!readMode || readsIn==fw.readsWritten()) : readsIn+", "+fw.readsWritten()+", "+fw.getClass();
 			assert(!readMode || basesIn==fw.basesWritten()) : basesIn+", "+fw.basesWritten()+", "+fw.getClass();
 			readsOut=fw.readsWritten();
@@ -324,13 +325,9 @@ public class StreamerWrapper{
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		st.close();//Prevents a BF4 hang with limited reads
-//		try{
-//			Thread.sleep(100);
-//		}catch(InterruptedException e){
-//			// TODO Auto-generated catch block
-//			e.printStackTrace();
-//		}
-//		Shared.listThreads2();
+		errorState|=st.errorState();
+
+		if(errorState){throw new RuntimeException("Stream terminated in an error state; the output may be corrupt.");}
 	}
 	
 	private int skipReads(ArrayList<?> list) {

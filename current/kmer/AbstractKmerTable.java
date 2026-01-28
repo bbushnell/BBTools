@@ -19,7 +19,7 @@ import structures.SuperLongList;
  * @date Oct 23, 2013
  *
  */
-public abstract class AbstractKmerTable {
+public abstract class AbstractKmerTable implements KmerTableInterface {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Abstract Methods       ----------------*/

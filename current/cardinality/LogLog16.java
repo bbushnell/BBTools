@@ -115,7 +115,7 @@ public final class LogLog16 extends CardinalityTracker {
 //		System.err.println("difSum="+difSum+", count="+count+", mean="+mean+", est="+estimatePerSet+", total="+(long)total);
 //		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
 		
-		long cardinality=(long)(total);
+		long cardinality=Math.min(added, (long)(total));
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -132,6 +132,7 @@ public final class LogLog16 extends CardinalityTracker {
 	}
 	
 	public void add(LogLog16 log){
+		added+=log.added;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
 				maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);

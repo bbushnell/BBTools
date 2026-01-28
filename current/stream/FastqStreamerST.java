@@ -205,7 +205,11 @@ public class FastqStreamerST implements Streamer {
 				byte[] plus=bf.nextLine();
 				byte[] quals=bf.nextLine();
 				
-				if(bases==null || plus==null || quals==null){break;}
+				if(bases==null || quals==null ){
+					System.err.println("Incomplete record at end of file: "+new String(header));
+					errorState=true;
+					break;
+				}
 				
 				bytes+=2*bases.length;
 				
@@ -254,8 +258,16 @@ public class FastqStreamerST implements Streamer {
 				byte[] bases2=bf.nextLine();
 				byte[] plus2=bf.nextLine();
 				byte[] quals2=bf.nextLine();
-				
-				if(bases1==null || quals1==null || bases2==null || quals2==null){break;}
+				if(bases1==null || quals1==null || header2==null || bases2==null || quals2==null){
+					if(bases1==null || quals1==null || bases2==null || quals2==null){
+						System.err.println("Incomplete record at end of file: "+new String(header1));
+					}
+					if(header2==null){
+						System.err.println("Incomplete pair at end of file, pairnum "+readID);
+					}
+					errorState=true;
+					break;
+				}
 				
 				bytes+=2*(bases1.length+bases2.length);
 				
