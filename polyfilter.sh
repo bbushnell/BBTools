@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 1, 2024
+Last modified January 28, 2026
 
 Description:  Filters reads to remove those with suspicious homopolymers.
 

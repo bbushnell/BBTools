@@ -20,13 +20,29 @@ File parameters:
 in=<file>       Input.  Properly named files (*.sam, etc) do not need 'in='.
                 Sam, bam, and cov files are supported as input;
 		bam uses the most memory, and cov the least.
-condense=       When there are more than this many samples (sam/bam files),
+out=<file>      Output coverage file.
+
+Other parameters
+condense=<int>  When there are more than this many samples (sam/bam files),
                 combine some into the same logical sample to save memory.
 reorder=t       Reorder samples by decreasing entropy to improve indexing.
+mincontig=100   Ignore contigs shorter than this.  Saves memory.
 readthreads=4   Load up to this many sam/bam files concurrently.
                 Lower uses less memory (when there are more samples).
-mincontig=100   Ignore contigs shorter than this.  Saves memory.
-minseed=2.5k    Don't calculate entropy from contigs shorter than this.
+minseed=2.5k    Don't calculate depth entropy from contigs shorter than this.
+magnitude=t     Use magnitude (total sample volume) in merge decisions -
+                prioritize low-volume samples.
+cosine=t        Use cosine similarity in merge decisions - 
+                prioritize similar samples.
+entropy=f       Use depth entropy in merge decisions - 
+                prioritize low-entropy samples.
+negcos=f        Invert the cosine function to prioritize dissimilar samples.
+magpower=1.0    Raise sample volume to this power to alter its strength.
+entpower=1.0    Raise entropy to this power.
+compare=100k    Only compare this many largest contigs when calculating 
+                pairwise depth similarity.
+lognorm=f       Use logs of normalized depth, instead of raw depth,
+                for pairwise similarity.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

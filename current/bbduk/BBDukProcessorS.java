@@ -326,9 +326,10 @@ public class BBDukProcessorS {
 		readsPolyTrimmed+=pt.readsPolyTrimmed;
 		basesPolyTrimmed+=pt.basesPolyTrimmed;
 		
-		if(pTracker!=null){
-			pTracker.add(pt.pTracker);
-		}
+		if(pTracker!=null){pTracker.add(pt.pTracker);}
+		if(loglogIn!=null){loglogIn.add(pt.loglogIn);}
+		if(loglogOut!=null){loglogOut.add(pt.loglogOut);}
+		
 		if(pt.scaffoldReadCountsT!=null && scaffoldReadCounts!=null){
 			for(int i=0; i<pt.scaffoldReadCountsT.length; i++){scaffoldReadCounts.addAndGet(i, pt.scaffoldReadCountsT[i]);}
 //			pt.scaffoldReadCountsT=null;//TODO: final
@@ -797,7 +798,9 @@ public class BBDukProcessorS {
 
 			if(isNotDiscarded(r1)){
 				if(histogramsBeforeProcessing){addToHistograms(r1, r2);}
-				if(loglogIn!=null){loglogIn.hash(r1);}
+				if(loglogIn!=null){
+					loglogIn.hash(r1);
+				}
 			}
 
 			final int initialLength1=r1.length();

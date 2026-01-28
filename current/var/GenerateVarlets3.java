@@ -436,7 +436,7 @@ public class GenerateVarlets3 {
 	 * Generates block key for genomic position using chromosome and block number.
 	 *
 	 * @param chrom Chromosome number
-	 * @param start Start position in chromosome
+	 * @param tid Start position in chromosome
 	 * @return Encoded key for the genomic block
 	 */
 	private void writeList(ArrayList<Varlet> list){

@@ -184,7 +184,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}
@@ -233,7 +233,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}
@@ -291,7 +291,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}
@@ -346,7 +346,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}
@@ -401,7 +401,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}
@@ -458,7 +458,7 @@ public final class FastqScan{
 			if(residue>0) {
 				if(bstart>0) {
 					System.arraycopy(buffer, bstart, buffer, 0, residue);
-				}else if(r>0){
+				}else if(r>0 && bstop>=buffer.length){
 					expand();
 				}
 			}

@@ -154,7 +154,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 				assert(b!=null) : "\nk needs an integer value such as k=50.  Default is 62.\n";
 				kbig_=Parse.parseIntKMG(b);
 			}else if(a.equals("threads") || a.equals("t")){
-				THREADS=(b==null || b.equalsIgnoreCase("auto") ? Shared.threads() : Integer.parseInt(b));
+				Shared.setThreads(b);
 			}else if(a.equals("showspeed") || a.equals("ss")){
 				showSpeed=Parse.parseBoolean(b);
 			}else if(a.equals("ecco")){
@@ -350,7 +350,6 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 				throw new RuntimeException("\nCan't read some input files.\n");  
 			}
 		}
-		assert(THREADS>0);
 		
 		if(DISPLAY_PROGRESS){
 			outstream.println("Initial:");
@@ -401,6 +400,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		}
 		
 		/* Create ProcessThreads */
+		final int THREADS=Shared.threads();
 		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(THREADS);
 		for(int i=0; i<THREADS; i++){alpt.add(new LoadThread(cris));}
 		for(LoadThread pt : alpt){pt.start();}
@@ -890,13 +890,6 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	@Override
 	public long[] fillHistogram(int histMax) {
 		return HistogramMakerU.fillHistogram(tables, histMax);
-	}
-	
-	@Override
-	public void countGC(long[] gcCounts, int max) {
-		for(AbstractKmerTableU set : tables){
-			set.countGC(gcCounts, max);
-		}
 	}
 	
 	@Override

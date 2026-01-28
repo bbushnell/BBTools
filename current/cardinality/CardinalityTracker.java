@@ -194,6 +194,7 @@ public abstract class CardinalityTracker {
 	 * @param number The value to hash and track */
 	public final void add(long number){
 		hashAndStore(number);
+		added++;
 	}
 	
 	/**
@@ -531,6 +532,12 @@ public abstract class CardinalityTracker {
 		kmer.clearFast();
 		return kmer;
 	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	long added=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------    Deprecated Table Fields   ----------------*/

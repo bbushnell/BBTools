@@ -304,6 +304,7 @@ public abstract class AbstractKmerTableSet {
 		kmersLoaded=0;
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=false;
+//		Timer t=new Timer();
 		for(int i=0; i<in1.size(); i++){
 			String a=in1.get(i);
 			String b=in2.size()>i ? in2.get(i) : null;
@@ -324,6 +325,7 @@ public abstract class AbstractKmerTableSet {
 			}
 			kmersLoaded+=loadKmers(a, b);
 		}
+//		t.stop("loadKmers:");
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		return kmersLoaded;
 	}
@@ -358,13 +360,6 @@ public abstract class AbstractKmerTableSet {
 	 * @return Array where index represents count and value represents frequency
 	 */
 	public abstract long[] fillHistogram(int histMax);
-
-	/**
-	 * Counts GC bases in k-mers up to specified maximum count.
-	 * @param gcCounts Array to store GC count results (modified in place)
-	 * @param max Maximum k-mer count to consider
-	 */
-	public abstract void countGC(long[] gcCounts, int max);
 	
 	/**
 	 * Creates and fills an array with GC content counts for k-mers.
@@ -375,6 +370,75 @@ public abstract class AbstractKmerTableSet {
 		long[] gcCounts=new long[histMax+1];
 		countGC(gcCounts, histMax);
 		return gcCounts;
+	}
+	
+	/**
+	 * Counts GC bases in k-mers up to specified maximum count.
+	 * @param gcCounts Array to store GC count results (modified in place)
+	 * @param max Maximum k-mer count to consider
+	 */
+	public final void countGC(long[] gcCounts, int max) {
+		// Determine thread count, capped by the number of tables to avoid empty threads
+		final int threads=Tools.mid(1, Shared.threads(), tables().length);
+		
+		// If single threaded, just run it directly to save setup overhead
+		if(threads<2){
+			for(KmerTableInterface set : tables()){
+				set.countGC(gcCounts, max);
+			}
+			return;
+		}
+
+		// Setup threads
+		ArrayList<CountGCThread> al=new ArrayList<CountGCThread>(threads);
+		
+		for(int i=0; i<threads; i++){
+			CountGCThread t=new CountGCThread(i, threads, max);
+			al.add(t);
+			t.start();
+		}
+		
+		// Wait for completion and reduce results
+		for(CountGCThread t : al){
+			while(t.getState()!=Thread.State.TERMINATED){
+				try{
+					t.join();
+				}catch(InterruptedException e){
+					// Ideally handle interrupt, but standard BBTools practice often ignores it here
+				}
+			}
+			// Reduction step: Sum thread-local counts into the main array
+			for(int i=0; i<gcCounts.length; i++){
+				gcCounts[i]+=t.myGcCounts[i];
+			}
+		}
+	}
+	
+	/*--------------------------------------------------------------*/
+	/*----------------        Inner Classes         ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private class CountGCThread extends Thread {
+		CountGCThread(int tid_, int threads_, int max_){
+			tid=tid_;
+			threads=threads_;
+			// Each thread gets a private array to avoid atomic contention
+			myGcCounts=new long[max_+1];
+			max=max_;
+		}
+		
+		@Override
+		public void run(){
+			KmerTableInterface[] tables=tables();
+			for(int i=tid; i<tables.length; i+=threads){
+				// This calls the existing single-threaded method in AbstractKmerTable
+				tables()[i].countGC(myGcCounts, max);
+			}
+		}
+		
+		final int tid, threads;
+		final int max;
+		final long[] myGcCounts;
 	}
 	
 	/**
@@ -490,24 +554,29 @@ public abstract class AbstractKmerTableSet {
 	 */
 	public final long[][] makeKhist(String fname, int cols, int max, boolean printHeader, boolean printZeros, boolean printTime, 
 			boolean smooth, boolean calcGC, boolean doLogScale, double logWidth, int logPasses, int smoothRadius){
-		Timer t=new Timer();
-		
+		Timer t=new Timer(), t2=new Timer();
+		boolean printSteps=true;
 		long[] ca=fillHistogram(max);
+		if(printSteps) {t2.stopAndStart("fillHistogram:");}
 		float[] gcHist=null;
 		if(calcGC){
 //			assert(false) : max+", "+ca.length;
 			long[] gc=(calcGC ? fillGcCounts(max) : null);
+			if(printSteps) {t2.stopAndStart("fillGcCounts:");}
 //			assert(false) : max+", "+ca.length+", "+gc.length;
 			gcHist=makeGcHistogram(ca, gc);
+			if(printSteps) {t2.stopAndStart("makeGcHistogram:");}
 		}
 		
 		long[] logScale=null;
 		
 		if(smooth){
 			ca=CallPeaks.smoothProgressive(ca, smoothRadius);
+			if(printSteps) {t2.stopAndStart("smoothProgressive:");}
 		}
 		if(doLogScale){
 			logScale=CallPeaks.logScale(ca, logWidth, 1, logPasses);
+			if(printSteps) {t2.stopAndStart("logScale:");}
 		}
 		
 		long[][] ret=new long[2][];
@@ -518,6 +587,7 @@ public abstract class AbstractKmerTableSet {
 			for(int i=1; i<ca.length; i++){
 				ret[1][i]=Math.round(ca[i]*gcHist[i]*k);
 			}
+			if(printSteps) {t2.stopAndStart("gcHist:");}
 		}
 		
 		if(fname==null){return ret;}
@@ -547,11 +617,14 @@ public abstract class AbstractKmerTableSet {
 				bsw.print('\n');
 			}
 		}
+		if(printSteps) {t2.stopAndStart("fileWrite:");}
 		bsw.poisonAndWait();
 		t.stop();
 		if(printTime){outstream.println("Histogram Write Time:       \t"+t);}
 		return ret;
 	}
+	
+	public abstract <T extends KmerTableInterface> T[] tables();
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -692,8 +765,6 @@ public abstract class AbstractKmerTableSet {
 	public static boolean verbose=false;
 	/** Debugging verbose messages */
 	public static boolean verbose2=false;
-	/** Number of ProcessThreads */
-	public static int THREADS=Shared.threads();
 	
 	/** Maximum number of N bases allowed in k-mers */
 	public static int maxNs=Integer.MAX_VALUE;

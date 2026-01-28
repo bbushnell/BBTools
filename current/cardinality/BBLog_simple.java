@@ -63,7 +63,7 @@ public final class BBLog_simple extends CardinalityTracker {
 		final double estimatePerSet=2*(Long.MAX_VALUE/mean);
 		final double total=estimatePerSet*count*((count+buckets)/(float)(buckets+buckets));
 		
-		long cardinality=(long)(total);
+		long cardinality=Math.min(added, (long)(total));
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -87,6 +87,7 @@ public final class BBLog_simple extends CardinalityTracker {
 	}
 	
 	public void add(BBLog_simple log){
+		added+=log.added;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
 				maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);

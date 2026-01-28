@@ -98,7 +98,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 		final double emptyBucketModifier=((count+buckets)/(float)(buckets+buckets));//Approximate; overestimate
 		final double total=estimatePerSet*subsets*mantissaFactor*emptyBucketModifier;
 		
-		long cardinality=(long)(total);
+		long cardinality=Math.min(added, (long)(total));
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -118,6 +118,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 	 * @param log LogLog8_simple tracker to merge
 	 */
 	public void add(LogLog8_simple log){
+		added+=log.added;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
 				maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);

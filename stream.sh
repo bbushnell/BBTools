@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 15, 2026
+Last modified January 28, 2026
 
 Description:  Converts between sam, bam, fasta, fastq.
               Supports subsampling, paired files, and multithreading.

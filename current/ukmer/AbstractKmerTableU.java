@@ -7,6 +7,7 @@ import java.util.concurrent.locks.Lock;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import fileIO.TextStreamWriter;
+import kmer.KmerTableInterface;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
@@ -18,7 +19,7 @@ import structures.SuperLongList;
  * @date Oct 23, 2013
  *
  */
-public abstract class AbstractKmerTableU {
+public abstract class AbstractKmerTableU implements KmerTableInterface {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Kmer methods         ----------------*/

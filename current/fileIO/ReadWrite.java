@@ -912,7 +912,10 @@ public class ReadWrite {
 		else if(zl<7){threads=Tools.min(threads, 64);}
 
 //		System.err.println("C: ZIPLEVEL="+ZIPLEVEL+", ALLOW_CHANGE="+ALLOW_ZIPLEVEL_CHANGE+", zl="+zl);
-		
+//		if(threads<32 && zl>6 || true) {
+//			System.err.println("***BGZIP: "+threads+", "+zl+", "+Shared.threads()+", "+MAX_ZIP_THREADS+", "+ZIP_THREAD_MULT);
+//			new Exception().printStackTrace();
+//		}
 //		assert(false) : Data.BGZIP()+", "+Data.PIGZ();
 		String command="bgzip -c "+(append ? "" : "-f ")+(Data.BGZIP_VERSION_levelFlag ? "-l "+zl+" " : "")+(Data.BGZIP_VERSION_threadsFlag ? "-@ "+threads+" " : "");
 		if(verbose){System.err.println(command);}
@@ -2676,6 +2679,7 @@ public class ReadWrite {
 	/** Sets maximum number of compression threads with bounds checking.
 	 * @param x Number of threads (clamped to 1-96 range) */
 	public static void setZipThreads(int x){
+//		System.err.println("setZipThreads("+x+")");new Exception().printStackTrace();
 		MAX_ZIP_THREADS=Tools.mid(1, x, 96);
 		SET_ZIP_THREADS=true;
 	}
@@ -2684,6 +2688,7 @@ public class ReadWrite {
 	/** Sets compression thread multiplier with bounds checking.
 	 * @param x Multiplier factor (clamped to 0.125-1.0 range) */
 	public static void setZipThreadMult(float x){
+//		System.err.println("setZipThreadMult("+x+")");new Exception().printStackTrace();
 		ZIP_THREAD_MULT=Tools.mid(0.125f, x, 1f);
 		SET_ZIP_THREAD_MULT=true;
 	}
