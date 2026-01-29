@@ -220,10 +220,14 @@ public class FlowCell {
 		}
 		FlowCell fc=this;
 		while(fc.avgReads<targetReads){
+			int x2=Tile.xSize, y2=Tile.ySize;
 			FlowCell fc2=fc.widen(true);
 			fc2.calcStats();
 			if(fc2.avgReads<=fc.avgReads){
-				unwiden();
+//				unwiden();
+				fc2=null;
+				Tile.xSize=x2;
+				Tile.ySize=y2;
 				return fc;
 			}
 			fc=fc2;
@@ -248,10 +252,14 @@ public class FlowCell {
 		}
 		FlowCell fc=this;
 		while(fc.avgAlignedReads<targetAlignedReads){
+			int x2=Tile.xSize, y2=Tile.ySize;
 			FlowCell fc2=fc.widen(false);
 			fc2.calcStats();
 			if(fc2.avgAlignedReads<=fc.avgAlignedReads){
-				unwiden();
+//				unwiden();
+				fc2=null;
+				Tile.xSize=x2;
+				Tile.ySize=y2;
 				return fc;
 			}
 			fc=fc2;
@@ -259,12 +267,13 @@ public class FlowCell {
 		return fc.setFrom(this);
 	}
 	
-	/** Reverses tile widening by halving the larger dimension.
-	 * Reduces either xSize or ySize by half, choosing the larger dimension. */
-	public void unwiden(){
-		if(Tile.xSize>Tile.ySize){Tile.ySize/=2;}
-		else{Tile.xSize/=2;}
-	}
+//	/** Reverses tile widening by halving the larger dimension.
+//	 * Reduces either xSize or ySize by half, choosing the larger dimension.
+//	 * NOTE:  This is broken, causes stale microtiles. */
+//	public void unwiden(){
+//		if(Tile.xSize>Tile.ySize){Tile.ySize/=2;}
+//		else{Tile.xSize/=2;}
+//	}
 	
 	/**
 	 * Widens tile dimensions by doubling the larger dimension.

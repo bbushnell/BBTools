@@ -14,4 +14,4 @@ resolveSymlinks(){
 }
 
 resolveSymlinks
-"$DIR/rqcfilter2.sh" "$@"
+"$DIR/rqcfilter3.sh" "$@"

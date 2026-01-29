@@ -122,7 +122,7 @@ public class BBDuk {
 		boolean histogramsBeforeProcessing_=true;
 		boolean trimFailuresTo1bp_=false;
 		
-		Parser parser=new Parser();
+		parser=new Parser();
 		parser.trimq=6;
 		parser.minAvgQuality=0;
 		parser.minReadLength=10;
@@ -2107,10 +2107,10 @@ public class BBDuk {
 			basesEFiltered+=pt.basesEFilteredT;
 			readsPolyTrimmed+=pt.readsPolyTrimmedT;
 			basesPolyTrimmed+=pt.basesPolyTrimmedT;
-			
-			if(pTracker!=null){
-				pTracker.add(pt.pTrackerT);
-			}
+
+			if(pTracker!=null){pTracker.add(pt.pTrackerT);}
+			if(loglogIn!=null){loglogIn.add(pt.loglogInT);}
+			if(loglogOut!=null){loglogOut.add(pt.loglogOutT);}
 			
 			if(hitCounts!=null){
 				for(int i=0; i<hitCounts.length; i++){hitCounts[i]+=pt.hitCountsT[i];}
@@ -2523,6 +2523,9 @@ public class BBDuk {
 				pTrackerT=null;
 			}
 			
+			loglogInT=(loglogIn==null ? null : CardinalityTracker.makeTracker(parser));
+			loglogOutT=(loglogIn==null ? null : CardinalityTracker.makeTracker(parser));
+			
 			maxBasesOutmT=(maxBasesOutm>0 ? Tools.max(1, maxBasesOutm/THREADS) : -1);
 			maxBasesOutuT=(maxBasesOutu>0 ? Tools.max(1, maxBasesOutu/THREADS) : -1);
 
@@ -2574,7 +2577,7 @@ public class BBDuk {
 						
 						if(histogramsBeforeProcessing){addToHistograms(r1, r2);}
 						
-						if(loglogIn!=null){loglogIn.hash(r1);}
+						if(loglogInT!=null){loglogInT.hash(r1);}
 						
 					}
 
@@ -3194,7 +3197,7 @@ public class BBDuk {
 						readsOutmT+=pairCount;
 						basesOutmT+=r1.pairLength();
 					}else{
-						if(loglogOut!=null){loglogOut.hash(r1);}
+						if(loglogOutT!=null){loglogOutT.hash(r1);}
 						readsOutuT+=pairCount;
 						basesOutuT+=r1.pairLength();
 					}
@@ -4532,6 +4535,8 @@ public class BBDuk {
 		
 		final EntropyTracker eTrackerT;
 		final PolymerTracker pTrackerT;
+		final CardinalityTracker loglogInT;
+		final CardinalityTracker loglogOutT;
 		
 		private float[] aprob, bprob;
 		
@@ -4834,6 +4839,7 @@ public class BBDuk {
 	boolean json=false;
 	
 	boolean swift=false; //https://issues.jgi.doe.gov/browse/AUTOQC-2193
+	private Parser parser;
 	
 	/** For calculating kmer cardinality in input */
 	final CardinalityTracker loglogIn;
