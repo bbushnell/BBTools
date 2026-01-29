@@ -3,13 +3,14 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 6, 2026
+Last modified January 29, 2026
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
 up to the maximum allowed number of substitutions.
-Indexed mode may remove this guarantee (depending on kmer length,
-query length, and number of substitutions) but can be much faster.
+Indexed mode uses an adaptive Multi-K strategy.  Queries are binned by
+length and error rate, and the reference is indexed with multiple kmer
+lengths (e.g. k=10,12,14) to optimize speed without sacrificing sensitivity.
 This loads all reads into memory and streams the reference, unlike
 a traditional aligner, so it is designed for a relatively small query set
 and potentially enormous reference set.
@@ -19,26 +20,29 @@ Usage:  indelfree.sh in=spacers.fa ref=contigs.fa out=mapped.sam
 Parameters:
 in=<file>       Query input.  These will be stored in memory.
 ref=<file>      Reference input.  These will be streamed.
-out=<file>      Sam output.
+out=<file>      Sam output (headerless).
 outh=<file>     Sam header output (optional).  Due to the streaming nature,
                 primary sam output is headerless, but this can be concatenated
-		with the main sam file.
+                with the main sam file.
 subs=5          (s) Maximum allowed substitutions.
 minid=0.0       Minimum allowed identity.  Actual substitions allowed will be
                 max(subs, (int)(qlen*(1-minid)))
-simd            Enable SIMD alignment.  Only accelerates brute force mode.
+simd=t          Enable SIMD alignment.
 threads=        Set the max number of threads; default is logical cores.
 
 Index Parameters:
 index=t         If true, build a kmer index to accelerate search.
-k=13            Index kmer length (1-15); longer is faster but less sensitive.
-                Very short kmers are slower than brute force mode.
+                Otherwise, brute force mode aligns queries to all locations.
+k=10,12,14      Index kmer lengths (1-15).  Can be a single integer or a
+                comma-delimited list.  The aligner will automatically select
+                the longest valid K from the list for each query to maximize
+                speed.  Very short kmers are slower than brute force mode.
 mm=1            Middle mask length; the number of wildcard bases in the kmer.
                 Must be shorter than k-1; 0 disables middle mask.
 blacklist=2     Blacklist homopolymer kmers up to this repeat length.
 step=1          Only use every Nth query kmer.
 minhits=1       Require this many seed hits to perform alignment.
-minprob=0.9999  Calculate the number of seed hits needed, on a per-query
+minprob=0.999   Calculate the number of seed hits needed, on a per-query
                 basis, to ensure this probability of finding valid alignments.
                 1 ensures optimality; 0 requires all seed hits; and negative
                 numbers disable this, using the minhits setting only.

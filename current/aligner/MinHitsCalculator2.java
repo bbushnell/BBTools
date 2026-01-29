@@ -168,11 +168,11 @@ public class MinHitsCalculator2 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private final int k;
+	final int k;
 	private final int maxSubs0;
 	private final float minid;
-	private final int midMaskLen;
-	private final float maxClipFraction;
+	final int midMaskLen;
+	final float maxClipFraction;
 	private final float minProb;
 	public final int kStep;
 	private final int wildcardMask;

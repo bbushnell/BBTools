@@ -13,7 +13,7 @@ public class ClippingTest {
     
     public static void main(String[] args) {
         // Set up basic parameters for testing
-        Query.setMode(11, 1, true); // k=11, mm=1, indexing enabled
+//        Query.setMode(11, 1, true); // k=11, mm=1, indexing enabled
         
         assert(testLeftClipping()) : "Left clipping test failed";
         assert(testRightClipping()) : "Right clipping test failed";
