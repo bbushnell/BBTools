@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 18, 2024
+Last modified January 28, 2026
 
 Description:  Filters reads based on positional quality over a flowcell.
 Quality is estimated based on quality scores and kmer uniqueness; ideally,

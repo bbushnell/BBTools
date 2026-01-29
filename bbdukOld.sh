@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 28, 2026
+Last modified October 29, 2025
 
 Description:  Compares reads to the kmers in a reference dataset, optionally 
 allowing an edit distance. Splits the reads into two outputs - those that 
@@ -112,9 +112,6 @@ ignorevcfindels=t   Also ignore indels listed in the VCF.
 Processing parameters:
 k=31                Kmer length used for finding contaminants.  Contaminants 
                     shorter than k will not be found.  k must be at least 1.
-ways=8              Index shards for ref kmers, must be 7 or a power of 2.
-                    Each shard can hold ~1.5B kmers, so this may be increased
-		    if there are too many kmers, but sufficient memory.
 rcomp=t             Look for reverse-complements of kmers in addition to 
                     forward kmers.
 maskmiddle=t        (mm) Treat the middle base of a kmer as a wildcard, to 
@@ -380,7 +377,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bbduk.BBDukS $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBDuk $@"
 	echo "$CMD" >&2
 	eval $CMD
 }
