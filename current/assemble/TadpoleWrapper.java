@@ -8,8 +8,8 @@ import java.util.HashSet;
 
 import jgi.AssemblyStats2;
 import jgi.ReformatReads;
-import shared.Parse;
-import shared.PreParser;
+import parse.Parse;
+import parse.PreParser;
 import shared.Shared;
 import shared.Tools;
 import ukmer.Kmer;

@@ -5,7 +5,7 @@ import java.util.HashMap;
 
 import dna.AminoAcid;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 import ukmer.Kmer;
 

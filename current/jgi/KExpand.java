@@ -8,9 +8,11 @@ import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.LongListSet;
+import map.LongListSet.LongListSetIterator;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -21,8 +23,6 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.ListNum;
-import structures.LongListSet;
-import structures.LongListSet.LongListSetIterator;
 import tracker.ReadStats;
 
 /**

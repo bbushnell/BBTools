@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import shared.Shared;
-import shared.Vector;
+import simd.Vector;
 import stream.SamLine;
 import structures.BinaryByteWrapperLE;
 import structures.ByteBuilder;

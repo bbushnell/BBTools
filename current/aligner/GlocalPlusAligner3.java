@@ -147,7 +147,7 @@ public class GlocalPlusAligner3 implements IDAligner{
 			final long q=query[i-1];
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
+				simd.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
 				// Process only cells within the band
@@ -176,7 +176,7 @@ public class GlocalPlusAligner3 implements IDAligner{
 			
 			//Tail loop for deletions
 			if(Shared.SIMD) {
-				shared.SIMDAlign.processDeletionsTailVectorPure(curr, bandStart, bandEnd);
+				simd.SIMDAlign.processDeletionsTailVectorPure(curr, bandStart, bandEnd);
 			}else {
 				long leftCell=curr[bandStart-1];
 				for(int j=bandStart; j<=bandEnd; j++){

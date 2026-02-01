@@ -2,8 +2,8 @@ package bin;
 
 import java.util.ArrayList;
 
+import map.IntHashSet;
 import shared.Tools;
-import structures.IntHashSet;
 
 abstract class AbstractRefiner extends BinObject {
 

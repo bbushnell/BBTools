@@ -13,11 +13,11 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import json.JsonObject;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
 import shared.MetadataWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -877,8 +877,8 @@ public final class AssemblyStats2 {
 			outstream.println("Can't write gc histogram because file exists and overwrite="+overwrite);
 			assert(false);
 		}else{
-			long gchistFilesum=shared.Vector.sum(gchistArray_downsampled);
-			long gchistFilesumbb=shared.Vector.sum(gchist_by_base_downsampled);
+			long gchistFilesum=simd.Vector.sum(gchistArray_downsampled);
+			long gchistFilesumbb=simd.Vector.sum(gchist_by_base_downsampled);
 			double invsum=(gchistFilesum==0 ? 0 : 1.0/gchistFilesum);
 			double invsumbb=(gchistFilesum==0 ? 0 : 1.0/gchistFilesumbb);
 			double invbins=1.0/(gcbins==0 ? 1 : gcbins);
@@ -1915,7 +1915,7 @@ public final class AssemblyStats2 {
 			long bytes=new File(in).length();
 			if(bytes<1){bytes=LIMSUM;}
 			double mbps=bytes*1000d/t.elapsed;
-			double mbpps=shared.Vector.sum(counts)*1000d/t.elapsed;
+			double mbpps=simd.Vector.sum(counts)*1000d/t.elapsed;
 			outstream.println(Tools.format("Speed:\t%.2f MBytes/s",mbps));
 			outstream.println(Tools.format("      \t%.2f MBases/s",mbpps));
 		}

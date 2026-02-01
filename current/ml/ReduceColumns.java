@@ -2,7 +2,7 @@ package ml;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Timer;
 import shared.Tools;
 import structures.IntList;

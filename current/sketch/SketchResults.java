@@ -7,10 +7,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import fileIO.TextStreamWriter;
 import json.JsonObject;
+import map.IntHashMap;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
-import structures.IntHashMap;
 import tax.TaxTree;
 
 /**

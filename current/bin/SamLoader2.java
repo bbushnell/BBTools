@@ -11,13 +11,13 @@ import java.util.concurrent.locks.ReadWriteLock;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.IntHashMap;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
 import stream.Streamer;
 import stream.StreamerFactory;
 import stream.Writer;
-import structures.IntHashMap;
 import structures.ListNum;
 import template.Accumulator;
 import template.ThreadWaiter;

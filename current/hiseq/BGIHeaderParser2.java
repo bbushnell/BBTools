@@ -1,6 +1,6 @@
 package hiseq;
 
-import shared.LineParserS4Reverse;
+import parse.LineParserS4Reverse;
 import structures.ByteBuilder;
 
 /**

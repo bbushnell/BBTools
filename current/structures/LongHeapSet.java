@@ -1,5 +1,7 @@
 package structures;
 
+import map.LongHashSet;
+
 /**
  * Maintains a heap of unique long values with a fixed capacity limit.
  * Combines a min-heap with a hash set to provide efficient top-N selection

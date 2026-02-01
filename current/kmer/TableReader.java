@@ -5,7 +5,7 @@ import java.util.BitSet;
 
 import dna.AminoAcid;
 import jgi.Dedupe;
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

@@ -22,9 +22,9 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -1012,7 +1012,7 @@ public final class Dedupe2 {
 		long[] clusterReads=clusterSizeMatrix[1];
 		long[] clusterBases=clusterSizeMatrix[2];
 		
-		long totalClusters=shared.Vector.sum(clusterSize);
+		long totalClusters=simd.Vector.sum(clusterSize);
 		
 		long bigClusters=0;
 		for(int i=minClusterSize; i<clusterSize.length; i++){
@@ -1050,9 +1050,9 @@ public final class Dedupe2 {
 				while(sb.length()<spaces3){sb.append(' ');}
 				sb.append(clusterBases[a]);
 			}else if(b>=clusterSize.length){
-				long x=shared.Vector.sum(clusterSize, a, clusterSize.length-1);
-				long y=shared.Vector.sum(clusterReads, a, clusterSize.length-1);
-				long z=shared.Vector.sum(clusterBases, a, clusterSize.length-1);
+				long x=simd.Vector.sum(clusterSize, a, clusterSize.length-1);
+				long y=simd.Vector.sum(clusterReads, a, clusterSize.length-1);
+				long z=simd.Vector.sum(clusterBases, a, clusterSize.length-1);
 				if(x>0){
 					sb.append(a+"+");
 					while(sb.length()<spaces){sb.append(' ');}
@@ -1063,9 +1063,9 @@ public final class Dedupe2 {
 					sb.append(z);
 				}
 			}else{
-				long x=shared.Vector.sum(clusterSize, a, b);
-				long y=shared.Vector.sum(clusterReads, a, b);
-				long z=shared.Vector.sum(clusterBases, a, b);
+				long x=simd.Vector.sum(clusterSize, a, b);
+				long y=simd.Vector.sum(clusterReads, a, b);
+				long z=simd.Vector.sum(clusterBases, a, b);
 				if(x>0){
 					sb.append(a+"-"+b);
 					while(sb.length()<spaces){sb.append(' ');}

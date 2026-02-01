@@ -10,13 +10,13 @@ import aligner.SingleStateAlignerFlat2;
 import aligner.SingleStateAlignerFlat3;
 import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
+import map.LongHashSet;
 import shared.KillSwitch;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.Read;
 import structures.FloatList;
 import structures.IntList;
-import structures.LongHashSet;
 
 
 /**

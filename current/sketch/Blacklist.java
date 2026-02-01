@@ -5,7 +5,7 @@ import java.util.ArrayList;
 
 import dna.Data;
 import kmer.AbstractKmerTable;
-import shared.PreParser;
+import parse.PreParser;
 
 /**
  * Manages blacklist k-mer databases for filtering common or contaminating sequences.

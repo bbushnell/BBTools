@@ -7,10 +7,10 @@ import java.util.Arrays;
 
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Colors;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Tools;
 import tax.TaxNode;

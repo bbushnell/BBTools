@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import rand.FastRandomXoshiro;
+import simd.Vector;
+
 /**
  * Shared functions and constants used across BBTools.
  * This class provides centralized utility methods and values
@@ -34,9 +37,9 @@ public class Shared {
 	
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.66";
+	public static String BBTOOLS_VERSION_STRING="39.67";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Multi IFA";
+	public static String BBMAP_VERSION_NAME="Fusion Fun";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */

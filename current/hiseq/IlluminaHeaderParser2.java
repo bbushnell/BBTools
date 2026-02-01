@@ -1,7 +1,7 @@
 package hiseq;
 
-import shared.LineParser;
-import shared.LineParserS3;
+import parse.LineParser;
+import parse.LineParserS3;
 import structures.ByteBuilder;
 
 /**

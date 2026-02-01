@@ -2,7 +2,7 @@ package gff;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Tools;
 import structures.ByteBuilder;
 

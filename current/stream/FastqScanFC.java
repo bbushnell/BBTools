@@ -7,7 +7,7 @@ import java.nio.channels.FileChannel;
 
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.IntList;
 
 /**

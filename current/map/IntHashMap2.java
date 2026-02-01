@@ -9,8 +9,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
-import structures.IntHashMap;
+import simd.Vector;
 
 /**
  * Hash map with primitive int keys and int values.

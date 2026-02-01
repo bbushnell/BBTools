@@ -10,9 +10,9 @@ import java.util.Arrays;
 import java.util.List;
 
 import jgi.TestFormat;
-import shared.LineParserS1;
-import shared.Parse;
-import shared.PreParser;
+import parse.LineParserS1;
+import parse.Parse;
+import parse.PreParser;
 import shared.Tools;
 import stream.Read;
 import stream.bam.BamReader;

@@ -1,5 +1,7 @@
 package structures;
 
+import map.LongHashMap;
+
 /**
  * Maintains a heap of unique values with associated counts using a size-limited structure.
  * Combines a LongHeap and LongHashMap to efficiently track the largest values while keeping counts.

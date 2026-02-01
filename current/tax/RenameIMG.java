@@ -9,16 +9,16 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.IntHashSet;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentGenericReadInputStream;
 import stream.FastaReadInputStream;
 import structures.ByteBuilder;
-import structures.IntHashSet;
 
 /**
  * Renames sequence headers in IMG (Integrated Microbial Genomes) files by adding

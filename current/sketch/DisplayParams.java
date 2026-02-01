@@ -6,8 +6,8 @@ import java.util.Comparator;
 import java.util.Map.Entry;
 
 import json.JsonObject;
+import parse.Parse;
 import shared.Colors;
-import shared.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 import tax.PrintTaxonomy;

@@ -106,7 +106,7 @@ public abstract class Function {
 	 */
 	public static synchronized final void normalizeTypeRates() {
 		assert(TYPE_RATES_CUM==null);
-		double sum=shared.Vector.sum(TYPE_RATES);
+		double sum=simd.Vector.sum(TYPE_RATES);
 		assert(sum>=0) : sum;
 		
 		if(sum<=0) {

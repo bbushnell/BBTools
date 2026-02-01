@@ -7,7 +7,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.bam.BgzfSettings;
 import structures.ByteBuilder;
 import structures.IntList;

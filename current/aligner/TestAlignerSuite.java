@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import bin.ConservationModel;
 import dna.AminoAcid;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;

@@ -18,7 +18,7 @@ import stream.SamLine;
  * and provides functionality for marking known variants and loading VCF data.
  *
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  * @date December 2024
  */
 public class AnalyzeVars {

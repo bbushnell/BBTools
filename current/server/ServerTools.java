@@ -68,7 +68,7 @@ public class ServerTools {
 		System.out.println(response.s);
 		
 		Arrays.sort(times);
-		long sum=shared.Vector.sum(times);
+		long sum=simd.Vector.sum(times);
 		System.out.println("Avg:    \t"+sum/1000000.0+" ms");
 		System.out.println("QPS:    \t"+(rounds*1000000000/sum)+" ms");
 		System.out.println("Median: \t"+(times[rounds/2]/1000000.0)+" ms");

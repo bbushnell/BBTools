@@ -151,7 +151,7 @@ public class GlocalPlusAligner4 implements IDAligner{
 			final long q=query[i-1];
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
+				simd.SIMDAlign.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
 				// Process only cells within the band

@@ -9,10 +9,10 @@ import java.util.Arrays;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -156,7 +156,7 @@ public class CountGC {
 			long bytes=new File(in).length();
 			if(bytes<1){bytes=LIMSUM;}
 			double mbps=bytes*1000d/t.elapsed;
-			double mbpps=shared.Vector.sum(counts)*1000d/t.elapsed;
+			double mbpps=simd.Vector.sum(counts)*1000d/t.elapsed;
 			outstream.println(Tools.format("Speed:\t%.2f MBytes/s",mbps));
 			outstream.println(Tools.format("      \t%.2f MBases/s",mbpps));
 		}
@@ -214,7 +214,7 @@ public class CountGC {
 					
 					if(c==carrot){
 						hdmode=true;
-						if(hdr.length()>0 || shared.Vector.sum(counts)>0){
+						if(hdr.length()>0 || simd.Vector.sum(counts)>0){
 							if(tsw!=null){tsw.print(toString2(hdr, counts));}else if(!SUMMARY_ONLY){System.out.print(toString2(hdr, counts));}
 							hdr.setLength(0);
 							for(int j=0; j<counts.length; j++){
@@ -235,7 +235,7 @@ public class CountGC {
 			}
 		}
 		
-		if(hdr.length()>0 || shared.Vector.sum(counts)>0){
+		if(hdr.length()>0 || simd.Vector.sum(counts)>0){
 			if(tsw!=null){tsw.print(toString2(hdr, counts));}else if(!SUMMARY_ONLY){System.out.println(toString2(hdr, counts));}
 			hdr.setLength(0);
 			for(int j=0; j<counts.length; j++){
@@ -305,7 +305,7 @@ public class CountGC {
 					i++;
 					if(c<=slashr){
 						mode++;
-						if(hdr.length()>0 || shared.Vector.sum(counts)>0){
+						if(hdr.length()>0 || simd.Vector.sum(counts)>0){
 							if(tsw!=null){tsw.print(toString2(hdr, counts));}else if(!SUMMARY_ONLY){System.out.print(toString2(hdr, counts));}
 							hdr.setLength(0);
 							for(int j=0; j<counts.length; j++){
@@ -345,7 +345,7 @@ public class CountGC {
 			}
 		}
 		
-		if(hdr.length()>0 || shared.Vector.sum(counts)>0){
+		if(hdr.length()>0 || simd.Vector.sum(counts)>0){
 			if(tsw!=null){tsw.print(toString2(hdr, counts));}else if(!SUMMARY_ONLY){System.out.println(toString2(hdr, counts));}
 			hdr.setLength(0);
 			for(int j=0; j<counts.length; j++){

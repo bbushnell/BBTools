@@ -5,7 +5,7 @@ import java.io.File;
 import dna.Data;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 
 /**

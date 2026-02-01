@@ -4,11 +4,11 @@ import java.util.Arrays;
 
 import clade.Clade;
 import json.JsonObject;
+import map.IntHashMap;
+import map.IntLongHashMap;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.FloatList;
-import structures.IntHashMap;
-import structures.IntLongHashMap;
 
 /**
  * Abstract base class for genomic bins containing contigs.

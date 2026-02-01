@@ -3,7 +3,7 @@ package aligner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 
 /**
@@ -78,7 +78,7 @@ public class BandedPlusAligner3 implements IDAligner{
 		int subs=0, qLen=query.length, rLen=ref.length;
 		int bandwidth=Math.min(60+(int)Math.sqrt(rLen), 4+Math.max(qLen, rLen)/8);
 		if(Shared.SIMD) {
-			subs=shared.SIMDAlignByte.countSubs(query, ref, pos, bandwidth);
+			subs=simd.SIMDAlignByte.countSubs(query, ref, pos, bandwidth);
 		}else {
 			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++) {
 				subs+=(query[i]==ref[i] ? 0 : 1);}
@@ -146,7 +146,7 @@ public class BandedPlusAligner3 implements IDAligner{
 			final long q=query[i-1];
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlign.alignBandVectorDel(q, ref, bandStart, bandEnd, prev, curr);
+				simd.SIMDAlign.alignBandVectorDel(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
 				// Process only cells within the band

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 20, 2024
+Last modified January 31, 2026
 
 Description:  RQCFilter2 is a revised version of RQCFilter that uses a common path for all dependencies.
 The dependencies are available at http://portal.nersc.gov/dna/microbial/assembly/bushnell/RQCFilterData.tar

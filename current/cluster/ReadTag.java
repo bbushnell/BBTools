@@ -95,7 +95,7 @@ class ReadTag implements Serializable{
 		if(kmerFreq2==null){
 			int[] counts=kmerArray2(k2);
 			if(counts!=null){
-				long sum=shared.Vector.sum(counts);
+				long sum=simd.Vector.sum(counts);
 				kmerFreq2=new float[counts.length];
 				float extra=(0.05f/counts.length);
 				float mult=0.95f/sum;

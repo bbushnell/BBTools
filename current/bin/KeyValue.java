@@ -3,7 +3,7 @@ package bin;
 import java.util.ArrayList;
 import java.util.Collections;
 
-import structures.IntHashMap;
+import map.IntHashMap;
 
 //Sorts by B descending then A ascending
 /**

@@ -3,7 +3,7 @@ package var2;
 import java.util.HashSet;
 
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 import stream.SamLine;
 
@@ -13,7 +13,7 @@ import stream.SamLine;
  * identity, and SAM flags. Supports both inclusive and exclusive filtering modes.
  *
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class SamFilter {
 	

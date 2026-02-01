@@ -11,10 +11,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -116,6 +116,10 @@ public class Shuffle2 {
 				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
+			}else if(i==0 && parser.in1==null && Tools.looksLikeInputSequenceStream(arg)){
+				parser.in1=arg;
+			}else if(i==1 && parser.in1!=null && parser.out1==null && Tools.looksLikeOutputSequenceStream(arg)){
+				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];

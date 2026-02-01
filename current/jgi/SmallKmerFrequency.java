@@ -5,7 +5,7 @@ import java.util.Comparator;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;
-import shared.Parse;
+import parse.Parse;
 import shared.Timer;
 import shared.Tools;
 import stream.Read;

@@ -3,7 +3,7 @@ package align2;
 import java.io.File;
 
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 
 /**

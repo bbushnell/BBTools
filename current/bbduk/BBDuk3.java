@@ -872,7 +872,7 @@ public class BBDuk3 {
 		sb.append("## Histogram of kmer occurance for reads with at least one occurance ##\n");
 		sb.append("#NumOcc\tNumReads\tPercentage\n");
 		
-		long sum=shared.Vector.sum(hitCounts);
+		long sum=simd.Vector.sum(hitCounts);
 		double mult=100.0/(sum<1 ? 1 : sum);
 		for(int i=0; i<hitCounts.length; i++){
 			long x=hitCounts[i];

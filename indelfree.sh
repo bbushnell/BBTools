@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 29, 2026
+Last modified January 31, 2026
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
@@ -36,11 +36,12 @@ index=t         If true, build a kmer index to accelerate search.
 k=10,12,14      Index kmer lengths (1-15).  Can be a single integer or a
                 comma-delimited list.  The aligner will automatically select
                 the longest valid K from the list for each query to maximize
-                speed.  Very short kmers are slower than brute force mode.
+                speed.  Very short kmers may be slower than brute force mode.
 mm=1            Middle mask length; the number of wildcard bases in the kmer.
                 Must be shorter than k-1; 0 disables middle mask.
 blacklist=2     Blacklist homopolymer kmers up to this repeat length.
-step=1          Only use every Nth query kmer.
+chunk=1m        Fuse short sequences into chunks this long for indexing.
+                Longer can be faster, but uses more memory.
 minhits=1       Require this many seed hits to perform alignment.
 minprob=0.999   Calculate the number of seed hits needed, on a per-query
                 basis, to ensure this probability of finding valid alignments.
@@ -94,7 +95,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.IndelFreeAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.IndelFreeAligner2 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

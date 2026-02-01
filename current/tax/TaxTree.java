@@ -13,16 +13,16 @@ import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.IntHashMap;
+import map.IntLongHashMap;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
-import structures.IntHashMap;
 import structures.IntList;
-import structures.IntLongHashMap;
 
 /**
  * Represents a taxonomic tree.
@@ -225,7 +225,7 @@ public class TaxTree implements Serializable{
 				}
 			}
 		}
-		nodeCount=(int)shared.Vector.sum(nodesPerLevelExtended);
+		nodeCount=(int)simd.Vector.sum(nodesPerLevelExtended);
 		
 	}
 	

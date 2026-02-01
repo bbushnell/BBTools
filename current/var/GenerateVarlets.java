@@ -15,7 +15,7 @@ import fileIO.ReadWrite;
 import fileIO.TextFile;
 import pacbio.CalcCoverageFromSites;
 import pacbio.SiteR;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

@@ -3,9 +3,9 @@ package sketch;
 import java.util.Arrays;
 
 import dna.AminoAcid;
+import map.LongHashMap;
 import shared.KillSwitch;
 import shared.Tools;
-import structures.LongHashMap;
 import structures.LongHeap;
 import structures.LongHeapMap;
 import structures.LongHeapSet;

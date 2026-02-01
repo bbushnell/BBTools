@@ -10,9 +10,10 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.LongHashSet;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -22,7 +23,6 @@ import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ListNum;
-import structures.LongHashSet;
 import tracker.ReadStats;
 
 /**

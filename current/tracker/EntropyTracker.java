@@ -3,7 +3,7 @@ package tracker;
 import java.util.Arrays;
 
 import dna.AminoAcid;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 
 /**
@@ -833,7 +833,7 @@ public class EntropyTracker {
 //				currentEsum+=entropyDeltaPlus[oldCount];
 
 				assert(!verify || unique==Tools.cardinality(counts)) : this;
-				assert(!verify || (shared.Vector.sum(countCounts)>0 && (shared.Vector.sum(countCounts)<=windowKmers+1))) : this;
+				assert(!verify || (simd.Vector.sum(countCounts)>0 && (simd.Vector.sum(countCounts)<=windowKmers+1))) : this;
 			}
 		}
 		if(verbose){System.err.println("B: counts="+Arrays.toString(counts)+"; countcounts="+Arrays.toString(countCounts));}
@@ -885,7 +885,7 @@ public class EntropyTracker {
 //				currentEsum+=entropyDeltaMinus[oldCount];
 				
 				assert(!verify || unique==Tools.cardinality(counts)) : this;
-				assert(!verify || (shared.Vector.sum(countCounts)>=0 && (shared.Vector.sum(countCounts)<=windowKmers))) : this;
+				assert(!verify || (simd.Vector.sum(countCounts)>=0 && (simd.Vector.sum(countCounts)<=windowKmers))) : this;
 			}
 		}
 		if(verbose){System.err.println("C: counts="+Arrays.toString(counts)+"; countcounts="+Arrays.toString(countCounts));}
@@ -989,7 +989,7 @@ public class EntropyTracker {
 		final int cc0=countCounts[0];
 		
 		//Sum of countCounts
-		final int ccSum=(int)shared.Vector.sum(countCounts);
+		final int ccSum=(int)simd.Vector.sum(countCounts);
 		
 		//Sum of nonzero countCounts; should equal the number of unique kmers
 		final int ccSum1=ccSum-cc0;

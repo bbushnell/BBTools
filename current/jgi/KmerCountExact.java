@@ -19,9 +19,9 @@ import kmer.KmerNode;
 import kmer.KmerNode1D;
 import kmer.KmerTableSet;
 import kmer.Walker;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -390,12 +390,12 @@ public class KmerCountExact {
 		bsw.nl();
 		
 		int maxDepth=counts.length-1;
-		while(maxDepth>0 && shared.Vector.sum(counts[maxDepth])<1){
+		while(maxDepth>0 && simd.Vector.sum(counts[maxDepth])<1){
 			maxDepth--;
 		}
 		
 		for(int depth=0; depth<=maxDepth; depth++){
-			if(histZeros || shared.Vector.sum(counts[depth])>0){
+			if(histZeros || simd.Vector.sum(counts[depth])>0){
 				bsw.print(depth);
 				for(int copy=0; copy<counts[depth].length; copy++){
 					bsw.tab();

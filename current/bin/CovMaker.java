@@ -7,20 +7,20 @@ import java.util.Collections;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.IntHashMap;
 import map.ObjectIntMap;
 import map.ObjectSet;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.Read;
 import stream.Streamer;
 import stream.StreamerFactory;
 import structures.FloatList;
-import structures.IntHashMap;
 import structures.IntList;
 import structures.ListNum;
 

@@ -2,9 +2,9 @@ package bin;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import shared.Random;
 
-import structures.IntHashSet;
+import map.IntHashSet;
+import shared.Random;
 
 /**
  * Graph-based bin refinement using modularity maximization.

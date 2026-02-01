@@ -9,7 +9,7 @@ import structures.ByteBuilder;
  * Uses a scoring system to determine optimal clipping boundaries.
  *
  * @author Brian Bushnell
- * @contributor Isla Winglet
+ * @contributor Isla
  */
 public class SoftClipper {
 

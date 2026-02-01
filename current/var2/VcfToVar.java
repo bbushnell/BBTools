@@ -3,7 +3,7 @@ package var2;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 
 /**

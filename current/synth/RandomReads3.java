@@ -14,13 +14,13 @@ import dna.FastaToChromArrays2;
 import fileIO.ReadWrite;
 import fileIO.SummaryFile;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -1921,7 +1921,7 @@ public final class RandomReads3 {
 		int[] delsa=makeDelsa(DELs, minDelLen, maxDelLen, randy2);
 		
 		int readlen=genReadLen(minlen, maxlen, midlen, randyLength, LINEAR_LENGTH, BELL_LENGTH);
-		int inititallen0=readlen+(delsa==null ? 0 : (int)shared.Vector.sum(delsa));
+		int inititallen0=readlen+(delsa==null ? 0 : (int)simd.Vector.sum(delsa));
 		
 		if(verbose){
 			outstream.println("delsa="+Arrays.toString(delsa));
@@ -1940,14 +1940,14 @@ public final class RandomReads3 {
 			if(x==null){return null;}
 			loc=x[0];
 			inititallen0=x[1];
-			readlen=inititallen0-(delsa==null ? 0 : (int)shared.Vector.sum(delsa));
+			readlen=inititallen0-(delsa==null ? 0 : (int)simd.Vector.sum(delsa));
 		}else if(METAGENOME){
 			int[] x=randomScaffoldLocMetagenome(inititallen0);
 			if(x==null){return null;}
 			chrom=x[0];
 			loc=x[1];
 			inititallen0=x[2];
-			readlen=inititallen0-(delsa==null ? 0 : (int)shared.Vector.sum(delsa));
+			readlen=inititallen0-(delsa==null ? 0 : (int)simd.Vector.sum(delsa));
 		}else{
 			loc=randomLoc(r0, chrom, inititallen0, minMiddle, maxMiddle, strand);
 		}
@@ -2197,7 +2197,7 @@ public final class RandomReads3 {
 	private static int[] fillRandomChrom(){
 
 		int[] in=Arrays.copyOf(Data.chromLengths, Data.chromLengths.length);
-		long total=shared.Vector.sum(in);
+		long total=simd.Vector.sum(in);
 		int div=(int)(total/8192);
 		for(int i=0; i<in.length; i++){in[i]=((in[i]+div-1)/div);}
 

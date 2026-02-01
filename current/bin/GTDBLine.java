@@ -1,6 +1,6 @@
 package bin;
 
-import shared.LineParser1;
+import parse.LineParser1;
 
 /**
  * Parses and manages Genome Taxonomy Database (GTDB) taxonomic lineage information.

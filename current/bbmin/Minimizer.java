@@ -2,7 +2,7 @@ package bbmin;
 
 import java.util.Arrays;
 
-import structures.LongHashSet;
+import map.LongHashSet;
 import structures.LongList;
 
 /**

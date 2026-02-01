@@ -7,7 +7,7 @@ import shared.Random;
 
 import shared.Shared;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 import structures.FloatList;
 import structures.IntList;
@@ -78,7 +78,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		values=makeFloatMatrix(dims); //Activation values per layer
 		eOverNet=makeFloatMatrix(dims); //Error gradients per layer
 		
-		int cells=(int) shared.Vector.sum(dims); //Total neurons across all layers
+		int cells=(int) simd.Vector.sum(dims); //Total neurons across all layers
 		list=new ArrayList<Cell>(cells+1); //Global cell list (index 0 unused)
 		transposeCounter=new int[cells+1]; //Sparse matrix transpose tracking
 		net=makeNodes(dims, list, values, eOverNet); //Create network topology
@@ -210,7 +210,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			makeWeightMatrices(); //Optimize for training
 //			check();
 		}
-		assert((Function.TYPE_RATES_CUM!=null)==(shared.Vector.sum(Function.TYPE_RATES)>0)) : Arrays.toString(Function.TYPE_RATES);
+		assert((Function.TYPE_RATES_CUM!=null)==(simd.Vector.sum(Function.TYPE_RATES)>0)) : Arrays.toString(Function.TYPE_RATES);
 		if(Function.TYPE_RATES_CUM!=null || Cell.randomTypeRate>0){
 			Random randy=Shared.threadLocalRandom(seed); //Same RNG for consistency
 			if(Function.TYPE_RATES_CUM!=null){

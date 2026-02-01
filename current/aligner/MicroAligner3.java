@@ -1,10 +1,10 @@
 package aligner;
 
+import map.LongHashMap;
 import prok.GeneCaller;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
-import structures.LongHashMap;
 
 /**
  * Aligns reads to a small, single sequence reference like PhiX.

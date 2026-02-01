@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import shared.Random;
 
 import shared.Timer;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 
 /**

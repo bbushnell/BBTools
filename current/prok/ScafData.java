@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import gff.GffLine;
-import shared.Vector;
+import simd.Vector;
 import stream.Read;
 import structures.IntList;
 

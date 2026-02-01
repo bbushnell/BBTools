@@ -4,7 +4,7 @@ import java.io.File;
 import java.util.ArrayList;
 
 import json.JsonObject;
-import shared.PreParser;
+import parse.PreParser;
 import sketch.DisplayParams;
 import sketch.SendSketch;
 import sketch.Sketch;

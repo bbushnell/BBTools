@@ -6,11 +6,11 @@ import java.util.Collection;
 
 import clade.CladeObject;
 import dna.AminoAcid;
+import map.IntHashMap;
+import map.IntHashSet;
 import ml.CellNet;
 import shared.Tools;
 import structures.FloatList;
-import structures.IntHashMap;
-import structures.IntHashSet;
 import tax.TaxTree;
 
 /**

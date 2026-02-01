@@ -20,10 +20,10 @@ import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import kmer.AbstractKmerTable;
 import kmer.ScheduleMaker;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -1040,7 +1040,7 @@ public class Seal {
 		
 		final int numRefs=refNames.size();
 		final int totalScafs=scaffoldReadCounts.length();
-		final int totalScafs2=(int)shared.Vector.sum(refScafCounts);
+		final int totalScafs2=(int)simd.Vector.sum(refScafCounts);
 		assert(totalScafs<=totalScafs2+1) : totalScafs+", "+totalScafs2;
 		long[] refReadCounts=new long[numRefs];
 		long[] refFragCounts=new long[numRefs];

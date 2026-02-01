@@ -13,14 +13,15 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import map.IntHashMap2;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
-import shared.SIMDAlignByte;
+import map.IntListHashMap;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.SIMDAlignByte;
+import simd.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -29,7 +30,6 @@ import stream.SamHeaderWriter;
 import stream.SamLine;
 import structures.ByteBuilder;
 import structures.IntList;
-import structures.IntListHashMap;
 import structures.ListNum;
 import structures.StringNum;
 import template.Accumulator;
@@ -475,14 +475,13 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		return index;
 	}
 
-	static int processHits(Query q, Read ref, IntList hits, boolean reverseStrand, int count,
+	static int processHits(Query q, Read ref, IntList hits, boolean reverseStrand,
 		ByteStreamWriter bsw){
 		if(hits==null || hits.size()==0){return 0;}
 		ByteBuilder bb=new ByteBuilder();
 		ByteBuilder match=new ByteBuilder(q.bases.length);
 
 		for(int i=0; i<hits.size(); i++){
-			count++;
 			int start=hits.get(i);
 			byte[] querySeq=reverseStrand ? q.rbases : q.bases;
 			toMatch(querySeq, ref.bases, start, match.clear());
@@ -493,7 +492,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 			sl.setRname(ref.id);
 			sl.seq=q.bases;
 			sl.qual=q.quals;
-			sl.setPrimary(count==1);
+			sl.setPrimary(q.alignments.incrementAndGet()==1);
 			sl.setMapped(true);
 			if(reverseStrand){sl.setStrand(Shared.MINUS);}
 			sl.tlen=q.bases.length;
@@ -681,11 +680,11 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 
 					IntList seedHits=getSeedHits(q, refIndex, false, seedMap, ref.name());
 					IntList hits=alignSparse(q.bases, ref.bases, maxSubsQ, q.maxClips, seedHits);
-					count+=processHits(q, ref, hits, false, 0, bsw);
+					count+=processHits(q, ref, hits, false, bsw);
 
 					seedHits=getSeedHits(q, refIndex, true, seedMap, ref.name());
 					hits=alignSparse(q.rbases, ref.bases, maxSubsQ, q.maxClips, seedHits);
-					count+=processHits(q, ref, hits, true, count, bsw);
+					count+=processHits(q, ref, hits, true, bsw);
 
 					readsOutT+=count;
 					basesOutT+=count*q.bases.length;
@@ -704,10 +703,10 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 					int maxSubsQ=Math.min(maxSubs, (int)(q.length()*subrate));
 
 					IntList hits=alignAllPositions(q.bases, ref.bases, maxSubsQ, q.maxClips);
-					count+=processHits(q, ref, hits, false, 0, bsw);
+					count+=processHits(q, ref, hits, false, bsw);
 
 					hits=alignAllPositions(q.rbases, ref.bases, maxSubsQ, q.maxClips);
-					count+=processHits(q, ref, hits, true, count, bsw);
+					count+=processHits(q, ref, hits, true, bsw);
 
 					readsOutT+=count;
 					basesOutT+=count*q.bases.length;

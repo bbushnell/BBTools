@@ -7,11 +7,11 @@ import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 
-import shared.Parse;
+import map.IntHashSet;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import structures.IntHashSet;
 import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;

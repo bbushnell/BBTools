@@ -10,9 +10,9 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -154,7 +154,7 @@ public class CallPeaks {
 		LongList hist=lists[0];
 		LongList gchist=lists[1];
 		ArrayList<Peak> peaks=callPeaks(hist, gchist);
-		long sum=shared.Vector.sum(hist.array);
+		long sum=simd.Vector.sum(hist.array);
 		printPeaks(peaks, k, sum, hist.array, (gchist==null ? null : gchist.array));
 		hist=null;
 		t.stop();
@@ -207,7 +207,7 @@ public class CallPeaks {
 		if(ploidy>0){list.add("ploidy="+ploidy);}
 		CallPeaks cp=new CallPeaks(list.toArray(new String[0]));
 		ArrayList<Peak> peaks=cp.callPeaks(array, gcArray, array.length);
-		cp.printPeaks(peaks, k, shared.Vector.sum(array), array, gcArray);
+		cp.printPeaks(peaks, k, simd.Vector.sum(array), array, gcArray);
 		return cp.errorState;
 	}
 	

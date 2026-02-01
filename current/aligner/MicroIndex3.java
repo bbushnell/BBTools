@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import dna.AminoAcid;
 import dna.Data;
 import fileIO.FileFormat;
+import map.LongHashMap;
 import shared.Tools;
 import stream.ConcurrentGenericReadInputStream;
 import stream.Read;
 import stream.SamHeader;
-import structures.LongHashMap;
 
 /**
  * K-mer index for MicroAligner providing fast sequence mapping.

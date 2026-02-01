@@ -6,7 +6,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

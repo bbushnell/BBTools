@@ -1,10 +1,11 @@
 package aligner;
 
 import java.util.BitSet;
+
+import map.IntHashMap;
 import shared.Random;
 
 import shared.Shared;
-import structures.IntHashMap;
 
 /**
  * Calculates the minimum number of seed hits needed to ensure all valid

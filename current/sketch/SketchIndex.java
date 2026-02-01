@@ -7,12 +7,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import kmer.AbstractKmerTable;
 import kmer.HashBuffer;
 import kmer.KmerTableSet;
+import map.AbstractBitSet;
+import map.IntHashMap;
+import map.IntHashSetList;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import structures.AbstractBitSet;
-import structures.IntHashMap;
-import structures.IntHashSetList;
 import structures.IntList;
 
 public class SketchIndex extends SketchObject {

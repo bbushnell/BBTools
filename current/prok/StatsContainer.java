@@ -2,10 +2,10 @@ package prok;
 
 import java.util.Arrays;
 
+import map.LongHashSet;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
-import structures.LongHashSet;
 
 /**
  * Container for collecting and managing statistics for prokaryotic gene elements.

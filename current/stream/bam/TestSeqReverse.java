@@ -1,7 +1,7 @@
 package stream.bam;
 
-import shared.LineParser1;
-import shared.Vector;
+import parse.LineParser1;
+import simd.Vector;
 import stream.SamLine;
 
 /**

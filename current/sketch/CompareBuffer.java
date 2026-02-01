@@ -1,7 +1,7 @@
 package sketch;
 
+import map.AbstractBitSet;
 import shared.Tools;
-import structures.AbstractBitSet;
 
 public class CompareBuffer extends SketchObject{
 	

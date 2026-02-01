@@ -5,7 +5,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.PriorityQueue;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

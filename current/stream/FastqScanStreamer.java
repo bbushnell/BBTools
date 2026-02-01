@@ -10,11 +10,11 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 import structures.IntList;
 import structures.ListNum;

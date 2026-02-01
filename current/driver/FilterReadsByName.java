@@ -11,16 +11,18 @@ import fileIO.ByteFile2;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import hiseq.IlluminaHeaderParser2;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
 import stream.ConcurrentGenericReadInputStream;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
@@ -75,9 +77,6 @@ public class FilterReadsByName {
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
 				ByteFile2.verbose=verbose;
-				stream.FastaReadInputStream.verbose=verbose;
-				ConcurrentGenericReadInputStream.verbose=verbose;
-				stream.FastqReadInputStream.verbose=verbose;
 				ReadWrite.verbose=verbose;
 			}else if(a.equals("names")){
 				if(b!=null){
@@ -255,9 +254,9 @@ public class FilterReadsByName {
 	void process(Timer t){
 		
 		
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2);
+			cris=StreamerFactory.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2, -1);
 			if(verbose){outstream.println("Started cris");}
 			cris.start(); //4567
 		}
@@ -266,7 +265,7 @@ public class FilterReadsByName {
 			if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 //		}
 
-		final ConcurrentReadOutputStream ros;
+		final Writer ros;
 		if(out1!=null){
 			final int buff=4;
 			
@@ -277,7 +276,7 @@ public class FilterReadsByName {
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
-			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, useSharedHeader);
+			ros=WriterFactory.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, useSharedHeader, -1);
 			ros.start();
 		}else{ros=null;}
 		

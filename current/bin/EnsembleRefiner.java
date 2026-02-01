@@ -3,9 +3,9 @@ package bin;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import shared.Random;
 
-import structures.IntHashSet;
+import map.IntHashSet;
+import shared.Random;
 
 class EnsembleRefiner extends AbstractRefiner {
     

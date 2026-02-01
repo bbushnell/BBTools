@@ -13,7 +13,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.TextFile;
-import shared.LineParser2;
+import parse.LineParser2;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.LongList;
@@ -844,7 +844,7 @@ public class BarcodeStats {
 			sb.append("\n-unexpected\t"+pad(totalCodes-expectedCodes)+"\t("+(totalCodesU-expectedCodesU)+" unique)");
 		}
 		sb.append("\n-codesWithNs\t"+pad(nCodes)+"\t("+nCodesU+" unique)");
-		sb.append("\n-homopolymers\t"+pad(shared.Vector.sum(polymerArray))+"\t("+shared.Vector.sum(polymerArrayU)+" unique)");
+		sb.append("\n-homopolymers\t"+pad(simd.Vector.sum(polymerArray))+"\t("+simd.Vector.sum(polymerArrayU)+" unique)");
 		if(polymerArray[0]>0) {sb.append("\n--polyA\t"+polymerArray[0]);}
 		if(polymerArray[1]>0) {sb.append("\n--polyC\t"+polymerArray[1]);}
 		if(polymerArray[2]>0) {sb.append("\n--polyG\t"+polymerArray[2]);}

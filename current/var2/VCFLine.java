@@ -6,7 +6,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 

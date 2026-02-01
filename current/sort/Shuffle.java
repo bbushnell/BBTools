@@ -11,9 +11,9 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -74,9 +74,7 @@ public class Shuffle {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
-			if(parser.parse(arg, a, b)){
-				//do nothing
-			}else if(a.equals("verbose")){
+			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ByteFile1.verbose=verbose;
 				ByteFile2.verbose=verbose;
@@ -112,8 +110,12 @@ public class Shuffle {
 				}
 			}else if(a.equals("showspeed") || a.equals("ss")){
 				showSpeed=Parse.parseBoolean(b);
-			}else if(parser.in1==null && i==0 && Tools.looksLikeInputStream(arg)){
+			}else if(parser.parse(arg, a, b)){
+				//do nothing
+			}else if(i==0 && parser.in1==null && Tools.looksLikeInputSequenceStream(arg)){
 				parser.in1=arg;
+			}else if(i==1 && parser.in1!=null && parser.out1==null && Tools.looksLikeOutputSequenceStream(arg)){
+				parser.out1=arg;
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];

@@ -10,7 +10,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import jgi.BBMerge;
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

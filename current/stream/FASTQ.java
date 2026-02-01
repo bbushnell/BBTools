@@ -16,7 +16,7 @@ import fileIO.TextFile;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 
 

@@ -5,8 +5,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import fileIO.ByteFile;
-import shared.LineParser2;
-import shared.Parse;
+import parse.LineParser2;
+import parse.Parse;
 import shared.Tools;
 import structures.FloatList;
 import structures.IntList;
@@ -146,7 +146,7 @@ public class CellNetParser {
 		pos=posFirstEdge;
 		long numEdges=0;
 		
-		int numCells=(int) shared.Vector.sum(dims);
+		int numCells=(int) simd.Vector.sum(dims);
 		LineParser2 lp=new LineParser2(delimiter);
 		FloatList weights=new FloatList();
 		
@@ -195,7 +195,7 @@ public class CellNetParser {
 		pos=posFirstEdge;
 		long numEdges=0;
 		
-		int numCells=(int) shared.Vector.sum(dims);
+		int numCells=(int) simd.Vector.sum(dims);
 		LineParser2 lp=new LineParser2(delimiter);
 		FloatList weights=new FloatList();
 		IntList inputs=new IntList();

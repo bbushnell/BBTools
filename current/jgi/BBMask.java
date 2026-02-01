@@ -15,10 +15,10 @@ import fileIO.ByteFile1;
 import fileIO.ByteFile2;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -1060,7 +1060,7 @@ public class BBMask{
 			}
 			
 			if(verify && i2>-1 && i<bases.length){
-				assert(shared.Vector.sum(counts)==window);
+				assert(simd.Vector.sum(counts)==window);
 			}
 			
 			if(current<mincount && ns<1 && i2>=-1 && i<bases.length){

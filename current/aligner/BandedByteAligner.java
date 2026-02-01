@@ -3,7 +3,7 @@ package aligner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 
 /**
@@ -128,7 +128,7 @@ public class BandedByteAligner implements IDAligner{
 			final byte q=query[i-1];
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlignByte.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
+				simd.SIMDAlignByte.alignBandVector(q, ref, bandStart, bandEnd, prev, curr);
 			}else {
 
 				// Process only cells within the band
@@ -160,7 +160,7 @@ public class BandedByteAligner implements IDAligner{
 			}
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlignByte.processDeletionsTailVector(curr, bandStart, bandEnd);
+				simd.SIMDAlignByte.processDeletionsTailVector(curr, bandStart, bandEnd);
 			}else {
 				//Tail loop for deletions
 				byte leftCell=curr[bandStart-1];

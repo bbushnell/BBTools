@@ -4,10 +4,10 @@ import java.util.ArrayList;
 
 import bin.AdjustEntropy;
 import bin.SimilarityMeasures;
+import parse.LineParser1;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
-import shared.LineParser1;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;

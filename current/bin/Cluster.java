@@ -3,12 +3,12 @@ package bin;
 import java.util.ArrayList;
 import java.util.Iterator;
 
+import map.IntHashMap;
+import map.IntHashSet;
 import shared.Tools;
 import sketch.Sketch;
 import sketch.SketchMakerMini;
 import stream.Read;
-import structures.IntHashMap;
-import structures.IntHashSet;
 import tracker.EntropyTracker;
 import tracker.KmerTracker;
 

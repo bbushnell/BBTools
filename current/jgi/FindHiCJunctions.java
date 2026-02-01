@@ -11,9 +11,9 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -251,7 +251,7 @@ public class FindHiCJunctions {
 		final String fname=junctionFile.replaceFirst("%", k+direction);
 		final ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
 		bsw.start();
-		final long sum=shared.Vector.sum(array);
+		final long sum=simd.Vector.sum(array);
 		final double mult=1.0/(Tools.max(1, sum));
 		final long thresh=Tools.max((2*sum)/array.length, (long)Math.ceil(Tools.max(minCount, minFraction*sum)));
 //		if(k==4){System.err.println(Arrays.toString(array));}

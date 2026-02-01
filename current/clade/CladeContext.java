@@ -2,8 +2,8 @@ package clade;
 
 import java.util.Arrays;
 
-import shared.LineParser1;
-import shared.Parse;
+import parse.LineParser1;
+import parse.Parse;
 import shared.Tools;
 
 /**

@@ -15,14 +15,14 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import json.JsonObject;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
-import shared.Vector;
+import simd.Vector;
 import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
@@ -569,7 +569,7 @@ public final class IceCreamFinder {
 		bsw.start();
 		final float mult=1.0f/(hist.length-1);
 
-		bsw.print("#Counted\t").println(shared.Vector.sum(hist));
+		bsw.print("#Counted\t").println(simd.Vector.sum(hist));
 		bsw.print("#Mean\t").println(Tools.averageHistogram(hist)*mult, 3);
 		bsw.print("#Median\t").println(Tools.medianHistogram(hist)*mult, 3);
 		bsw.print("#Mode\t").println(Tools.calcModeHistogram(hist)*mult, 3);

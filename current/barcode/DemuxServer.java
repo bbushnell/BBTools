@@ -23,11 +23,11 @@ import com.sun.net.httpserver.HttpsServer;
 
 import dna.Data;
 import fileIO.ReadWrite;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import server.ServerTools;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

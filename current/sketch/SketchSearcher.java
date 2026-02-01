@@ -9,13 +9,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import shared.Parse;
+import map.AbstractBitSet;
+import map.IntHashMap;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
-import structures.AbstractBitSet;
 import structures.ByteBuilder;
 import structures.Heap;
-import structures.IntHashMap;
 import tax.TaxNode;
 import tax.TaxTree;
 

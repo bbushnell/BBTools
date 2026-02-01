@@ -8,11 +8,11 @@ import java.util.HashMap;
 
 import barcode.DemuxServer.Pair;
 import fileIO.ByteStreamWriter;
+import parse.LineParser2;
+import parse.LineParserS1;
+import parse.LineParserS2;
 import server.ServerTools;
 import shared.KillSwitch;
-import shared.LineParser2;
-import shared.LineParserS1;
-import shared.LineParserS2;
 import shared.Shared;
 import sketch.Sketch;
 import structures.ByteBuilder;

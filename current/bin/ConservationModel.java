@@ -1,8 +1,7 @@
 package bin;
 
+import map.IntHashSet;
 import shared.Random;
-
-import structures.IntHashSet;
 
 /**
  * Models realistic genomic conservation variation using summed sine waves.

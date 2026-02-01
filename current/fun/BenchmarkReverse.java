@@ -6,7 +6,7 @@ import shared.Random;
 import dna.AminoAcid;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 
 /**
  * Benchmark and validate in-place reverse operations.

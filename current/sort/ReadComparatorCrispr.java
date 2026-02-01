@@ -4,7 +4,7 @@ import dna.Data;
 import ml.CellNet;
 import ml.CellNetParser;
 import ml.ScoreSequence;
-import shared.Parse;
+import parse.Parse;
 import stream.Read;
 import structures.SeqCountM;
 

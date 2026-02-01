@@ -5,12 +5,12 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-import shared.Parse;
-import shared.Parser;
+import parse.Parse;
+import parse.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.HasID;
 import stream.OrderedQueueSystem;
 import structures.IntList;

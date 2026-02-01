@@ -4,7 +4,7 @@ import java.util.Arrays;
 import shared.Random;
 
 import fileIO.TextStreamWriter;
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 import structures.ByteBuilder;
 

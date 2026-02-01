@@ -4,9 +4,9 @@ import java.io.File;
 import java.util.BitSet;
 
 import fileIO.ByteFile;
-import shared.LineParser1;
-import shared.Parse;
-import shared.PreParser;
+import parse.LineParser1;
+import parse.Parse;
+import parse.PreParser;
 import shared.Timer;
 import shared.Tools;
 import stream.CustomHeader;

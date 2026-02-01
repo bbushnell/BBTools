@@ -192,7 +192,7 @@ public class WobblePlusAligner4 implements IDAligner{
 			maxPos=0;
 			
 			//Inner loop
-			posFromSimd=shared.SIMDAlign.alignBandVectorAndReturnMaxPos(q, ref, bandStart, bandEnd, prev, curr);
+			posFromSimd=simd.SIMDAlign.alignBandVectorAndReturnMaxPos(q, ref, bandStart, bandEnd, prev, curr);
 			
 			
 			//Tail loop for deletions

@@ -1,8 +1,7 @@
 package fun;
 
+import parse.Parse;
 import shared.Random;
-
-import shared.Parse;
 import shared.Shared;
 import shared.Tools;
 

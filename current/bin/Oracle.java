@@ -4,7 +4,7 @@ import aligner.IDAligner;
 import fileIO.ByteStreamWriter;
 import ml.CellNet;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 import structures.FloatList;
 import tax.TaxTree;

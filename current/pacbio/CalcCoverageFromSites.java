@@ -7,7 +7,7 @@ import dna.ChromosomeArray;
 import dna.Data;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.PreParser;
+import parse.PreParser;
 import shared.Timer;
 import shared.Tools;
 import stream.SiteScoreR;

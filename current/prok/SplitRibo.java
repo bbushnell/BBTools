@@ -10,9 +10,9 @@ import aligner.IDAligner;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -289,8 +289,8 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 
-		long readsOut2=shared.Vector.sum(readsOut)-readsOut[0];
-		long basesOut2=shared.Vector.sum(basesOut)-basesOut[0];
+		long readsOut2=simd.Vector.sum(readsOut)-readsOut[0];
+		long basesOut2=simd.Vector.sum(basesOut)-basesOut[0];
 		
 		//Report timing and results
 		t.stop();

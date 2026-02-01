@@ -2,7 +2,7 @@ package synth;
 
 import java.util.ArrayList;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

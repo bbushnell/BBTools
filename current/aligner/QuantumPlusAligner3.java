@@ -340,7 +340,7 @@ public class QuantumPlusAligner3 implements IDAligner{
 
 			// Process all columns in top rows
 			if(Shared.SIMD) {
-				shared.SIMDAlign.alignBandVector(q, ref, 1, rLen, prev, curr);
+				simd.SIMDAlign.alignBandVector(q, ref, 1, rLen, prev, curr);
 			}else {
 				for(int j=1; j<=rLen; j++) {
 					final long r=ref[j-1];

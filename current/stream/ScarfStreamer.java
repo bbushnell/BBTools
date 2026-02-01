@@ -7,12 +7,12 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.LineParser1;
-import shared.Parse;
+import parse.LineParser1;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ListNum;
 
 /**
