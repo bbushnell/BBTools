@@ -9,7 +9,7 @@ import fileIO.TextStreamWriter;
 import kmer.AbstractKmerTable;
 import kmer.TableLoaderLockFree;
 import kmer.TableReader;
-import shared.Parse;
+import parse.Parse;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;

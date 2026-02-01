@@ -6,16 +6,16 @@ import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.LongHashSet;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ListNum;
-import structures.LongHashSet;
 import structures.LongList;
 
 /**

@@ -318,15 +318,15 @@ class CrystalChamber2 extends AbstractRefiner {
 	 * @return List of IntHashSets containing contig IDs for each refined cluster, or null if refinement fails
 	 */
 	@Override
-	ArrayList<structures.IntHashSet> refineToIntSets(Bin input) {
+	ArrayList<map.IntHashSet> refineToIntSets(Bin input) {
 		ArrayList<Bin> refined = refine(input);
 		if(refined == null) return null;
 		
-		ArrayList<structures.IntHashSet> result = new ArrayList<>();
+		ArrayList<map.IntHashSet> result = new ArrayList<>();
 		for(Bin bin : refined) {
 			if(bin.isCluster()) {
 				Cluster cluster = (Cluster) bin;
-				structures.IntHashSet intSet = new structures.IntHashSet();
+				map.IntHashSet intSet = new map.IntHashSet();
 				for(Contig contig : cluster.contigs) {
 					intSet.add(contig.id());
 				}

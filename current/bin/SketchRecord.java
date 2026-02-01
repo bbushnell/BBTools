@@ -1,7 +1,7 @@
 package bin;
 
 import json.JsonObject;
-import shared.LineParserS2;
+import parse.LineParserS2;
 import structures.ByteBuilder;
 
 /**

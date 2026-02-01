@@ -6,9 +6,9 @@ import java.util.Collections;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

@@ -13,6 +13,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import shared.Random;
+import simd.Vector;
+
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.regex.Pattern;
@@ -22,6 +24,8 @@ import dna.Data;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.IntHashSet;
+import parse.Parse;
 import stream.Read;
 import stream.ReadInputStream;
 import stream.SamLine;
@@ -29,7 +33,6 @@ import stream.SiteScore;
 import structures.ByteBuilder;
 import structures.CoverageArray;
 import structures.DoubleList;
-import structures.IntHashSet;
 import structures.IntList;
 import structures.Point;
 

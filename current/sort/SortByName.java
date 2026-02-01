@@ -10,10 +10,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -176,6 +176,12 @@ public class SortByName {
 				setMaxFiles=true;
 			}else if(a.equals("genkmer")){
 				genKmer=Parse.parseBoolean(b);
+			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
+				FileFormat.isSequence(arg) && new File(arg).isFile()){
+				parser.in1=arg;
+			}else if(i==1 && !arg.contains("=") && parser.out1==null && parser.in1!=null &&
+				(FileFormat.isSequence(arg))){
+				parser.out1=arg;
 			}else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser

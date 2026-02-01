@@ -2,10 +2,10 @@ package bin;
 
 import java.util.Arrays;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 
 /** Mostly written by ChatGPT and modified by me */
 public class SimilarityMeasures {

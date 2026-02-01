@@ -15,9 +15,9 @@ import gff.CompareGff;
 import gff.GffLine;
 import jgi.BBMerge;
 import json.JsonObject;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -586,7 +586,7 @@ public class CallGenes extends ProkObject {
 		if(fname==null || geneHist==null){return;}
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, false);
 		bsw.start();
-		long sum=shared.Vector.sum(geneHist);
+		long sum=simd.Vector.sum(geneHist);
 		double mean=Tools.averageHistogram(geneHist)*geneHistDiv;
 		int median=Tools.medianHistogram(geneHist)*geneHistDiv;
 		double std=Tools.standardDeviationHistogram(geneHist)*geneHistDiv;

@@ -2,8 +2,8 @@ package structures;
 
 import java.util.ArrayList;
 
+import parse.Parse;
 import shared.KillSwitch;
-import shared.Parse;
 import shared.Tools;
 import stream.Read;
 

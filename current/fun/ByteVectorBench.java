@@ -6,7 +6,7 @@ import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorSpecies;
-import shared.Parse;
+import parse.Parse;
 import shared.Timer;
 
 /**

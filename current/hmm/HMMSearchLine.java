@@ -2,7 +2,7 @@ package hmm;
 
 import java.nio.charset.StandardCharsets;
 
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 

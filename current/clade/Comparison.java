@@ -2,8 +2,8 @@ package clade;
 
 import aligner.IDAligner;
 import bin.SimilarityMeasures;
-import shared.LineParserS1;
-import shared.Vector;
+import parse.LineParserS1;
+import simd.Vector;
 import structures.ByteBuilder;
 import tax.TaxTree;
 

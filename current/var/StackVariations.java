@@ -6,7 +6,7 @@ import java.util.HashMap;
 
 import dna.Data;
 import fileIO.TextStreamWriter;
-import shared.PreParser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

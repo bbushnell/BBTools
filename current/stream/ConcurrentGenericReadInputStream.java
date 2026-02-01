@@ -5,10 +5,10 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import dna.Data;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

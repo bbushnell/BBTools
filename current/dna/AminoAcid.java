@@ -5,7 +5,7 @@ import java.util.HashMap;
 import align2.QualityTools;
 import shared.KillSwitch;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 
 

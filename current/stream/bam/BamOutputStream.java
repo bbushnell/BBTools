@@ -7,7 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-import shared.LineParser1;
+import parse.LineParser1;
 import stream.SamLine;
 import structures.ByteBuilder;
 

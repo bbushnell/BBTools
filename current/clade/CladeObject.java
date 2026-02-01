@@ -5,11 +5,11 @@ import java.util.Arrays;
 
 import dna.AminoAcid;
 import map.IntHashMap2;
+import map.IntHashSet;
 import ml.CellNet;
 import shared.Tools;
 import stream.Read;
 import structures.FloatList;
-import structures.IntHashSet;
 import tax.TaxTree;
 
 /**

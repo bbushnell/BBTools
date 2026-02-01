@@ -6,16 +6,16 @@ import shared.Random;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.IntHashSet;
+import map.LongHashSet;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.FloatList;
-import structures.IntHashSet;
-import structures.LongHashSet;
 
 /**
  * @author Brian Bushnell

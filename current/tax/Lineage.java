@@ -3,7 +3,7 @@ package tax;
 import java.util.Arrays;
 import java.util.List;
 
-import shared.LineParserS1;
+import parse.LineParserS1;
 
 /**
  * Represents complete taxonomic lineage information with hierarchical structure.

@@ -10,7 +10,7 @@ import prok.GeneCaller;
 import shared.KillSwitch;
 import shared.Tools;
 import shared.TrimRead;
-import shared.Vector;
+import simd.Vector;
 import stream.FASTQ;
 import stream.Read;
 import structures.ByteBuilder;

@@ -9,7 +9,7 @@ import assemble.Rollback;
 import dna.AminoAcid;
 import kmer.AbstractKmerTable;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.IntList;

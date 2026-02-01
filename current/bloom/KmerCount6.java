@@ -7,7 +7,7 @@ import dna.AminoAcid;
 import fileIO.FileFormat;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.ConcurrentReadInputStream;
 import stream.FastaReadInputStream;
 import stream.Read;

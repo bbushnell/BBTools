@@ -1,6 +1,6 @@
 package icecream;
 
-import shared.Parse;
+import parse.Parse;
 
 /**
  * Parses and extracts structured metadata from Pacific Biosciences

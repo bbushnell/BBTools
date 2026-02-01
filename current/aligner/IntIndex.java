@@ -1,8 +1,8 @@
 package aligner;
 
 import dna.AminoAcid;
+import map.IntListHashMap;
 import structures.IntList;
-import structures.IntListHashMap;
 
 /**
  * k-mer index for fast sequence alignment candidate identification.

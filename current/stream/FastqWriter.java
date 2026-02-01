@@ -6,7 +6,7 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

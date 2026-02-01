@@ -6,10 +6,10 @@ import java.util.BitSet;
 
 import dna.Data;
 import fileIO.ByteFile;
+import parse.LineParser1;
+import parse.Parse;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.LineParser1;
-import shared.Parse;
-import shared.PreParser;
 import shared.Tools;
 import stream.Read;
 import stream.SamLine;

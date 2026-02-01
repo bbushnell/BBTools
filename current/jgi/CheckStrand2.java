@@ -16,20 +16,20 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import gff.GffLine;
+import parse.LineParser4;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.GeneModel;
 import prok.GeneModelParser;
 import prok.Orf;
 import prok.ProkObject;
-import shared.LineParser4;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import sketch.Sketch;
 import sketch.SketchHeap;
 import sketch.SketchMakerMini;
@@ -683,7 +683,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		if(doStopAnalysis){
 			bsw.println();
 			boolean plus=(fPosSum>=rPosSum);
-			double gc=(ACGTCount[1]+ACGTCount[2])/(1.0*shared.Vector.sum(ACGTCount));
+			double gc=(ACGTCount[1]+ACGTCount[2])/(1.0*simd.Vector.sum(ACGTCount));
 			bsw.println("Stop_Codon_Analysis:");
 			bsw.println(String.format("MajorStrandORF:\t"+(plus ? "Plus" : "Minus")));
 			bsw.println(String.format("AvgReadLen:\t%.2f", basesProcessed*invReads));
@@ -696,7 +696,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 			//Frame analysis seemed useless so I suppressed it,
 			//but this prints which frame has the longest ORF
 			long[] bestFrame=(plus ? fBestFrame : rBestFrame);
-			double invSum=1.0/shared.Vector.sum(bestFrame);
+			double invSum=1.0/simd.Vector.sum(bestFrame);
 //			bsw.println(String.format("FrameStats"/*+(plus ? "+" : "-")*/+":\t%.4f\t%.4f\t%.4f",
 //					bestFrame[0]*invSum, bestFrame[1]*invSum, bestFrame[2]*invSum));
 		}

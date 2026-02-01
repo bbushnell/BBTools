@@ -4,7 +4,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.util.regex.Pattern;
 
-import shared.Parse;
+import parse.Parse;
 
 /**
  * Efficient file processing utility for parsing delimited text files with

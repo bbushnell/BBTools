@@ -1,7 +1,7 @@
 package dna;
 
-import shared.LineParser1;
-import shared.LineParserS1;
+import parse.LineParser1;
+import parse.LineParserS1;
 
 /**
  * Represents a genomic scaffold with metadata for sequence assembly and tracking.

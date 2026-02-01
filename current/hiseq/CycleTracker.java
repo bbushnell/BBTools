@@ -63,11 +63,11 @@ public class CycleTracker {
 		long[] sum=new long[6];
 		long sumsum=0;
 		for(int i=0; i<5; i++){
-			long x=shared.Vector.sum(acgtnq[i]);
+			long x=simd.Vector.sum(acgtnq[i]);
 			sum[i]=x;
 			sumsum+=x;
 		}
-		sum[5]=shared.Vector.sum(acgtnq[5]);
+		sum[5]=simd.Vector.sum(acgtnq[5]);
 		for(int i=0; i<6; i++){
 			averages[i]=sum[i]/(float)sumsum;
 		}

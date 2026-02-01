@@ -3,9 +3,9 @@ package fileIO;
 import java.io.File;
 import java.util.ArrayList;
 
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

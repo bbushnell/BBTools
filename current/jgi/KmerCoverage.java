@@ -15,9 +15,9 @@ import dna.AminoAcid;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -656,7 +656,7 @@ public class KmerCoverage {
 				tswh.print("#Depth\tRaw_Count\tUnique_Kmers\n");
 			}
 			int lim=(int)(HIST_LEN_PRINT-1);
-			long remaining=shared.Vector.sum(histogram_total);
+			long remaining=simd.Vector.sum(histogram_total);
 			long sumRaw1=0;
 			long sumRaw2=0;
 			long sum1=0;
@@ -699,7 +699,7 @@ public class KmerCoverage {
 				outstream.println("Wrote histogram to "+histFile);
 			}
 			
-			long histCount=shared.Vector.sum(histogram_total); //Total number of kmers counted
+			long histCount=simd.Vector.sum(histogram_total); //Total number of kmers counted
 			long halfCount=(histCount+1)/2;
 			double histCountU=0; //Unique kmers counted
 			long temp1=0;

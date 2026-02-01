@@ -3,7 +3,7 @@ package aligner;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
-import shared.PreParser;
+import parse.PreParser;
 
 /**
  * Banded sequence aligner for computing average nucleotide identity (ANI).

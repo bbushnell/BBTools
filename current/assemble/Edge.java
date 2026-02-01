@@ -1,6 +1,6 @@
 package assemble;
 
-import shared.Vector;
+import simd.Vector;
 import structures.ByteBuilder;
 
 /**

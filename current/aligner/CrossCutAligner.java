@@ -133,7 +133,7 @@ public class CrossCutAligner implements IDAligner{
 			final int bottomRowCol=(processesBottomRow) ? k-qLen : -1;
 
 			if(Shared.SIMD) {
-				shared.SIMDAlign.processCrossCutDiagonalSIMD(revQuery, ref, k, 
+				simd.SIMDAlign.processCrossCutDiagonalSIMD(revQuery, ref, k, 
 				        innerMinCol, innerMaxCol, qLen,
 				        diag_km2, diag_km1, diag_k);
 			}else {

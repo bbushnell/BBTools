@@ -3,8 +3,8 @@ package prok;
 import java.util.Arrays;
 
 import dna.AminoAcid;
+import parse.Parse;
 import shared.KillSwitch;
-import shared.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 

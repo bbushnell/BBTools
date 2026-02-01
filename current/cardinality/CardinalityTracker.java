@@ -6,7 +6,7 @@ import shared.Random;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
 import jgi.Dedupe;
-import shared.Parser;
+import parse.Parser;
 import shared.Shared;
 import shared.Tools;
 import stream.Read;
@@ -446,7 +446,7 @@ public abstract class CardinalityTracker {
 	
 	public final long countSum(){
 		int[] counts=getCounts();
-		return counts==null ? 0 : shared.Vector.sum(counts);
+		return counts==null ? 0 : simd.Vector.sum(counts);
 	}
 	
 	/*--------------------------------------------------------------*/

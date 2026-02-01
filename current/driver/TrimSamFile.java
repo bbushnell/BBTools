@@ -3,7 +3,7 @@ package driver;
 import java.util.HashSet;
 
 import fileIO.ByteFile;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Tools;
 import stream.SamLine;
 

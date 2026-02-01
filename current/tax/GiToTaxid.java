@@ -5,7 +5,7 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
 import structures.IntList;
@@ -32,7 +32,7 @@ public class GiToTaxid {
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			shared.Parser.parseZip(arg, a, b);
+			parse.Parser.parseZip(arg, a, b);
 		}
 //		if(args.length>2 && false){//Run a test
 //			test(args);

@@ -1,5 +1,7 @@
 package aligner;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import dna.AminoAcid;
 import shared.Tools;
 
@@ -164,4 +166,5 @@ public class Query {
 	public static int[] midMaskArray;
 	public static float maxClip=0.25f; // Default fallback
 	public static int minSeedHits=1;
+	public AtomicLong alignments=new AtomicLong(0);
 }

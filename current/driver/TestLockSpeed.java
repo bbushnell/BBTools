@@ -5,8 +5,8 @@ import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 
-import shared.Parse;
-import shared.PreParser;
+import parse.Parse;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

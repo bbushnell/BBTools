@@ -14,9 +14,9 @@ import fileIO.ReadWrite;
 import fileIO.TextFile;
 import ml.CellNet;
 import ml.CellNetParser;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -864,8 +864,8 @@ public class CallVariants {
 		long a=initialCount, b=varMap.size(), c=varsPrefiltered, d=varsProcessed;
 		double amult=100.0/a; // Percentage multiplier for initial count
 		double bmult=100.0/b; // Percentage multiplier for final count
-		long homozygousCount=(ploidy<2 ? shared.Vector.sum(ploidyArray) : ploidyArray[ploidyArray.length-1]);
-		double homozygousRate=homozygousCount*1.0/shared.Vector.sum(ploidyArray);
+		long homozygousCount=(ploidy<2 ? simd.Vector.sum(ploidyArray) : ploidyArray[ploidyArray.length-1]);
+		double homozygousRate=homozygousCount*1.0/simd.Vector.sum(ploidyArray);
 		
 		// Report prefilter effectiveness if used
 		if(prefilter){
@@ -1309,7 +1309,7 @@ public class CallVariants {
 				}
 			}else{
 				trimmedBasesProcessedT+=r.length();
-				totalQualitySumT+=shared.Vector.sum(r.quality);
+				totalQualitySumT+=simd.Vector.sum(r.quality);
 				totalMapqSumT+=sl.mapq;
 				if(calcCoverage){scaf.add(sl);}
 				if(vars==null){return true;}

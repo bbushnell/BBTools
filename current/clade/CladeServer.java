@@ -13,12 +13,12 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
 import fileIO.ReadWrite;
+import parse.LineParser1;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import server.ServerTools;
 import shared.KillSwitch;
-import shared.LineParser1;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

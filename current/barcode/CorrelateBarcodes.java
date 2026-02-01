@@ -10,9 +10,9 @@ import fileIO.ByteFile2;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -317,7 +317,7 @@ public class CorrelateBarcodes {
 			tsw.print("#Read1_Q\tBar_Q\tstdev\tcount\tRead2_Q\tBar_Q\tstdev\tcount\n");
 			for(int i=0; i<qualCor1.length; i++){
 				long[] array1=qualCor1[i], array2=qualCor2[i];
-				long sum1=shared.Vector.sum(array1), sum2=shared.Vector.sum(array2);
+				long sum1=simd.Vector.sum(array1), sum2=simd.Vector.sum(array2);
 				double avg1=Tools.averageHistogram(array1), avg2=Tools.averageHistogram(array2);
 				double dev1=Tools.standardDeviationHistogram(array1), dev2=Tools.standardDeviationHistogram(array2);
 				tsw.print(Tools.format("%d\t%.1f\t%.1f\t%d\t%d\t%.1f\t%.1f\t%d\n", i, avg1, dev1, sum1, i, avg2, dev2, sum2));
@@ -330,7 +330,7 @@ public class CorrelateBarcodes {
 			TextStreamWriter tsw=new TextStreamWriter(ffaq);
 			tsw.start();
 			tsw.print("#Quality\tcount\tfraction\n");
-			long sum=shared.Vector.sum(aqhistArray);
+			long sum=simd.Vector.sum(aqhistArray);
 			double mult=1.0/Tools.max(1, sum);
 			long y=0;
 			for(int i=0; i<aqhistArray.length; i++){
@@ -347,7 +347,7 @@ public class CorrelateBarcodes {
 			TextStreamWriter tsw=new TextStreamWriter(ffmq);
 			tsw.start();
 			tsw.print("#Quality\tcount\tfraction\n");
-			long sum=shared.Vector.sum(mqhistArray);
+			long sum=simd.Vector.sum(mqhistArray);
 			double mult=1.0/Tools.max(1, sum);
 			long y=0;
 			for(int i=0; i<mqhistArray.length; i++){

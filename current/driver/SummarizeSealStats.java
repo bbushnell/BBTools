@@ -5,9 +5,9 @@ import java.util.ArrayList;
 
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Tools;
 
 /**

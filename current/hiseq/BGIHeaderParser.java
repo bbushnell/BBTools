@@ -1,6 +1,6 @@
 package hiseq;
 
-import shared.LineParserS4;
+import parse.LineParserS4;
 import structures.ByteBuilder;
 
 /**

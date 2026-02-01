@@ -19,10 +19,10 @@ import fileIO.ReadWrite;
 import kmer.KmerTableSet;
 import ml.CellNet;
 import ml.CellNetParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -1289,7 +1289,7 @@ public class BBMerge {
 	public static final float mergeableFraction(String fname1, String fname2, long numReads, float samplerate){
 		long[] hist=makeInsertHistogram(fname1, fname2, numReads, samplerate);
 		if(hist==null || hist.length<2){return 0;}
-		long sum=shared.Vector.sum(hist);
+		long sum=simd.Vector.sum(hist);
 		return sum<1 ? 0 : (sum-hist[0])/(float)sum;
 	}
 	

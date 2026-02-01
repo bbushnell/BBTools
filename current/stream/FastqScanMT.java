@@ -6,12 +6,12 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
+import parse.Parse;
+import parse.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.bam.BgzfSettings;
 import structures.IntList;
 

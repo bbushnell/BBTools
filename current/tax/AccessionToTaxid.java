@@ -17,17 +17,17 @@ import json.JsonObject;
 import json.JsonParser;
 import kmer.HashBuffer;
 import kmer.KmerTableSet;
+import map.LongLongHashMap;
 import map.ObjectIntMap;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import server.ServerTools;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentGenericReadInputStream;
 import stream.FastaReadInputStream;
-import structures.LongLongHashMap;
 import structures.StringNum;
 
 /**

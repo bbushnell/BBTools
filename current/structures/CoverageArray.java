@@ -7,8 +7,8 @@ import java.util.HashMap;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.LineParser;
-import shared.LineParser1;
+import parse.LineParser;
+import parse.LineParser1;
 import shared.Shared;
 import shared.Tools;
 

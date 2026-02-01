@@ -4,7 +4,7 @@ import java.util.ArrayList;
 
 import dna.Data;
 import fileIO.ByteFile;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Tools;
 import structures.FloatList;
 

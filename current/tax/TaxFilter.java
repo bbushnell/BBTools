@@ -8,9 +8,9 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import fileIO.TextFile;
+import parse.Parse;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.PreParser;
 import shared.Tools;
 import stream.Read;
 

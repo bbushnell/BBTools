@@ -7,14 +7,14 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import map.IntLongHashMap;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.FastaReadInputStream;
-import structures.IntLongHashMap;
 
 /**
  * Calculates the sizes of sequences corresponding to TaxIDs.

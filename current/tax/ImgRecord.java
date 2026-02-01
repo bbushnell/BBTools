@@ -8,7 +8,7 @@ import java.util.Map.Entry;
 
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
-import shared.Parse;
+import parse.Parse;
 import shared.Timer;
 import shared.Tools;
 

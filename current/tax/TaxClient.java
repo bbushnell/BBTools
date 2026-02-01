@@ -3,10 +3,10 @@ package tax;
 import java.io.PrintStream;
 import java.util.ArrayList;
 
+import parse.Parse;
+import parse.PreParser;
 import server.PercentEncoding;
 import server.ServerTools;
-import shared.Parse;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

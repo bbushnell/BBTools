@@ -6,7 +6,7 @@ import clade.Clade;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
-import shared.LineParser1;
+import parse.LineParser1;
 import sketch.Sketch;
 import sketch.SketchMakerMini;
 import stream.Read;

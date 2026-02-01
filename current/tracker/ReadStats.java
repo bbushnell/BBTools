@@ -1058,8 +1058,8 @@ public class ReadStats {
 		tsw.start();
 		tsw.print("#Quality\tcount1\tfraction1"+(writePaired ? "\tcount2\tfraction2" : "")+"\n");
 
-		long sum1=shared.Vector.sum(aqualArray[0]);
-		long sum2=shared.Vector.sum(aqualArray[1]);
+		long sum1=simd.Vector.sum(aqualArray[0]);
+		long sum2=simd.Vector.sum(aqualArray[1]);
 		double mult1=1.0/Tools.max(1, sum1);
 		double mult2=1.0/Tools.max(1, sum2);
 		
@@ -1090,8 +1090,8 @@ public class ReadStats {
 		tsw.start();
 		tsw.print("#Quality\tcount1\tfraction1"+(writePaired ? "\tcount2\tfraction2" : "")+"\n");
 
-		long sum1=shared.Vector.sum(qcountHist[0]);
-		long sum2=shared.Vector.sum(qcountHist[1]);
+		long sum1=simd.Vector.sum(qcountHist[0]);
+		long sum2=simd.Vector.sum(qcountHist[1]);
 		double mult1=1.0/Tools.max(1, sum1);
 		double mult2=1.0/Tools.max(1, sum2);
 		
@@ -1311,7 +1311,7 @@ public class ReadStats {
 		final long[] cp30=Arrays.copyOf(bqualHistOverall, bqualHistOverall.length);
 		for(int i=0; i<30; i++){cp30[i]=0;}
 		
-		final long sum=shared.Vector.sum(bqualHistOverall);
+		final long sum=simd.Vector.sum(bqualHistOverall);
 		final long median=Tools.percentileHistogram(bqualHistOverall, 0.5);
 		final double mean=Tools.averageHistogram(bqualHistOverall);
 		final double stdev=Tools.standardDeviationHistogram(bqualHistOverall);
@@ -1355,7 +1355,7 @@ public class ReadStats {
 
 		for(int i=0; i<MAXLEN; i++){
 			final long[] a1=bqualHist[0][i], a2=bqualHist[1][i];
-			final long sum1=shared.Vector.sum(a1), sum2=shared.Vector.sum(a2);
+			final long sum1=simd.Vector.sum(a1), sum2=simd.Vector.sum(a2);
 			if(sum1<1 && sum2<1){break;}
 			
 			{
@@ -1871,7 +1871,7 @@ public class ReadStats {
 		}
 		final int bins=hist.length;
 		final double gcMult=100.0/Tools.max(1, bins-1);
-		final long total=shared.Vector.sum(hist);
+		final long total=simd.Vector.sum(hist);
 		final long max=Tools.max(hist);
 		final double countsPerX=Tools.max(1, ((max*1000.0)/40));
 		final double fractionMult=1.0/Tools.max(1, total);
@@ -1949,7 +1949,7 @@ public class ReadStats {
 		
 		final int bins=hist.length;
 		final double mult=1.0/Tools.max(1, bins-1);
-		final long total=shared.Vector.sum(hist);
+		final long total=simd.Vector.sum(hist);
 		final long max=Tools.max(hist);
 		final double countsPerX=Tools.max(1, ((max*1000.0)/40));
 		final double fractionMult=1.0/Tools.max(1, total);

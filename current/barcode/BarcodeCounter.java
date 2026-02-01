@@ -13,7 +13,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
 import hiseq.IlluminaHeaderParser2;
-import shared.LineParser2;
+import parse.LineParser2;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;

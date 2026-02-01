@@ -5,7 +5,7 @@ import java.util.Map.Entry;
 
 import fileIO.ByteFile;
 import fileIO.ReadWrite;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Tools;
 
 /**

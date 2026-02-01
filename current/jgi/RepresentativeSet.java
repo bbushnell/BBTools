@@ -12,17 +12,17 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.LongHashSet;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.KillSwitch;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentGenericReadInputStream;
 import stream.FastaReadInputStream;
 import structures.ByteBuilder;
-import structures.LongHashSet;
 import tax.TaxFilter;
 
 /**

@@ -6,7 +6,7 @@ import java.util.Set;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 import stream.Read;
 import stream.ReadInputStream;

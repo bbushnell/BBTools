@@ -11,8 +11,8 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
-import shared.Parse;
-import shared.PreParser;
+import parse.Parse;
+import parse.PreParser;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;

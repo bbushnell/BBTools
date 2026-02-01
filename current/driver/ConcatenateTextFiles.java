@@ -9,9 +9,9 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Timer;
 import tracker.ReadStats;
 

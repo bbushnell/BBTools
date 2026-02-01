@@ -10,9 +10,9 @@ import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -537,7 +537,7 @@ public class KmerLimit2 extends SketchObject {
 		if(targetKmerFraction>=1){return reads;}
 		
 		final int targetKeys=(int)(targetKmerFraction*counts.length);
-		final long countSum=shared.Vector.sum(counts0);
+		final long countSum=simd.Vector.sum(counts0);
 		assert(countSum<Shared.MAX_ARRAY_LEN) : countSum;
 //		System.err.println("countsum: "+countSum);
 		
@@ -604,7 +604,7 @@ public class KmerLimit2 extends SketchObject {
 		}
 		
 		int len=counts.length;
-		final long sum0=shared.Vector.sum(counts);
+		final long sum0=simd.Vector.sum(counts);
 		long sum=sum0;
 //		System.err.println(targetKeys+", "+counts.length+", "+valid+", "+len+", "+rounds+", "+shared.Vector.sum(counts)+", "+Arrays.toString(counts));
 		for(; valid>targetKeys; rounds++){
@@ -667,7 +667,7 @@ public class KmerLimit2 extends SketchObject {
 				expanded[k]=i;
 			}
 		}
-		assert(expanded.length==shared.Vector.sum(counts0));
+		assert(expanded.length==simd.Vector.sum(counts0));
 		
 		int len=expanded.length;
 //		System.err.println(targetKeys+", "+counts.length+", "+valid+", "+len+", "+rounds+", "+shared.Vector.sum(counts)+", "+Arrays.toString(counts));

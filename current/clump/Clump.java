@@ -4,8 +4,8 @@ import java.util.ArrayList;
 
 import dna.AminoAcid;
 import hiseq.FlowcellCoordinate;
+import parse.Parse;
 import shared.KillSwitch;
-import shared.Parse;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;

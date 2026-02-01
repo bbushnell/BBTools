@@ -1,10 +1,10 @@
 package bin;
 
 import java.util.ArrayList;
-import shared.Random;
 
-import structures.IntHashSet;
-import structures.LongHashMap;
+import map.IntHashSet;
+import map.LongHashMap;
+import shared.Random;
 
 class EvidenceRefiner extends AbstractRefiner {
     

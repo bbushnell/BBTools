@@ -1,6 +1,6 @@
 package cardinality;
 
-import shared.Parser;
+import parse.Parser;
 import shared.Tools;
 
 /**

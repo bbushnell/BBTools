@@ -3,8 +3,8 @@ package fileIO;
 import java.io.File;
 
 import dna.Data;
-import shared.Parse;
-import shared.PreParser;
+import parse.Parse;
+import parse.PreParser;
 
 /**
  * Parses and validates genome summary files, extracting critical metadata about

@@ -5,7 +5,7 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Shared;
 import shared.Tools;
 import structures.ListNum;

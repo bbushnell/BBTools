@@ -8,8 +8,8 @@ import shared.Random;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.LineParser1;
-import shared.Parse;
+import parse.LineParser1;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
 import structures.IntList;

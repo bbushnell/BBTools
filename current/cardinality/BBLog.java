@@ -2,7 +2,7 @@ package cardinality;
 
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import shared.Parser;
+import parse.Parser;
 import shared.Tools;
 import structures.LongList;
 

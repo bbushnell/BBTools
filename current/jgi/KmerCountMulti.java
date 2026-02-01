@@ -10,9 +10,9 @@ import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -345,7 +345,7 @@ public class KmerCountMulti {
 		for(int knum=0; knum<numK; knum++){
 			long[] array=counts[knum];
 			Arrays.sort(array);
-			double avg=shared.Vector.sum(array)/(double)ways;
+			double avg=simd.Vector.sum(array)/(double)ways;
 			double wavg=Tools.weightedAverage(array);
 			double stdev=Tools.standardDeviation(array)*100/avg;
 			int k=mlogArray[0].counters[knum].k;

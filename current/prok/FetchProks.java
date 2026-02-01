@@ -5,8 +5,8 @@ import java.util.HashMap;
 
 import fileIO.FileFormat;
 import fileIO.TextStreamWriter;
+import parse.Parse;
 import server.ServerTools;
-import shared.Parse;
 import shared.Tools;
 import template.ThreadWaiter;
 

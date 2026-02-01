@@ -9,8 +9,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
-import structures.IntHashMap;
+import simd.Vector;
 
 /**
  * Hash map with primitive int keys and int values.
@@ -286,12 +285,12 @@ public final class IntHashMap3 implements Serializable {
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
-	public IntHashMap3(int initialSize, float loadFactor_){
+	public IntHashMap3(int initialSize, double loadFactor_){
 		invalid=randy.nextInt()|MINMASK;
 		assert(invalid<0);
 		assert(initialSize>0);
 		assert(loadFactor_>0 && loadFactor_<1);
-		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
+		loadFactor=Tools.mid(0.25f, (float)loadFactor_, 0.90f);
 		resize(initialSize);
 	}
 

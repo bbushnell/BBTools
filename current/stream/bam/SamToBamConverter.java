@@ -4,7 +4,7 @@ import java.nio.charset.StandardCharsets;
 
 import dna.AminoAcid;
 import map.ObjectIntMap;
-import shared.Parse;
+import parse.Parse;
 import stream.SamLine;
 import structures.ByteBuilder;
 

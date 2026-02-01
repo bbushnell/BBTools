@@ -6,9 +6,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 
-import shared.LineParser1;
-import shared.LineParser2;
-import shared.Parse;
+import parse.LineParser1;
+import parse.LineParser2;
+import parse.Parse;
 import shared.Tools;
 import sketch.Sketch;
 import structures.ByteBuilder;

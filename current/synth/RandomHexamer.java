@@ -11,7 +11,7 @@ import dna.AminoAcid;
  * used in library preparation.
  *
  * @author Brian Bushnell
- * @author Isla Winglet
+ * @author Isla
  */
 public class RandomHexamer {
 

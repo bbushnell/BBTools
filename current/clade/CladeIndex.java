@@ -5,8 +5,8 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
+import parse.Parse;
 import prok.GeneCaller;
-import shared.Parse;
 import shared.Shared;
 
 public class CladeIndex implements Cloneable {

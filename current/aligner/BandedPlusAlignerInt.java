@@ -136,7 +136,7 @@ public class BandedPlusAlignerInt implements IDAligner{
 			final int q=query[i-1];
 			
 			if(Shared.SIMD) {
-				shared.SIMDAlign.alignBandVectorInt(q, ref, bandStart, bandEnd, prev, curr, MATCH, N_SCORE, SUB, INS);
+				simd.SIMDAlign.alignBandVectorInt(q, ref, bandStart, bandEnd, prev, curr, MATCH, N_SCORE, SUB, INS);
 			}else {
 
 				// Process only cells within the band

@@ -5,8 +5,8 @@ import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.FileFormat;
+import parse.Parse;
 import shared.KillSwitch;
-import shared.Parse;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;

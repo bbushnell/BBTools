@@ -23,10 +23,10 @@ import fileIO.ReadWrite;
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
 import hiseq.AnalyzeFlowCell;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import server.ServerTools;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -3836,7 +3836,7 @@ public class RQCFilter2 {
 	 * @return Timestamp in RQC's format
 	 */
 	public static String timeString(){
-		SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+		SimpleDateFormat sdf=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 //		sdf.setTimeZone(TimeZone.getTimeZone("PST"));
 		sdf.setTimeZone(TimeZone.getDefault());
 		return sdf.format(new Date());
@@ -4403,48 +4403,48 @@ public class RQCFilter2 {
 	
 	private String RQCFilterData=getRQCPath();
 	
-	private String shortArtifactFile = "RQCFILTER_PATH/short.fa.gz";
-	private String mainArtifactFile = "RQCFILTER_PATH/Illumina.artifacts.fa.gz";
-	private String polyAFile = "RQCFILTER_PATH/polyA.fa.gz";
-	private String nexteraLinkerFile = "RQCFILTER_PATH/nextera_LMP_linker.fa.gz";
+	private String shortArtifactFile="RQCFILTER_PATH/short.fa.gz";
+	private String mainArtifactFile="RQCFILTER_PATH/Illumina.artifacts.fa.gz";
+	private String polyAFile="RQCFILTER_PATH/polyA.fa.gz";
+	private String nexteraLinkerFile="RQCFILTER_PATH/nextera_LMP_linker.fa.gz";
 	
-	private String phixRef = "RQCFILTER_PATH/phix2.fa.gz";
-	private String lambdaRef = "RQCFILTER_PATH/lambda.fa.gz";
-	private String lfpeLinker = "RQCFILTER_PATH/lfpe.linker.fa.gz";
-	private String clrsLinker = "RQCFILTER_PATH/crelox.fa.gz";
-	private String clipLinker = clipLinkerDefault; //A literal string; "CATG" is supposed to be the normal linker.
+	private String phixRef=Data.findPath("?phix2.fa.gz");
+	private String lambdaRef="RQCFILTER_PATH/lambda.fa.gz";
+	private String lfpeLinker="RQCFILTER_PATH/lfpe.linker.fa.gz";
+	private String clrsLinker="RQCFILTER_PATH/crelox.fa.gz";
+	private String clipLinker=clipLinkerDefault; //A literal string; "CATG" is supposed to be the normal linker.
 
-//	private String sipRef = "RQCFILTER_PATH/pJET1.2.fa.gz";
-	private String pjetRef = "RQCFILTER_PATH/pJET1.2.fa.gz";
-	private String riboKmers = "RQCFILTER_PATH/riboKmers20fused.fa.gz";
-	private String fragAdapter = "RQCFILTER_PATH/adapters2.fa.gz";
-	private String rnaAdapter = "RQCFILTER_PATH/truseq_rna.fa.gz";
-	private String mtstRef = "RQCFILTER_PATH/mtst.fa.gz";
-	private String kapaRef = "RQCFILTER_PATH/kapatags.L40.fa.gz";
+//	private String sipRef="RQCFILTER_PATH/pJET1.2.fa.gz";
+	private String pjetRef="RQCFILTER_PATH/pJET1.2.fa.gz";
+	private String riboKmers="RQCFILTER_PATH/riboKmers20fused.fa.gz";
+	private String fragAdapter="RQCFILTER_PATH/adapters2.fa.gz";
+	private String rnaAdapter="RQCFILTER_PATH/truseq_rna.fa.gz";
+	private String mtstRef="RQCFILTER_PATH/mtst.fa.gz";
+	private String kapaRef="RQCFILTER_PATH/kapatags.L40.fa.gz";
 	
-	private String humanPath = "RQCFILTER_PATH/human_genome/";
-	private String catPath = "RQCFILTER_PATH/cat_genome/";
-	private String dogPath = "RQCFILTER_PATH/dog_genome/";
-	private String mousePath = "RQCFILTER_PATH/mouse_genome/";
-	private String mouseCatDogHumanPath = "RQCFILTER_PATH/mousecatdoghuman/";
-	private String humanRef = null;
+	private String humanPath="RQCFILTER_PATH/human_genome/";
+	private String catPath="RQCFILTER_PATH/cat_genome/";
+	private String dogPath="RQCFILTER_PATH/dog_genome/";
+	private String mousePath="RQCFILTER_PATH/mouse_genome/";
+	private String mouseCatDogHumanPath="RQCFILTER_PATH/mousecatdoghuman/";
+	private String humanRef=null;
 	
-	private String chloroplastRef = "RQCFILTER_PATH/plastid.fa.gz";
-	private String mitoRef = "RQCFILTER_PATH/mitochondrion.fa.gz";
-	private String chloroMitoRef = "RQCFILTER_PATH/chloro_mito.fa.gz";
-	private String chloroMitoRiboRef = "RQCFILTER_PATH/chloro_mito_ribo.fa.gz";
-	private String mitoRiboRef = "RQCFILTER_PATH/mito_ribo.fa.gz";
-	private String chloroRiboRef = "RQCFILTER_PATH/chloro_ribo.fa.gz";
+	private String chloroplastRef="RQCFILTER_PATH/plastid.fa.gz";
+	private String mitoRef="RQCFILTER_PATH/mitochondrion.fa.gz";
+	private String chloroMitoRef="RQCFILTER_PATH/chloro_mito.fa.gz";
+	private String chloroMitoRiboRef="RQCFILTER_PATH/chloro_mito_ribo.fa.gz";
+	private String mitoRiboRef="RQCFILTER_PATH/mito_ribo.fa.gz";
+	private String chloroRiboRef="RQCFILTER_PATH/chloro_ribo.fa.gz";
 
-	private String riboRef = "RQCFILTER_PATH/SSU_LSU_sorted.fa.gz";
+	private String riboRef="RQCFILTER_PATH/SSU_LSU_sorted.fa.gz";
 	
-	private String commonMicrobesPath = "RQCFILTER_PATH/commonMicrobes/";
-	private String commonMicrobesRef = "RQCFILTER_PATH/commonMicrobes/fusedERPBBmasked2.fa.gz";
-	private int commonMicrobesBuild = 1;
+	private String commonMicrobesPath="RQCFILTER_PATH/commonMicrobes/";
+	private String commonMicrobesRef="RQCFILTER_PATH/commonMicrobes/fusedERPBBmasked2.fa.gz";
+	private int commonMicrobesBuild=1;
 
-	private String otherMicrobesPath = "RQCFILTER_PATH/otherMicrobes/"; //TODO
-	private String otherMicrobesRef = "RQCFILTER_PATH/otherMicrobes/fusedEmasked.fa.gz"; //TODO
-	private int otherMicrobesBuild = 1;
+	private String otherMicrobesPath="RQCFILTER_PATH/otherMicrobes/"; //TODO
+	private String otherMicrobesRef="RQCFILTER_PATH/otherMicrobes/fusedEmasked.fa.gz"; //TODO
+	private int otherMicrobesBuild=1;
 	
 	private String taxTreeFile="RQCFILTER_PATH/tree.taxtree.gz";
 	private String giTable=null;
@@ -4457,6 +4457,6 @@ public class RQCFilter2 {
 	
 	/** Library type codes */
 	private static final int FRAG=0, LFPE=1, CLIP=2, CLRS=3;
-	private static final String clipLinkerDefault = "CATG";
+	private static final String clipLinkerDefault="CATG";
 	
 }

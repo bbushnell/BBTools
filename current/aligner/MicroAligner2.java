@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import dna.AminoAcid;
 import dna.Data;
 import fileIO.FileFormat;
+import map.LongHashMap;
 import prok.GeneCaller;
 import shared.Tools;
 import stream.ConcurrentGenericReadInputStream;
 import stream.Read;
-import structures.LongHashMap;
 
 /**
  * Lightweight aligner designed for identity testing without generating match strings.

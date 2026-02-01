@@ -56,4 +56,8 @@ public interface Streamer {
 	/** True if there was an error */
 	public boolean errorState();
 
+	//TODO:  Remove these eventually
+	public default void returnList(ListNum<Read> ln) {}
+	public default void returnList(long id, boolean b) {}
+
 }

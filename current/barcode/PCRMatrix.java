@@ -14,8 +14,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
+import parse.Parse;
 import shared.KillSwitch;
-import shared.Parse;
 import shared.Tools;
 import sketch.Sketch;
 import structures.ByteBuilder;

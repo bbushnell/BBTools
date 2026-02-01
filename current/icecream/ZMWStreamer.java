@@ -5,7 +5,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import dna.Data;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;

@@ -6,13 +6,13 @@ import dna.AminoAcid;
 import dna.Data;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Parse;
+import map.LongHashSet;
+import parse.Parse;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import stream.ReadInputStream;
 import structures.ListNum;
-import structures.LongHashSet;
 
 /**
  * Abstract base class containing static utilities and configuration for prokaryotic gene calling.

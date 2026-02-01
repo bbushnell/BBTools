@@ -11,12 +11,12 @@ import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import parse.LineParser;
+import parse.LineParser1;
 import shared.KillSwitch;
-import shared.LineParser;
-import shared.LineParser1;
 import shared.Timer;
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 import stream.FASTQ;
 import ukmer.Kmer;
 

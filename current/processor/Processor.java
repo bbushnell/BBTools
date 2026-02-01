@@ -1,7 +1,8 @@
 package processor;
 
 import java.io.PrintStream;
-import shared.Parser;
+
+import parse.Parser;
 import stream.Read;
 import stream.SamLine;
 import structures.ByteBuilder;

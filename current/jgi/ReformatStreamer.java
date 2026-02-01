@@ -9,11 +9,11 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import processor.ReformatProcessor;
 import shared.MetadataWriter;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

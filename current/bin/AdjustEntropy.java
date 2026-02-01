@@ -6,7 +6,7 @@ import shared.Random;
 import dna.Data;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import shared.LineParser1;
+import parse.LineParser1;
 import shared.Shared;
 import shared.Tools;
 import stream.Read;

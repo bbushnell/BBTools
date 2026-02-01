@@ -4,7 +4,7 @@ import java.util.Arrays;
 import shared.Random;
 
 import shared.Tools;
-import shared.Vector;
+import simd.Vector;
 
 /**
  * Represents a neural network cell with advanced computational and training capabilities.

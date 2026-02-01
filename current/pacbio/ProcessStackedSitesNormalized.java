@@ -4,8 +4,8 @@ import java.util.ArrayList;
 
 import fileIO.TextFile;
 import fileIO.TextStreamWriter;
-import shared.Parse;
-import shared.PreParser;
+import parse.Parse;
+import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;

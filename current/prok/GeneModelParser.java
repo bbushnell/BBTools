@@ -3,7 +3,7 @@ package prok;
 import java.util.ArrayList;
 
 import fileIO.ByteFile;
-import shared.Parse;
+import parse.Parse;
 import shared.Tools;
 
 /**

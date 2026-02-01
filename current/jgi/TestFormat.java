@@ -16,10 +16,11 @@ import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import json.JsonObject;
 import json.JsonParser;
+import map.IntHashMapBinary;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import server.ServerTools;
-import shared.Parse;
-import shared.Parser;
-import shared.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -34,7 +35,6 @@ import stream.ConcurrentReadInputStream;
 import stream.FASTQ;
 import stream.Read;
 import structures.ByteBuilder;
-import structures.IntHashMapBinary;
 import structures.ListNum;
 import structures.LongPair;
 import structures.Range;
@@ -292,7 +292,7 @@ public class TestFormat {
 		
 		if(format!=FileFormat.FASTA && format!=FileFormat.UNKNOWN){
 			println("QualOffset\t"+offset);
-			long negatives=shared.Vector.sum(qhist, 0, 127);
+			long negatives=simd.Vector.sum(qhist, 0, 127);
 			println("NegativeQuals\t"+negatives);
 		}
 		if(differs){}
@@ -311,10 +311,10 @@ public class TestFormat {
 			printNucleotideTop();
 		}
 		
-		if(shared.Vector.sum(qhist)>0){
+		if(simd.Vector.sum(qhist)>0){
 			printQhist();
 		}
-		if(doMerge && pairsProcessed>0 && !amino && shared.Vector.sum(ihist)>0){
+		if(doMerge && pairsProcessed>0 && !amino && simd.Vector.sum(ihist)>0){
 			printIhist();
 		}
 		if(!amino && barcodeStats.size()>0){
@@ -461,7 +461,7 @@ public class TestFormat {
 		println("Barcodes\t"+barcodeStats.size());
 		println("ZMWs    \t"+zmwMap.cardinality());
 		if(doMerge && pairsProcessed>0){
-			final long numMerged=shared.Vector.sum(ihist);
+			final long numMerged=simd.Vector.sum(ihist);
 			final double insertAvg=Tools.averageHistogram(ihist);
 			final int insertMode=Tools.maxIndex(ihist);
 			final double mergeFraction=(numMerged/(1.0*Tools.max(mergeAttempts, 1)));
@@ -521,7 +521,7 @@ public class TestFormat {
 				if(q>0){println((i-qOffset)+"\t\t"+q);}
 			}
 		}
-		if(qhistFile!=null && shared.Vector.sum(qhist)>0){
+		if(qhistFile!=null && simd.Vector.sum(qhist)>0){
 			try {
 				StringBuilder sb=new StringBuilder();
 				sb.append("#QErrorRate\t"+Tools.format("%.3f%%\n", 100*errorAvg));
@@ -569,7 +569,7 @@ public class TestFormat {
 	
 	void printIhist(){
 
-		final long numMerged=shared.Vector.sum(ihist);
+		final long numMerged=simd.Vector.sum(ihist);
 		final double insertAvg=Tools.averageHistogram(ihist);
 		final int insertMode=Tools.maxIndex(ihist);
 		final double mergeFraction=(numMerged/(1.0*Tools.max(mergeAttempts, 1)));

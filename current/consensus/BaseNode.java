@@ -228,7 +228,7 @@ public class BaseNode extends BaseGraphPart implements Comparable<BaseNode> {
 	void calcProbs(){
 		assert(acgtProb==null);
 		acgtProb=new float[4];
-		float mult=1f/Tools.max(1, shared.Vector.sum(acgtCount));
+		float mult=1f/Tools.max(1, simd.Vector.sum(acgtCount));
 		for(int i=0; i<acgtProb.length; i++){
 			acgtProb[i]=acgtCount[i]*mult;
 		}
