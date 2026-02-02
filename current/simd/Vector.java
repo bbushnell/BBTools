@@ -1110,6 +1110,20 @@ public final class Vector {
 			bases[max]=AminoAcid.baseToComplementExtended[bases[max]];
 		}
 	}
+	
+	private static synchronized int intLanes() {
+		try{return SIMD.intLanes();}
+		catch(Throwable e){return 1;}
+	}
+
+	public static void countErrorFreeKmersBatch(int[] errorBuffer, int[] results, int k, int queryLen, int step, int wildcardMask) {
+		if(Shared.SIMD && INT_LANES > 1) {
+			SIMD.countErrorFreeKmersBatch(errorBuffer, results, k, queryLen, step, wildcardMask);
+		} else {
+			// Scalar fallback logic not implemented here; calling class should check INT_LANES
+			throw new UnsupportedOperationException("Scalar fallback for countErrorFreeKmersBatch should be handled by caller");
+		}
+	}
 
 	public static int findKey(final int[] keys, final int key, final int initial, final int invalid){
 		assert(keys!=null);
@@ -1210,6 +1224,7 @@ public final class Vector {
 	public static final boolean simd256=maxSimdWidth>=256;
 	public static final boolean simd128=maxSimdWidth>=128;
 	public static final boolean simd64=maxSimdWidth>=64;
+	public static final int INT_LANES=(vectorLoaded && Shared.SIMD) ? intLanes() : 1;
 	public static final boolean varHandles=(Shared.javaVersion>=9 && VarHandler.AVAILABLE);
 	private final static byte slashr='\r', slashn='\n', carrot='>', plus='+', at='@';//, tab='\t';
 

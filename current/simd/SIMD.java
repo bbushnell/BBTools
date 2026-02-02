@@ -757,6 +757,54 @@ final class SIMD{
 		}
 		return c;
 	}
+
+	static final int intLanes() {return IWIDTH;}
+
+	/**
+	 * Vectorized k-mer counting for Monte Carlo simulation.
+	 * Processes 'IWIDTH' simulations in parallel.
+	 * @param errorBuffer Interleaved error array of size [queryLen * IWIDTH]. 
+	 * Layout: [Pos0_Sim0, Pos0_Sim1, ... Pos0_Sim7, Pos1_Sim0...]
+	 * @param results Output array of size [IWIDTH]. Holds the count of valid k-mers for each simulation lane.
+	 * @param k K-mer length
+	 * @param queryLen Length of the query sequence
+	 * @param step K-mer step
+	 * @param wildcardMask Bitmask for wildcard positions
+	 */
+	static void countErrorFreeKmersBatch(int[] errorBuffer, int[] results, int k, int queryLen, int step, int wildcardMask) {
+		IntVector pattern = IntVector.zero(ISPECIES);
+		IntVector vCounts = IntVector.zero(ISPECIES);
+		final IntVector vOne = IntVector.broadcast(ISPECIES, 1);
+		final IntVector vWildcardMask = IntVector.broadcast(ISPECIES, wildcardMask);
+
+		final int stepMask = step - 1;
+		final int stepTarget = (k - 1) & stepMask;
+
+		// Unroll loop slightly? queryLen is small (30-60 usually), so JIT should handle it.
+		for(int i = 0; i < queryLen; i++) {
+			// Load error bits for this position across all 8 simulations
+			// errorBuffer must be interleaved!
+			IntVector vErr = IntVector.fromArray(ISPECIES, errorBuffer, i * IWIDTH);
+
+			// Shift pattern and OR in the new error bit
+			// pattern = (pattern >>> 1) | (vErr << (k-1))
+			pattern = pattern.lanewise(VectorOperators.LSHR, 1)
+				.lanewise(VectorOperators.OR, vErr.lanewise(VectorOperators.LSHL, k - 1));
+
+			if(i >= k - 1) {
+				// Check step condition (scalar check, applies to all lanes equally since queryLen is constant)
+				if((i & stepMask) == stepTarget) {
+					// Check wildcard validity: (pattern & mask) == 0
+					VectorMask<Integer> valid = pattern.lanewise(VectorOperators.AND, vWildcardMask)
+						.compare(VectorOperators.EQ, 0);
+
+					// Increment counts where valid
+					vCounts = vCounts.add(vOne, valid);
+				}
+			}
+		}
+		vCounts.intoArray(results, 0);
+	}
 	
 	/**
 	 * SIMD search for key in hash table array starting at initial position.

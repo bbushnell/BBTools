@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
+import structures.ListNum;
 
 /**
  * Factory for creating appropriate Streamer implementations based on file format.
@@ -233,6 +234,29 @@ public class StreamerFactory {
 		throw new RuntimeException("Unsupported file format: "+ff);
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------         Convenience          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public static ArrayList<Read> getReads(long maxReads, boolean keepSamHeader,
+		FileFormat ff1, FileFormat ff2, String qf1, String qf2){
+		Streamer st=makeStreamer(ff1, ff2, qf1, qf2, true, maxReads, keepSamHeader, true, 1);
+		st.start();
+		return getReads(st);
+	}
+
+	public static ArrayList<Read> getReads(Streamer st){
+		ArrayList<Read> out=new ArrayList<Read>();
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+			out.addAll(ln.list);
+		}
+		st.close();
+		if(st.errorState()){
+			System.err.println("Warning - an error was encountered during read input.");
+		}
+		return out;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
