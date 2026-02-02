@@ -5,18 +5,18 @@ import shared.Random;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import simd.Vector;
 import map.IntHashMap2;
 
 /**
  * Calculates the minimum seed hits required to detect indel-free alignments at a target probability.
- * Uses Monte Carlo simulation to model wildcards, error patterns, and clipping limits.
- * Optimized version with branchless operations and direct error storage.
+ * Optimized version with "Fail Fast" failure budget and optional (currently disabled) SIMD path.
  *
  * @author Brian Bushnell
- * @contributor Noire
- * @date December 30, 2025
+ * @contributor Amber
+ * @date February 2, 2026
  */
-public class MinHitsCalculator2 {
+public class MinHitsCalculator3 {
 
 	/**
 	 * Constructs the calculator and precomputes wildcard masks.
@@ -29,7 +29,7 @@ public class MinHitsCalculator2 {
 	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
 	 * @param kStep_ K-mer step size (1 for all kmers, 2 for every other kmer, etc.)
 	 */
-	public MinHitsCalculator2(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int kStep_){
+	public MinHitsCalculator3(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int kStep_){
 		k=k_;
 		maxSubs0=maxSubs_;
 		minid=minid_;
@@ -70,28 +70,26 @@ public class MinHitsCalculator2 {
 
 			// Check if we have a full k-mer (i>=k-1) at a step position with no errors in non-wildcard positions
 			boolean valid=(i>=k-1) && (i&stepMask)==stepTarget && ((errorPattern&wildcardMask)==0);
-			//TODO: The expression could return 1 or 0 using clever Math.max subexpressions
 			count+=valid ? 1 : 0;
 		}
 		return count;
 	}
-	
+
 	private static int upperBoundValid(int validKmers, int subs, int k){
 		return Math.max(0, validKmers-subs);
 	}
-	
+
 	private static int lowerBoundValid(int validKmers, int subs, int k, int mm){
 		int kEff=k-mm;
 		return Math.max(0, validKmers-subs*kEff);
 	}
-	
+
 	private static int expectedUpperBoundValid(int validKmers, int subs, int k, int mm){
 		int kEff=k-mm;
 		return (int)Math.ceil(Math.max(0, validKmers-subs*kEff*0.45f));
 	}
-	
-	/** 
-	 * If this returns a value of at least minHits, it is at least feasible
+
+	/** * If this returns a value of at least minHits, it is at least feasible
 	 * that simulation could render this a usable kmer length.
 	 * @param validKmers Number of valid k-mers in the query
 	 * @return A safe upper bound of remaining valid kmers; 0 means failure
@@ -103,13 +101,13 @@ public class MinHitsCalculator2 {
 	}
 
 	/**
-	 * Runs Monte Carlo simulation to find the minimum hits satisfying the probability target.
+	 * Runs Monte Carlo simulation with "Fail Fast" failure budget.
 	 * @param validKmers Number of valid k-mers in the query
 	 * @return Minimum hits needed; 0 means failure
 	 */
 	private int simulate(int validKmers, int iters){
-		if(simulateFast(validKmers)<1) {iters/=10;}
-		// Calculate effective clipping limit for this query length
+		if(simulateFast(validKmers)<1) {return 0;}
+
 		int queryLen=validKmers+k-1;
 		final int maxSubs=Math.min(maxSubs0, (int)(queryLen*(1-minid)));
 		int maxClips=(maxClipFraction<1 ? (int)(maxClipFraction*queryLen) : (int)maxClipFraction);
@@ -118,41 +116,98 @@ public class MinHitsCalculator2 {
 		if(minProb>=1){
 			int unmasked=(Tools.max(2, k-midMaskLen));// Number of kmers impacted by a sub
 			return Math.max(1, validKmers-(unmasked*maxSubs)-maxClips);
-		}else if(minProb==0){
+		}else if(minProb<=0){
 			return validKmers;
-		}else if(minProb<0){
-			return 1;
 		}
 
-		// Build histogram of surviving k-mer counts
+		// Calculate the Failure Budget
+		// If we exceed this many zero-hit results, it is statistically impossible to meet minProb.
+		final int maxFailures = (int)(iters * (1.0f - minProb));
+
+		// Heuristic: If we are in the early game (iter < Limit) and have already blown a fraction of the budget, abort.
+		// "if (histogram[0]*4 > maxZeros && iter*16 < iters)"
+		final int heuristicIterLimit=iters/16;
+		final int heuristicFailureLimit=(maxFailures+3)/4;
+
+		int currentFailures = 0;
+
 		int[] histogram=new int[validKmers+1];
-		int[] errors=new int[queryLen]; // Direct error storage (0 or 1)
 
-		// Run Monte Carlo simulation
-		final int maxZeros=(int)(Math.ceil((1-minProb)*iters));
-		final int earlyIters=iters/16, earlyZeros=(maxZeros+3)/4;
-		for(int iter=0; iter<iters; iter++){
-			// Clear errors
-			for(int i=0; i<queryLen; i++){errors[i]=0;}
+		// Check SIMD capability
+		final int lanes = Vector.INT_LANES;
+		final boolean useSIMD = (USE_SIMD && lanes > 1 && Shared.SIMD);
 
-			// Place maxSubs random errors
-			for(int i=0; i<maxSubs; i++){
-				int pos=randy.nextInt(queryLen);
-				errors[pos]=1;
+		if(useSIMD) {
+			// Vectorized Batched Mode
+			final int batchSize = lanes;
+			final int[] errorBuffer = new int[queryLen * batchSize];
+			final int[] results = new int[batchSize];
+			final int[] touchedIndices = new int[maxSubs * batchSize];
+
+			for(int iter=0; iter<iters; iter+=batchSize){
+				// Fill errors for 'batchSize' simulations
+				int touchedCount = 0;
+				for(int l=0; l<batchSize; l++){
+					for(int s=0; s<maxSubs; s++){
+						int pos = randy.nextInt(queryLen);
+						int idx = pos * batchSize + l; // Interleaved layout
+						if(errorBuffer[idx] == 0) {
+							errorBuffer[idx] = 1;
+							touchedIndices[touchedCount++] = idx;
+						}
+					}
+				}
+
+				// Run Vector Kernel
+				Vector.countErrorFreeKmersBatch(errorBuffer, results, k, queryLen, kStep, wildcardMask);
+
+				// Process Results
+				for(int l=0; l<batchSize; l++){
+					int count = results[l];
+					if(count == 0) {
+						currentFailures++;
+						if(currentFailures > maxFailures) {
+							return 0; // Fail Fast (Absolute)
+						}
+						// Note: Heuristic check skipped for SIMD for simplicity, but could be added
+					}
+					histogram[count]++;
+				}
+
+				// Cleanup error buffer
+				for(int i=0; i<touchedCount; i++){
+					errorBuffer[touchedIndices[i]] = 0;
+				}
 			}
+		} else {
+			// Scalar Fallback (Original Logic)
+			int[] errors=new int[queryLen];
+			for(int iter=0; iter<iters; iter++){
+				// Clear errors
+				for(int i=0; i<queryLen; i++){errors[i]=0;}
 
-			// Count k-mers that survive the errors
-			int errorFreeKmers=countErrorFreeKmers(errors, queryLen, kStep);
-			histogram[errorFreeKmers]++;
-			if(histogram[0]>maxZeros || (histogram[0]>earlyZeros && iter<earlyIters)) {
-				return 0;
-			}//Early exit, success is unlikely
+				// Place maxSubs random errors
+				for(int i=0; i<maxSubs; i++){
+					int pos=randy.nextInt(queryLen);
+					errors[pos]=1;
+				}
 
-			// Print iterations if verbose
-			if(verbose){
-				System.err.println("\nIteration "+(iter+1)+" (validKmers="+validKmers+"):");
-				printSequence(errors, queryLen);
-				System.err.println("Error-free kmers: "+errorFreeKmers);
+				// Count k-mers that survive the errors
+				int errorFreeKmers=countErrorFreeKmers(errors, queryLen, kStep);
+
+				if(errorFreeKmers == 0) {
+					currentFailures++;
+					// Absolute budget check
+					if(currentFailures > maxFailures) {
+						return 0;
+					}
+					// Heuristic check: Abort if we fail too much too early (trash detection)
+					if(iter < heuristicIterLimit && currentFailures > heuristicFailureLimit) {
+						return 0;
+					}
+				}
+
+				histogram[errorFreeKmers]++;
 			}
 		}
 
@@ -214,13 +269,16 @@ public class MinHitsCalculator2 {
 	public static int iterations=200000;
 	private static final boolean verbose=false; // Set to true for debugging
 
+	/** Controls whether SIMD path is attempted. Currently disabled due to RNG setup overhead. */
+	private static final boolean USE_SIMD=false;
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Debug Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
 	 * Main method for standalone testing and debugging.
-	 * Usage: java MinHitsCalculator2 verbose=true k=13 validKmers=50 maxsubs=5 minid=0.9 midmask=1 minprob=0.99 maxclip=0.25 kstep=1 iterations=10000
+	 * Usage: java MinHitsCalculator3 verbose=true k=13 validKmers=50 maxsubs=5 minid=0.9 midmask=1 minprob=0.99 maxclip=0.25 kstep=1 iterations=10000
 	 */
 	public static void main(String[] args){
 		int k=13, validKmers=50, maxSubs=5, midMaskLen=1, kStep=1, iters=10000;
@@ -244,39 +302,21 @@ public class MinHitsCalculator2 {
 		}
 		iterations=iters;
 
-		System.err.println("MinHitsCalculator2 testing:");
+		System.err.println("MinHitsCalculator3 testing:");
 		System.err.println("  k="+k+" validKmers="+validKmers+" maxSubs="+maxSubs+" minid="+minid);
 		System.err.println("  midMaskLen="+midMaskLen+" minProb="+minProb+" maxClip="+maxClip+" kStep="+kStep);
 		System.err.println("  iterations="+iterations+" verbose="+verbose);
+		System.err.println("  SIMD available: "+Shared.SIMD+", lanes="+Vector.INT_LANES+", useSimd="+USE_SIMD);
+
 		Timer t=new Timer();
-		MinHitsCalculator2 mhc=new MinHitsCalculator2(k, maxSubs, minid, midMaskLen, minProb, maxClip, kStep);
+		MinHitsCalculator3 mhc=new MinHitsCalculator3(k, maxSubs, minid, midMaskLen, minProb, maxClip, kStep);
 		t.stopAndPrint();
-		System.err.println("Wildcard mask (int bits): "+Integer.toBinaryString(mhc.wildcardMask));
-		System.err.println("Wildcard mask visual:");
-		for(int i=k-1; i>=0; i--){
-			System.err.print((mhc.wildcardMask&(1<<i))!=0 ? "m" : "W");
-		}
-		System.err.println();
 
 		t.start();
 		int minHits=mhc.minHits(validKmers);
 		t.stopAndPrint();
 
 		System.err.println("\nResult: minHits="+minHits);
-	}
-
-	/**
-	 * Prints a sequence with errors marked. Format: mmmmmSmmmmSmmmm where m=match, S=substitution.
-	 * @param errors Array of error positions (0 or 1)
-	 * @param queryLen Length of query sequence
-	 */
-	static void printSequence(int[] errors, int queryLen){
-		if(!verbose){return;}
-		StringBuilder sb=new StringBuilder(queryLen);
-		for(int i=0; i<queryLen; i++){
-			sb.append(errors[i]==1 ? 'S' : 'm');
-		}
-		System.err.println(sb.toString());
 	}
 
 	/**

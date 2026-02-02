@@ -246,7 +246,8 @@ public class FastaStreamer implements Streamer {
 			int headersInList=0;
 			int bytesInList=0;
 
-			final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
+			final int slimit=Shared.bufferLen();
+			final int blimit=Shared.bufferData();
 			ListNum<byte[]> ln=new ListNum<byte[]>(new ArrayList<byte[]>(), listNumber++);
 			ln.firstRecordNum=totalReads;
 			final long limit=maxReads*(interleaved && maxReads<Long.MAX_VALUE/2 ? 2 : 1);
@@ -450,8 +451,8 @@ public class FastaStreamer implements Streamer {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
-	public static int TARGET_LIST_BYTES=262144;
+//	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
+//	public static int TARGET_LIST_BYTES=262144;
 	public static int DEFAULT_THREADS=3;
 
 	/*--------------------------------------------------------------*/

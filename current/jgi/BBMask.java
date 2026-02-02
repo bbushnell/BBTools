@@ -439,7 +439,10 @@ public class BBMask{
 	 * @return Number of bases actually masked (excluding already masked positions)
 	 */
 	public static int maskRead(final Read r, final BitSet bs, final boolean lowercase){
-		final byte[] bases=r.bases;
+		return maskBases(r.bases, bs, lowercase);
+	}
+	
+	public static int maskBases(final byte[] bases, final BitSet bs, final boolean lowercase){
 		int sum=0;
 		if(!lowercase){
 			for(int i=0; i<bases.length; i++){
@@ -1184,7 +1187,7 @@ public class BBMask{
 	 * @param bs BitSet to mark positions for masking
 	 * @param et EntropyTracker configured for specific k and window
 	 */
-	private static void maskLowEntropy(final byte[] bases, final BitSet bs, final EntropyTracker et){
+	public static void maskLowEntropy(final byte[] bases, final BitSet bs, final EntropyTracker et){
 		final int window=et.windowBases();
 		if(bases.length<window){return;}
 		
@@ -1314,7 +1317,7 @@ public class BBMask{
 	 * @param k K-mer size for repeat detection
 	 * @param minlen Minimum length of repeats to mask
 	 */
-	private static void maskRepeats(final byte[] bases, final BitSet bs, final int k, final int minlen){
+	public static void maskRepeats(final byte[] bases, final BitSet bs, final int k, final int minlen){
 		final int lim=bases.length-k;
 		final int mask=(k>15 ? -1 : ~((-1)<<(2*k)));
 		for(int loc=0; loc<lim; loc++){

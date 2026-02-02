@@ -607,7 +607,7 @@ public final class Tools {
 	public static String padKMB(long number, int pad) {
 		String s;
 		if(Shared.OUTPUT_KMG){
-			if(number<100000) {s=""+number;}
+			if(number<1000000) {s=""+number;}
 			else if(number<100000000) {s=""+(number/1000)+"k";}
 			else if(number<100000000000L) {s=""+(number/1000000)+"m";}
 			else if(number<100000000000000L) {s=""+(number/1000000000)+"b";}

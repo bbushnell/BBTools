@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -12,7 +13,9 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import jgi.BBMask;
 import map.IntHashMap2;
+import map.IntHashMap3;
 import map.IntListHashMap3;
 import parse.Parse;
 import parse.Parser;
@@ -22,18 +25,20 @@ import shared.Timer;
 import shared.Tools;
 import simd.SIMDAlignByte;
 import simd.Vector;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamHeader;
 import stream.SamHeaderWriter;
 import stream.SamLine;
+import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.IntList;
 import structures.ListNum;
 import structures.StringNum;
 import template.Accumulator;
 import template.ThreadWaiter;
+import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
@@ -144,7 +149,7 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 			}else if(a.equals("minprob") || a.equals("minhitsprob")){
 				minHitsProb=Float.parseFloat(b);
 			}else if(a.equals("iterations")){
-				MinHitsCalculator2.iterations=Parse.parseIntKMG(b);
+				MinHitsCalculator3.iterations=MinHitsCalculator2.iterations=MinHitsCalculator.iterations=Parse.parseIntKMG(b);
 			}else if(a.equals("maxclip") || a.equals("clip")){
 				Query.maxClip=Tools.max(0, Float.parseFloat(b));
 			}else if(a.equals("index")){
@@ -162,9 +167,15 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 			}else if(a.equals("k")){
 				if(b==null || b.equals("0") || b.equals("-1")){
 					kArray=null;
-				}if(b.indexOf(',')>-1){
+				}else if(b.indexOf(',')>-1){
 					int[] temp=Parse.parseIntArray(b, ",");
 					kArray=temp;
+				}else if(b.indexOf('-')>-1){
+					int[] temp=Parse.parseIntArray(b, "-");
+					Arrays.sort(temp);
+					int range=temp[1]-temp[0]+1;
+					kArray=new int[range];
+					for(int x=0; x<range; x++) {kArray[x]=x+temp[0];}
 				}else{
 					kArray=new int[] {Integer.parseInt(b)};
 				}
@@ -173,6 +184,12 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 				qStep=Integer.parseInt(b);
 			}else if(a.equals("rstep") || a.equals("rskip")){
 				rStep=Integer.parseInt(b);
+			}else if(a.equals("qlen") || a.equals("minqlen")){
+				minQLen=Integer.parseInt(b);
+			}else if(a.equals("rlen") || a.equals("minrlen")){
+				minRLen=Integer.parseInt(b);
+			}else if(a.equals("minlen")){
+				minQLen=minRLen=Integer.parseInt(b);
 			}else if(a.equals("mm")){
 				midMaskLen=(Tools.isNumeric(b) ? Integer.parseInt(b) : Parse.parseBoolean(b) ? 1 : 0);
 			}else if(a.equals("blacklist") || a.equals("banhomopolymers")){
@@ -183,6 +200,14 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 				padding=Integer.parseInt(b);
 			}else if(a.equals("chunk") || a.equals("chunksize")){
 				targetChunkSize=Parse.parseIntKMG(b);
+			}else if(a.equals("entropymask") || a.equals("emask") || a.equals("mask")){
+				entropyMask=Parse.parseBoolean(b);
+			}else if(a.equals("entropywindow") || a.equals("ewindow") || a.equals("ew") || a.equals("window")){
+				entropyWindow=Integer.parseInt(b);
+			}else if(a.equals("entropycutoff") || a.equals("ecutoff") || a.equals("minentropy")){
+				entropyCutoff=Float.parseFloat(b);
+			}else if(a.equals("entropyk") || a.equals("ek") || a.equals("ke")){
+				entropyK=Integer.parseInt(b);	
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else if(parser.out1==null && b==null && FileFormat.isSamOrBamFile(arg)){
@@ -256,10 +281,9 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 		int oldBL=Shared.bufferLen();
 		// If fusing, allow large chunks to maximize throughput. If not, keep small for parallelism.
 		Shared.setBufferData(Math.min(targetChunkSize, (fuse ? targetChunkSize : 400000)));
-		Shared.setBufferData(Math.min(targetChunkSize, (fuse ? targetChunkSize : 400000)));
-		if(fuse) {Shared.setBufferLen(Math.max(oldBL, 800));}
+		if(fuse) {Shared.setBufferLen(Math.max(oldBL, 2000));}
 
-		final ConcurrentReadInputStream cris=makeCris(refFile);
+		final Streamer cris=makeCris(refFile);
 		final ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout1);
 		final SamHeaderWriter shw=(ffheader==null ? null : new SamHeaderWriter(ffheader));
 
@@ -292,7 +316,7 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void spawnThreads(final ConcurrentReadInputStream cris, 
+	private void spawnThreads(final Streamer cris, 
 		final ByteStreamWriter bsw, final SamHeaderWriter shw, final ArrayList<ArrayList<Query>> queryBuckets){
 
 		final int threads=Shared.threads();
@@ -324,18 +348,34 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private ConcurrentReadInputStream makeCris(String fname){
+	private Streamer makeCris(String fname){
 		FileFormat ff=FileFormat.testInput(fname, null, true);
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
+		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, -1);
 		cris.start();
 		if(verbose){outstream.println("Started cris");}
 		return cris;
 	}
 
+	private void analyzeQueries(ArrayList<Read> reads) {
+		//TODO: Find qlen range and counts, optimal kmer length for each,
+		//optionally autoselect k for ranges with SUFFICIENT members (or length) to make it useful.
+		final int total=reads.size();
+		if(total<1) {return;}
+		IntHashMap3 lengthMap=new IntHashMap3();
+		IntList lengthList=new IntList();
+		for(Read r : reads) {
+			final int length=r.length();
+			int ret=lengthMap.increment(length);
+			if(ret==1) {lengthList.add(length);}
+		}
+		lengthList.sort();
+		//Now, decide which lengths to down-merge.
+	}
+	
 	public ArrayList<ArrayList<Query>> fetchQueries(FileFormat ff1, FileFormat ff2){
 		Timer t=new Timer(outstream, false);
-		ArrayList<Read> reads=ConcurrentReadInputStream.getReads(maxReads, false, ff1, ff2, null, null);
-
+		ArrayList<Read> reads=StreamerFactory.getReads(maxReads, false, ff1, ff2, null, null);
+		
 		ArrayList<ArrayList<Query>> buckets=new ArrayList<>(kArray.length);
 		for(int i=0; i<kArray.length; i++){
 			buckets.add(new ArrayList<Query>(reads.size()/kArray.length));
@@ -354,9 +394,11 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 			readsProcessed+=r.pairCount();
 			basesProcessed+=r.pairLength();
 
-			addReadToBucket(r, buckets);
-			if(r.mate!=null){
-				addReadToBucket(r.mate, buckets);
+			if(r.length()>=minQLen) {
+				addReadToBucket(r, buckets);
+				if(r.mate!=null){
+					addReadToBucket(r.mate, buckets);
+				}
 			}
 		}
 
@@ -516,43 +558,44 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 		return index;
 	}
 
-	/**
-	 * Translates fused coordinate to original contig and validates position.
-	 * @return SamLine if valid, null otherwise
-	 */
-	static SamLine makeSamLine(Query q, Read ref, int start, 
-		ArrayList<Read> originalRefs, IntList starts){
-
-		int rStart=start;
-		Read realRef=ref;
-
-		if(originalRefs!=null){
-			// Translation Mode
-			int idx=Arrays.binarySearch(starts.array, 0, starts.size, start);
-			if(idx<0){idx=-idx-2;} // Calculate insertion point
-
-			if(idx<0 || idx>=originalRefs.size()){return null;} // Should be impossible
-
-			int refOffset=starts.get(idx);
-			realRef=originalRefs.get(idx);
-			rStart=start-refOffset;
-
-			// Validate bounds: check if alignment extends past end of real contig
-			// (Assuming N padding prevents cross-contig alignment, but safety first)
-			if(rStart<0 || rStart+q.length()>realRef.length()){return null;}
-		}
-
-		SamLine sl=new SamLine();
-		sl.pos=Math.max(rStart+1, 1);
-		sl.qname=q.name;
-		sl.setRname(realRef.id); // Use the original ID
-		sl.seq=q.bases;
-		sl.qual=q.quals;
-		sl.setPrimary(q.alignments.incrementAndGet()==1);
-		sl.setMapped(true);
-		sl.tlen=q.bases.length;
-		return sl;
-	}
+//	/**
+//	 * Translates fused coordinate to original contig and validates position.
+//	 * @return SamLine if valid, null otherwise
+//	 */
+//	@Deprecated
+//	static SamLine makeSamLine(Query q, Read ref, int start, 
+//		ArrayList<Read> originalRefs, IntList starts){
+//
+//		int rStart=start;
+//		Read realRef=ref;
+//
+//		if(originalRefs!=null){
+//			// Translation Mode
+//			int idx=Arrays.binarySearch(starts.array, 0, starts.size, start);
+//			if(idx<0){idx=-idx-2;} // Calculate insertion point
+//
+//			if(idx<0 || idx>=originalRefs.size()){return null;} // Should be impossible
+//
+//			int refOffset=starts.get(idx);
+//			realRef=originalRefs.get(idx);
+//			rStart=start-refOffset;
+//
+//			// Validate bounds: check if alignment extends past end of real contig
+//			// (Assuming N padding prevents cross-contig alignment, but safety first)
+//			if(rStart<0 || rStart+q.length()>realRef.length()){return null;}
+//		}
+//
+//		SamLine sl=new SamLine();
+//		sl.pos=Math.max(rStart+1, 1);
+//		sl.qname=q.name;
+//		sl.setRname(realRef.id); // Use the original ID
+//		sl.seq=q.bases;
+//		sl.qual=q.quals;
+//		sl.setPrimary(q.alignments.incrementAndGet()==1);
+//		sl.setMapped(true);
+//		sl.tlen=q.bases.length;
+//		return sl;
+//	}
 	
 	/*
 	 * Fixed processHits for IndelFreeAligner.java
@@ -663,12 +706,36 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------            Entropy           ----------------*/
+	/*--------------------------------------------------------------*/
+	
+	private int entropyMask(byte[] bases, EntropyTracker et) {
+		if(bases==null || bases.length==0){return 0;}
+
+		// 1. Create the shared mask (The "BitSet" point I missed!)
+		BitSet bs=new BitSet(bases.length);
+
+		// 2. Mark Low Entropy
+		// We allocate the tracker once.
+		if(et==null) {et=new EntropyTracker(entropyK, entropyWindow, false, entropyCutoff, true);}
+		BBMask.maskLowEntropy(bases, bs, et);
+
+//		// 3. Mark Repeats
+//		// This sees the ORIGINAL bases, not Ns, so it finds repeats correctly.
+//		BBMask.maskRepeats(bases, bs, 5, 20);
+
+		// 4. Apply the mask (Atomic modification)
+		// Uses the existing public method in BBMask
+		return BBMask.maskBases(bases, bs, false);
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	class ProcessThread extends Thread {
 
-		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, final SamHeaderWriter shw_, 
+		ProcessThread(final Streamer cris_, final ByteStreamWriter bsw_, final SamHeaderWriter shw_, 
 			ArrayList<ArrayList<Query>> qBuckets_, final int maxSubs_, final float minid_, final int tid_){
 			cris=cris_;
 			bsw=bsw_;
@@ -682,30 +749,24 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 		@Override
 		public void run(){
 			synchronized(this){
+				if(entropyMask) {et=new EntropyTracker(entropyK, entropyWindow, false, entropyCutoff, true);}
 				processInner();
 				success=true;
 			}
 		}
 
 		void processInner(){
-			ListNum<Read> ln=cris.nextList();
-			while(ln!=null && ln.size()>0){
-				processList(ln);
-				cris.returnList(ln);
-				ln=cris.nextList();
-			}
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
+			for(ListNum<Read> ln=cris.nextList(); ln!=null; ln=cris.nextList()){processList(ln);}
 		}
 
 		void processList(ListNum<Read> ln){
 			final ArrayList<Read> refList=ln.list;
 			final ArrayList<StringNum> alsn=(shw==null ? null : new ArrayList<StringNum>(refList.size()));
-
+			int removed=0;
 			// 1. Validation and Header Registration (Keep this!)
 			for(int idx=0; idx<refList.size(); idx++){
 				final Read ref=refList.get(idx);
+				if(ref.length()<minRLen) {removed++; continue;}
 				if(!ref.validated()){ref.validate(true);}
 				if(alsn!=null) {alsn.add(new StringNum(ref.name(), ref.length()));}
 
@@ -716,13 +777,11 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 				basesProcessedT+=initialLength1+initialLength2;
 			}
 			if(shw!=null) {shw.add(new ListNum<StringNum>(alsn, ln.id));}
+			if(removed>0) {Tools.condenseStrict(refList);}
 
 			// 2. Fork Logic: Fuse vs Standard
-			if(fuse){
-				processListFused(refList);
-			}else{
-				processListStandard(refList);
-			}
+			if(fuse){processListFused(refList);}
+			else{processListStandard(refList);}
 		}
 
 		void processListStandard(ArrayList<Read> refList){
@@ -762,6 +821,7 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 		}
 
 		long processRefSequence(final Read ref, ArrayList<Read> originalRefs, IntList ranges){
+			if(entropyMask){entropyMask(ref.bases, et);}
 			return indexQueries ? processRefSequenceIndexed(ref, originalRefs, ranges) : processRefSequenceBrute(ref, originalRefs, ranges);
 		}
 
@@ -934,13 +994,14 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 		protected long basesOutT=0;
 		boolean success=false;
 
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		private final ByteStreamWriter bsw;
 		private final SamHeaderWriter shw;
 		private final ArrayList<ArrayList<Query>> queryBuckets;
 		final int maxSubs;
 		final float minid;
 		final int tid;
+		EntropyTracker et;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -955,9 +1016,9 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	private String extout=null;
 	String refFile=null;
 	static int maxSubs=5;
-	static float minid=0;
+	static float minid=0.85f;
 
-	int[] kArray=new int[] {10,12,14};
+	int[] kArray=new int[] {8,9,10,12,14};
 
 	int midMaskLen=1;
 	boolean indexQueries=true;
@@ -973,6 +1034,8 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	boolean fuse=true;
 	int padding=128;
 	int targetChunkSize=1000000;
+	int minQLen=1;
+	int minRLen=1;
 
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
@@ -997,4 +1060,14 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;
+	
+	private boolean entropyMask=false;
+	/** Window size for sliding window entropy/complexity analysis */
+	private int entropyWindow=80;
+	/** Entropy threshold below which regions are masked */
+	private float entropyCutoff=0.70f;
+	private int entropyK=4;
+	private int repeatLen=4;
+	
+	
 }

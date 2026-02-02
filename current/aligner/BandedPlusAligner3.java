@@ -81,7 +81,8 @@ public class BandedPlusAligner3 implements IDAligner{
 			subs=simd.SIMDAlignByte.countSubs(query, ref, pos, bandwidth);
 		}else {
 			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++) {
-				subs+=(query[i]==ref[i] ? 0 : 1);}
+				subs+=(query[i]==ref[i] ? 0 : 1);
+			}
 		}
 		return Math.min(subs+1, bandwidth);
 	}
