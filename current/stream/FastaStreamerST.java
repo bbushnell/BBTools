@@ -34,6 +34,7 @@ public class FastaStreamerST implements Streamer {
 		ffin=ffin_;
 		fname=ffin_.name();
 		pairnum=pairnum_;
+		flag=(ffin.amino() || Shared.AMINO_IN ? Read.AAMASK : 0);
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(pairnum==0 || !interleaved);
@@ -184,7 +185,8 @@ public class FastaStreamerST implements Streamer {
 
 				if(line.length>0 && line[0]=='>'){
 					if(header!=null) {
-						Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readsProcessedT);
+						Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+							StandardCharsets.US_ASCII), readsProcessedT, flag);
 						r.setPairnum(pairnum);
 						ln.add(r);
 						readsProcessedT++;
@@ -211,7 +213,8 @@ public class FastaStreamerST implements Streamer {
 
 			// Handle EOF
 			if(line==null && header!=null) {
-				Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readsProcessedT);
+				Read r=new Read(bb.toBytes(), null, 
+					new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readsProcessedT, flag);
 				r.setPairnum(pairnum);
 				ln.add(r);
 				readsProcessedT++;
@@ -249,7 +252,8 @@ public class FastaStreamerST implements Streamer {
 				if(line.length>0 && line[0]=='>'){
 					if(header!=null){
 						// Finish current read
-						Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0);
+						Read r=new Read(bb.toBytes(), null, 
+							new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0, flag);
 						readsProcessedT++;
 						basesProcessedT+=r.length();
 						bb.clear();
@@ -297,7 +301,8 @@ public class FastaStreamerST implements Streamer {
 
 			// Handle EOF
 			if(line==null && header!=null) {
-				Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0);
+				Read r=new Read(bb.toBytes(), null, 
+					new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0, flag);
 				readsProcessedT++;
 				basesProcessedT+=r.length();
 
@@ -365,6 +370,7 @@ public class FastaStreamerST implements Streamer {
 
 	/** Quit after processing this many input reads */
 	final long maxReads;
+	public int flag;
 
 	/** Set when terminal list is received */
 	private boolean finished=false;

@@ -37,6 +37,7 @@ public class FastaStreamer2ST implements Streamer{
 	public FastaStreamer2ST(FileFormat ffin_, int pairnum_, long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
+		flag=(ffin.amino() || Shared.AMINO_IN ? Read.AAMASK : 0);
 		pairnum=pairnum_;
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
@@ -45,7 +46,6 @@ public class FastaStreamer2ST implements Streamer{
 
 		// Simple output queue
 		outputQueue=new ArrayBlockingQueue<ListNum<Read>>(QUEUE_SIZE);
-
 		if(verbose){outstream.println("Made FastaStreamer2ST");}
 	}
 
@@ -170,7 +170,6 @@ public class FastaStreamer2ST implements Streamer{
 			IntList newlines=new IntList(256);
 
 			long listNumber=0;
-
 			while(readsProcessedT<maxReads){
 				// Get block of records with newline positions
 				byte[] block=bf.nextLine(newlines);
@@ -188,7 +187,7 @@ public class FastaStreamer2ST implements Streamer{
 					final byte[] bases=(nl2>nl1 ? KillSwitch.copyOfRange(block, nl1+1, nl2) : null);
 					
 					if(samplerate>=1f || randy.nextFloat()<samplerate){
-						Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessedT);
+						Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessedT, flag);
 						r.setPairnum(pairnum);
 						readList.add(r);
 						readsProcessedT++;
@@ -249,6 +248,7 @@ public class FastaStreamer2ST implements Streamer{
 
 	/** Quit after processing this many input reads */
 	final long maxReads;
+	public int flag;
 
 	/** Set when terminal list is received */
 	private boolean finished=false;

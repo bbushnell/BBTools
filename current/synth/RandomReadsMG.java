@@ -813,7 +813,6 @@ public class RandomReadsMG{
 				quals[i]=0;
 			}
 		}
-		assert(false) : Arrays.toString(quals);
 		return subs;
 	}
 
