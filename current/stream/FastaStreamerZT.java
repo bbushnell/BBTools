@@ -6,6 +6,7 @@ import java.util.ArrayList;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
+import shared.Shared;
 import structures.ByteBuilder;
 import structures.ListNum;
 
@@ -32,6 +33,7 @@ public class FastaStreamerZT implements Streamer {
 		ffin=ffin_;
 		fname=ffin_.name();
 		pairnum=pairnum_;
+		flag=(ffin.amino() || Shared.AMINO_IN ? Read.AAMASK : 0);
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(pairnum==0 || !interleaved);
@@ -136,7 +138,8 @@ public class FastaStreamerZT implements Streamer {
 
 			if(line.length>0 && line[0]=='>'){
 				if(header!=null) {
-					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readsProcessed);
+					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+						StandardCharsets.US_ASCII), readsProcessed, flag);
 					r.setPairnum(pairnum);
 					readList.add(r);
 					readsProcessed++;
@@ -154,7 +157,8 @@ public class FastaStreamerZT implements Streamer {
 			}
 		}
 		if(line==null && header!=null) {//EOF
-			Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readsProcessed);
+			Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+				StandardCharsets.US_ASCII), readsProcessed, flag);
 			r.setPairnum(pairnum);
 			readList.add(r);
 			readsProcessed++;
@@ -187,7 +191,8 @@ public class FastaStreamerZT implements Streamer {
 			if(line.length>0 && line[0]=='>'){
 				if(header!=null){
 					// Finish current read
-					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0);
+					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+						StandardCharsets.US_ASCII), 0, flag);
 					readsProcessed++;
 					basesProcessed+=r.length();
 					bb.clear();
@@ -231,7 +236,8 @@ public class FastaStreamerZT implements Streamer {
 		
 		if(line==null && header!=null) {//EOF
 		    // Finish current read
-		    Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0);
+		    Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+		   	 StandardCharsets.US_ASCII), 0, flag);
 		    readsProcessed++;
 		    basesProcessed+=r.length();
 		    bb.clear();
@@ -286,6 +292,7 @@ public class FastaStreamerZT implements Streamer {
 
 	/** Quit after processing this many input reads */
 	final long maxReads;
+	public int flag;
 
 	/** Current list number */
 	private long listNum=0;

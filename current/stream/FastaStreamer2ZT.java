@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import fileIO.ByteFile1Fc;
 import fileIO.FileFormat;
 import shared.KillSwitch;
+import shared.Shared;
 import structures.IntList;
 import structures.ListNum;
 
@@ -33,6 +34,7 @@ public class FastaStreamer2ZT implements Streamer{
 		ffin=ffin_;
 		fname=ffin_.name();
 		pairnum=pairnum_;
+		flag=(ffin.amino() || Shared.AMINO_IN ? Read.AAMASK : 0);
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(!interleaved) : "FastaStreamer2ZT does not support interleaved files";
@@ -139,7 +141,7 @@ public class FastaStreamer2ZT implements Streamer{
 			final byte[] header=KillSwitch.copyOfRange(block, nl0+2, nl1);
 			final byte[] bases=(nl2>nl1 ? KillSwitch.copyOfRange(block, nl1+1, nl2) : null);
 			if(samplerate>=1f || randy.nextFloat()<samplerate){
-				Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessed);
+				Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessed, flag);
 				r.setPairnum(pairnum);
 				readList.add(r);
 				readsProcessed++;
@@ -178,6 +180,7 @@ public class FastaStreamer2ZT implements Streamer{
 
 	/** Quit after processing this many input reads */
 	final long maxReads;
+	public int flag;
 
 	/** Current list number */
 	private long listNum=0;

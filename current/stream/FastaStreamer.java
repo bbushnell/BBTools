@@ -55,6 +55,7 @@ public class FastaStreamer implements Streamer {
 		fname=ffin_.name();
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		pairnum=pairnum_;
+		flag=(ffin.amino() || Shared.AMINO_IN ? Read.AAMASK : 0);
 		assert(pairnum==0 || pairnum==1) : pairnum;
 		interleaved=(ffin.interleaved());
 		assert(pairnum==0 || !interleaved);
@@ -304,7 +305,7 @@ public class FastaStreamer implements Streamer {
 						if(header!=null){
 							if(samplerate>=1f || randy.nextFloat()<samplerate){
 								Read r=new Read(bb.toBytes(), null, 
-									new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, true);
+									new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, flag, true);
 								r.setPairnum(pairnum);
 								if(!r.validated()){r.validate(true);}
 								reads.add(r);
@@ -323,7 +324,7 @@ public class FastaStreamer implements Streamer {
 				if(header!=null){
 					if(samplerate>=1f || randy.nextFloat()<samplerate){
 						Read r=new Read(bb.toBytes(), null, 
-							new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, true);
+							new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, flag, true);
 						r.setPairnum(pairnum);
 						if(!r.validated()){r.validate(true);}
 						reads.add(r);
@@ -363,7 +364,8 @@ public class FastaStreamer implements Streamer {
 					if(line.length>0 && line[0]=='>'){
 						// Save previous record if exists
 						if(header!=null){
-							Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0, true);
+							Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+								StandardCharsets.US_ASCII), 0, flag, true);
 							if(!r.validated()){r.validate(true);}
 							allReads.add(r);
 							readsProcessedT++;
@@ -378,7 +380,8 @@ public class FastaStreamer implements Streamer {
 
 				// Save final record
 				if(header!=null){
-					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, StandardCharsets.US_ASCII), 0, true);
+					Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1, 
+						StandardCharsets.US_ASCII), 0, flag, true);
 					if(!r.validated()){r.validate(true);}
 					allReads.add(r);
 					readsProcessedT++;
@@ -446,6 +449,7 @@ public class FastaStreamer implements Streamer {
 
 	/** Quit after processing this many input reads */
 	final long maxReads;
+	public int flag;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

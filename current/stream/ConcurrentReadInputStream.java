@@ -160,16 +160,17 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
 
 		}else if(ff1.fasta()){
+			boolean amino=(ff1.amino() || Shared.AMINO_IN);
 			
 			ReadInputStream ris1;
 			ReadInputStream ris2;
 			if(ff1.preferShreds()){
-				ris1=new FastaShredInputStream(ff1, Shared.AMINO_IN, ff2==null ? Shared.bufferData() : -1);
-				ris2=(ff2==null ? null : new FastaShredInputStream(ff2, Shared.AMINO_IN, -1));
+				ris1=new FastaShredInputStream(ff1, amino, ff2==null ? Shared.bufferData() : -1);
+				ris2=(ff2==null ? null : new FastaShredInputStream(ff2, amino, -1));
 			}else{
-				ris1=(qf1==null ? new FastaReadInputStream(ff1, (FASTQ.FORCE_INTERLEAVED && ff2==null), Shared.AMINO_IN, ff2==null ? Shared.bufferData() : -1)
+				ris1=(qf1==null ? new FastaReadInputStream(ff1, (FASTQ.FORCE_INTERLEAVED && ff2==null), amino, ff2==null ? Shared.bufferData() : -1)
 						: new FastaQualReadInputStream(ff1, qf1));
-				ris2=(ff2==null ? null : qf2==null ? new FastaReadInputStream(ff2, false, Shared.AMINO_IN, -1) : new FastaQualReadInputStream(ff2, qf2));
+				ris2=(ff2==null ? null : qf2==null ? new FastaReadInputStream(ff2, false, amino, -1) : new FastaQualReadInputStream(ff2, qf2));
 			}
 			cris=new ConcurrentGenericReadInputStream(ris1, ris2, maxReads);
 			

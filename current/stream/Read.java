@@ -77,6 +77,16 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		if(validate){validate(true);}
 	}
 
+	public Read(byte[] bases_, byte[] quals_, String name_, long id_, int flag_, boolean validate){
+		bases=bases_;
+		quality=quals_;
+		id=name_;
+		numericID=id_;
+		flags=flag_;
+		
+		if(validate){validate(true);}
+	}
+
 	public Read(byte[] bases_, byte[] quals_, String name_, long id_, int flag_){
 		this(bases_, quals_, name_, id_, flag_, -1, -1, -1);
 	}
