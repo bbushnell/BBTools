@@ -368,7 +368,7 @@ public final class IntHashMap2 implements Serializable {
 	 * @param key Key to search for
 	 * @return Cell index if found, -1 if not found
 	 */
-	private int findCell(final int key){
+	public int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int hash=Tools.hash32plus(key);
 		final int initial=hash & mask;
