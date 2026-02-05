@@ -288,8 +288,7 @@ public final class IntList{
 	 * @param x Value to add to the list
 	 */
 	public final void addUnchecked(int x){
-		array[size]=x;
-		size++;
+		array[size++]=x;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -332,6 +331,12 @@ public final class IntList{
 	/*--------------------------------------------------------------*/
 	/*----------------           Resizing           ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	public void ensureCapacity(int extra) {
+		int free=array.length-size;
+		if(free>=extra) {return;}
+		resize(Math.max(size+extra, 2L*array.length+1));
+	}
 	
 	/**
 	 * Expands internal array to accommodate at least size2 elements.
