@@ -826,35 +826,80 @@ public class IndelFreeAligner3 implements Accumulator<IndelFreeAligner3.ProcessT
 				int count=(int)packed;
 				seedHitsT+=count;
 				int[] positions=refIndex.positions;
-
-				for(int j=0; j<count; j++){
-					int refPos=positions[offset+j];
-					int alignStart=refPos-i;
+				
+				if(count==1) {
+					int alignStart=offset-i;
 					int newCount=hitCounts.increment(alignStart);
 					if(newCount==minHits){seedHits.add(alignStart);}
+				}else {
+					for(int j=0; j<count; j++){
+						int refPos=positions[offset+j];
+						int alignStart=refPos-i;
+						int newCount=hitCounts.increment(alignStart);
+						if(newCount==minHits){seedHits.add(alignStart);}
+					}
 				}
 			}
 			return seedHits;
 		}
 
+//		private IntList getSeedHitsList(int[] queryKmers, PackedIndex refIndex, int minHits) {
+//			//			IntList seedHits=new IntList();//hitsList; 
+//			final IntList seedHits=hitsList; 
+//			seedHits.clear();
+//
+//			final int[] positions=refIndex.positions;
+//			for(int i=0; i<queryKmers.length; i+=qStep){
+//				if(queryKmers[i]==-1){continue;}
+//				final long packed=refIndex.get(queryKmers[i]);
+//				if(packed==-1){continue;}
+//
+//				int offset=(int)(packed>>>32);
+//				int count=(int)packed;
+//				seedHits.ensureCapacity(count);
+//				for(int j=0; j<count; j++){
+//					int refPos=positions[offset+j];
+//					int alignStart=refPos-i;
+//					seedHits.addUnchecked(alignStart);
+//				}
+//			}
+//			seedHitsT+=seedHits.size;
+//			if(seedHits.size>1 || (minHits>1 && seedHits.size>0)){
+//				seedHits.sort();
+//				seedHits.condenseMinCopies(minHits);
+//			}
+//			return seedHits;
+//		}
+		
 		private IntList getSeedHitsList(int[] queryKmers, PackedIndex refIndex, int minHits) {
-			//			IntList seedHits=new IntList();//hitsList; 
 			final IntList seedHits=hitsList; 
 			seedHits.clear();
 
 			final int[] positions=refIndex.positions;
+			
 			for(int i=0; i<queryKmers.length; i+=qStep){
 				if(queryKmers[i]==-1){continue;}
+				
 				final long packed=refIndex.get(queryKmers[i]);
-				if(packed==-1){continue;}
+				if(packed==-1){continue;} // Missing key
 
-				int offset=(int)(packed>>>32);
-				int count=(int)packed;
-				seedHits.ensureCapacity(count);
-				for(int j=0; j<count; j++){
-					int refPos=positions[offset+j];
+				// Unpack count (low 32 bits)
+				final int count=(int)packed;
+				
+				if(count==1){
+					// Singleton Optimization: RefPos is in high bits
+					int refPos=(int)(packed>>>32);
 					int alignStart=refPos-i;
-					seedHits.addUnchecked(alignStart);
+					seedHits.add(alignStart);
+				}else{
+					// Multi-Hit: Offset is in high bits
+					int offset=(int)(packed>>>32);
+					seedHits.ensureCapacity(count);
+					for(int j=0; j<count; j++){
+						int refPos=positions[offset+j];
+						int alignStart=refPos-i;
+						seedHits.addUnchecked(alignStart);
+					}
 				}
 			}
 			seedHitsT+=seedHits.size;
