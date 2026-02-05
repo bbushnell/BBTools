@@ -5,10 +5,15 @@ import dna.AminoAcid;
 
 /**
  * Hash-Backed Compressed Sparse Row Index.
- * Stores k-mer positions in a single contiguous array (positions)
- * and uses a hash map to map k-mers to (offset, count) pairs packed into a long.
- * Drastically reduces memory overhead and pointer chasing compared to IntListHashMap.
- * @author Brian Bushnell
+ * Stores k-mer positions in a single contiguous array (positions).
+ * * Singleton Optimization:
+ * K-mers appearing only once store their position directly in the HashMap value,
+ * bypassing the positions array entirely.
+ * * Value Layout:
+ * - Missing: -1L
+ * - Singleton: (RefPos << 32) | 1
+ * - Multi-Hit: (Offset << 32) | Count (where Count > 1)
+ * * @author Brian Bushnell
  * @contributor Amber
  * @date February 4, 2026
  */
@@ -21,12 +26,12 @@ public class PackedIndex {
 	private void build(byte[] ref, int k, int midMaskLen, int rStep){
 		final int len=ref.length;
 		if(len<k){return;}
-		
+
 		// 1. Estimation & Allocation
 		final int defined=Math.max(k-midMaskLen, 2);
 		final int kSpace=(1<<(2*defined));
 		final int initialSize=(int)Math.min(kSpace, len);
-		map=new IntLongHashMap2(initialSize, 0.7f);
+		map=new IntLongHashMap2(initialSize, 0.7);
 
 		final int shift=2*k, mask=~((-1)<<shift);
 		final int stepMask=rStep-1;
@@ -51,15 +56,23 @@ public class PackedIndex {
 		long[] values=map.values();
 		long totalHits=0;
 		int invalid=map.invalid();
-		
+
 		for(int i=0; i<keys.length; i++){
 			if(keys[i]!=invalid){
 				long count=values[i];
-				values[i]=(totalHits<<32); // Store offset in high bits, reset count to 0 in low bits
-				totalHits+=count;
+				if(count==1){
+					// Flag as singleton. 
+					// We use -1L because no valid packed value (offset<<32 | count) 
+					// can ever be -1 (since count must be > 0).
+					values[i]=-1L; 
+				}else{
+					// Multi-hit: store offset in high bits, reset count to 0.
+					values[i]=(totalHits<<32); 
+					totalHits+=count;
+				}
 			}
 		}
-		
+
 		positions=new int[(int)totalHits];
 
 		// 4. Fill Pass
@@ -71,11 +84,25 @@ public class PackedIndex {
 			if(x<0){clen=0; kmer=0;}else{clen++;}
 			if(clen>=k && ((i&stepMask)==stepTarget)){
 				int key=(kmer&midMask);
-				long packed=map.increment(key);
-				int offset=(int)(packed>>>32);
-				int count=(int)packed-1;
-				assert(count>=0);
-				positions[offset+count]=i-k+1;
+
+				// Lookup packed state
+				long packed=map.get(key);
+
+				if(packed==-1L){
+					// Singleton Case:
+					// Store (RefPos << 32) | 1
+					// Note: RefPos is guaranteed positive.
+					long val=((long)(i-k+1)<<32) | 1L;
+					map.set(key, val);
+				}else{
+					// Multi-Hit Case:
+					// Standard CSR fill
+					int offset=(int)(packed>>>32);
+					int count=(int)packed;
+
+					positions[offset+count]=i-k+1;
+					map.set(key, packed+1);
+				}
 			}
 		}
 	}
