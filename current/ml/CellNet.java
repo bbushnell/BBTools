@@ -473,13 +473,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		for(int made=0; made<toMake;){
 			final int rand=randy.nextInt(range+1);
 			assert(rand>=0 && rand<=range) : rand+", "+range+", "+edgeBlockSize+", "+made+", "+width;
-			//TODO: BUG (Confirmed by Brian) - Causes intermittent crashes after ~12 hours of training
-			//PROBLEM: Line 360 calculates 'rand' but never uses it
-			//Line 363 calls randy.nextInt(range+1) AGAIN instead of using 'rand'
-			//When second call returns exactly 'range', then range*edgeBlockSize can exceed array bounds
-			//FIX: Replace 'randy.nextInt(range+1)' with 'rand' on line 363
-			//IMPACT: 4 interns experiencing occasional training crashes
-			int start=randy.nextInt(range+1)*edgeBlockSize; //Block start position
+			final int start=rand*edgeBlockSize; //Block start position
 			assert(start>=0) : rand+", "+range+", "+edgeBlockSize+", "+made+", "+width+", "+start;
 			if(start<width && !bs.get(start)){ //Valid unused block
 				for(int i=0; i<edgeBlockSize && i+start<width; i++){
