@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 4, 2025
+Last modified February 7, 2026
 
 Description:  Aligns a query sequence to a reference using QuantumAligner.
 The sequences can be any characters, but N is a special case.

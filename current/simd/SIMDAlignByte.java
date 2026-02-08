@@ -10,6 +10,7 @@ import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
+import shared.Shared;
 import structures.IntList;
 
 /** 
@@ -159,136 +160,264 @@ public class SIMDAlignByte {
 		}
 	}
 
+//	/**
+//	 * Counts substitutions (mismatches) between a query sequence and multiple diagonals 
+//	 * of a reference sequence using SIMD vectorization.
+//	 * 
+//	 * This function compares the query sequence against BWIDTH (32) different starting 
+//	 * positions in the reference sequence simultaneously, counting mismatches for each.
+//	 * It's designed for use in sequence alignment algorithms where multiple diagonal
+//	 * alignments need to be evaluated.
+//	 *
+//	 * @param query The query sequence as a byte array
+//	 * @param ref The reference sequence as a byte array  
+//	 * @param pos Output parameter - will contain the lane index (0-31) with minimum mismatches
+//	 * @return The minimum number of mismatches found across all lanes, or qLen if all lanes overflow
+//	 */
+//	public static final int countSubs(byte[] query, byte[] ref, int[] pos, int maxSubs){
+//		final int qLen=query.length;  // Cache query length
+//		final int rLen=ref.length;    // Cache reference length
+//
+//		// Need at least BWIDTH positions to make SIMD worthwhile
+//		if(rLen<BWIDTH || qLen==0 || pos[0]==Integer.MAX_VALUE){//This could actually decide based on a recursive call to maxSubs/2
+//			// Fall back to scalar implementation for small inputs
+//			int subs=0;  // Mismatch counter
+//			// Compare up to the shorter of the two sequences
+//			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<maxSubs; i++){
+//				subs+=(query[i]==ref[i] ? 0 : 1);  // Increment if mismatch found
+//			}
+//			pos[0]=0;  // Only one "lane" in scalar mode
+//			return subs;
+//		}
+//		pos[0]=0;
+//
+//		// Initialize scores vector with -128 (allows counting up to 127 mismatches)
+//		ByteVector scores=ByteVector.broadcast(BSPECIES, (byte)-128);
+//		// Vector of ones for incrementing scores
+//		ByteVector ones=ByteVector.broadcast(BSPECIES, (byte)1);
+//		// Vector of -1 for overflow detection
+//		ByteVector minusOne=ByteVector.broadcast(BSPECIES, (byte)-1);
+//		// Mask tracking which lanes have overflowed
+//		VectorMask<Byte> overflowMask=scores.maskAll(false);
+//
+//		// Process up to where all BWIDTH diagonals fit within reference
+//		int limit=Math.min(qLen, rLen-BWIDTH+1);
+//		int start=0;  // Current position in query
+//
+//		// Main processing loop - processes 64 query positions at a time
+//		while(start<limit){
+//			int processed = 0;  // Track how many positions we actually process
+//			// Inner loop processes up to 64 positions before checking overflow
+//			for(int i=0; i<64 && (start+i)<limit; i++){
+//				// Broadcast current query byte to all lanes
+//				ByteVector q=ByteVector.broadcast(BSPECIES, query[start+i]);
+//				// Load BWIDTH reference bytes starting at different offsets
+//				ByteVector r=ByteVector.fromArray(BSPECIES, ref, start+i);
+//				// Compare query byte with reference bytes, creating mismatch mask
+//				VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
+//				// Increment scores where mismatches occurred
+//				scores=scores.add(ones, mismatchMask);
+//				processed++;  // Increment counter
+//			}
+//
+//			// Check for new overflows (scores > -1 means they wrapped around)
+//			VectorMask<Byte> newOverflows=scores.compare(VectorOperators.GT, minusOne);
+//			// Update cumulative overflow mask
+//			overflowMask=overflowMask.or(newOverflows);
+//
+//			// If all lanes overflowed, return query length
+//			if(overflowMask.trueCount()==BWIDTH){
+//				return qLen;
+//			}
+//
+//			start+=processed;  // Only increment by positions actually processed
+//		}
+//		
+//		// Handle remaining query positions
+//		if(start<qLen){
+//		    int remaining=qLen-start;
+//		    // Only need BWIDTH + remaining - 1 bytes for the slice
+//		    byte[] refSlice = new byte[BWIDTH + remaining - 1];
+//		    
+//		    // Pre-fill the slice with reference data or 'X' for out-of-bounds
+//		    for(int j=0; j<refSlice.length; j++){
+//		        int refPos = start+j;
+//		        refSlice[j] = (refPos < rLen) ? ref[refPos] : (byte)'X';
+//		    }
+//
+//		    // Process remaining positions in chunks of 64
+//		    for(int outer=0; outer<remaining; outer+=64){
+//		        for(int i=outer; i<Math.min(outer+64, remaining); i++){
+//		            ByteVector q=ByteVector.broadcast(BSPECIES, query[start+i]);
+//		            ByteVector r=ByteVector.fromArray(BSPECIES, refSlice, i);
+//
+//		            VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
+//		            scores=scores.add(ones, mismatchMask);
+//		        }
+//
+//		        // Check for overflows after each chunk of 64
+//		        VectorMask<Byte> newOverflows=scores.compare(VectorOperators.GT, minusOne);
+//		        overflowMask=overflowMask.or(newOverflows);
+//		        if(overflowMask.trueCount()==BWIDTH){
+//		            return qLen;
+//		        }
+//		    }
+//		}
+//
+//		// Find minimum score among valid (non-overflowed) lanes
+//		VectorMask<Byte> validLanes=overflowMask.not();  // Invert mask to get valid lanes
+//		// Reduce to find minimum score in valid lanes
+//		long minScoreLong=scores.reduceLanesToLong(VectorOperators.MIN, validLanes);
+//		byte minScore=(byte)minScoreLong;  // Convert back to byte
+//
+//		// Create vector with lane indices [0, 1, 2, ..., 31]
+//		ByteVector indices = ByteVector.broadcast(BSPECIES, (byte)0).addIndex(1);
+//
+//		// Find which lanes have the minimum score
+//		VectorMask<Byte> minLanes=scores.compare(VectorOperators.EQ, minScore);
+//		// AND with valid lanes to exclude overflowed lanes
+//		VectorMask<Byte> validMinLanes=minLanes.and(validLanes);
+//
+//		// Find the position of the first minimum lane
+//		// Blend in 127 for lanes that aren't valid minimums
+//		ByteVector maskedIndices = indices.blend((byte)127, validMinLanes.not());
+//
+//		// Find minimum index among valid minimum lanes
+//		long firstMinIndexLong = maskedIndices.reduceLanesToLong(VectorOperators.MIN);
+//		// Extract lane index as int
+//		int lowLane = (int)(firstMinIndexLong & 0xFF);
+//
+//		pos[0]=lowLane;  // Store the lane index in output parameter
+//		// Return the score, capping at qLen if overflow
+//		return minScore+128;
+//	}
+	
 	/**
-	 * Counts substitutions (mismatches) between a query sequence and multiple diagonals 
-	 * of a reference sequence using SIMD vectorization.
-	 * 
-	 * This function compares the query sequence against BWIDTH (32) different starting 
-	 * positions in the reference sequence simultaneously, counting mismatches for each.
-	 * It's designed for use in sequence alignment algorithms where multiple diagonal
-	 * alignments need to be evaluated.
-	 *
-	 * @param query The query sequence as a byte array
-	 * @param ref The reference sequence as a byte array  
-	 * @param pos Output parameter - will contain the lane index (0-31) with minimum mismatches
-	 * @return The minimum number of mismatches found across all lanes, or qLen if all lanes overflow
+	 * Counts substitutions with Left Overhang support and a Smart Scalar Tail.
+	 * @param pos Input: pos[0] is the start offset (e.g. -6). 
+	 * Output: pos[0] becomes the best lane index (0-31).
 	 */
 	public static final int countSubs(byte[] query, byte[] ref, int[] pos, int maxSubs){
-		final int qLen=query.length;  // Cache query length
-		final int rLen=ref.length;    // Cache reference length
-
-		// Need at least BWIDTH positions to make SIMD worthwhile
-		if(rLen<BWIDTH || qLen==0 || pos[0]==0 || countSubs(query, ref, pos, maxSubs)<10){//This could actually decide based on a recursive call to maxSubs/2
-			// Fall back to scalar implementation for small inputs
-			int subs=0;  // Mismatch counter
-			// Compare up to the shorter of the two sequences
+		final int qLen=query.length;
+		final int rLen=ref.length;
+		
+		// 0. Use scalar if SIMD is disabled for any reason
+		if(rLen<BWIDTH || qLen==0 || pos[0]==Integer.MIN_VALUE || !Shared.SIMD){
+			int subs=0;
+			// Scalar fallback now respects the minOffset slightly better by checking offset 0
+			// (Ideally this would scan, but for a fallback this is safe)
 			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<maxSubs; i++){
-				subs+=(query[i]==ref[i] ? 0 : 1);  // Increment if mismatch found
+				subs+=(query[i]==ref[i] ? 0 : 1);
 			}
-			pos[0]=0;  // Only one "lane" in scalar mode
+			pos[0]=0; 
 			return subs;
 		}
-		pos[0]=0;
-
-		// Initialize scores vector with -128 (allows counting up to 127 mismatches)
-		ByteVector scores=ByteVector.broadcast(BSPECIES, (byte)-128);
-		// Vector of ones for incrementing scores
-		ByteVector ones=ByteVector.broadcast(BSPECIES, (byte)1);
-		// Vector of -1 for overflow detection
-		ByteVector minusOne=ByteVector.broadcast(BSPECIES, (byte)-1);
-		// Mask tracking which lanes have overflowed
-		VectorMask<Byte> overflowMask=scores.maskAll(false);
-
-		// Process up to where all BWIDTH diagonals fit within reference
-		int limit=Math.min(qLen, rLen-BWIDTH+1);
-		int start=0;  // Current position in query
-
-		// Main processing loop - processes 64 query positions at a time
-		while(start<limit){
-			int processed = 0;  // Track how many positions we actually process
-			// Inner loop processes up to 64 positions before checking overflow
-			for(int i=0; i<64 && (start+i)<limit; i++){
-				// Broadcast current query byte to all lanes
-				ByteVector q=ByteVector.broadcast(BSPECIES, query[start+i]);
-				// Load BWIDTH reference bytes starting at different offsets
-				ByteVector r=ByteVector.fromArray(BSPECIES, ref, start+i);
-				// Compare query byte with reference bytes, creating mismatch mask
-				VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
-				// Increment scores where mismatches occurred
-				scores=scores.add(ones, mismatchMask);
-				processed++;  // Increment counter
-			}
-
-			// Check for new overflows (scores > -1 means they wrapped around)
-			VectorMask<Byte> newOverflows=scores.compare(VectorOperators.GT, minusOne);
-			// Update cumulative overflow mask
-			overflowMask=overflowMask.or(newOverflows);
-
-			// If all lanes overflowed, return query length
-			if(overflowMask.trueCount()==BWIDTH){
-				return qLen;
-			}
-
-			start+=processed;  // Only increment by positions actually processed
-		}
 		
-		// Handle remaining query positions
-		if(start<qLen){
-		    int remaining=qLen-start;
-		    // Only need BWIDTH + remaining - 1 bytes for the slice
-		    byte[] refSlice = new byte[BWIDTH + remaining - 1];
-		    
-		    // Pre-fill the slice with reference data or 'X' for out-of-bounds
-		    for(int j=0; j<refSlice.length; j++){
-		        int refPos = start+j;
-		        refSlice[j] = (refPos < rLen) ? ref[refPos] : (byte)'X';
-		    }
+		// 1. Set range to 8 before and 24 after expected diagonal
+		final int minOffset=pos[0]-8;
 
-		    // Process remaining positions in chunks of 64
-		    for(int outer=0; outer<remaining; outer+=64){
-		        for(int i=outer; i<Math.min(outer+64, remaining); i++){
-		            ByteVector q=ByteVector.broadcast(BSPECIES, query[start+i]);
-		            ByteVector r=ByteVector.fromArray(BSPECIES, refSlice, i);
+		// 2. Prepare for Left Overhang (The Shifted Buffer)
+		final int overhang = -minOffset;
+		final int vecStart = Math.max(0, overhang);
+		ByteVector scores;
 
-		            VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
-		            scores=scores.add(ones, mismatchMask);
-		        }
+		if(overhang > 0) {
+			byte[] buffer = new byte[BWIDTH + overhang];
+			// CRITICAL FIX: Initialize to -128 (0 mismatches)
+			java.util.Arrays.fill(buffer, (byte)-128);
 
-		        // Check for overflows after each chunk of 64
-		        VectorMask<Byte> newOverflows=scores.compare(VectorOperators.GT, minusOne);
-		        overflowMask=overflowMask.or(newOverflows);
-		        if(overflowMask.trueCount()==BWIDTH){
-		            return qLen;
-		        }
-		    }
+			// A. Initialize blind spots (insertions) with biased math
+			for(int i=0; i<overhang; i++) {
+				buffer[i] = (byte)(-128 + overhang - i);
+			}
+
+			// B. Vectorized Preamble
+			ByteVector ones = ByteVector.broadcast(BSPECIES, (byte)1);
+			for(int i=0; i<overhang && i<qLen; i++) {
+				ByteVector q = ByteVector.broadcast(BSPECIES, query[i]);
+				ByteVector r = ByteVector.fromArray(BSPECIES, ref, 0); 
+				VectorMask<Byte> mismatchMask = q.compare(VectorOperators.NE, r);
+
+				int bufferIdx = overhang - i;
+				// Load, Add, Store
+				ByteVector acc = ByteVector.fromArray(BSPECIES, buffer, bufferIdx);
+				acc = acc.add(ones, mismatchMask);
+				acc.intoArray(buffer, bufferIdx);
+			}
+			scores = ByteVector.fromArray(BSPECIES, buffer, 0);
+		} else {
+			scores = ByteVector.broadcast(BSPECIES, (byte)-128);
 		}
 
-		// Find minimum score among valid (non-overflowed) lanes
-		VectorMask<Byte> validLanes=overflowMask.not();  // Invert mask to get valid lanes
-		// Reduce to find minimum score in valid lanes
-		long minScoreLong=scores.reduceLanesToLong(VectorOperators.MIN, validLanes);
-		byte minScore=(byte)minScoreLong;  // Convert back to byte
+		// 3. The Main SIMD Loop
+		ByteVector ones = ByteVector.broadcast(BSPECIES, (byte)1);
+		ByteVector minusOne = ByteVector.broadcast(BSPECIES, (byte)-1);
+		VectorMask<Byte> overflowMask = scores.maskAll(false);
 
-		// Create vector with lane indices [0, 1, 2, ..., 31]
+		int limit = Math.min(qLen, rLen - BWIDTH - minOffset + 1);
+		int start = vecStart;
+
+		while(start < limit){
+			int processed = 0;
+			for(int i=0; i<64 && (start+i)<limit; i++){
+				ByteVector q = ByteVector.broadcast(BSPECIES, query[start+i]);
+				ByteVector r = ByteVector.fromArray(BSPECIES, ref, start+i+minOffset);
+				VectorMask<Byte> mismatchMask = q.compare(VectorOperators.NE, r);
+				scores = scores.add(ones, mismatchMask);
+				processed++;
+			}
+			// Overflow check: GT -1 means we wrapped past 255 mismatches
+			VectorMask<Byte> newOverflows = scores.compare(VectorOperators.GT, minusOne);
+			overflowMask = overflowMask.or(newOverflows);
+			if(overflowMask.trueCount() == BWIDTH){ 
+				// System.err.println("Overflow in SIMD at start="+start); 
+				return qLen; 
+			}
+			start += processed;
+		}
+
+		// 4. Reduce to Find the Best Lane
+		VectorMask<Byte> validLanes = overflowMask.not();
+		long minScoreLong = scores.reduceLanesToLong(VectorOperators.MIN, validLanes);
+
+		if(!validLanes.anyTrue()) return qLen;
+
+		byte currentMinScore = (byte)minScoreLong;
+
+		// Identify the winning lane index
 		ByteVector indices = ByteVector.broadcast(BSPECIES, (byte)0).addIndex(1);
+		VectorMask<Byte> minLanes = scores.compare(VectorOperators.EQ, currentMinScore);
+		VectorMask<Byte> validMinLanes = minLanes.and(validLanes);
 
-		// Find which lanes have the minimum score
-		VectorMask<Byte> minLanes=scores.compare(VectorOperators.EQ, minScore);
-		// AND with valid lanes to exclude overflowed lanes
-		VectorMask<Byte> validMinLanes=minLanes.and(validLanes);
-
-		// Find the position of the first minimum lane
-		// Blend in 127 for lanes that aren't valid minimums
 		ByteVector maskedIndices = indices.blend((byte)127, validMinLanes.not());
-
-		// Find minimum index among valid minimum lanes
 		long firstMinIndexLong = maskedIndices.reduceLanesToLong(VectorOperators.MIN);
-		// Extract lane index as int
-		int lowLane = (int)(firstMinIndexLong & 0xFF);
+		int bestLane = (int)(firstMinIndexLong & 0xFF);
 
-		pos[0]=lowLane;  // Store the lane index in output parameter
-		// Return the score, capping at qLen if overflow
-		return minScore+128;
+		// 5. Smart Scalar Tail and Return
+		// Score Unpacking
+		int finalScore = (int)(currentMinScore) + 128; // Un-bias to 0..255
+
+		// Calculate the ACTUAL offset relative to reference start
+		// Lane 0 corresponds to minOffset. Lane X corresponds to minOffset + X.
+		int finalOffset = minOffset + bestLane;
+
+		// Run the tail with the correct offset
+		for(int i=start; i<qLen && finalScore < maxSubs; i++) {
+			int rIdx = i + finalOffset;
+			if(rIdx >= 0 && rIdx < rLen) {
+				if(query[i] != ref[rIdx]) {
+					finalScore++;
+				}
+			} else {
+				// Off the end is a mismatch
+				finalScore++;
+			}
+		}
+
+		// CRITICAL FIX: Return the absolute offset, not the relative lane index!
+		pos[0] = finalOffset;
+
+		return finalScore;
 	}
 	
 	/**

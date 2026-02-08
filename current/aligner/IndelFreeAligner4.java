@@ -767,22 +767,40 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			
 			if(queryKmers==null || maxMisses<0){return 0;}
 
-			int misses=0, total=0;
+			int misses=0, total=0, hits=0;
 			// Direct access to the map is safe and fastest
 			final map.IntHashMap2 map=refIndex.map;
 
+//			final int step=2*qStep;
+//			for(int start=0; start<=qStep && misses<=maxMisses; start+=qStep) {
+//				for(int i=start; i<queryKmers.length && misses<=maxMisses; i+=step){
+//					int kmer=queryKmers[i];
+//					if(kmer==-1){continue;}
+//
+//					total++;//This could be built into query...
+//					misses+=(map.containsKey(kmer) ? 0 : 1);
+//					// Fail Fast: If we have already missed too many, success is impossible.
+//				}
+//				//Note:  If there are 0 misses after the first pass,
+//				//second pass is unnecessary since kmers overlap.
+//			}
+			
 			final int step=2*qStep;
-			for(int start=0; start<=qStep && misses<=maxMisses; start+=qStep) {
-				for(int i=start; i<queryKmers.length && misses<=maxMisses; i+=step){
+			for(int start=0; start<=qStep && misses<=maxMisses && hits<minHits; start+=qStep) {
+				for(int i=start; i<queryKmers.length && misses<=maxMisses && hits<minHits; i+=step){
 					int kmer=queryKmers[i];
 					if(kmer==-1){continue;}
 
-					total++;//This could be built into query...
-					misses+=(map.containsKey(kmer) ? 0 : 1);
-					// Fail Fast: If we have already missed too many, success is impossible.
+					final int found=map.containsKeyBinary(kmer);
+					hits+=found;
+					misses+=(found^1);
 				}
+				//Note:  If there are 0 misses after the first pass,
+				//second pass is unnecessary since kmers overlap.
+				if(misses<1) {return Math.max(hits,  minHits);}
 			}
-			return total-misses;
+//			return total-misses;
+			return hits;
 		}
 
 		private IntList getSeedHits(Query q, PackedIndex4 refIndex, boolean reverseStrand, IntHashMap2 hitCounts){
@@ -809,67 +827,54 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		}
 
 		private IntList getSeedHitsMap(int[] queryKmers, PackedIndex4 refIndex, 
-				int minHits, IntHashMap2 hitCounts){
-			//			IntList seedHits=new IntList();//hitsList; 
-			IntList seedHits=hitsList; 
+			int minHits, IntHashMap2 hitCounts){
+			final IntList seedHits=hitsList; 
 			seedHits.clear();
 
 			if(hitCounts==null){hitCounts=new IntHashMap2();}
 			else{hitCounts.clear();}
 
-			for(int i=0; i<queryKmers.length; i+=qStep){
-				if(queryKmers[i]==-1){continue;}
-				long packed=refIndex.get(queryKmers[i]);
-				if(packed==-1){continue;}
+			final int[] positions=refIndex.positions;
+			final IntHashMap2 map=refIndex.map;
 
-				int offset=(int)(packed>>>32);
-				int count=(int)packed;
-				seedHitsT+=count;
-				int[] positions=refIndex.positions;
-				
-				if(count==1) {
-					int alignStart=offset-i;
+			for(int i=0; i<queryKmers.length; i+=qStep){
+				final int kmer=queryKmers[i];
+				if(kmer==-1){continue;}
+
+				// PackedIndex4 Logic:
+				// -1       = Missing
+				// < -1     = Singleton (RefPos | MIN_VALUE)
+				// >= 0     = List Head Pointer
+				final int val=map.get(kmer);
+
+				if(val<-1){
+					// Singleton Case
+					seedHitsT++;
+					int refPos=val&Integer.MAX_VALUE;
+					int alignStart=refPos-i;
 					int newCount=hitCounts.increment(alignStart);
 					if(newCount==minHits){seedHits.add(alignStart);}
-				}else {
-					for(int j=0; j<count; j++){
-						int refPos=positions[offset+j];
+				}else{
+					assert(val>=0) : "Illegal value: "+kmer+","+val;
+					// Multi-Hit Case
+					int ptr=val;
+					while(true){
+						seedHitsT++;
+						int entry=positions[ptr];
+						int refPos=entry&Integer.MAX_VALUE;
 						int alignStart=refPos-i;
+
 						int newCount=hitCounts.increment(alignStart);
 						if(newCount==minHits){seedHits.add(alignStart);}
+
+						// Stop bit check
+						if(entry<0){break;}
+						ptr++;
 					}
 				}
 			}
 			return seedHits;
 		}
-
-//		private IntList getSeedHitsList(int[] queryKmers, PackedIndex4 refIndex, int minHits) {
-//			//			IntList seedHits=new IntList();//hitsList; 
-//			final IntList seedHits=hitsList; 
-//			seedHits.clear();
-//
-//			final int[] positions=refIndex.positions;
-//			for(int i=0; i<queryKmers.length; i+=qStep){
-//				if(queryKmers[i]==-1){continue;}
-//				final long packed=refIndex.get(queryKmers[i]);
-//				if(packed==-1){continue;}
-//
-//				int offset=(int)(packed>>>32);
-//				int count=(int)packed;
-//				seedHits.ensureCapacity(count);
-//				for(int j=0; j<count; j++){
-//					int refPos=positions[offset+j];
-//					int alignStart=refPos-i;
-//					seedHits.addUnchecked(alignStart);
-//				}
-//			}
-//			seedHitsT+=seedHits.size;
-//			if(seedHits.size>1 || (minHits>1 && seedHits.size>0)){
-//				seedHits.sort();
-//				seedHits.condenseMinCopies(minHits);
-//			}
-//			return seedHits;
-//		}
 		
 		/**
 		 * Retrieves all seed hits for a set of query k-mers.
@@ -895,15 +900,14 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 				// >= 0     = List Head (Index in positions array)
 				final int val=map.get(kmer);
 				
-				if(val==-1){
-					continue;
-				}else if(val<-1){
+				if(val<-1){
 					// Singleton Case:
 					// Decode RefPos from high bit (Mask off sign bit)
 					int refPos=val&Integer.MAX_VALUE;
 					int alignStart=refPos-i;
 					seedHits.add(alignStart);
 				}else{
+					assert(val>=0) : "Illegal value: "+kmer+","+val;
 					// Multi-Hit Case:
 					// 'val' is the direct pointer to the positions array head.
 					int ptr=val;

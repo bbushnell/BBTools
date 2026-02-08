@@ -188,6 +188,15 @@ public final class IntHashMap2 implements Serializable {
 	public boolean containsKey(int key){
 		return findCell(key)>=0;
 	}
+	
+	/**
+	 * Returns 1 if the key is found, else 0.
+	 * @param key
+	 * @return 1 id the key is present, 0 if not
+	 */
+	public int containsKeyBinary(int key){
+		return (~(findCell(key))>>>31);
+	}
 
 	/**
 	 * Associates the specified value with the specified key.

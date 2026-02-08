@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 14, 2025
+Last modified February 7, 2026
 
 Description:  Aligns a query sequence to a reference using ScrabbleAligner.
 The sequences can be any characters, but N is a special case.
@@ -53,7 +53,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.ScrabbleAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.ScrabbleAligner2 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

@@ -75,16 +75,9 @@ public class BandedPlusAligner3 implements IDAligner{
 	 * @return Optimal bandwidth for the banded alignment
 	 */
 	private static int decideBandwidth(byte[] query, byte[] ref, int[] pos) {
-		int subs=0, qLen=query.length, rLen=ref.length;
+		int qLen=query.length, rLen=ref.length;
 		int bandwidth=Math.min(60+(int)Math.sqrt(rLen), 4+Math.max(qLen, rLen)/8);
-		if(Shared.SIMD) {
-			subs=simd.SIMDAlignByte.countSubs(query, ref, pos, bandwidth);
-		}else {
-			for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++) {
-				subs+=(query[i]==ref[i] ? 0 : 1);
-			}
-		}
-		return Math.min(subs+1, bandwidth);
+		return IDAlignerStatics.decideBandwidth(query, ref, pos, bandwidth);
 	}
 
 	/**
@@ -119,6 +112,7 @@ public class BandedPlusAligner3 implements IDAligner{
 		if(posVector==null) {posVector=new int[2];}
 		final int bandWidth=decideBandwidth(query0, ref0, posVector);
 		final int bandOffset=posVector[0];
+//		System.err.println("Bandwidth="+bandWidth+", offset="+bandOffset);
 		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen-1;
 

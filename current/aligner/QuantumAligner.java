@@ -105,16 +105,16 @@ public class QuantumAligner implements IDAligner{
 	 * @param ref Reference sequence
 	 * @return Calculated bandwidth for alignment matrix traversal
 	 */
-	private static int decideBandwidth(byte[] query, byte[] ref) {
+	private static int decideBandwidth(byte[] query, byte[] ref, int[] pos) {
 		int qLen=query.length, rLen=ref.length;
-		int maxLen=Math.max(qLen, rLen), minLen=Math.min(qLen, rLen);
+		int maxLen=Math.max(qLen, rLen);
+		
+		// Original Quantum Logic for bandwidth calculation
 		int bandwidth=Tools.min(qLen/4+2, maxLen/32, (int)Tools.log2(maxLen+256)+2);
 		bandwidth=Math.max(2, bandwidth)+3;
-		int subs=0;
-		for(int i=0; i<minLen && subs<bandwidth; i++) {
-			subs+=(query[i]!=ref[i] ? 1 : 0);
-		}
-		return Math.min(subs+1, bandwidth);//At least 1
+		
+		// Use the unified static method (which supports SIMD and Scalar fallback)
+		return IDAlignerStatics.decideBandwidth(query, ref, pos, bandwidth);
 	}
 
 	/**
@@ -146,7 +146,8 @@ public class QuantumAligner implements IDAligner{
 		Visualizer viz=(output==null ? null : new Visualizer(output, POSITION_BITS, DEL_BITS));
 
 		// Matrix exploration limits
-		final int bandWidth=decideBandwidth(query, ref);
+		if(posVector==null) {posVector=new int[2];}
+		final int bandWidth=decideBandwidth(query, ref, posVector);
 		final int topWidth=Math.min(query.length, bandWidth*2);
 		//Lower insPad allows later top entrance
 		final int insPad=-16-rLen/128-(int)Math.sqrt(rLen)-(5*Math.max(0, rLen-qLen))/4;
