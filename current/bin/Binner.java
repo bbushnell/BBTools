@@ -1078,8 +1078,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			maxGCDif2=0.032f;
 			minKmerProb2=0.82f;
 			max5merDif2=0.007f;
-
-			fuseStringency=1.6f;
 		}else if(samples<3){//Two mode
 			max4merDif2=0.0065f;
 			maxDepthRatio2=1.32f;
@@ -1090,7 +1088,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 		}else if(samples<4){//Three mode
 			max4merDif2=0.0075f;
 			maxDepthRatio2=1.40f;
@@ -1101,7 +1098,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 		}else if(samples<5){//Four mode
 			max4merDif2=0.0085f;
 			maxDepthRatio2=1.4f;
@@ -1112,7 +1108,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 			purifyStringency=3.0f;
 			//			bigMult=0.70f;
 			//			hugeMult=0.3f;
@@ -1126,7 +1121,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 			purifyStringency=2.5f;
 			//			bigMult=0.70f;
 			//			hugeMult=0.25f;
@@ -1140,7 +1134,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 			purifyStringency=2.5f;
 			//			bigMult=0.70f;
 			//			hugeMult=0.25f;
@@ -1154,7 +1147,6 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 			netCutoffUpper=0.65f;
 			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			fuseStringency=1.6f;
 			purifyStringency=2.5f;
 			//			bigMult=0.70f;
 			//			hugeMult=0.20f;
@@ -1697,7 +1689,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/** Maximum size for bins eligible to accept fusion */
 	static int fuseUpperLimit2=9000000;
 	/** Similarity stringency multiplier for fusion decisions */
-	static float fuseStringency=1.5f;
+	static float fuseStringency=1.6f;
 	/** Similarity stringency multiplier for purification decisions */
 	static float purifyStringency=3f;
 

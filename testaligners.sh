@@ -49,7 +49,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.Test $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.Test $@"
 	eval $CMD
 }
 

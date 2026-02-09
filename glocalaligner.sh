@@ -54,7 +54,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.GlocalAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.GlocalAligner $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

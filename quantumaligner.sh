@@ -53,7 +53,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.QuantumAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.QuantumAligner $@"
 	eval $CMD
 }
 

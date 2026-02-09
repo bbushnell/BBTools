@@ -53,7 +53,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.WaveFrontAlignerViz $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.WaveFrontAlignerViz $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

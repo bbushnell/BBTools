@@ -266,13 +266,15 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			}
 			
 			else if(a.equalsIgnoreCase("xstrict") || a.equalsIgnoreCase("xs")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.6f : 1);
+				strictnessMult=(Parse.parseBoolean(b) ? 0.60f : 1);
+			}else if(a.equalsIgnoreCase("hstrict") || a.equalsIgnoreCase("hs")){
+				strictnessMult=(Parse.parseBoolean(b) ? 0.65f : 1);
 			}else if(a.equalsIgnoreCase("ustrict") || a.equalsIgnoreCase("us")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.7f : 1);
+				strictnessMult=(Parse.parseBoolean(b) ? 0.70f : 1);
 			}else if(a.equalsIgnoreCase("vstrict") || a.equalsIgnoreCase("vs")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.8f : 1);
+				strictnessMult=(Parse.parseBoolean(b) ? 0.80f : 1);
 			}else if(a.equalsIgnoreCase("strict") || a.equalsIgnoreCase("s")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.9f : 1);
+				strictnessMult=(Parse.parseBoolean(b) ? 0.90f : 1);
 			}else if(a.equalsIgnoreCase("normal") || a.equalsIgnoreCase("n")){
 				strictnessMult=(Parse.parseBoolean(b) ? 1 : 1);
 			}else if(a.equalsIgnoreCase("loose") || a.equalsIgnoreCase("l")){
@@ -281,8 +283,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				strictnessMult=(Parse.parseBoolean(b) ? 1.25f : 1);
 			}else if(a.equalsIgnoreCase("uloose") || a.equalsIgnoreCase("ul")){
 				strictnessMult=(Parse.parseBoolean(b) ? 1.375f : 1);
+			}else if(a.equalsIgnoreCase("hloose") || a.equalsIgnoreCase("hl")){
+				strictnessMult=(Parse.parseBoolean(b) ? 1.44f : 1);
 			}else if(a.equalsIgnoreCase("xloose") || a.equalsIgnoreCase("xl")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.5f : 1);
+				strictnessMult=(Parse.parseBoolean(b) ? 1.50f : 1);
 			}else if(a.equalsIgnoreCase("strictness")){
 				strictnessMult=Float.parseFloat(b);
 			}

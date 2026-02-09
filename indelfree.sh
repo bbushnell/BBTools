@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 4, 2026
+Last modified February 8, 2026
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
@@ -117,7 +117,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.IndelFreeAligner3 $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP ifa.IndelFreeAligner4 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

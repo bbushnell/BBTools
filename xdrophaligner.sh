@@ -53,7 +53,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.XDropHAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.XDropHAligner $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

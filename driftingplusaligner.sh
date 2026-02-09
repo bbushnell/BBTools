@@ -54,7 +54,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.DriftingPlusAligner2 $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.DriftingPlusAligner2 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

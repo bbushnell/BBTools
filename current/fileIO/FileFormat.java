@@ -575,7 +575,7 @@ public final class FileFormat {
 		return r[0]==FQ;
 	}
 	
-	public static boolean hasFastqOrFastqExtension(String fname){
+	public static boolean hasFastaOrFastqExtension(String fname){
 		int[] r=testFormat(fname, false, false);
 		return r[0]==FQ || r[0]==FA;
 	}
