@@ -92,6 +92,7 @@ public class Contig {
 	private ByteBuilder toHeader(ByteBuilder bb){
 		if(name!=null){return bb.append(name);}
 		bb.append("contig_").append(id);
+		if(tid>=0){bb.append("tid_").append(tid);}
 		bb.append(",length=").append(length());
 		bb.append(",cov=").append(coverage, 1);
 		bb.append(",min=").append(minCov);
@@ -500,6 +501,7 @@ public class Contig {
 	float leftRatio;
 	float rightRatio;
 	public int id;
+	public int tid=-1;
 	
 	private boolean flipped=false;
 	private boolean used=false;

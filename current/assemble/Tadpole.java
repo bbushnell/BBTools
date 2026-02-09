@@ -345,6 +345,10 @@ public abstract class Tadpole extends ShaveObject{
 			}else if(a.equals("tad2") || a.equals("tadpole2")){
 				FORCE_TADPOLE2=Parse.parseBoolean(b);
 			}
+			
+			else if(a.equals("tid") || a.equalsIgnoreCase("taxid")){
+				taxID=Integer.parseInt(b);
+			}
 
 			else if(a.equals("maskcore") || a.equals("coremask")){
 				AbstractKmerTableSet.MASK_CORE=Kmer.MASK_CORE=Parse.parseBoolean(b);
@@ -2902,6 +2906,8 @@ public abstract class Tadpole extends ShaveObject{
 	
 	/** For controlling access to victim buffers for contig-building */
 	final AtomicInteger nextVictims[];
+	
+	int taxID=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
