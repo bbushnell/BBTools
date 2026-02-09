@@ -59,7 +59,7 @@ public class RenameByHeader {
 				if(f.isDirectory()){
 					for(File f2 : f.listFiles()){
 						String name=f2.getAbsolutePath();
-						if(f2.isFile() && FileFormat.hasFastqOrFastqExtension(name)){
+						if(f2.isFile() && FileFormat.hasFastaOrFastqExtension(name)){
 							list.add(name);
 						}
 					}

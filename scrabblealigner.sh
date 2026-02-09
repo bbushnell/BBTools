@@ -53,7 +53,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.ScrabbleAligner2 $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.ScrabbleAligner2 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

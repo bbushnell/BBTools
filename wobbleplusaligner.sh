@@ -54,7 +54,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.WobblePlusAligner3 $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.WobblePlusAligner3 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 20, 2026
+Last modified February 8, 2026
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -69,10 +69,13 @@ Stringency parameters:
 normal          Default stringency is 'normal'.  All settings, in order of
                 increasing sensitivity, are:  xstrict, ustrict, vstrict,
                 strict, normal, loose, vloose, uloose, xloose.  'normal'
-                aims at under 1% contamination; 'uloose' is more comparable
-                in stringency to other binners.  To set a stringency just add
-                that flag (without an = sign).  Acceptable shorthand is
-                xs, us, vs, s, n, l, vl, ul, xl.
+                aims at under 1% contamination; stricter will reduce
+                both completeness and contamination.  To set a stringency
+                add that flag without an = sign.  Acceptable shorthand is
+                xs, hs, us, vs, s, n, l, vl, ul, hl, xl.
+strictness=1.0  Stringency can alternatively be set finely with this flag,
+                where normal is 1.0, strict is 0.9, loose is 1.1.
+                Lower is stricter.		
 
 Quantization parameters:
 gcwidth=0.02    Width of GC matrix gridlines.  Smaller is faster.

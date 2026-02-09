@@ -57,7 +57,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.CrossCutAligner $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.CrossCutAligner $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

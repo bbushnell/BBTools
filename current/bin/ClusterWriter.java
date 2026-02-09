@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 
 import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -32,13 +34,16 @@ public class ClusterWriter{
 	void outputClusters(String pattern, String sizeHist, ArrayList<? extends Bin> clusters,
 			long minBases, int minContigs, Binner binner, DataLoader loader) {
 		Timer t=new Timer();
-//		if(pattern==null) {return;}
+		
 		if(pattern!=null) {
-			if(pattern.contains(".") && !pattern.contains("%") && pattern.contains("#")) {
+			String name=ReadWrite.stripPath(pattern);
+			final boolean isFile=FileFormat.hasFastaOrFastqExtension(name) || 
+				name.contains("%") || name.contains("#");
+			if(isFile && !name.contains("%") && name.contains("#")) {
 				pattern=Tools.replaceLastInstanceOf(pattern, '#', '%');//A common mistake I make
 				//Maybe prudent to make sure it is in a filename rather than dirname
 			}
-			if(!pattern.contains(".") && !pattern.contains("%")) {
+			if(!isFile) {
 				if(!pattern.endsWith("/")) {pattern=pattern+"/";}
 				pattern=pattern+"bin_%.fa";
 			}
