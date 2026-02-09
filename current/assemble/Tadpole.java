@@ -348,6 +348,8 @@ public abstract class Tadpole extends ShaveObject{
 			
 			else if(a.equals("tid") || a.equalsIgnoreCase("taxid")){
 				taxID=Integer.parseInt(b);
+			}else if(a.equals("firstid") || a.equalsIgnoreCase("startid") || a.equalsIgnoreCase("idoffset")){
+				contigIDOffset=Integer.parseInt(b);
 			}
 
 			else if(a.equals("maskcore") || a.equals("coremask")){
@@ -1071,8 +1073,11 @@ public abstract class Tadpole extends ShaveObject{
 			if(allContigs!=null){
 				for(int i=0; i<allContigs.size(); i++){
 					Contig r=allContigs.get(i);
+					r.id+=contigIDOffset;
 					if(r.length()>=minContigLen){
 						bsw.println(r);
+						contigsWritten++;
+						basesWritten+=r.length();
 					}
 				}
 			}
@@ -2908,6 +2913,10 @@ public abstract class Tadpole extends ShaveObject{
 	final AtomicInteger nextVictims[];
 	
 	int taxID=-1;
+	
+	int contigIDOffset=0;
+	public long contigsWritten=0;
+	public long basesWritten=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
