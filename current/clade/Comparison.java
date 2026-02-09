@@ -1,7 +1,7 @@
 package clade;
 
-import aligner.IDAligner;
 import bin.SimilarityMeasures;
+import idaligner.IDAligner;
 import parse.LineParserS1;
 import simd.Vector;
 import structures.ByteBuilder;

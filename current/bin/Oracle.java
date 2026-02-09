@@ -1,7 +1,7 @@
 package bin;
 
-import aligner.IDAligner;
 import fileIO.ByteStreamWriter;
+import idaligner.IDAligner;
 import ml.CellNet;
 import shared.Tools;
 import simd.Vector;
@@ -610,7 +610,7 @@ public class Oracle extends BinObject implements Cloneable {
 			clone.networkSmall=(networkSmall==null ? null : networkSmall.copy(false));
 			clone.networkMid=(networkMid==null ? null : networkMid.copy(false));
 			clone.networkLarge=(networkLarge==null ? null : networkLarge.copy(false));
-			clone.ssa=(ssa==null ? null : aligner.Factory.makeIDAligner());
+			clone.ssa=(ssa==null ? null : idaligner.Factory.makeIDAligner());
 			return clone;
 		} catch (CloneNotSupportedException e) {
 			throw new RuntimeException(e);
@@ -740,7 +740,7 @@ public class Oracle extends BinObject implements Cloneable {
 	private CellNet networkLarge;
 	/** SSU sequence aligner for 16S/18S compatibility checking */
 	private IDAligner ssa=(SpectraCounter.call16S ? 
-			aligner.Factory.makeIDAligner() : null);
+			idaligner.Factory.makeIDAligner() : null);
 	
 	/** Taxonomic level for compatibility checking */
 	int taxlevel=TaxTree.SPECIES;

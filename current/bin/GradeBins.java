@@ -155,7 +155,7 @@ public class GradeBins {
 				useRNA=Parse.parseBoolean(b);
 			}else if(a.equals("aligner") || a.equals("idaligner")){
 				GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
-				if(GeneCaller.useIDAligner) {aligner.Factory.setType(b);}
+				if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
 			}else if(b==null && new File(arg).isFile()){
 //				System.err.println("Examining "+arg);
 //				FileFormat.PRINT_WARNING=false;

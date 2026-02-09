@@ -209,7 +209,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				SpectraCounter.entropyWindow=Integer.parseInt(b);
 			}else if(a.equals("aligner") || a.equals("idaligner")){
 				GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
-				if(GeneCaller.useIDAligner) {aligner.Factory.setType(b);}
+				if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
 			}
 			
 			else if(a.equalsIgnoreCase("quickclade")){
@@ -287,7 +287,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				strictnessMult=(Parse.parseBoolean(b) ? 1.44f : 1);
 			}else if(a.equalsIgnoreCase("xloose") || a.equalsIgnoreCase("xl")){
 				strictnessMult=(Parse.parseBoolean(b) ? 1.50f : 1);
-			}else if(a.equalsIgnoreCase("strictness")){
+			}else if(a.equalsIgnoreCase("strictness") || a.equalsIgnoreCase("stringency")){
 				strictnessMult=Float.parseFloat(b);
 			}
 			

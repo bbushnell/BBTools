@@ -6,10 +6,10 @@ import java.util.Arrays;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import aligner.IDAligner;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import idaligner.IDAligner;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -549,7 +549,7 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 			return bestID;
 		}
 		
-		IDAligner ssa=aligner.Factory.makeIDAligner();
+		IDAligner ssa=idaligner.Factory.makeIDAligner();
 
 		protected long readsProcessedT=0;
 		protected long basesProcessedT=0;

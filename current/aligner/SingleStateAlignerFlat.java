@@ -1,6 +1,7 @@
 package aligner;
 
 import dna.AminoAcid;
+import idaligner.IDAligner;
 import shared.KillSwitch;
 import shared.Tools;
 

@@ -6,11 +6,11 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Random;
 
-import aligner.IDAligner;
 import aligner.SingleStateAlignerFlat2;
 import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
 import dna.Data;
+import idaligner.IDAligner;
 import parse.Parse;
 import prok.GeneCaller;
 import prok.GeneModel;
