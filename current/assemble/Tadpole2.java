@@ -548,6 +548,7 @@ public class Tadpole2 extends Tadpole {
 					c.rightCode=rightStatus;
 					c.rightRatio=rightRatio;
 					c.leftRatio=leftRatio;
+					c.tid=taxID;
 					if(!c.canonical()){c.rcomp();}
 					return c;
 				}else{
