@@ -5,11 +5,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 
-import aligner.IDAligner;
 import aligner.SingleStateAlignerFlat2;
 import aligner.SingleStateAlignerFlat3;
 import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
+import idaligner.IDAligner;
 import map.LongHashSet;
 import shared.KillSwitch;
 import shared.Tools;
@@ -1008,7 +1008,7 @@ public class GeneCaller extends ProkObject {
 			return false;
 		}
 		assert(a>=0 && b<bases.length) : a+", "+b;
-		IDAligner ida=aligner.Factory.makeIDAligner();
+		IDAligner ida=idaligner.Factory.makeIDAligner();
 		int[] pos=new int[2];
 		float id=ida.align(consensus, bases, pos, a, b);
 		if(id<minID){return false;}

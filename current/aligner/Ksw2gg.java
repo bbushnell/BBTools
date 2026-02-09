@@ -1,5 +1,8 @@
 package aligner;
 
+import idaligner.IDAligner;
+import idaligner.Test;
+
 /**
  * Java port of Heng Li's banded global aligner with affine gap penalties.
  * Processes alignment using diagonal bands to limit computation space.

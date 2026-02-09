@@ -8,10 +8,10 @@ import java.util.Map.Entry;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import aligner.IDAligner;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import idaligner.IDAligner;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -472,7 +472,7 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 			return Tools.max(a, b);
 		}
 		
-		IDAligner ssa=aligner.Factory.makeIDAligner();
+		IDAligner ssa=idaligner.Factory.makeIDAligner();
 
 		protected long readsProcessedT=0;
 		protected long basesProcessedT=0;

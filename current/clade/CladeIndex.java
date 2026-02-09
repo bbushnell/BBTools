@@ -54,7 +54,7 @@ public class CladeIndex implements Cloneable {
 			Clade.callSSU=Parse.parseBoolean(b);
 		}else if(a.equals("aligner") || a.equals("idaligner")){
 			GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
-			if(GeneCaller.useIDAligner) {aligner.Factory.setType(b);}
+			if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
 		}else if(a.equals("heapsize") || a.equals("heap")){
 			heapSize=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("comparisonCutoffMult") || a.equals("ccm")){

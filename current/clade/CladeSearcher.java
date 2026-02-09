@@ -8,7 +8,6 @@ import java.util.Collections;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import aligner.IDAligner;
 import bin.AdjustEntropy;
 import bin.GeneTools;
 import dna.Data;
@@ -16,6 +15,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import idaligner.IDAligner;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -671,7 +671,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		@Override
 		public synchronized void run(){
 			//Do anything necessary prior to processing
-			IDAligner ssa=(Clade.callSSU ? aligner.Factory.makeIDAligner() : null);
+			IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
 			//Run queries
 			for(int i=tid; i<queries.size(); i+=threads) {
 				Clade clade=queries.get(i);//TODO: Better to finish them here.

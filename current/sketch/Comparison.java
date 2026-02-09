@@ -2,8 +2,8 @@ package sketch;
 
 import java.util.Comparator;
 
-import aligner.GlocalAlignerOld;
-import aligner.IDAligner;
+import idaligner.GlocalAlignerOld;
+import idaligner.IDAligner;
 import prok.GeneCaller;
 import shared.Tools;
 import tax.TaxNode;

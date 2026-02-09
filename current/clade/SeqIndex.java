@@ -5,12 +5,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 
-import aligner.IDAligner;
-import aligner.QuantumAligner;
 import bin.BinObject;
 import bin.BinSketcher;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import idaligner.IDAligner;
+import idaligner.QuantumAligner;
 import shared.Shared;
 import sketch.CompareBuffer;
 import sketch.Comparison;

@@ -2,6 +2,9 @@ package aligner;
 
 import java.util.Arrays;
 
+import idaligner.IDAligner;
+import idaligner.Test;
+
 class Eh {
 	int h, e;
 }
