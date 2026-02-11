@@ -392,6 +392,7 @@ public class Reassemble {
 		args.add("mce=1");  // minCountExtend=1 for sparse genomes
 		args.add("mincontig=1");  // Keep all contigs initially
 		args.add("idoffset="+contigOffset);  // Unique contig IDs
+		args.add("showstats=f");
 		if(record.taxID>0){
 			args.add("tid="+record.taxID);  // Pass taxID to Tadpole
 		}

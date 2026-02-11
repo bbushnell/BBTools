@@ -1425,8 +1425,8 @@ public class BBDukProcessorS {
 			//Fix samline.
 			if(r1.samline!=null) {
 				SamLine sl=r1.samline;
-				sl.seq=r1.bases;
-				sl.qual=r1.quality;
+				sl.setSeq(r1.bases);
+				sl.setQual(r1.quality);
 				sl.qname=r1.id;
 				if(sl.mapped() && sl.strand()==Shared.MINUS) {
 					r1.reverseComplementFast();

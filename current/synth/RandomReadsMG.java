@@ -252,6 +252,8 @@ public class RandomReadsMG{
 				meanQScore=Shared.FAKE_QUAL=(byte)Integer.parseInt(b);
 			}else if(a.equals("qrange")){
 				qScoreRange=Integer.parseInt(b);
+			}else if(a.equals("flat") || a.equals("flatqual") || a.equals("qflat")){
+				FLAT_QUAL=Parse.parseBoolean(b);
 			}else if(a.equals("subrate") || a.equals("snprate")){
 				subRate=Float.parseFloat(b);
 			}else if(a.equals("indelrate")){
@@ -791,26 +793,47 @@ public class RandomReadsMG{
 	 *@param randy Random number generator for randomized decisions
 	 *@return The number of substitutions added to the read
 	 */
-	public static int mutateIllumina(Read r, int meanQ, int qRange, Random randy){
+	public static int mutateIllumina(Read r, final int meanQ, final int qRange, 
+			Random randy, final boolean addErrors){
+		if(!addErrors && qRange<1) {return 0;}
 		if(r.quality==null){r.quality=new byte[r.length()];}
 		final byte[] bases=r.bases, quals=r.quality;
-		int fullRange=qRange*2+1;
-		int baseQ=meanQ-qRange;
+		final int fullRange=qRange*2+1;
+		final int baseQ=meanQ-qRange;
 		int subs=0;
-		for(int i=0; i<bases.length; i++){
-			byte b=bases[i];
-			if(AminoAcid.isFullyDefined(b)){
-				int q=baseQ+(fullRange<1 ? 0 : randy.nextInt(fullRange));
-				quals[i]=(byte)q;
-				float prob=QualityTools.PROB_CORRECT[q];
-				if(randy.nextFloat()>prob){
-					int x=AminoAcid.baseToNumber[b];
-					x=(x+(randy.nextInt3()+1))&3;
-					bases[i]=AminoAcid.numberToBase[x];
-					subs++;
+		if(FLAT_QUAL || qRange<1) {
+			final byte q=(byte)(baseQ+(fullRange<1 ? 0 : randy.nextInt(fullRange)));
+			final float prob=QualityTools.PROB_CORRECT[q];
+			for(int i=0; i<bases.length; i++){
+				byte b=bases[i];
+				if(AminoAcid.isFullyDefined(b)){
+					quals[i]=q;
+					if(addErrors && randy.nextFloat()>prob){
+						int x=AminoAcid.baseToNumber[b];
+						x=(x+(randy.nextInt3()+1))&3;
+						bases[i]=AminoAcid.numberToBase[x];
+						subs++;
+					}
+				}else{
+					quals[i]=0;
 				}
-			}else{
-				quals[i]=0;
+			}
+		}else {
+			for(int i=0; i<bases.length; i++){
+				byte b=bases[i];
+				if(AminoAcid.isFullyDefined(b)){
+					int q=baseQ+(fullRange<1 ? 0 : randy.nextInt(fullRange));
+					quals[i]=(byte)q;
+					float prob=QualityTools.PROB_CORRECT[q];
+					if(addErrors && randy.nextFloat()>prob){
+						int x=AminoAcid.baseToNumber[b];
+						x=(x+(randy.nextInt3()+1))&3;
+						bases[i]=AminoAcid.numberToBase[x];
+						subs++;
+					}
+				}else{
+					quals[i]=0;
+				}
 			}
 		}
 		return subs;
@@ -1311,7 +1334,7 @@ public class RandomReadsMG{
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
 			Read r=new Read(bases, null, null, rnum);
-			if(addErrors){mutateIllumina(r, meanQScore, qScoreRange, randy);}
+			mutateIllumina(r, meanQScore, qScoreRange, randy, addErrors);
 			if(subRate>0){addSubs(r, subRate, randy);}
 			int reflen=readlen;
 			if(indelRate>0){reflen=addIndels(r, insRate, delRate, readlen, meanQScore, qScoreRange, randy);}
@@ -1378,10 +1401,9 @@ public class RandomReadsMG{
 				addFragAdapter(r2, insert, fragadapter2);
 			}
 
-			if(addErrors){
-				mutateIllumina(r1, meanQScore, qScoreRange, randy);
-				mutateIllumina(r2, meanQScore, qScoreRange, randy);
-			}
+			
+			mutateIllumina(r1, meanQScore, qScoreRange, randy, addErrors);
+			mutateIllumina(r2, meanQScore, qScoreRange, randy, addErrors);
 			if(subRate>0){
 				addSubs(r1, subRate, randy);
 				addSubs(r2, subRate, randy);
@@ -1569,6 +1591,8 @@ public class RandomReadsMG{
 	private boolean addErrors=false;
 	/** Mean quality score for generated bases */
 	private int meanQScore=25;
+	/** Quality scores within a read are all the same for compression */
+	private static boolean FLAT_QUAL=false;
 	/** Quality score range around the mean (±qScoreRange) */
 	private int qScoreRange=0;
 	/** Standard deviation for PacBio read length log-normal distribution */

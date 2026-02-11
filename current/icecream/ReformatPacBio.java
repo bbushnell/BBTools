@@ -1237,8 +1237,8 @@ public final class ReformatPacBio {
 			}
 			
 			if(r.samline!=null){
-				r.samline.seq=r.bases;
-				r.samline.qual=r.quality;
+				r.samline.setSeq(r.bases);
+				r.samline.setQual(r.quality);
 			}
 			return trimmed;
 		}
@@ -1267,8 +1267,8 @@ public final class ReformatPacBio {
 			}
 			
 			if(r.samline!=null){
-				r.samline.seq=r.bases;
-				r.samline.qual=r.quality;
+				r.samline.setSeq(r.bases);
+				r.samline.setQual(r.quality);
 			}
 			return trimmed;
 		}

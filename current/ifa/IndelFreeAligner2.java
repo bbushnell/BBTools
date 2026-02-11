@@ -672,16 +672,14 @@ public class IndelFreeAligner2 implements Accumulator<IndelFreeAligner2.ProcessT
 			SamLine sl=new SamLine();
 			sl.pos=Math.max(rStart+1, 1);
 			sl.qname=q.name;
-			sl.setRname(realRef.id);
-			sl.seq=q.bases;
-			sl.qual=q.quals;
+			sl.setRnameS(realRef.id);
+			sl.setSeq(q.bases);
+			sl.setQual(q.quals);
 			sl.setPrimary(q.alignments.incrementAndGet()==1);
 			sl.setMapped(true);
 			if(reverseStrand){sl.setStrand(Shared.MINUS);}
 			sl.tlen=qLen;
-
-			sl.cigar=SamLine.toCigar14(match.toBytes(), rStart, rStop-1, rLen, q.bases);
-
+			sl.setCigar(SamLine.toCigar14(match.toBytes(), rStart, rStop-1, rLen, q.bases));
 			sl.addOptionalTag("NM:i:"+subs);
 			sl.mapq=Tools.mid(0, (int)(40*(sl.length()*0.5-subs)/(sl.length()*0.5)), 40);
 			sl.toBytes(bb).nl();

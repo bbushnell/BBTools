@@ -55,15 +55,19 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	/*----------------        Producer API          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** * Add input job for processing.
+	/** 
+	 * Add input job for processing.
 	 * This is thread-safe and accepts out-of-order jobs.
 	 */
 	public boolean addInput(I job){
 		if(job==null){return false;}
 		assert(!job.last()) : "Use poison() to terminate";
 		synchronized(this){
+			final long id=job.id();
 			assert(!lastSeen || job.poison());
-			maxSeenId=Math.max(job.id(), maxSeenId);
+			assert(id!=prevID || job.poison() || job.last()) : "Nonunique ID: "+prevID;
+			prevID=id;
+			maxSeenId=Math.max(id, maxSeenId);
 		}
 		// JobQueue.add() is blocking and handles its own wait/interrupt
 		return inq.add(job);
@@ -155,6 +159,7 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	private final O outputPrototype;
 
 	private long maxSeenId=-1;
+	private long prevID=-1;
 	private volatile boolean finished=false;
 	private volatile boolean lastSeen=false;
 	private static final boolean verbose=false;

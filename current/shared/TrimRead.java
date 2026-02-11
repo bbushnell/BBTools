@@ -680,10 +680,10 @@ public final class TrimRead implements Serializable {
 				assert(c=='M' || c=='=') : c+"; "+sl.cigar+"\n"+sl;
 				bb.append(len);
 				bb.append(SamLine.VERSION>1.3 ? '=' : 'M');
-				sl.cigar=bb.toString();
+				sl.setCigar(bb.toString());
 			}
-			sl.seq=r.bases;
-			sl.qual=r.quality;
+			sl.setSeq(r.bases);
+			sl.setQual(r.quality);
 			if(trimmed>0 && sl.optional!=null && sl.optional.size()>0){
 				ArrayList<String> list=new ArrayList<String>(2);
 				for(int i=0; i<sl.optional.size(); i++){
@@ -898,13 +898,9 @@ public final class TrimRead implements Serializable {
 		if(sl!=null){
 			int start=sl.pos-1;
 			int stop=start+Read.calcMatchLength(match)-1;
-			if(SamLine.VERSION>1.3){
-				sl.cigar=SamLine.toCigar14(match, start, stop, scafLen, r.bases);
-			}else{
-				sl.cigar=SamLine.toCigar13(match, start, stop, scafLen, r.bases);
-			}
-			sl.seq=r.bases;
-			sl.qual=r.quality;
+			sl.setCigar(SamLine.toCigar(match, start, stop, scafLen, r.bases));
+			sl.setSeq(r.bases);
+			sl.setQual(r.quality);
 			if(trimmed>0 && sl.optional!=null && sl.optional.size()>0){
 				ArrayList<String> list=new ArrayList<String>(2);
 				for(int i=0; i<sl.optional.size(); i++){

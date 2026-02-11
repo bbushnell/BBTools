@@ -350,8 +350,12 @@ public abstract class Tadpole extends ShaveObject{
 				taxID=Integer.parseInt(b);
 			}else if(a.equals("firstid") || a.equalsIgnoreCase("startid") || a.equalsIgnoreCase("idoffset")){
 				contigIDOffset=Integer.parseInt(b);
+			}else if(a.equals("shortnames")){
+				Contig.SHORT_NAMES=Parse.parseBoolean(b);
+			}else if(a.equals("veryshortnames")){
+				Contig.VERY_SHORT_NAMES=Parse.parseBoolean(b);
 			}
-
+			
 			else if(a.equals("maskcore") || a.equals("coremask")){
 				AbstractKmerTableSet.MASK_CORE=Kmer.MASK_CORE=Parse.parseBoolean(b);
 			}else if(a.equals("fillfast") || a.equals("fastfill")){

@@ -95,9 +95,11 @@ public class Contig {
 		if(tid>=0){bb.append(",tid_").append(tid);}
 		bb.append(",length=").append(length());
 		bb.append(",cov=").append(coverage, 1);
+		if(VERY_SHORT_NAMES) {return bb;}
 		bb.append(",min=").append(minCov);
 		bb.append(",max=").append(maxCov);
 		bb.append(",gc=").append(gc(), 3);
+		if(SHORT_NAMES) {return bb;}
 		
 		bb.append(",left=").append(Tadpole.codeStrings[leftCode]);
 		if(leftBranch()){
@@ -512,4 +514,7 @@ public class Contig {
 
 	ArrayList<Edge> leftEdges;
 	ArrayList<Edge> rightEdges;
+
+	public static boolean SHORT_NAMES=true;
+	public static boolean VERY_SHORT_NAMES=false;
 }

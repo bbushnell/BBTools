@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 6, 2026
+Last modified February 11, 2026
 
 Description:  Generates synthetic reads from a set of fasta assemblies.
 Each assembly is assigned a random coverage level, with optional custom 
@@ -88,6 +88,8 @@ Illumina-specific parameters
 illuminanames=f Generate Illumina-format headers.
 qavg=25         Average quality score, for generating Illumina errors.
 qrange=0        Quality score range (+/- this much).
+qflat=f         Use constant quality within a read, to increase compression
+                when qrange>0.
 addadapters=f   Add adapter sequence to paired reads with insert
                 size shorter than read length.
 adapter1=       Optionally specify a custom R1 adapter (as observed in R1).

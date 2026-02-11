@@ -17,17 +17,13 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.Streamer;
-import stream.StreamerFactory;
-import stream.Writer;
-import stream.WriterFactory;
 import stream.ConcurrentReadInputStream;
+import stream.ConcurrentReadOutputStream;
 import stream.CrisContainer;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
-import stream.SamReadInputStream;
 import structures.ListNum;
 import tax.AccessionToTaxid;
 import tax.GiToTaxid;
@@ -42,7 +38,7 @@ import var2.ScafMap;
  * @date September 21, 2016
  *
  */
-public class SortByName {
+public class SortByNameOld {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -55,7 +51,7 @@ public class SortByName {
 	public static void main(String[] args){
 		Timer t=new Timer();
 		final boolean oldFI=FASTQ.FORCE_INTERLEAVED, oldTI=FASTQ.TEST_INTERLEAVED;
-		SortByName x=new SortByName(args);
+		SortByNameOld x=new SortByNameOld(args);
 		x.process(t);
 		FASTQ.FORCE_INTERLEAVED=oldFI;
 		FASTQ.TEST_INTERLEAVED=oldTI;
@@ -68,7 +64,7 @@ public class SortByName {
 	 * Constructor.
 	 * @param args Command line arguments
 	 */
-	public SortByName(String[] args){
+	public SortByNameOld(String[] args){
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -307,6 +303,12 @@ public class SortByName {
 		
 		tempExt=Tools.getTempExt(ffin1, ffout1, extout);
 		
+		if(comparator==ReadComparatorPosition.comparator){
+			if(ReadComparatorPosition.scafMap==null){
+				ReadComparatorPosition.scafMap=ScafMap.loadSamHeader(in1);
+			}
+		}
+		
 		if((comparator==ReadComparatorTaxa.comparator)){
 			if(giTableFile!=null){
 				outstream.println("Loading gi table.");
@@ -337,10 +339,10 @@ public class SortByName {
 		System.err.println("Sorting by "+comparator.name()+" "+(comparator.ascending() ? "ascending." : "descending."));
 		
 		//Create a read input stream
-		final Streamer cris;
+		final ConcurrentReadInputStream cris;
 		{
-			useSharedHeader=(ffin1.samOrBam());
-			cris=StreamerFactory.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2, -1);
+			useSharedHeader=(ffin1.samOrBam() && ffout1!=null && ffout1.samOrBam());
+			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, useSharedHeader, ffin1, ffin2, qfin1, qfin2);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -348,7 +350,7 @@ public class SortByName {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 //		//Optionally create a read output stream
-//		final Writer ros;
+//		final ConcurrentReadOutputStream ros;
 //		if(ffout1!=null){
 //			final int buff=4;
 //
@@ -356,7 +358,7 @@ public class SortByName {
 //				outstream.println("Writing interleaved.");
 //			}
 //
-//			ros=Writer.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
+//			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
 //			ros.start(); //Start the stream
 //		}else{ros=null;}
 		
@@ -368,8 +370,6 @@ public class SortByName {
 		processInner(cris);
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
-		cris.close();
-		
 		
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
@@ -387,141 +387,6 @@ public class SortByName {
 	}
 	
 	/** Iterate through the reads */
-	public void processInner(final Streamer cris){
-		//Do anything necessary prior to processing
-		final int ziplevel0=ReadWrite.ZIPLEVEL;
-		ReadWrite.ZIPLEVEL=Tools.mid(1, ReadWrite.ZIPLEVEL, 2);
-		
-		ArrayList<Read> storage=new ArrayList<Read>();
-		
-		final long maxMem=Shared.memAvailable(1);
-		final long memLimit=(long)(maxMem*memTotalMult);//Crashed once at old 0.75 value
-		final long currentLimit=(long)(maxMem*memBlockMult);
-		final int readLimit=2000000000;
-		long currentMem=0;
-		long bytesDumped=0;
-		long dumps=0;
-//		IntList dumpCount=new IntList();
-		AtomicLong outstandingMem=new AtomicLong();
-		
-		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
-				", currentMem="+currentMem+", currentLimit="+currentLimit);}
-		
-		if(comparator==ReadComparatorPosition.comparator){
-			if(ReadComparatorPosition.scafMap==null){
-				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
-			}
-		}
-		if(useSharedHeader && ffout1!=null && ffout1.samOrBam()){
-			if(verbose){outstream.println("Fetching header.");}
-			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
-			if(verbose){outstream.println("Fetched header.");}
-
-			if(header!=null) {
-				byte[] hd;
-				if(comparator==ReadComparatorPosition.comparator) {
-					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator==ReadComparatorName.comparator) {
-					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
-				}else {
-					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
-				}
-				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
-					header.set(0, hd);
-				}else {
-					header.add(0, hd);
-				}
-			}
-		}
-		
-		{
-			if(verbose){outstream.println("Fetching reads.");}
-			//Grab the first ListNum of reads
-			ListNum<Read> ln=cris.nextList();
-			//Grab the actual read list from the ListNum
-			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
-			//Check to ensure pairing is as expected
-			if(reads!=null && !reads.isEmpty()){
-				Read r=reads.get(0);
-				assert((ffin1==null || ffin1.samOrBam()) || (r.mate!=null)==cris.paired());
-			}
-			
-			//As long as there is a nonempty read list...
-			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-				if(verbose2){outstream.println("Fetched "+reads.size()+" reads.");}
-				
-				//Loop through each read in the list
-				for(int idx=0; idx<reads.size(); idx++){
-					final Read r1=reads.get(idx);
-					final Read r2=r1.mate;
-					
-					//Track the initial length for statistics
-					final int initialLength1=r1.length();
-					final int initialLength2=(r1.mateLength());
-					
-					//Increment counters
-					readsProcessed+=r1.pairCount();
-					basesProcessed+=initialLength1+initialLength2;
-					maxLengthObserved=Tools.max(maxLengthObserved, initialLength1, initialLength2);
-					
-					if(minlen<1 || initialLength1>=minlen || initialLength2>=minlen){
-						if(genKmer){ReadComparatorTopological5Bit.genKmer(r1);}
-						else if(clump){ReadComparatorClump.set(r1);}
-						currentMem+=r1.countBytes()+(r2==null ? 0 : r2.countBytes());
-						storage.add(r1);
-					}
-				}
-				
-				if(allowTempFiles && (currentMem>=currentLimit || storage.size()>=readLimit)){
-					if(verbose){outstream.println("currentMem: "+currentMem+" >= "+currentLimit+", dumping. ");}
-					outstandingMem.addAndGet(currentMem);
-//					dumpCount.add(storage.size());
-					sortAndDump(storage, currentMem, outstandingMem, null, null, false);
-					storage=new ArrayList<Read>();
-					bytesDumped+=currentMem;
-					dumps++;
-					currentMem=0;
-					if(verbose){outstream.println("Waiting on memory; outstandingMem="+outstandingMem);}
-					waitOnMemory(outstandingMem, memLimit);
-					if(verbose){outstream.println("Done waiting; outstandingMem="+outstandingMem);}
-				}
-				
-				//Fetch a new list
-				ln=cris.nextList();
-				reads=(ln!=null ? ln.list : null);
-			}
-		}
-		
-		outstream.println("Finished reading input.");
-		
-		outstandingMem.addAndGet(currentMem);
-		if(dumps==0){
-			ReadWrite.ZIPLEVEL=ziplevel0;
-			outstream.println("Sorting.");
-			if(out1!=null){
-				sortAndDump(storage, currentMem, outstandingMem, out1, out2, useSharedHeader);
-				storage=null;
-				waitOnMemory(outstandingMem, 0);
-			}else{
-				Timer t=new Timer();
-				Shared.sort(storage, comparator);//For timing/testing.
-				t.stop("Sort Time: \t\t\t");
-			}
-		}else{
-//			dumpCount.add(storage.size());
-			sortAndDump(storage, currentMem, outstandingMem, null, null, false);
-			storage=null;
-			waitOnMemory(outstandingMem, 0);
-			outstream.println("Merging "+(dumps+1)+" files.");
-			ReadWrite.ZIPLEVEL=ziplevel0;
-			mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);
-		}
-		
-	}
-	
-	/** Legacy method until Clumpify uses Streamer */
-	@Deprecated
 	public void processInner(final ConcurrentReadInputStream cris){
 		//Do anything necessary prior to processing
 		final int ziplevel0=ReadWrite.ZIPLEVEL;
@@ -541,31 +406,6 @@ public class SortByName {
 		
 		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
 				", currentMem="+currentMem+", currentLimit="+currentLimit);}
-		
-		if(comparator==ReadComparatorPosition.comparator){
-			if(ReadComparatorPosition.scafMap==null){
-				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
-			}
-		}
-		if(useSharedHeader && ffout1!=null && ffout1.samOrBam()){
-			ArrayList<byte[]> header=SamReadInputStream.getSharedHeader(true);
-
-			if(header!=null) {
-				byte[] hd;
-				if(comparator==ReadComparatorPosition.comparator) {
-					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator==ReadComparatorName.comparator) {
-					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
-				}else {
-					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
-				}
-				if(header.size()>0 && Tools.startsWith(header.get(0), "@HD")){
-					header.set(0, hd);
-				}else {
-					header.add(0, hd);
-				}
-			}
-		}
 		
 		{
 			//Grab the first ListNum of reads
@@ -661,14 +501,6 @@ public class SortByName {
 		
 	}
 
-	/**
-	 * Blocks execution until outstanding memory usage drops below target threshold.
-	 * Uses synchronized waiting with periodic checks to manage memory pressure
-	 * during concurrent sorting operations.
-	 *
-	 * @param outstandingMem Atomic counter tracking outstanding memory usage
-	 * @param target Target memory threshold in bytes
-	 */
 	private void waitOnMemory(AtomicLong outstandingMem, long target){
 		if(outstandingMem.get()>target){
 			if(verbose){outstream.println("Syncing; outstandingMem="+outstandingMem);}
@@ -689,52 +521,20 @@ public class SortByName {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Calculates maximum observed read size including quality data and safety margin.
-	 * Used for memory allocation calculations during merge operations.
-	 * @return Maximum expected read size in bytes including overhead
-	 */
 	private final long maxSizeObserved(){//Includes some extra for a margin of error
 		return Tools.max(maxSizeObservedStatic(), Tools.max(maxLengthObserved, 150)*(qualityObserved ? 2 : 1)+500);
 	}
-	/**
-	 * Static version of maximum observed read size calculation.
-	 * Includes quality data multiplier and safety margin for memory planning.
-	 * @return Maximum expected read size in bytes including overhead
-	 */
 	final static long maxSizeObservedStatic(){//Includes some extra for a margin of error
 		return Tools.max(maxLengthObservedStatic, 150)*(qualityObservedStatic ? 2 : 1)+500;
 	}
-	/**
-	 * Calculates memory requirements for merging multiple sorted files.
-	 * Accounts for buffer sizes, file count, and overhead multipliers.
-	 *
-	 * @param maxSizeObserved Maximum read size in bytes
-	 * @param inFiles Number of input files to merge
-	 * @return Required memory in bytes for merge operation
-	 */
 	private static long mergeMemNeeded(long maxSizeObserved, int inFiles){
 		return (long)(maxSizeObserved*2*(inFiles+1)*1.6);
 	}
-	/**
-	 * Determines maximum number of files that can be merged simultaneously
-	 * based on available memory and read size constraints.
-	 * @param maxSizeObserved Maximum read size in bytes
-	 * @return Maximum number of files for single merge operation
-	 */
 	private static int maxMergeFiles(long maxSizeObserved){
 		final long memAvailable=Shared.memAvailableAdvanced();
 		int files=(int)Tools.max(3, memAvailable/Tools.max(maxSizeObserved, 500))-1;
 		return Tools.min(files, 10000);
 	}
-	/**
-	 * Reduces buffer sizes when memory is insufficient for merge operations.
-	 * Caps buffer length and count to prevent out-of-memory conditions.
-	 *
-	 * @param maxSizeObserved Maximum read size in bytes
-	 * @param inFiles Number of input files being merged
-	 * @param outstream Print stream for status messages
-	 */
 	private static void adjustBuffers(long maxSizeObserved, int inFiles, PrintStream outstream){
 		if(Shared.numBuffers()<3){return;}
 		long memNeeded=mergeMemNeeded(maxSizeObserved, inFiles);
@@ -748,15 +548,6 @@ public class SortByName {
 	
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Recursively merges file lists when the number exceeds maximum merge capacity.
-	 * Splits large file lists into groups, merges each group, and repeats until
-	 * the result fits within merge limits.
-	 *
-	 * @param inList List of input file names to merge
-	 * @param allowSubprocess Whether to allow subprocess execution for merging
-	 * @return Reduced list of merged temporary files
-	 */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList, boolean allowSubprocess){
 		assert(maxFiles>1);
 		
@@ -796,25 +587,10 @@ public class SortByName {
 		return currentList;
 	}
 	
-	/**
-	 * Inner recursive merge operation that handles a single merge pass.
-	 * Delegates to the main merge and dump method with specified parameters.
-	 *
-	 * @param inList Input file list for this merge pass
-	 * @param ffoutTemp1 Output file format for primary temp file
-	 * @param ffoutTemp2 Output file format for secondary temp file
-	 * @param deleteAfterMerge Whether to delete input files after merging
-	 * @param allowSubprocess Whether subprocess execution is permitted
-	 */
 	public void mergeRecursiveInner(ArrayList<String> inList, FileFormat ffoutTemp1, FileFormat ffoutTemp2, boolean deleteAfterMerge, boolean allowSubprocess){
 		errorState|=mergeAndDump(inList, /*null, */ffoutTemp1, ffoutTemp2, deleteAfterMerge, useSharedHeader, allowSubprocess, outstream, maxSizeObserved());
 	}
 	
-	/**
-	 * Creates a unique temporary file name for intermediate sort results.
-	 * Uses system temp file creation with sort-specific prefix and extension.
-	 * @return Path to newly created temporary file
-	 */
 	private String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -830,15 +606,6 @@ public class SortByName {
 		return temp;
 	}
 	
-	/**
-	 * Merges sorted files and writes final output, handling recursive merging if needed.
-	 * Checks if file count exceeds merge limits and performs recursive merging first.
-	 *
-	 * @param fnames List of sorted file names to merge
-	 * @param useHeader Whether to preserve SAM/BAM headers
-	 * @param allowSubprocess Whether subprocess execution is permitted
-	 * @return true if errors occurred during merge operation
-	 */
 	private boolean mergeAndDump(ArrayList<String> fnames, /*IntList dumpCount, */boolean useHeader, boolean allowSubprocess) {
 		final long maxSizeObserved=maxSizeObserved();
 		final int limit=Tools.min(mergeFileLimit, maxMergeFiles(maxSizeObserved));
@@ -849,28 +616,13 @@ public class SortByName {
 		return mergeAndDump(fnames, /*dumpCount,*/ ffout1, ffout2, delete, useHeader, allowSubprocess, outstream, maxSizeObserved);
 	}
 	
-	/**
-	 * Static method for merging multiple sorted files into final output.
-	 * Creates priority queue of file containers, performs k-way merge using
-	 * comparators, and manages concurrent output streams and file cleanup.
-	 *
-	 * @param fnames List of input file names to merge
-	 * @param ffout1 Primary output file format
-	 * @param ffout2 Secondary output file format
-	 * @param deleteAfterMerge Whether to delete input files after successful merge
-	 * @param useHeader Whether to preserve SAM/BAM headers in output
-	 * @param allowSubprocess Whether subprocess execution is permitted
-	 * @param outstream Print stream for status messages
-	 * @param maxSizeObserved Maximum read size for memory calculations
-	 * @return true if errors occurred during merge operation
-	 */
 	public static boolean mergeAndDump(ArrayList<String> fnames, FileFormat ffout1, FileFormat ffout2, 
 			boolean deleteAfterMerge, boolean useHeader, boolean allowSubprocess, PrintStream outstream, final long maxSizeObserved) {
 		
 		final int oldBuffers=Shared.numBuffers();
 		final int oldBufferLen=Shared.bufferLen();
 		if(!FileFormat.isFastaFile(fnames.get(0))){
-			synchronized(SortByName.class){
+			synchronized(SortByNameOld.class){
 				qualityObservedStatic=true;
 			}
 		}
@@ -885,12 +637,11 @@ public class SortByName {
 		
 		ListNum.setDeterministicRandom(false);
 		boolean errorState=false;
-		final Writer ros;
+		final ConcurrentReadOutputStream ros;
 		if(ffout1!=null){
 			final int buff=1;
-			ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
+			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, useHeader);
 			ros.start(); //Start the stream
-			if(verbose) {System.err.println("Made ros.");}
 		}else{ros=null;}
 		
 		ArrayList<CrisContainer> cclist=new ArrayList<CrisContainer>(fnames.size());
@@ -919,7 +670,7 @@ public class SortByName {
 				new File(fname).delete();
 			}
 		}
-		if(ros!=null){errorState|=ros.poisonAndWait();}
+		if(ros!=null){errorState|=ReadWrite.closeStream(ros);}
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
@@ -927,25 +678,14 @@ public class SortByName {
 		return errorState;
 	}
 	
-	/**
-	 * Core k-way merge algorithm using priority queue of read containers.
-	 * Continuously polls lowest reads from queue, sorts batches, and outputs
-	 * results while maintaining sort order across file boundaries.
-	 *
-	 * @param q Priority queue of CrisContainer objects for k-way merge
-	 * @param ros Concurrent read output stream for writing results
-	 * @param outstream Print stream for debug and status messages
-	 */
-	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final Writer ros, PrintStream outstream) {
+	private static void mergeAndDump(final PriorityQueue<CrisContainer> q, final ConcurrentReadOutputStream ros, PrintStream outstream) {
 		
 //		for(CrisContainer cc : q){
 //			assert(!cc.cris().paired()) : FASTQ.TEST_INTERLEAVED+", "+FASTQ.FORCE_INTERLEAVED+
 //				", "+cc.cris().fname()+", "+cc.cris().getClass();
 //		}
-		if(verbose) {System.err.println("Merge And Dump.");}
 		
 		long maxLen=0;
-		long id=0;
 		
 		final int limit=100000;
 		ArrayList<Read> buffer=new ArrayList<Read>(2*limit);
@@ -988,7 +728,7 @@ public class SortByName {
 				list.add(r);
 				maxLen=Tools.max(maxLen, r.length());
 			}
-			if(ros!=null){ros.add(list, id++);}
+			if(ros!=null){ros.add(list, 0);}
 			
 			ArrayList<Read> oldbuffer=buffer;
 			buffer=new ArrayList<Read>(2*limit);
@@ -999,10 +739,9 @@ public class SortByName {
 		}
 		
 		assert(buffer.isEmpty());
-		synchronized(SortByName.class){
+		synchronized(SortByNameOld.class){
 			maxLengthObservedStatic=Tools.max(maxLengthObservedStatic, maxLen);
 		}
-		if(verbose) {System.err.println("Finished Merge And Dump.");}
 	}
 
 //
@@ -1033,15 +772,6 @@ public class SortByName {
 //	if(verbose2){outstream.println("Buffer contains "+buffer.size()+" reads.");}
 //}
 	
-	/**
-	 * Finds the index of the first read that sorts after the pivot read.
-	 * Used to determine batch boundaries during merge operations to maintain
-	 * sort order when outputting partial results.
-	 *
-	 * @param list Sorted list of reads to search
-	 * @param pivot Reference read for comparison
-	 * @return Index of first read greater than pivot
-	 */
 	private static final int indexOfLowestAbovePivot(final ArrayList<Read> list, final Read pivot){
 		final int size=list.size();
 		final int maxIndex=binarySearch(list, pivot);
@@ -1094,18 +824,6 @@ public class SortByName {
 		return a;
 	}
 	
-	/**
-	 * Creates a background thread to sort reads and write them to temporary files.
-	 * Manages temporary file creation and launches WriteThread for asynchronous
-	 * sorting and output operations.
-	 *
-	 * @param storage List of reads to sort and output
-	 * @param currentMem Current memory usage in bytes
-	 * @param outstandingMem Atomic counter for tracking memory usage
-	 * @param fname1 Primary output file name (null for temp file)
-	 * @param fname2 Secondary output file name (null for temp file)
-	 * @param useHeader Whether to preserve SAM/BAM headers
-	 */
 	private void sortAndDump(final ArrayList<Read> storage, final long currentMem, final AtomicLong outstandingMem, String fname1, String fname2, boolean useHeader) {
 		String temp1=fname1;
 		String temp2=fname2;
@@ -1127,25 +845,8 @@ public class SortByName {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/**
-	 * Background thread for sorting and writing read data to temporary files.
-	 * Handles concurrent sorting operations to maximize throughput and manage
-	 * memory pressure during large dataset processing.
-	 */
 	private static class WriteThread extends Thread{
 		
-		/**
-		 * Constructor for WriteThread with all required parameters.
-		 * Initializes thread state for background sorting and file output operations.
-		 *
-		 * @param storage_ List of reads to be sorted and written
-		 * @param currentMem_ Current memory usage in bytes
-		 * @param outstandingMem_ Atomic counter for memory tracking
-		 * @param fname1_ Primary output file name
-		 * @param fname2_ Secondary output file name
-		 * @param useHeader_ Whether to preserve SAM/BAM headers
-		 * @param outstream_ Print stream for status messages
-		 */
 		public WriteThread(final ArrayList<Read> storage_, final long currentMem_, final AtomicLong outstandingMem_, 
 				String fname1_, String fname2_, boolean useHeader_, PrintStream outstream_){
 			storage=storage_;
@@ -1159,69 +860,54 @@ public class SortByName {
 		
 		@Override
 		public void run(){
-			try {
-				if(verbose){outstream.println("Started a WriteThread.");}
-				final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, false);
-				final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, false);
-				final Writer ros;
-				if(ffout1!=null){
-					final int buff=4;
-					ros=WriterFactory.getStream(ffout1, ffout2, null, null, buff, null, useHeader, -1);
-					ros.start(); //Start the stream
-				}else{ros=null;}
+			
+			if(verbose){outstream.println("Started a WriteThread.");}
+			final FileFormat ffout1=FileFormat.testOutput(fname1, FileFormat.FASTQ, null, true, false, false, false);
+			final FileFormat ffout2=FileFormat.testOutput(fname2, FileFormat.FASTQ, null, true, false, false, false);
+			final ConcurrentReadOutputStream ros;
+			if(ffout1!=null){
+				final int buff=4;
+				ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, useHeader);
+				ros.start(); //Start the stream
+			}else{ros=null;}
 
-				if(verbose){outstream.println("Started a ros.");}
-
-				// Critical section that was likely crashing
-				Shared.sort(storage, comparator);
-
-				if(verbose){outstream.println("Sorted reads.");}
-
-				ArrayList<Read> buffer=new ArrayList<Read>(200);
-				long id=0;
-				for(int i=0, lim=storage.size(); i<lim; i++){
-					Read r=storage.set(i, null);
-					buffer.add(r);
-					if(buffer.size()>=200){
-						if(ros!=null){ros.add(buffer, id);}
-						id++;
-						buffer=new ArrayList<Read>(200);
-					}
+			if(verbose){outstream.println("Started a ros.");}
+			
+			
+			Shared.sort(storage, comparator);
+			
+			if(verbose){outstream.println("Sorted reads.");}
+			
+			ArrayList<Read> buffer=new ArrayList<Read>(200);
+			long id=0;
+			for(int i=0, lim=storage.size(); i<lim; i++){
+				Read r=storage.set(i, null);
+				buffer.add(r);
+				if(buffer.size()>=200){
+					if(ros!=null){ros.add(buffer, id);}
+					id++;
+					buffer=new ArrayList<Read>(200);
 				}
-				if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
-				errorState|=ros.poisonAndWait();
-				if(verbose){outstream.println("Closed ros.");}
-			} catch (Throwable e) {
-				// Catching Throwable ensures we catch Assertions and RuntimeExceptions
-				System.err.println("Error in WriteThread:");
-				e.printStackTrace();
-				errorState=true;
-			} finally {
-				// ALWAYS decrement memory and notify, even if we crashed
-				synchronized(outstandingMem){
-					outstandingMem.addAndGet(-currentMem);
-					if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
-					outstandingMem.notify();
-					if(verbose){outstream.println("Notified outstandingMem.");}
-				}
+			}
+			if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
+			errorState|=ReadWrite.closeStream(ros);
+			if(verbose){outstream.println("Closed ros.");}
+			
+			synchronized(outstandingMem){
+				outstandingMem.addAndGet(-currentMem);
+				if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
+				outstandingMem.notify();
+				if(verbose){outstream.println("Notified outstandingMem.");}
 			}
 		}
 		
-		/** List of reads to be sorted by this thread */
 		final ArrayList<Read> storage;
-		/** Current memory usage in bytes for this sorting operation */
 		final long currentMem;
-		/** Atomic counter tracking outstanding memory across all threads */
 		final AtomicLong outstandingMem;
-		/** Primary output file name for this sorting thread */
 		final String fname1;
-		/** Secondary output file name for this sorting thread */
 		final String fname2;
-		/** Whether to preserve SAM/BAM headers in output */
 		final boolean useHeader;
-		/** Error state flag for this thread's operations */
 		boolean errorState=false;
-		/** Print stream for this thread's status messages */
 		final PrintStream outstream;
 		
 	}
@@ -1235,9 +921,7 @@ public class SortByName {
 	/** Secondary input file path */
 	private String in2=null;
 	
-	/** Primary quality input file path */
 	private String qfin1=null;
-	/** Secondary quality input file path */
 	private String qfin2=null;
 
 	/** Primary output file path */
@@ -1245,7 +929,6 @@ public class SortByName {
 	/** Secondary output file path */
 	private String out2=null;
 	
-	/** List of temporary file names created during sorting */
 	private ArrayList<String> outTemp=new ArrayList<String>();
 	
 	/** Override input file extension */
@@ -1253,25 +936,17 @@ public class SortByName {
 	/** Override output file extension */
 	private String extout=null;
 	
-	/** File extension for temporary files */
 	private String tempExt=null;
 
-	/** Path to GI to taxonomy ID mapping table file */
 	private String giTableFile=null;;
-	/** Path to taxonomic tree file */
 	private String taxTreeFile=null;
-	/** Path to accession to taxonomy ID mapping file */
 	private String accessionFile=null;
 	
 	/*--------------------------------------------------------------*/
 
-	/** Maximum read length observed during processing */
 	long maxLengthObserved=0;
-	/** Static maximum read length observed across all instances */
 	private static long maxLengthObservedStatic=0;
-	/** Whether quality scores are present in input data */
 	private final boolean qualityObserved;
-	/** Static flag indicating if quality scores have been observed */
 	private static boolean qualityObservedStatic;
 	
 	/** Number of reads processed */
@@ -1282,34 +957,24 @@ public class SortByName {
 	/** Quit after processing this many input reads; -1 means no limit */
 	private long maxReads=-1;
 
-	/** Whether to delete temporary files after sorting */
 	private boolean delete=true;
-	/** Whether to delete temporary files immediately after use */
 	private boolean deleteEarly=false;
 	
-	/** Whether to preserve shared SAM/BAM headers */
 	private boolean useSharedHeader=false;
 	
-	/** Whether temporary files are allowed for external sorting */
 	private boolean allowTempFiles=true;
 	
-	/** Minimum read length to include in sorting */
 	private int minlen=0;
 
-	/** Memory multiplier for individual sort blocks (0.30 default) */
 	private float memBlockMult=0.30f; //Crashed once at old default 0.35
-	/** Memory multiplier for total memory usage (0.65 default) */
 	private float memTotalMult=0.65f; //Crashed once at old default 0.75
 	
 	/** Max files to merge per pass */
 	private int maxFiles=12;
-	/** Whether maxFiles was explicitly set by user */
 	private boolean setMaxFiles=false;
 	
-	/** Static limit for merge file operations (24) */
 	private static int mergeFileLimit=24;
 	
-	/** Whether to generate k-mer data for topological sorting */
 	private boolean genKmer=true;
 	
 	/*--------------------------------------------------------------*/
@@ -1326,10 +991,8 @@ public class SortByName {
 	/** Secondary output file */
 	private final FileFormat ffout2;
 	
-	/** Whether clump-based sorting comparator is being used */
 	private final boolean clump;
 	
-	/** Static comparator used for sorting reads (default: ReadComparatorName) */
 	private static ReadComparator comparator=ReadComparatorName.comparator;
 	
 	/*--------------------------------------------------------------*/

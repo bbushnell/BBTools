@@ -453,7 +453,9 @@ public class Realign {
 //			r.toLongMatchString(false); //Not necessary if scoring can be done on short match string
 			assert(sl.cigar!=null) : sl;
 			boolean realigned=realigner.realign(r, sl, scaf, unclip);
-			if(!realigned && r.match!=null){sl.cigar=SamLine.toCigar14(r.match, r.start, r.stop, scaf.length, sl.seq);}
+			if(!realigned && r.match!=null){
+				sl.setCigar(SamLine.toCigar14(r.match, r.start, r.stop, scaf.length, sl.seq));
+			}
 			assert(sl.cigar!=null) : sl;
 			
 			int leftTrimAmount=border, rightTrimAmount=border;
