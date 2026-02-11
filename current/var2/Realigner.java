@@ -156,7 +156,7 @@ public class Realigner {
 		
 		// Update SAM line with new alignment
 		sl.pos=Tools.max(0, r.start)+1;
-		sl.cigar=SamLine.toCigar14(r.match, r.start, r.stop, ref.length, qbases);
+		sl.setCigar(SamLine.toCigar14(r.match, r.start, r.stop, ref.length, qbases));
 		sl.optional=null;
 		
 		// Convert to short match format for efficiency

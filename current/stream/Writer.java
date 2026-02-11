@@ -29,12 +29,14 @@ public interface Writer {
 	/** 
 	 * Submit ordered batch of reads for writing.
 	 * Blocks if queue is full. Thread-safe for single producer.
+	 * MUST USE ASCENDING NUMBERS FOR PROPER BEHAVIOUR.
 	 */
 	public void add(ArrayList<Read> reads, long id);
 	
 	/** 
 	 * Submit ordered batch of reads for writing.
 	 * Blocks if queue is full. Thread-safe for single producer.
+	 * MUST USE ASCENDING NUMBERS FOR PROPER BEHAVIOUR.
 	 */
 	public void addReads(ListNum<Read> reads);
 	

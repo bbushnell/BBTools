@@ -24,8 +24,17 @@ public final class ReadComparatorPosition extends ReadComparator {
 	}
 	
 	public static int compareInner(Read r1, Read r2) {
-		int x=compareInner(r1.samline, r2.samline);
-		if(x!=0){return x;}
+		final SamLine sl1=r1.samline, sl2=r2.samline;
+		if(sl1!=null && sl2!=null) {
+			int x=compareInner(r1.samline, r2.samline);
+			if(x!=0){return x;}
+		}else if(sl1==null && sl2==null) {
+			//fall through
+		}else if(sl1==null) {
+			return -1;
+		}else {
+			return 1;
+		}
 		if(r1.id==null && r2.id==null){return 0;}
 		if(r1.id==null){return -1;}
 		if(r2.id==null){return 1;}

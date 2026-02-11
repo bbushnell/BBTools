@@ -480,7 +480,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			if(SamLine.VERSION==1.3f){
 				if(r1!=null && !r1.discarded()){
 					assert(sl1!=null) : "Cigar string adjustment only works on sam/bam input.";
-					sl1.cigar=SamLine.toCigar13(sl1.cigar);
+					sl1.setCigar(SamLine.toCigar13(sl1.cigar));
 				}
 			}else{
 				if(r1!=null && !r1.discarded()){
@@ -489,7 +489,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 						r1.toLongMatchString(false);
 						int start=sl1.pos-1;
 						int stop=start+Read.calcMatchLength(r1.match)-1;
-						sl1.cigar=SamLine.toCigar14(r1.match, start, stop, Integer.MAX_VALUE, r1.bases);
+						sl1.setCigar(SamLine.toCigar14(r1.match, start, stop, Integer.MAX_VALUE, r1.bases));
 					}
 				}
 			}
@@ -766,8 +766,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		//Fix samline.
 		if(!r1.discarded() && r1.samline!=null) {
 			SamLine sl=r1.samline;
-			sl.seq=r1.bases;
-			sl.qual=r1.quality;
+			sl.setSeq(r1.bases);
+			sl.setQual(r1.quality);
 			sl.qname=r1.id;
 			if(sl.mapped() && sl.strand()==Shared.MINUS) {
 				r1.reverseComplementFast();

@@ -836,7 +836,7 @@ public class ReformatReads {
 			if(SamLine.VERSION==1.3f){
 				if(r1!=null && !r1.discarded()){
 					assert(sl1!=null) : "Cigar string adjustment only works on sam/bam input.";
-					sl1.cigar=SamLine.toCigar13(sl1.cigar);
+					sl1.setCigar(SamLine.toCigar13(sl1.cigar));
 				}
 			}else{
 				if(r1!=null && !r1.discarded()){
@@ -845,7 +845,7 @@ public class ReformatReads {
 						r1.toLongMatchString(false);
 						int start=sl1.pos-1;
 						int stop=start+Read.calcMatchLength(r1.match)-1;
-						sl1.cigar=SamLine.toCigar14(r1.match, start, stop, Integer.MAX_VALUE, r1.bases);
+						sl1.setCigar(SamLine.toCigar14(r1.match, start, stop, Integer.MAX_VALUE, r1.bases));
 					}
 				}
 			}

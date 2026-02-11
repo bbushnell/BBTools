@@ -326,13 +326,13 @@ public class SamStreamerWrapper{
 				//Fix CIGAR if needed
 				if(fixCigar && sl.cigar!=null){
 					if(SamLine.VERSION==1.3f){
-						sl.cigar=SamLine.toCigar13(sl.cigar);
+						sl.setCigar(SamLine.toCigar13(sl.cigar));
 					}else{
 						byte[] shortMatch=sl.toShortMatch(true);
 						byte[] longMatch=Read.toLongMatchString(shortMatch);
 						int start=sl.pos-1;
 						int stop=start+Read.calcMatchLength(longMatch)-1;
-						sl.cigar=SamLine.toCigar14(longMatch, start, stop, Integer.MAX_VALUE, sl.seq);
+						sl.setCigar(SamLine.toCigar14(longMatch, start, stop, Integer.MAX_VALUE, sl.seq));
 					}
 				}
 

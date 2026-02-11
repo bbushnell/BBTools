@@ -441,7 +441,10 @@ public class SamLine implements Serializable {
 		}
 		pos=lp.parseInt(3);
 		mapq=lp.parseInt(4);
-		if(PARSE_5){cigar=lp.parseString(5);}
+		if(PARSE_5){
+			int len=lp.setBounds(5);
+			setCigar(lp.currentTermEquals(star) ? null : lp.parseStringFromCurrentField());
+		}
 		if(PARSE_6){
 			int len=lp.setBounds(6);
 			rnext=lp.currentTermEquals(star) ? null : lp.parseByteArrayFromCurrentField();
@@ -516,7 +519,7 @@ public class SamLine implements Serializable {
 				setRname(Tools.trimToWhitespace(rname()));
 				setRnext(Tools.trimToWhitespace(rnext()));
 			}else{
-				setRname(Tools.trimToWhitespace(rnameS()));
+				setRnameS(Tools.trimToWhitespace(rnameS()));
 				setRnext(Tools.trimToWhitespace(rnext()));
 			}
 		}
@@ -570,6 +573,14 @@ public class SamLine implements Serializable {
 	/*--------------------------------------------------------------*/
 	/*----------------             Cigar            ----------------*/
 	/*--------------------------------------------------------------*/
+	
+	public static String toCigar(byte[] match, int start, int stop, long scafLen, byte[] bases) {
+		if(SamLine.VERSION>1.3){
+			return SamLine.toCigar14(match, start, stop, scafLen, bases);
+		}else{
+			return SamLine.toCigar13(match, start, stop, scafLen, bases);
+		}
+	}
 	
 	/**
 	 * Converts a match string to SAM v1.3 CIGAR format (uses M for matches/mismatches).
@@ -2786,17 +2797,63 @@ public class SamLine implements Serializable {
 
 	/** Sets reference name from byte array.
 	 * @param x RNAME bytes (requires RNAME_AS_BYTES=true) */
-	public void setRname(byte[] x){assert(RNAME_AS_BYTES);rname=x;}
+	public void setRname(byte[] x){
+		assert(RNAME_AS_BYTES);
+		rname=canonicalize(x);
+	}
 	/** Sets mate reference name from byte array.
 	 * @param x RNEXT bytes */
-	public void setRnext(byte[] x){rnext=x;}
+	public void setRnext(byte[] x){
+		rnext=canonicalize(x);
+	}
 
 	/** Sets reference name from string.
 	 * @param x RNAME string (requires RNAME_AS_BYTES=false) */
-	public void setRname(String x){assert(!RNAME_AS_BYTES);rnameS=x;}
+	public void setRnameS(String x){
+		assert(!RNAME_AS_BYTES);
+		rnameS=canonicalize(x);
+	}
 	/** Sets mate reference name from string.
 	 * @param x RNEXT string */
-	public void setRnext(String x){rnext=(x==null ? null : x.getBytes());}
+	public void setRnextS(String x){
+		rnext=canonicalizeB(x);
+	}
+	
+	public void setCigar(String x) {
+		cigar=canonicalize(x);
+	}
+	
+	public void setSeq(byte[] x) {
+		seq=canonicalize(x);
+	}
+	
+	public void setQual(byte[] x) {
+		qual=canonicalize(x);
+	}
+	
+	public static final String canonicalize(String x) {
+		if(x!=null && x.length()>1) {return x;}
+		else if(stringstar.equals(x)) {return null;}
+		else if(stringequals.equals(x)) {return stringequals;}
+		else if(x==null) {return x;/* handle? */}
+		else {return x;}
+	}
+	
+	public static final byte[] canonicalizeB(String x) {
+		if(x!=null && x.length()>1) {return x.getBytes();}
+		else if(stringstar.equals(x)) {return null;}
+		else if(stringequals.equals(x)) {return byteequals;}
+		else if(x==null) {return null;/* handle? */}
+		else {return x.getBytes();}
+	}
+	
+	public static final byte[] canonicalize(byte[] x) {
+		if(x!=null && x.length>1) {return x;}
+		else if(x==null || x.length==0) {return null;}
+		else if(x[0]==star) {return null;}
+		else if(x[0]==equals) {return byteequals;}
+		else {return x;}
+	}
 	
 	/** Returns reference name as string.
 	 * @return RNAME field as string */
@@ -2969,16 +3026,17 @@ public class SamLine implements Serializable {
 	/*----------------         Static Fields        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	private static final byte star=(byte)'*';
+	private static final byte equals=(byte)'=';
+	
 	/** Constant for missing string fields in SAM format */
 	private static final String stringstar="*";
 	/** Constant indicating same reference as mate */
 	private static final String stringequals="=";
 	/** Byte array constant for missing fields */
-	private static final byte[] bytestar=new byte[] {(byte)'*'};
+	private static final byte[] bytestar=new byte[] {star};
 	/** Byte array constant indicating same reference as mate */
-	private static final byte[] byteequals=new byte[] {(byte)'='};
-	private static final byte star=(byte)'*';
-	private static final byte equals=(byte)'=';
+	public static final byte[] byteequals=new byte[] {equals};
 	private static final String XSPLUS="XS:A:+", XSMINUS="XS:A:-";
 //	private static final double inv100=0.01d;
 //	private static float minratio=0.4f;
