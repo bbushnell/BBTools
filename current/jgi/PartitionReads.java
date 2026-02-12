@@ -14,12 +14,15 @@ import parse.PreParser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.FASTQ;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
+import structures.IntList;
 import structures.ListNum;
 import tracker.ReadStats;
 
@@ -250,9 +253,9 @@ public class PartitionReads {
 	void process(Timer t){
 		
 		//Create a read input stream
-		final ConcurrentReadInputStream cris;
+		final Streamer cris;
 		{
-			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2);
+			cris=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2, -1);
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -260,13 +263,13 @@ public class PartitionReads {
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 		//Optionally create a read output stream
-		final ConcurrentReadOutputStream ros[];
+		final Writer ros[];
 		if(ffout1!=null && ffout1.length>0){
-			ros=new ConcurrentReadOutputStream[ways];
+			ros=new Writer[ways];
 			final int buff=1;
 			
 			for(int i=0; i<ways; i++){
-				ros[i]=ConcurrentReadOutputStream.getStream(ffout1[i], ffout2[i], qfout1Array[i], qfout2Array[i], buff, null, useSharedHeader);
+				ros[i]=WriterFactory.getStream(ffout1[i], ffout2[i], qfout1Array[i], qfout2Array[i], buff, null, useSharedHeader, 1);
 				ros[i].start(); //Start the stream
 			}
 		}else{ros=null;}
@@ -303,7 +306,7 @@ public class PartitionReads {
 	 * @param cris Input stream for reading sequence data
 	 * @param ros Array of output streams for writing partitioned reads
 	 */
-	void processInner(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros[]){
+	void processInner(final Streamer cris, final Writer ros[]){
 		
 		//Do anything necessary prior to processing
 		
@@ -358,18 +361,9 @@ public class PartitionReads {
 					outLists[i]=new ArrayList<Read>();
 				}
 				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
-				if(verbose){outstream.println("Returned a list.");}
-				
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
-			}
-			
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 		}
 		
@@ -383,7 +377,7 @@ public class PartitionReads {
 	 * @param cris Input stream for reading sequence data
 	 * @param ros Array of output streams for writing partitioned reads
 	 */
-	void processInner_heap(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros[]){
+	void processInner_heap(final Streamer cris, final Writer ros[]){
 		
 		//Do anything necessary prior to processing
 		
@@ -436,24 +430,29 @@ public class PartitionReads {
 					if(ros!=null){ros[i].add(outLists[i], ln.id);}
 					outLists[i]=new ArrayList<Read>();
 				}
-				
-				//Notify the input stream that the list was used
-				cris.returnList(ln);
 				if(verbose){outstream.println("Returned a list.");}
 				
 				//Fetch a new list
 				ln=cris.nextList();
 				reads=(ln!=null ? ln.list : null);
 			}
-			
-			//Notify the input stream that the final list was used
-			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
-			}
 		}
 		
 		//Do anything necessary after processing
 		
+	}
+	
+	/**
+	 * @param dimensionNames List of dimensions like GC, depth, HH, CAGA, length
+	 * @param waysPerDimension Total output files is product of this list's elements
+	 * @param overlap Fraction that can be outputted to multiple adjacent bins.  May be complicated, assume 0 until everything else is perfect. 
+	 */
+	void dimensionSplit(ArrayList<String> dimensionNames, IntList waysPerDimension, float overlap){
+		final int dims=dimensionNames.size();
+		//TODO:
+		//1) Process the input file to make histograms of each dimension (total number of bp in each)
+		//2) Determine optimal partition for each dimension so that each bucket will get a similar number of bp
+		//3) Start the streams and process the data
 	}
 	
 	private static class Partition implements Comparable<Partition> {
