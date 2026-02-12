@@ -10,7 +10,7 @@ import java.util.HashSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import aligner.SideChannel3;
+import aligner.SideChannel4;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
 import fileIO.ByteStreamWriter;
@@ -371,7 +371,7 @@ public class BBDuk2 {
 			}
 		}
 		if(align) {
-			sidechannel=new SideChannel3(alignRef, alignOut, null, alignK1, alignK2, 
+			sidechannel=new SideChannel4(alignRef, alignOut, null, alignK1, alignK2, 
 					alignMinid1, alignMinid2, alignMM1, alignMM2, overwrite, ordered);
 		}else {
 			sidechannel=null;
@@ -4611,7 +4611,7 @@ public class BBDuk2 {
 	private final int alignK2;
 	private final int alignMM1;
 	private final int alignMM2;
-	private final SideChannel3 sidechannel;
+	private final SideChannel4 sidechannel;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Histogram Flags       ----------------*/

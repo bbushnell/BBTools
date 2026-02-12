@@ -3,7 +3,7 @@ package bbduk;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import aligner.SideChannel3;
+import aligner.SideChannel4;
 import fileIO.ByteStreamWriter;
 import fileIO.TextStreamWriter;
 import structures.IntList;
@@ -48,7 +48,7 @@ public abstract class BBDukIndexAbstract{
 
 	abstract void dump(TextStreamWriter tsw, int i, int maxValue);
 
-	abstract SideChannel3 sidechannel();
+	abstract SideChannel4 sidechannel();
 
 	abstract int getValue(long kmer, long rkmer, long l, int i, int len,
 		int qHammingDistance2);

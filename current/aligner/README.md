@@ -883,7 +883,7 @@ The aligner package implementations directly support multiple bioinformatics res
   - Visualizer integration with optional matrix visualization through output parameter for alignment pattern analysis
 - **Usage**: High-performance sequence alignment with automatic bandwidth optimization for varying sequence divergence
 
-#### SideChannel3 (SideChannel3.java)
+#### SideChannel4 (SideChannel4.java)
 **Purpose**: Dual k-mer alignment tool for detecting PhiX contamination in Illumina sequencing libraries
 - **Core Function**: Specialized contamination detection system using dual k-mer indices with different lengths to capture divergent sequences
 - **Key Features**:

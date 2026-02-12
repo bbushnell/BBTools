@@ -3,7 +3,7 @@ package bbduk;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import aligner.SideChannel3;
+import aligner.SideChannel4;
 import fileIO.ByteStreamWriter;
 import structures.IntList;
 import var2.ScafMap;
@@ -79,8 +79,8 @@ public abstract class BBDukIndex {
 	/** Fills scaffold names from reference file names. */
 	abstract void toRefNames();
 
-	/** @return The SideChannel3 instance for alignment, or null. */
-	abstract SideChannel3 sidechannel();
+	/** @return The SideChannel4 instance for alignment, or null. */
+	abstract SideChannel4 sidechannel();
 
 	/**
 	 * Queries the index for a kmer.

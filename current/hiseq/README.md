@@ -34,7 +34,7 @@ java AnalyzeFlowCell in1=input_R1.fastq in2=input_R2.fastq out1=output_R1.fastq 
 ```
 
 **Dependencies**:
-- Relies on multiple BBTools package classes: `Read`, `BloomFilter`, `SideChannel3`, `BarcodeStats`
+- Relies on multiple BBTools package classes: `Read`, `BloomFilter`, `SideChannel4`, `BarcodeStats`
 - Utilizes Java concurrent utilities for thread-safe processing
 - Depends on custom parsing and quality assessment utilities
 
