@@ -4,7 +4,7 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.HashMap;
-import aligner.SideChannel3;
+import aligner.SideChannel4;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
 import fileIO.FileFormat;
@@ -516,7 +516,7 @@ public class BBDukS {
 	/*----------------         Side Channel         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private SideChannel3 sidechannel;
+	private SideChannel4 sidechannel;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/

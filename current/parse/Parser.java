@@ -10,6 +10,7 @@ import align2.IndexMaker4;
 import align2.IndexMaker5;
 import align2.QualityTools;
 import aligner.SideChannel3;
+import aligner.SideChannel4;
 import bloom.KCountArray;
 import bloom.KmerCountAbstract;
 import cardinality.CardinalityTracker;
@@ -973,7 +974,7 @@ public class Parser {
 		}
 		
 		else if(a.equalsIgnoreCase("sidechannelstats")){
-			SideChannel3.TRACK_STATS=Parse.parseBoolean(b);
+			SideChannel4.TRACK_STATS=SideChannel3.TRACK_STATS=Parse.parseBoolean(b);
 		}
 		
 		else if(a.equals("lowmem") || a.equals("lowram") || a.equals("lowmemory")){

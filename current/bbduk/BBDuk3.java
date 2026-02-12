@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicLongArray;
 
-import aligner.SideChannel3;
+import aligner.SideChannel4;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
 import fileIO.FileFormat;
@@ -3887,7 +3887,7 @@ public class BBDuk3 {
 	/*----------------         Side Channel         ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private SideChannel3 sidechannel;
+	private SideChannel4 sidechannel;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Histogram Flags       ----------------*/
