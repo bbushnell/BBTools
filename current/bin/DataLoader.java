@@ -19,6 +19,7 @@ import fileIO.ReadWrite;
 import fileIO.TextFile;
 import map.IntHashMap;
 import map.IntLongHashMap;
+import map.ObjectDoubleMap;
 import map.ObjectIntMap;
 import map.ObjectSet;
 import ml.CellNet;
@@ -1103,6 +1104,39 @@ public class DataLoader extends BinObject {
 	}
 	
 	/**
+	 * Parses and sets depth information from contig name using multiple formats.
+	 * Recognizes SPAdes, Tadpole, and generic coverage patterns in sequence headers.
+	 *
+	 * @param name Name parse
+	 * @param lps Line parser for underscore-delimited fields
+	 * @param lpt Line parser for comma/equals-delimited fields
+	 * @return >=0 if depth was successfully parsed
+	 */
+	public static float parseDepth(String name, LineParserS1 lps, LineParserS4 lpt) {
+		if(name.startsWith("NODE_") && name.contains("_cov_")) {//Spades
+			lps.set(name);
+			float depth=lps.parseFloat(5);
+			return depth;
+		}else if(name.startsWith("contig_") && name.contains(",cov=")) {//Tadpole
+			lpt.set(name);
+			float depth=lpt.parseFloat(3);
+			return depth;
+		}else if(name.contains("_cov_")) {//Generic
+			lps.set(name);
+			for(int i=0; i<lps.terms()-1; i++) {
+				if(lps.termEquals("cov=", i)) {//do something
+					i++;
+					return lps.parseFloat(i);
+				}else if(lps.termEquals("cov", i)) {
+					i++;
+					return lps.parseFloat(i);
+				}
+			}
+		}
+		return -1;
+	}
+	
+	/**
 	 * Calculates depth for contigs using kmer frequencies from Bloom filter.
 	 * Estimates average coverage by querying contig kmers against filter.
 	 *
@@ -1154,6 +1188,49 @@ public class DataLoader extends BinObject {
 				list.add(f);
 			}
 			map.put(name, list);
+			loaded++;
+		}
+		t.stopAndPrint();
+		return map;
+	}
+	
+	/**
+	 * Loads coverage data from file into name-indexed map.
+	 * Collapses samples to a single depth per contig.
+	 * @param fname Path to coverage file
+	 * @return Map of contig names to total depth
+	 */
+	public static ObjectDoubleMap<String> loadCovFile2(String fname) {
+		System.err.print("Loading coverage from "+fname+": ");
+		Timer t=new Timer(System.err, false);
+		LineParser1 lp=new LineParser1('\t');
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		
+		byte[] line=bf.nextLine();
+		int numDepths=0;
+		for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
+			if(Tools.startsWith(line, "#Depths")) {
+				numDepths=lp.set(line).parseInt(1);
+			}
+		}
+		assert(numDepths>0) : numDepths;
+		final int edgeStart=3+numDepths;
+		final int samples=numDepths;
+		int loaded=0;
+		
+		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
+		for(; line!=null; line=bf.nextLine()) {
+			lp.set(line);
+			String name=lp.parseString(0);
+			int id=lp.parseInt(1);
+			int size=lp.parseInt(2);
+			int edges=(lp.terms()-edgeStart)/2;
+			double depth=0;
+			for(int i=0; i<samples; i++) {
+				float f=lp.parseFloat(i+3);
+				depth+=f;
+			}
+			map.put(name, depth);
 			loaded++;
 		}
 		t.stopAndPrint();

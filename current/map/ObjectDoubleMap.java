@@ -13,157 +13,26 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Hash map with Object keys and primitive int values.
+ * Hash map with Object keys and primitive double values.
  * Uses open addressing with linear probing for collision resolution.
  * Caches hash codes to avoid expensive equals() calls during probing.
  * Uses power-of-2 sizing for fast modulo via bitwise AND.
  * 
- * Significantly more memory-efficient than HashMap<K, Integer> by:
- * - Storing primitive int values instead of Integer objects
+ * Significantly more memory-efficient than HashMap<K, Double> by:
+ * - Storing primitive double values instead of Double objects
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * 
  * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
  * 
- * @author Isla
- * @date November 2, 2025
+ * @author Brian
+ * @date Feb 14, 2026
  * 
  * @param <K> Key type - must properly implement hashCode() and equals()
  */
-public final class ObjectIntMap<K> implements Serializable {
+public final class ObjectDoubleMap<K> implements Serializable {
 
 	private static final long serialVersionUID = 1L;
-
-	public static void main(String[] args){
-		int size=args.length>0 ? Integer.parseInt(args[0]) : 1000000;
-		int repeats=args.length>1 ? Integer.parseInt(args[1]) : 1;
-		ArrayList<String> list=randomStrings(size, 1, 50);
-		test(list);
-		bench(list, repeats);
-	}
-
-	private static ArrayList<String> randomStrings(int size, int minLen, int maxLen){
-		// Generate random strings
-		Shared.printMemory();
-		ArrayList<String> strings=new ArrayList<String>(size);
-		Random randy=shared.Shared.random(12345);
-		int range=maxLen-minLen+1;
-		for(int i=0; i<size; i++){
-			int len=randy.nextInt(range)+minLen;
-			StringBuilder sb=new StringBuilder(len);
-			for(int j=0; j<len; j++){
-				sb.append((char)('0'+randy.nextInt(76)));
-			}
-			strings.add(sb.toString());
-		}
-		Shared.printMemory();
-		System.err.println("Generated "+size+" random strings");
-		return strings;
-	}
-
-	/**
-	 * Tests correctness by comparing ObjectIntMap against HashMap.
-	 * Creates random list, inserts them in both maps, and validates all values match.
-	 */
-	private static void test(ArrayList<? extends Object> list){
-		System.err.println("\n*** Testing Correctness ***");
-
-		// Build HashMap
-		HashMap<Object, Integer> hashMap=new HashMap<Object, Integer>();
-		for(int i=0; i<list.size(); i++){
-			hashMap.put(list.get(i), i);
-		}
-
-		// Build ObjectIntMap
-		ObjectIntMap<Object> objectMap=new ObjectIntMap<Object>();
-		for(int i=0; i<list.size(); i++){
-			objectMap.put(list.get(i), i);
-		}
-
-		System.err.println("HashMap size: "+hashMap.size());
-		System.err.println("ObjectIntMap size: "+objectMap.size());
-		assert(hashMap.size()==objectMap.size()) : "Size mismatch!";
-
-		// Validate all values match
-		int errors=0;
-		for(int i=0; i<list.size(); i++){
-			Object key=list.get(i);
-			Integer hashVal=hashMap.get(key);
-			int objVal=objectMap.get(key);
-			if(hashVal==null || hashVal!=objVal){
-				System.err.println("ERROR at index "+i+": key='"+key+"', HashMap="+hashVal+", ObjectIntMap="+objVal);
-				errors++;
-				if(errors>10){break;} // Don't spam too much
-			}
-		}
-
-		if(errors==0){
-			System.err.println("*** PASS: All values match! ***");
-		}else{
-			System.err.println("*** FAIL: "+errors+" mismatches found! ***");
-			System.exit(1);
-		}
-	}
-
-	/**
-	 * Benchmarks performance against HashMap<Object, Integer>.
-	 */
-	private static void bench(ArrayList<? extends Object> list, int repeats){
-		System.gc();
-		Timer t=new Timer();
-
-		{
-			System.err.println("\n*** ObjectIntMap<Object> ***");
-			Shared.printMemory();
-			t.start();
-			long sum=0;
-			ObjectIntMap<Object> map=null;
-			for(int r=0; r<repeats; r++){
-				map=new ObjectIntMap<Object>();
-				for(int i=0; i<list.size(); i++){
-					map.put(list.get(i), i);
-				}
-				for(int i=0; i<list.size(); i++){
-					sum+=map.get(list.get(i));
-				}
-				//				for(int i=0; i<list.size(); i++){
-				//					map.remove(list.get(i));
-				//				}
-			}
-			t.stop("Time: \t");
-			System.gc();
-			System.err.println("Size: "+map.size()+", sum="+sum);
-			Shared.printMemory();
-			map=null;
-			System.gc();
-		}
-
-		{
-			System.err.println("\n*** HashMap<Object, Integer> ***");
-			Shared.printMemory();
-			t.start();
-			long sum=0;
-			HashMap<Object, Integer> map=null;
-			for(int r=0; r<repeats; r++){
-				map=new HashMap<Object, Integer>();
-				for(int i=0; i<list.size(); i++){
-					map.put(list.get(i), i);
-				}
-				for(int i=0; i<list.size(); i++){
-					sum+=map.get(list.get(i));
-				}
-				//				for(int i=0; i<list.size(); i++){
-				//					map.remove(list.get(i));
-				//				}
-			}
-			t.stop("Time: \t");
-			System.gc();
-			System.err.println("Size: "+map.size()+", sum="+sum);
-			Shared.printMemory();
-			map=null;
-			System.gc();
-		}
-	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -172,7 +41,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
 	 */
-	public ObjectIntMap(){
+	public ObjectDoubleMap(){
 		this(256);
 	}
 
@@ -180,7 +49,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 */
-	public ObjectIntMap(int initialSize){
+	public ObjectDoubleMap(int initialSize){
 		this(initialSize, 0.7f);
 	}
 
@@ -189,7 +58,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
-	public ObjectIntMap(int initialSize, float loadFactor_){
+	public ObjectDoubleMap(int initialSize, float loadFactor_){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
@@ -216,7 +85,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param key Key to look up
 	 * @return Value associated with key, or -1 if key not found
 	 */
-	public int get(K key){
+	public double get(K key){
 		int cell=findCell(key);
 		return cell<0 ? -1 : values[cell];
 	}
@@ -237,7 +106,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or -1 if key was not present
 	 */
-	public int put(K key, int value){
+	public double put(K key, double value){
 		return set(key, value);
 	}
 
@@ -245,7 +114,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * Copies all entries from another map into this map.
 	 * @param map Source map to copy from
 	 */
-	public void putAll(ObjectIntMap<K> map){
+	public void putAll(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
 			if(map.keys[i]!=null){
 				put(map.keys[i], map.values[i]);
@@ -260,11 +129,11 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param value Value to associate with key
 	 * @return Previous value associated with key, or -1 if key was not present
 	 */
-	public int set(K key, int value){
+	public double set(K key, double value){
 		assert(key!=null) : "Null keys not supported";
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
-		final int oldV=values[cell];
+		final double oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==null){
 			keys[cell]=key;
@@ -283,10 +152,10 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param hash Hashcode of key
 	 * @return Previous value associated with key, or -1 if key was not present
 	 */
-	private int set(final K key, final int value, final int hash){
+	private double set(final K key, final double value, final int hash){
 		assert(key!=null) : "Null keys not supported";
 		final int cell=findCellOrEmpty(key, hash);
-		final int oldV=values[cell];
+		final double oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==null){
 			keys[cell]=key;
@@ -303,25 +172,24 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param key Key to increment
 	 * @return New value after increment
 	 */
-	public int increment(K key){
+	public double increment(K key){
 		return increment(key, 1);
 	}
 
 	/**
 	 * Increments the value associated with the key by the specified amount.
 	 * If key is not present, inserts it with the increment value.
-	 * Values are clamped to Integer.MAX_VALUE on overflow.
 	 * @param key Key to increment
 	 * @param incr Amount to add (can be negative)
 	 * @return New value after increment
 	 */
-	public int increment(K key, int incr){
+	public double increment(K key, double incr){
 		assert(key!=null) : "Null keys not supported";
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
-		final long oldV=values[cell];
-		final long value=oldV+incr;
-		values[cell]=(int)Tools.min(Integer.MAX_VALUE, value);
+		final double oldV=values[cell];
+		final double value=oldV+incr;
+		values[cell]=value;
 		if(keys[cell]==null){
 			keys[cell]=key;
 			hashes[cell]=hash;
@@ -336,7 +204,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * Keys not present in this map are inserted with their values from the source map.
 	 * @param map Source map containing increment values
 	 */
-	public void incrementAll(ObjectIntMap<K> map){
+	public void incrementAll(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
 			if(map.keys[i]!=null){
 				increment(map.keys[i], map.values[i]);
@@ -349,7 +217,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * of the current value and the source value.
 	 * @param map Source map to compare against
 	 */
-	public void setToMax(ObjectIntMap<K> map){
+	public void setToMax(ObjectDoubleMap<K> map){
 		for(int i=0; i<map.keys.length; i++){
 			final K key=map.keys[i];
 			if(key!=null){
@@ -407,7 +275,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 */
 	private boolean rehashCell(final int cell){
 		final K key=keys[cell];
-		final int value=values[cell];
+		final double value=values[cell];
 		final int hash=hashes[cell];
 		assert(key!=null);
 		final int dest=findCellOrEmpty(key, hash);
@@ -502,12 +370,12 @@ public final class ObjectIntMap<K> implements Serializable {
 
 		@SuppressWarnings("unchecked")
 		final K[] oldK=keys;
-		final int[] oldV=values;
+		final double[] oldV=values;
 		final int[] oldH=hashes;
 		@SuppressWarnings("unchecked")
 		K[] temp=(K[])new Object[(int)size3];
 		keys=temp;
-		values=KillSwitch.allocInt1D((int)size3);
+		values=KillSwitch.allocDouble1D((int)size3);
 		Arrays.fill(values, -1);
 		hashes=KillSwitch.allocInt1D((int)size3);
 
@@ -517,7 +385,7 @@ public final class ObjectIntMap<K> implements Serializable {
 		for(int i=0; i<oldK.length; i++){
 			final K k=oldK[i];
 			if(k!=null){
-				final int v=oldV[i];
+				final double v=oldV[i];
 				final int h=oldH[i];
 				set(k, v, h);
 			}
@@ -536,7 +404,7 @@ public final class ObjectIntMap<K> implements Serializable {
 			K key=keys[i];
 			if(key!=null) {
 				if(bb.length>1) {bb.comma().space();}
-				bb.append(key.toString()).equals().append(values[i]);
+				bb.append(key.toString()).equals().append(values[i], 3);
 			}
 		}
 		return bb;
@@ -558,7 +426,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * WARNING: Contains 0 for empty cells corresponding to null keys.
 	 * @return Internal value array
 	 */
-	public int[] values(){return values;}
+	public double[] values(){return values;}
 
 	/**
 	 * Returns the number of key-value pairs in the map.
@@ -579,7 +447,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	/** Array of keys (null for empty cells) */
 	private K[] keys;
 	/** Array of values (parallel to keys array) */
-	private int[] values;
+	private double[] values;
 	/** Array of cached hash codes (parallel to keys array, 0 for empty cells) */
 	private int[] hashes;
 	/** Number of entries in the map */
