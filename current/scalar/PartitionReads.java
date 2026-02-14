@@ -1,13 +1,17 @@
-package jgi;
+package scalar;
 
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.PriorityQueue;
 
+import bin.DataLoader;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.ObjectDoubleMap;
+import parse.LineParser1;
 import parse.LineParserS1;
 import parse.LineParserS4;
 import parse.Parse;
@@ -103,13 +107,81 @@ public class PartitionReads {
 				splitByBP=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("pacbio") || a.equals("subreads")){
 				pacBioMode=Parse.parseBoolean(b);
-			}else if(a.equals("partitionby") || a.equals("partition")){
-				String modeName=b.toLowerCase();
-				mode=-1;
-				for(int j=0; j<modeNames.length; j++){
-					if(modeName.equals(modeNames[j])){mode=j+1; break;}  //Modes are 1-indexed
+			}else if(a.equals("partitionby") || a.equals("partition") || a.equals("splitby") || a.equals("mode")){
+				mode=Tools.find(b==null ? null : b.toLowerCase(), modeNames);
+				if(mode<0){throw new RuntimeException("Unknown partition mode: "+b+". Options: "+Arrays.toString(modeNames));}
+			}else if(a.equals("cov") || a.equals("coverage") || a.equals("sam") || a.equals("bam")){
+				if(FileFormat.isSamOrBamFile(b)){
+					depthFile=b;
+				}else{
+					covFile=b;
 				}
-				if(mode<0){throw new RuntimeException("Unknown partition mode: "+b+". Valid options: count, bp, gc, hh, caga, length");}
+			}else if(a.equals("depth")){
+				if(b==null || b.indexOf('.')<1){
+					if(Parse.parseBoolean(b)){mode=DEPTH;}
+				}else{
+					if(FileFormat.isSamOrBamFile(b)){
+						depthFile=b;
+					}else{
+						covFile=b;
+					}
+				}
+			}else if(a.equals("cutoff") || a.equals("cutoffs")){
+				String[] cutoffStrs=b.split(",");
+				customCutoffs=new float[cutoffStrs.length];
+				for(int j=0; j<cutoffStrs.length; j++){
+					customCutoffs[j]=Float.parseFloat(cutoffStrs[j]);
+				}
+				//Validate cutoffs
+				for(int j=0; j<customCutoffs.length; j++){
+					if(customCutoffs[j]<0){
+						throw new RuntimeException("Cutoff values cannot be negative: "+customCutoffs[j]);
+					}
+				}
+				//Check for duplicates
+				for(int j=0; j<customCutoffs.length-1; j++){
+					for(int k=j+1; k<customCutoffs.length; k++){
+						if(customCutoffs[j]==customCutoffs[k]){
+							throw new RuntimeException("Duplicate cutoff values not allowed: "+customCutoffs[j]);
+						}
+					}
+				}
+				//Sort cutoffs ascending
+				java.util.Arrays.sort(customCutoffs);
+				int requestedWays=ways;
+				ways=customCutoffs.length+1;  //Auto-set ways from cutoff count
+				if(requestedWays>0 && requestedWays!=ways){
+					outstream.println("Note: partitions="+requestedWays+" overridden by cutoff count; using "+ways+" partitions");
+				}
+			}else if(parser.in1==null && new File(arg).exists() && Tools.canRead(arg)){
+				//First existing readable file becomes input
+				FileFormat ff=FileFormat.testInput(arg, FileFormat.FASTA, null, false, false);
+				if(ff!=null && (ff.fasta() || ff.fastq() || ff.samOrBam())){
+					parser.in1=arg;
+					outstream.println("Using "+arg+" as input.");
+				}else{
+					outstream.println("Unknown parameter "+args[i]);
+					assert(false) : "Unknown parameter "+args[i];
+				}
+			}else if(parser.out1==null && (arg.contains("%") || arg.contains("#"))){
+				//First file with % or # becomes output pattern
+				parser.out1=arg;
+				outstream.println("Using "+arg+" as output pattern.");
+			}else if(new File(arg).exists() && Tools.canRead(arg)){
+				//Detect file type for depth sources
+				FileFormat ff=FileFormat.testInput(arg, FileFormat.SAM, null, false, false);
+				if(ff!=null && ff.samOrBam()){
+					depthFile=arg;
+					outstream.println("Using "+arg+" for depth information.");
+				}else if(looksLikeCovFile(arg)){
+					covFile=arg;
+					outstream.println("Using "+arg+" for depth information.");
+				}else{
+					outstream.println("Unknown file type: "+arg);
+					assert(false) : "Unknown file type: "+arg;
+				}
+			}else if(Tools.find(a, modeNames)>=0){
+				mode=Tools.find(a, modeNames);
 			}else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
@@ -144,7 +216,12 @@ public class PartitionReads {
 			extout=parser.extout;
 		}
 
-		assert(ways>0) : "Ways must be at least 1.";
+		//Warn if no output pattern specified
+	if(out1==null){
+		outstream.println("*** Warning: No output pattern specified, no output will be generated. ***");
+	}
+
+	assert(ways>0) : "Ways must be at least 1.";
 
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -254,6 +331,15 @@ public class PartitionReads {
 		//Set optimization flags based on mode
 		needDimers=(mode==GC || mode==HH || mode==CAGA);
 		needDepth=(mode==DEPTH);
+
+		//Load depth map if in DEPTH mode with external files
+		if(mode==DEPTH){
+			if(covFile!=null){
+				depthMap=loadCoverageFile(covFile);
+			}else if(depthFile!=null){
+				depthMap=loadDepthFromAlignment(depthFile);
+			}
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -326,6 +412,11 @@ public class PartitionReads {
 		//Report timing and results
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+
+		//Print partition statistics
+		if(ros!=null && ffout1!=null){
+			printPartitionStatistics(ros, mode);
+		}
 
 		//Throw an exception of there was an error in a thread
 		if(errorState){
@@ -515,7 +606,7 @@ public class PartitionReads {
 				}else{
 					int bin;
 					if(mode==DEPTH){
-						bin=(int)metric;  //Already quantized
+						bin=quantizeDepth(metric);  //Quantize real depth for histogram
 						bin=Tools.min(bin, histSize-1);
 					}else{
 						bin=(int)(metric*1023);
@@ -607,7 +698,13 @@ public class PartitionReads {
 		Object histogram=buildHistogram(cris, mode);
 
 		// Phase 2: Calculate boundaries
-		float[] boundaries=calculateBalancedBoundaries(histogram, ways, mode);
+		float[] boundaries;
+		if(customCutoffs!=null){
+			boundaries=customCutoffs;  //Use provided cutoffs
+			if(verbose){outstream.println("Using custom cutoffs");}
+		}else{
+			boundaries=calculateBalancedBoundaries(histogram, ways, mode);  //Auto-calculate
+		}
 
 		if(verbose){
 			outstream.println("Partition boundaries:");
@@ -641,7 +738,25 @@ public class PartitionReads {
 			case HH: return dimers.HH();
 			case CAGA: return dimers.CAGA();
 			case LENGTH: return r1.pairLength();
-			case DEPTH: return quantizeDepth(parseDepth(r1.id, lps, lpt));
+			case DEPTH:
+				if(depthMap!=null){
+					//Use external depth from coverage or alignment file - return REAL depth
+					String name=Tools.trimToWhitespace(r1.id);
+					double depth=depthMap.get(name);
+					if(depth<0){
+						//Not found in map - warn once and set to 0
+						if(!warnedMissingCoverage){
+							outstream.println("***Warning! "+name+" not found in coverage data; further warnings will be suppressed.***");
+							warnedMissingCoverage=true;
+						}
+						depth=0;
+					}
+					return (float)depth;
+				}else{
+					//Parse depth from header - return REAL depth
+					float depth=parseDepth(r1.id, lps, lpt);
+					return (depth<0 ? 0 : depth);  //Handle not found
+				}
 			default: throw new RuntimeException("Unknown metric mode: "+mode);
 		}
 	}
@@ -657,6 +772,19 @@ public class PartitionReads {
 		float yf=((float)(Tools.log2(depth+0.0625f)+4));
 		int level=(int)(yf*100);  //100 steps per log unit = ~1% resolution
 		return level;
+	}
+
+	/**
+	 * De-quantizes depth level back to real depth value.
+	 * Inverse of quantizeDepth().
+	 * @param level Quantized depth level
+	 * @return Real depth value
+	 */
+	private static float dequantizeDepth(int level){
+		if(level<=0){return 0;}
+		float yf=level/100.0f;  //Reverse: level = yf*100
+		float depth=(float)(Math.pow(2, yf-4) - 0.0625);  //Reverse: yf = log2(depth+0.0625)+4
+		return Tools.max(0, depth);  //Ensure non-negative
 	}
 
 	/**
@@ -723,7 +851,7 @@ public class PartitionReads {
 			for(int i=0; i<histogram.length; i++){
 				accumulated+=histogram[i];
 				if(accumulated>=targetPerPartition*(partitionIndex+1) && partitionIndex<ways-1){
-					boundaries[partitionIndex]=(mode==DEPTH ? (float)(i+1) : (i+1)/1024.0f);
+					boundaries[partitionIndex]=(mode==DEPTH ? dequantizeDepth(i+1) : (i+1)/1024.0f);
 					partitionIndex++;
 				}
 			}
@@ -746,6 +874,216 @@ public class PartitionReads {
 			}
 		}
 		return boundaries.length-1;
+	}
+
+	/**
+	 * Checks if a file looks like a coverage file by examining the first line.
+	 * Recognizes pileup (#ID) and covmaker (#Contigs) formats.
+	 * @param fname Path to file to check
+	 * @return True if file appears to be a coverage file
+	 */
+	private static boolean looksLikeCovFile(String fname){
+		try{
+			ByteFile bf=ByteFile.makeByteFile(fname, true);
+			byte[] firstLine=bf.nextLine();
+			bf.close();
+			if(firstLine==null){return false;}
+			String header=new String(firstLine);
+			return header.startsWith("#ID") || header.startsWith("#Contigs") || header.startsWith("#Depths");
+		}catch(Exception e){
+			return false;
+		}
+	}
+
+	/**
+	 * Loads coverage file in either pileup or covmaker format.
+	 * Detects format by checking first line header.
+	 * @param fname Path to coverage file
+	 * @return Map of contig name to depth value
+	 */
+	private static ObjectDoubleMap<String> loadCoverageFile(String fname){
+		//Check format by reading first line
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		byte[] firstLine=bf.nextLine();
+		bf.close();
+
+		String header=new String(firstLine);
+		if(header.startsWith("#ID")){
+			//Pileup format
+			return loadPileupCoverage(fname);
+		}else if(header.startsWith("#Contigs") || header.startsWith("#Depths")){
+			//Covmaker format - use DataLoader
+			return DataLoader.loadCovFile2(fname);
+		}else{
+			throw new RuntimeException("Unknown coverage file format. Expected pileup (#ID) or covmaker (#Contigs) format.");
+		}
+	}
+
+	/**
+	 * Loads coverage from pileup.sh output format.
+	 * Format: #ID header, then ID\tAvg_fold\t...
+	 * @param fname Path to pileup file
+	 * @return Map of contig name to average depth
+	 */
+	private static ObjectDoubleMap<String> loadPileupCoverage(String fname){
+		System.err.print("Loading pileup coverage from "+fname+": ");
+		Timer t=new Timer(System.err, false);
+		LineParser1 lp=new LineParser1('\t');
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+
+		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
+		byte[] line=bf.nextLine();
+
+		//Skip header
+		while(line!=null && Tools.startsWith(line, '#')){
+			line=bf.nextLine();
+		}
+
+		//Parse data lines
+		int loaded=0;
+		while(line!=null){
+			lp.set(line);
+			String name=Tools.trimToWhitespace(lp.parseString(0));
+			float depth=lp.parseFloat(1);  //Avg_fold column
+			map.put(name, depth);
+			loaded++;
+			line=bf.nextLine();
+		}
+		bf.close();
+		t.stopAndPrint();
+		System.err.println("Loaded "+loaded+" contigs from pileup file.");
+		return map;
+	}
+
+	/**
+	 * Calculates depth from SAM/BAM alignment file.
+	 * Sums aligned base pairs per contig and divides by contig length.
+	 * @param fname Path to SAM or BAM file
+	 * @return Map of contig name to average depth
+	 */
+	private static ObjectDoubleMap<String> loadDepthFromAlignment(String fname){
+		System.err.print("Loading depth from alignment file "+fname+": ");
+		Timer t=new Timer(System.err, false);
+
+		//First pass: get contig lengths from @SQ headers
+		ObjectDoubleMap<String> lengthMap=new ObjectDoubleMap<String>();
+		ObjectDoubleMap<String> bpMap=new ObjectDoubleMap<String>();
+
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		byte[] line=bf.nextLine();
+
+		//Parse @SQ headers for contig lengths
+		while(line!=null && Tools.startsWith(line, '@')){
+			String lineStr=new String(line);
+			if(lineStr.startsWith("@SQ")){
+				//Parse @SQ\tSN:name\tLN:length
+				String[] parts=lineStr.split("\t");
+				String name=null;
+				int length=0;
+				for(String part : parts){
+					if(part.startsWith("SN:")){
+						name=Tools.trimToWhitespace(part.substring(3));
+					}else if(part.startsWith("LN:")){
+						length=Integer.parseInt(part.substring(3));
+					}
+				}
+				if(name!=null && length>0){
+					lengthMap.put(name, length);
+					bpMap.put(name, 0);  //Initialize bp count
+				}
+			}
+			line=bf.nextLine();
+		}
+
+		//Second pass: count aligned bp per contig
+		int readCount=0;
+		while(line!=null){
+			if(Tools.startsWith(line, '@')){
+				line=bf.nextLine();
+				continue;
+			}
+
+			//Parse SAM line: QNAME FLAG RNAME POS MAPQ CIGAR
+			String lineStr=new String(line);
+			String[] parts=lineStr.split("\t");
+			if(parts.length>=6){
+				int flag=Integer.parseInt(parts[1]);
+				String rname=Tools.trimToWhitespace(parts[2]);
+				String cigar=parts[5];
+
+				//Skip unmapped reads (FLAG & 4) - invert check to avoid continue/infinite loop
+				if((flag&4)==0){
+					//Calculate aligned bases from CIGAR
+					int alignedBases=calculateAlignedBases(cigar);
+					if(alignedBases>0 && bpMap.contains(rname)){
+						bpMap.put(rname, bpMap.get(rname)+alignedBases);
+					}
+				}
+			}
+			readCount++;
+			if(readCount%100000==0){System.err.print(".");}
+			line=bf.nextLine();
+		}
+		bf.close();
+
+		//Calculate depth = bp/length
+		ObjectDoubleMap<String> depthMap=new ObjectDoubleMap<String>();
+		Object[] contigKeys=lengthMap.keys();
+		for(Object obj : contigKeys){
+			if(obj!=null){
+				String contig=(String)obj;
+				double length=lengthMap.get(contig);
+				double bp=bpMap.get(contig);
+				double depth=bp/length;
+				depthMap.put(contig, depth);
+			}
+		}
+
+		t.stopAndPrint();
+		System.err.println("Loaded depth for "+depthMap.size()+" contigs from "+readCount+" alignments.");
+		return depthMap;
+	}
+
+	/**
+	 * Calculates aligned bases from CIGAR string.
+	 * Counts M, =, X operations (matches/mismatches).
+	 * @param cigar CIGAR string
+	 * @return Number of aligned bases
+	 */
+	private static int calculateAlignedBases(String cigar){
+		if(cigar.equals("*")){return 0;}
+		int total=0;
+		int num=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(Character.isDigit(c)){
+				num=num*10+(c-'0');
+			}else{
+				if(c=='M' || c=='=' || c=='X'){
+					total+=num;
+				}
+				num=0;
+			}
+		}
+		return total;
+	}
+
+	/**
+	 * Prints partition statistics table showing reads and bases per output file.
+	 * @param ros Array of output writers
+	 * @param mode Partitioning mode for determining boundary display
+	 */
+	private void printPartitionStatistics(Writer[] ros, int mode){
+		outstream.println("\nPartition Statistics:");
+		outstream.println("File\tReads\tBases");
+
+		for(int i=0; i<ways; i++){
+			String filename=ffout1[i].name();
+			long reads=ros[i].readsWritten();
+			long bases=ros[i].basesWritten();
+
+			outstream.println(filename+"\t"+reads+"\t"+bases);
+		}
 	}
 
 	private static class Partition implements Comparable<Partition> {
@@ -818,6 +1156,18 @@ public class PartitionReads {
 	/** Partitioning mode: COUNT (round-robin), BP (balanced by base pairs), or metric-based (GC, HH, CAGA) */
 	private int mode=COUNT;
 
+	/** Coverage file path (pileup or covmaker format) for DEPTH mode */
+	private String covFile=null;
+
+	/** SAM/BAM file path for calculating depth in DEPTH mode */
+	private String depthFile=null;
+
+	/** Custom partition cutoffs (overrides automatic boundary calculation) */
+	private float[] customCutoffs=null;
+
+	/** Depth map loaded from coverage or alignment file (contig name -> depth) */
+	private ObjectDoubleMap<String> depthMap=null;
+
 	/** K-mer tracker for calculating composition metrics (GC, HH, CAGA); must use k=2 for these metrics */
 	private final KmerTracker dimers=new KmerTracker(2, 0);
 
@@ -832,6 +1182,9 @@ public class PartitionReads {
 
 	/** Whether this mode requires depth information (DEPTH) */
 	private final boolean needDepth;
+
+	/** Flag to warn once about missing coverage data */
+	private boolean warnedMissingCoverage=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
@@ -851,7 +1204,7 @@ public class PartitionReads {
 	/*----------------        Mode Constants        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int COUNT=1, BP=2, GC=3, HH=4, CAGA=5, LENGTH=6, DEPTH=7;
+	static final int COUNT=0, BP=1, GC=2, HH=3, CAGA=4, LENGTH=5, DEPTH=6;
 	static final String[] modeNames=new String[]{"count", "bp", "gc", "hh", "caga", "length", "depth"};
 
 	/*--------------------------------------------------------------*/

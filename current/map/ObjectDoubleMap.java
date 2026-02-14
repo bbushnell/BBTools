@@ -419,7 +419,7 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	 * WARNING: Contains null entries for empty cells. Use with caution.
 	 * @return Internal key array
 	 */
-	public K[] keys(){return keys;}
+	public Object[] keys(){return keys;}
 
 	/**
 	 * Returns the internal value array.
