@@ -395,9 +395,9 @@ public final class IntHashMap3 implements Serializable {
 	public int increment(int key, int incr){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
-		final int oldV=values[cell];
-		final int value=oldV+incr;
-		values[cell]=Tools.min(Integer.MAX_VALUE, value);
+		final long oldV=values[cell];
+		final int value=(int)Tools.min(Integer.MAX_VALUE, oldV+incr);
+		values[cell]=value;
 		if(keys[cell]==invalid){
 			keys[cell]=key;
 			size++;

@@ -320,8 +320,8 @@ public final class ObjectIntMap<K> implements Serializable {
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
 		final long oldV=values[cell];
-		final long value=oldV+incr;
-		values[cell]=(int)Tools.min(Integer.MAX_VALUE, value);
+		final int value=(int)Tools.min(Integer.MAX_VALUE, oldV+incr);
+		values[cell]=value;
 		if(keys[cell]==null){
 			keys[cell]=key;
 			hashes[cell]=hash;
@@ -551,7 +551,7 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * WARNING: Contains null entries for empty cells. Use with caution.
 	 * @return Internal key array
 	 */
-	public K[] keys(){return keys;}
+	public Object[] keys(){return keys;}
 
 	/**
 	 * Returns the internal value array.
