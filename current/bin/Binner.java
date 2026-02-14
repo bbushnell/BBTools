@@ -1556,7 +1556,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		if(size>2*hugeThresh) {return hugeMult;}
 		if(size>hugeThresh) {
 			float range=1f-hugeMult;
-			return Tools.min(bigThresh, 1f-(size-hugeThresh)*range/hugeThresh);
+			return Tools.max(hugeMult, 1f-(size-hugeThresh)*range/hugeThresh);
 		}
 		if(size>2*bigThresh) {return bigMult;}
 		if(size>bigThresh) {

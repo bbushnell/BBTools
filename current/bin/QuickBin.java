@@ -427,6 +427,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		fastComparisonsCreate+=(binner.fastComparisons.get()-fastComp);
 		slowComparisonsCreate+=(binner.slowComparisons.get()-slowComp);
 		if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+		if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		
 		if(refineClusters) {
 			fastComp=binner.fastComparisons.get();
@@ -436,6 +437,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			fastComparisonsRefine+=(binner.fastComparisons.get()-fastComp);
 			slowComparisonsRefine+=(binner.slowComparisons.get()-slowComp);
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
 		if(followEdge2Passes>0 && loader.makePairGraph) {
@@ -465,6 +467,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			slowComparisonsEdge+=oracle.slowComparisons;
 			netComparisonsEdge+=oracle.netComparisons;
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
 		if(processResidue) { 
@@ -491,6 +494,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			fastComparisonsRefine+=(binner.fastComparisons.get()-fastComp);
 			slowComparisonsRefine+=(binner.slowComparisons.get()-slowComp);
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
 //		if(fuseClusters) {
@@ -525,14 +529,15 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				fused=binner.fuse(contigList, binMap, bins, Binner.fuseStringency, (5+i)/2);//2,3,3,4
 				total+=fused;
 			}
-			if(total>0) {
+//			if(total>0) {//No!  Always needs restoration!
 				binMap.clear(true);
 				binList=Binner.toBinList(contigList, 0);
 				assert(isValid(binList, false));
 				binMap.addAll(binList, Binner.minSizeToMerge);
-			}
+//			}
 			System.err.println("Fused "+total+" clusters.");
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
 		if(Oracle.bsw!=null) {
@@ -559,6 +564,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			
 			t2.stop("Split "+split+" clusters:   ");
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
 		if(purifyClusters) {
@@ -572,6 +578,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			slowComparisonsPurify+=(binner.slowComparisons.get()-slowComp);
 			t2.stop("Removed "+purified+" contigs:   ");
 			if(printStepwiseCC) {printCC(binMap.contigList, 10000, sizeMap);}
+			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		ct.stop();
 		
@@ -628,9 +635,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 //			}
 //			if(a.size()<1000 || i>=4) {break;}
 //		}
-
+		
 		t2.start();
 		ArrayList<BinStats> stats=GradeBins.toBinStats(null, bins, minClusterSize, true, true, true);
+		if(loud) {outstream.println("Bins: "+stats.size());}
 		t2.stop("Analyzing bins:");
 		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report);}
 
