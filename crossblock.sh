@@ -4,7 +4,7 @@
 #This exists for people who type crossblock.sh instead of decontaminate.sh
 
 resolveSymlinks(){
-	SCRIPT="$0"
+	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 	while [ -h "$SCRIPT" ]; do
 		DIR="$(dirname "$SCRIPT")"
 		SCRIPT="$(readlink "$SCRIPT")"
