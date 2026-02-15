@@ -6,6 +6,12 @@ Written by Brian Bushnell
 Last modified February 14, 2026
 
 Description:  Splits a sequence file evenly into multiple files.
+Can split evenly by sequence count, total BP, GC content, depth, 
+length, and other metrics.  Always keeps paired reads togther, and
+can keep PacBio subreads together as well.  When splitting by
+a metric such as GC, two passes are used to ensure even partitions;
+simple partitioning by count and bp are one-pass.
+
 
 Usage:  partition.sh in=<file> out=<outfile> ways=<number>
 
@@ -25,16 +31,26 @@ int=f           (interleaved) Determines whether INPUT file is considered interl
 zl=4            (ziplevel) Set compression level, 1 (low) to 9 (max).
 
 Mode parameters:
-partitionby=<mode>    Partition by metric: count, bp, gc, hh, caga, length, depth
-                      count: Round-robin (default)
-                      bp: Balance by number of base pairs
-                      gc/hh/caga: Split by composition metrics
-                      length: Split by sequence length
-                      depth: Split by coverage depth
+mode=count      Partition by metric: count, bp, gc, hh, caga, length, depth
+                   count: Round-robin (default), balances by sequence count
+                   bp: Balance by number of base pairs
+                   gc: Split by GC composition 
+		   hh: Split by homo/hetero dimer ratio
+		   caga: Split by CA-GA+TG-TC metric
+                   length: Split by sequence length
+                   depth: Split by coverage depth
 cutoff=<x,y,z>  Custom partition cutoffs (auto-sets ways to cutoffs+1)
 cov=<file>      A coverage file from covmaker or pileup, or a sam or bam file,
                 used in depth mode; if unset, depth will be parsed from contig
                 headers in Tadpole, SPAdes, or MetaHipMer format.
+
+Auto-partitioning parameters:
+auto=f          Enable automatic partition detection (ignores 'ways' parameter)
+                Uses peak-based histogram analysis to find natural clusters
+minpeak=0.04    Minimum peak volume as fraction of dominant peak (0.0-1.0)
+                Lower values = more sensitive (more partitions detected)
+smoothradius=5  Smoothing radius for histogram noise reduction
+maxpartitions=25 Maximum number of auto-detected partitions
 
 
 Depth mode options:
@@ -51,6 +67,14 @@ Depth mode examples:
     # Calculate depth from BAM alignments
   partition.sh in=contigs.fa partitionby=depth cutoff=10,50,200
     # Custom cutoffs creating 4 partitions: <10, 10-50, 50-200, >200
+
+Auto-partition examples:
+  partition.sh in=mixed.fa out=part%.fa partitionby=gc auto=t
+    # Auto-detect GC-based clusters
+  partition.sh in=contigs.fa out=cov%.fa partitionby=depth auto=t minpeak=0.1
+    # Auto-detect depth clusters with 10% threshold (less sensitive)
+  partition.sh in=contigs.fa out=part%.fa partitionby=gc auto=t verbose
+    # Show detected peak counts and boundaries
 
 
 Java Parameters:
@@ -72,7 +96,7 @@ if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 fi
 
 resolveSymlinks(){
-	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+	SCRIPT="$0"
 	while [ -h "$SCRIPT" ]; do
 		DIR="$(dirname "$SCRIPT")"
 		SCRIPT="$(readlink "$SCRIPT")"
@@ -91,7 +115,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP scalar.PartitionReads $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP scalar.PartitionReads3 $@"
 	echo "$CMD" >&2
 	eval $CMD
 }
