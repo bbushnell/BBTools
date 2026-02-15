@@ -42,7 +42,7 @@ import tracker.ReadStats;
  * @contributor Neptune
  * @date June 1, 2016
  */
-public class PartitionReads {
+public class PartitionReads2 {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -55,11 +55,15 @@ public class PartitionReads {
 	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
-		PartitionReads x=new PartitionReads(args);
+		PartitionReads2 x=new PartitionReads2(args);
+		if(x.verbose){x.outstream.println("[TRACE] Calling process()");}
 		x.process(t);
+		if(x.verbose){x.outstream.println("[TRACE] process() returned");}
 
 		//Close the print stream if it was redirected
+		if(x.verbose){x.outstream.println("[TRACE] Calling Shared.closeStream()");}
 		Shared.closeStream(x.outstream);
+		if(x.verbose){System.err.println("[TRACE] Shared.closeStream() complete - EXITING");}
 	}
 
 	/**
@@ -68,7 +72,7 @@ public class PartitionReads {
 	 * @param args Command-line arguments containing file paths and processing options
 	 * @throws RuntimeException If required parameters are missing or files are invalid
 	 */
-	public PartitionReads(String[] args){
+	public PartitionReads2(String[] args){
 
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -87,8 +91,6 @@ public class PartitionReads {
 
 		//Create a parser object
 		Parser parser=new Parser();
-
-		String qfout1=null, qfout2=null;
 
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
@@ -126,6 +128,14 @@ public class PartitionReads {
 						covFile=b;
 					}
 				}
+			}else if(a.equals("auto") || a.equals("autopartition")){
+				autoPartition=Parse.parseBoolean(b);
+			}else if(a.equals("minpeak")){
+				minPeak=Float.parseFloat(b);
+			}else if(a.equals("smoothradius") || a.equals("smooth")){
+				smoothRadius=Integer.parseInt(b);
+			}else if(a.equals("maxpartitions") || a.equals("maxp")){
+				maxPartitions=Integer.parseInt(b);
 			}else if(a.equals("cutoff") || a.equals("cutoffs")){
 				String[] cutoffStrs=b.split(",");
 				customCutoffs=new float[cutoffStrs.length];
@@ -165,8 +175,13 @@ public class PartitionReads {
 				}
 			}else if(parser.out1==null && (arg.contains("%") || arg.contains("#"))){
 				//First file with % or # becomes output pattern
-				parser.out1=arg;
-				outstream.println("Using "+arg+" as output pattern.");
+				String value=arg;
+				if(arg.contains("=")){
+					String[] parts=arg.split("=", 2);
+					value=parts[1];
+				}
+				parser.out1=value;
+				outstream.println("Using "+value+" as output pattern.");
 			}else if(new File(arg).exists() && Tools.canRead(arg)){
 				//Detect file type for depth sources
 				FileFormat ff=FileFormat.testInput(arg, FileFormat.SAM, null, false, false);
@@ -221,7 +236,7 @@ public class PartitionReads {
 			outstream.println("*** Warning: No output pattern specified, no output will be generated. ***");
 		}
 
-		assert(ways>0) : "Ways must be at least 1.";
+		assert(ways>0 || autoPartition) : "Ways must be at least 1 (unless using auto-partition mode).";
 
 		//Do input file # replacement
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
@@ -306,6 +321,10 @@ public class PartitionReads {
 		if(out1==null){
 			ffout1=ffout2=null;
 			qfout1Array=qfout2Array=null;
+		}else if(autoPartition){
+			//Defer output file creation until after auto-detection determines number of partitions
+			ffout1=ffout2=null;
+			qfout1Array=qfout2Array=null;
 		}else{
 			ffout1=new FileFormat[ways];
 			ffout2=new FileFormat[ways];
@@ -347,6 +366,29 @@ public class PartitionReads {
 	/*--------------------------------------------------------------*/
 
 	/**
+	 * Creates output FileFormat arrays after ways has been determined.
+	 * Used when autoPartition mode defers output creation until partition count is known.
+	 */
+	private void createOutputFormats(){
+		if(out1==null){return;}
+		assert(ways>0) : "Ways must be determined before creating output formats";
+
+		ffout1=new FileFormat[ways];
+		ffout2=new FileFormat[ways];
+		qfout1Array=new String[ways];
+		qfout2Array=new String[ways];
+		for(int i=0; i<ways; i++){
+			String temp1=out1==null ? null : out1.replaceFirst("%", ""+i);
+			String temp2=out2==null ? null : out2.replaceFirst("%", ""+i);
+			ffout1[i]=FileFormat.testOutput(temp1, FileFormat.FASTQ, extout, true, overwrite, append, false);
+			ffout2[i]=FileFormat.testOutput(temp2, FileFormat.FASTQ, extout, true, overwrite, append, false);
+
+			qfout1Array[i]=qfout1==null ? null : qfout1.replaceFirst("%", ""+i);
+			qfout2Array[i]=qfout2==null ? null : qfout2.replaceFirst("%", ""+i);
+		}
+	}
+
+	/**
 	 * Creates array of output writers based on partitioning mode.
 	 * For single-dimension: creates 'ways' writers
 	 * TODO: For multi-dimension: creates product of waysPerDimension
@@ -373,6 +415,7 @@ public class PartitionReads {
 	 * @throws RuntimeException If processing encounters errors
 	 */
 	void process(Timer t){
+		if(verbose){outstream.println("[TRACE] Entering process()");}
 
 		//Create a read input stream
 		final Streamer cris;
@@ -384,8 +427,11 @@ public class PartitionReads {
 		boolean paired=cris.paired();
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 
-		//Create output writers
-		final Writer[] ros=getWriters();
+		//Create output writers (may be null if autoPartition is enabled - created later)
+		if(verbose){outstream.println("[TRACE] Calling getWriters() - ffout1="+(ffout1==null?"null":"["+ffout1.length+"]")+" ways="+ways);}
+		Writer[] ros=getWriters();
+		if(verbose){outstream.println("[TRACE] getWriters() returned - ros="+(ros==null?"null":"["+ros.length+"]"));}
+
 
 		//Reset counters
 		readsProcessed=0;
@@ -395,7 +441,7 @@ public class PartitionReads {
 		if(splitByBP){mode=BP;}  //Legacy support for splitbybp flag
 
 		if(mode>BP){  //Metric-based partitioning
-			processInner_metric(cris, ros, mode);
+			ros=processInner_metric(cris, ros, mode);
 		}else if(mode==BP){
 			processInner_heap(cris, ros);
 		}else{  //COUNT or default
@@ -405,23 +451,32 @@ public class PartitionReads {
 		if(verbose){outstream.println("Finished; closing streams.");}
 
 		//Write anything that was accumulated by ReadStats
+		if(verbose){outstream.println("[TRACE] Calling ReadStats.writeAll()");}
 		errorState|=ReadStats.writeAll();
+		if(verbose){outstream.println("[TRACE] ReadStats.writeAll() complete");}
 		//Close the read streams
+		if(verbose){outstream.println("[TRACE] Calling ReadWrite.closeStreams() - cris="+(cris==null?"null":"OK")+" ros="+(ros==null?"null":"["+ros.length+"]"));}
 		errorState|=ReadWrite.closeStreams(cris, ros);
+		if(verbose){outstream.println("[TRACE] ReadWrite.closeStreams() complete");}
 
 		//Report timing and results
+		if(verbose){outstream.println("[TRACE] Stopping timer");}
 		t.stop();
+		if(verbose){outstream.println("[TRACE] Printing timing");}
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 
 		//Print partition statistics
 		if(ros!=null && ffout1!=null){
+			if(verbose){outstream.println("[TRACE] Printing partition statistics");}
 			printPartitionStatistics(ros, mode);
+			if(verbose){outstream.println("[TRACE] Partition statistics complete");}
 		}
 
 		//Throw an exception of there was an error in a thread
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
+		if(verbose){outstream.println("[TRACE] Exiting process()");}
 	}
 
 	/**
@@ -638,7 +693,9 @@ public class PartitionReads {
 	 * @param boundaries Partition boundaries from histogram analysis
 	 */
 	private void partitionReads(final Streamer cris, final Writer[] ros, int mode, float[] boundaries){
+		if(verbose){outstream.println("[TRACE] Inside partitionReads() - creating second stream");}
 		final Streamer cris2=StreamerFactory.getReadInputStream(maxReads, true, ffin1, ffin2, qfin1, qfin2, -1);
+		if(verbose){outstream.println("[TRACE] Calling cris2.start()");}
 		cris2.start();
 		if(verbose){outstream.println("Started second stream for pass 2");}
 
@@ -690,16 +747,45 @@ public class PartitionReads {
 	 * Uses two-pass streaming: first pass builds histogram of metric distribution,
 	 * second pass routes reads to partitions for balanced base pair distribution.
 	 * @param cris Input stream for reading sequence data (consumed in pass 1)
-	 * @param ros Array of output streams for writing partitioned reads
+	 * @param rosIn Array of output streams for writing partitioned reads (may be null if autoPartition)
 	 * @param mode Metric mode: GC, HH, CAGA, or LENGTH
 	 */
-	void processInner_metric(final Streamer cris, final Writer ros[], int mode){
+	Writer[] processInner_metric(final Streamer cris, Writer rosIn[], int mode){
+		if(verbose){outstream.println("[TRACE] Entering processInner_metric() - rosIn="+(rosIn==null?"null":"["+rosIn.length+"]"));}
+		Writer[] ros=rosIn;
 		// Phase 1: Build histogram (returns long[] or SuperLongList)
+		if(verbose){outstream.println("[TRACE] Calling buildHistogram()");}
 		Object histogram=buildHistogram(cris, mode);
+		if(verbose){outstream.println("[TRACE] buildHistogram() complete");}
 
 		// Phase 2: Calculate boundaries
 		float[] boundaries;
-		if(customCutoffs!=null){
+		if(autoPartition){
+			if(verbose){outstream.println("[TRACE] Auto-partition mode enabled");}
+			//Auto-detect boundaries from peaks
+			if(histogram instanceof long[]){
+				if(verbose){outstream.println("[TRACE] Calling autoPartitionHistogram()");}
+				boundaries=autoPartitionHistogram((long[])histogram, mode);
+				if(verbose){outstream.println("[TRACE] autoPartitionHistogram() returned - boundaries="+(boundaries==null?"null":"["+boundaries.length+"]"));}
+			}else{
+				outstream.println("Error: Auto-partition not yet supported for unbounded metrics (LENGTH)");
+				return null;
+			}
+
+			if(boundaries==null){
+				outstream.println("Auto-partition failed. Aborting.");
+				return null;
+			}
+
+			ways=boundaries.length+1;  //Update ways based on detected partitions (boundaries = ways-1)
+			if(verbose){outstream.println("Auto-detected "+ways+" partitions");}
+			if(verbose){outstream.println("[TRACE] Calling createOutputFormats() with ways="+ways);}
+			createOutputFormats();  //Create output files now that ways is known
+			if(verbose){outstream.println("[TRACE] Calling getWriters() after createOutputFormats()");}
+			ros=getWriters();  //Create writers now that output formats exist
+			if(verbose){outstream.println("[TRACE] getWriters() returned - ros="+(ros==null?"null":"["+ros.length+"]"));}
+
+		}else if(customCutoffs!=null){
 			boundaries=customCutoffs;  //Use provided cutoffs
 			if(verbose){outstream.println("Using custom cutoffs");}
 		}else{
@@ -714,7 +800,10 @@ public class PartitionReads {
 		}
 
 		// Phase 3: Partition reads
+		if(verbose){outstream.println("[TRACE] Calling partitionReads() - ros="+(ros==null?"null":"["+ros.length+"]")+" boundaries=["+boundaries.length+"]");}
 		partitionReads(cris, ros, mode, boundaries);
+		if(verbose){outstream.println("[TRACE] partitionReads() complete");}
+		return ros;
 	}
 	void dimensionSplit(ArrayList<String> dimensionNames, IntList waysPerDimension, float overlap){
 		final int dims=dimensionNames.size();
@@ -823,17 +912,16 @@ public class PartitionReads {
 	 */
 	private float[] calculateBalancedBoundaries(Object histogramObj, int ways, int mode){
 		if(histogramObj instanceof SuperLongList){
-			//Unbounded metric (LENGTH, DEPTH) - use percentiles
+			//Unbounded metric (LENGTH) - use percentiles
 			SuperLongList sll=(SuperLongList)histogramObj;
-			float[] boundaries=new float[ways];
-			for(int i=0; i<ways-1; i++){
+			float[] boundaries=new float[ways-1];
+			for(int i=0; i<boundaries.length; i++){
 				double fraction=(i+1)/(double)ways;
 				boundaries[i]=sll.percentileValueBySum(fraction);
 			}
-			boundaries[ways-1]=Float.MAX_VALUE;  //Last boundary = infinity
 			return boundaries;
 		}else{
-			//Bounded metric (GC, HH, CAGA) - use fixed bins
+			//Bounded metric (GC, HH, CAGA, DEPTH) - use fixed bins
 			long[] histogram=(long[])histogramObj;
 
 			//Calculate total bp
@@ -843,19 +931,26 @@ public class PartitionReads {
 			}
 
 			long targetPerPartition=total/ways;
-			float[] boundaries=new float[ways];
+			float[] boundaries=new float[ways-1];
 
 			long accumulated=0;
 			int partitionIndex=0;
+			long target=targetPerPartition;
 
-			for(int i=0; i<histogram.length; i++){
+			//Strategy: accumulate bases and when we reach/exceed target, place boundary AFTER current bin
+			//This ensures reads in bin i go to partition based on i < boundary
+			for(int i=0; i<histogram.length && partitionIndex<boundaries.length; i++){
 				accumulated+=histogram[i];
-				if(accumulated>=targetPerPartition*(partitionIndex+1) && partitionIndex<ways-1){
-					boundaries[partitionIndex]=(mode==DEPTH ? dequantizeDepth(i+1) : (i+1)/1024.0f);
+
+				//When accumulated reaches or exceeds target, we've filled this partition
+				//Set boundary to START of next bin, so current bin stays in current partition
+				//IMPORTANT: Use consistent binning with histogram! Histogram uses (metric*1023) so boundary must use (i+1)/1023.0f
+				if(accumulated>=target){
+					boundaries[partitionIndex]=(mode==DEPTH ? dequantizeDepth(i+1) : (i+1)/1023.0f);
 					partitionIndex++;
+					target=targetPerPartition*(partitionIndex+1);  //Update target for next partition
 				}
 			}
-			boundaries[ways-1]=(mode==DEPTH ? Float.MAX_VALUE : 1.0f);  //Last boundary always 1.0
 
 			return boundaries;
 		}
@@ -868,12 +963,12 @@ public class PartitionReads {
 	 * @return Partition index (0 to boundaries.length-1)
 	 */
 	private int findPartitionIndex(float metric, float[] boundaries){
-		for(int i=0; i<boundaries.length-1; i++){
+		for(int i=0; i<boundaries.length; i++){
 			if(metric<boundaries[i]){
 				return i;
 			}
 		}
-		return boundaries.length-1;
+		return boundaries.length;
 	}
 
 	/**
@@ -1108,6 +1203,292 @@ public class PartitionReads {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Applies uniform smoothing with fixed radius using triangular weighted averaging.
+	 * Reduces noise in histogram data to improve peak detection accuracy.
+	 * Based on CallPeaks.smooth() method.
+	 * @param data Input histogram array
+	 * @param radius Smoothing radius in array positions
+	 * @return Smoothed histogram array
+	 */
+	private static long[] smooth(final long[] data, int radius){
+		final long div=radius*radius;
+		final double mult=1.0/div;
+		long[] smoothed=new long[data.length];
+		for(int i=0; i<data.length; i++){
+			long sum=sumPoint(data, i, radius);
+			double product=sum*mult;
+			smoothed[i]=Math.round(product);
+		}
+		return smoothed;
+	}
+
+	/**
+	 * Calculates weighted sum around specified position for smoothing.
+	 * Uses triangular weighting scheme with maximum weight at center.
+	 * @param data Histogram array
+	 * @param loc Center position for calculation
+	 * @param radius Radius for weighted sum
+	 * @return Weighted sum for smoothing
+	 */
+	private static long sumPoint(long[] data, int loc, int radius){
+		long sum=0;
+		int start=loc-radius+1;
+		int stop=loc+radius-1;
+		for(int i=start, x=1; i<loc; i++, x++){
+			int i2=Tools.max(i, 0);
+			sum+=data[i2]*x;
+		}
+		for(int i=loc, x=radius, max=data.length-1; i<=stop; i++, x--){
+			int i2=Tools.min(i, max);
+			sum+=data[i2]*x;
+		}
+		return sum;
+	}
+
+	/**
+	 * Finds peaks in smoothed histogram using state machine approach.
+	 * Detects local maxima (peaks) and local minima (valleys) between them.
+	 * Adapted from CallPeaks algorithm but tracks valleys for partition boundaries.
+	 * @param histogram Input histogram (will be smoothed internally)
+	 * @param smoothRadius Radius for smoothing operation
+	 * @return List of detected peaks with valley positions
+	 */
+	private ArrayList<Peak> findPeaks(long[] histogram, int smoothRadius){
+		long[] smoothed=smooth(histogram, smoothRadius);
+
+		ArrayList<Peak> peaks=new ArrayList<Peak>();
+
+		//Find first valley (starting point)
+		int dip0=-1;
+		for(int i=1; i<histogram.length; i++){
+			if(smoothed[i-1]<smoothed[i]){
+				dip0=i-1;
+				break;
+			}
+		}
+		if(dip0<0){return peaks;}
+
+		final int UP=0, DOWN=1;
+		int mode=UP;
+		int start=dip0, center=-1;
+		long prev=smoothed[dip0];
+		long sum=smoothed[dip0];
+
+		for(int i=dip0+1; i<histogram.length; i++){
+			final long x=smoothed[i];
+
+			if(mode==UP){
+				if(x<prev){
+					mode=DOWN;
+					center=i-1;  //Found peak
+				}
+			}else{  //mode==DOWN
+				if(x>prev){
+					mode=UP;
+					int stop=i-1;  //Found valley
+					long max=smoothed[center];
+
+					//Create peak
+					Peak p=new Peak(center, start, stop, sum, max);
+					peaks.add(p);
+
+					//Reset for next peak
+					start=stop;
+					sum=0;
+					center=-1;
+				}
+			}
+			sum+=x;
+			prev=x;
+		}
+
+		//Handle final peak if we're going down at end
+		if(mode==DOWN && center>=0){
+			Peak p=new Peak(center, start, histogram.length-1, sum, smoothed[center]);
+			peaks.add(p);
+		}
+
+		return peaks;
+	}
+
+	/**
+	 * Filters peaks by volume relative to dominant peak.
+	 * Keeps only peaks with volume >= minPeak * dominant_volume.
+	 * @param peaks List of peaks to filter
+	 * @param minPeak Minimum volume as fraction of dominant peak
+	 * @return Filtered list of significant peaks
+	 */
+	private static ArrayList<Peak> filterPeaksByVolume(ArrayList<Peak> peaks, float minPeak){
+		if(peaks.isEmpty()){return peaks;}
+
+		//Find dominant peak (largest volume)
+		Peak dominant=peaks.get(0);
+		for(Peak p : peaks){
+			if(p.volume>dominant.volume){
+				dominant=p;
+			}
+		}
+
+		//Filter peaks
+		long minVolume=(long)(dominant.volume*minPeak);
+		ArrayList<Peak> filtered=new ArrayList<Peak>();
+		for(Peak p : peaks){
+			if(p.volume>=minVolume){
+				filtered.add(p);
+			}
+		}
+
+		return filtered;
+	}
+
+	/**
+	 * Keeps only the largest N peaks by volume.
+	 * Sorts by volume descending, keeps top maxCount, then re-sorts by position.
+	 * @param peaks List of peaks to filter
+	 * @param maxCount Maximum number of peaks to keep
+	 * @return Filtered list of largest peaks in position order
+	 */
+	private static ArrayList<Peak> keepLargestPeaks(ArrayList<Peak> peaks, int maxCount){
+		//Sort by volume descending
+		peaks.sort((a,b) -> Long.compare(b.volume, a.volume));
+
+		//Keep top maxCount
+		ArrayList<Peak> kept=new ArrayList<Peak>();
+		for(int i=0; i<Math.min(maxCount, peaks.size()); i++){
+			kept.add(peaks.get(i));
+		}
+
+		//Re-sort by position for correct valley finding
+		kept.sort((a,b) -> Integer.compare(a.center, b.center));
+
+		return kept;
+	}
+
+	/**
+	 * Finds the best valley position between two peaks using scoring function.
+	 * Scoring: score = height * (10 + distFromMiddle)
+	 * Balances finding lowest point with preferring valleys near center.
+	 * @param histogram Original histogram data
+	 * @param leftPeak Position of left peak center
+	 * @param rightPeak Position of right peak center
+	 * @return Position of best valley
+	 */
+	private static int findBestValley(long[] histogram, int leftPeak, int rightPeak){
+		int middle=(leftPeak+rightPeak)/2;
+
+		int bestPos=leftPeak;
+		double bestScore=Double.MAX_VALUE;
+
+		for(int i=leftPeak; i<=rightPeak; i++){
+			long height=histogram[i];
+			int distFromMiddle=Math.abs(i-middle);
+			double score=height*(10+distFromMiddle);
+
+			if(score<bestScore){
+				bestScore=score;
+				bestPos=i;
+			}
+		}
+
+		return bestPos;
+	}
+
+	/**
+	 * Finds valley boundaries from filtered peaks for partitioning.
+	 * For each adjacent pair of peaks, finds the best valley between them.
+	 * @param peaks Filtered list of significant peaks
+	 * @param histogram Original histogram data
+	 * @param mode Metric mode (for boundary conversion)
+	 * @return Array of partition boundaries
+	 */
+	private float[] findValleyBoundaries(ArrayList<Peak> peaks, long[] histogram, int mode){
+		if(peaks.isEmpty()){
+			outstream.println("Warning: No peaks found. Cannot auto-partition.");
+			return null;
+		}
+
+		if(peaks.size()==1){
+			outstream.println("Warning: Only 1 partition identified. Use minpeak parameter for greater sensitivity.");
+			return null;
+		}
+
+		if(peaks.size()>maxPartitions){
+			outstream.println("Warning: "+peaks.size()+" partitions detected, limiting to "+maxPartitions);
+			//Keep only the largest peaks
+			peaks=keepLargestPeaks(peaks, maxPartitions);
+		}
+
+		//For each adjacent pair of peaks, find valley between them
+		//Number of boundaries = peaks-1 (valleys between N peaks)
+		float[] boundaries=new float[peaks.size()-1];
+
+		for(int i=0; i<boundaries.length; i++){
+			Peak left=peaks.get(i);
+			Peak right=peaks.get(i+1);
+
+			//Search for lowest point between peaks (closest to middle in case of ties)
+			int middle=(left.center+right.center)/2;
+			int searchStart=left.center;
+			int searchEnd=right.center;
+
+			int bestPos=middle;
+			long bestHeight=histogram[middle];
+			int bestDist=0;
+
+			for(int pos=searchStart; pos<=searchEnd; pos++){
+				long height=histogram[pos];
+				int dist=Math.abs(pos-middle);
+
+				//Switch to this position if it's lower, or equal but closer to middle
+				if(height<bestHeight || (height==bestHeight && dist<bestDist)){
+					bestPos=pos;
+					bestHeight=height;
+					bestDist=dist;
+				}
+			}
+
+			//Convert to metric value
+			boundaries[i]=(mode==DEPTH ? dequantizeDepth(bestPos) : bestPos/1024.0f);
+		}
+
+		return boundaries;
+	}
+
+	/**
+	 * Main auto-partition method that orchestrates peak detection and boundary calculation.
+	 * @param histogram Input histogram
+	 * @param mode Metric mode
+	 * @return Partition boundaries or null if auto-partition fails
+	 */
+	private float[] autoPartitionHistogram(long[] histogram, int mode){
+		//1. Find peaks
+		ArrayList<Peak> peaks=findPeaks(histogram, smoothRadius);
+
+		if(verbose){
+			outstream.println("Found "+peaks.size()+" raw peaks");
+			for(int i=0; i<peaks.size(); i++){
+				Peak p=peaks.get(i);
+				float centerMetric=(mode==DEPTH ? dequantizeDepth(p.center) : p.center/1024.0f);
+				float startMetric=(mode==DEPTH ? dequantizeDepth(p.start) : p.start/1024.0f);
+				float stopMetric=(mode==DEPTH ? dequantizeDepth(p.stop) : p.stop/1024.0f);
+				outstream.println("  Peak "+i+": center="+String.format("%.4f", centerMetric)+" start="+String.format("%.4f", startMetric)+" stop="+String.format("%.4f", stopMetric)+" volume="+p.volume);
+			}
+		}
+
+		//2. Filter by volume
+		peaks=filterPeaksByVolume(peaks, minPeak);
+
+		if(verbose){
+			outstream.println("After filtering: "+peaks.size()+" significant peaks");
+		}
+
+		//3. Find valleys and create boundaries
+		float[] boundaries=findValleyBoundaries(peaks, histogram, mode);
+
+		return boundaries;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1118,6 +1499,9 @@ public class PartitionReads {
 
 	private String qfin1=null;
 	private String qfin2=null;
+
+	private String qfout1=null;
+	private String qfout2=null;
 
 	/**
 	 * Primary output file path template with '%' placeholder for partition number
@@ -1186,6 +1570,15 @@ public class PartitionReads {
 	/** Flag to warn once about missing coverage data */
 	private boolean warnedMissingCoverage=false;
 
+	/** Enable automatic partition detection based on peak analysis */
+	private boolean autoPartition=false;
+	/** Minimum peak volume as fraction of dominant peak (0.0-1.0) */
+	private float minPeak=0.05f;
+	/** Smoothing radius for histogram noise reduction */
+	private int smoothRadius=5;
+	/** Maximum number of auto-detected partitions */
+	private int maxPartitions=25;
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1195,10 +1588,10 @@ public class PartitionReads {
 	/** Secondary input file format */
 	private final FileFormat ffin2;
 
-	/** Array of primary output file formats for each partition */
-	private final FileFormat[] ffout1;
-	/** Array of secondary output file formats for each partition */
-	private final FileFormat[] ffout2;
+	/** Array of primary output file formats for each partition (non-final to support autopartition) */
+	private FileFormat[] ffout1;
+	/** Array of secondary output file formats for each partition (non-final to support autopartition) */
+	private FileFormat[] ffout2;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Mode Constants        ----------------*/
@@ -1206,6 +1599,30 @@ public class PartitionReads {
 
 	static final int COUNT=0, BP=1, GC=2, HH=3, CAGA=4, LENGTH=5, DEPTH=6;
 	static final String[] modeNames=new String[]{"count", "bp", "gc", "hh", "caga", "length", "depth"};
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Nested Classes        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Represents a peak in a metric histogram for autopartitioning.
+	 * Stores peak boundaries, center position, volume, and maximum height.
+	 */
+	private static class Peak{
+		final int center;   //Peak position
+		final int start;    //Left valley position (inclusive)
+		final int stop;     //Right valley position (exclusive)
+		final long volume;  //Total area under peak
+		final long max;     //Peak height
+
+		Peak(int center, int start, int stop, long volume, long max){
+			this.center=center;
+			this.start=start;
+			this.stop=stop;
+			this.volume=volume;
+			this.max=max;
+		}
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
