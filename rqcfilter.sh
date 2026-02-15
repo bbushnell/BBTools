@@ -4,7 +4,7 @@
 #RQCFilter was deprecated and replaced with RQCFilter2
 
 resolveSymlinks(){
-	SCRIPT="$0"
+	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 	while [ -h "$SCRIPT" ]; do
 		DIR="$(dirname "$SCRIPT")"
 		SCRIPT="$(readlink "$SCRIPT")"
