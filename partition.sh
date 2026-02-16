@@ -49,7 +49,7 @@ auto=f          Enable automatic partition detection (ignores 'ways' parameter)
                 Uses peak-based histogram analysis to find natural clusters
 minpeak=0.04    Minimum peak volume as fraction of dominant peak (0.0-1.0)
                 Lower values = more sensitive (more partitions detected)
-smoothradius=5  Smoothing radius for histogram noise reduction
+smoothradius=9  Smoothing radius for histogram noise reduction
 maxpartitions=25 Maximum number of auto-detected partitions
 
 

@@ -22,9 +22,9 @@ public class ScalarData implements Comparable<ScalarData>{
 		numericID=numericID_;
 	}
 	
-	public FloatList[] data() {return new FloatList[] {gc, hh, caga};}
+	public FloatList[] data() {return new FloatList[] {gc, hh, caga, depth};}
 	public FloatList[] reorder(int[] order) {
-		FloatList[] list=new FloatList[] {gc, hh, caga};
+		FloatList[] list=new FloatList[] {gc, hh, caga, depth};
 		if(order!=null) {
 			list=new FloatList[] {list[order[0]], list[order[1]], list[order[2]]};
 		}
@@ -38,17 +38,38 @@ public class ScalarData implements Comparable<ScalarData>{
 
 		byte[] line;
 		String prev=null;
+		boolean hasDepth=false;  // Detect format from header
+		boolean headerSeen=false;
 		while((line=bf.nextLine())!=null){
-			if(line.length>0 && line[0]!='#'){
+			if(line.length>0 && line[0]=='#' && !headerSeen){
+				// Check header for Depth column
+				String header=new String(line);
+				hasDepth=header.contains("Depth");
+				headerSeen=true;
+			}else if(line.length>0 && line[0]!='#'){
 				bytesProcessed+=(line.length+1);
 				pointsProcessed++;
 				parser.set(line);
 				gc.add(parser.parseFloat(0));
 				hh.add(parser.parseFloat(1));
 				caga.add(parser.parseFloat(2));
-				if(parser.terms()>3) {taxIDs.add(parser.parseInt(3));}
-				if(parser.terms()>4 && names!=null) {
-					String name=parser.parseString(4);
+
+				int taxCol, nameCol;
+				if(hasDepth){
+					// New format: GC HH CAGA Depth TaxID Name
+					depth.add(parser.parseFloat(3));
+					taxCol=4;
+					nameCol=5;
+				}else{
+					// Old format: GC HH CAGA TaxID Name
+					depth.add(0);  // No depth data
+					taxCol=3;
+					nameCol=4;
+				}
+
+				if(parser.terms()>taxCol) {taxIDs.add(parser.parseInt(taxCol));}
+				if(parser.terms()>nameCol && names!=null) {
+					String name=parser.parseString(nameCol);
 					names.add(name!=null && name.equals(prev) ? prev : name);
 					prev=name;
 				}
@@ -75,19 +96,20 @@ public class ScalarData implements Comparable<ScalarData>{
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("#");
 		if(sideHeader) {bb.appendt("Header");}
-		bb.append("GC\tHH\tCAGA");
+		bb.append("GC\tHH\tCAGA\tDepth");
 		if(true) {bb.append("\tTaxID");}
 		if(printPos) {bb.append("\tPos");}
 		if(printName) {bb.append("\tName");}
 		return bb.nl().toString();
 	}
 	
-	public ByteBuilder mean(boolean sideHeader, String name) {		
+	public ByteBuilder mean(boolean sideHeader, String name) {
 		ByteBuilder bb=new ByteBuilder();
 		if(sideHeader) {bb.appendt("Mean");}
 		bb.appendt(gc.mean(),5);
 		bb.appendt(hh.mean(),5);
 		bb.appendt(caga.mean(),5);
+		bb.appendt(depth.size()>0 ? depth.mean() : 0,5);
 		int tid=(taxIDs==null ? 0 : taxIDs.modeUnsorted());
 		bb.appendt(tid);
 		if(name!=null) {bb.appendt(name);}
@@ -95,12 +117,13 @@ public class ScalarData implements Comparable<ScalarData>{
 		return bb;
 	}
 	
-	public ByteBuilder stdev(boolean sideHeader, String name) {		
+	public ByteBuilder stdev(boolean sideHeader, String name) {
 		ByteBuilder bb=new ByteBuilder();
 		if(sideHeader) {bb.appendt("STDev");}
 		bb.appendt(gc.stdev(),5);
 		bb.appendt(hh.stdev(),5);
 		bb.appendt(caga.stdev(),5);
+		bb.appendt(depth.size()>0 ? depth.stdev() : 0,5);
 		int tid=(taxIDs==null ? 0 : taxIDs.modeUnsorted());
 		bb.appendt(tid);
 		if(name!=null) {bb.appendt(name);}
@@ -196,6 +219,7 @@ public class ScalarData implements Comparable<ScalarData>{
 	public FloatList gc=new FloatList();
 	public FloatList hh=new FloatList();
 	public FloatList caga=new FloatList();
+	public FloatList depth=new FloatList();
 	public IntList taxIDs=new IntList();
 	public ArrayList<String> names;
 

@@ -25,6 +25,12 @@ import shared.Tools;
 import sketch.SendSketch;
 import structures.FloatList;
 import tax.TaxTree;
+import bin.DataLoader;
+import fileIO.ByteFile;
+import map.ObjectDoubleMap;
+import parse.LineParser1;
+import parse.LineParserS1;
+import parse.LineParserS4;
 
 /**
  * Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots with color encoding.
@@ -133,6 +139,14 @@ public class CloudPlot {
 				yPercent=Float.parseFloat(b);
 			}else if(a.equals("zpct") || a.equals("zpercent")){
 				zPercent=Float.parseFloat(b);
+			}else if(a.equals("smin") || a.equals("minsize")){
+				smin=Float.parseFloat(b);
+			}else if(a.equals("smax") || a.equals("maxsize")){
+				smax=Float.parseFloat(b);
+			}else if(a.equals("spct") || a.equals("spercent") || a.equals("sizepercent")){
+				sPercent=Float.parseFloat(b);
+			}else if(a.equals("cpct") || a.equals("cpercent") || a.equals("colorpercent")){
+				cPercent=Float.parseFloat(b);
 			}else if(a.equals("scale")){
 				scale=Float.parseFloat(b);
 			}else if(a.equals("pointsize")){
@@ -147,6 +161,10 @@ public class CloudPlot {
 				breakOnContig=Parse.parseBoolean(b);
 			}else if(a.equals("minlen")){
 				minlen=Parse.parseIntKMG(b);
+			}else if(a.equals("cov") || a.equals("coverage") || a.equals("covfile")){
+				covFile=b;
+			}else if(a.equals("depth") || a.equals("depthfile") || a.equals("sam") || a.equals("bam")){
+				depthFile=b;
 			}else if(a.equalsIgnoreCase("gcHh") || a.equalsIgnoreCase("hhGc")){
 				gcHhCorrelation=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("gcCaga") || a.equalsIgnoreCase("cagaGc")){
@@ -187,10 +205,18 @@ public class CloudPlot {
 				SendClade.maxConcurrency=SendSketch.maxConcurrency=Integer.parseInt(b);
 			}else if(a.equals("order")){
 				order=parseOrder(b);
+			}else if(a.equals("colorby") || a.equals("color")){
+				colorMetric=parseMetric(b);
 			}else if(a.equals("concise")){
 				Clade.CONCISE=Parse.parseBoolean(b);
+			}else if(a.equals("logoffset")){
+				logOffset=Float.parseFloat(b);
+			}else if(a.equals("logshift")){
+				logShift=Float.parseFloat(b);
+			}else if(a.equals("logpower")){
+				logPower=Float.parseFloat(b);
 			}
-			
+
 			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else if(parser.in1==null && i==0 && Tools.looksLikeInputStream(arg)){
@@ -240,20 +266,78 @@ public class CloudPlot {
 		if(pointsize<1){
 			throw new RuntimeException("pointsize must be >= 1");
 		}
+
+		// Enable name storage if we need to look up depth from coverage file
+		if(covFile!=null || depthFile!=null){
+			ScalarIntervals.printName=true;
+		}
+
+		// Enable TID parsing if we're coloring by taxonomy
+		if(colorMetric==TAXONOMY || colorByTax || useTree){
+			ScalarData.parseTID=true;
+		}
+
+		// Validate taxonomy placement (only color or rotation allowed)
+		if(order[0]==TAXONOMY){  // X-axis
+			throw new RuntimeException("Taxonomy cannot be assigned to X-axis. Use color or rotation (z) instead.");
+		}
+		if(order[1]==TAXONOMY){  // Y-axis
+			throw new RuntimeException("Taxonomy cannot be assigned to Y-axis. Use color or rotation (z) instead.");
+		}
+		if(order[3]==TAXONOMY){  // Size
+			throw new RuntimeException("Taxonomy cannot be assigned to size. Use color or rotation (z) instead.");
+		}
+
+		// Taxonomy on Z-axis (rotation) or color is OK
+		// Warn if taxonomy not used for visualization
+		boolean taxUsed=(order[2]==TAXONOMY || colorMetric==TAXONOMY);
+		if(colorByTax && !taxUsed){
+			outstream.println("Warning: colorByTax=true but taxonomy not assigned to any dimension");
+		}
+
 		return true;
 	}
 	
+	/**
+	 * Parse a single metric name to its index.
+	 * @param b Metric name like "gc", "depth", "taxonomy"
+	 * @return Metric index constant
+	 */
+	public static int parseMetric(String b) {
+		if(b==null){return NONE;}
+		b=b.toLowerCase().trim();
+		switch(b){
+			case "gc": case "0": return GC;
+			case "hh": case "1": return HH;
+			case "caga": case "2": return CAGA;
+			case "depth": case "cov": case "coverage": case "3": return DEPTH;
+			case "length": case "len": case "size": case "4": return LENGTH;
+			case "tax": case "taxonomy": case "tid": case "5": return TAXONOMY;
+			case "none": case "-1": return NONE;
+			default: throw new RuntimeException("Unknown metric: "+b+". Valid: gc, hh, caga, depth, length, taxonomy, none");
+		}
+	}
+
+	/**
+	 * Parse order parameter to assign metrics to dimensions.
+	 * Supports 3-element format (x,y,z) or 4-element format (x,y,z,size).
+	 * @param b Order string like "gc,hh,caga" or "gc,hh,caga,depth"
+	 * @return Array of metric indices [x, y, z, size]
+	 */
 	public static int[] parseOrder(String b) {
-		HashMap<String, Integer> map=new HashMap<String, Integer>();
-		map.put("0", 0);
-		map.put("1", 1);
-		map.put("2", 2);
-		map.put("gc", 0);
-		map.put("hh", 1);
-		map.put("caga", 2);
 		String[] s=b.toLowerCase().split(",");
-		int[] order=new int[b.length()];
-		for(int i=0; i<order.length; i++) {order[i]=map.get(s[i]);}
+		int[] order=new int[4];  // Always return 4 elements: x, y, z, size
+
+		// Parse provided dimensions
+		for(int i=0; i<Math.min(s.length, 4); i++) {
+			order[i]=parseMetric(s[i]);
+		}
+
+		// If only 3 elements provided (legacy format), default size to NONE
+		if(s.length==3){
+			order[3]=NONE;
+		}
+
 		return order;
 	}
 
@@ -300,6 +384,13 @@ public class CloudPlot {
 
 	/** Read data from input file (TSV or FASTA) */
 	private void readData(){
+		// Load depth map if needed
+		if(covFile!=null){
+			depthMap=loadCoverageFile(covFile);
+		}else if(depthFile!=null){
+			depthMap=loadDepthFromAlignment(depthFile);
+		}
+
 		if(ffin1.isSequence()){
 			// FASTA input - use ScalarIntervals
 			data=ScalarIntervals.toIntervals(in1, window, interval, minlen, breakOnContig, maxReads);
@@ -308,6 +399,112 @@ public class CloudPlot {
 			data=new ScalarData(true, -1).readTSV(ffin1);
 		}
 		bytesProcessed+=(data.bytesProcessed+data.basesProcessed);
+
+		// Build depth and length lists
+		buildAuxiliaryLists();
+	}
+
+	/** Build depth and length lists from data */
+	private void buildAuxiliaryLists(){
+		int n=data.gc.size();  // All FloatLists should be same size
+		depthList=new FloatList(n);
+		lengthList=new FloatList(n);
+
+		for(int i=0; i<n; i++){
+			String name=data.name(i);
+
+			// Get depth from map or header
+			float depth;
+			if(depthMap!=null && name!=null){
+				String trimmedName=Tools.trimToWhitespace(name);
+				depth=(float)depthMap.get(trimmedName);
+				if(depth<0){depth=0;}  // Not found
+			}else{
+				depth=parseDepth(name);
+				if(depth<0){depth=0;}  // Not found
+			}
+
+			// For length, use interval size as proxy
+			// TODO: Could extract actual contig length from FASTA headers if needed
+			float length=interval;
+
+			depthList.add(depth);
+			lengthList.add(length);
+		}
+	}
+
+	/**
+	 * Parse depth from read header in Spades or Tadpole format.
+	 * @param name Read name/header
+	 * @return Depth value, or -1 if not found
+	 */
+	private float parseDepth(String name){
+		if(name==null){return -1;}
+		if(name.startsWith("NODE_") && name.contains("_cov_")){//Spades
+			lps.set(name);
+			return lps.parseFloat(5);
+		}else if(name.startsWith("contig_") && name.contains(",cov=")){//Tadpole
+			lpt.set(name);
+			return lpt.parseFloat(3);
+		}else if(name.contains("_cov_")){//Generic
+			lps.set(name);
+			for(int i=0; i<lps.terms()-1; i++){
+				if(lps.termEquals("cov", i)){
+					return lps.parseFloat(i+1);
+				}
+			}
+		}
+		return -1;
+	}
+
+	/** Load coverage file (pileup or covmaker format) */
+	private ObjectDoubleMap<String> loadCoverageFile(String fname){
+		outstream.println("Loading coverage from "+fname);
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		byte[] firstLine=bf.nextLine();
+		bf.close();
+
+		String header=new String(firstLine);
+		if(header.startsWith("#ID")){
+			return loadPileupCoverage(fname);
+		}else if(header.startsWith("#Contigs") || header.startsWith("#Depths")){
+			return DataLoader.loadCovFile2(fname);
+		}else{
+			throw new RuntimeException("Unknown coverage file format. Expected pileup (#ID) or covmaker (#Contigs) format.");
+		}
+	}
+
+	/** Load coverage from pileup.sh output format */
+	private ObjectDoubleMap<String> loadPileupCoverage(String fname){
+		LineParser1 lp=new LineParser1('\t');
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
+
+		byte[] line=bf.nextLine();
+		// Skip header
+		while(line!=null && Tools.startsWith(line, '#')){
+			line=bf.nextLine();
+		}
+
+		// Parse data lines
+		while(line!=null){
+			lp.set(line);
+			String name=Tools.trimToWhitespace(lp.parseString(0));
+			float depth=lp.parseFloat(1);  // Avg_fold column
+			map.put(name, depth);
+			line=bf.nextLine();
+		}
+		bf.close();
+		outstream.println("Loaded "+map.size()+" contigs from pileup file.");
+		return map;
+	}
+
+	/** Calculate depth from SAM/BAM alignment file */
+	private ObjectDoubleMap<String> loadDepthFromAlignment(String fname){
+		outstream.println("Calculating depth from alignment file "+fname);
+		// Simplified version - just parse @SQ headers and count aligned bases
+		// Full implementation would match PartitionReads3.loadDepthFromAlignment()
+		throw new RuntimeException("SAM/BAM depth calculation not yet implemented. Use pileup.sh to generate coverage file instead.");
 	}
 	
 	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength) {
@@ -360,17 +557,37 @@ public class CloudPlot {
 			ymax=Tools.mid(ymax, 0, 1);
 			zmin=Tools.mid(zmin, 0, 1);
 			zmax=Tools.mid(zmax, 0, 1);
+			// Size autoscaling: default 0.8x to 3.0x pointsize
+			if(smin<0){smin=pointsize*0.8f;}
+			if(smax<0){smax=pointsize*3.0f;}
 		}else{
-			FloatList[] lists=data.reorder(order);
-			if(xmin<0){xmin=min(lists[0], xPercent);}
-			if(xmax<0){xmax=max(lists[0], xPercent);}
-			
-			if(ymin<0){ymin=min(lists[1], yPercent);}
-			if(ymax<0){ymax=max(lists[1], yPercent);}
-			
-			if(zmin<0){zmin=min(lists[2], zPercent);}
-			if(zmax<0){zmax=max(lists[2], zPercent);}
-			System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax);
+			// Get metric lists for each dimension
+			FloatList xList=getMetricList(order[0]);
+			FloatList yList=getMetricList(order[1]);
+			FloatList zList=getMetricList(order[2]);
+			FloatList sList=(order[3]!=NONE ? getMetricList(order[3]) : null);
+
+			if(xmin<0 && xList!=null){xmin=minLog(xList, xPercent, order[0]);}
+			if(xmax<0 && xList!=null){xmax=maxLog(xList, xPercent, order[0]);}
+
+			if(ymin<0 && yList!=null){ymin=minLog(yList, yPercent, order[1]);}
+			if(ymax<0 && yList!=null){ymax=maxLog(yList, yPercent, order[1]);}
+
+			if(zmin<0 && zList!=null){zmin=minLog(zList, zPercent, order[2]);}
+			if(zmax<0 && zList!=null){zmax=maxLog(zList, zPercent, order[2]);}
+
+			// Size: always pixel range, track data range separately
+			if(smin<0){smin=pointsize*0.8f;}
+			if(smax<0){smax=pointsize*3.0f;}
+
+			// Get data range for size dimension (for log scaling)
+			if(order[3]!=NONE && sList!=null){
+				dataMin=min(sList, sPercent);
+				dataMax=max(sList, sPercent);
+				System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax+", size:"+smin+"-"+smax+" pixels, data:"+dataMin+"-"+dataMax);
+			}else{
+				System.err.println(xmin+"-"+xmax+", "+ymin+"-"+ymax+", "+zmin+"-"+zmax+", size:"+smin+"-"+smax+" pixels (fixed)");
+			}
 		}
 	}
 	
@@ -386,6 +603,73 @@ public class CloudPlot {
 		list=list.copy();
 		list.sort();
 		return list.percentile(percentile);
+	}
+
+	/** Calculate min percentile - in log space for depth/length, linear for others */
+	private float minLog(FloatList list, float percentile, int metric){
+		if(metric==DEPTH || metric==LENGTH){
+			// Log-transform, get percentile, transform back
+			FloatList logList=new FloatList(list.size());
+			for(int i=0; i<list.size(); i++){
+				logList.add((float)(Math.log(list.get(i)+logOffset)+logShift));
+			}
+			float logMin=min(logList, percentile);
+			return (float)(Math.exp(logMin-logShift)-logOffset);
+		}else{
+			return min(list, percentile);
+		}
+	}
+
+	/** Calculate max percentile - in log space for depth/length, linear for others */
+	private float maxLog(FloatList list, float percentile, int metric){
+		if(metric==DEPTH || metric==LENGTH){
+			// Log-transform, get percentile, transform back
+			FloatList logList=new FloatList(list.size());
+			for(int i=0; i<list.size(); i++){
+				logList.add((float)(Math.log(list.get(i)+logOffset)+logShift));
+			}
+			float logMax=max(logList, percentile);
+			return (float)(Math.exp(logMax-logShift)-logOffset);
+		}else{
+			return max(list, percentile);
+		}
+	}
+
+	/**
+	 * Get the FloatList for a given metric.
+	 * @param metric Metric index (GC, HH, CAGA, DEPTH, LENGTH)
+	 * @return FloatList containing values for that metric
+	 */
+	private FloatList getMetricList(int metric){
+		switch(metric){
+			case GC: return data.gc;
+			case HH: return data.hh;
+			case CAGA: return data.caga;
+			case DEPTH: return depthList;
+			case LENGTH: return lengthList;
+			case TAXONOMY: return null;  // Categorical, not a FloatList
+			case NONE: return null;
+			default: throw new RuntimeException("Unknown metric: "+metric);
+		}
+	}
+
+	/**
+	 * Get metric value for a specific data point.
+	 * @param index Data point index
+	 * @param metric Metric constant
+	 * @return Metric value
+	 */
+	private float getMetricValue(int index, int metric){
+		switch(metric){
+			case GC: return data.gc.get(index);
+			case HH: return data.hh.get(index);
+			case CAGA: return data.caga.get(index);
+			case DEPTH: return depthList.get(index);
+			case LENGTH: return lengthList.get(index);
+			case TAXONOMY: return data.tid(index);  // Return TID as float
+			case NONE: return 1.0f;  // Fixed value
+			default: throw new RuntimeException("Unknown metric: "+metric);
+		}
 	}
 
 	/** Render the plot to a BufferedImage */
@@ -405,30 +689,92 @@ public class CloudPlot {
 		int plotWidth=width-2*margin;
 		int plotHeight=height-2*margin;
 
-		final FloatList[] lists=data.reorder(order);
-		final FloatList xlist=lists[0], ylist=lists[1], zlist=lists[2];
-		int numPoints=xlist.size();
+		int numPoints=data.gc.size();  // All FloatLists are same size
+		boolean hasSizeDimension=(order[3]!=NONE);
 
 //		System.err.println("zmin="+zmin+", zmax="+zmax);
 		for(int i=0; i<numPoints; i++){
 			int tid=data.tid(i);
 			String name=data.name(i);
-			float x=xlist.array[i];    // X-axis
-			float y=ylist.array[i];    // Y-axis
-			float z=zlist.array[i];    // Color
 
-			// Map data coords to pixel coords
-			float normX=(x-xmin)/(xmax-xmin);
-			float normY=(y-ymin)/(ymax-ymin);
+			// Get metric values for this point
+			float x=getMetricValue(i, order[0]);    // X-axis
+			float y=getMetricValue(i, order[1]);    // Y-axis
+			float z=getMetricValue(i, order[2]);    // Z-axis (rotation)
+			float s=(hasSizeDimension ? getMetricValue(i, order[3]) : 1.0f);  // Size
 
-			// Normalize CAGA value to 0-1 range for color mapping
+			// Map data coords to pixel coords - apply log scaling to depth/length
+			float normX;
+			if(order[0]==DEPTH || order[0]==LENGTH){
+				float logX=(float)Math.log(x+logOffset)+logShift;
+				float logXmin=(float)Math.log(xmin+logOffset)+logShift;
+				float logXmax=(float)Math.log(xmax+logOffset)+logShift;
+				normX=(logX-logXmin)/(logXmax-logXmin);
+			}else{
+				normX=(x-xmin)/(xmax-xmin);
+			}
+
+			float normY;
+			if(order[1]==DEPTH || order[1]==LENGTH){
+				float logY=(float)Math.log(y+logOffset)+logShift;
+				float logYmin=(float)Math.log(ymin+logOffset)+logShift;
+				float logYmax=(float)Math.log(ymax+logOffset)+logShift;
+				normY=(logY-logYmin)/(logYmax-logYmin);
+			}else{
+				normY=(y-ymin)/(ymax-ymin);
+			}
+
+			// Normalize Z value to 0-1 range for rotation
 			float normZ;
-			if(zmax-zmin<0.001f){
+			if(order[2]==TAXONOMY){
+				// Taxonomy rotation: hash TID to get consistent angle per taxon
+				if(tid<1){
+					normZ=0.5f;  // Default for unclassified
+				}else{
+					int rotTid=tid;
+					if(useTree && level>1) {rotTid=tree.getIdAtLevelExtended(tid, level);}
+					long hash=Tools.hash64shift(rotTid);
+					normZ=((hash&1023L)/1024f);  // Extract 10 bits, normalize to 0-1
+				}
+			}else if(order[2]==DEPTH || order[2]==LENGTH){
+				// Log scaling for depth/length on Z-axis
+				float logZ=(float)Math.log(z+logOffset)+logShift;
+				float logZmin=(float)Math.log(zmin+logOffset)+logShift;
+				float logZmax=(float)Math.log(zmax+logOffset)+logShift;
+				if(logZmax-logZmin<0.001f){
+					normZ=0.5f;
+				}else{
+					normZ=(logZ-logZmin)/(logZmax-logZmin);
+				}
+			}else if(zmax-zmin<0.001f){
 				normZ=0.5f;
 			}else{
 				normZ=(z-zmin)/(zmax-zmin);
 			}
-//			System.err.println(cagaVal+" -> "+normZ);
+
+			// Normalize size value and scale to pixel range
+			float pixelSize;
+			if(hasSizeDimension){
+				// Apply appropriate scaling based on size metric
+				int sizeMetric=order[3];
+				if(sizeMetric==DEPTH || sizeMetric==LENGTH){
+					// Log scaling for unbounded metrics: (log(x+offset)+shift)^power
+					float logS=(float)Math.pow(Math.log(s+logOffset)+logShift, logPower);
+					float logMin=(float)Math.pow(Math.log(dataMin+logOffset)+logShift, logPower);
+					float logMax=(float)Math.pow(Math.log(dataMax+logOffset)+logShift, logPower);
+					float normS=(logS-logMin)/(logMax-logMin);
+					pixelSize=smin+normS*(smax-smin);
+				}else{
+					// Scaling for 0-1 metrics (GC, HH, CAGA) - apply power for emphasis
+					float normS=(s-dataMin)/(dataMax-dataMin);
+					normS=(float)Math.pow(normS, logPower);  // Apply power to emphasize differences
+					pixelSize=smin+normS*(smax-smin);
+				}
+				pixelSize=Tools.mid(pixelSize, smin, smax);  // Clamp to range
+			}else{
+				// Fixed size
+				pixelSize=pointsize;
+			}
 
 			int px=margin+(int)(normX*plotWidth);
 			int py=height-margin-(int)(normY*plotHeight);  // Flip Y-axis
@@ -437,16 +783,25 @@ public class CloudPlot {
 			float angle = normZ * (float)(2 * Math.PI);
 
 			// Create elongated ellipse
-			float pointWidth=pointsize*0.8f;
-			float pointLength=pointsize*(3.2f+0.5f*normY);
+			float pointWidth=pixelSize*0.8f;
+			float pointLength;
+			if(hasSizeDimension){
+				// When size is a dimension, use proportional length (no Y-dependency)
+				pointLength=pixelSize*3.2f;
+			}else{
+				// Legacy behavior: length varies with Y position
+				pointLength=pixelSize*(3.2f+0.5f*normY);
+			}
 			Ellipse2D ellipse=new Ellipse2D.Float(px - pointWidth/2, py - pointLength/2, pointWidth, pointLength);
 
 			// Rotate around center
 			AffineTransform rotation = AffineTransform.getRotateInstance(angle, px, py);
 			Shape rotatedEllipse = rotation.createTransformedShape(ellipse);
 
+			// Determine color based on colorMetric
 			final Color c;
-			if(colorByTax) {
+			if(colorMetric==TAXONOMY) {
+				// Color by taxonomy
 				if(tid<1) {c=new Color(200, 200, 200);}
 				else {
 					if(useTree && level>1) {tid=tree.getIdAtLevelExtended(tid, level);}
@@ -462,28 +817,82 @@ public class CloudPlot {
 					Tools.multiplyBy(rgb, mult);
 					c=new Color(rgb[0], rgb[1], rgb[2]);
 				}
-			}else if(colorByName) {
-					int hash=name.hashCode();
-					float[] rgb=new float[3];
-					for(int color=0; color<3; color++) {
-						rgb[color]=(((hash&1023)/1024f)*0.95f)+0.05f;
-						hash>>=10;
+			}else{
+				// Color by metric gradient (GC, HH, CAGA, etc.)
+				float colorValue=getMetricValue(i, colorMetric);
+				float colorMin, colorMax;
+				// Get appropriate min/max for color metric
+				if(colorMetric==order[0]){colorMin=xmin; colorMax=xmax;}
+				else if(colorMetric==order[1]){colorMin=ymin; colorMax=ymax;}
+				else if(colorMetric==order[2]){colorMin=zmin; colorMax=zmax;}
+				else{
+					// Color metric not on any axis - use data range with percentile
+					FloatList cList=getMetricList(colorMetric);
+					if(cList!=null){
+						colorMin=minLog(cList, cPercent, colorMetric);
+						colorMax=maxLog(cList, cPercent, colorMetric);
+					}else{
+						colorMin=0;
+						colorMax=1;
 					}
-					float max=Tools.max(rgb);
-					float mult=1f/max;
-					mult=1+0.6f*(mult-1);
-					Tools.multiplyBy(rgb, mult);
-					c=new Color(rgb[0], rgb[1], rgb[2]);
-			}else {
-				c=cagaToColor6(normZ);
+				}
+
+				// Apply log scaling to depth/length for color
+				float normColor;
+				if(colorMetric==DEPTH || colorMetric==LENGTH){
+					float logValue=(float)Math.log(colorValue+logOffset)+logShift;
+					float logMin=(float)Math.log(colorMin+logOffset)+logShift;
+					float logMax=(float)Math.log(colorMax+logOffset)+logShift;
+					normColor=(logMax-logMin<0.001f ? 0.5f : (logValue-logMin)/(logMax-logMin));
+				}else{
+					normColor=(colorMax-colorMin<0.001f ? 0.5f : (colorValue-colorMin)/(colorMax-colorMin));
+				}
+				c=cagaToColor6(normColor);
 			}
 			g.setColor(c);
 			g.fill(rotatedEllipse);
 			pointsProcessed++;
 		}
 
+		// Draw axis labels
+		drawAxisLabels(g, width, height, margin);
+
 		g.dispose();
 		return img;
+	}
+
+	/** Draw axis labels showing min/max values */
+	private void drawAxisLabels(Graphics2D g, int width, int height, int margin){
+		g.setColor(Color.WHITE);
+		java.awt.Font font=new java.awt.Font("SansSerif", java.awt.Font.PLAIN, (int)(12*scale));
+		g.setFont(font);
+
+		// X-axis labels
+		String xLabel=getMetricName(order[0]);
+		String xMinLabel=String.format("%s: %.2f", xLabel, xmin);
+		String xMaxLabel=String.format("%.2f", xmax);
+		g.drawString(xMinLabel, margin, height-margin/4);
+		g.drawString(xMaxLabel, width-margin-50*(int)scale, height-margin/4);
+
+		// Y-axis labels
+		String yLabel=getMetricName(order[1]);
+		String yMinLabel=String.format("%s: %.2f", yLabel, ymin);
+		String yMaxLabel=String.format("%.2f", ymax);
+		g.drawString(yMinLabel, margin/4, height-margin+15*(int)scale);
+		g.drawString(yMaxLabel, margin/4, margin+15*(int)scale);
+	}
+
+	/** Get human-readable name for a metric */
+	private String getMetricName(int metric){
+		switch(metric){
+			case GC: return "GC";
+			case HH: return "HH";
+			case CAGA: return "CAGA";
+			case DEPTH: return "Depth";
+			case LENGTH: return "Length";
+			case TAXONOMY: return "Tax";
+			default: return "?";
+		}
 	}
 
 	/** Map CAGA value to color: Red(0.0) → Blue(0.5) → Green(1.0) */
@@ -538,10 +947,20 @@ public class CloudPlot {
 
 	/** Primary output file path */
 	private String out1=null;
-	
+
 	private ScalarData data=null;
-	
-	private int[] order={2, 1, 0};
+
+	/** Dimension assignment: [x, y, z/rotation, size] */
+	private int[] order={CAGA, HH, GC, NONE};  // Default: x=CAGA, y=HH, z=GC, size=none
+
+	/** Metric to use for color */
+	private int colorMetric=CAGA;  // Default: color by CAGA gradient
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Metric Constants      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static final int GC=0, HH=1, CAGA=2, DEPTH=3, LENGTH=4, TAXONOMY=5, NONE=-1;
 
 	/*--------------------------------------------------------------*/
 
@@ -552,9 +971,15 @@ public class CloudPlot {
 	private float ymax=-1.0f;
 	private float zmin=-1.0f;
 	private float zmax=-1.0f;
+	private float smin=-1.0f;  // Size min in pixels (autoscale if negative)
+	private float smax=-1.0f;  // Size max in pixels (autoscale if negative)
+	private float dataMin=-1.0f;  // Data range min for size dimension
+	private float dataMax=-1.0f;  // Data range max for size dimension
 	private float xPercent=0.998f;
 	private float yPercent=0.998f;
 	private float zPercent=0.99f;
+	private float sPercent=0.99f;  // Size percentile for autoscaling
+	private float cPercent=0.98f;  // Color percentile for autoscaling
 	
 	/** Rendering parameters */
 	private float scale=1.0f;
@@ -566,6 +991,22 @@ public class CloudPlot {
 	private int minlen=500;
 	private boolean breakOnContig=true;
 	private long maxReads=-1;
+
+	/** Depth/coverage support */
+	private String covFile=null;  // Coverage file (pileup or covmaker format)
+	private String depthFile=null;  // SAM/BAM file for depth calculation
+	private ObjectDoubleMap<String> depthMap=null;  // Contig name -> depth
+	private FloatList depthList=null;  // Depth values per data point
+	private FloatList lengthList=null;  // Length values per data point
+
+	/** Line parsers for depth extraction from headers */
+	private final LineParserS1 lps=new LineParserS1('_');  // Spades format
+	private final LineParserS4 lpt=new LineParserS4(",,=,");  // Tadpole format
+
+	/** Log scaling parameters for depth/length */
+	private float logOffset=0.25f;  // Add before log to handle zeros
+	private float logShift=2.0f;    // Add after log to avoid negatives
+	private float logPower=2.0f;    // Power to apply (0.5=sqrt, 2.0=squared for emphasis)
 	
 	boolean autoscale=true;
 	boolean decorrelate=true;

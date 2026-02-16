@@ -755,10 +755,21 @@ public class PartitionReads3 {
 	Writer[] processInner_metric(final Streamer cris, Writer rosIn[], int mode){
 		if(verbose){outstream.println("[TRACE] Entering processInner_metric() - rosIn="+(rosIn==null?"null":"["+rosIn.length+"]"));}
 		Writer[] ros=rosIn;
-		// Phase 1: Build histogram (returns long[] or SuperLongList)
-		if(verbose){outstream.println("[TRACE] Calling buildHistogram()");}
-		Object histogram=buildHistogram(cris, mode);
-		if(verbose){outstream.println("[TRACE] buildHistogram() complete");}
+
+		// Phase 1: Build histogram if needed (skipped for custom cutoffs)
+		Object histogram=null;
+		if(customCutoffs==null){
+			// Need histogram for autoPartition or balanced partitioning
+			if(verbose){outstream.println("[TRACE] Calling buildHistogram()");}
+			histogram=buildHistogram(cris, mode);
+			if(verbose){outstream.println("[TRACE] buildHistogram() complete");}
+			// Close the exhausted stream - partitionReads() will create a new one
+			errorState|=ReadWrite.closeStream(cris);
+		}else{
+			// Custom cutoffs provided - no histogram needed, close unused stream immediately
+			if(verbose){outstream.println("[TRACE] Custom cutoffs provided, skipping histogram");}
+			errorState|=ReadWrite.closeStream(cris);
+		}
 
 		// Phase 2: Calculate boundaries
 		float[] boundaries;
@@ -1556,7 +1567,7 @@ public class PartitionReads3 {
 	/** Minimum peak volume as fraction of dominant peak (0.0-1.0) */
 	private float minPeak=0.04f;
 	/** Smoothing radius for histogram noise reduction */
-	private int smoothRadius=5;
+	private int smoothRadius=9;
 	/** Maximum number of auto-detected partitions */
 	private int maxPartitions=25;
 
