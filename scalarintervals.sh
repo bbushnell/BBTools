@@ -3,39 +3,72 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 13, 2025
+Last modified February 15, 2026
 
-Description:  Calculates some scalars from nucleotide sequence data.
-Writes them periodically as a tsv.
+Description:  Calculates compositional scalar metrics from nucleotide sequences.
+Computes GC content, HH (homo/hetero dimer ratio), CAGA (transistion preference),
+depth, and length for sequence intervals. Outputs data in TSV format for 
+visualization with CloudPlot or external analysis tools.
 
-Usage:  scalarintervals.sh in=<input file> out=<output file>
-e.g.
-scalarintervals.sh in=ecoli.fasta out=data.tsv shred=5k
-or
-scalarintervals.sh *.fa.gz out=data.tsv shred=5k
+Output TSV Format:
+#Name   Length  GC      HH      CAGA    Depth   Start   TaxID   TaxID2
+- Name: Sequence/contig name
+- Length: Interval length in bases
+- GC: GC content (0-1)
+- HH: Homopolymer-heteropolymer ratio (0-1, GC-independent)
+- CAGA: Compositional asymmetry (0-1, GC-independent)
+- Depth: Read coverage depth (from cov/depth file or header)
+- Start: Start position within contig (0 for whole contigs)
+- TaxID: Primary taxonomy ID (from clade, sketch, or header)
+- TaxID2: Secondary taxonomy ID (for concordance checking)
+
+Usage:  scalarintervals.sh in=<input file> out=<output file> [options]
+
+Examples:
+# Basic interval generation
+scalarintervals.sh in=assembly.fa out=data.tsv shred=20k header=t
+
+# With coverage from BAM file
+scalarintervals.sh in=contigs.fa out=data.tsv shred=20k depth=mapped.bam header=t
+
+# With coverage file and taxonomy
+scalarintervals.sh in=assembly.fa out=data.tsv shred=20k cov=coverage.txt clade=t header=t
+
+# Multiple input files
+scalarintervals.sh *.fa.gz out=combined.tsv shred=10k header=t printname=t
 
 Standard parameters:
-in=<file>       Primary input; fasta or fastq.
-                This can also be a directory or comma-delimited list.
-		Filenames can also be used without in=
-out=stdout      Set to a file to redirect tsv output.  The mean and stdev
-                will be printed to stderr.
+in=<file>       Primary input; FASTA or FASTQ.
+                Can be a directory or comma-delimited list.
+                Filenames can also be used without in=
+out=stdout      Output TSV file. Mean and stdev printed to stderr.
+
+Depth/Coverage parameters:
+cov=<file>      Coverage file from pileup.sh (format: #ID, Avg_fold) or
+                covmaker.sh (format: #Contigs, AvgFold).
+depth=<file>    SAM/BAM file for depth calculation.
+                Calculates depth from aligned bases in the file.
 
 Processing parameters:
-header=f        Print a header line.
+header=f        Print TSV header line.
 window=50000    If nonzero, calculate metrics over sliding windows.
-                Otherwise calculate per contig.  Larger has lower variance.
+                Otherwise calculate per contig. Larger has lower variance.
 interval=10000  Generate a data point every this many bp.
 shred=-1        If positive, set window and interval to the same size.
+                Example: shred=20k sets both window and interval to 20000.
 break=t         Reset metrics at contig boundaries.
 minlen=500      Minimum interval length to generate a point.
 maxreads=-1     Maximum number of reads/contigs to process.
 printname=f     Print contig names in output.
-printpos=f      Print contig position in output.
-printtime=t     Print timing information to screen.
+printpos=f      Print start position in output (same as Start column).
+printtime=t     Print timing information to stderr.
+
+Taxonomy parameters:
 parsetid=f      Parse TaxIDs from file and sequence headers.
 sketch=f        Use BBSketch (SendSketch) to assign taxonomy per contig.
+                Assigns TaxID2 field.
 clade=f         Use QuickClade to assign taxonomy per contig.
+                Assigns TaxID field.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

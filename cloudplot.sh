@@ -30,20 +30,21 @@ in=<file>       Primary input; TSV (GC/HH/CAGA columns) or FASTA/FASTQ.
 out=<file>      Output PNG image file.
 
 Dimension assignment:
-order=gc,hh,caga        Assign metrics to X, Y, Z(rotation) dimensions (3D mode).
+order=hh,caga,gc        Assign metrics to X, Y, Z(rotation) dimensions (default).
 order=gc,hh,caga,depth  Assign metrics to X, Y, Z(rotation), Size dimensions (5D mode).
                         Available metrics: gc, hh, caga, depth, length, taxonomy, none
+                        Default: hh,caga,gc,none (HH on X, CAGA on Y, GC rotation, no size)
                         Note: Taxonomy can ONLY be used for Z (rotation) or colorby.
 
-colorby=<metric>        Metric for point color (default: caga gradient).
+colorby=<metric>        Metric for point color (default: taxonomy).
                         Options: gc, hh, caga, depth, length, taxonomy
                         Use 'taxonomy' or 'tax' for taxonomic coloring.
 
 Depth/coverage sources:
 cov=<file>      Coverage file from pileup.sh (format: #ID, Avg_fold) or
                 covmaker.sh (format: #Contigs, AvgFold).
-depth=<file>    SAM/BAM file for depth calculation (not yet implemented -
-                use pileup.sh to generate coverage file instead).
+depth=<file>    SAM/BAM file for depth calculation.
+                Calculates depth from aligned bases in SAM/BAM format.
 
 Rendering parameters:
 scale=1         Image scale multiplier (1=1024x768).

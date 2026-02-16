@@ -25,12 +25,6 @@ import shared.Tools;
 import sketch.SendSketch;
 import structures.FloatList;
 import tax.TaxTree;
-import bin.DataLoader;
-import fileIO.ByteFile;
-import map.ObjectDoubleMap;
-import parse.LineParser1;
-import parse.LineParserS1;
-import parse.LineParserS4;
 
 /**
  * Visualizes 3D compositional metrics (GC, HH, CAGA) as 2D scatter plots with color encoding.
@@ -384,129 +378,19 @@ public class CloudPlot {
 
 	/** Read data from input file (TSV or FASTA) */
 	private void readData(){
-		// Load depth map if needed
-		if(covFile!=null){
-			depthMap=loadCoverageFile(covFile);
-		}else if(depthFile!=null){
-			depthMap=loadDepthFromAlignment(depthFile);
-		}
-
 		if(ffin1.isSequence()){
 			// FASTA input - use ScalarIntervals
+			// Set ScalarIntervals static fields so it knows about coverage files
+			ScalarIntervals.covFile=covFile;
+			ScalarIntervals.depthFile=depthFile;
 			data=ScalarIntervals.toIntervals(in1, window, interval, minlen, breakOnContig, maxReads);
 		}else{
-			// TSV input
+			// TSV input - depth already loaded from TSV
 			data=new ScalarData(true, -1).readTSV(ffin1);
 		}
 		bytesProcessed+=(data.bytesProcessed+data.basesProcessed);
-
-		// Build depth and length lists
-		buildAuxiliaryLists();
 	}
 
-	/** Build depth and length lists from data */
-	private void buildAuxiliaryLists(){
-		int n=data.gc.size();  // All FloatLists should be same size
-		depthList=new FloatList(n);
-		lengthList=new FloatList(n);
-
-		for(int i=0; i<n; i++){
-			String name=data.name(i);
-
-			// Get depth from map or header
-			float depth;
-			if(depthMap!=null && name!=null){
-				String trimmedName=Tools.trimToWhitespace(name);
-				depth=(float)depthMap.get(trimmedName);
-				if(depth<0){depth=0;}  // Not found
-			}else{
-				depth=parseDepth(name);
-				if(depth<0){depth=0;}  // Not found
-			}
-
-			// For length, use interval size as proxy
-			// TODO: Could extract actual contig length from FASTA headers if needed
-			float length=interval;
-
-			depthList.add(depth);
-			lengthList.add(length);
-		}
-	}
-
-	/**
-	 * Parse depth from read header in Spades or Tadpole format.
-	 * @param name Read name/header
-	 * @return Depth value, or -1 if not found
-	 */
-	private float parseDepth(String name){
-		if(name==null){return -1;}
-		if(name.startsWith("NODE_") && name.contains("_cov_")){//Spades
-			lps.set(name);
-			return lps.parseFloat(5);
-		}else if(name.startsWith("contig_") && name.contains(",cov=")){//Tadpole
-			lpt.set(name);
-			return lpt.parseFloat(3);
-		}else if(name.contains("_cov_")){//Generic
-			lps.set(name);
-			for(int i=0; i<lps.terms()-1; i++){
-				if(lps.termEquals("cov", i)){
-					return lps.parseFloat(i+1);
-				}
-			}
-		}
-		return -1;
-	}
-
-	/** Load coverage file (pileup or covmaker format) */
-	private ObjectDoubleMap<String> loadCoverageFile(String fname){
-		outstream.println("Loading coverage from "+fname);
-		ByteFile bf=ByteFile.makeByteFile(fname, true);
-		byte[] firstLine=bf.nextLine();
-		bf.close();
-
-		String header=new String(firstLine);
-		if(header.startsWith("#ID")){
-			return loadPileupCoverage(fname);
-		}else if(header.startsWith("#Contigs") || header.startsWith("#Depths")){
-			return DataLoader.loadCovFile2(fname);
-		}else{
-			throw new RuntimeException("Unknown coverage file format. Expected pileup (#ID) or covmaker (#Contigs) format.");
-		}
-	}
-
-	/** Load coverage from pileup.sh output format */
-	private ObjectDoubleMap<String> loadPileupCoverage(String fname){
-		LineParser1 lp=new LineParser1('\t');
-		ByteFile bf=ByteFile.makeByteFile(fname, true);
-		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
-
-		byte[] line=bf.nextLine();
-		// Skip header
-		while(line!=null && Tools.startsWith(line, '#')){
-			line=bf.nextLine();
-		}
-
-		// Parse data lines
-		while(line!=null){
-			lp.set(line);
-			String name=Tools.trimToWhitespace(lp.parseString(0));
-			float depth=lp.parseFloat(1);  // Avg_fold column
-			map.put(name, depth);
-			line=bf.nextLine();
-		}
-		bf.close();
-		outstream.println("Loaded "+map.size()+" contigs from pileup file.");
-		return map;
-	}
-
-	/** Calculate depth from SAM/BAM alignment file */
-	private ObjectDoubleMap<String> loadDepthFromAlignment(String fname){
-		outstream.println("Calculating depth from alignment file "+fname);
-		// Simplified version - just parse @SQ headers and count aligned bases
-		// Full implementation would match PartitionReads3.loadDepthFromAlignment()
-		throw new RuntimeException("SAM/BAM depth calculation not yet implemented. Use pileup.sh to generate coverage file instead.");
-	}
-	
 	private FloatList decorrelate(FloatList xList, FloatList yList, float correlation, float strength) {
 		if(strength==0 || correlation==0) {return xList;}
 		return modify(xList, yList, -correlation*strength);
@@ -645,8 +529,8 @@ public class CloudPlot {
 			case GC: return data.gc;
 			case HH: return data.hh;
 			case CAGA: return data.caga;
-			case DEPTH: return depthList;
-			case LENGTH: return lengthList;
+			case DEPTH: return data.depth;
+			case LENGTH: return data.length;
 			case TAXONOMY: return null;  // Categorical, not a FloatList
 			case NONE: return null;
 			default: throw new RuntimeException("Unknown metric: "+metric);
@@ -664,8 +548,8 @@ public class CloudPlot {
 			case GC: return data.gc.get(index);
 			case HH: return data.hh.get(index);
 			case CAGA: return data.caga.get(index);
-			case DEPTH: return depthList.get(index);
-			case LENGTH: return lengthList.get(index);
+			case DEPTH: return data.depth.get(index);
+			case LENGTH: return data.length.get(index);
 			case TAXONOMY: return data.tid(index);  // Return TID as float
 			case NONE: return 1.0f;  // Fixed value
 			default: throw new RuntimeException("Unknown metric: "+metric);
@@ -680,6 +564,11 @@ public class CloudPlot {
 
 		BufferedImage img=new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 		Graphics2D g=img.createGraphics();
+
+		// Enable antialiasing
+		g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+		g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+		g.setRenderingHint(java.awt.RenderingHints.KEY_STROKE_CONTROL, java.awt.RenderingHints.VALUE_STROKE_PURE);
 
 		// White background
 		g.setColor(Color.BLACK);
@@ -951,10 +840,10 @@ public class CloudPlot {
 	private ScalarData data=null;
 
 	/** Dimension assignment: [x, y, z/rotation, size] */
-	private int[] order={CAGA, HH, GC, NONE};  // Default: x=CAGA, y=HH, z=GC, size=none
+	private int[] order={HH, CAGA, GC, NONE};  // Default: x=HH, y=CAGA, z=GC, size=none
 
 	/** Metric to use for color */
-	private int colorMetric=CAGA;  // Default: color by CAGA gradient
+	private int colorMetric=TAXONOMY;  // Default: color by taxonomy
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Metric Constants      ----------------*/
@@ -995,13 +884,6 @@ public class CloudPlot {
 	/** Depth/coverage support */
 	private String covFile=null;  // Coverage file (pileup or covmaker format)
 	private String depthFile=null;  // SAM/BAM file for depth calculation
-	private ObjectDoubleMap<String> depthMap=null;  // Contig name -> depth
-	private FloatList depthList=null;  // Depth values per data point
-	private FloatList lengthList=null;  // Length values per data point
-
-	/** Line parsers for depth extraction from headers */
-	private final LineParserS1 lps=new LineParserS1('_');  // Spades format
-	private final LineParserS4 lpt=new LineParserS4(",,=,");  // Tadpole format
 
 	/** Log scaling parameters for depth/length */
 	private float logOffset=0.25f;  // Add before log to handle zeros

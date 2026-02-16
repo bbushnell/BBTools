@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 3, 2021
+Last modified February 15, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences, 
 or error-correct reads.  Tadpole has no upper bound for kmer length,
@@ -46,6 +46,9 @@ dump=<file>         Write kmers and their counts.
 fastadump=t         Write kmers and counts as fasta versus 2-column tsv.
 mincounttodump=1    Only dump kmers with at least this depth.
 showstats=t         Print assembly statistics after writing contigs.
+shortnames=t        Short contig names without branch data.
+veryshortnames=f    Very short contig names without min/max depth and hh/caga.
+tid=-1              If positive, embed this TaxID in contig names.
 
 Prefiltering parameters:
 prefilter=0         If set to a positive integer, use a countmin sketch
