@@ -99,6 +99,10 @@ public class ScalarIntervals {
 				minlen=Parse.parseIntKMG(b);
 			}else if(a.equals("break")){
 				breakOnContig=Parse.parseBoolean(b);
+			}else if(a.equals("cov") || a.equals("coverage") || a.equals("covfile")){
+				covFile=b;
+			}else if(a.equals("depth") || a.equals("depthfile") || a.equals("sam") || a.equals("bam")){
+				depthFile=b;
 			}else if(a.equals("sketch") | a.equals("bbsketch")){
 				ScalarData.makeSketch=Parse.parseBoolean(b);
 			}else if(a.equals("clade") || a.equals("quickclade")){
@@ -188,6 +192,11 @@ public class ScalarIntervals {
 	
 	public static ScalarData toIntervals(FileFormat ff, int window, int interval, int minlen, boolean breakOnContig, long maxReads) {
 		if(verbose) {System.err.println("callingToIntervals(ff)");}
+		// Load depth map BEFORE processing reads (static, shared by all ScalarData instances)
+		if((covFile!=null || depthFile!=null) && ScalarData.depthMap==null){
+			ScalarData temp=new ScalarData(false, -1);
+			temp.loadDepth(covFile, depthFile);
+		}
 		int tid=(ScalarData.parseTID ? bin.BinObject.parseTaxID(ff.name()) : -1);
 		final ConcurrentReadInputStream cris;
 		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff, null);
@@ -622,6 +631,9 @@ public class ScalarIntervals {
 	private int interval=10000;
 	private int minlen=500;
 	private boolean breakOnContig=true;
+	/** Depth/coverage support */
+	static String covFile=null;  // Coverage file (pileup or covmaker format)
+	static String depthFile=null;  // SAM/BAM file for depth calculation
 	static boolean printName=false;
 	private static boolean printPos=false;
 	/** Whether to print timing information */

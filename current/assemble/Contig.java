@@ -7,6 +7,7 @@ import dna.AminoAcid;
 import shared.Tools;
 import simd.Vector;
 import structures.ByteBuilder;
+import tracker.KmerTracker;
 import ukmer.Kmer;
 
 /**
@@ -92,13 +93,15 @@ public class Contig {
 	private ByteBuilder toHeader(ByteBuilder bb){
 		if(name!=null){return bb.append(name);}
 		bb.append("contig_").append(id);
-		if(tid>=0){bb.append(",tid_").append(tid);}
 		bb.append(",length=").append(length());
 		bb.append(",cov=").append(coverage, 1);
+		bb.append(",gc=").append(gc(), 3);
+		if(tid>=0){bb.append(",tid_").append(tid);}
 		if(VERY_SHORT_NAMES) {return bb;}
 		bb.append(",min=").append(minCov);
 		bb.append(",max=").append(maxCov);
-		bb.append(",gc=").append(gc(), 3);
+		bb.append(",hh=").append(hh(), 3);
+		bb.append(",caga=").append(caga(), 3);
 		if(SHORT_NAMES) {return bb;}
 		
 		bb.append(",left=").append(Tadpole.codeStrings[leftCode]);
@@ -144,16 +147,90 @@ public class Contig {
 	 */
 	public float gc() {
 		if(bases==null || bases.length<1){return 0;}
-		int at=0, gc=0;
-		for(byte b : bases){
-			int x=AminoAcid.baseToNumber[b];
-			if(x>-1){
-				if(x==0 || x==3){at++;}
-				else{gc++;}
-			}
+		if(gc>-1) {return gc;}
+		if(true) {return calcScalarsFast();}
+		int atSum=0, gcSum=0;
+		for(byte b : bases){//Only works for ACGTUN
+			int gcbit=b>>1;
+			atSum+=(~gcbit&1);
+			gcSum+=(gcbit&~(b>>3))&1;
 		}
-		if(gc<1){return 0;}
-		return gc*1f/(at+gc);
+		if(gcSum<1){return 0;}
+		return gc=(gcSum*1f/Math.max(1, atSum+gcSum));
+	}
+	
+	public float hh() {
+		if(hh<0) {calcScalarsFast();}
+		return hh;
+	}
+	
+	public float caga() {
+		if(hh<0) {calcScalarsFast();}
+		return hh;
+	}
+	
+	public void calcScalars() {
+		if(bases==null || bases.length<2){return;}
+		if(hh>-1) {return;}
+		final int[] counts=new int[16];
+		final int mask=0xF;
+		int kmer=0, len=0;
+		int atSum=0, gcSum=0;
+		for(int i=0; i<bases.length; i++){
+			final byte b=bases[i];
+			int gcbit=b>>1;
+			atSum+=(~gcbit&1);
+			gcSum+=(gcbit&~(b>>3))&1;
+			final int x=AminoAcid.baseToNumber[b];
+			kmer=(((kmer<<2)|x)&mask);
+			if(x>=0){
+				len++;
+				if(len>=2) {counts[kmer]++;}
+			}else{len=kmer=0;}
+		}
+		gc=gcSum*1f/Math.max(1, atSum+gcSum);
+		hh=KmerTracker.HH(counts);
+		caga=KmerTracker.CAGA(counts);
+	}
+	
+	/**
+	 * Calculates GC, HH, CAGA if HH is unset.
+	 * @return GC
+	 */
+	public float calcScalarsFast() {
+		if(bases==null || bases.length<2){return 0;}
+		if(hh>-1) {return gc;}
+		final int[] counts=new int[16];
+		
+		int prevBad=8;//Initialize as "N" so first dimer fails
+		int prevVal=0;
+		int atSum=0, gcSum=0;
+
+		for(byte b : bases){
+			// GC Logic (Dimer-based number is imprecise)
+			final int gcbit=b>>1;
+			atSum+=(~gcbit&1);
+			gcSum+=(gcbit&~(b>>3))&1;
+			
+			// Dimer Logic (Branchless Mapping)
+			// Map ASCII directly to 0-3
+			int val=(b&6)>>1;
+			val^=(val&2)>>1; 
+			
+			int bad=(b&8); // 8 if N, 0 if ACGT
+			
+			// Only count if both Previous and Current bases are valid
+			// Since N is rare, this branch is highly predictable
+			if((prevBad|bad)==0){
+				counts[(prevVal<<2)|val]++;
+			}
+			
+			prevVal=val;
+			prevBad=bad;
+		}
+		hh=KmerTracker.HH(counts);
+		caga=KmerTracker.CAGA(counts);
+		return gc=gcSum*1f/Math.max(1, atSum+gcSum);
 	}
 	
 	public int length(){return bases.length;}
@@ -504,6 +581,7 @@ public class Contig {
 	float rightRatio;
 	public int id;
 	public int tid=-1;
+	float gc=-1, hh=-1, caga=-1;
 	
 	private boolean flipped=false;
 	private boolean used=false;
