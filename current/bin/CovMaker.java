@@ -5,11 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 
-import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import map.IntHashMap;
-import map.ObjectIntMap;
-import map.ObjectSet;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -17,12 +13,8 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import simd.Vector;
-import stream.Read;
-import stream.Streamer;
-import stream.StreamerFactory;
 import structures.FloatList;
 import structures.IntList;
-import structures.ListNum;
 
 /**
  * Utility for converting, condensing, and optimizing coverage data.

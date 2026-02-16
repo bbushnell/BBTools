@@ -10,6 +10,7 @@ import java.util.LinkedHashSet;
 import shared.Random;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 
 import align2.QualityTools;
 import dna.AminoAcid;
@@ -1066,7 +1067,7 @@ public class RandomReadsMG{
 		int y=1000+randy.nextInt(15000);
 		bb.colon().append(tile).colon().append(x).colon().append(y);
 		
-		bb.tab().append(pnum+1).colon().append('N');
+		bb.space().append(pnum+1).colon().append('N');
 		bb.colon().append('0').colon().append(barcode);
 		return bb;
 	}
@@ -1297,7 +1298,7 @@ public class RandomReadsMG{
 			int reflen=insert;
 			if(indelRate>0){reflen=addIndels(r, insRate, delRate, insert, meanQScore, qScoreRange, randy);}
 			r.id=makeHeader(start, contig.length(), strand, r.length(), reflen, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
+				fnum, cnum, 0, novel?0:1, fname, randy, null);
 			return r;
 		}
 
@@ -1339,7 +1340,7 @@ public class RandomReadsMG{
 			int reflen=readlen;
 			if(indelRate>0){reflen=addIndels(r, insRate, delRate, readlen, meanQScore, qScoreRange, randy);}
 			r.id=makeHeader(start, contig.length(), strand, readlen, reflen, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
+				fnum, cnum, 0, novel?0:1, fname, randy, null);
 			return r;
 		}
 
@@ -1416,9 +1417,9 @@ public class RandomReadsMG{
 			insert=insert+readlen-(strand==0 ? reflen2 : reflen1);//Adjust insert for indels
 			
 			r1.id=makeHeader(start1, contig.length(), strand, insert, reflen1, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy);
+				fnum, cnum, 0, novel?0:1, fname, randy, null);
 			r2.id=makeHeader(start1, contig.length(), strand, insert, reflen2, taxID,
-				fnum, cnum, 1, novel?0:1, fname, randy);
+				fnum, cnum, 1, novel?0:1, fname, randy, r1.id);
 			return r1;
 		}
 
@@ -1461,11 +1462,20 @@ public class RandomReadsMG{
 		 *@return Formatted header string
 		 */
 		private String makeHeader(int start, int clen, int strand, int insert, int rlen, int taxID, 
-				int fnum, long cnum, int pnum, int pcr, String fname, Random randy){
+				int fnum, long cnum, int pnum, int pcr, String fname, Random randy, String id1){
 			if(circular && start>=clen/2) {start-=clen/2;}
 			bb.clear();
 			if(illuminaHeaders) {
-				illuminaHeader(bb, randy, pnum);
+				if(id1==null) {
+					illuminaHeader(bb, randy, pnum);
+				}else {
+					assert(pnum==1);
+					int space=id1.indexOf(' ');
+					bb.append(id1, 0, space+1);
+					bb.append(2);
+					bb.append(id1, space+2, id1.length());
+					return bb.toString();
+				}
 				bb.tab();
 			}
 			bb.append('f').under().append(fnum).under().append('c').under().append(cnum);
@@ -1658,6 +1668,8 @@ public class RandomReadsMG{
 	private final FileFormat ffout2;
 	/** Taxonomic tree for species classification and labeling */
 	private final TaxTree tree;
+	
+	private static final Pattern spaceOneColon=java.util.regex.Pattern.compile(" 1:");
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/

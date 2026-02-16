@@ -274,16 +274,37 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			}
 		}
 		
+//		private int calcAlignedBases(SamLine sl, int contigLen) {
+//			int aligned=sl.mappedNonClippedBases();
+//			if(contigLen<1.5f*tipLimit) {return aligned;}
+//			int limit=Tools.min(tipLimit, contigLen/4);
+//			final int lineStart=sl.start(false, false);
+//			final int lineStop=sl.stop(lineStart, false, false);
+//			final int contigStart=limit;
+//			final int contigStop=contigLen-limit;
+//			if(lineStart>=contigStart && lineStop<=contigStop) {return aligned;}
+//			return Tools.overlapLength(lineStart, lineStop, contigStart, contigStop);
+//		}
+		
 		private int calcAlignedBases(SamLine sl, int contigLen) {
 			int aligned=sl.mappedNonClippedBases();
 			if(contigLen<1.5f*tipLimit) {return aligned;}
+			
+			// Calculate the trim limit just like before
 			int limit=Tools.min(tipLimit, contigLen/4);
-			final int lineStart=sl.start(false, false);
-			final int lineStop=sl.stop(lineStart, false, false);
+			
+			// Define the "valid" center region
 			final int contigStart=limit;
 			final int contigStop=contigLen-limit;
-			if(lineStart>=contigStart && lineStop<=contigStop) {return aligned;}
-			return Tools.overlapLength(lineStart, lineStop, contigStart, contigStop);
+			
+			// Calculate bases aligned to the center region
+			final int lineStart=sl.start(false, false);
+			final int lineStop=sl.stop(lineStart, false, false);
+			
+			// Scale: (Mapped Bases in Center) * (Total Length / Center Length)
+			final float scale=contigLen/(float)(contigStop-contigStart+1);
+			final int overlap=Tools.overlapLength(lineStart, lineStop, contigStart, contigStop);
+			return Math.round(overlap*scale);
 		}
 		
 		private boolean addSamLine(SamLine sl, AtomicLongArray depthArray) {
