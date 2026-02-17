@@ -1,4 +1,6 @@
-package bin;
+package bin.binmap;
+
+import bin.Bin;
 
 class KeyG extends Key {
 	public KeyG() {}

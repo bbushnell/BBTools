@@ -1,4 +1,6 @@
-package bin;
+package bin.binmap;
+
+import bin.Bin;
 
 /**
  * Quantization utility for binning genomic data by GC, HH, and two Depth dimensions.

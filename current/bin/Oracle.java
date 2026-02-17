@@ -778,8 +778,8 @@ public class Oracle extends BinObject implements Cloneable {
 	static float minSSUID=0.96f;
 	//1.7 HH and 1.6 CAGA found optimal in synth testing.
 	//Roughly 0.25% better score (Score+HQ+MQ/4) and 33% fewer mid comparisons for 1 sample
-	static float hhMult=1.7f;
-	static float cagaMult=1.6f;
+	static float hhMult=1.6f;
+	static float cagaMult=1.5f;
 	/** Additional verbose output flag for detailed debugging */
 	boolean verbose2=false;
 	

@@ -1,9 +1,16 @@
-package bin;
+package bin.binmap;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicLong;
+
+import bin.Bin;
+import bin.BinObject;
+import bin.Binner;
+import bin.Cluster;
+import bin.Contig;
+import bin.Oracle;
 
 /**
  * 5-Dimensional BinMap optimized with a "Sliced" architecture and Array-based lookup.

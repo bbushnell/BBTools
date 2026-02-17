@@ -1,33 +1,34 @@
-package bin;
+package bin.binmap;
 
-class KeyGC extends Key {
-	public KeyGC() {}
+import bin.Bin;
+
+class KeyGH extends Key {
+	public KeyGH() {}
 	
 	@Override
-	public KeyGC set(Bin a) {
-		return setValue(a.gc(), a.caga);
+	public KeyGH set(Bin a) {
+		return setValue(a.gc(), a.hh);
 	}
 	
-	public KeyGC setLevel(int gcLevel_, int cagaLevel_) {
+	public KeyGH setLevel(int gcLevel_, int hhLevel_) {
 		gcLevel=gcLevel_;
-		dim2=cagaLevel_;
+		dim2=hhLevel_;
 		assert(gcLevel>=0 && gcLevel<=(int)gcLevelMult);
-		assert(dim2>=0 && dim2<=(int)cagaLevelMult);
+		assert(dim2>=0 && dim2<=(int)hhLevelMult);
 		return this;
 	}
 	
-	public KeyGC setValue(float gc, float caga) {
-		return setLevel(quantizeGC(gc), quantizeCAGA(caga));
+	public KeyGH setValue(float gc, float hh) {
+		return setLevel(quantizeGC(gc), quantizeHH(hh));
 	}
 
-	// Dim 2 is CAGA here, not HH
 	@Override
 	public int lowerBoundDim2(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio) {
-		return lowerBoundCAGA(a.caga, dim2, range, minGrid, maxGCDif);
+		return lowerBoundHH(a.hh, dim2, range, minGrid, maxGCDif);
 	}
 	@Override
 	public int upperBoundDim2(Bin a, int range, int maxGrid, float maxGCDif, float maxDepthRatio) {
-		return upperBoundCAGA(a.caga, dim2, range, maxGrid, maxGCDif);
+		return upperBoundHH(a.hh, dim2, range, maxGrid, maxGCDif);
 	}
 	
 	@Override public int lowerBoundDim3(Bin a, int r, int min, float mg, float mdr) {return 0;}

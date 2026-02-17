@@ -1,9 +1,14 @@
-package bin;
+package bin.binmap;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import bin.Bin;
+import bin.BinObject;
+import bin.Cluster;
+import bin.Oracle;
 
 /**
  * A slice of the BinMap corresponding to a single quantized GC level.

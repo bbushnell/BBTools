@@ -1,4 +1,6 @@
-package bin;
+package bin.binmap;
+
+import bin.Bin;
 
 class KeyGHDDD extends Key {
 	public KeyGHDDD() {}

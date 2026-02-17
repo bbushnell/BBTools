@@ -30,6 +30,7 @@ public final class LogLog16 extends CardinalityTracker {
 	LogLog16(Parser p){
 		super(p);
 		maxArray=new char[buckets];
+		countArray=new char[buckets];
 	}
 	
 	/**
@@ -43,6 +44,7 @@ public final class LogLog16 extends CardinalityTracker {
 	LogLog16(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
+		countArray=new char[buckets];
 	}
 	
 	@Override
@@ -120,11 +122,6 @@ public final class LogLog16 extends CardinalityTracker {
 		return cardinality;
 	}
 	
-	/**
-	 * Merges another CardinalityTracker into this one.
-	 * Takes the maximum value from each bucket to combine the estimators.
-	 * @param log The tracker to merge; must be a LogLog16 instance
-	 */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
@@ -135,7 +132,11 @@ public final class LogLog16 extends CardinalityTracker {
 		added+=log.added;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
-				maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);
+				final char maxA=maxArray[i], maxB=log.maxArray[i];
+				final char countA=countArray[i], countB=log.countArray[i];
+				maxArray[i]=Tools.max(maxA, maxB);
+				if(maxA==maxB) {countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
+				else {countArray[i]=(maxA>maxB ? countA : countB);}
 			}
 		}
 	}
@@ -150,32 +151,25 @@ public final class LogLog16 extends CardinalityTracker {
 	 */
 	@Override
 	public void hashAndStore(final long number){
-//		if(number%SKIPMOD!=0){return;} //Slows down moderately
 		long key=number;
 		
-//		key=hash(key, tables[((int)number)&numTablesMask]);
-		
 		key=Tools.hash64shift(key);
-//		if(key<0 || key>maxHashedValue){return;}//Slows things down by 50% lot, mysteriously
 		int leading=Long.numberOfLeadingZeros(key)&63;//mask is used to keep number in 6 bits 
 		
 //		counts[leading]++;
 		
-//		if(leading<3){return;}//Speeds up by 20%, even more at 4.  Slows at 2.
-		
-		int shift=wordlen-leading-mantissabits-1;
-		
-		int score=(leading<<mantissabits)+(int)((~(key>>>shift))&mask);
-//		assert(false) : "\n"+Long.toBinaryString(key)+", leading="+leading+", shift="+shift+"\n"+Long.toBinaryString(score);
-		
-		//+"\n"+score+"\n"+restore(score);
-		
-//		final int bucket=(int)((number&Integer.MAX_VALUE)%buckets);
+//		int shift=wordlen-leading-mantissabits-1;
+		final int shift=offset-leading;
+		final int score=(leading<<mantissabits)+(int)((~(key>>>shift))&mask);
 		final int bucket=(int)(key&bucketMask);
 		
-		int newValue=Tools.max(score, maxArray[bucket]);
+		final int oldValue=maxArray[bucket];
+		final int newValue=Math.max(score, oldValue);
 		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
 		maxArray[bucket]=(char)newValue;
+		final char count=countArray[bucket];
+		countArray[bucket]=(char)(oldValue>score ? count : 
+			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
 	}
 	
 	@Override
@@ -183,27 +177,31 @@ public final class LogLog16 extends CardinalityTracker {
 		return null;
 	}
 	
+	public char[] counts16() {return countArray;}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	private final char[] maxArray;
+	private final char[] countArray;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static void setMantissaBits(int x){
-		assert(x>=0 && x<25);
-		assert(x+6<32);
-		mantissabits=x;
-		mask=(1<<mantissabits)-1;
-	}
+//	public static void setMantissaBits(int x){
+//		assert(x>=0 && x<=10);
+//		assert(x+6<=16);
+//		mantissabits=x;
+//		mask=(1<<mantissabits)-1;
+//	}
 
 	private static final int wordlen=64;
 	
 	/** Number of mantissa bits for floating-point compression; 10 is maximum */
-	private static int mantissabits=10;//10 is the max possible
-	private static int mask=(1<<mantissabits)-1;
+	private static final int mantissabits=10;
+	private static final int mask=(1<<mantissabits)-1;
+	private static final int offset=wordlen-mantissabits-1;
 	
 }

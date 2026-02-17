@@ -133,6 +133,8 @@ public abstract class CardinalityTracker {
 		
 		Random randy=Shared.threadLocalRandom(seed<0 ? -1 : seed);
 		hashXor=randy.nextLong();
+//		assert(false) : seed+", "+randy+", "+hashXor;
+		//Xor is not used anymore, but could be, as long as each copy gets the same one.
 	}
 
 	public abstract CardinalityTracker copy();
@@ -472,6 +474,8 @@ public abstract class CardinalityTracker {
 	public int[] getCounts(){
 		return null;
 	}
+	
+	public char[] counts16(){return null;}
 	
 	/**
 	 * Merges another tracker into this one.
