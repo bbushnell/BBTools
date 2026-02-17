@@ -6,7 +6,7 @@ import java.util.Collection;
 
 import clade.CladeObject;
 import dna.AminoAcid;
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntHashSet;
 import ml.CellNet;
 import shared.Tools;
@@ -87,8 +87,8 @@ public class BinObject {
 		final int bits=2*k;
 		final int max=(int)((1L<<bits)-1);
 		int count=0;
-		IntHashMap canonMap=new IntHashMap();
-		IntHashMap kmerMap=new IntHashMap();
+		IntHashMap2 canonMap=new IntHashMap2();
+		IntHashMap2 kmerMap=new IntHashMap2();
 		for(int kmer=0; kmer<=max; kmer++){
 //			int ungapped=ungap(kmer, k, gap);
 			int canon=Tools.min(kmer, AminoAcid.reverseComplementBinaryFast(kmer, k));
@@ -373,7 +373,7 @@ public class BinObject {
 	}
 	
 //	public static float calculateShannonEntropy(float[] depths) {
-//		IntHashMap map=new IntHashMap(depths.length*2);
+//		IntHashMap2 map=new IntHashMap2(depths.length*2);
 //		for (int i=0; i<depths.length; i++) {
 //			float depth=depths[i]+0.125f;
 //			int log=(int)Math.round(4*Math.log(depth));
@@ -394,7 +394,7 @@ public class BinObject {
 	//Not useful
 	static float calculateShannonEntropy(FloatList depths, int limit) {
 		final int numDepths=Math.min(limit, depths.size);
-		IntHashMap map=new IntHashMap(numDepths*2);
+		IntHashMap2 map=new IntHashMap2(numDepths*2);
 		for(int i=0; i<numDepths; i++) {
 			float depth=(float)(depths.get(i)*invSampleDepthSum[i]+0.25f);
 			int log=(int)Math.round(8*Math.log(depth));

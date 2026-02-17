@@ -47,6 +47,8 @@ public class ClusterWriter{
 				if(!pattern.endsWith("/")) {pattern=pattern+"/";}
 				pattern=pattern+"bin_%.fa";
 			}
+			if(GZIP_CLUSTERS && !ReadWrite.isCompressed(pattern)) {pattern+=".gz";}
+			
 			outstream.println("Writing clusters to "+pattern);
 		}
 		long sizeOverLimit=0;
@@ -54,7 +56,9 @@ public class ClusterWriter{
 			
 			ByteStreamWriter chaff=null;
 			if(writeChaff) {
-				chaff=ByteStreamWriter.makeBSW(pattern.replaceFirst("%", "chaff"), overwrite, append, true);
+				String chaffname=pattern.replaceFirst("%", "chaff");
+				if(GZIP_CHAFF && !ReadWrite.isCompressed(chaffname)) {chaffname+=".gz";}
+				chaff=ByteStreamWriter.makeBSW(chaffname, overwrite, append, true);
 			}
 			
 			final ByteBuilder bb=new ByteBuilder(32768);
@@ -173,5 +177,7 @@ public class ClusterWriter{
 	final boolean loud;
 	
 	static int MIN_SIZE_FOR_SUBPROCESS=1000000;
+	static boolean GZIP_CLUSTERS=false;
+	static boolean GZIP_CHAFF=true;
 	
 }

@@ -19,7 +19,7 @@ import structures.IntList;
  * @author Brian Bushnell
  * @date June 8, 2017
  */
-public abstract class AbstractIntHashMap{
+public abstract class AbstractIntHashMap implements IntHashMapInterface{
 	
 	public static final void test(AbstractIntHashMap set){
 		Random randy2=Shared.threadLocalRandom();

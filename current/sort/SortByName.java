@@ -89,6 +89,7 @@ public class SortByName {
 		//Create a parser object
 		Parser parser=new Parser();
 		boolean ascending=true;
+		boolean setAscending=false;
 		
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
@@ -108,7 +109,8 @@ public class SortByName {
 				delete=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("deleteearly")){
 				deleteEarly=Parse.parseBoolean(b);
-			}else if(a.equals("allowtemp") || a.equals("usetemp")){
+			}else if(a.equals("allowtemp") || a.equals("usetemp") || 
+					a.equals("temp") || a.equals("tempfiles")){
 				allowTempFiles=Parse.parseBoolean(b);
 			}else if(a.equals("memmult") || a.equals("mult")){
 				memBlockMult=(float) Double.parseDouble(b);
@@ -116,8 +118,10 @@ public class SortByName {
 				memTotalMult=(float) Double.parseDouble(b);
 			}else if(a.equals("ascending")){
 				ascending=Parse.parseBoolean(b);
+				setAscending=true;
 			}else if(a.equals("descending")){
 				ascending=!Parse.parseBoolean(b);
+				setAscending=true;
 			}else if(a.equals("length")){
 				if(Parse.parseBoolean(b)){
 					comparator=ReadLengthComparator.comparator;
@@ -204,7 +208,9 @@ public class SortByName {
 		
 		clump=(comparator==ReadComparatorClump.comparator);
 		
-		comparator.setAscending(ascending);
+		if(setAscending || comparator!=ReadLengthComparator.comparator) {
+			comparator.setAscending(ascending);
+		}
 		SamLine.SET_FROM_OK=true;
 		
 		if(comparator==ReadComparatorRandom.comparator){

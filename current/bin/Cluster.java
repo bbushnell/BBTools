@@ -3,7 +3,7 @@ package bin;
 import java.util.ArrayList;
 import java.util.Iterator;
 
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntHashSet;
 import shared.Tools;
 import sketch.Sketch;
@@ -140,7 +140,7 @@ public class Cluster extends Bin {
 		}
 		
 		if(c.pairMap!=null) {
-			if(pairMap==null) {pairMap=new IntHashMap(5);}
+			if(pairMap==null) {pairMap=new IntHashMap2(5);}
 //			pairMap.incrementAll(c.pairMap);//Remember, the targets are contig IDs.
 			pairMap.setToMax(c.pairMap);
 		}

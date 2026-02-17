@@ -7,7 +7,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import fileIO.ByteStreamWriter;
 import fileIO.ReadWrite;
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntLongHashMap;
 import parse.Parse;
 import parse.Parser;
@@ -263,36 +263,19 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				edgeStringency1=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("edgestringency2") || a.equalsIgnoreCase("edgestringency")){
 				edgeStringency2=Float.parseFloat(b);
-			}
-			
-			else if(a.equalsIgnoreCase("xstrict") || a.equalsIgnoreCase("xs")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.60f : 1);
-			}else if(a.equalsIgnoreCase("hstrict") || a.equalsIgnoreCase("hs")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.65f : 1);
-			}else if(a.equalsIgnoreCase("ustrict") || a.equalsIgnoreCase("us")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.70f : 1);
-			}else if(a.equalsIgnoreCase("vstrict") || a.equalsIgnoreCase("vs")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.80f : 1);
-			}else if(a.equalsIgnoreCase("strict") || a.equalsIgnoreCase("s")){
-				strictnessMult=(Parse.parseBoolean(b) ? 0.90f : 1);
-			}else if(a.equalsIgnoreCase("normal") || a.equalsIgnoreCase("n")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1 : 1);
-			}else if(a.equalsIgnoreCase("loose") || a.equalsIgnoreCase("l")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.125f : 1);
-			}else if(a.equalsIgnoreCase("vloose") || a.equalsIgnoreCase("vl")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.25f : 1);
-			}else if(a.equalsIgnoreCase("uloose") || a.equalsIgnoreCase("ul")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.375f : 1);
-			}else if(a.equalsIgnoreCase("hloose") || a.equalsIgnoreCase("hl")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.44f : 1);
-			}else if(a.equalsIgnoreCase("xloose") || a.equalsIgnoreCase("xl")){
-				strictnessMult=(Parse.parseBoolean(b) ? 1.50f : 1);
-			}else if(a.equalsIgnoreCase("strictness") || a.equalsIgnoreCase("stringency")){
-				strictnessMult=Float.parseFloat(b);
+			}else if(Strictness.parseStrictness(arg, a, b)>=0){
+				strictnessMult=Strictness.parseStrictness(arg, a, b);
 			}
 			
 			else if(a.equals("covout") || a.equals("outcov")) {
 				covOut=b;
+			}else if(a.equals("gz") || a.equals("gzip")) {
+				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter2.GZIP_CHAFF=
+				ClusterWriter.GZIP_CLUSTERS=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
+			}else if(a.equals("gzipbins") || a.equals("gzipclusters")) {
+				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter.GZIP_CLUSTERS=Parse.parseBoolean(b);
+			}else if(a.equals("gzipchaff")) {
+				ClusterWriter2.GZIP_CHAFF=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equals("parse_flag_goes_here")){
@@ -598,7 +581,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		double compltScore=0;
 		long sizeOverLimit=0, binsOverLimit=0;
 		long contigsOverLimit=0, badContigsOverLimit=0;
-		IntHashMap tidBins=new IntHashMap();
+		IntHashMap2 tidBins=new IntHashMap2();
 		
 //		t2.start();
 //		System.err.print("Calculating statistics.");
@@ -641,7 +624,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		if(loud) {outstream.println("Bins: "+stats.size());}
 		t2.stop("Analyzing bins:");
 		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report);}
-
+		
 		if(writeThreads<2) {
 			ClusterWriter cw=new ClusterWriter(outstream, writeChaff, loud, overwrite, append);
 			cw.outputClusters(outPattern, sizeHist, bins, minClusterSize, minContigsPerCluster, binner, loader);
@@ -971,7 +954,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	private String outPattern=null;
 	/** Whether to write small clusters to a separate chaff file */
 	private boolean writeChaff=false;
-	private int writeThreads=1;
+	private int writeThreads=4;
 	
 	/** Override output file extension */
 	private String extout=null;

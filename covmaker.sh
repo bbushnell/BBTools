@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 21, 2026
+Last modified February 16, 2026
 
 Description:  Makes cov files for QuickBin.
 Notes: This program can use a lot of memory when there are many contigs.
@@ -14,7 +14,7 @@ covmaker.sh *.sam out=cov.txt
 or
 covmaker.sh in=sample1.bam,sample2.bam out=cov.txt
 or
-covmaker.sh cov.txt out=cov7.txt condense=7
+covmaker.sh cov.txt out=cov7.txt condense=7 reorder
 
 File parameters:
 in=<file>       Input.  Properly named files (*.sam, etc) do not need 'in='.

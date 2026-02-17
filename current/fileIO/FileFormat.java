@@ -983,6 +983,10 @@ public final class FileFormat {
 		String ext=ReadWrite.rawExtension(fname);
 		return isGfaExt(ext);
 	}
+	
+	public static boolean isCompressedFile(String fname){
+		return ReadWrite.isCompressed(fname);
+	}
 
 	/** Deletes the file if it exists on the filesystem */
 	public void deleteIfPresent() {

@@ -10,7 +10,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import map.IntHashMap;
+import map.IntHashMap2;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
@@ -38,7 +38,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	 * Deprecated entry point that converts the contig map to a sorted list before loading.
 	 */
 	@Deprecated
-	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, IntHashMap[] graph) {
+	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, IntHashMap2[] graph) {
 		//Contig list should already be sorted and numbered.
 		ArrayList<Contig> list=new ArrayList<Contig>(contigMap.values());
 		Collections.sort(list);
@@ -50,7 +50,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 	 * Main loader: creates streamers per file, spawns LoadThreads, and aggregates coverage/connectivity.
 	 */
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
-			ArrayList<Contig> contigs, IntHashMap[] graph){
+			ArrayList<Contig> contigs, IntHashMap2[] graph){
 		final int files=fnames.size();
 		SamLine.RNAME_AS_BYTES=false;
 		//Do anything necessary prior to processing
@@ -196,7 +196,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		 * Creates a loader for one input stream and associated per-contig data structures.
 		 */
 		private LoadThread(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
-				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
+				ArrayList<Contig> contigs_, IntHashMap2[] graph_, AtomicLongArray depth_, int tid_) {
 			ss=ss_;
 			sample=sample_;
 			contigMap=contigMap_;
@@ -309,9 +309,9 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 			assert(c2!=null) : "Can't find contig for rnext "+rnext;
 			
 			//TODO:  Try commenting this out to see if it is the source of the nondeterminism.
-			final IntHashMap destMap;
+			final IntHashMap2 destMap;
 			synchronized(graph) {
-				if(graph[cid]==null) {graph[cid]=new IntHashMap(5);}
+				if(graph[cid]==null) {graph[cid]=new IntHashMap2(5);}
 				destMap=graph[cid];
 			}
 			synchronized(destMap) {
@@ -325,7 +325,7 @@ public class SamLoader implements Accumulator<SamLoader.LoadThread> {
 		final int tid;
 		final HashMap<String, Contig> contigMap;
 		final ArrayList<Contig> contigs;
-		final IntHashMap[] graph;
+		final IntHashMap2[] graph;
 		final EntropyTracker et=new EntropyTracker(5, 80, false, minEntropy, true);
 		final AtomicLongArray depthArray;
 		long readsInT=0;

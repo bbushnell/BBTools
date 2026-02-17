@@ -1946,6 +1946,7 @@ public class ReadWrite {
 	 * @return Compression type string or null if not compressed
 	 */
 	public static String compressionType(String fname){
+		if(fname==null || fname.indexOf('.')<0) {return null;}
 		fname=fname.toLowerCase(Locale.ENGLISH);
 		for(int i=0; i<compressedExtensions.length; i++){
 			if(fname.endsWith(compressedExtensions[i])){return compressedExtensionMap[i];}

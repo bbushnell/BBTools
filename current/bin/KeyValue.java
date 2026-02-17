@@ -3,7 +3,9 @@ package bin;
 import java.util.ArrayList;
 import java.util.Collections;
 
+import map.AbstractIntHashMap;
 import map.IntHashMap;
+import map.IntHashMapInterface;
 
 //Sorts by B descending then A ascending
 /**
@@ -27,7 +29,7 @@ class KeyValue implements Comparable<KeyValue> {
 	 * @param map The IntHashMap to convert
 	 * @return Sorted ArrayList of KeyValue pairs, or null if map is null or empty
 	 */
-	static ArrayList<KeyValue> toList(IntHashMap map){
+	static ArrayList<KeyValue> toList(IntHashMapInterface map){
 		if(map==null || map.isEmpty()) {return null;}
 		ArrayList<KeyValue> list=new ArrayList<KeyValue>(map.size());
 		int[] keys=map.keys();

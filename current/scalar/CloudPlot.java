@@ -32,7 +32,7 @@ import tax.TaxTree;
  * Generates PNG images with configurable scaling and point sizes.
  *
  * @author Brian Bushnell
- * @contributor G11
+ * @contributor G11, Neptune
  * @date October 6, 2025
  */
 public class CloudPlot {

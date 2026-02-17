@@ -234,7 +234,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 	 * @return Cell index if found, -1 if not present
 	 */
 	@Override
-	int findCell(final int key){
+	public int findCell(final int key){
 //		if(key==invalid){return -1;}
 		final int initial=((key&MASK)%modulus);
 		return Vector.findKeyScalar(keys, key, initial, invalid);

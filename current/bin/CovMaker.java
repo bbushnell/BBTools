@@ -171,7 +171,8 @@ public class CovMaker {
 
 		//1. Build Proxy Matrix (Linear)
 		final int proxyCount=Math.min(contigs.size(), maxContigsToCompare);
-		ArrayList<Contig> proxyContigs=(contigs.size()>proxyCount ? (ArrayList<Contig>)contigs.clone() : contigs);
+		ArrayList<Contig> proxyContigs=(contigs.size()>proxyCount ? 
+			(ArrayList<Contig>)contigs.clone() : contigs);
 		if(contigs.size()>proxyCount){Collections.sort(proxyContigs);}
 
 		float[][] proxyMatrix=new float[current][proxyCount];

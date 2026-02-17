@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 11, 2026
+Last modified February 16, 2026
 
 Description:  Sorts reads by name or other keys such as length,
 quality, mapping position, flowcell coordinates, or taxonomy.
@@ -36,7 +36,7 @@ clump=f         Sort reads by shared kmers, like Clumpify.
 flowcell=f      Sort reads by flowcell coordinates.
 shuffle=f       Shuffle reads randomly (untested).
 list=<file>     Sort reads according to this list of names.
-ascending=t     Sort ascending.
+ascending=t     Sort ascending.  This defaults to true except for length.
 
 Memory parameters (you might reduce these if you experience a crash)
 memmult=0.30    Write a temp file when used memory exceeds this fraction

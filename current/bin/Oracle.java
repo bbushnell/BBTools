@@ -164,9 +164,9 @@ public class Oracle extends BinObject implements Cloneable {
 		if(Binner.PERFECT_ORACLE) {return sameLabel ? 1-1f/b.size() : -1;}
 
 		final float gcDif=Math.abs(a.gc()-b.gc());
-		final float hhDif=Math.abs(a.hh-b.hh);
-		final float cagaDif=Math.abs(a.caga-b.caga);
-		final float gchhDif=Tools.max(gcDif, hhDif*hhMult, cagaDif*cagaMult);
+		final float hhDif=Math.abs(a.hh-b.hh)*hhMult;
+		final float cagaDif=Math.abs(a.caga-b.caga)*cagaMult;
+		final float gchhDif=Tools.max(gcDif, hhDif, cagaDif);
 //		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
 		final float maxDepthRatio1=(maxDepthRatio*Binner.goodEdgeMult);
 		final float depthRatio=a.depthRatio1(b, maxDepthRatio1);
@@ -175,7 +175,8 @@ public class Oracle extends BinObject implements Cloneable {
 			System.err.println("gcdif="+gcDif);
 			System.err.println("depthRatio="+depthRatio);
 		}
-		if(gchhDif>maxGCDif*Binner.goodEdgeMult || depthRatio>maxDepthRatio1) {
+		final float maxGCDifG=maxGCDif*Binner.goodEdgeMult;
+		if(gchhDif>maxGCDifG || depthRatio>maxDepthRatio1) {
 			return -1;
 		}//Early exit before edge-tracking
 		
@@ -775,8 +776,10 @@ public class Oracle extends BinObject implements Cloneable {
 	static boolean printNetOutputInVector=false;
 	/** Minimum SSU identity required for bin compatibility */
 	static float minSSUID=0.96f;
-	static float hhMult=1.5f;//1.5 optimal in synth testing; 0.25% better than 0.
-	static float cagaMult=1.3f;//1.3 optimal; also 0.25% better.
+	//1.7 HH and 1.6 CAGA found optimal in synth testing.
+	//Roughly 0.25% better score (Score+HQ+MQ/4) and 33% fewer mid comparisons for 1 sample
+	static float hhMult=1.7f;
+	static float cagaMult=1.6f;
 	/** Additional verbose output flag for detailed debugging */
 	boolean verbose2=false;
 	
